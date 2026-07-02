@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-13
+Last verified: 2026-07-01
 
 This document describes how Wavefoundry builds and maintains its search indexes. It covers
 every stage of the pipeline: file discovery, change detection, chunking, embedding, and
@@ -19,13 +19,12 @@ Repository files
   walk_repo()           -- respects .gitignore / .wavefoundryignore
       |
       v
-  Filter & split        -- prefix filters separate framework vs. project files
+  Filter                -- prefix filters; the `.wavefoundry/` blanket is excluded
+      |                    (framework seeds + README fold into the docs table)
+      v
+  Project index         -- /.wavefoundry/index/   (docs + code tables)
       |
-      +---> Framework layer    /.wavefoundry/framework/index/
-      |
-      +---> Project layer      /.wavefoundry/index/
-                |
-                v
+      v
         _detect_changes()     -- stat cache, then SHA-256 on cache miss
                 |
                 v
@@ -49,40 +48,140 @@ Repository files
 
 ---
 
-## Two Index Layers
+## The Project Index
 
-Wavefoundry maintains two independent search indexes that are built and stored separately.
+Wavefoundry maintains a **single** semantic index — the project index — stored at
+`/.wavefoundry/index/`. It contains two Lance tables: `docs` and `code`.
 
-**Framework layer** covers seeds and framework documentation. Its artifacts live at
-`/.wavefoundry/framework/index/`.
+There is no separately built or shipped "framework" index. Before wave `1p4ww` the framework
+seeds/docs were embedded into their own layer at `/.wavefoundry/framework/index/` and packaged in
+the distribution; that layer was **eliminated** (ADR `1p4xx`). Distributions now ship framework
+**source only**, and the framework's seeds + top-level `README` are **folded into the project
+`docs` table** at setup/upgrade (this is the `WALKER_VERSION` 6 change) so the framework methodology
+is searchable from any consumer project. Any leftover `/.wavefoundry/framework/index/` from an old
+install is a deprecated artifact that the upgrade removes.
 
-**Project layer** covers the project's own source code and documentation. Its artifacts live at
-`/.wavefoundry/index/`.
+The rest of `.wavefoundry/` (framework scripts, operational docs, dashboard, install/release) is
+framework-internal and excluded from a consumer project's index by default. The Wavefoundry
+repository's own self-hosting case re-includes the framework subpaths it needs (e.g.
+`.wavefoundry/framework/scripts`) via `indexing.project_include_prefixes` in
+`docs/workflow-config.json`.
 
-Each layer contains two Lance tables: `docs` and `code`. The layers use separate embedding
-models so that framework and project content can be versioned independently.
+---
+
+## Index Update Triggers (Entry Points)
+
+The pipeline described in the stages below is initiated from several distinct entry points. They
+fall into four groups; all of them ultimately run `build_index` — directly or via a spawned
+`indexer.py` / `setup_index.py` process — and all coordinate through the single build lock described
+in **Build Coordination** below.
+
+### Operator / CLI (explicit, foreground)
+
+- **`wf setup` / `wf update-indexes`** → `setup_index.py` `main` → dependency ensure, model prewarm,
+  then `build_index`. Docs + graph by default; code via `--include-code` (synchronous) or
+  `--background-code` (detached).
+- **Direct indexer CLI** — `python3 .wavefoundry/framework/scripts/indexer.py --root <root>
+  --content {docs|code|graph|all} [--full]`. The low-level build entry a manual full rebuild uses.
+
+### Upgrade
+
+- **`wave_upgrade` phase 4** (the `upgrade_wavefoundry.py` index phases) invokes `setup_index.py`
+  three times — docs, graph-only, and background-code. It auto-escalates an incremental update to a
+  full rebuild when `CHUNKER_VERSION`/model or `GRAPH_BUILDER_VERSION` advanced.
+
+### MCP — explicit
+
+- **`wave_index_build`** spawns `indexer.py` for a deterministic docs / code / graph
+  build · update · rebuild.
+
+### Automatic / reactive
+
+Two index-refresh triggers are **reconciled** (wave `1p9am`) so they never churn the index on top of
+each other: a prompt **turn-end** trigger and a slow **quiet-period safety net**.
+
+- **Post-edit hook → turn-end reindex (primary).** On an index-worthy edit the rendered post-edit hook
+  **marks a `reindex-pending` sentinel** (`indexer.mark_reindex_pending`) and does **not** spawn a
+  reindex per edit. On **Claude** the **`Stop` hook** flushes it once per turn
+  (`consume_reindex_pending` + one detached `indexer.py` spawn, skipped while a build is live) — so a
+  whole turn's edits collapse into a single incremental pass. Hosts without a turn-end hook
+  (Cursor/Copilot/…) consume the marker under a long leading-edge debounce
+  (`HOOK_REINDEX_DEBOUNCE_SECONDS`, 45 s). Trade-off: mid-turn semantic search sees the pre-turn index
+  until the turn ends (agents read their own just-written files directly).
+- **In-session staleness monitor → quiet-period safety net.** The MCP server's daemon thread
+  (`_start_staleness_monitor` → `_maybe_refresh_if_stale`) polls every ~20 s but only *acts* once the
+  repo has been quiet for the **quiet-period** (`indexing.monitor.quiet_period_seconds`, default 300 s):
+  it defers while a `reindex-pending` marker is fresh (the turn-end hook owns the next reindex) and for
+  `quiet_period` seconds after the last build's `ended_at`. It fires only for drift the turn-end path
+  missed — external (non-agent) edits, a turn that ended without the `Stop` hook flushing, or a
+  non-Stop host — so it never competes with active editing.
+- **MCP mutating tools → background project refresh** — most doc-writing wave-lifecycle tools
+  (`wave_new_*`, `wave_add_change`, `wave_set_handoff`, prepare / pause / review / close / reopen,
+  docs gardening) call `_trigger_background_index_refresh_for_paths` → `_start_background_index_refresh`
+  after they write, launching a detached project reindex.
+- **First-query lazy auto-rebuild** — a query that hits a stale or missing graph (e.g. a version bump
+  the upgrade's graph phase did not cover) triggers an in-process rebuild on first access
+  (`graph_query` auto-rebuild coordination). This is a safety net, not the primary path.
+
+### Not a trigger (by design)
+
+The **dashboard watcher** is **read-only**: it watches files only to *display* index staleness and
+deliberately never initiates a build (`dashboard_server.py`). It imports the indexer module solely
+for the staleness *check* (`project_index_inputs_stale`), never `build_index`. All reindexing is done
+by the CLI, upgrade, MCP, and hook paths above.
+
+## Build Coordination (single-lock lifecycle)
+
+Every entry point above coordinates through one **whole-index build lock**
+(`.wavefoundry/index/index-build.lock`, `indexer._index_build_lock`) so concurrent triggers never
+corrupt the index or run two builds at once. The pattern:
+
+- **The OS lock is the authority.** Acquisition takes a **`fcntl` record lock** (POSIX) / **`msvcrt`
+  byte lock** (Windows) on a single **sentinel byte** (kept off the byte-0 metadata so the JSON stays
+  readable while held); it is released automatically when the holder exits, even on a crash. A second
+  builder that finds the lock held fails fast with `IndexBuildAlreadyRunning`.
+- **Status tests the lock non-destructively.** `wave_index_build_status` reports an authoritative
+  `held` by *testing* the OS lock — POSIX `fcntl` `F_GETLK` (queries without acquiring and returns the
+  holder PID) / a momentary non-blocking `msvcrt` acquire on Windows — never by inferring from the
+  lock file's presence. Read `lock.held`, not the file.
+- **The lock file is a durable "last owner" breadcrumb, reclaimed lazily — not deleted on exit.** The
+  metadata file (owner PID, `started_at`, `cmdline`, and `ended_at` written best-effort on a clean
+  exit) is intentionally *not* unlinked when a build finishes; it is reclaimed on the next acquire only
+  when the prior owner is classified stale (`classify_index_build_lock_owner`, retained solely for that
+  reclaim decision). This is crash-safe: a hard-killed build can never leave a permanently-blocking
+  lock. **`ended_at` distinguishes a clean finish from an interrupted build** — its absence (with the
+  lock not held) means the last build was killed and the index may be partial.
+- **Detached background builds are reaped.** The long-lived MCP server launches its reactive background
+  builds detached (`start_new_session` on POSIX), which does **not** reparent them — so a finished build
+  would linger as a zombie until the server exits. The server therefore tracks the PIDs it launches and
+  reaps the finished ones on the next spawn. Short-lived launchers (the CLIs, the host-spawned post-edit
+  hook) do not need this: their children reparent to init, which reaps them.
+
+All process-state / command-line probes run through the windowless subprocess helper
+(`subprocess_util.isolated_run`), so no console window appears on Windows — under either cmd or
+PowerShell — and reaping is POSIX-only (Windows detached processes do not create zombies).
 
 ---
 
 ## Stage 1: File Discovery
 
 `walk_repo(root)` walks the repository tree and collects every file that is not excluded by
-`.gitignore` or `.wavefoundryignore`. After the walk, three filters narrow the list:
+`.gitignore` or `.wavefoundryignore`. After the walk, two filters narrow the list:
 
 1. **`_filter_by_prefixes`** — keeps only paths that start with a configured
    `include_prefixes` list. This is the primary mechanism for telling Wavefoundry which
    directories belong to docs vs. code.
 
-2. **`_filter_project_index_excludes`** — removes `.wavefoundry/framework/` from the project
-   layer by default, so framework files are not double-indexed. This default can be overridden
-   by setting `indexing.project_include_prefixes.docs` or
-   `indexing.project_include_prefixes.code` inside `docs/workflow-config.json`.
+2. **`_filter_project_index_excludes`** — applies the `.wavefoundry/` blanket exclusion so
+   framework-internal files (scripts, operational docs, dashboard, the deprecated
+   `.wavefoundry/framework/index/`) do not enter a consumer project's index. Framework seeds and
+   the top-level `README` are the deliberate exception — they fold into the `docs` table. A project
+   can re-include specific framework subpaths by setting `indexing.project_include_prefixes.docs`
+   or `indexing.project_include_prefixes.code` inside `docs/workflow-config.json` (this is how the
+   self-hosting repo indexes its own `.wavefoundry/framework/scripts`).
 
-3. **`_filter_framework_pack_artifacts`** — used only when building the framework layer;
-   strips packaging artifacts that should not appear in search results.
-
-The output of this stage is two lists of absolute file paths: one for docs files and one for
-code files, each scoped to the appropriate layer.
+The output of this stage is two lists of absolute file paths — one for docs files and one for
+code files — for the single project index.
 
 **Hard size guard (wave 1p5c4).** During the walk, any file whose size exceeds
 `indexing.max_file_bytes` (default 5 MB) is skipped entirely — never read, never parsed — and
@@ -135,7 +234,8 @@ the stored `meta.json`:
 
 - The embedding model name or version
 - `CHUNKER_VERSION` (currently `"29"`) — bumped whenever the chunk format changes
-- `WALKER_VERSION` (currently `"5"`) — bumped when the file-walk logic changes
+- `WALKER_VERSION` (currently `"6"`) — bumped when the file-walk logic or the project-index include
+  set changes (version 6 folded the framework seeds + `README` into the docs table)
 
 On a forced rebuild, change detection is bypassed and every file is re-processed.
 
@@ -401,7 +501,7 @@ build_index: indexed file 50/1044 files
 
 ## Stage 5: LanceDB Write
 
-LanceDB stores the chunks and their vectors. Each index layer has two tables: `docs` and
+LanceDB stores the chunks and their vectors. The project index has two tables: `docs` and
 `code`. Writes follow different paths depending on whether the build is incremental or a full
 rebuild.
 
@@ -448,6 +548,28 @@ reaches `LANCEDB_INDEX_THRESHOLD` (1000 rows):
 Below the threshold, queries fall back to a brute-force scan, which is fast enough at small
 scale and avoids the overhead of index construction on near-empty tables.
 
+### Compaction and reclaim (bloat recovery)
+
+Incremental appends leave superseded data fragments, stale FTS artifacts, and old table versions
+behind; `optimize(cleanup_older_than=0)` reclaims them. When the table hits the Lance list-offset
+corruption bug (`Max offset … exceeds length of values`, lance-format/lance #7538 — see the
+`1p9aj-lance-list-offset-corruption` journal), in-place `optimize()` can no longer decode the table and
+the bloat grows unbounded. The **reclaim ladder** (`indexer.reclaim_lance_table`) recovers it without a
+re-embed:
+
+1. **optimize** — compact in place (the normal path).
+2. **compact by rewrite** — on an `optimize()` failure, read the still-readable rows (`to_arrow()`) and
+   rewrite the table fresh with `create_table(mode="overwrite")`, which recomputes the list-column
+   offsets from clean in-memory data and sidesteps the bug, then rebuild the vector + FTS indices. The
+   swap uses `create_table(mode="overwrite")` — **never `db.rename_table`**, which is unsupported in
+   LanceDB OSS and would leave the table missing on failure.
+3. **full rebuild** — only when a table is entirely unreadable (a re-embed is unavoidable).
+
+Both the finalize path and the incremental compaction path **self-heal**: a failed `optimize()`
+escalates to the rewrite automatically (never raising), so a corrupted table reclaims itself on the next
+build/update. The ladder is exposed as the `wave_index_optimize` MCP tool and runs automatically at the
+end of `setup`/`upgrade` (reclaim-only). Proven: `docs.lance` 1.6 GB → 55 MB, zero re-embed.
+
 ---
 
 ## Stage 6: Finish and Metadata Update
@@ -481,8 +603,8 @@ changed since the last run.
 
 | Constant                  | Value  | Effect of change                                 |
 |---------------------------|--------|--------------------------------------------------|
-| `CHUNKER_VERSION`         | `"29"` | Forces full rebuild of the affected layer        |
-| `WALKER_VERSION`          | `"5"`  | Forces full rebuild of all layers                |
+| `CHUNKER_VERSION`         | `"29"` | Forces a full rebuild (re-chunk + re-embed)      |
+| `WALKER_VERSION`          | `"6"`  | Forces a full rebuild (re-walk the include set)  |
 | `WINDOW_SIZE`             | 120    | Line-window fallback window (lines per chunk)    |
 | `WINDOW_OVERLAP`          | 10     | Reserved; structured fallbacks often advance without overlap |
 | `MAX_CODE_CHUNK_CHARS`    | 4000   | Triggers sub-split of oversized `kind="code"` chunks |
@@ -492,8 +614,8 @@ changed since the last run.
 | `LANCEDB_INDEX_THRESHOLD` | 1000   | Below: brute-force scan; at/above: HNSW+FTS used |
 
 Whenever `CHUNKER_VERSION` is bumped — for example because a breadcrumb format changes or a
-new tree-sitter language is added — every file in the affected layer is re-chunked and
-re-embedded on the next build. The same applies when the embedding model name changes.
+new tree-sitter language is added — every file is re-chunked and re-embedded on the next build.
+The same applies when the embedding model name changes.
 
 An index whose existing LanceDB rows predate `chunk_hash` triggers a one-time **full rebuild**
 automatically (the 1p4n4 legacy-fallback preflight) so rows carry `chunk_hash` consistently

@@ -38,6 +38,11 @@ import cli_stdio  # shared UTF-8 stdio reconfigure (wave 1p8gv)
 cli_stdio.configure_utf8_stdio()
 
 TIMESTAMP_LOGS_ENV = "WAVEFOUNDRY_TIMESTAMP_LOGS"
+# Wave 1p95j: pin lancedb to a validated version so every install site (setup + indexer auto-install)
+# resolves the same build. 0.33.0 validated on this repo — clean single-FTS/single-vector index,
+# retrieval parity with 0.30.2, full suite green, pyarrow unchanged. Single source of truth for both
+# the setup dependency check below and indexer._auto_install_lancedb.
+LANCEDB_REQUIREMENT = "lancedb==0.33.0"
 REQUIRED_IMPORTS = {
     "fastembed": "fastembed",
     "igraph>=0.11": "igraph",
@@ -73,7 +78,7 @@ REQUIRED_IMPORTS = {
     "tree-sitter-json": "tree_sitter_json",
     "tree-sitter-css": "tree_sitter_css",
     "tree-sitter-powershell": "tree_sitter_powershell",
-    "lancedb": "lancedb",
+    LANCEDB_REQUIREMENT: "lancedb",
     "networkx>=3.0": "networkx",
 }
 CUDA_DEPENDENCY_IMPORTS = {
@@ -197,37 +202,78 @@ def _should_plan_gpu_accel_dependencies() -> bool:
 
 
 def _missing_in_venv(venv_python: Path, required_imports: dict[str, str] | None = None) -> list[str]:
-    """Return distribution names for packages not importable from the venv Python."""
+    """Return dist specs for packages that are absent OR whose installed version violates their pin.
+
+    Wave 1p95u: the check is version-aware, not presence-only. A dependency is flagged when it is not
+    importable (as before) OR when it carries a version constraint (e.g. ``lancedb==0.33.0``,
+    ``tree-sitter>=0.24,<0.26``) and the version installed in the tool venv falls outside that
+    specifier — so a pinned version bump reaches existing installs on ``wf setup`` / ``wave_upgrade``,
+    not just fresh installs. The returned spec IS the ``REQUIRED_IMPORTS`` key, so ``_install_deps``
+    resolves the venv to exactly the pinned version (an ``==`` pin downgrades a newer build; a range
+    pin leaves any satisfying version untouched — see the change doc's Decision Log). Version checking
+    uses ``packaging`` in the venv; if ``packaging`` is unavailable or a spec/version cannot be parsed,
+    that dependency falls back to presence-only behavior (never raises, never spuriously reinstalls)."""
     required_imports = required_imports or _planned_required_imports()
     mod_to_dist = {mod: dist for dist, mod in required_imports.items()}
     gpu_dists = [dist for dist in CUDA_DEPENDENCY_IMPORTS if dist in required_imports]
-    script = (
-        "import importlib.util\n"
-        "import importlib.metadata as metadata\n"
-        f"mods = {list(mod_to_dist)!r}\n"
-        f"gpu_dists = {gpu_dists!r}\n"
-        "missing = [m for m in mods if importlib.util.find_spec(m) is None]\n"
-        "for dist in gpu_dists:\n"
-        "    try:\n"
-        "        metadata.version(dist)\n"
-        "    except metadata.PackageNotFoundError:\n"
-        "        missing.append('__dist__:' + dist)\n"
-        "print('\\n'.join(missing))"
-    )
+    # Wave 1p95u: version-aware probe. Emits the dist spec (the REQUIRED_IMPORTS key) for anything
+    # absent OR pin-violating, so _install_deps installs exactly the pinned version. GPU dists keep the
+    # dist-name presence check (their import name collides with the CPU package, so find_spec can't tell
+    # them apart). packaging is used for specifier satisfaction; any parse/metadata failure degrades to
+    # presence-only for that dep (never raises, never spuriously reinstalls).
+    probe_source = f'''\
+import importlib.util
+import importlib.metadata as metadata
+mod_to_dist = {mod_to_dist!r}
+gpu_dists = {gpu_dists!r}
+try:
+    from packaging.requirements import Requirement
+    _HAVE_PACKAGING = True
+except Exception:
+    _HAVE_PACKAGING = False
+
+
+def _violates(spec):
+    if not _HAVE_PACKAGING:
+        return False
+    try:
+        req = Requirement(spec)
+        if not str(req.specifier):
+            return False
+        return not req.specifier.contains(metadata.version(req.name), prereleases=True)
+    except Exception:
+        return False
+
+
+missing = []
+for _mod, _dist in mod_to_dist.items():
+    if importlib.util.find_spec(_mod) is None or _violates(_dist):
+        if _dist not in missing:
+            missing.append(_dist)
+for _dist in gpu_dists:
+    try:
+        _name = Requirement(_dist).name if _HAVE_PACKAGING else _dist
+    except Exception:
+        _name = _dist
+    try:
+        metadata.version(_name)
+        _present = True
+    except metadata.PackageNotFoundError:
+        _present = False
+    if not _present or _violates(_dist):
+        if _dist not in missing:
+            missing.append(_dist)
+print("\\n".join(missing))
+'''
     # Wave 1p8pe: prefer the console-free tool-venv pythonw.exe on Windows for this captured import probe
     # so it does not flash a window; pythonw shares the same venv site-packages, so the probe result is
     # identical. Falls back to the passed-in venv Python (POSIX returns None).
     probe_interp = subprocess_util.windowless_pythonw() or str(venv_python)
-    result = subprocess_util.isolated_run([probe_interp, "-c", script], capture_output=True, text=True)
+    result = subprocess_util.isolated_run([probe_interp, "-c", probe_source], capture_output=True, text=True)
     if result.returncode != 0:
         return list(required_imports.keys())
-    missing_mods = [m.strip() for m in result.stdout.strip().splitlines() if m.strip()]
     missing: list[str] = []
-    for item in missing_mods:
-        if item.startswith("__dist__:"):
-            dist = item.split(":", 1)[1]
-        else:
-            dist = mod_to_dist.get(item)
+    for dist in (line.strip() for line in result.stdout.strip().splitlines()):
         if dist and dist not in missing:
             missing.append(dist)
     return missing
@@ -374,6 +420,41 @@ def _indexer_reranker_model() -> str:
     assert spec.loader is not None
     spec.loader.exec_module(mod)
     return mod.RERANKER_MODEL
+
+
+def _load_indexer_module():
+    indexer_path = SCRIPTS_DIR / "indexer.py"
+    spec = importlib.util.spec_from_file_location("wavefoundry_indexer_for_setup", indexer_path)
+    mod = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _optimize_after_build(root: Path) -> None:
+    """Wave 1p9aj: reclaim accumulated Lance-table bloat after the synchronous build.
+
+    Runs on BOTH install and upgrade — upgrade's index rebuild invokes ``setup_index``. Lock-safe by
+    placement: it runs after ``build_index`` has released the build lock and BEFORE any background code
+    build is spawned, so it never races an in-flight build. Reclaim-only (the tiered ladder without a
+    re-embed); best-effort — a lock conflict or any error just skips. This reclaims version-bloat that
+    the fragment-gated incremental optimize can miss, and self-heals the Lance offset corruption."""
+    try:
+        mod = _load_indexer_module()
+        index_dir = root / ".wavefoundry" / "index"
+        results = mod.optimize_index_tables(index_dir)
+    except Exception as exc:  # noqa: BLE001 - reclaim is best-effort
+        print(f"index optimize skipped: {exc}", flush=True)
+        return
+    for name, res in (results or {}).items():
+        before = int(res.get("bytes_before") or 0)
+        after = int(res.get("bytes_after") or 0)
+        if before and after < before:
+            print(
+                f"index optimize: reclaimed {name}.lance "
+                f"({before:,} -> {after:,} bytes, tier {res.get('tier')})",
+                flush=True,
+            )
 
 
 @contextlib.contextmanager
@@ -1113,9 +1194,11 @@ def prewarm_models(*, include_code: bool) -> None:
 
 
 def _prewarm_gpu_accel(models: list[str]) -> None:
-    """Wave 1p517: on a GPU machine, build each model's static-shape CoreML session once at setup —
-    downloads + caches any clean ONNX (offline-ready) and pays the CoreML compile here (cached via
-    ``ModelCacheDirectory``), so the first index build doesn't. No-op on CPU machines / without onnx.
+    """Wave 1p517 (extended 1p935): build each model's static-shape ONNX session once at setup —
+    downloads + caches the clean ONNX (offline-ready) and pays the ONNX Runtime compile here (GPU
+    CoreML sessions cache via ``ModelCacheDirectory``), so the first index build doesn't. On a GPU
+    machine this prewarms the FP16 GPU path; on a CPU-bound machine it prewarms the INT8 CPU path
+    (wave 1p935) instead of no-op'ing. No-op only without ``onnx``/``accel_embedder``.
     """
     try:
         import accel_embedder
@@ -1136,21 +1219,25 @@ def _prewarm_gpu_accel(models: list[str]) -> None:
     except Exception as exc:  # noqa: BLE001 - prewarm is best-effort
         print(f"Reranker prewarm skipped for {reranker_model}: {exc}", flush=True)
 
-    # The EMBEDDER accel is GPU-only (CPU embedders stay on fastembed). make_embedder falls back to
-    # AVAILABLE GPU providers if the selection lacks one, so don't short-circuit on the (possibly
-    # flaky) decision — let it decide. No-op without a GPU.
-    if not (any(p in accel_embedder.GPU_PROVIDERS for p in providers) or accel_embedder._available_gpu_providers()):
-        return
+    # Wave 1p935: make_embedder now handles BOTH precision paths internally — FP16 on a GPU that
+    # offloads this model's graph, else INT8 on the CPU EP when an INT8 clean-export source exists
+    # — so this loop runs regardless of GPU availability (mirrors the reranker block above), not
+    # gated behind a GPU-availability early return. make_embedder falls back to AVAILABLE GPU
+    # providers if the selection lacks one, so we don't short-circuit on a (possibly flaky) decision
+    # either — let it decide.
     for model_name in models:
         try:
             embedder = accel_embedder.make_embedder(model_name, providers)
         except Exception as exc:  # noqa: BLE001 - prewarm is best-effort
-            print(f"GPU embedder prewarm skipped for {model_name}: {exc}", flush=True)
+            print(f"Embedder prewarm skipped for {model_name}: {exc}", flush=True)
             continue
         if embedder is not None:
-            print(f"Prewarmed GPU embedder ({embedder.provider}, CoreML compile cached): {model_name}", flush=True)
+            kind = "CPU-INT8" if embedder.provider == "CPUExecutionProvider" else "GPU"
+            cache_note = "compile cached" if kind == "GPU" else "INT8 graph cached"
+            print(f"Prewarmed {kind} embedder ({embedder.provider}, {cache_note}): {model_name}", flush=True)
         else:
-            print(f"GPU embedder not used for {model_name} (graph not GPU-friendly) — fastembed path", flush=True)
+            print(f"Embedder not accelerated for {model_name} (no GPU offload, no INT8 source) — "
+                  "fastembed path", flush=True)
 
 
 def _spawn_background_code_build(root: Path, args: argparse.Namespace) -> None:
@@ -1471,6 +1558,9 @@ def main(argv: list[str] | None = None) -> int:
         project_include_prefixes_for_docs=docs_prefixes,
         project_include_prefixes_for_code=code_prefixes,
     )
+    # Wave 1p9aj: reclaim any accumulated table bloat now that the synchronous build has released the
+    # build lock and before the background code build (if any) is spawned — so it never races a build.
+    _optimize_after_build(root)
     if background_code:
         _spawn_background_code_build(root, args)
     print(

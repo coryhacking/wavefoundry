@@ -37,6 +37,96 @@ def load_indexer():
     return mod
 
 
+class VersionAwareDependencyTests(unittest.TestCase):
+    """Wave 1p95u — `_missing_in_venv` flags a dependency whose installed version violates its pin,
+    not only an absent one, so a pinned version bump reaches existing installs on setup/upgrade.
+
+    The version-logic cases run the REAL probe against the current interpreter (`sys.executable` — the
+    tool venv under run_tests.py, which has `packaging` + the deps), so they exercise the actual
+    subprocess probe rather than a mock. The degradation/install/chokepoint cases are mocked.
+    """
+
+    def setUp(self):
+        self.mod = load_setup_index()
+        self.interp = Path(sys.executable)
+
+    def _installed(self, dist: str) -> str:
+        import importlib.metadata as m
+        return m.version(dist)
+
+    def test_violated_exact_pin_flagged(self):
+        # AC-1: an installed dep pinned to a version it does not match is flagged, with the full spec.
+        result = self.mod._missing_in_venv(self.interp, {"lancedb==999.0.0": "lancedb"})
+        self.assertIn("lancedb==999.0.0", result)
+
+    def test_satisfied_exact_pin_not_flagged(self):
+        # AC-1/AC-2: an installed dep pinned to exactly its installed version is NOT flagged.
+        spec = f"lancedb=={self._installed('lancedb')}"
+        self.assertEqual(self.mod._missing_in_venv(self.interp, {spec: "lancedb"}), [])
+
+    def test_satisfied_range_pin_not_flagged(self):
+        # AC-2: a range pin that the installed version satisfies is NOT flagged (no churn).
+        self.assertEqual(
+            self.mod._missing_in_venv(self.interp, {"lancedb>=0.1,<9999": "lancedb"}), []
+        )
+
+    def test_unpinned_present_not_flagged(self):
+        # AC-2: an installed, unpinned dep keeps presence-only behavior (not flagged).
+        self.assertEqual(self.mod._missing_in_venv(self.interp, {"numpy": "numpy"}), [])
+
+    def test_unpinned_absent_flagged(self):
+        # AC-2: an absent dep is still flagged (presence check preserved).
+        result = self.mod._missing_in_venv(
+            self.interp, {"totally-not-real-pkg-xyz": "totally_not_real_pkg_xyz"}
+        )
+        self.assertEqual(result, ["totally-not-real-pkg-xyz"])
+
+    def test_unparseable_spec_degrades_to_presence_only(self):
+        # AC-3: a spec `packaging` cannot parse falls back to presence-only for that dep — the present
+        # package is NOT flagged and the probe never raises. This is the same fallback path taken when
+        # `packaging` itself is unimportable in the venv.
+        self.assertEqual(
+            self.mod._missing_in_venv(self.interp, {"lancedb ??? not a spec": "lancedb"}), []
+        )
+
+    def test_real_required_imports_no_false_positives(self):
+        # AC-5: with the REAL REQUIRED_IMPORTS and versions that satisfy every pin (incl. lancedb==0.33.0),
+        # the probe returns no false positives — guards against reinstall churn on the real dep set.
+        self.assertEqual(self.mod._missing_in_venv(self.interp), [])
+
+    def test_probe_failure_returns_all_required_keys(self):
+        # AC-3: if the probe subprocess fails, degrade to "reinstall everything" rather than raise.
+        with patch.object(self.mod.subprocess_util, "isolated_run",
+                          return_value=MagicMock(returncode=1, stdout="")):
+            result = self.mod._missing_in_venv(FAKE_VENV_PYTHON, {"lancedb==0.33.0": "lancedb"})
+        self.assertEqual(result, ["lancedb==0.33.0"])
+
+    def test_install_deps_carries_pinned_spec(self):
+        # AC-4: the flagged spec (e.g. lancedb==0.33.0) reaches the installer command verbatim, so an
+        # existing older lancedb resolves to the pinned version.
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            with redirect_stdout(io.StringIO()):
+                self.mod._install_deps(["lancedb==0.33.0"], FAKE_VENV_PYTHON)
+        cmds = [c[0][0] for c in mock_run.call_args_list]
+        self.assertTrue(any("lancedb==0.33.0" in cmd for cmd in cmds),
+                        f"pinned spec not found in any install command: {cmds}")
+
+    def test_main_calls_ensure_deps_chokepoint(self):
+        # AC-6: setup_index.main runs ensure_deps on every invocation — the chokepoint the upgrade's
+        # phase-4 setup_index calls ride on, so the version-aware check propagates on upgrade with no
+        # upgrade wiring. Locked so a refactor can't silently drop it off the upgrade path.
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.object(self.mod, "ensure_deps") as mock_ensure, \
+                 patch.object(self.mod, "_reexec_with_venv_if_needed"), \
+                 patch.object(self.mod, "_workflow_project_include_prefixes", return_value={}), \
+                 patch.object(self.mod, "_run_indexer"):
+                with redirect_stdout(io.StringIO()):
+                    rc = self.mod.main(["--root", tmp, "--graph-only"])
+        self.assertEqual(rc, 0)
+        mock_ensure.assert_called_once()
+
+
 class VenvBootstrapTests(unittest.TestCase):
     def setUp(self):
         self.mod = load_setup_index()
@@ -326,8 +416,10 @@ class SetupIndexTests(unittest.TestCase):
         self.assertEqual(self.mod.REQUIRED_IMPORTS["tree-sitter-sql"], "tree_sitter_sql")
 
     def test_required_imports_include_lancedb(self):
-        self.assertIn("lancedb", self.mod.REQUIRED_IMPORTS)
-        self.assertEqual(self.mod.REQUIRED_IMPORTS["lancedb"], "lancedb")
+        # Wave 1p95j: lancedb is pinned to a validated version via LANCEDB_REQUIREMENT.
+        self.assertEqual(self.mod.LANCEDB_REQUIREMENT, "lancedb==0.33.0")
+        self.assertIn(self.mod.LANCEDB_REQUIREMENT, self.mod.REQUIRED_IMPORTS)
+        self.assertEqual(self.mod.REQUIRED_IMPORTS[self.mod.LANCEDB_REQUIREMENT], "lancedb")
 
     def test_required_imports_include_leiden(self):
         self.assertIn("igraph>=0.11", self.mod.REQUIRED_IMPORTS)

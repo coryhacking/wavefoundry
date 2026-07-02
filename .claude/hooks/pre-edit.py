@@ -20,8 +20,31 @@ import subprocess
 import sys
 from pathlib import Path
 
+# Wave 1p8gu: shared subprocess isolation. HOOK_BOOTSTRAP (prepended by compose_script) already
+# put the framework scripts dir on sys.path, so this resolves at hook runtime; guarded so a hook
+# rendered against a transient/old tree still loads (falls back to bare-but-isolated spawns).
+try:
+    import subprocess_util as _wf_subprocess_util
+except Exception:
+    _wf_subprocess_util = None
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 GUARD_OVERRIDES = REPO_ROOT / ".wavefoundry" / "guard-overrides.json"
+
+
+def hook_python() -> str:
+    # Wave 1p8pe: prefer the console-free tool-venv pythonw.exe on Windows so these rendered
+    # hook spawns (all output redirected: DEVNULL / PIPE / capture) never flash a console
+    # window. Falls back to sys.executable when subprocess_util is unavailable or on POSIX
+    # (windowless_pythonw() returns None). Every spawned target self-activates the venv.
+    if _wf_subprocess_util is not None:
+        try:
+            pythonw = _wf_subprocess_util.windowless_pythonw()
+            if pythonw is not None:
+                return pythonw
+        except Exception:
+            pass
+    return sys.executable
 
 
 def read_payload_text() -> str:
@@ -124,13 +147,28 @@ def is_framework_maintenance_surface(path: str) -> bool:
     return path in exact
 
 
-def run_command(argv: list[str]) -> subprocess.CompletedProcess[str]:
+def run_command(argv: list[str], timeout=None) -> subprocess.CompletedProcess[str]:
+    # Wave 1p9bg: `timeout` (seconds) bounds the child; on expiry subprocess raises
+    # TimeoutExpired, which the caller handles. None = unbounded (existing behavior for callers
+    # that don't pass one).
+    if _wf_subprocess_util is not None:
+        return _wf_subprocess_util.isolated_run(
+            argv,
+            cwd=REPO_ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=timeout,
+        )
     return subprocess.run(
         argv,
         cwd=REPO_ROOT,
         text=True,
         capture_output=True,
         check=False,
+        stdin=subprocess.DEVNULL,
+        creationflags=(getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0),
+        timeout=timeout,
     )
 
 
@@ -142,7 +180,31 @@ def maybe_docs_lint(file_path: str) -> tuple[bool, str]:
     # interpreter; the spawned docs_lint.py self-activates the venv first-line, so it reaches
     # the venv packages.
     docs_lint = REPO_ROOT / ".wavefoundry" / "framework" / "scripts" / "docs_lint.py"
-    result = run_command([sys.executable, str(docs_lint)])
+    # Wave 1p9bg: bound the docs-lint subprocess so a slow whole-tree lint on a large repo can't
+    # hang the post-edit hook. The timeout is generous (120s default) and tunable via
+    # docs/workflow-config.json `docs_lint.hook_timeout_seconds`. A TIMEOUT is ADVISORY — it does
+    # NOT block the edit (wave_validate / wave-close remain the hard docs gate); a real lint
+    # FAILURE still blocks below.
+    try:
+        timeout_s = _load_indexer_hook_helpers().docs_lint_hook_timeout_seconds(REPO_ROOT)
+    except Exception:
+        timeout_s = 120.0
+    # Wave 1p9c1: run docs-lint INCREMENTALLY in the post-edit hook — `--changed` self-detects the
+    # git working-tree changed set and lints only the per-file validators on changed docs (a
+    # changed config file falls back to the full lint inside the cli). The authoritative full
+    # corpus lint stays at wave_validate / wave_close / prepare / install / upgrade, which invoke
+    # docs_lint.py WITHOUT `--changed`. Incremental makes a timeout far less likely, but the 1p9bg
+    # bound stays as defense-in-depth.
+    try:
+        result = run_command([hook_python(), str(docs_lint), "--changed"], timeout=timeout_s)
+    except subprocess.TimeoutExpired:
+        print(
+            f"[wavefoundry] docs-lint exceeded {timeout_s:.0f}s and was skipped for this edit "
+            f"(advisory — the edit is not blocked). Run `wf docs-lint`, or raise "
+            f"docs_lint.hook_timeout_seconds in docs/workflow-config.json.",
+            file=sys.stderr,
+        )
+        return False, ""
     if result.returncode == 0:
         return False, ""
     message = (result.stdout + result.stderr).strip()
@@ -173,21 +235,21 @@ def _load_indexer_hook_helpers():
     return mod
 
 
-def maybe_trigger_reindex(file_path: str) -> None:
-    if not should_reindex(file_path):
-        return
+def _spawn_reindex() -> None:
+    # Spawn ONE detached incremental reindex. No coalescing decision here — callers gate. Wave
+    # 1p9am split this out of maybe_trigger_reindex so the mark/flush paths share it.
     indexer = REPO_ROOT / ".wavefoundry" / "framework" / "scripts" / "indexer.py"
     if not indexer.exists():
         return
     # sys.executable is the SYSTEM interpreter (after in-process activation, wave 1p802) — an
     # absolute path; the spawned indexer.py self-activates the venv first-line so the child
-    # reaches the venv packages. Never re-resolve a python3/python token.
-    python_exec = sys.executable
+    # reaches the venv packages. Never re-resolve a python3/python token. Wave 1p8pe: prefer the
+    # console-free pythonw.exe on Windows (this is a detached all-DEVNULL spawn — textbook
+    # flasher); hook_python() falls back to sys.executable on POSIX / when unavailable.
+    python_exec = hook_python()
     index_dir = REPO_ROOT / ".wavefoundry" / "index"
     try:
         hook_helpers = _load_indexer_hook_helpers()
-        if hook_helpers.should_coalesce_hook_reindex(index_dir):
-            return
         hook_helpers.record_hook_reindex_spawn(index_dir)
     except Exception:
         pass
@@ -209,12 +271,43 @@ def maybe_trigger_reindex(file_path: str) -> None:
         _detach_kwargs["start_new_session"] = True
     subprocess.Popen(
         [python_exec, str(indexer), "--root", str(REPO_ROOT)],
+        stdin=subprocess.DEVNULL,  # wave 1p8gu: detached child never inherits a blocking stdin
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         cwd=str(REPO_ROOT),
         close_fds=os.name != "nt",
         **_detach_kwargs,
     )
+
+
+def mark_reindex_pending_for(file_path: str) -> None:
+    # Wave 1p9am: on an index-worthy edit, MARK the reindex-pending sentinel and DO NOT spawn a
+    # reindex. The turn-end Stop hook flushes it once per turn. Used by the Claude post-edit hook.
+    if not should_reindex(file_path):
+        return
+    try:
+        hook_helpers = _load_indexer_hook_helpers()
+        hook_helpers.mark_reindex_pending(REPO_ROOT / ".wavefoundry" / "index")
+    except Exception:
+        pass
+
+
+def maybe_trigger_reindex(file_path: str) -> None:
+    # Wave 1p9am: the NON-Stop-host path (Cursor/Copilot/… have no turn-end hook). Mark pending,
+    # then flush under the long leading-edge debounce (best coalescing without a turn-end signal).
+    if not should_reindex(file_path):
+        return
+    index_dir = REPO_ROOT / ".wavefoundry" / "index"
+    try:
+        hook_helpers = _load_indexer_hook_helpers()
+        hook_helpers.mark_reindex_pending(index_dir)
+        if hook_helpers.should_coalesce_hook_reindex(index_dir):
+            return  # within the debounce window or a live build — leave it pending
+        if not hook_helpers.consume_reindex_pending(index_dir):
+            return  # another consumer already took it
+    except Exception:
+        return
+    _spawn_reindex()
 
 def main() -> int:
     payload = load_payload(read_payload_text())

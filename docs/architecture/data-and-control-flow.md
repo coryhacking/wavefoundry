@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-25
+Last verified: 2026-07-01
 
 ## Primary Control Paths
 
@@ -45,11 +45,10 @@ Last verified: 2026-06-25
 1. Operator runs `python3 .wavefoundry/framework/scripts/build_pack.py --version MAJOR.MINOR.PATCH` (from repo root)
 2. Script derives the current lifecycle build suffix and validates manifest `framework_revision` against the packaged revision
 3. Stamps `.wavefoundry/framework/VERSION` to `MAJOR.MINOR.PATCH+<build>`
-4. Rebuilds the packaged framework semantic index at `.wavefoundry/framework/index/`
-5. Zips the canonical framework tree, including `framework/index/`, into `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` under `~/.wavefoundry/dist/` by default
+4. Zips the canonical framework **source** tree into `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` under `~/.wavefoundry/dist/` by default — no framework index is built or shipped (wave 1p4ww removed the separate framework index; framework seeds now fold into the project docs index at setup/upgrade)
 
 **State read:** `.wavefoundry/framework/` tree, output directory listing
-**State written:** `.wavefoundry/framework/VERSION`, `.wavefoundry/framework/index/`, zip archive in the dist directory (or caller-supplied output dir)
+**State written:** `.wavefoundry/framework/VERSION`, zip archive in the dist directory (or caller-supplied output dir)
 **Note:** zip file is gitignored; do not commit it
 
 ### Path 5: Semantic Index Build
@@ -63,18 +62,18 @@ Last verified: 2026-06-25
 7. Chunks classified as `code`, `doc`, or `seed` based on kind and path
 8. `fastembed` embeds docs/seeds by default using `BAAI/bge-base-en-v1.5`; optional semantic code embeddings use the same model, and the code pass skips framework internal tests plus non-source/test/generated files unless `--include-tests` or `--include-generated` is passed
 9. Project code indexing excludes `.wavefoundry/framework/` by default; repos can explicitly opt in additional excluded paths with `docs/workflow-config.json` -> `indexing.project_include_prefixes` (`docs` and `code` lists, consumed by `setup_index.py` and forwarded to `indexer.py --project-include-prefix`)
-10. Project index written to `.wavefoundry/index/` and packaged framework index written to `.wavefoundry/framework/index/` (LanceDB `docs`/`code` tables, graph sidecars, and `meta.json`)
+10. Project index written to `.wavefoundry/index/` (LanceDB `docs`/`code` tables, graph sidecars, and `meta.json`) — this is the single semantic index; framework seeds fold into the project `docs` table at setup/upgrade
 11. Subsequent runs are incremental: only files whose SHA-256 changed are re-chunked; existing LanceDB rows for those paths are compared by `chunk_hash` so unchanged chunk vectors can be reused and only changed/new chunks are re-embedded
 
 **State read:** entire repository tree (excluding index, binaries, ignores)
-**State written:** `.wavefoundry/index/` and `.wavefoundry/framework/index/` (gitignored)
+**State written:** `.wavefoundry/index/` (gitignored)
 **Triggered by:** manual run, post-edit hook (background subprocess after each file edit), or qualifying MCP mutation tools after successful docs writes
 
 ### Path 6: MCP Tool Calls
 
 1. MCP client (Claude Code, Cursor, etc.) sends tool request via stdio to `server.py`
 2. **Discovery tool** (`wave_help`): returns a structured catalogue of core verbs, compatibility tools, workflows, recommended chains, and exact next-call usage hints
-3. **Search tools** (`docs_search`, `code_search`, `seed_get`): load project index from `.wavefoundry/index/` and packaged framework index from `.wavefoundry/framework/index/`; `docs_search` embeds queries in offline-only mode and falls back to lexical search with structured diagnostics when the index is not ready or the semantic model is unavailable offline; staleness detection is left to background reindex hooks rather than running a per-query repo walk
+3. **Search tools** (`docs_search`, `code_search`, `seed_get`): load the single project index from `.wavefoundry/index/` (framework seeds fold into the project `docs` table at setup/upgrade); `docs_search` embeds queries in offline-only mode and falls back to lexical search with structured diagnostics when the index is not ready or the semantic model is unavailable offline; staleness detection is left to background reindex hooks rather than running a per-query repo walk
 4. **Anchor tool** (`wave_map`): resolves `doc:` / `code:` / `seed:` addresses against the repo root (shared containment rules with future file-navigation tools) and returns trust metadata plus excerpts
 5. **Inspection tools** (`wave_current`, `wave_list_waves`, `wave_list_plans`, `wave_get_change`, `wave_get_prompt`): read `docs/waves/`, `docs/plans/`, and `docs/prompts/` via regex parsing and return structured data plus recovery hints (with per-process caching for wave/plan lists and prompt resolution keyed by prompt file mtimes); `wave_current` returns all non-closed waves as `data.waves[]` (ordered active → planned → paused, with per-entry `next_action` — `implement_wave` / `prepare_wave` / `resume_wave`) and runs advisory drift detection against the active wave only; `wave_get_change(wave_id=...)` supports bulk mode returning all admitted changes for a wave in one call; `docs_search` responses include a `mode` field (`"semantic"` or `"lexical"`) for fallback transparency
 5b. **Session handoff tools** (`wave_get_handoff`, `wave_set_handoff`): read and write `docs/agents/session-handoff.md` for cross-session state continuity; `wave_set_handoff` triggers a background docs-index refresh after successful writes
@@ -84,7 +83,7 @@ Last verified: 2026-06-25
 7. **Creation tools** (`wave_new_*`): import `lifecycle_id.py` directly, generate change ID, scaffold docs in `docs/plans/`, and return repeat-safe diagnostics when the artifact already exists
 8. **Lifecycle mutation tools** (`wave_add_change`, `wave_remove_change`, `wave_prepare`): update the wave record and keep admitted change docs in the wave folder; add-change relocates immediately and inserts the new `Change ID:` block inside the wave's `## Changes` section (tail-append, preserving admission order), remove-change moves active docs back to `docs/plans/`, and prepare validates or repairs placement drift; `wave_prepare` decouples readiness from activation (wave 1p45l): `mode='ready'` records full readiness and leaves the wave `planned` (readied) with no guard, while `mode='create'` runs the single-OPEN guard and flips `planned→active`. The single-OPEN invariant (≤1 wave `active`/`implementing`) is enforced at the activation transitions — `wave_implement`, `wave_reopen`, and `wave_prepare(create)` — via the `another_wave_active` diagnostic (recovery: pause the open wave, or ready the target with `mode='ready'`), not at readiness; successful write paths request a detached background docs-index refresh so non-hook clients do not depend on editor hooks for search freshness
 9. **Review and closure tools** (`wave_review`, `wave_close`, `wave_pause`): review remains read-first but now opportunistically requests a detached background docs refresh, while write paths trigger one after successful mutations; `wave_pause` transitions the target wave from `active` to `paused` (idempotent on paused, advisory on other states) in addition to writing the session-handoff entry, so the paused wave drops out of `wave_current`'s OPEN slot and frees the single-OPEN slot for a different wave to be opened; duplicate refreshes are throttled with repo-local runtime state so repeated MCP calls do not spawn an unbounded queue
-10. **Explicit index maintenance tools** (`wave_index_health`, `wave_index_build`): `wave_index_health` reports stale/missing layer status without touching the hot search path; `wave_index_build` runs `setup_index.py` (project `content=all`, docs+code) or `indexer.py` (project `content=docs|code`, or framework-layer docs) synchronously for deterministic index builds (`mode='update'` vs `mode='rebuild'`), returns structured statistics, and invalidates the in-process loaded index state afterward
+10. **Explicit index maintenance tools** (`wave_index_health`, `wave_index_build`): `wave_index_health` reports stale/missing layer status without touching the hot search path; `wave_index_build` runs `setup_index.py` (project `content=all`, docs+code) or `indexer.py` (project `content=docs|code`) synchronously for deterministic index builds (`mode='update'` vs `mode='rebuild'`), returns structured statistics, and invalidates the in-process loaded index state afterward
 11. **Operations tools** (`wave_validate`, `wave_garden`, `wave_sync_surfaces`): invoke `docs_lint.py`, `docs_gardener.py`, `render_platform_surfaces.py` as subprocesses and return structured pass/fail
 
 ### Path 6b: MCP Resource and Resource-Template Reads
@@ -98,7 +97,7 @@ Last verified: 2026-06-25
 **State written:** none
 **Transport:** stdio (FastMCP MCP resources protocol)
 
-**State read (Path 6):** `.wavefoundry/index/`, `.wavefoundry/framework/index/`, `docs/waves/`, `docs/plans/`, `docs/prompts/`, `docs/agents/session-handoff.md`
+**State read (Path 6):** `.wavefoundry/index/`, `docs/waves/`, `docs/plans/`, `docs/prompts/`, `docs/agents/session-handoff.md`
 **State written (Path 6):** `docs/plans/`, `docs/waves/`, `docs/agents/session-handoff.md` (handoff tools), `docs/` metadata (garden tool)
 **Transport:** stdio (FastMCP)
 

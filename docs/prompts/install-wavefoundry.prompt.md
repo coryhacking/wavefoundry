@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-27
+Last verified: 2026-07-01
 
 Shortcut: **`Init Wavefoundry`** | Legacy: **`Install Wavefoundry`** / **`Init wave framework`** / **`Install wave framework`** / **`Init wave context`** / **`Install wave context`**
 
@@ -106,14 +106,10 @@ wf dashboard --root . --open
 After registration, restart the MCP server in your host so the newly installed server picks up all rendered surfaces. Then update the semantic index so docs_search reflects the installed content:
 
 ```
-wave_index_build(content="docs", mode="update")   ← project layer
+wave_index_build(content="docs", mode="update")   ← the single project index
 ```
 
-If the repository self-hosts the framework index, also run:
-
-```
-wave_index_build(content="docs", mode="update", layer="framework")
-```
+The framework's seeds fold into this project docs index — there is no separate framework index to build.
 
 See `docs/contributing/build-and-verification.md` **Update vs rebuild — decision table** for when to use `mode="update"` vs `mode="rebuild"`.
 

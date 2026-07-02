@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-13
+Last verified: 2026-07-01
 
 How Wavefoundry ships a release. Single-maintainer project; the release happens from the maintainer's machine via `build_pack.py --release`.
 
@@ -20,11 +20,10 @@ What it does in order:
    - `vX.Y.Z` tag must not exist locally or on `origin`
    - `gh auth status` must succeed
    - `CHANGELOG.md` must contain a `## [X.Y.Z]` section
-2. **Build** the distribution zip (same as a normal `build_pack.py --version X.Y.Z` invocation) — runs the docs gate, builds + optimizes + vacuums the framework semantic index via `_compact_framework_index`, stamps `VERSION`, writes `INSTALL.md`, produces `~/.wavefoundry/dist/wavefoundry-X.Y.Z.<build-suffix>.zip`.
-3. **Post-build assertion**: zip must contain framework-index `.lance` files. Halts before any side effects if missing.
-4. **Tag** the current `HEAD` with `vX.Y.Z`. Annotation message is derived from the most recent wave-close commit subject (e.g., `Close wave 1p347 and ship 1.4.0 → 1.4.1`), or `Release vX.Y.Z` as a fallback.
-5. **Push** the tag to `origin`.
-6. **Publish** a GitHub Release via `gh release create vX.Y.Z`. Title is the bare version. Notes are assembled by prepending `.wavefoundry/framework/install/install-block.md` (the `## Install` block — zip-at-root, shortcut phrase, supported hosts) to the `## [X.Y.Z]` section of `CHANGELOG.md`, so an agent or operator browsing the Releases page sees the install steps alongside the download link. The local zip is uploaded as the release asset. (Wave 1p35d / `1p35p` added the install-block prepend; before that the notes were the CHANGELOG section alone.)
+2. **Build** the source-only distribution zip (same as a normal `build_pack.py --version X.Y.Z` invocation) — runs the docs gate, stamps `.wavefoundry/framework/VERSION`, writes `INSTALL.md`, produces `~/.wavefoundry/dist/wavefoundry-X.Y.Z.<build-suffix>.zip`. The pack ships framework **source only**; there is no framework semantic index to build (framework seeds fold into each project's docs index at setup/upgrade).
+3. **Tag** the current `HEAD` with `vX.Y.Z`. Annotation message is derived from the most recent wave-close commit subject (e.g., `Close wave 1p347 and ship 1.4.0 → 1.4.1`), or `Release vX.Y.Z` as a fallback.
+4. **Push** the tag to `origin`.
+5. **Publish** a GitHub Release via `gh release create vX.Y.Z`. Title is the bare version. Notes are assembled by prepending `.wavefoundry/framework/install/install-block.md` (the `## Install` block — zip-at-root, shortcut phrase, supported hosts) to the `## [X.Y.Z]` section of `CHANGELOG.md`, so an agent or operator browsing the Releases page sees the install steps alongside the download link. The local zip is uploaded as the release asset. (Wave 1p35d / `1p35p` added the install-block prepend; before that the notes were the CHANGELOG section alone.)
 
 ## The non-release option (testing, local-only)
 
@@ -42,11 +41,7 @@ To walk the entire `--release` flow without producing any side effects (no tag, 
 python3 .wavefoundry/framework/scripts/build_pack.py --version <X.Y.Z> --release-dry-run
 ```
 
-This validates pre-flight checks, builds the zip, runs the post-build assertion, and prints the `git`/`gh` commands that *would* execute. Use this before a real `--release` if the pipeline has changed or if you want a low-risk verification.
-
-## Incompatibilities
-
-- `--release` + `--skip-framework-index` is refused. The whole point of `--release` is to ship the framework index that CI cannot build; combining them would publish the exact regression-shape zip the flag exists to prevent.
+This validates pre-flight checks, builds the zip, and prints the `git`/`gh` commands that *would* execute. Use this before a real `--release` if the pipeline has changed or if you want a low-risk verification.
 
 ## Recovery — when a step fails partway
 
@@ -66,4 +61,4 @@ Each step prints a recovery command in its error message. Common cases:
 
 There is no CI workflow that publishes releases. The release happens entirely on the maintainer's machine via `build_pack.py --release`. CI (when it exists for PR-tests) is scoped to running tests + lint on PRs and pushes; it has no role in publishing.
 
-The historical `.github/workflows/release.yml` workflow was removed in wave `1p347` because it shipped a strictly worse artifact (no framework index, since CI lacked `numpy`/`fastembed`/`lancedb`). The maintainer's local build was always the better artifact; `--release` makes it the official one.
+The historical `.github/workflows/release.yml` workflow was removed in wave `1p347`. The maintainer's local build is the canonical release artifact; `--release` makes it the official one.

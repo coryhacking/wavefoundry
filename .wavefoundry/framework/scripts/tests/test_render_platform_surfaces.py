@@ -737,6 +737,17 @@ class HookReindexDetachTests(unittest.TestCase):
     def setUp(self):
         self.mod = _load_render_module()
 
+    def test_docs_lint_hook_is_bounded_and_advisory_on_timeout(self):
+        # Wave 1p9bg: maybe_docs_lint must bound the docs-lint subprocess with a configurable timeout
+        # and treat a TimeoutExpired as ADVISORY (not blocking) so it can never hang the post-edit hook.
+        src = self.mod.hook_helpers()
+        self.assertIn("docs_lint_hook_timeout_seconds", src, "docs-lint hook must read the configurable timeout")
+        self.assertIn("timeout=timeout_s", src, "docs-lint spawn must pass the timeout through run_command")
+        self.assertIn("subprocess.TimeoutExpired", src, "docs-lint hook must catch a timeout")
+        # run_command must accept + forward a timeout to both the isolated and fallback spawn paths.
+        self.assertIn("def run_command(argv: list[str], timeout=None)", src)
+        self.assertIn("timeout=timeout", src)
+
     def test_post_edit_reindex_spawn_has_per_os_detach_branch(self):
         src = self.mod.hook_helpers()
         self.assertIn('os.name == "nt"', src, "hook_helpers: missing the per-OS detach branch")
@@ -816,7 +827,12 @@ class HookReindexDetachTests(unittest.TestCase):
             body = getattr(self.mod, fname)()
             self.assertIn("hook_python()", body, f"{fname} must launch python via hook_python()")
         # The docs-lint launch lives in hook_helpers() (shared into post-edit/cursor bodies).
-        self.assertIn("run_command([hook_python(), str(docs_lint)])", self.mod.hook_helpers())
+        # Wave 1p9bg: the call carries a bounded timeout (`, timeout=timeout_s`).
+        # Wave 1p9c1: the post-edit call runs INCREMENTALLY (`--changed`); the full gate omits the flag.
+        self.assertIn(
+            'run_command([hook_python(), str(docs_lint), "--changed"], timeout=timeout_s)',
+            self.mod.hook_helpers(),
+        )
         # simulate-hooks body: no shared helpers (include_helpers=False) → inline guarded windowless.
         sim = self.mod.claude_simulate_hooks_source()
         self.assertIn("windowless_pythonw()", sim,

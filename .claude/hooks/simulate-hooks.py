@@ -38,14 +38,24 @@ def main(argv: list[str]) -> int:
         return 2
     # sys.executable is the SYSTEM interpreter (after in-process activation, wave 1p802); the
     # spawned hook target self-activates the venv first-line, so it reaches the venv packages.
-    # An absolute path; never re-resolve a token.
+    # An absolute path; never re-resolve a token. Wave 1p8pe: prefer the console-free pythonw.exe
+    # on Windows (this dry-run spawn is input=/redirected) so it never flashes a window; this body
+    # defines no hook helpers, so resolve windowless inline with a sys.executable fallback.
     python_exec = sys.executable
-    result = subprocess.run(
+    try:
+        import subprocess_util as _wf_subprocess_util
+        _wf_pythonw = _wf_subprocess_util.windowless_pythonw()
+        if _wf_pythonw is not None:
+            python_exec = _wf_pythonw
+    except Exception:
+        pass
+    result = subprocess.run(  # wave 1p8gu: inline no-window flag so the isolation guard sees it
         [python_exec, str(target)],
         cwd=REPO_ROOT,
         input=payload,
         text=True,
         check=False,
+        creationflags=(getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0),
     )
     return result.returncode
 

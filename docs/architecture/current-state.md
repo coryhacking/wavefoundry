@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-08
+Last verified: 2026-07-01
 
 ## Runtime Topology
 
@@ -14,7 +14,7 @@ Developer/agent
   ├── python3 .wavefoundry/framework/scripts/lifecycle_id.py  →  docs/workflow-config.json (read)
   ├── python3 .wavefoundry/framework/scripts/docs_lint.py      →  docs/ tree (read)
   ├── python3 .wavefoundry/framework/scripts/docs_gardener.py  →  docs/ tree (read/write metadata)
-  ├── python3 .wavefoundry/framework/scripts/build_pack.py     →  .wavefoundry/framework/VERSION (write), .wavefoundry/framework/index/ (write), wavefoundry-*.zip (write)
+  ├── python3 .wavefoundry/framework/scripts/build_pack.py     →  .wavefoundry/framework/VERSION (write), wavefoundry-*.zip (write, source-only)
   ├── python3 .wavefoundry/framework/scripts/render_platform_surfaces.py  →  .claude/, .cursor/, .github/hooks/, .junie/mcp/, .mcp.json, .wavefoundry/bin/register-codex-mcp (write)
   ├── python3 .wavefoundry/framework/scripts/setup_wavefoundry.py / setup_index.py  →  local model cache (write/verify), .wavefoundry/index/ (write)
   └── python3 .wavefoundry/framework/scripts/dashboard_server.py [--open]  →  docs/ tree + .wavefoundry/framework/VERSION (read), .wavefoundry/dashboard-server.json (write), browser loopback session (serve)
@@ -49,7 +49,7 @@ MCP client (Claude Code, Cursor, Copilot, etc.)
               ├── wave_add_change / wave_remove_change / wave_prepare
               │       └── docs/waves/ (read/write), docs/plans/ (read/write), background index refresh request
               ├── wave_index_health / wave_index_build
-              │       └── .wavefoundry/index/ (read/write), .wavefoundry/framework/index/ (read/write), indexer.py (subprocess)
+              │       └── .wavefoundry/index/ (read/write), indexer.py (subprocess)
               ├── wave_validate / wave_garden / wave_sync_surfaces
               │       └── docs_lint.py / docs_gardener.py / render_platform_surfaces.py (subprocess)
               ├── [resources] wavefoundry://overview, wavefoundry://prompts, wavefoundry://architecture/current-state
@@ -82,8 +82,8 @@ setup_wavefoundry.py --root .
 
 build_pack.py
   ├── stamps .wavefoundry/framework/VERSION
-  ├── rebuilds .wavefoundry/framework/index/ for packaged framework docs/seeds
-  └── writes wavefoundry-MAJOR.MINOR.PATCH.<build>.zip under ~/.wavefoundry/dist/ including framework/index/
+  └── writes wavefoundry-MAJOR.MINOR.PATCH.<build>.zip (framework source only) under ~/.wavefoundry/dist/
+      (wave 1p4ww removed the separate framework index; framework seeds fold into the project docs index at setup/upgrade)
 
 dashboard_server.py
   ├── reads docs/workflow-config.json dashboard settings

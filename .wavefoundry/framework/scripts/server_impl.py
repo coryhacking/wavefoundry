@@ -889,6 +889,11 @@ class WaveIndex:
     #   - fastembed not installed          → IndexNotReadyError
     #   - model not locally cached         → SemanticModelUnavailableOfflineError
     #   - Both are caught by docs_search   → lexical fallback, mode="lexical" in response
+    #
+    # Wave 1p935/1p936: when the index's recorded model_versions class for this layer is "int8",
+    # the query embedder is the accel CPU-INT8 StaticShapeEmbedder (not fastembed) — matching the
+    # precision the index was actually built at, regardless of the CURRENT machine's own
+    # classification. "full" (FP16/FP32/legacy-unrecorded) is unchanged fastembed-resident.
     # ------------------------------------------------------------------
     def _get_embedder(self, model_name: str):
         # Wave 1p4wy: per-process embedder cache (mirrors ``_get_reranker``). On the
@@ -907,6 +912,49 @@ class WaveIndex:
             cached = self._embedders.get(model_name)
             if cached is not None:
                 return cached
+
+            # Wave 1p935/1p936: pick the query embedder's precision from the INDEX's recorded
+            # class (model_versions), not the current machine's classification — so query and
+            # index precision agree even when they differ (e.g. this query ran on a different
+            # host than the one that built the index). Only INT8 diverges from the plain
+            # fastembed-resident path below; "full" (FP16/FP32/legacy-unrecorded) is unchanged.
+            docs_model = self._indexer_constant("DOCS_MODEL")
+            code_model = self._indexer_constant("CODE_MODEL")
+            layer = "docs" if model_name == docs_model else "code" if model_name == code_model else None
+            recorded_version = None
+            if layer is not None:
+                # getattr: a bypass-constructed instance (e.g. WaveIndex.__new__ in tests) may
+                # not have run __init__, so ``_meta`` might not exist as an attribute at all.
+                meta = getattr(self, "_meta", None) or {}
+                model_versions = (meta.get("project") or {}).get("model_versions") or {}
+                recorded_version = model_versions.get(layer)
+            precision_class_from_version = self._indexer_constant("_precision_class_from_version")
+            if precision_class_from_version(recorded_version) == "int8":
+                try:
+                    import accel_embedder
+                except Exception:
+                    accel_embedder = None
+                if accel_embedder is not None:
+                    try:
+                        # Construct StaticShapeEmbedder directly rather than going through
+                        # make_embedder(): the precision decision is already made (from the
+                        # index's recorded class, above), so this must force CPU-INT8
+                        # unconditionally — make_embedder()'s own GPU-availability fallback
+                        # (a deliberate safety net for its indexer.py caller, wave 1p517) would
+                        # override an explicit CPU-only request back to GPU on a machine that
+                        # also has a GPU, which is exactly the cross-machine mismatch this
+                        # precision-from-index-version logic exists to prevent.
+                        with self._offline_model_env():
+                            accel = accel_embedder.StaticShapeEmbedder(model_name, ["CPUExecutionProvider"])
+                    except Exception:
+                        accel = None
+                    if accel is not None:
+                        self._embedders[model_name] = accel
+                        return accel
+                    # INT8 build unavailable (e.g. not cached, offline) — fall through to the
+                    # fastembed full-precision path below rather than raising; a degraded but
+                    # usable query beats no query (residual risk noted in change 1p936 Risks).
+
             try:
                 from fastembed import TextEmbedding
             except ImportError:
@@ -982,7 +1030,12 @@ class WaveIndex:
             if accel_embedder is not None:
                 try:
                     RERANKER_MODEL = self._indexer_constant("RERANKER_MODEL")
-                    reranker = accel_embedder.make_reranker(RERANKER_MODEL, [])
+                    # Wave 1p937: pass the SAME resolved provider list the embedder dispatch uses
+                    # (indexer._onnx_providers()) instead of an empty list, so the reranker's
+                    # GPU-vs-CPU (FP16-vs-INT8) selection keys off the same classification as the
+                    # embedder — one machine classification drives the whole pipeline (ADR 1p92d).
+                    onnx_providers = self._indexer_constant("_onnx_providers")
+                    reranker = accel_embedder.make_reranker(RERANKER_MODEL, onnx_providers())
                 except Exception:
                     reranker = None
             if reranker is None:
@@ -4784,10 +4837,46 @@ def _background_refresh_active(state_path: Path) -> bool:
     return False
 
 
+# Wave 1p98u: the long-lived MCP server spawns detached background index builds (below) with
+# start_new_session=True, which detaches them from the controlling terminal/process group but does
+# NOT reparent them — so a finished build lingers as a zombie parented to the still-running server
+# until reaped. That stale defunct PID then made the index-build lock read as "live" and blocked
+# every later build. Track the PIDs we launch and reap the finished ones on the next spawn. POSIX-only:
+# Windows detached processes (DETACHED_PROCESS) do not create zombies and os.waitpid is not applicable.
+_BACKGROUND_BUILD_PIDS: set[int] = set()
+
+
+def _register_background_build_pid(pid: int) -> None:
+    if os.name == "nt" or not isinstance(pid, int) or pid <= 0:
+        return
+    _BACKGROUND_BUILD_PIDS.add(pid)
+
+
+def _reap_background_build_pids() -> None:
+    """Reap finished server-launched background builds so they don't linger as zombies.
+
+    POSIX-only. Only ever waits on PIDs this server launched; a PID that is not our child (already
+    reaped/reparented) raises ChildProcessError, treated as gone. Never blocks (WNOHANG); a
+    still-running child stays registered for a later sweep."""
+    if os.name == "nt":
+        return
+    for pid in list(_BACKGROUND_BUILD_PIDS):
+        try:
+            ended_pid, _ = os.waitpid(pid, os.WNOHANG)
+        except (ChildProcessError, OSError):
+            _BACKGROUND_BUILD_PIDS.discard(pid)  # not our child / already reaped / gone
+            continue
+        if ended_pid == pid:
+            _BACKGROUND_BUILD_PIDS.discard(pid)  # reaped — no longer a zombie
+
+
 def _start_background_index_refresh(root: Path, layer: str = "project") -> bool:
     # Wave 1p4ww: single project index — the framework layer is folded in.
     if layer != "project":
         return False
+    # Wave 1p98u: reap any prior finished background builds before launching another, so server-owned
+    # zombies don't accumulate across a session (each new refresh sweeps the previous ones).
+    _reap_background_build_pids()
     state_path = _background_refresh_state_path(root, layer)
     state_path.parent.mkdir(parents=True, exist_ok=True)
     if _background_refresh_active(state_path):
@@ -4820,6 +4909,9 @@ def _start_background_index_refresh(root: Path, layer: str = "project") -> bool:
         **detach_kwargs,
     )
     import time
+    # Wave 1p98u: track this server-launched build so a later spawn reaps it once it exits (POSIX),
+    # instead of leaving a defunct PID that makes the index-build lock read as "live".
+    _register_background_build_pid(proc.pid)
     state_path.write_text(
         json.dumps({"pid": proc.pid, "started_at": time.time(), "layer": layer}),
         encoding="utf-8",
@@ -4861,6 +4953,10 @@ def _trigger_background_index_refresh_for_paths(root: Path, paths: Iterable[str 
 
 _MONITOR_MIN_INTERVAL_SECONDS = 5.0
 _MONITOR_DEFAULT_INTERVAL_SECONDS = 20.0
+# Wave 1p9am: the staleness monitor is a quiet-period SAFETY NET, not a competing trigger. It polls
+# every interval (cheap) but only *acts* once editing has settled — no fresh reindex-pending marker
+# (the turn-end hook owns that) and no build finished — within this window.
+_MONITOR_DEFAULT_QUIET_PERIOD_SECONDS = 300.0
 
 
 def _index_inputs_stale(root: Path) -> bool:
@@ -4878,15 +4974,47 @@ def _index_inputs_stale(root: Path) -> bool:
 
 
 def _maybe_refresh_if_stale(root: Path) -> bool:
-    """Trigger a single-flight background refresh iff the index is stale and no
-    refresh is already in flight. Pure + directly testable. Returns True when a
-    refresh was started, False otherwise.
+    """Trigger a single-flight background refresh iff the index is stale, no refresh is already in
+    flight, AND the repo has been quiet for the quiet-period. Wave 1p9am: the monitor is a SAFETY NET,
+    not a competing trigger — it defers to the turn-end hook. It stays quiet while a `reindex-pending`
+    marker is fresh (an agent is mid-turn; the Stop hook owns the next reindex) and for `quiet_period`
+    seconds after the last build's `ended_at` (don't pile on a recent build). It fires only for drift
+    the turn-end path missed: external edits, a turn that ended without the Stop hook flushing, or a
+    non-Stop host. Pure + directly testable. Returns True when a refresh was started, False otherwise.
     """
     if not _index_inputs_stale(root):
         return False
     state_path = _background_refresh_state_path(root, "project")
     if _background_refresh_active(state_path):
         return False
+    quiet = _read_monitor_config(root).get("quiet_period_seconds", _MONITOR_DEFAULT_QUIET_PERIOD_SECONDS)
+    index_dir = root / ".wavefoundry" / "index"
+    try:
+        idx = _load_script("indexer")
+    except Exception:  # noqa: BLE001
+        idx = None
+    if idx is not None:
+        now = time.time()
+        # (a) Defer to the turn-end hook while a reindex-pending marker is FRESH (an agent is editing).
+        #     Take over only once it is older than the quiet-period (a turn ended without flushing).
+        try:
+            pending_age = idx.reindex_pending_age(index_dir)
+        except Exception:  # noqa: BLE001
+            pending_age = None
+        if pending_age is not None and pending_age < quiet:
+            return False
+        # (b) Don't pile on a recent build: stay quiet for `quiet` seconds after the last build ended.
+        try:
+            meta = idx.read_index_build_lock_metadata(index_dir / idx.INDEX_BUILD_LOCK_NAME)
+            ended_at = meta.get("ended_at") if isinstance(meta, dict) else None
+        except Exception:  # noqa: BLE001
+            ended_at = None
+        if ended_at is not None:
+            try:
+                if (now - float(ended_at)) < quiet:
+                    return False
+            except (TypeError, ValueError):
+                pass
     return _start_background_index_refresh(root, "project")
 
 
@@ -4897,6 +5025,7 @@ def _read_monitor_config(root: Path) -> dict[str, Any]:
     """
     enabled = True
     interval = _MONITOR_DEFAULT_INTERVAL_SECONDS
+    quiet = _MONITOR_DEFAULT_QUIET_PERIOD_SECONDS
     try:
         cfg = json.loads((root / "docs" / "workflow-config.json").read_text(encoding="utf-8"))
         monitor = (cfg.get("indexing") or {}).get("monitor", {})
@@ -4906,10 +5035,14 @@ def _read_monitor_config(root: Path) -> dict[str, Any]:
             raw_interval = monitor.get("interval_seconds")
             if isinstance(raw_interval, (int, float)):
                 interval = float(raw_interval)
+            raw_quiet = monitor.get("quiet_period_seconds")
+            if isinstance(raw_quiet, (int, float)):
+                quiet = float(raw_quiet)
     except Exception:  # noqa: BLE001
         pass
     interval = max(_MONITOR_MIN_INTERVAL_SECONDS, interval)
-    return {"enabled": enabled, "interval_seconds": interval}
+    quiet = max(interval, quiet)  # a quiet-period shorter than the poll interval is meaningless
+    return {"enabled": enabled, "interval_seconds": interval, "quiet_period_seconds": quiet}
 
 
 def _change_location_state(root: Path, wave_md: Path, change_id: str) -> dict[str, Any]:
@@ -5766,6 +5899,54 @@ def wave_set_handoff_response(root: Path, content: str, cache: Optional[McpRepoC
     return _attach_lint_to_response(envelope, root, "create")
 
 
+def _human_bytes(n: int) -> str:
+    units = ("B", "KB", "MB", "GB", "TB", "PB")
+    f = float(n)
+    i = 0
+    while f >= 1024.0 and i < len(units) - 1:
+        f /= 1024.0
+        i += 1
+    return f"{int(f)} {units[i]}" if i == 0 else f"{f:.1f} {units[i]}"
+
+
+def _path_size_bytes(p: Path) -> int:
+    """On-disk byte size of a file or (recursively) a directory — best-effort, never raises."""
+    try:
+        if p.is_symlink() or p.is_file():
+            return p.stat().st_size
+    except OSError:
+        return 0
+    total = 0
+    try:
+        for dirpath, _dirs, files in os.walk(p):
+            for name in files:
+                try:
+                    total += os.stat(os.path.join(dirpath, name)).st_size
+                except OSError:
+                    pass
+    except OSError:
+        pass
+    return total
+
+
+def _index_dir_size(index_dir: Path) -> Optional[dict[str, Any]]:
+    """Wave 1p9a9: total + top-level component on-disk size of the index dir. Read-only, best-effort;
+    a missing dir or any stat error yields ``None`` (never raises). The per-component breakdown
+    (``docs.lance`` / ``code.lance`` / ``graph`` / …) is what makes LanceDB bloat diagnosable."""
+    try:
+        if not index_dir.exists():
+            return None
+        components: dict[str, int] = {}
+        total = 0
+        for entry in sorted(index_dir.iterdir(), key=lambda e: e.name):
+            sz = _path_size_bytes(entry)
+            components[entry.name] = sz
+            total += sz
+    except OSError:
+        return None
+    return {"total_bytes": total, "total_human": _human_bytes(total), "components": components}
+
+
 def wave_index_health_response(index: WaveIndex) -> dict[str, Any]:
     """Return structured health status for the project index layer.
 
@@ -5859,6 +6040,30 @@ def wave_index_health_response(index: WaveIndex) -> dict[str, Any]:
                 f"Watch progress: {index.root / '.wavefoundry' / 'logs' / 'project-background-build.log'}",
                 recovery_tools=[],
                 recovery_usage="wave_index_health()",
+            )
+        )
+
+    # Wave 1p99o: surface the authoritative index-build lock status so a leftover lock file (present
+    # by design, not held) is diagnosable at a glance and agents don't misread its presence as "a build
+    # is running."
+    health["size"] = _index_dir_size(index.root / ".wavefoundry" / "index")  # wave 1p9a9
+    lock_info = _index_build_lock_info(index.root)
+    health["lock"] = lock_info
+    if (
+        lock_info.get("present")
+        and not lock_info.get("held")
+        and lock_info.get("ended_at") is None
+        and lock_info.get("started_at") is not None
+    ):
+        diagnostics.append(
+            _diagnostic(
+                "index_build_interrupted",
+                "The last index build did NOT finish cleanly (interrupted or killed) — the index may be "
+                "partial. Consider a rebuild: wave_index_build(content='all', mode='rebuild'). The lock "
+                "file is present but NOT held; do not delete it (it persists by design). Use "
+                "wave_index_build_status for the authoritative lock state.",
+                recovery_tools=["wave_index_build", "wave_index_build_status"],
+                recovery_usage="wave_index_build(content='all', mode='rebuild')",
             )
         )
 
@@ -6007,7 +6212,23 @@ def wave_audit_response(
         _install_log_text = _install_log_lib.read_install_log(root)
         if _install_log_text is not None:
             _install_rows = _install_log_lib.parse_log(_install_log_text)
-            if _install_rows and not _install_log_lib.is_complete(_install_rows):
+            if _install_log_lib.is_unparseable(_install_log_text, _install_rows):
+                # Wave 1p9bh: a present install log that parsed to ZERO rows is corrupted (typically a
+                # non-UTF-8 write mojibake'd the row separators) — surface it explicitly rather than
+                # letting it read as vacuously "complete".
+                diagnostics.append(_diagnostic(
+                    "install_log_unparseable",
+                    (
+                        "Install log present but NO rows could be parsed — likely an encoding "
+                        "corruption (e.g. it was written with a non-UTF-8 tool, so the row "
+                        "separators are mojibake). Rewrite it as UTF-8 (the install-log writer / an "
+                        "explicit `-Encoding utf8` write) and re-run wave_install_audit; do NOT treat "
+                        "the install as complete."
+                    ),
+                    recovery_tools=["wave_install_audit"],
+                    recovery_usage="wave_install_audit()",
+                ))
+            elif _install_rows and not _install_log_lib.is_complete(_install_rows):
                 diagnostics.append(_diagnostic(
                     "install_in_progress",
                     (
@@ -6192,6 +6413,37 @@ def wave_install_audit_response(root: Path, phase: Optional[int] = None) -> dict
         )
 
     rows = install_log_lib.parse_log(log_text)
+
+    # Wave 1p9bh: a present log that parsed to ZERO rows is corrupted (typically a non-UTF-8 write
+    # mojibake'd the em-dash row separators). Fail loudly here rather than sailing through CHECK 2/3 to a
+    # vacuous "complete" (the empty-input vacuous-truth defect).
+    if install_log_lib.is_unparseable(log_text, rows):
+        return _response(
+            "error",
+            {
+                "status": "unparseable_log",
+                "expected_path": str(root / install_log_lib.INSTALL_LOG_REL_PATH),
+                "next_action": (
+                    "The install log exists but no rows could be parsed — its row separators are "
+                    "likely mojibake from a non-UTF-8 write. Rewrite it as UTF-8 (the framework "
+                    "install-log writer, or an explicit `-Encoding utf8` write on Windows PowerShell), "
+                    "then re-call wave_install_audit. Do NOT treat the install as complete."
+                ),
+            },
+            diagnostics=[
+                _diagnostic(
+                    "install_log_unparseable",
+                    (
+                        "Install log present but zero rows parsed — likely an encoding corruption "
+                        "(a non-UTF-8 write mojibake'd the em-dash row separators). Rewrite as UTF-8."
+                    ),
+                    recovery_tools=["wave_install_audit"],
+                )
+            ],
+            next_tools=[],
+            usage="wave_install_audit()",
+        )
+
     scope_rows = install_log_lib.filter_phase(rows, phase)
 
     # CHECK 2 — checked-row artifact validation. Block on missing artifacts.
@@ -6369,6 +6621,144 @@ def wave_sync_surfaces_response(root: Path, mode: str = "dry_run", cache: Option
     return _attach_lint_to_response(envelope, root, mode_for_lint)
 
 
+def _wave_index_optimize_response(
+    root: Path,
+    content: str = "all",
+    rebuild_if_needed: bool = True,
+    cache: Optional[McpRepoCache] = None,
+) -> dict[str, Any]:
+    """Wave 1p9aj. Reclaim on-disk index bloat by running the tiered ladder — optimize (compact) →
+    copy-and-replace rewrite (on the Lance list-offset corruption) → full rebuild (only when a table is
+    unreadable) — over the ``docs``/``code`` Lance tables, with **no** re-embedding in the common case.
+    Returns per-table ``{tier, rows, size_before, size_after, reclaimed}`` plus a total. When
+    ``rebuild_if_needed`` and a table was unreadable (Tier 3), a full rebuild is spawned in the
+    background after the build lock is released."""
+    content_s = (content or "all").strip().lower()
+    layer_map = {"docs": ("docs",), "code": ("code",), "all": ("docs", "code"), "": ("docs", "code")}
+    tables = layer_map.get(content_s)
+    if tables is None:
+        return _response(
+            "error",
+            {"content": content, "operation": "optimize"},
+            diagnostics=[_diagnostic(
+                "invalid_arguments",
+                f"wave_index_optimize operates on the Lance tables — content must be 'docs', 'code', or "
+                f"'all' (got {content!r}). The graph index is not reclaimed this way.",
+            )],
+            next_tools=["wave_index_health"],
+            usage="wave_index_optimize(content='all')",
+        )
+    index_dir = root / ".wavefoundry" / "index"
+    idx = _load_script("indexer")
+    already_running = getattr(idx, "IndexBuildAlreadyRunning", None)
+    try:
+        results = idx.optimize_index_tables(index_dir, tuple(tables))
+    except Exception as exc:  # noqa: BLE001
+        if already_running is not None and isinstance(exc, already_running):
+            return _response(
+                "error",
+                {"content": content_s, "operation": "optimize"},
+                diagnostics=[_diagnostic(
+                    "build_skipped_lock_busy",
+                    f"A build is already running ({exc}). Call wave_index_build_status and read the "
+                    f"`lock` object; retry wave_index_optimize once `held` is false.",
+                    recovery_tools=["wave_index_build_status"],
+                    recovery_usage="wave_index_build_status()",
+                )],
+                next_tools=["wave_index_build_status"],
+                usage="wave_index_build_status()",
+            )
+        return _response(
+            "error",
+            {"content": content_s, "operation": "optimize"},
+            diagnostics=[_diagnostic("index_optimize_failed", f"Optimize failed: {exc}")],
+            next_tools=["wave_index_health"],
+            usage="wave_index_health()",
+        )
+    if not results:
+        return _response(
+            "ok",
+            {"content": content_s, "operation": "optimize", "tables": {},
+             "note": "No matching Lance tables present to optimize."},
+            next_tools=["wave_index_health"],
+            usage="wave_index_health()",
+        )
+    tables_out: dict[str, Any] = {}
+    needs_rebuild: list[str] = []
+    total_before = 0
+    total_after = 0
+    for t, res in results.items():
+        before = int(res.get("bytes_before") or 0)
+        after = int(res.get("bytes_after") or 0)
+        total_before += before
+        total_after += after
+        reclaimed = max(0, before - after)
+        tables_out[t] = {
+            "tier": res.get("tier"),
+            "rows": res.get("rows"),
+            "needs_rebuild": bool(res.get("needs_rebuild")),
+            "size_before_bytes": before,
+            "size_before": _human_bytes(before),
+            "size_after_bytes": after,
+            "size_after": _human_bytes(after),
+            "reclaimed_bytes": reclaimed,
+            "reclaimed": _human_bytes(reclaimed),
+            "error": res.get("error"),
+        }
+        if res.get("needs_rebuild"):
+            needs_rebuild.append(t)
+    if cache:
+        cache.invalidate()
+    diagnostics = []
+    rebuilt: list[str] = []
+    if needs_rebuild and rebuild_if_needed:
+        # Tier 3: a table was unreadable for a rewrite. The build lock is released now (optimize_index_tables
+        # exited its `with`), so spawn a full re-embed rebuild for each — run_index_rebuild is
+        # background + single-flight.
+        for layer in needs_rebuild:
+            try:
+                run_index_rebuild(root, content=layer, full=True, rechunk=False, layer="project")
+                rebuilt.append(layer)
+            except Exception as exc:  # noqa: BLE001
+                diagnostics.append(_diagnostic(
+                    "index_rebuild_spawn_failed",
+                    f"Table '{layer}' needs a rebuild but the rebuild spawn failed ({exc}). "
+                    f"Run wave_index_build(content='{layer}', mode='rebuild').",
+                ))
+        if rebuilt:
+            diagnostics.append(_diagnostic(
+                "index_optimize_rebuild_spawned",
+                f"Tables {rebuilt} were unreadable (Tier 3) and a full rebuild was spawned in the "
+                f"background. Poll wave_index_build_status.",
+                recovery_tools=["wave_index_build_status"],
+                recovery_usage="wave_index_build_status()",
+            ))
+    elif needs_rebuild:
+        diagnostics.append(_diagnostic(
+            "index_optimize_needs_rebuild",
+            f"Tables {needs_rebuild} were unreadable (Tier 3) and need a full rebuild. "
+            f"Run wave_index_build(content='{needs_rebuild[0]}', mode='rebuild').",
+            recovery_tools=["wave_index_build"],
+            recovery_usage=f"wave_index_build(content='{needs_rebuild[0]}', mode='rebuild')",
+        ))
+    total_reclaimed = max(0, total_before - total_after)
+    return _response(
+        "ok",
+        {
+            "content": content_s,
+            "operation": "optimize",
+            "tables": tables_out,
+            "total_reclaimed_bytes": total_reclaimed,
+            "total_reclaimed": _human_bytes(total_reclaimed),
+            "needs_rebuild": needs_rebuild,
+            "rebuild_spawned": rebuilt,
+        },
+        diagnostics=diagnostics,
+        next_tools=["wave_index_health"],
+        usage="wave_index_health()",
+    )
+
+
 def wave_index_build_response(
     root: Path,
     *,
@@ -6389,12 +6779,13 @@ def wave_index_build_response(
                     "invalid_arguments",
                     f"Unsupported mode {mode!r}. Use 'update' (incremental, changed files only), "
                     "'rechunk' (re-chunk every file but reuse embeddings by hash — only new/changed "
-                    "chunks re-embed), or 'rebuild' (full re-embed from scratch).",
-                    recovery_tools=["wave_help"],
+                    "chunks re-embed), or 'rebuild' (full re-embed from scratch). To reclaim on-disk "
+                    "bloat without re-embedding, use wave_index_optimize().",
+                    recovery_tools=["wave_index_optimize", "wave_help"],
                     recovery_usage="wave_help(goal='refresh_semantic_index')",
                 )
             ],
-            next_tools=["wave_help"],
+            next_tools=["wave_index_optimize", "wave_help"],
             usage="wave_help(goal='refresh_semantic_index')",
         )
     full = mode_s == "rebuild"
@@ -6444,8 +6835,10 @@ def wave_index_build_response(
         _failure_message = str(result.get("notice") or "Index rebuild subprocess exited early.")
         if result.get("lock_owner_pid"):
             _failure_message = (
-                f"{_failure_message} Recovery: confirm the lock holder is still running; if dead, "
-                f"remove {root}/.wavefoundry/index/index-build.lock and retry."
+                f"{_failure_message} Recovery: call wave_index_build_status and read the `lock` object — "
+                f"if `held` is true a build is running, so wait; if it is not held (stale), the lock is "
+                f"reclaimed automatically on the next build, so just retry wave_index_build. Do not "
+                f"delete the lock file — it persists by design and its presence does not mean a build is running."
             )
         diagnostics.append(_diagnostic(
             _failure_code,
@@ -6497,7 +6890,84 @@ def wave_index_build_response(
     )
 
 
+def _index_build_lock_info(root: Path) -> dict[str, Any]:
+    """Authoritative index-build lock status (wave 1p99o).
+
+    ``held`` is determined by **non-destructively testing the real OS lock**
+    (``indexer._index_build_lock_held`` — POSIX ``fcntl`` ``F_GETLK`` / native Windows momentary
+    ``msvcrt``), never from file presence. The lock FILE persists **by design** as a last-owner record,
+    so ``present: true`` does not imply a build is running — read ``held``. ``ended_at`` (best-effort,
+    written on a clean build exit) distinguishes a clean finish from an **interrupted** build (a hard
+    kill can't write it). Plain terminology only — no "zombie"."""
+    index_dir = root / ".wavefoundry" / "index"
+    lock_path = index_dir / "index-build.lock"
+    info: dict[str, Any] = {
+        "held": False,
+        "present": False,
+        "owner_pid": None,
+        "owner_cmdline": None,
+        "started_at": None,
+        "ended_at": None,
+        "note": "No index-build lock file is present; no build is running.",
+    }
+    try:
+        idx = _indexer_module()
+        present = lock_path.exists()
+        info["present"] = present
+        if not present:
+            return info
+        meta = idx.read_index_build_lock_metadata(lock_path)
+        held, holder_pid = idx._index_build_lock_held(index_dir)
+    except Exception:  # noqa: BLE001 — best-effort; status must never break
+        return info
+    meta = meta if isinstance(meta, dict) else {}
+    started_at = meta.get("started_at") if isinstance(meta.get("started_at"), (int, float)) else None
+    ended_at = meta.get("ended_at") if isinstance(meta.get("ended_at"), (int, float)) else None
+    cmdline = meta.get("cmdline") if isinstance(meta.get("cmdline"), str) else None
+    meta_pid = meta.get("pid") if isinstance(meta.get("pid"), int) else None
+    info["started_at"] = started_at
+    info["ended_at"] = ended_at
+    info["owner_cmdline"] = cmdline
+    # Prefer the kernel-reported holder PID when held (ground truth); else the last recorded owner.
+    info["owner_pid"] = holder_pid if (held and holder_pid) else meta_pid
+    info["held"] = bool(held)
+    if held:
+        info["note"] = f"A build is running (owner pid {info['owner_pid']})."
+    elif held is None:
+        info["note"] = (
+            "The lock state could not be determined; treat it as not held — the acquire-time lock is "
+            "the authority. The lock file's presence does not mean a build is running."
+        )
+    elif ended_at is not None:
+        info["note"] = (
+            "The last build finished cleanly; the lock is not held. The lock file persists as a "
+            "last-owner record — its presence does not mean a build is running."
+        )
+    elif started_at is not None:
+        info["note"] = (
+            "The last build did NOT finish cleanly (interrupted or killed) — the index may be partial; "
+            "consider a rebuild. The lock file persists by design; its presence does not mean a build "
+            "is running."
+        )
+    else:
+        info["note"] = (
+            "A lock file is present but has no recorded owner; the lock is not held. Its presence does "
+            "not mean a build is running."
+        )
+    return info
+
+
 def wave_index_build_status_response(root: Path, layer: str = "project") -> dict[str, Any]:
+    """Wrapper (wave 1p99o): attach the authoritative ``lock`` object to every return path so callers
+    ask the classifier, not the by-design-persistent lock file, whether a build is running."""
+    resp = _wave_index_build_status_response_inner(root, layer=layer)
+    data = resp.get("data")
+    if isinstance(data, dict):
+        data["lock"] = _index_build_lock_info(root)
+    return resp
+
+
+def _wave_index_build_status_response_inner(root: Path, layer: str = "project") -> dict[str, Any]:
     import time as _time
     layer_s = (layer or "").strip().lower()
     # Wave 1p4ww: single project index — the framework layer is folded in.
@@ -17145,6 +17615,10 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         or ``content='all'`` was rebuilt without ``content='graph'``). Inspect both
         signals when planning a refresh.
 
+        Index size (wave 1p9a9): the response carries a ``size`` object — ``total_bytes``,
+        ``total_human``, and a per-component ``components`` map (``docs.lance`` / ``code.lance`` /
+        ``graph`` / …) for the on-disk index — so growth and LanceDB bloat are visible without ``du``.
+
         If ``readiness_overview`` is not ``ready``, call ``wave_index_build`` to rebuild
         the missing or stale layer (e.g. ``wave_index_build(content='docs', mode='update')``).
         If the graph artifact is stale or missing, run ``wave_index_build(content='graph')``
@@ -17227,16 +17701,61 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             return bad
         return wave_index_build_response(get_handler().root, content=content, mode=mode, layer=layer, cache=get_handler().cache)
 
+    @mcp.tool(annotations=_MUTATING_TOOL)
+    def wave_index_optimize(content: str = "all", rebuild_if_needed: bool = True, **kwargs: Any) -> dict[str, Any]:
+        """Reclaim on-disk index bloat by compacting the Lance tables — **no re-embedding** in the
+        common case.
+
+        The semantic index tables (`docs.lance`, `code.lance`) accumulate on-disk bloat from incremental
+        append churn (superseded data fragments, stale FTS artifacts, old index versions). This tool runs
+        a tiered ladder over the selected tables under the index-build lock:
+
+        1. **optimize (compact)** — the normal path; reclaims fragments/versions in place.
+        2. **copy-and-replace rewrite** — when in-place optimize fails on the Lance list-offset
+           corruption bug, the table is rewritten fresh (`create_table(mode="overwrite")`), which
+           recomputes offsets from clean in-memory data and sidesteps the bug. Rebuilds the vector + FTS
+           indices. Still **no re-embedding** (reads succeed on the corrupted table).
+        3. **rebuild from scratch** — only when a table is entirely unreadable; a full re-embed rebuild
+           is spawned in the background (when `rebuild_if_needed=True`).
+
+        This is the safe way to shrink a bloated index (proven: `docs.lance` 1.6 GB → 55 MB) without the
+        minutes-long full re-embed a `wave_index_build(mode='rebuild')` costs. It also runs automatically
+        at the end of `setup` (install) and `upgrade`.
+
+        Response: per-table `{tier, rows, size_before, size_after, reclaimed}`, a `total_reclaimed`, plus
+        `needs_rebuild`/`rebuild_spawned` for any Tier-3 table. Reads `lock`-busy via `wave_index_build_status`.
+
+        Args:
+            content: `docs`, `code`, or `all` (the graph index is not reclaimed this way).
+            rebuild_if_needed: when a table is unreadable (Tier 3), spawn a full background rebuild for it.
+        """
+        bad = _ensure_no_extra_args("wave_index_optimize", kwargs)
+        if bad is not None:
+            return bad
+        return _wave_index_optimize_response(
+            get_handler().root, content=content, rebuild_if_needed=rebuild_if_needed, cache=get_handler().cache
+        )
+
     @mcp.tool(annotations=_READONLY_TOOL)
     def wave_index_build_status(layer: str = "project", **kwargs: Any) -> dict[str, Any]:
-        """Check the status of a background index build.
+        """Check the status of an index build — and whether a build lock is held.
 
         Returns state: 'running' (with pid, elapsed, progress), 'finished' (with
         elapsed time and file/chunk summary), or 'idle' (no build has been run).
+
+        Also returns a `lock` object — the AUTHORITATIVE "is a build running?" signal, from
+        non-destructively testing the real OS lock: `held` (bool), `present` (bool),
+        `owner_pid`, `owner_cmdline`, `started_at`, `ended_at`, and a plain-language `note`.
+        Read `lock.held` to tell whether a build is actually running — do NOT read
+        `.wavefoundry/index/index-build.lock` directly: that file persists BY DESIGN as a
+        last-owner record, so its presence does not mean a build is running. `ended_at`
+        distinguishes a clean finish from an interrupted build (absent ⇒ the last build was
+        killed and the index may be partial).
+
         Safe to call at any time — read-only, no side effects. Suitable for /loop polling.
 
         Args:
-            layer: `project` (default) or `framework`.
+            layer: `project` (default).
         """
         bad = _ensure_no_extra_args("wave_index_build_status", kwargs)
         if bad is not None:

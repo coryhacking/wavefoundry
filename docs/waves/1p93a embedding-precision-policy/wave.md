@@ -1,0 +1,74 @@
+# Wave Record
+
+Owner: Engineering
+Status: closed
+Last verified: 2026-06-30
+
+wave-id: `1p93a embedding-precision-policy`
+Title: Embedding Precision Policy
+
+## Objective
+
+Implement ADR `1p92d`'s embedding/reranker precision policy: a GPU machine runs the embedders + reranker at FP16 end-to-end, a CPU-bound machine runs them at INT8 end-to-end, with precision folded into `model_versions` and small incremental builds routed off the GPU pad-waste. When this wave closes, CPU-bound/low-RAM hosts get the validated ~4× memory cut (the full CPU pipeline drops ~176 MB → ~80 MB) at retrieval parity (the answer stays in top-3, 0 NL→code regressions), and the proven CoreML GPU path is preserved.
+
+## Changes
+
+Change ID: `1p935-enh gpu-cpu-precision-resolution`
+Change Status: `implemented`
+
+Change ID: `1p936-enh embedding-precision-version-key`
+Change Status: `implemented`
+
+Change ID: `1p937-enh reranker-embedder-provider-consistency`
+Change Status: `implemented`
+
+Change ID: `1p938-enh incremental-embed-cpu-routing`
+Change Status: `implemented`
+
+Change ID: `1p95j-bug lancedb-index-artifact-bloat`
+Change Status: `implemented`
+
+Change ID: `1p95u-enh version-aware-dependency-sync`
+Change Status: `implemented`
+
+Change ID: `1p98u-enh index-build-lock-zombie-lifecycle`
+Change Status: `implemented`
+
+Completed At: 2026-07-01
+
+## Wave Summary
+
+Wave `1p93a` (Embedding Precision Policy) delivered 7 changes: Provider-aware embedding precision: FP16 on GPU, INT8 on CPU, Fold embedding precision class into `model_versions` (re-embed guard), One machine classification drives embedder + reranker precision, Route small incremental embed batches to CPU (skip the 64×512 GPU pad-waste), LanceDB index-artifact bloat: full-rebuild finalize never compacts/cleans, Version-aware dependency sync: upgrade/setup installs pinned version bumps, not just missing packages, and Index-build lock zombie lifecycle: harden liveness (zombie/cmdline) + reap server-launched builds. Notable adjustments during implementation: Provider-aware embedding precision: FP16 on GPU, INT8 on CPU: Implemented all CI-verifiable scope: `StaticShapeEmbedder` dual-precision (FP16-GPU / INT8-CPU), `make_embedder` no-GPU→INT8 + GPU-no-offload→fastembed-full, query-side precision-from-index, prewarm. AC-1/2/5/6 met; AC-3/AC-4 operator-gated on real hardware.; Route small incremental embed batches to CPU (skip the 64×512 GPU pad-waste): **Bug found by a real full rebuild (operator-run):** the streaming full-rebuild path produces chunks AFTER the embedder is loaded, so `new_doc_chunks` was empty at load time — passing `len()==0` routed a FULL rebuild of 1252 files / 28,830 chunks to the CPU fastembed path, defeating GPU acceleration. Fixed: pass `n_chunks=None` for a full build (never small-route a bulk rebuild). Added a build-level regression test. Unit tests missed it because they passed `n_chunks` explicitly.; Index-build lock zombie lifecycle: harden liveness (zombie/cmdline) + reap server-launched builds: Planned. Two-part root cause: (1) `_pid_is_running` trusts `os.kill` → zombie/recycled owner reads `live` (same bug fixed for dashboard 1p654 / background-build status `server_impl.py:6636`, never applied to the index-build lock); (2) long-lived MCP server spawns background builds with `start_new_session=True` and never reaps them → zombies. Lock **file** persistence is by-design (crash-safe lazy reclaim). Operator added a hard Windows-console-safety + cross-OS constraint. Admitted mid-wave into `1p93a` by operator direction.
+
+**Changes delivered:**
+
+- **Provider-aware embedding precision: FP16 on GPU, INT8 on CPU** (`1p935-enh gpu-cpu-precision-resolution`) — 6 ACs completed. Key decisions: One arctic `CLEAN_ONNX_SOURCES` entry serves both GPU FP16 and CPU INT8 (both files in the Snowflake base repo).; Arctic CoreML path: prefer uniform `model_fp16.onnx`, but fall back to provider-conditional (resident-FP32 on CoreML) if it regresses.
+- **Fold embedding precision class into `model_versions` (re-embed guard)** (`1p936-enh embedding-precision-version-key`) — 5 ACs completed. Key decisions: Track precision **class** (`full` vs `int8`), collapsing FP16/FP32 into `full`.; Missing `@class` suffix = `full`.
+- **One machine classification drives embedder + reranker precision** (`1p937-enh reranker-embedder-provider-consistency`) — 4 ACs completed. Key decisions: Both `make_embedder` and `make_reranker` resolve GPU as `[list∩GPU] or _available_gpu_providers()` — the shared availability fallback IS the single classification. The server threads `_onnx_providers()` for intent, but the fallback is what guarantees consistency.
+- **Route small incremental embed batches to CPU (skip the 64×512 GPU pad-waste)** (`1p938-enh incremental-embed-cpu-routing`) — 5 ACs completed. Key decisions: Threshold = `STATIC_BATCH` (64): route to CPU when a run has less than one full GPU batch.; Small-N CPU path uses full-precision fastembed-resident, not INT8, on GPU machines.
+- **LanceDB index-artifact bloat: full-rebuild finalize never compacts/cleans** (`1p95j-bug lancedb-index-artifact-bloat`) — 5 ACs completed. Key decisions: Fix the build-path lifecycle (finalize compaction + reliable incremental cleanup) rather than a scheduled/background compactor.; Reclaim the working index via a fresh full rebuild, not repeated `optimize()`.
+- **Version-aware dependency sync: upgrade/setup installs pinned version bumps, not just missing packages** (`1p95u-enh version-aware-dependency-sync`) — 6 ACs completed. Key decisions: Make `_missing_in_venv` version-aware rather than wire a separate `wf setup`/dep-install step into `wave_upgrade`.; General (any pinned spec) rather than a lancedb-only guard.
+- **Index-build lock zombie lifecycle: harden liveness (zombie/cmdline) + reap server-launched builds** (`1p98u-enh index-build-lock-zombie-lifecycle`) — 8 ACs completed. Key decisions: Harden the shared `_pid_is_running`/classify chokepoint rather than each consumer.; Reap registry over double-fork/daemonize for prevention.
+## Journal Watchpoints
+
+- Serialization: `1p935` (dispatch + INT8-CPU embedder) lands first; `1p936` (precision-in-version guard) depends on it and must ship with it so INT8 never enters the stored path unguarded; `1p937` and `1p938` ride on `1p935`'s dispatch and should land with it so a half-applied state never ships a split or precision-mismatched pipeline.
+- Guard: `framework_edit_allowed` for all four (framework scripts: `accel_embedder.py` / `indexer.py` / `server_impl.py` / `setup_index.py`).
+- Watchpoint: arctic `model_fp16.onnx` on CoreML (`1p935` AC-3) is the key risk — verify single-partition + cos 1.0 on a real CoreML machine; if it regresses, keep CoreML on resident-FP32-static and scope FP16 to CUDA/DML. Operator-validated.
+- Watchpoint: the retrieval-parity AC (`1p935` AC-4) and the CoreML verification are operator-run on real models/hardware (not CI-reproducible); CI covers the dispatch/resolution with mocked providers.
+- Precision-class contract: FP16/FP32 collapse to `full`, only INT8 is distinct — `1p936` and `1p938` must both honor this so full-precision provider swaps don't trigger spurious re-embeds.
+
+## Review Evidence
+
+- wave-council-readiness: approved 2026-06-30 — READY. Four tightly-coupled, grounded changes implementing accepted ADR `1p92d` (each cites the surface map + the ADR measurements). Red-team's strongest challenge — arctic `model_fp16.onnx` regressing the proven CoreML path — is gated by `1p935` AC-3 with a provider-conditional fallback (CoreML stays resident-FP32, FP16 scoped to CUDA/DML). Other risks bounded: query/index precision mismatch (`1p936` precision-in-version + `1p935` AC-2 dual-site wiring), silent precision mixing (`1p936` re-embed guard), incremental INT8-on-GPU mismatch (`1p938` AC-4 full-precision-class no-op). Reality-checker: ACs unit-assertable via mocked providers; the hardware-dependent ones (CoreML single-partition, retrieval parity) honestly operator-gated, not vacuous. Architecture: confined to the embedding subsystem, mirrors the existing reranker INT8-CPU pattern; the two dispatch sites are a pre-existing duplication wired (not unified) — acceptable. Security: no auth/secrets/network-boundary change; INT8 ONNX from the already-used repos, cached-first. Serialization sound (A→B; C and D ride A). No blocking findings. Residual: the arctic-CoreML verification must run on real hardware before close, with the fallback ready.
+- wave-council-delivery: approved 2026-07-01 — PASS. Delivery review of all six implemented changes (`1p935`–`1p938`, `1p95j`, `1p95u`). Computational lanes clean: 0 sensors registered, secrets full-scan clean (0 findings), docs-lint ok, sensor max-severity none. Red-team found no blocking defect in the shipped code — the version-aware reinstall runs in `ensure_deps` before lancedb is imported (no in-process module-swap hazard across the three separate phase-4 setup processes); the `1p95j` incremental FTS gate fires on any real row change (no missed rebuild) with the empirically-validated optimize-first order (91M / single FTS); `1p936` stores `model@full` on GPU so the compare predicts `full` and never enters a perpetual re-embed loop (the earlier divergence is fixed via dual-site `_predicted_precision_class`). Architecture: confined to the embedding/index-build/setup subsystem; `1p95u` generalizes the pre-existing CUDA-dist `metadata.version` special case (net simplification), no boundary change. Security: reinstalls reuse the existing guarded uv/pip path (age enforcement + merged CA bundle + SSL scrub), pins are author-controlled source constants, no new trust surface. QA/reality-checker: tests substantive not vacuous — `1p95u` drives the real probe subprocess (real-dict no-churn guard) plus mocked degradation/install/chokepoint; `1p95j` 5 lifecycle tests + empirical reclaim; precision suites incl. the full-rebuild `n_chunks` guard; full suite 3,772 OK. Hardware-dependent ACs (CoreML single-partition, FP16↔INT8 retrieval parity, index reclaim) operator-run this session, honestly labelled. All scope changes operator-directed. No blocking findings.
+- operator-signoff: operator authorized closure 2026-07-01 — delivery review passed (computational lanes clean, delivery council PASS); `1p98u` AC-9 (real-hardware repeated-upgrade field check) deferred `[~]` to post-release operator verification with the `1.9.9+p98y` pack.
+
+## Review Checkpoints
+
+- **Prepare-phase Wave Council [prepare-council] — 2026-06-30: PASS** (moderator: wave-council; primer-depth: standard; seats: red-team, architecture-reviewer, security-reviewer, qa-reviewer, reality-checker, security-reviewer; rotating-seat: security-reviewer; strongest-challenge: arctic `model_fp16.onnx` could be CoreML-hostile and regress the proven resident-FP32 CoreML path — MITIGATED by `1p935` AC-3 (verify single-partition + cos 1.0) with a provider-conditional fallback that keeps CoreML on resident-FP32 and scopes FP16 to CUDA/DML; secondary challenge — query/index precision mismatch across the two dispatch sites — MITIGATED by `1p935` AC-2 dual-site wiring + `1p936` query-precision-from-`model_versions`; strongest-alternative: keep embedders full-precision on CPU and apply INT8 only to the reranker — rejected because the gold-labeled NL→code eval showed INT8 = FP16 with 0 regressions, so the ~4× memory win is free on the reranked path. Security-reviewer (rotating): no auth/secrets/network-boundary change — INT8 ONNX comes from the already-used Snowflake/Xenova repos cached-first/offline-safe, no new trust surface despite the auto-flagged heuristic.)
+- **Prepare-phase Wave Council [prepare-council] — 2026-07-01: PASS** (moderator: wave-council; primer-depth: standard; seats: red-team, architecture-reviewer, security-reviewer, qa-reviewer, reality-checker, security-reviewer; rotating-seat: security-reviewer; scope: mid-wave admission `1p98u-enh index-build-lock-zombie-lifecycle`; strongest-challenge: expanding the lock's `stale` classification (zombie + cmdline-mismatch) is a double-build hazard if it ever reclaims a lock a live builder holds, because `_index_build_lock` unlinks then opens a fresh inode and `flock` on the new inode would not see a holder on the old unlinked inode — MITIGATED because the expanded cases have definitively released the `flock` (a `Z`-defunct owner exited; a cmdline-mismatch means the original indexer died and the PID was recycled), index-build pool workers are joined before the owner exits (no inherited-fd live child outlives a zombie parent), and the implementation treats a successful `flock` acquire as the reclaim proof rather than unlink-then-recreate ahead of it (AC-3 flock-authority test); secondary challenge — a new process-state/cmdline probe or the reap flashing a Windows console — MITIGATED by routing every subprocess through the `subprocess_util` no-window/detached helpers with the console-suppression guard (AC-6) and making reaping POSIX-only; strongest-alternative: double-fork/daemonize the background spawn — rejected as too invasive to the tuned cross-OS spawn paths, since the reap registry plus init-reaping-on-server-exit bounds the leak and the detection hardening removes the symptom. Security-reviewer (rotating): reaping is `os.waitpid` on the server's own registered children only (a non-child raises `ChildProcessError`, caught), the cmdline/state scan is read-only, no new trust surface.)
+- **Prepare-phase Wave Council [prepare-council] — 2026-06-30: PASS** (moderator: wave-council; primer-depth: standard; seats: red-team, architecture-reviewer, security-reviewer, qa-reviewer, reality-checker, security-reviewer; rotating-seat: security-reviewer; scope: mid-wave admission `1p95u-enh version-aware-dependency-sync`; strongest-challenge: the version-aware check would DOWNGRADE a newer installed exact-pin (lancedb 0.34.0 → `==0.33.0`) and could churn-reinstall on false positives — MITIGATED by documenting exact-pin downgrade as the intended reproducibility contract (Decision Log), range pins leaving satisfying versions untouched, `packaging`-based specifier satisfaction over the real `REQUIRED_IMPORTS` (`1p95u` AC-5 no-churn), and a presence-only fallback for unpinned/unparseable/`packaging`-absent cases (AC-3, never regress); strongest-alternative: wire a separate dep-install step into `wave_upgrade` — rejected because phase 4 already calls `setup_index.main → ensure_deps`, so the version-aware check propagates with zero new wiring (`1p95u` AC-6 chokepoint test). Security-reviewer (rotating): no new trust surface — reinstalls reuse the existing `_install_deps` uv/pip path (package-age enforcement + `_pip_tls_env` merged CA bundle), only author-controlled `REQUIRED_IMPORTS` specs are actioned, no new external/user input despite the auto-flagged heuristic.)
+
+## Dependencies
+
+- No external wave dependencies.

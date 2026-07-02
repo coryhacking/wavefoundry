@@ -27,6 +27,23 @@ Required journal semantics:
 
 **Section order matters.** Operating Identity and Distillation come before Active Signals. The durable identity of an actor is the primary purpose of a journal; recent activity is secondary. A reader should encounter what defines this actor before they encounter what happened lately.
 
+Journal docs-lint contract (exact structure the docs gate enforces — author to these literally, not paraphrases):
+
+- **Required `##` headings, verbatim and case-sensitive** — every journal file must contain each of these headings exactly (note the capital `A` in `Retirement And Supersession`):
+  - `## Operating Identity`
+  - `## Salience Triggers`
+  - `## Active Signals`
+  - `## Distillation`
+  - `## Promotion Evidence`
+  - `## Retirement And Supersession`
+  - `## Governance`
+- **Bullets, not prose or numbered lists.** Each of those sections must contain at least one `-` bullet. A section with only prose paragraphs, or only a numbered (`1.`) list, fails the check — lead every content line under these sections with `- `.
+- **`## Operating Identity`** bullets must name the role/persona/agent, its responsibility, or its perspective (one of: role, persona, agent, responsibility, perspective, job).
+- **`## Salience Triggers`** must contain at least one salience-marker word: `critical`, `high`, `medium`, `low`, `operator`, `compaction`, `restart`, `regression`, `security`, `release`, or `trust`.
+- **`## Promotion Evidence`** must reference a stable artifact or identifier in backticks (e.g. `` `docs/references/...` ``).
+- **`## Retirement And Supersession`** must describe retirement, supersession, invalidation, or an explicit none (one of: retire, supersede, stale, replace, invalid, none).
+- **`## Governance`** must define allowed/disallowed memory, review, deletion, retirement, or sensitivity rules (one of: allowed, disallowed, sensitive, secret, credential, review, retire, delete, supersede) — and must **not** paste raw transcript content or secret values. A Governance line that *forbids* such content by name ("Do not include raw transcript content or secrets") is fine; a line that *contains* a pasted transcript or a `secret: <value>` is not.
+
 Active Watchpoints example format (every bullet must contain one of the required keywords):
 
 ```

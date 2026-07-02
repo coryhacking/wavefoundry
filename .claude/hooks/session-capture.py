@@ -19,6 +19,13 @@ import subprocess
 import sys
 from pathlib import Path
 
+# Wave 1p8gu: shared subprocess isolation (HOOK_BOOTSTRAP already put the scripts dir on
+# sys.path); guarded so the session-capture hook still loads against a transient tree.
+try:
+    import subprocess_util as _wf_subprocess_util
+except Exception:
+    _wf_subprocess_util = None
+
 
 def _find_repo_root(start: Path) -> Path | None:
     cur = start.resolve()
@@ -73,10 +80,18 @@ def _ac_progress(wave_dir: Path):
 
 def _git_dirty_count(root: Path) -> int | None:
     try:
-        out = subprocess.run(
-            ["git", "-C", str(root), "status", "--porcelain"],
-            capture_output=True, text=True, timeout=5,
-        )
+        if _wf_subprocess_util is not None:
+            out = _wf_subprocess_util.isolated_run(
+                ["git", "-C", str(root), "status", "--porcelain"],
+                capture_output=True, text=True, timeout=5,
+            )
+        else:
+            out = subprocess.run(
+                ["git", "-C", str(root), "status", "--porcelain"],
+                capture_output=True, text=True, timeout=5,
+                stdin=subprocess.DEVNULL,
+                creationflags=(getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0),
+            )
         if out.returncode != 0:
             return None
         return len([ln for ln in out.stdout.splitlines() if ln.strip()])
@@ -98,6 +113,59 @@ def _handoff_stale(root: Path, wave_dir: Path | None) -> bool | None:
         return None
 
 
+def _flush_reindex_if_pending(root: Path) -> None:
+    # Wave 1p9am: turn-end coalesced reindex. The post-edit hook now MARKS a reindex-pending
+    # sentinel per edit instead of spawning a reindex; this Stop hook flushes it ONCE per turn.
+    # If an index-worthy edit is pending and no build is live, consume the marker and spawn one
+    # detached incremental reindex. Fully fail-safe — never blocks or fails session end.
+    try:
+        import importlib.util
+        index_dir = root / ".wavefoundry" / "index"
+        indexer_path = root / ".wavefoundry" / "framework" / "scripts" / "indexer.py"
+        if not indexer_path.exists():
+            return
+        spec = importlib.util.spec_from_file_location("wavefoundry_indexer_stop", indexer_path)
+        if spec is None or spec.loader is None:
+            return
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        held, _pid = mod._index_build_lock_held(index_dir)
+        if held:
+            return  # a build is running; leave the marker for the next opportunity
+        if not mod.consume_reindex_pending(index_dir):
+            return  # nothing pending this turn
+        try:
+            mod.record_hook_reindex_spawn(index_dir)
+        except Exception:
+            pass
+        # Console-free spawn: prefer pythonw.exe on Windows (detached all-DEVNULL flasher).
+        py = sys.executable
+        if os.name == "nt":
+            cand = Path(sys.executable).with_name("pythonw.exe")
+            if cand.exists():
+                py = str(cand)
+        _detach = {}
+        if os.name == "nt":
+            _detach["creationflags"] = (
+                subprocess.DETACHED_PROCESS
+                | subprocess.CREATE_NEW_PROCESS_GROUP
+                | getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            )
+        else:
+            _detach["start_new_session"] = True
+        subprocess.Popen(
+            [py, str(indexer_path), "--root", str(root)],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            cwd=str(root),
+            close_fds=os.name != "nt",
+            **_detach,
+        )
+    except Exception:
+        pass
+
+
 def main() -> int:
     try:
         # Drain stdin so the host never blocks on the pipe; payload unused.
@@ -108,6 +176,8 @@ def main() -> int:
         root = _find_repo_root(Path(os.getcwd()))
         if root is None:
             return 0
+        # Wave 1p9am: flush the turn's coalesced reindex before capture (fail-safe, non-blocking).
+        _flush_reindex_if_pending(root)
         wave = _active_wave(root)
         lines = ["# Session capture", ""]
         if wave:

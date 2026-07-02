@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-28
+Last verified: 2026-07-01
 
 Shortcut: **`Upgrade Wavefoundry`** | Legacy: **`Upgrade wave framework`** / **`Upgrade wave context`**
 
@@ -140,12 +140,12 @@ See `docs/contributing/build-and-verification.md` **Wave framework pack upgrade 
 5. Validate upgrade-recovery tools from the upgraded MCP server:
    - `wave_audit` returns a combined `wave` + `validation` + `index` payload
    - `wave_server_info` returns the current `repo_root` and implementation version info for the attached MCP server
-   - `wave_index_build` is available for deterministic project/framework index rebuilds
+   - `wave_index_build` is available for deterministic project index rebuilds
 6. **Reload MCP, then re-index after the editing pass:** Reload the upgraded server in-process with `wave_mcp_reload()` (or `wave_upgrade` cleanup) so the new server code and rendered host config take effect — a full host restart is only needed for hosts that cannot hot-reload. The upgrade already ran an index update as its final phase; you only need a manual re-index **after** the agent editing pass changed docs:
    ```
    wave_index_build(content="docs", mode="update")                          ← project
    ```
-   Use `mode="rebuild"` after a version transition (moving to 1.6 bumps `CHUNKER_VERSION` and `GRAPH_BUILDER_VERSION` — see step 4). The framework index is shipped inside the pack; do not rebuild it during an ordinary upgrade unless the pack itself invalidated it or you are intentionally reindexing the Wavefoundry source repo. See `docs/contributing/build-and-verification.md` **Upgrade index rule**.
+   Use `mode="rebuild"` after a version transition (moving to 1.6 bumps `CHUNKER_VERSION` and `GRAPH_BUILDER_VERSION` — see step 4). There is a single project index (the framework's seeds fold into it) — no separate framework index to rebuild. See `docs/contributing/build-and-verification.md` **Upgrade index rule**.
    - If the refresh is detached or backgrounded, poll `wave_index_build_status(layer?)` until it finishes before you rely on the refreshed search state.
    - Treat the reload + post-edit re-index as part of the upgrade, not optional cleanup. Until the reload happens, the repository may still be running old MCP code or stale search state.
 7. Review diff of pack changes, hooks, `docs/prompts/`, manifests

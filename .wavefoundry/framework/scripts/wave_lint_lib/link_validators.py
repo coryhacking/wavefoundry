@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 from urllib.parse import unquote
@@ -38,7 +39,16 @@ def check_markdown_links(root: Path, path: Path) -> list[str]:
         return []
 
     stripped = _strip_code(text)
-    root_resolved = root.resolve()
+    # Wave 1p9cf: normalize the root ONCE (string level, no per-link realpath). The prior code called
+    # Path.resolve() per link — realpath stats every path component and follows symlinks, so link
+    # checking was O(link count) × per-syscall filesystem latency and timed out (>30s) on a link-dense
+    # doc on a slow filesystem (Windows / WSL2 / network). We only need to know the DECLARED link path
+    # stays inside the repo and whether the target exists — both are cheaper and, for a linter, more
+    # correct than realpath (we do not want to follow a symlink out of the repo and stat an external path).
+    # os.path.abspath is normpath(join(cwd, p)) — it matches resolve()'s absolute/cwd handling WITHOUT the
+    # per-component realpath syscalls or symlink following.
+    root_norm = os.path.abspath(str(root))
+    parent_str = str(path.parent)
 
     failures: list[str] = []
     seen: set[str] = set()
@@ -76,15 +86,15 @@ def check_markdown_links(root: Path, path: Path) -> list[str]:
             continue
         seen.add(href_path)
 
-        resolved = (path.parent / href_path).resolve()
+        # Wave 1p9cf: lexical absolutization (collapses `..`/`.`, cwd-based) instead of realpath.
+        resolved = os.path.abspath(os.path.join(parent_str, href_path))
 
-        # Skip if it escapes the repo root (shouldn't happen, but be safe).
-        try:
-            resolved.relative_to(root_resolved)
-        except ValueError:
+        # Skip if it escapes the repo root (shouldn't happen, but be safe) — a string containment check.
+        if resolved != root_norm and not resolved.startswith(root_norm + os.sep):
             continue
 
-        if not resolved.exists():
+        # A single stat (lexists: a present target — including a symlink — is not a broken link).
+        if not os.path.lexists(resolved):
             failures.append(f"{rel}: broken link → {href_path}")
 
     return failures

@@ -56,10 +56,33 @@ Guardrails:
 
 ## Persona Doc Structure
 
-Persona docs have a fixed section structure. Use only these sections:
+Persona docs-lint contract (exact structure the docs gate enforces — author to these literally):
+
+- **`Role:` / `Category:` metadata is required.** Every persona doc must carry, near the top, a `Role:` line whose value exactly matches the filename slug (`Role: <slug>` for `docs/agents/personas/<slug>.md`) and `Category: persona`. A missing `Role:` makes the persona invisible to the dashboard; the `Category:` must be exactly `persona`. Template:
+
+  ```
+  Role: <slug>
+  Category: persona
+  ```
+
+- **Required `##` headings, verbatim and case-sensitive** — every persona file must contain each of these exactly (note the lowercase after the first word in `Failure modes`, `Invocation signals`, `Operating identity`, `Salience triggers`):
+  - `## Who`
+  - `## Goals`
+  - `## Workflows`
+  - `## Failure modes`
+  - `## Invocation signals`
+  - `## Operating identity`
+  - `## Salience triggers`
+  - `## Associated journal`
+- **Bullets, not prose or numbered lists.** Each of those eight sections must contain at least one `-` bullet — lead every content line with `- `.
+- **`## Operating identity`** must describe the persona perspective or role (one of: persona, perspective, role, evaluate, protect).
+- **`## Salience triggers`** must contain at least one salience-marker word: `critical`, `high`, `medium`, `low`, `operator`, `compaction`, `restart`, `regression`, `security`, `release`, or `trust`.
+- **`## Associated journal`** must reference an existing journal file as a bullet in the exact path form `- docs/agents/journals/<slug>.md` — and that file must exist on disk (generate the persona journal per step 5 first).
+
+**Do not add a `## Scope` section.** `## Scope` is a plan/change doc concept — it describes what a wave or change covers. It has no meaning in a persona doc, which defines a user or operator role, not a delivery boundary. The docs gate rejects any persona doc that contains `## Scope`.
+
+Persona docs use only these sections (short reference):
 
 **Who** · **Goals** · **Workflows** · **Failure modes** · **Invocation signals** · **Operating identity** · **Salience triggers** · **Associated journal**
-
-**Do not add a `## Scope` section.** `## Scope` is a plan/change doc concept — it describes what a wave or change covers. It has no meaning in a persona doc, which defines a user or operator role, not a delivery boundary.
 
 **Do not include wave-id references in persona doc content.** A wave-id records when a persona was synthesized — it is synthesis metadata, not part of the persona's definition. Wave-id references belong in wave records and change docs, not in persona docs. A persona's evidence should be embedded inline in the **Who** and **Goals** sections where it is contextually useful (e.g. "Evidence: E2E fixtures distinguish admin vs. non-admin users in `apps/web/e2e/...`").

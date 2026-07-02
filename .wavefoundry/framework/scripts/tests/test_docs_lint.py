@@ -470,6 +470,42 @@ class DocsLintFixtureTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("sensitive data, raw transcript content, or low-salience routine noise", result.stderr)
 
+    def test_journal_governance_may_forbid_transcript_without_tripping(self) -> None:
+        # Wave 1p9bn: a line that FORBIDS raw transcripts (a Governance/disallowed rule) must NOT trip the
+        # disallowed-content pattern — a journal must be able to describe its own rule.
+        root = self.copy_fixture()
+        journal_doc = root / "docs/agents/journals/wave-coordinator.md"
+        journal_doc.write_text(
+            journal_doc.read_text(encoding="utf-8").replace(
+                "- No active capture beyond the fixture wave reference above.",
+                "- Do not include raw transcript content, secrets, or routine progress noise.",
+            ),
+            encoding="utf-8",
+        )
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_journal_still_rejects_a_real_transcript_line(self) -> None:
+        # The negation exemption must NOT weaken the true positive: a non-forbidding transcript line fails.
+        root = self.copy_fixture()
+        journal_doc = root / "docs/agents/journals/wave-coordinator.md"
+        journal_doc.write_text(
+            journal_doc.read_text(encoding="utf-8").replace(
+                "- No active capture beyond the fixture wave reference above.",
+                "- Full transcript of the session pasted below for reference.",
+            ),
+            encoding="utf-8",
+        )
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("raw transcript content", result.stderr)
+
     def test_agent_role_metadata_required_for_dashboard_visible_docs(self) -> None:
         root = self.copy_fixture()
         agent_doc = root / "docs/agents/code-reviewer.md"
@@ -613,9 +649,9 @@ class DocsLintFixtureTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_factor_surface_retired_lane_repo_profile_applicable_passes(self) -> None:
-        """Retired lane (empty applicable_factors) with repo-profile factors still
-        `applicable` -> PASS without falsifying the assessment. Assessed factors
-        surface only as non-blocking WARNINGS, not ERRORS."""
+        """Retired lane (empty applicable_factors) with 2+ repo-profile factors still
+        `applicable` -> PASS without falsifying the assessment, surfacing ONE consolidated
+        non-blocking WARNING (wave 1p9bp) rather than N per-factor lines."""
         root = self.copy_fixture()
         self._set_applicable_factors(root, [])
         self._write_repo_profile(
@@ -633,7 +669,33 @@ class DocsLintFixtureTests(unittest.TestCase):
         # No canonical docs required; assessed factors are non-blocking warnings.
         self.assertNotIn("ERROR:", result.stderr)
         self.assertIn("WARNING:", result.stderr)
+        # Consolidated advisory: one line, names both factors + a single actionable next step.
+        self.assertIn("is empty while docs/repo-profile.json marks 2 factors applicable", result.stderr)
+        self.assertIn("`07`", result.stderr)
+        self.assertIn("`12`", result.stderr)
+        self.assertIn("Upgrade Wavefoundry", result.stderr)
+        # The per-factor "no active review lane" phrasing is NOT used when consolidated.
+        self.assertNotIn("no active review lane", result.stderr)
+
+    def test_factor_surface_single_inactive_factor_stays_per_factor(self) -> None:
+        """Boundary (wave 1p9bp): with an empty lane set but only ONE applicable factor,
+        the single per-factor warning is already a single actionable instruction, so it is
+        NOT consolidated (the consolidation only triggers at 2+ inactive-applicable factors)."""
+        root = self.copy_fixture()
+        self._set_applicable_factors(root, [])
+        self._write_repo_profile(
+            root,
+            {"07": {"name": "Port binding", "status": "applicable", "rationale": "binds loopback ports"}},
+        )
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("ERROR:", result.stderr)
+        self.assertIn("factor `07`", result.stderr)
         self.assertIn("no active review lane", result.stderr)
+        self.assertNotIn("marks 2 factors applicable", result.stderr)
 
     def test_factor_surface_assessment_only_factor_warns_not_errors(self) -> None:
         """Assessment-only: a factor `applicable` in repo-profile but NOT in
@@ -1487,6 +1549,36 @@ class LinkValidatorUnitTests(unittest.TestCase):
         result = self._check(self._tmp, doc)
         self.assertEqual(result, [])
 
+    def test_link_check_does_not_call_path_resolve(self) -> None:
+        """Wave 1p9cf: the per-link hot loop must NOT call Path.resolve() (realpath, per-component
+        syscalls) — that was the O(links) blowup behind the field >30s timeout."""
+        import unittest.mock as mock
+        self._write("docs/other.md", "# Other\n")
+        body = "\n".join(f"- [ref{i}](other.md) and [miss{i}](missing-{i}.md)" for i in range(50))
+        doc = self._write("docs/source.md", body + "\n")
+        with mock.patch("pathlib.Path.resolve", side_effect=AssertionError("Path.resolve must not be called")) as m:
+            result = self._check(self._tmp, doc)
+        self.assertEqual(m.call_count, 0, "check_markdown_links must not call Path.resolve() per link")
+        # Behavior intact: the 50 distinct missing targets are still flagged; the resolvable one is not.
+        self.assertEqual(len(result), 50, result)
+        self.assertTrue(all("broken link" in r for r in result))
+
+    def test_root_escaping_link_is_skipped_not_flagged(self) -> None:
+        """Wave 1p9cf: a link that normalizes outside the repo root is skipped (not flagged broken) —
+        preserving the prior `relative_to(root)` escape behavior with lexical normpath containment."""
+        doc = self._write("docs/source.md", "[escape](../../../../etc/hosts)\n")
+        result = self._check(self._tmp, doc)
+        self.assertEqual(result, [], "a root-escaping link must be skipped, not reported as broken")
+
+    def test_dotdot_within_root_still_resolves(self) -> None:
+        """A `..` link that stays inside the repo is resolved normally (normpath collapses it)."""
+        self._write("docs/guide/intro.md", "# Intro\n")
+        self._write("docs/ref.md", "# Ref\n")
+        doc = self._write("docs/guide/source.md", "[up](../ref.md) and [gone](../missing.md)\n")
+        result = self._check(self._tmp, doc)
+        self.assertEqual(len(result), 1, result)
+        self.assertIn("missing.md", result[0])
+
     def test_link_inside_code_fence_is_skipped(self) -> None:
         content = "```markdown\n[Missing](no-such-file.md)\n```\n"
         doc = self._write("docs/source.md", content)
@@ -1830,6 +1922,352 @@ class SeedPrefixUniquenessCliIntegrationTests(unittest.TestCase):
             "wave_lint_lib.cli must import check_seed_prefix_uniqueness so the "
             "docs-lint pipeline auto-runs the prefix check (1p3dm AC-6)",
         )
+
+
+class IncrementalDocsLintTests(DocsLintFixtureTests):
+    """Wave 1p9c1: incremental (`--changed`) post-edit docs-lint self-detects the git working-tree
+    changed set (reusing secrets' `_get_changed_files`) and runs only the per-file validators on
+    changed docs, skipping the corpus-wide checks; a changed config file falls back to the full lint;
+    an empty/non-git changed set is a safe `ok` no-op. The authoritative full lint (no `--changed`) is
+    unchanged."""
+
+    def _cli(self):
+        import sys
+        sys.path.insert(0, str(SCRIPTS_ROOT))
+        import wave_lint_lib.cli as cli
+        return cli
+
+    def _full_args(self):
+        import argparse
+        return argparse.Namespace(
+            scan_all=False,
+            write_migration_audit=False,
+            migration_audit_path="docs/reports/wave-migration-audit.md",
+            changed=True,
+        )
+
+    def test_incremental_skips_corpus_checks_that_full_reports(self) -> None:
+        """AC-1: with a clean changed doc, incremental does NOT run a corpus-wide check (here: the
+        required-files check), while the full lint DOES report the missing required file."""
+        import unittest.mock as mock
+        root = self.copy_fixture()
+        cli = self._cli()
+        try:
+            # Introduce a corpus-wide defect: remove a required file.
+            (root / "docs/README.md").unlink()
+            clean_changed = [root / "docs/agents/journals/wave-coordinator.md"]
+            with mock.patch.object(cli, "_get_changed_files", return_value=clean_changed):
+                inc_failures, inc_warnings = cli._run_incremental_checks(root)
+            full_failures, _fw, _fi = cli._run_full_checks(root, self._full_args())
+        finally:
+            shutil.rmtree(root)
+        # Incremental: the corpus-wide required-files error is NOT reported (check skipped)…
+        self.assertFalse(
+            any("missing required" in f for f in inc_failures),
+            f"incremental must skip the corpus required-files check; got {inc_failures}",
+        )
+        # …and a clean changed journal yields no per-file failures either.
+        self.assertEqual(inc_failures, [], inc_failures)
+        # Full lint DOES report the missing required file.
+        self.assertTrue(
+            any("missing required" in f for f in full_failures),
+            f"full lint must still report the missing required file; got {full_failures}",
+        )
+
+    def test_incremental_catches_per_file_defect_in_changed_doc(self) -> None:
+        """AC-2: incremental still catches a per-file defect in a changed doc — a journal missing a
+        required section reports the same error the full lint would."""
+        import unittest.mock as mock
+        root = self.copy_fixture()
+        cli = self._cli()
+        journal = root / "docs/agents/journals/wave-coordinator.md"
+        try:
+            text = journal.read_text(encoding="utf-8")
+            self.assertIn("## Governance", text, "fixture precondition: journal has ## Governance")
+            # Rename the heading to something that does NOT contain the "## Governance" substring so the
+            # required-section check actually fires.
+            journal.write_text(text.replace("## Governance", "## Ruleset"), encoding="utf-8")
+            with mock.patch.object(cli, "_get_changed_files", return_value=[journal]):
+                inc_failures, _ = cli._run_incremental_checks(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertTrue(
+            any("missing required section `## Governance`" in f for f in inc_failures),
+            f"incremental must catch the journal's missing ## Governance; got {inc_failures}",
+        )
+
+    def test_incremental_config_change_falls_back_to_full(self) -> None:
+        """AC-3: a changed config/corpus file returns None (signal to run the full lint)."""
+        import unittest.mock as mock
+        root = self.copy_fixture()
+        cli = self._cli()
+        try:
+            changed = [root / "docs/workflow-config.json"]
+            with mock.patch.object(cli, "_get_changed_files", return_value=changed):
+                result = cli._run_incremental_checks(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertIsNone(result, "a changed config file must signal the full-lint fallback (None)")
+
+    def test_incremental_empty_and_non_doc_changed_set_is_noop(self) -> None:
+        """AC-4: an empty changed set, or one with no docs/config files, is a safe ok no-op."""
+        import unittest.mock as mock
+        root = self.copy_fixture()
+        cli = self._cli()
+        try:
+            with mock.patch.object(cli, "_get_changed_files", return_value=[]):
+                empty_result = cli._run_incremental_checks(root)
+            code_only = [root / "src/example.py"]
+            with mock.patch.object(cli, "_get_changed_files", return_value=code_only):
+                code_result = cli._run_incremental_checks(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(empty_result, ([], []), "empty changed set must be an ok no-op")
+        self.assertEqual(code_result, ([], []), "a non-doc/non-config changed set must be an ok no-op")
+
+    def test_changed_flag_on_non_git_tree_is_ok_noop_end_to_end(self) -> None:
+        """AC-4 (end-to-end): `docs_lint.py --changed` on a non-git fixture (git reports nothing) exits
+        `ok` without falling through to a whole-tree scan."""
+        root = self.copy_fixture()
+        try:
+            result = self.run_docs_lint_with_args(root, "--changed")
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("docs-lint: ok", result.stdout)
+
+
+class RelativeToRootCrossPlatformTests(unittest.TestCase):
+    """Wave 1p9cf: `relative_to_root` must return forward-slash (POSIX) relative paths on ALL platforms so
+    the validators' `rel.startswith("docs/…/")` forward-slash comparisons fire on Windows/WSL2 and lint
+    messages honor the keep-`/` directive."""
+
+    def _fn(self):
+        import sys
+        sys.path.insert(0, str(SCRIPTS_ROOT))
+        from wave_lint_lib.helpers import relative_to_root
+        return relative_to_root
+
+    def test_posix_nested_path_uses_forward_slashes(self) -> None:
+        relative_to_root = self._fn()
+        root = Path("/repo")
+        rel = relative_to_root(root, Path("/repo/docs/reports/x.md"))
+        self.assertEqual(rel, "docs/reports/x.md")
+        self.assertNotIn("\\", rel)
+        self.assertTrue(rel.startswith("docs/reports/"), "the skip-prefix comparison must match")
+
+    def test_windows_path_normalizes_to_forward_slashes(self) -> None:
+        """Deterministically exercise the Windows flavour on any host by driving the REAL
+        `relative_to_root` with `PureWindowsPath` inputs (a pure path needs no filesystem, so this runs on
+        POSIX CI). This hits production's `.relative_to(...).as_posix()` code path and FAILS against a
+        `str()` revert — which would return backslashes that silently break the `docs/…/` skip-prefix
+        comparisons on Windows/WSL2. (Wave 1p9bm pre-close review: the prior version hand-rolled the
+        transformation and never called the function, so a revert went undetected — a vacuous guard.)"""
+        from pathlib import PureWindowsPath
+        relative_to_root = self._fn()
+        rel = relative_to_root(PureWindowsPath(r"C:\repo"), PureWindowsPath(r"C:\repo\docs\reports\x.md"))
+        self.assertEqual(rel, "docs/reports/x.md")
+        self.assertNotIn("\\", rel)
+        self.assertTrue(rel.startswith("docs/reports/"), "the skip-prefix comparison must match on Windows")
+        # Regression guard: the pre-1p9cf `str()` behavior would produce backslashes here that break the skip.
+        old = str(PureWindowsPath(r"C:\repo\docs\reports\x.md").relative_to(PureWindowsPath(r"C:\repo")))
+        self.assertFalse(old.startswith("docs/reports/"), "str() backslashes break the skip — must not regress to str()")
+
+
+class PerfCacheAndTimingsTests(DocsLintFixtureTests):
+    """Wave 1p9c6: a transparent `helpers.read_text` cache (keyed on `(path, st_mtime_ns, st_size)`)
+    dedupes the redundant per-run reads, and an opt-in `--timings` flag emits per-phase wall-clock
+    without changing the pass/fail or exit contract."""
+
+    def _helpers(self):
+        import sys
+        sys.path.insert(0, str(SCRIPTS_ROOT))
+        from wave_lint_lib import helpers
+        return helpers
+
+    def test_read_cache_returns_cached_content_when_stat_identity_unchanged(self) -> None:
+        """AC-1: a repeated read of a file whose (mtime_ns, size) is unchanged returns the cached content
+        without re-reading — proven by mutating the bytes to a same-length value, restoring the mtime, and
+        observing the ORIGINAL content still returned."""
+        import os
+        helpers = self._helpers()
+        tmp = Path(tempfile.mkdtemp(prefix="wave-readcache-"))
+        try:
+            f = tmp / "doc.md"
+            f.write_text("AAAA", encoding="utf-8")
+            helpers.read_text_cache_clear()
+            first = helpers.read_text(f)
+            st = f.stat()
+            # Overwrite with a DIFFERENT same-length value, then restore the mtime so the (mtime_ns, size)
+            # key is unchanged → the cache must serve the original content (i.e. it did not re-read).
+            f.write_text("BBBB", encoding="utf-8")
+            os.utime(f, ns=(st.st_atime_ns, st.st_mtime_ns))
+            self.assertEqual(f.stat().st_size, st.st_size, "precondition: same size")
+            second = helpers.read_text(f)
+        finally:
+            helpers.read_text_cache_clear()
+            shutil.rmtree(tmp)
+        self.assertEqual(first, "AAAA")
+        self.assertEqual(second, "AAAA", "cache must serve the original content when stat identity is unchanged")
+
+    def test_read_cache_invalidates_when_stat_identity_changes(self) -> None:
+        """AC-2: a file whose (mtime_ns, size) changed is re-read (no stale content)."""
+        helpers = self._helpers()
+        tmp = Path(tempfile.mkdtemp(prefix="wave-readcache-"))
+        try:
+            f = tmp / "doc.md"
+            f.write_text("AAAA", encoding="utf-8")
+            helpers.read_text_cache_clear()
+            self.assertEqual(helpers.read_text(f), "AAAA")
+            # Different length → size changes → key changes → re-read.
+            f.write_text("BBBBB", encoding="utf-8")
+            self.assertEqual(helpers.read_text(f), "BBBBB", "cache must re-read when (mtime_ns, size) changed")
+        finally:
+            helpers.read_text_cache_clear()
+            shutil.rmtree(tmp)
+
+    def test_timings_emits_per_phase_and_total_and_preserves_contract(self) -> None:
+        """AC-4: `--timings` prints TIMING per phase + total to stderr, keeps `docs-lint: ok` and exit 0;
+        absent the flag there are no TIMING lines."""
+        root = self.copy_fixture()
+        try:
+            timed = self.run_docs_lint_with_args(root, "--timings")
+            plain = self.run_docs_lint_with_args(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(timed.returncode, 0, timed.stdout + timed.stderr)
+        self.assertIn("docs-lint: ok", timed.stdout)
+        self.assertIn("TIMING: total ", timed.stderr)
+        self.assertIn("TIMING: corpus ", timed.stderr)
+        self.assertIn("TIMING: metadata ", timed.stderr)
+        self.assertIn("TIMING: links ", timed.stderr)
+        # Without the flag: identical pass + no timing lines.
+        self.assertEqual(plain.returncode, 0, plain.stdout + plain.stderr)
+        self.assertIn("docs-lint: ok", plain.stdout)
+        self.assertNotIn("TIMING:", plain.stderr)
+
+    def test_timings_is_inert_in_incremental_mode(self) -> None:
+        """AC-5: `--changed --timings` on a non-git fixture is an ok no-op with NO timing lines (the
+        incremental hot path stays quiet)."""
+        root = self.copy_fixture()
+        try:
+            result = self.run_docs_lint_with_args(root, "--changed", "--timings")
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("docs-lint: ok", result.stdout)
+        self.assertNotIn("TIMING:", result.stderr)
+
+
+class DocsLintFileSizeGuardTests(DocsLintFixtureTests):
+    """Wave 1p9cj: an oversized `docs/**` doc has its content validators skipped with a loud
+    non-blocking WARNING (never a silent skip, never a blocking ERROR), matching the secrets/indexing
+    file-size caps. Configurable via `docs_lint.max_file_bytes`, default 5 MB."""
+
+    def _set_cap(self, root: Path, cap: int) -> None:
+        config_path = root / "docs" / "workflow-config.json"
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+        dl = config.get("docs_lint")
+        if not isinstance(dl, dict):
+            dl = {}
+            config["docs_lint"] = dl
+        dl["max_file_bytes"] = cap
+        config_path.write_text(json.dumps(config, indent=2), encoding="utf-8")
+
+    def _write_oversized_broken_doc(self, root: Path, rel: str, filler_bytes: int) -> None:
+        # A doc with NO metadata (would normally fail check_metadata) + padding to exceed the cap.
+        path = root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("# Big\n\n" + ("x " * (filler_bytes // 2)) + "\n", encoding="utf-8")
+
+    def test_oversized_doc_warns_and_is_skipped_not_failed(self) -> None:
+        """AC-1/AC-2: an oversized doc that would otherwise fail a per-file check produces a size WARNING
+        (not an ERROR) and docs-lint still exits 0 — its content validators were skipped."""
+        root = self.copy_fixture()
+        try:
+            self._set_cap(root, 2048)  # 2 KB
+            self._write_oversized_broken_doc(root, "docs/huge-generated.md", 8192)  # ~8 KB, no metadata
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("docs-lint: ok", result.stdout)
+        self.assertIn("exceeds the docs-lint file-size cap", result.stderr)
+        self.assertIn("docs/huge-generated.md", result.stderr)
+        # It must be a WARNING, and NOT flagged for its missing metadata (validators were skipped).
+        self.assertIn("WARNING:", result.stderr)
+        self.assertNotIn("docs/huge-generated.md: missing or invalid", result.stderr)
+
+    def test_under_cap_doc_is_still_validated(self) -> None:
+        """Control: the SAME broken doc UNDER the cap is validated normally (its metadata error fires) —
+        proving the guard only skips genuinely oversized docs."""
+        root = self.copy_fixture()
+        try:
+            self._set_cap(root, 5 * 1024 * 1024)  # 5 MB — the small doc is well under
+            self._write_oversized_broken_doc(root, "docs/small-broken.md", 200)  # ~200 B, no metadata
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("docs/small-broken.md: missing or invalid", result.stderr)
+        self.assertNotIn("exceeds the docs-lint file-size cap", result.stderr)
+
+    def test_default_cap_produces_no_size_warnings(self) -> None:
+        """AC-4: with no override, the base fixture (all small docs) emits zero size warnings."""
+        root = self.copy_fixture()
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("exceeds the docs-lint file-size cap", result.stderr)
+
+    def test_cap_reader_override_and_fail_safe(self) -> None:
+        """AC-3: the config override is read; a malformed/missing value falls back to the 5 MB default."""
+        import sys
+        sys.path.insert(0, str(SCRIPTS_ROOT))
+        import wave_lint_lib.cli as cli
+        from wave_lint_lib.constants import DOCS_LINT_MAX_FILE_BYTES_DEFAULT
+        root = self.copy_fixture()
+        try:
+            self._set_cap(root, 123456)
+            self.assertEqual(cli._docs_lint_max_file_bytes(root), 123456)
+            # Malformed (string / bool / zero) → fallback.
+            for bad in ("nope", True, 0, -5):
+                config_path = root / "docs" / "workflow-config.json"
+                config = json.loads(config_path.read_text(encoding="utf-8"))
+                config["docs_lint"] = {"max_file_bytes": bad}
+                config_path.write_text(json.dumps(config), encoding="utf-8")
+                self.assertEqual(cli._docs_lint_max_file_bytes(root), DOCS_LINT_MAX_FILE_BYTES_DEFAULT,
+                                 f"bad value {bad!r} must fall back to default")
+        finally:
+            shutil.rmtree(root)
+
+    def test_incremental_mode_skips_oversized_changed_doc(self) -> None:
+        """Wave 1p9bm pre-close review: the file-size guard's INCREMENTAL arm (`_run_incremental_checks`,
+        previously untested — the full-lint arm alone was covered). An oversized *changed* doc is skipped
+        with a size WARNING and no per-file ERROR, mirroring the tested full-lint path; a dropped guard
+        would otherwise pull the doc through the validators silently."""
+        import sys, unittest.mock as mock
+        sys.path.insert(0, str(SCRIPTS_ROOT))
+        import wave_lint_lib.cli as cli
+        root = self.copy_fixture()
+        try:
+            self._set_cap(root, 2048)  # 2 KB
+            # An oversized journal that WOULD fail its structural checks (no required sections) if not skipped.
+            journal = root / "docs/agents/journals/huge-generated.md"
+            self._write_oversized_broken_doc(root, "docs/agents/journals/huge-generated.md", 8192)  # ~8 KB
+            with mock.patch.object(cli, "_get_changed_files", return_value=[journal]):
+                result = cli._run_incremental_checks(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertIsNotNone(result, "no config file in the changed set → incremental, not full-lint fallback")
+        failures, warnings = result
+        self.assertTrue(any("exceeds the docs-lint file-size cap" in w for w in warnings),
+                        f"expected a size WARNING; got {warnings}")
+        self.assertTrue(any("huge-generated.md" in w for w in warnings), warnings)
+        self.assertFalse(any("huge-generated.md" in f for f in failures),
+                         f"the oversized changed doc's content validators must be skipped; got {failures}")
 
 
 if __name__ == "__main__":

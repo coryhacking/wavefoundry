@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-21
+Last verified: 2026-07-01
 
 ## What This Document Covers
 
@@ -55,6 +55,53 @@ rerankers were evaluated and rejected: `gte-reranker-modernbert-base` fragments 
 `bge-reranker-base` remains resolvable (`CLEAN_ONNX_SOURCES`) for back-compat. Confidence is calibrated
 on the cross-encoder `sigmoid(logit)` scale (high ≥0.5, low <0.1), unchanged by the model swap.
 
+### Embedder precision: FP16-on-GPU / INT8-on-CPU (1p93a, ADR `1p92d`)
+
+Wave `1p93a` brings the **embedders** to the reranker's precision parity: **one per-machine
+classification drives the whole pipeline** — a machine with a working GPU runs **FP16 end-to-end**
+(embed + rerank), a CPU-bound machine (no GPU) runs **INT8 end-to-end**. Both embedders
+(`arctic-embed-xs` docs, `bge-small` code) resolve through `accel_embedder.make_embedder` →
+`StaticShapeEmbedder`, which is now dual-precision by provider (mirroring `StaticShapeReranker`):
+
+- **GPU** (CoreML/CUDA/ROCm/DirectML): the FP16 clean export (`CLEAN_ONNX_SOURCES`), static-shape
+  `64×512`, CLS-pooled + L2-normalized — the proven ~24× path. Arctic's own export is already clean
+  (no `com.microsoft` contrib ops), so its `CLEAN_ONNX_SOURCES` entry points at the base Snowflake
+  repo, which publishes **both** `model_fp16.onnx` (GPU) and `model_int8.onnx` (CPU).
+- **CPU** (no GPU): the INT8 export (`EMBEDDER_CPU_ONNX_FILE = onnx/model_int8.onnx`,
+  `_resolve_embedder_cpu_files`) on `CPUExecutionProvider`, a distinct `cpu_int8_static_…` cache key
+  so it never collides with the FP16 GPU graph. A gold-labeled NL→code eval (ADR `1p92d`) showed
+  **INT8 = FP16** recall on the reranked retrieval path (recall@1/3/5 identical, 0/30 regressions),
+  so INT8-on-CPU is retrieval-equivalent while cutting the full CPU pipeline ~176 MB → ~80 MB.
+
+A GPU machine whose specific graph doesn't offload falls back to **fastembed FULL** (not INT8) —
+INT8 is only the classification for a machine with no GPU at all, so the pipeline precision never
+splits. `make_embedder` returns `None` (→ fastembed) only when neither a GPU offload nor an INT8
+clean-export source is available. The **query** side (`server_impl.WaveIndex._get_embedder`) selects
+its precision from the **index's recorded class** (below), not the current host's classification, so
+query and index precision agree even across machines. Provider selection is resolved once
+(`indexer._onnx_providers()`) and threaded to both `make_embedder` and `make_reranker` (wave
+`1p937`), so embed and rerank precision can never diverge on the same machine.
+
+**Precision class in `model_versions` (wave `1p936`).** Each layer's `model_versions` value carries a
+precision-class suffix: `"<model>@<class>"` where `class ∈ {full, int8}`. **FP16 and FP32 collapse to
+`full`** (cos 1.0, interchangeable per `1p517` AC-8 — a GPU FP16 index and its FP32-resident CPU
+queries must not look like a precision change); only **INT8** is a distinct class. A precision-class
+change (`full ↔ int8`, e.g. moving an index from a GPU machine to a CPU-bound one) forces a full
+re-embed of that layer; a same-class provider/format swap does not. A legacy bare-name value (no
+`@class`) is treated as `full` — existing indexes are full-precision and must not spuriously rebuild
+on upgrade. The compare site (`_predicted_precision_class`) and the write site use the **same**
+predictor so a same-machine incremental build never perpetually re-embeds; `make_embedder` is
+constructed to resolve exactly what that predictor reports, so the recorded class stays truthful
+about the stored vectors.
+
+**Incremental small-batch → CPU routing (wave `1p938`).** The GPU accel embedder pins a `64×512`
+static shape and pads every call to 64 rows — optimal for a bulk index build, wasteful for the
+post-edit hook's incremental reindex of a handful of chunks. When a run on a GPU machine would embed
+fewer than `INCREMENTAL_GPU_MIN_CHUNKS` (= `STATIC_BATCH` = one full GPU batch) chunks, it routes to
+the full-precision CPU fastembed path instead (cos 1.0 with the FP16 index → same `full` class → no
+re-embed). No effect on a CPU-bound machine (no GPU session to skip). Threshold and measurement in
+ADR `1p92d`.
+
 Wave `1p4wx` **split the docs and code models** (ADR `1p50s`). Docs use the asymmetric
 `arctic-embed-xs` (best on the 45-query docs bake-off: 82% vs bge-small 67%); code stays on the
 symmetric `bge-small` (unbeaten on the 62-query code set). Both are 384-d, so there is no
@@ -74,9 +121,11 @@ none. The pipeline embeds with fastembed `.embed()`, which does **not** auto-app
   `indexer._assert_active_models_have_empty_document_prefix()`, guards that no active model declares
   a document prefix the build path would silently drop.
 
-Changing `DOCS_MODEL` trips the existing `model_versions["docs"] != DOCS_MODEL` trigger, forcing a
-docs-only re-embed; the post-edit hook's default `content='docs'` never loads the code embedder, so
-the code index is reused. The model name **is** the version — no numeric bump.
+Changing `DOCS_MODEL` trips the `model_versions["docs"]` model-name mismatch (compared on the name
+prefix, ignoring the `@class` suffix — wave `1p936`), forcing a docs-only re-embed; the post-edit
+hook's default `content='docs'` never loads the code embedder, so the code index is reused. The
+model name **is** the version — no numeric bump. A precision-class change (`full ↔ int8`) forces the
+same re-embed independently of the name (see the precision-class section above).
 
 ### Historical: BAAI/bge-base-en-v1.5 (superseded)
 
@@ -141,7 +190,7 @@ Subsequent builds are incremental: only files whose SHA-256 has changed are re-c
 
 ### Query time (`server.py` `WaveIndex`)
 
-1. `_ensure_loaded()` reads both the project index (`.wavefoundry/index/`) and the packaged framework index (`.wavefoundry/framework/index/`) and merges compatible layers
+1. `_ensure_loaded()` reads the project index (`.wavefoundry/index/`) — the single index, into which the framework seeds and README are folded (as project docs) at setup/upgrade
 2. **Compatibility check**: each layer's `meta.json` `model_versions` must match the current `DOCS_MODEL` / `CODE_MODEL` constants, and its vector matrix must have matching row count and dimension. Incompatible layers are skipped silently — no crash, no results from that layer. This is the safety net for partial or mid-upgrade states.
 3. `_embed_query()` embeds the user's query with the same model, using `local_files_only=True` and `HF_HUB_OFFLINE=1` to prevent network calls during agent sessions
 4. `_cosine_search()` computes L2-normalized dot products (cosine similarity), filters out negative scores, and returns top-n ranked chunks
@@ -213,12 +262,6 @@ rm -rf .wavefoundry/index/
 
 # Prewarm model cache and rebuild
 python3 .wavefoundry/framework/scripts/setup_index.py --root . --include-code
-```
-
-If this is a framework release, also rebuild the packaged framework index:
-
-```bash
-python3 .wavefoundry/framework/scripts/build_pack.py
 ```
 
 ### 4. Verify

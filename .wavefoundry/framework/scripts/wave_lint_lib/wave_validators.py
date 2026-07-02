@@ -116,6 +116,23 @@ def _contains_any(text: str, markers: Iterable[str]) -> bool:
     return any(marker in lowered for marker in markers)
 
 
+# Wave 1p9bm (1p9bn): a line that is FORBIDDING content (a disallowed-list / governance rule) legitimately
+# names the thing it forbids — e.g. "- Do not include raw transcript content or secrets." A journal's own
+# Governance section must be able to say what it disallows without the disallowed-pattern check firing on
+# it. These are explicit forbidding phrases (not the bare word "not", which is too broad); a real pasted
+# transcript or a real secret value is never phrased this way, so true positives are preserved.
+_DISALLOWED_NEGATION_MARKERS = (
+    "do not", "don't", "never", "must not", "should not", "no raw", "no full",
+    "avoid", "exclude", "forbid", "disallow", "prohibit", "rather than", "instead of",
+)
+
+
+def _line_forbids_content(line: str) -> bool:
+    """True when a line is describing content it FORBIDS (so a disallowed-pattern match on it is the rule,
+    not a violation)."""
+    return _contains_any(line, _DISALLOWED_NEGATION_MARKERS)
+
+
 _AC_PRIORITY_VALUES = {"required", "important", "nice-to-have", "not-this-scope"}
 # Wave 1p31b (1p32k): include `~` as a valid checkbox mark for intentionally-deferred ACs and tasks.
 # A `[~]` AC is one that was reconsidered, removed by operator direction during implementation,
@@ -331,7 +348,10 @@ def _metadata_value(text: str, key: str) -> str | None:
     return None
 
 
-def _check_agent_role_metadata(root: Path) -> list[str]:
+def _check_agent_role_metadata(root: Path, only: set[Path] | None = None, skip: set[Path] | None = None) -> list[str]:
+    """``only`` (wave 1p9c1): when provided, restrict to those paths for the incremental lint path;
+    when None the behavior is unchanged (whole-tree). ``skip`` (wave 1p9cj): exclude these paths
+    (oversized docs skipped by the file-size guard)."""
     failures: list[str] = []
     agents_root = root / "docs" / "agents"
     if not agents_root.is_dir():
@@ -340,6 +360,10 @@ def _check_agent_role_metadata(root: Path) -> list[str]:
     for rel in sorted(_AGENT_ROLE_REQUIRED_PATHS):
         path = root / rel
         if not path.is_file():
+            continue
+        if only is not None and path not in only:
+            continue
+        if skip is not None and path in skip:
             continue
         rel = relative_to_root(root, path)
         if path.name in _AGENT_ROLE_EXEMPT_NAMES:
@@ -358,6 +382,10 @@ def _check_agent_role_metadata(root: Path) -> list[str]:
         if path in seen:
             continue
         if path.name in _AGENT_ROLE_EXEMPT_NAMES or "journals" in path.parts:
+            continue
+        if only is not None and path not in only:
+            continue
+        if skip is not None and path in skip:
             continue
         rel = relative_to_root(root, path)
         text = read_text(path)
@@ -392,13 +420,20 @@ def _expected_agent_category(path: Path) -> str | None:
     return "specialist"
 
 
-def _check_agent_category_metadata(root: Path) -> list[str]:
+def _check_agent_category_metadata(root: Path, only: set[Path] | None = None, skip: set[Path] | None = None) -> list[str]:
+    """``only`` (wave 1p9c1): when provided, restrict to those paths for the incremental lint path;
+    when None the behavior is unchanged (whole-tree). ``skip`` (wave 1p9cj): exclude these paths
+    (oversized docs skipped by the file-size guard)."""
     failures: list[str] = []
     agents_root = root / "docs" / "agents"
     if not agents_root.is_dir():
         return failures
     for path in sorted(agents_root.rglob("*.md")):
         if path.name in _CATEGORY_EXEMPT_NAMES or "journals" in path.parts:
+            continue
+        if only is not None and path not in only:
+            continue
+        if skip is not None and path in skip:
             continue
         rel = relative_to_root(root, path)
         text = read_text(path)
@@ -525,12 +560,20 @@ def check_factor_surface(root: Path) -> tuple[list[str], list[str]]:
     # (d) Assessment-vs-lane drift WARNING (non-blocking): a factor assessed
     # `applicable` in repo-profile that has no active review lane. Surfaces the gap
     # for operator reconciliation without forcing doc over-generation or blocking.
+    #
+    # Wave 1p9bm (1p9bp): when the lane set is ENTIRELY empty (a fresh install that
+    # never seeded `applicable_factors`) and several factors are applicable, emit ONE
+    # consolidated advisory with a single next step instead of N near-identical per-
+    # factor warnings — the field report hit ~10 of these on every audit. When the
+    # lane set is non-empty (genuine partial drift on specific factors), keep the
+    # precise per-factor warnings so the operator sees exactly which factor drifted.
     profile_path = root / "docs" / "repo-profile.json"
     if profile_path.is_file():
         data, err = load_json(profile_path)
         if err is None and isinstance(data, dict):
             factor_review = data.get("factor_review")
             if isinstance(factor_review, dict):
+                inactive_applicable: list[str] = []
                 for factor_id, entry in sorted(factor_review.items()):
                     if not _FACTOR_ID_RE.match(str(factor_id)):
                         continue
@@ -541,15 +584,32 @@ def check_factor_surface(root: Path) -> tuple[list[str], list[str]]:
                         continue
                     if str(factor_id) in active_factors:
                         continue
+                    inactive_applicable.append(str(factor_id))
+                if not active_factors and len(inactive_applicable) >= 2:
+                    factor_list = ", ".join(f"`{fid}`" for fid in inactive_applicable)
                     warnings.append(
-                        f"docs/repo-profile.json: factor `{factor_id}` is marked "
-                        f"`applicable` (assessment) but is not in docs/workflow-config.json "
-                        f"`factor_review_policy.applicable_factors` (no active review lane) — "
-                        f"reconcile: add it to `applicable_factors` to run a lane (which "
-                        f"requires its canonical doc), or align the assessment to `partial` "
-                        f"if it is not an active lane. No canonical doc is required while it "
-                        f"is not an active lane."
+                        f"docs/workflow-config.json: `factor_review_policy.applicable_factors` "
+                        f"is empty while docs/repo-profile.json marks {len(inactive_applicable)} "
+                        f"factors applicable ({factor_list}) — no factor-review lanes are active. "
+                        f"Next step: add the factor IDs you want to run to `applicable_factors` "
+                        f"in docs/workflow-config.json (each active lane gets a generated "
+                        f"`docs/agents/factor-<nn>-<name>.md`; re-run the agent-entry-surface "
+                        f"generation, e.g. via `Upgrade Wavefoundry`), or leave it empty "
+                        f"deliberately (and align those assessments to `partial`) if this project "
+                        f"runs no factor-review lanes. No canonical docs are required while the "
+                        f"lane set is empty."
                     )
+                else:
+                    for factor_id in inactive_applicable:
+                        warnings.append(
+                            f"docs/repo-profile.json: factor `{factor_id}` is marked "
+                            f"`applicable` (assessment) but is not in docs/workflow-config.json "
+                            f"`factor_review_policy.applicable_factors` (no active review lane) — "
+                            f"reconcile: add it to `applicable_factors` to run a lane (which "
+                            f"requires its canonical doc), or align the assessment to `partial` "
+                            f"if it is not an active lane. No canonical doc is required while it "
+                            f"is not an active lane."
+                        )
 
     # (b)/(c) Validate any `.claude/agents/factor-*.md` wrappers: orphan + frontmatter.
     # These run regardless of the lane set — a malformed wrapper is always a defect.
@@ -797,10 +857,14 @@ def check_closed_wave_requirements(root: Path) -> list[str]:
     return failures
 
 
-def check_plan_filenames(root: Path) -> list[str]:
+def check_plan_filenames(root: Path, only: set[Path] | None = None, skip: set[Path] | None = None) -> list[str]:
     """Enforce that every `docs/plans/*.md` basename matches its `Change ID` (or `Wave:` for
     wave-level overview plans). Prevents slug-only plan filenames from slipping in during
-    staging before wave readiness would normally fire the staging-vs-wave check."""
+    staging before wave readiness would normally fire the staging-vs-wave check.
+
+    ``only`` (wave 1p9c1): when provided, restrict the per-file checks to those paths — used by
+    the incremental (post-edit) lint path. When None the behavior is unchanged (whole-tree).
+    ``skip`` (wave 1p9cj): exclude these paths (oversized docs skipped by the file-size guard)."""
     failures: list[str] = []
     plans_root = root / "docs/plans"
     if not plans_root.is_dir():
@@ -812,6 +876,10 @@ def check_plan_filenames(root: Path) -> list[str]:
         if not path.is_file() or path.suffix != ".md":
             continue
         if path.name in skip_names:
+            continue
+        if only is not None and path not in only:
+            continue
+        if skip is not None and path in skip:
             continue
         rel = relative_to_root(root, path)
         text = read_text(path)
@@ -864,7 +932,12 @@ def check_wave_roots(root: Path) -> list[str]:
     return failures
 
 
-def check_wave_docs(root: Path) -> list[str]:
+def check_wave_docs(root: Path, only: set[Path] | None = None, skip: set[Path] | None = None) -> list[str]:
+    """``only`` (wave 1p9c1): when provided, restrict the per-file section/status checks to those
+    paths for the incremental lint path. Note the cross-doc duplicate wave-id/item-id detection is
+    inherently corpus-wide and only meaningful in the unscoped (full) run — the incremental path
+    relies on the full gate at wave_validate/close for that. When None, behavior is unchanged.
+    ``skip`` (wave 1p9cj): exclude these paths (oversized docs skipped by the file-size guard)."""
     failures: list[str] = []
     wave_root = root / "docs/waves"
     seen_wave_ids: dict[str, str] = {}
@@ -872,6 +945,10 @@ def check_wave_docs(root: Path) -> list[str]:
     for path in sorted(wave_root.rglob("*.md")):
         rel = relative_to_root(root, path)
         if path.name == "README.md":
+            continue
+        if only is not None and path not in only:
+            continue
+        if skip is not None and path in skip:
             continue
         text = read_text(path)
         is_wave_record = path.name == "wave.md"
@@ -1048,22 +1125,36 @@ def _build_wave_inventory(root: Path) -> tuple[dict[str, str], dict[str, str]]:
     )
 
 
-def check_journal_docs(root: Path) -> list[str]:
+def check_journal_docs(root: Path, only: set[Path] | None = None, skip: set[Path] | None = None) -> list[str]:
+    """``only`` (wave 1p9c1): when provided, restrict to those paths for the incremental lint path;
+    when None the behavior is unchanged (whole-tree). ``skip`` (wave 1p9cj): exclude these paths
+    (oversized docs skipped by the file-size guard)."""
     failures: list[str] = []
     journal_root = root / "docs/agents/journals"
     for path in sorted(journal_root.rglob("*.md")):
         rel = relative_to_root(root, path)
         if path.name == "README.md":
             continue
+        if only is not None and path not in only:
+            continue
+        if skip is not None and path in skip:
+            continue
         text = read_text(path)
         sections = _extract_sections(text)
         for section in JOURNAL_REQUIRED_SECTIONS:
             if section not in text:
                 failures.append(f"{rel}: missing required section `{section}`")
-        for pattern in JOURNAL_DISALLOWED_PATTERNS:
-            if pattern.search(text):
+        # Wave 1p9bn: scan per line and EXEMPT a line that is forbidding the content — a journal's own
+        # Governance/disallowed list must be able to name what it forbids ("do not include raw transcript
+        # content") without tripping the disallowed-pattern check. A real pasted transcript/secret line is
+        # never phrased as a prohibition, so true positives are preserved.
+        for raw_line in text.splitlines():
+            if _line_forbids_content(raw_line):
+                continue
+            if any(pattern.search(raw_line) for pattern in JOURNAL_DISALLOWED_PATTERNS):
                 failures.append(
-                    f"{rel}: journal appears to capture sensitive data, raw transcript content, or low-salience routine noise"
+                    f"{rel}: journal appears to capture sensitive data, raw transcript content, or low-salience "
+                    f"routine noise (a line that is *forbidding* such content is exempt; this line is not): {raw_line.strip()[:80]!r}"
                 )
                 break
         identity = sections.get("## Operating Identity")
@@ -1078,7 +1169,8 @@ def check_journal_docs(root: Path) -> list[str]:
                 failures.append(f"{rel}: `## Salience Triggers` must include at least one bullet")
             elif not _contains_any(salience, JOURNAL_SALIENCE_MARKERS):
                 failures.append(
-                    f"{rel}: `## Salience Triggers` must mention critical/high/medium/low salience or concrete operational triggers"
+                    f"{rel}: `## Salience Triggers` — every bullet must contain a salience marker word; "
+                    f"accepted markers: {', '.join(JOURNAL_SALIENCE_MARKERS)}"
                 )
         recent = sections.get("## Active Signals")
         if recent and not _section_has_bullets(recent):
@@ -1118,12 +1210,19 @@ def check_journal_docs(root: Path) -> list[str]:
     return failures
 
 
-def check_persona_docs(root: Path) -> list[str]:
+def check_persona_docs(root: Path, only: set[Path] | None = None, skip: set[Path] | None = None) -> list[str]:
+    """``only`` (wave 1p9c1): when provided, restrict to those paths for the incremental lint path;
+    when None the behavior is unchanged (whole-tree). ``skip`` (wave 1p9cj): exclude these paths
+    (oversized docs skipped by the file-size guard)."""
     failures: list[str] = []
     persona_root = root / "docs/agents/personas"
     for path in sorted(persona_root.rglob("*.md")):
         rel = relative_to_root(root, path)
         if path.name == "README.md":
+            continue
+        if only is not None and path not in only:
+            continue
+        if skip is not None and path in skip:
             continue
         text = read_text(path)
         sections = _extract_sections(text)
@@ -1150,7 +1249,10 @@ def check_persona_docs(root: Path) -> list[str]:
             failures.append(f"{rel}: `## Operating identity` must describe the persona perspective or role")
         salience_text = sections.get("## Salience triggers", "")
         if salience_text and not _contains_any(salience_text, JOURNAL_SALIENCE_MARKERS):
-            failures.append(f"{rel}: `## Salience triggers` must include operational salience cues")
+            failures.append(
+                f"{rel}: `## Salience triggers` — every bullet must contain a salience marker word; "
+                f"accepted markers: {', '.join(JOURNAL_SALIENCE_MARKERS)}"
+            )
         journal_paths = JOURNAL_PATH_PATTERN.findall(text)
         if not journal_paths:
             failures.append(f"{rel}: persona doc must reference an associated journal path")

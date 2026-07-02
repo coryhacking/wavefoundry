@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-28
+Last verified: 2026-07-01
 
 Behavioral contract for the Wavefoundry local MCP server. This spec covers the
 tool names, response conventions, safety rules, and compatibility expectations that
@@ -24,6 +24,7 @@ Recommended first choices:
 - `wave_index_health` when you need to know whether search is ready, stale, missing, or degraded
 - `wave_index_build_status` when a background refresh or detached code build is still running and you want to poll it
 - `wave_index_build` when you need a deterministic update or rebuild
+- `wave_index_optimize` when the index has grown bloated on disk and you want to reclaim space without a full re-embed
 - `code_ask` when you want a cited natural-language answer about the codebase instead of a raw candidate list
 
 The MCP surface is a product contract. Tool names, argument semantics, response
@@ -36,8 +37,10 @@ they change.
 - Entry point: `.wavefoundry/framework/scripts/server.py`.
 - Target root: explicit `--root <path>` when provided; otherwise discovered from
 the current working directory or supported environment variables.
-- Runtime artifact root: `.wavefoundry/index/` in the target repository.
-- Packaged framework index: `.wavefoundry/framework/index/`.
+- Runtime artifact root: `.wavefoundry/index/` in the target repository — the single
+semantic index (LanceDB `docs` + `code` tables). Framework seeds and the top-level
+`README` fold into the project `docs` table at setup/upgrade; there is no separate
+packaged framework index.
 - Network: not required for normal server operation after dependencies and models
 are present locally.
 
@@ -78,9 +81,10 @@ Initial core set:
 | `wave_validate`      | Run docs validation and return structured results                                               |
 | `wave_garden`        | Run docs gardening and report changed files                                                     |
 | `wave_sync_surfaces` | Regenerate agent/platform surfaces                                                              |
-| `wave_index_health`  | Check semantic index health and surface stale/missing layers                                    |
-| `wave_index_build_status` | Poll a detached background index refresh                                                    |
+| `wave_index_health`  | Check semantic index health and surface stale/missing layers; also returns a `size` object (`total_bytes`, `total_human`, and a per-component `components` map — `docs.lance`/`code.lance`/`graph`/…) for the on-disk index, so growth/bloat is visible without `du` |
+| `wave_index_build_status` | Poll a detached background index refresh; also returns a `lock` object (`held`, `present`, `owner_pid`, `owner_cmdline`, `started_at`, `ended_at`, `note`) — the **authoritative** "is a build running" signal, where `held` is determined by **testing the real OS lock** (POSIX `fcntl` `F_GETLK` / Windows momentary `msvcrt`), not the file's presence. `ended_at` distinguishes a clean finish from an interrupted build. Read `lock.held`, never the file. |
 | `wave_index_build`   | Run a synchronous index build: `**mode='update'**` (incremental) or `**mode='rebuild'**` (full) |
+| `wave_index_optimize` | Reclaim on-disk index bloat by compacting the Lance tables — tiered optimize → copy-and-replace rewrite → rebuild-if-needed, **no re-embed** in the common case. Also runs automatically at the end of install/upgrade |
 | `wave_gpu_doctor`    | Embedding-provider / GPU capability diagnostic — platform, onnxruntime, GPU detection (nvidia/apple), available ONNX providers, the provider Wavefoundry would select (+ reason/remediation), CUDA 12/13 ABI-gap. Read-only; same report as the `wf gpu-doctor` dispatcher subcommand and `setup-wavefoundry --check-gpu` |
 
 
@@ -376,7 +380,7 @@ All tools: on apply/create, request a background docs-index refresh for the new 
 
 `wave_index_health()`
 
-- Returns the semantic index health for each layer (project docs and framework docs).
+- Returns the semantic index health for the single project index (the project `docs` and `code` tables; framework seeds and the top-level `README` are folded into the project `docs` table at setup/upgrade).
 - Each layer object includes `readiness`: `missing` (sources exist but index artifacts absent),
 `stale` (hash drift vs `meta.json`), `current` (metadata and `docs.json` present and not stale),
 or `idle` (no tracked sources for that layer).
@@ -400,18 +404,24 @@ not rely on `status` to signal index absence.
 
 - Runs the semantic indexer **synchronously** for the current repo root.
 - `**mode='update'`** (default): incremental hash-based refresh of changed files only.
-- `**mode='rebuild'**`: forces a **full rebuild** of the selected `content` for that `layer`.
+- `**mode='rebuild'**`: forces a **full rebuild** of the selected `content` for the single project index/graph.
 - Response `data` includes `mode`, `index_scope` (`incremental_update` vs `full_rebuild`), and a boolean `full` mirror of the requested scope for tooling that still keys off flags. `stats.rebuild_scope` from indexer log parsing may additionally report `incremental` vs `full` for the work that actually ran.
 - `content` must be one of `docs`, `code`, or `all`.
-- `layer` must be `project` or `framework`.
-- `layer="framework"` rebuilds the packaged framework docs/seeds index at `.wavefoundry/framework/index/`.
-- `layer="framework"` currently supports `content="docs"` only.
+- Operates on the single project index/graph (`layer="project"`); framework seeds and the top-level `README` are folded into the project `docs` table at setup/upgrade, so there is no separate framework rebuild target.
 - Intended for deterministic operator or agent recovery when background freshness is not enough.
-- Successful responses include a `stats` object with indexed-file and chunk counts for the selected layer, plus `up_to_date` when the rebuild was a no-op.
-- Project-layer rebuilds must honor any repo-local `docs/workflow-config.json` `indexing.project_include_prefixes` policy so additional opted-in roots are rebuilt consistently through MCP, not just through `wf update-indexes`.
+- Successful responses include a `stats` object with indexed-file and chunk counts, plus `up_to_date` when the rebuild was a no-op.
+- Rebuilds must honor any repo-local `docs/workflow-config.json` `indexing.project_include_prefixes` policy so additional opted-in roots are rebuilt consistently through MCP, not just through `wf update-indexes`.
 - On success, the current MCP process must invalidate its loaded index state so subsequent search calls use the rebuilt files.
-- Recovery: rerun `wf update-indexes --root .`
-for the project layer, or rerun the framework-targeted `indexer.py` command if a framework-layer rebuild fails because dependencies or cached models are not ready.
+- Recovery: rerun `wf update-indexes --root .`.
+
+`wave_index_optimize(content: str = "all", rebuild_if_needed: bool = True)`
+
+- Reclaims on-disk **index bloat** by compacting the Lance tables — **no re-embedding** in the common case (the cheap alternative to `wave_index_build(mode='rebuild')`). Proven: `docs.lance` 1.6 GB → 55 MB.
+- Runs a tiered ladder under the index-build lock: (1) **optimize** (compact fragments/versions in place); (2) **copy-and-replace rewrite** when in-place optimize fails on the Lance list-offset corruption (`Max offset … exceeds length of values`, lance #7538) — the table is rewritten fresh via `create_table(mode="overwrite")` (which recomputes offsets from clean in-memory data; **never** `rename_table`, unsupported in LanceDB OSS) and its vector + FTS indices rebuilt, still with no re-embed; (3) **full rebuild** only when a table is entirely unreadable — spawned in the background when `rebuild_if_needed`.
+- `content` must be one of `docs`, `code`, or `all` (the graph index is not reclaimed this way).
+- Response `data`: per-table `{tier, rows, size_before, size_after, reclaimed}` plus `total_reclaimed`, `needs_rebuild`, and `rebuild_spawned`. A lock-busy call returns a `build_skipped_lock_busy` diagnostic pointing at `wave_index_build_status`.
+- Also runs **automatically at the end of `setup` (install) and `upgrade`** (reclaim-only), so accumulated bloat is reclaimed without an explicit call.
+- New tool ⇒ a one-time MCP reconnect is needed after upgrade for it to appear (FastMCP).
 
 `wave_scan_secrets(mode: str = "incremental")`
 
@@ -476,7 +486,7 @@ is enforced; structured diagnostics are returned for rejected paths.
 - `code_callgraph` — call-tree traversal to arbitrary depth; `depth` (default 1) and `direction` control scope; edges include `line` when the call site was located; `include_tests` (default `False`) filters test-path nodes and their edges, symmetric with `code_impact`; use for depth > 1 or when raw graph edges are more useful than the incoming/outgoing framing of `code_callhierarchy`
 - `code_impact` — upstream caller/importer blast-radius analysis; two modes: `symbol=` for graph-backed transitive caller traversal (`max_hops`, `relations`); `path=` for heuristic reverse-import scan; use before modifying a shared symbol to enumerate all affected callers and files. Graph mode returns `resolved` (bool — symbol found in the graph), with `affected` and `edges` capped at `max_results`, `edges_total` reporting the true pre-cap edge count (attribution counts are computed over the full set), and `truncated` true when either list was capped
 - `code_risk_score` — ranks the `function`/`method` symbols in a `scope=` (path, directory, or glob) by composite change-risk `risk = weighted_affected_file_count * log1p(weighted_fan_in)` (blast radius × log-dampened incoming call-degree, both **weighted by edge attribution confidence** — `EXTRACTED` heuristic edges count at `extracted_edge_weight` while `RECEIVER_RESOLVED`/`CONSTRUCTION_RESOLVED` count in full, so a ubiquitous accessor name like `getKey` can't top the rank purely on a name collision with an unrelated symbol); each result also carries raw `affected_file_count`/`fan_in`, `extracted_edge_fraction` (discount a high score when near 1.0), and `transitive_extracted_fraction` (Wave 1p7df: share of affected nodes reachable only via an `EXTRACTED`-traversing path — the blast radius's transitive confidence, now propagated along the whole path rather than the immediate hop); `fan_out` is surfaced as an independent `score_component`, not folded into `risk`; response carries `score_formula` + `score_components` so the score is transparent; `top` (default 20) caps output and `>200` candidates returns `over_candidate_cap`; **ranks many** symbols across a scope (vs `code_impact`, which sizes **one**); use before a cross-cutting change/refactor to prioritize which symbols to touch carefully. Structural (graph-derived), not git-commit churn; `risk` is a relative rank within the queried scope, not a cross-scope absolute
-- `wave_graph_report` — structural whole-graph summary; sections: `fan_in` (most-called symbols by in-degree), `fan_out` (most-calling symbols), `chokepoints` (high fan-out nodes ≥ threshold), `orphan_docs` (doc nodes with no `doc_references_code` edges), `cross_layer` (project/framework boundary edges, union layer only), `communities` (top communities by node_count with `community_id`/`label`/`hub_node_id`/`hub_label`), `betweenness` (bridge nodes by centrality; skipped on graphs > 10k nodes; carries `betweenness_computed` / `betweenness_dominated_by_generated`); use for codebase orientation and hotspot identification
+- `wave_graph_report` — structural whole-graph summary; sections: `fan_in` (most-called symbols by in-degree), `fan_out` (most-calling symbols), `chokepoints` (high fan-out nodes ≥ threshold), `orphan_docs` (doc nodes with no `doc_references_code` edges), `communities` (top communities by node_count with `community_id`/`label`/`hub_node_id`/`hub_label`), `betweenness` (bridge nodes by centrality; skipped on graphs > 10k nodes; carries `betweenness_computed` / `betweenness_dominated_by_generated`); use for codebase orientation and hotspot identification
 
 ## MCP Resources
 

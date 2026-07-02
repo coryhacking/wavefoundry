@@ -51,12 +51,20 @@ INSTALL_LOG_REL_PATH = ".wavefoundry/install-log.md"
 # ``(seed-080 + seed-090)`` and ``(seed-110 / conditional)`` — which the single-seed pattern silently
 # dropped (rows 2.2 / 2.8 never parsed → never validated). A multi-seed tag still ``startswith("seed-")``
 # so kind-detection is unchanged.
+# Wave 1p9bh: the row separators (originally required to be a literal em dash `—`) are now matched
+# ENCODING-AGNOSTICALLY — an em/en dash, a hyphen, OR mojibake (e.g. `â€"` from a non-UTF-8 PowerShell
+# write) all parse — by matching the separator as an opaque non-space token rather than a specific
+# character. The parser still anchors on the checkbox, the dotted step number, and the `(source)`
+# parenthetical, so a mis-encoded log parses instead of silently yielding ZERO rows (which then read as
+# vacuously "complete"). The six capture groups (state, number, slug, source, field, value) are
+# preserved for parse_row.
 _ROW_RE = re.compile(
     r"^\s*-\s+\[([ x~])\]\s+"
     r"(\d+(?:\.\d+)+)\s+"
-    r"—\s+(.+?)\s+"
+    r"(?:\S+\s+)?"
+    r"(.+?)\s+"
     r"\((seed-\d+(?:\s*[+/]\s*(?:seed-\d+|[A-Za-z][\w\-]*))*|verify|instruction|[A-Za-z_][\w\-]*\.py)\)"
-    r"(?:\s+—\s+(artifact|expects):\s+(.+?))?"
+    r"(?:\s+\S+\s+(artifact|expects):\s+(.+?))?"
     r"\s*$"
 )
 
@@ -293,8 +301,36 @@ def checked_rows_missing_artifact(rows: list[Row], project_root: Path) -> list[t
 
 
 def is_complete(rows: list[Row]) -> bool:
-    """True iff every row is terminal (``[x]`` or ``[~]``) — no rows pending."""
-    return all(r.is_terminal for r in rows)
+    """True iff there is at least one row AND every row is terminal (``[x]`` or ``[~]``).
+
+    Wave 1p9bh: an EMPTY list is NOT complete. Previously this was ``all(...)``, which is vacuously
+    ``True`` for zero rows — so a present-but-unparseable install log (e.g. a non-UTF-8 write mojibake'd
+    the row separators, so ``parse_log`` returned ``[]``) read as "install complete." ``read_install_log``
+    returns ``None`` when no log exists, so ``is_complete`` is only reached for a log that is present; a
+    present log with zero parseable rows is genuinely not complete."""
+    return bool(rows) and all(r.is_terminal for r in rows)
+
+
+def is_unparseable(text: Optional[str], rows: list[Row]) -> bool:
+    """Wave 1p9bh: True when an install log is PRESENT with install-log-shaped content but yielded ZERO
+    parsed rows — a strong signal of encoding corruption (e.g. a non-UTF-8 write mojibake'd the row
+    separators). The caller must surface this as an ERROR, never treat it as complete. Only flags text
+    that looks like an install log (a ``## Phase`` heading or a ``- [ ]`` checkbox line — both ASCII, so
+    they survive em-dash mojibake), not arbitrary prose or a blank file."""
+    if not text or not text.strip() or rows:
+        return False
+    return bool(_PHASE_HEADING_RE.search(text) or re.search(r"^\s*-\s+\[[ x~]\]", text, re.MULTILINE))
+
+
+def write_install_log(project_root: Path, content: str) -> Path:
+    """Wave 1p9bh: write the install log as UTF-8 (never the platform default / cp1252), so the row
+    separators survive. The framework-owned write path — agents must use this (or an explicit
+    ``-Encoding utf8`` write) rather than a bare PowerShell ``Set-Content``/``Out-File`` that would
+    mojibake the em dashes. Returns the path written."""
+    log_path = project_root / INSTALL_LOG_REL_PATH
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_path.write_text(content, encoding="utf-8", newline="")
+    return log_path
 
 
 def read_install_log(project_root: Path) -> Optional[str]:

@@ -673,9 +673,11 @@ class IndexBuildLockTests(unittest.TestCase):
         self.assertIn("reclaimed stale", err_buf.getvalue())
 
     def test_classify_index_build_lock_owner_live_and_stale(self):
-        live = self.bi.classify_index_build_lock_owner(
-            {"pid": os.getpid(), "started_at": time.time()}
-        )
+        # Wave 1p98u: a live owner is a running index-builder process (not merely os.kill-alive).
+        with patch.object(self.bi, "_pid_is_index_builder", return_value=True):
+            live = self.bi.classify_index_build_lock_owner(
+                {"pid": os.getpid(), "started_at": time.time()}
+            )
         self.assertEqual(live, "live")
         stale = self.bi.classify_index_build_lock_owner(
             {"pid": 99999999, "started_at": 0.0}
@@ -727,7 +729,8 @@ class IndexBuildLockTests(unittest.TestCase):
             json.dumps({"pid": os.getpid(), "started_at": time.time()}),
             encoding="utf-8",
         )
-        live_msg = self.bi.format_index_build_lock_conflict(self.index_dir)
+        with patch.object(self.bi, "_pid_is_index_builder", return_value=True):
+            live_msg = self.bi.format_index_build_lock_conflict(self.index_dir)
         self.assertIn("live build in progress", live_msg)
 
         (self.index_dir / self.bi.INDEX_BUILD_LOCK_NAME).write_text(
@@ -743,7 +746,9 @@ class IndexBuildLockTests(unittest.TestCase):
             json.dumps({"pid": os.getpid(), "started_at": time.time()}),
             encoding="utf-8",
         )
-        self.assertTrue(self.bi.should_coalesce_hook_reindex(self.index_dir))
+        # Wave 1p98u: the live-owner coalesce path requires the owner be a running index builder.
+        with patch.object(self.bi, "_pid_is_index_builder", return_value=True):
+            self.assertTrue(self.bi.should_coalesce_hook_reindex(self.index_dir))
 
         lock_path.write_text(
             json.dumps({"pid": 99999999, "started_at": 0.0}),
@@ -752,8 +757,116 @@ class IndexBuildLockTests(unittest.TestCase):
         self.bi.record_hook_reindex_spawn(self.index_dir)
         self.assertTrue(self.bi.should_coalesce_hook_reindex(self.index_dir))
 
-        time.sleep(self.bi.HOOK_REINDEX_DEBOUNCE_SECONDS + 0.05)
+        # Wave 1p9am: the debounce is now 45s — backdate the last-spawn marker past the window rather
+        # than sleeping it out.
+        (self.index_dir / self.bi.HOOK_REINDEX_LAST_SPAWN_NAME).write_text(
+            str(time.time() - self.bi.HOOK_REINDEX_DEBOUNCE_SECONDS - 1.0), encoding="utf-8"
+        )
         self.assertFalse(self.bi.should_coalesce_hook_reindex(self.index_dir))
+
+    # ---- Wave 1p98u: zombie / recycled-PID liveness hardening ----
+
+    def test_zombie_owner_reads_not_running(self):
+        # A defunct owner (os.kill-alive but Z-state) must read as not running.
+        with patch.object(self.bi, "_process_is_zombie", return_value=True):
+            self.assertFalse(self.bi._pid_is_running(os.getpid()))
+
+    def test_zombie_owner_classifies_stale_and_reclaims(self):
+        # A zombie owner → not live → age-based stale → the existing reclaim path clears it.
+        lock_path = self.index_dir / self.bi.INDEX_BUILD_LOCK_NAME
+        lock_path.write_text(
+            json.dumps({"pid": os.getpid(), "started_at": 0.0}), encoding="utf-8"
+        )
+        with patch.object(self.bi, "_process_is_zombie", return_value=True):
+            owner = self.bi.classify_index_build_lock_owner(
+                self.bi.read_index_build_lock_metadata(lock_path)
+            )
+            self.assertEqual(owner, "stale")
+            with redirect_stderr(io.StringIO()):
+                with self.bi._index_build_lock(self.index_dir):
+                    data = json.loads(lock_path.read_text(encoding="utf-8"))
+                    self.assertEqual(data.get("pid"), os.getpid())
+
+    def test_recycled_pid_not_index_builder_is_not_live(self):
+        # A live PID whose cmdline is not an index build (recycled PID) must not read as a live build.
+        with patch.object(self.bi, "_process_cmdline", return_value="/bin/bash -l"):
+            recent = self.bi.classify_index_build_lock_owner(
+                {"pid": os.getpid(), "started_at": time.time()}
+            )
+            self.assertEqual(recent, "completed")  # not live
+            old = self.bi.classify_index_build_lock_owner(
+                {"pid": os.getpid(), "started_at": 0.0}
+            )
+            self.assertEqual(old, "stale")
+
+    def test_live_index_builder_classifies_live(self):
+        with patch.object(
+            self.bi, "_process_cmdline",
+            return_value="python3 .wavefoundry/framework/scripts/indexer.py --root .",
+        ):
+            self.assertEqual(
+                self.bi.classify_index_build_lock_owner(
+                    {"pid": os.getpid(), "started_at": time.time()}
+                ),
+                "live",
+            )
+
+    def test_scan_unavailable_owner_treated_live_not_reclaimed(self):
+        # When the cmdline scan is unavailable, an alive owner stays "live" (never reclaimed → no
+        # double-build); the OS flock remains the authority.
+        with patch.object(self.bi, "_process_cmdline", return_value=None):
+            self.assertEqual(
+                self.bi.classify_index_build_lock_owner(
+                    {"pid": os.getpid(), "started_at": time.time()}
+                ),
+                "live",
+            )
+
+    def test_metadata_without_cmdline_marker_degrades_gracefully(self):
+        # Older metadata lacking the "cmdline" field must classify without crashing (liveness uses
+        # the live PID's cmdline, not the recorded marker).
+        with patch.object(self.bi, "_process_cmdline", return_value=None):
+            owner = self.bi.classify_index_build_lock_owner(
+                {"pid": os.getpid(), "started_at": time.time()}
+            )
+        self.assertEqual(owner, "live")
+
+    def test_lock_metadata_records_cmdline_marker(self):
+        lock_path = self.index_dir / self.bi.INDEX_BUILD_LOCK_NAME
+        with self.bi._index_build_lock(self.index_dir):
+            data = json.loads(lock_path.read_text(encoding="utf-8"))
+        self.assertIn("cmdline", data)
+        self.assertIsInstance(data["cmdline"], str)
+
+    def test_process_is_zombie_parses_ps_state(self):
+        def fake_run(cmd, **kw):
+            return MagicMock(returncode=0, stdout="Z\n")
+        with patch.object(self.bi, "os") as fake_os:
+            fake_os.name = "posix"
+            with patch.object(self.bi.subprocess_util, "isolated_run", side_effect=fake_run):
+                self.assertTrue(self.bi._process_is_zombie(4321))
+        with patch.object(self.bi, "os") as fake_os:
+            fake_os.name = "posix"
+            with patch.object(self.bi.subprocess_util, "isolated_run",
+                              side_effect=lambda cmd, **kw: MagicMock(returncode=0, stdout="S\n")):
+                self.assertFalse(self.bi._process_is_zombie(4321))
+
+    def test_process_is_zombie_noop_on_windows(self):
+        with patch.object(self.bi, "os") as fake_os:
+            fake_os.name = "nt"
+            with patch.object(self.bi.subprocess_util, "isolated_run") as run:
+                self.assertFalse(self.bi._process_is_zombie(4321))
+                run.assert_not_called()
+
+    def test_liveness_probes_route_through_windowless_helper(self):
+        # AC-6: process probes must use subprocess_util.isolated_run (windowless), never bare subprocess.
+        captured = {}
+        def fake_run(cmd, **kw):
+            captured["cmd"] = cmd
+            return MagicMock(returncode=0, stdout="python indexer.py --root .")
+        with patch.object(self.bi.subprocess_util, "isolated_run", side_effect=fake_run):
+            self.bi._process_cmdline(4321)
+        self.assertIn("cmd", captured)
 
 
 class IncrementalBuildTests(unittest.TestCase):
@@ -818,7 +931,7 @@ class IncrementalBuildTests(unittest.TestCase):
         (self.root / "docs" / "guide.md").write_text("## Intro\n\nHello changed now.\n", encoding="utf-8")
         requested: list[str] = []
 
-        def spy(model):
+        def spy(model, n_chunks=None):
             requested.append(model)
             return _make_embedder_mock(dim=4)
 
@@ -837,7 +950,7 @@ class IncrementalBuildTests(unittest.TestCase):
         (self.root / "src" / "foo.py").write_text("def f():\n    return 42\n", encoding="utf-8")
         requested: list[str] = []
 
-        def spy(model):
+        def spy(model, n_chunks=None):
             requested.append(model)
             return _make_embedder_mock(dim=4)
 
@@ -854,7 +967,7 @@ class IncrementalBuildTests(unittest.TestCase):
         })
         requested: list[str] = []
 
-        def spy(model):
+        def spy(model, n_chunks=None):
             requested.append(model)
             return _make_embedder_mock(dim=4)
 
@@ -967,7 +1080,11 @@ class IncrementalBuildTests(unittest.TestCase):
                         "docs-model change must re-embed the docs layer")
         # meta now records the current docs model; code model untouched.
         meta_after = json.loads((index_dir / "meta.json").read_text())
-        self.assertEqual(meta_after["model_versions"]["docs"], self.bi.DOCS_MODEL)
+        # Wave 1p936: model_versions now carries a precision-class suffix ("@full" or "@int8"). The
+        # class is machine-dependent (a CPU-bound box with the INT8 export cached records "@int8";
+        # a GPU box or a box without the INT8 source records "@full"), so assert the MODEL-NAME
+        # prefix, not the exact class.
+        self.assertEqual(meta_after["model_versions"]["docs"].split("@", 1)[0], self.bi.DOCS_MODEL)
         self.assertEqual(meta_after["model_versions"]["code"], self.bi.CODE_MODEL)
         # The code table files are byte-identical (never rewritten by the docs build).
         code_after = sorted(
@@ -1116,7 +1233,7 @@ class IncrementalBuildTests(unittest.TestCase):
         code_mock = _make_embedder_mock(dim=4, calls=code_calls)
         # 1p5d6: notes.custom is a pure line-window CODE file (no doc chunks), so the docs embedder
         # is not loaded for this change — map by model name rather than relying on call order.
-        def _emb(model):
+        def _emb(model, n_chunks=None):
             return docs_mock if model == self.bi.DOCS_MODEL else code_mock
         with patch.object(self.bi, "_get_embedder", side_effect=_emb):
             self.bi.build_index(self.root, full=False, content="all", verbose=False)
@@ -1824,6 +1941,123 @@ class ModelVersionChangeTests(unittest.TestCase):
         self.assertEqual(meta.get("chunker_versions", {}).get("code"), current_cv)
         self.assertIn("docs", meta.get("content", []))
         self.assertIn("code", meta.get("content", []))
+
+
+class PrecisionClassVersionTests(unittest.TestCase):
+    """Wave 1p936: the precision class (``full`` vs ``int8``) folded into ``model_versions`` —
+    a class change forces a re-embed; a same-class provider/format swap (FP16<->FP32) does not."""
+
+    def setUp(self):
+        self.bi = load_build_index()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    # --- the pure helpers (deterministic, no hardware / no build) ---
+
+    def test_precision_class_from_version_parses_suffix(self):
+        self.assertEqual(self.bi._precision_class_from_version("MODEL@int8"), "int8")
+        self.assertEqual(self.bi._precision_class_from_version("MODEL@full"), "full")
+
+    def test_precision_class_from_version_legacy_bare_name_is_full(self):
+        # AC-3: a legacy value with no "@class" suffix predates the precision split → "full"
+        # (existing indexes are full-precision; must not spuriously rebuild on upgrade).
+        self.assertEqual(self.bi._precision_class_from_version("BAAI/bge-small-en-v1.5"), "full")
+        self.assertEqual(self.bi._precision_class_from_version(""), "full")
+        self.assertEqual(self.bi._precision_class_from_version(None), "full")
+
+    def test_predicted_precision_class_gpu_is_full(self):
+        # A GPU machine runs FP16 end-to-end → "full" (a non-offloading model falls back to
+        # fastembed full, never int8 — so "GPU available" always means "full").
+        self.assertEqual(
+            self.bi._predicted_precision_class("BAAI/bge-small-en-v1.5", ["CoreMLExecutionProvider"]),
+            "full",
+        )
+
+    def test_predicted_precision_class_cpu_registered_is_int8(self):
+        # No GPU + a model with an INT8 clean-export source → "int8".
+        with patch.object(self.bi.accel_embedder, "_available_gpu_providers", return_value=[]):
+            self.assertEqual(
+                self.bi._predicted_precision_class("BAAI/bge-small-en-v1.5", ["CPUExecutionProvider"]),
+                "int8",
+            )
+
+    def test_predicted_precision_class_cpu_unregistered_is_full(self):
+        # No GPU + a model with NO INT8 source → "full" (fastembed-resident).
+        with patch.object(self.bi.accel_embedder, "_available_gpu_providers", return_value=[]):
+            self.assertEqual(
+                self.bi._predicted_precision_class("Some/unregistered-model", ["CPUExecutionProvider"]),
+                "full",
+            )
+
+    # --- build-level: re-embed on class change, no re-embed on same class ---
+
+    def _write_meta(self, docs_value: str) -> Path:
+        index_dir = self.root / ".wavefoundry" / "index"
+        index_dir.mkdir(parents=True, exist_ok=True)
+        (index_dir / "meta.json").write_text(
+            json.dumps({
+                "model_versions": {"docs": docs_value},
+                "chunker_versions": {"docs": self.bi._get_chunker().CHUNKER_VERSION},
+                "walker_version": self.bi.WALKER_VERSION,
+                "content": ["docs"],
+                "file_meta": {},
+            }),
+            encoding="utf-8",
+        )
+        return index_dir
+
+    def test_precision_class_change_forces_reembed(self):
+        """AC-1: switching a layer's precision class (int8 -> full) forces a full re-embed."""
+        _make_repo(self.root, {"docs/guide.md": "## Intro\n\nWave lifecycle docs.\n"})
+        # Index recorded as int8; the CURRENT machine predicts "full" (patched) → class change.
+        self._write_meta(f"{self.bi.DOCS_MODEL}@int8")
+        docs_calls: list[list[str]] = []
+        docs_spy = _make_embedder_mock(dim=4, calls=docs_calls)
+        with patch.object(self.bi, "_predicted_precision_class", return_value="full"), \
+             patch.object(self.bi, "_get_embedder", return_value=docs_spy):
+            result = self.bi.build_index(self.root, full=False, content="docs", verbose=False)
+        self.assertFalse(result.get("up_to_date", False), "class change must force a rebuild")
+        embedded = [t for batch in docs_calls for t in batch]
+        self.assertTrue(any("Wave lifecycle" in t for t in embedded), "must re-embed on class change")
+        meta = json.loads((self.root / ".wavefoundry" / "index" / "meta.json").read_text())
+        self.assertEqual(meta["model_versions"]["docs"], f"{self.bi.DOCS_MODEL}@full")
+
+    def _make_docs_only_repo(self) -> None:
+        # NOTE: deliberately NOT _make_repo — its docs/workflow-config.json drifts on a content=docs
+        # second pass (a pre-existing drift-repair quirk unrelated to precision) and would mask the
+        # up-to-date assertion. A bare docs file settles cleanly.
+        (self.root / "docs").mkdir(parents=True, exist_ok=True)
+        (self.root / "docs" / "guide.md").write_text("## Intro\n\nHello.\n", encoding="utf-8")
+
+    def test_same_precision_class_no_reembed(self):
+        """AC-2: a same-class provider/format swap (both "full") does NOT force a re-embed — the
+        1p517 FP16<->FP32 interchangeability invariant is preserved."""
+        self._make_docs_only_repo()
+        docs_mock = _make_embedder_mock(dim=4)
+        with patch.object(self.bi, "_predicted_precision_class", return_value="full"), \
+             patch.object(self.bi, "_get_embedder", return_value=docs_mock):
+            self.bi.build_index(self.root, full=True, content="docs", verbose=False)
+            # Second pass, SAME predicted class, no file changes → up-to-date (no rebuild, no embed).
+            result = self.bi.build_index(self.root, full=False, content="docs", verbose=False)
+        self.assertTrue(result.get("up_to_date", False), "same class + no changes must be a no-op")
+
+    def test_legacy_bare_name_index_not_rebuilt_when_full(self):
+        """AC-3: a legacy index whose model_versions has a bare name (no @class) is treated as
+        "full" and must NOT spuriously rebuild when the machine also predicts "full"."""
+        self._make_docs_only_repo()
+        docs_mock = _make_embedder_mock(dim=4)
+        with patch.object(self.bi, "_predicted_precision_class", return_value="full"), \
+             patch.object(self.bi, "_get_embedder", return_value=docs_mock):
+            self.bi.build_index(self.root, full=True, content="docs", verbose=False)
+            meta_path = self.root / ".wavefoundry" / "index" / "meta.json"
+            meta = json.loads(meta_path.read_text())
+            meta["model_versions"]["docs"] = self.bi.DOCS_MODEL  # legacy bare name, no @class
+            meta_path.write_text(json.dumps(meta), encoding="utf-8")
+            result = self.bi.build_index(self.root, full=False, content="docs", verbose=False)
+        self.assertTrue(result.get("up_to_date", False), "legacy bare-name (== full) must not rebuild")
 
 
 class WalkerVersionTests(unittest.TestCase):
@@ -2608,6 +2842,187 @@ class CachedFirstEmbedderTests(unittest.TestCase):
         self.assertEqual(seen, [True], "fastembed path loads cached-first (local_files_only=True)")
 
 
+class IncrementalGpuRoutingTests(unittest.TestCase):
+    """Wave 1p938: a build run smaller than one full GPU batch (INCREMENTAL_GPU_MIN_CHUNKS) is
+    routed to the full-precision CPU fastembed path on a GPU machine, skipping the 64x512 GPU
+    accel session's pad-waste. No effect on a CPU-bound machine."""
+
+    def setUp(self):
+        self.bi = load_build_index()
+        self.bi._EMBEDDER_CACHE.clear()
+
+    def _patch_fastembed(self):
+        # Returns a context that forces the fastembed branch to a known sentinel + records the load.
+        seen = []
+
+        class FakeTE:
+            def __init__(self, model_name, providers, local_files_only=False):
+                seen.append(local_files_only)
+                self.model_name = model_name
+                self.provider = "fastembed-cpu-full"
+
+        return FakeTE, seen
+
+    def test_small_run_on_gpu_machine_uses_cpu_fastembed(self):
+        # AC-1 / AC-4: GPU available + n_chunks below threshold → CPU fastembed (full precision),
+        # make_embedder (the GPU accel session) is NOT constructed.
+        FakeTE, seen = self._patch_fastembed()
+        with patch.object(self.bi, "_onnx_providers", return_value=["CoreMLExecutionProvider"]), \
+             patch.object(self.bi.accel_embedder, "make_embedder") as mk, \
+             patch.dict("sys.modules", {"fastembed": types.SimpleNamespace(TextEmbedding=FakeTE)}):
+            emb = self.bi._get_embedder("BAAI/bge-small-en-v1.5", n_chunks=3)
+        self.assertIsInstance(emb, FakeTE)
+        mk.assert_not_called()
+        self.assertEqual(seen, [True], "small run loads fastembed cached-first (full precision)")
+
+    def test_bulk_run_on_gpu_machine_uses_accel(self):
+        # AC-2: GPU available + n_chunks at/above threshold → the GPU accel embedder is used
+        # unchanged (no small-run CPU detour).
+        accel_sentinel = MagicMock()
+        accel_sentinel.provider = "CoreMLExecutionProvider"
+        with patch.object(self.bi, "_onnx_providers", return_value=["CoreMLExecutionProvider"]), \
+             patch.object(self.bi.accel_embedder, "make_embedder", return_value=accel_sentinel) as mk:
+            emb = self.bi._get_embedder("BAAI/bge-small-en-v1.5",
+                                        n_chunks=self.bi.INCREMENTAL_GPU_MIN_CHUNKS)
+        self.assertIs(emb, accel_sentinel)
+        mk.assert_called_once()
+
+    def test_cpu_bound_machine_small_run_unchanged(self):
+        # AC-3: no GPU → the small-run detour never triggers (no GPU session to skip); make_embedder
+        # is still called (it would resolve the INT8-CPU embedder in production).
+        accel_sentinel = MagicMock()
+        accel_sentinel.provider = "CPUExecutionProvider"
+        with patch.object(self.bi, "_onnx_providers", return_value=["CPUExecutionProvider"]), \
+             patch.object(self.bi.accel_embedder, "_available_gpu_providers", return_value=[]), \
+             patch.object(self.bi.accel_embedder, "make_embedder", return_value=accel_sentinel) as mk:
+            emb = self.bi._get_embedder("BAAI/bge-small-en-v1.5", n_chunks=3)
+        self.assertIs(emb, accel_sentinel, "CPU-bound machine: small run still uses the resolved embedder")
+        mk.assert_called_once()
+
+    def test_no_n_chunks_hint_uses_accel(self):
+        # A caller that omits n_chunks (e.g. a full build) never takes the small-run detour.
+        accel_sentinel = MagicMock()
+        accel_sentinel.provider = "CoreMLExecutionProvider"
+        with patch.object(self.bi, "_onnx_providers", return_value=["CoreMLExecutionProvider"]), \
+             patch.object(self.bi.accel_embedder, "make_embedder", return_value=accel_sentinel) as mk:
+            emb = self.bi._get_embedder("BAAI/bge-small-en-v1.5")  # no n_chunks
+        self.assertIs(emb, accel_sentinel)
+        mk.assert_called_once()
+
+    def test_small_run_cpu_path_is_full_precision_class(self):
+        # AC-4: the small-run CPU path on a GPU machine stays in the "full" precision class (cos 1.0
+        # with the FP16 index), so it composes with 1p936 as a no-op — no precision-class change,
+        # no spurious re-embed. A GPU machine always predicts "full" for the model.
+        self.assertEqual(
+            self.bi._predicted_precision_class("BAAI/bge-small-en-v1.5", ["CoreMLExecutionProvider"]),
+            "full",
+        )
+
+    def test_threshold_default_is_static_batch(self):
+        # The default threshold is one full GPU batch (accel_embedder.STATIC_BATCH), so a bulk/full
+        # build (>= one batch) uses GPU and only genuinely small incremental runs go to CPU.
+        self.assertEqual(self.bi.INCREMENTAL_GPU_MIN_CHUNKS, self.bi.accel_embedder.STATIC_BATCH)
+
+    def test_full_rebuild_never_passes_small_n_chunks(self):
+        """Regression (found by a real full rebuild): the streaming full-rebuild path produces
+        chunks AFTER the embedder is loaded, so ``new_doc_chunks`` is still empty at load time.
+        A full build must pass ``n_chunks=None`` (bulk → GPU), NOT ``len()==0`` — else a full
+        rebuild of the entire corpus would be misrouted to the CPU fastembed path."""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        (root / "docs").mkdir(parents=True)
+        (root / "docs" / "guide.md").write_text("## Intro\n\nHello docs.\n", encoding="utf-8")
+        (root / "src").mkdir(parents=True)
+        (root / "src" / "foo.py").write_text("def f():\n    return 1\n", encoding="utf-8")
+        seen = []
+
+        def spy(model, n_chunks=None):
+            seen.append((model, n_chunks))
+            return _make_embedder_mock(dim=4)
+
+        with patch.object(self.bi, "_get_embedder", side_effect=spy):
+            self.bi.build_index(root, full=True, content="all", verbose=False)
+        self.assertTrue(seen, "a full build must load at least one embedder")
+        for model, n in seen:
+            self.assertIsNone(n, f"full rebuild must pass n_chunks=None, got {n!r} for {model}")
+
+
+class LanceIndexCleanupTests(unittest.TestCase):
+    """Wave 1p95j: the index build must compact + clean after building indices so stale FTS/vector
+    artifacts don't accumulate unbounded (the observed 400M+ / 11-`_indices`-dir bloat)."""
+
+    def setUp(self):
+        self.bi = load_build_index()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_streaming_finalize_rebuilds_fts_replace_true_and_optimizes(self):
+        # AC-1 + AC-3 (white-box): _finalize_inner uses replace=True for the FTS index and calls
+        # _optimize_lance_table on the table after building the indices.
+        w = self.bi._StreamingLayerWriter.__new__(self.bi._StreamingLayerWriter)
+        w.table = MagicMock()
+        w.table_name = "docs"
+        w.written = self.bi.LANCEDB_INDEX_THRESHOLD + 1
+        with patch.object(self.bi, "_create_fts_index") as fts, \
+             patch.object(self.bi, "_optimize_lance_table") as opt:
+            w._finalize_inner(verbose=False)
+        fts.assert_called_once()
+        # replace=True, whether passed positionally (3rd arg) or by keyword.
+        replace = fts.call_args.kwargs.get("replace")
+        if replace is None and len(fts.call_args.args) >= 3:
+            replace = fts.call_args.args[2]
+        self.assertIs(replace, True, "FTS must use replace=True")
+        opt.assert_called_once_with(w.table)
+
+    def test_streaming_finalize_none_table_is_noop(self):
+        w = self.bi._StreamingLayerWriter.__new__(self.bi._StreamingLayerWriter)
+        w.table = None
+        with patch.object(self.bi, "_optimize_lance_table") as opt:
+            self.assertEqual(w._finalize_inner(verbose=False), 0)
+        opt.assert_not_called()
+
+    def test_optimize_lance_table_swallows_exceptions(self):
+        # AC-5: a compaction/cleanup failure must never propagate (best-effort/advisory).
+        t = MagicMock()
+        t.optimize.side_effect = RuntimeError("boom")
+        self.bi._optimize_lance_table(t)  # must not raise
+
+    def test_full_rebuild_runs_cleanup(self):
+        # AC-1 (integration): a real full rebuild calls the compaction/cleanup at finalize.
+        _make_repo(self.root, {"docs/g.md": "## A\n\nhello docs.\n", "src/f.py": "def f():\n    return 1\n"})
+        docs_mock = _make_embedder_mock(dim=4)
+        code_mock = _make_embedder_mock(dim=4)
+        with patch.object(self.bi, "_optimize_lance_table") as opt, \
+             patch.object(self.bi, "_get_embedder", side_effect=[docs_mock, code_mock]):
+            self.bi.build_index(self.root, full=True, content="all", verbose=False)
+        self.assertTrue(opt.called, "a full rebuild must run the compaction/cleanup at finalize")
+
+    def test_incremental_change_rebuilds_fts(self):
+        # AC-2 (integration): an incremental pass that actually changes a table rebuilds the FTS
+        # index (replace=True) so the new rows are searchable. The rebuild is gated on real change —
+        # a no-op pass does not re-materialize an identical index (churn reduction).
+        _make_repo(self.root, {"docs/g.md": "## A\n\nhello docs.\n"})
+        docs_mock = _make_embedder_mock(dim=4)
+        code_mock = _make_embedder_mock(dim=4)
+        with patch.object(self.bi, "_get_embedder", side_effect=[docs_mock, code_mock]):
+            self.bi.build_index(self.root, full=True, content="all", verbose=False)
+        (self.root / "docs" / "g.md").write_text("## A\n\nchanged content now.\n", encoding="utf-8")
+        with patch.object(self.bi, "_create_fts_index") as fts, \
+             patch.object(self.bi, "_get_embedder", return_value=_make_embedder_mock(dim=4)):
+            self.bi.build_index(self.root, full=False, content="docs", verbose=False)
+        self.assertTrue(fts.called, "an incremental change must rebuild the FTS index")
+        # every incremental FTS rebuild uses replace=True (never stacks a second copy)
+        for call in fts.call_args_list:
+            replace = call.kwargs.get("replace")
+            if replace is None and len(call.args) >= 3:
+                replace = call.args[2]
+            self.assertIs(replace, True, "incremental FTS rebuild must use replace=True")
+
+
 class LanceDbAutoInstallTlsTests(unittest.TestCase):
     """Wave 1p93v: ``_auto_install_lancedb()``'s pip subprocess call must apply the same pip
     TLS-conflict mitigation (``setup_index._pip_tls_env()``) used at every other pip/uv install call
@@ -2650,3 +3065,350 @@ class LanceDbAutoInstallTlsTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class IndexBuildLockHeldTests(unittest.TestCase):
+    """Wave 1p99o: the build lock is a fcntl record lock (POSIX) on a sentinel byte, probed
+    non-destructively via F_GETLK; `ended_at` is written best-effort on clean exit."""
+
+    def setUp(self):
+        self.bi = load_build_index()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.index_dir = Path(self.tmp.name) / ".wavefoundry" / "index"
+        self.index_dir.mkdir(parents=True, exist_ok=True)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_held_false_when_no_lock_file(self):
+        self.assertEqual(self.bi._index_build_lock_held(self.index_dir), (False, None))
+
+    @unittest.skipIf(os.name == "nt", "cross-process F_GETLK held test is POSIX")
+    def test_held_detects_concurrent_holder_and_clears_after(self):
+        holder = textwrap.dedent(
+            f"""
+            import importlib.util, sys, time, pathlib
+            spec = importlib.util.spec_from_file_location("hb", {str(INDEXER_PATH)!r})
+            m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+            with m._index_build_lock(pathlib.Path(sys.argv[1])):
+                print("LOCKED", flush=True); time.sleep(3)
+            """
+        )
+        proc = subprocess.Popen([sys.executable, "-B", "-c", holder, str(self.index_dir)],
+                                stdout=subprocess.PIPE, text=True)
+        try:
+            self.assertEqual(proc.stdout.readline().strip(), "LOCKED")
+            time.sleep(0.2)
+            held, pid = self.bi._index_build_lock_held(self.index_dir)
+            self.assertTrue(held)                      # F_GETLK sees the conflicting lock
+            self.assertEqual(pid, proc.pid)            # kernel returns the holder PID
+            # metadata is readable while held (lock is on the sentinel byte, not byte 0)
+            meta = self.bi.read_index_build_lock_metadata(self.index_dir / self.bi.INDEX_BUILD_LOCK_NAME)
+            self.assertEqual(meta.get("pid"), proc.pid)
+            self.assertNotIn("ended_at", meta)         # not yet ended
+        finally:
+            proc.wait()
+        time.sleep(0.2)
+        self.assertEqual(self.bi._index_build_lock_held(self.index_dir), (False, None))
+
+    def test_ended_at_written_on_clean_exit(self):
+        with self.bi._index_build_lock(self.index_dir):
+            pass
+        meta = self.bi.read_index_build_lock_metadata(self.index_dir / self.bi.INDEX_BUILD_LOCK_NAME)
+        self.assertIsInstance(meta.get("ended_at"), (int, float))
+        # not held after a clean exit
+        self.assertEqual(self.bi._index_build_lock_held(self.index_dir), (False, None))
+
+
+class _ReclaimFakeArrow:
+    def __init__(self, n):
+        self.num_rows = n
+
+
+class _ReclaimFakeTable:
+    """A LanceDB-table stand-in for exercising the reclaim tiers without a real Lance corruption."""
+
+    def __init__(self, rows, optimize_ok=True, arrow_ok=True):
+        self.rows = rows
+        self.optimize_ok = optimize_ok
+        self.arrow_ok = arrow_ok
+        self.created_indices = []
+
+    def optimize(self, cleanup_older_than=None):
+        if not self.optimize_ok:
+            # The real Lance list-offset corruption signature (lance #7538).
+            raise RuntimeError("Max offset 99 exceeds length of values 10")
+
+    def count_rows(self):
+        return self.rows
+
+    def to_arrow(self):
+        if not self.arrow_ok:
+            raise RuntimeError("corrupt read — data unreadable")
+        return _ReclaimFakeArrow(self.rows)
+
+    def create_index(self, **kw):
+        self.created_indices.append(("vector", kw))
+
+    def create_fts_index(self, *a, **kw):
+        self.created_indices.append(("fts", kw))
+
+
+class _ReclaimFakeDB:
+    def __init__(self, table):
+        self._table = table
+        self.rename_called = False
+        self.created = []
+
+    def open_table(self, name):
+        if self._table is None:
+            raise ValueError(f"Table '{name}' was not found")
+        return self._table
+
+    def create_table(self, name, data=None, mode=None):
+        self.created.append((name, mode))
+        self._table = _ReclaimFakeTable(rows=data.num_rows)
+        return self._table
+
+    def rename_table(self, *a, **k):
+        self.rename_called = True
+        raise NotImplementedError("LanceDBError: not supported: rename_table is not supported in LanceDB OSS")
+
+
+class IndexReclaimTests(unittest.TestCase):
+    """Wave 1p9aj: tiered LanceDB reclaim (optimize -> compact-by-rewrite -> full rebuild)."""
+
+    def setUp(self):
+        self.bi = load_build_index()
+
+    def test_optimize_lance_table_returns_bool(self):
+        ok = MagicMock()
+        self.assertTrue(self.bi._optimize_lance_table(ok))
+        bad = MagicMock()
+        bad.optimize.side_effect = RuntimeError("Max offset exceeds length of values")
+        self.assertFalse(self.bi._optimize_lance_table(bad))  # must not raise, returns False
+
+    def test_tier1_optimize_success(self):
+        db = _ReclaimFakeDB(_ReclaimFakeTable(rows=2000, optimize_ok=True))
+        res = self.bi.reclaim_lance_table(db, "docs")
+        self.assertEqual(res["tier"], 1)
+        self.assertEqual(res["rows"], 2000)
+        self.assertFalse(res["needs_rebuild"])
+        self.assertEqual(db.created, [])  # no rewrite on the happy path
+
+    def test_tier2_compact_by_rewrite_preserves_rows_and_indices_no_rename(self):
+        # AC-2: optimize fails -> rewrite via create_table(overwrite); rows preserved; both indices
+        # rebuilt; rename_table NEVER called; no re-embed.
+        t = _ReclaimFakeTable(rows=2000, optimize_ok=False, arrow_ok=True)
+        db = _ReclaimFakeDB(t)
+        res = self.bi.reclaim_lance_table(db, "docs")
+        self.assertEqual(res["tier"], 2)
+        self.assertFalse(res["needs_rebuild"])
+        self.assertEqual(res["rows"], 2000)
+        self.assertIn(("docs", "overwrite"), db.created)
+        self.assertFalse(db.rename_called, "reclaim must never call rename_table (unsupported in OSS)")
+        kinds = [k for k, _ in db._table.created_indices]
+        self.assertIn("vector", kinds)  # rows >= threshold
+        self.assertIn("fts", kinds)
+
+    def test_tier2_below_threshold_skips_vector_index_but_builds_fts(self):
+        t = _ReclaimFakeTable(rows=5, optimize_ok=False, arrow_ok=True)
+        db = _ReclaimFakeDB(t)
+        res = self.bi.reclaim_lance_table(db, "docs")
+        self.assertEqual(res["tier"], 2)
+        self.assertFalse(res["needs_rebuild"])
+        kinds = [k for k, _ in db._table.created_indices]
+        self.assertNotIn("vector", kinds)  # below LANCEDB_INDEX_THRESHOLD -> flat scan
+        self.assertIn("fts", kinds)
+
+    def test_tier3_only_on_read_failure_not_optimize_failure(self):
+        # AC-3: a full rebuild (needs_rebuild) fires ONLY when to_arrow() raises, never for a mere
+        # optimize() failure (which is Tier 2).
+        read_fail = _ReclaimFakeDB(_ReclaimFakeTable(rows=100, optimize_ok=False, arrow_ok=False))
+        res = self.bi.reclaim_lance_table(read_fail, "docs")
+        self.assertEqual(res["tier"], 3)
+        self.assertTrue(res["needs_rebuild"])
+        # optimize-only failure must NOT set needs_rebuild
+        opt_fail = _ReclaimFakeDB(_ReclaimFakeTable(rows=100, optimize_ok=False, arrow_ok=True))
+        res2 = self.bi.reclaim_lance_table(opt_fail, "docs")
+        self.assertEqual(res2["tier"], 2)
+        self.assertFalse(res2["needs_rebuild"])
+
+    def test_tier3_on_open_failure(self):
+        db = _ReclaimFakeDB(None)  # open_table raises
+        res = self.bi.reclaim_lance_table(db, "docs")
+        self.assertEqual(res["tier"], 3)
+        self.assertTrue(res["needs_rebuild"])
+
+    def test_optimize_index_tables_skips_absent_and_reports_sizes(self):
+        with tempfile.TemporaryDirectory() as td:
+            index_dir = Path(td)
+            (index_dir / "docs.lance").mkdir()  # docs present; code.lance absent
+            (index_dir / "docs.lance" / "data.bin").write_bytes(b"x" * 1024)
+            db = _ReclaimFakeDB(_ReclaimFakeTable(rows=2000, optimize_ok=True))
+            with patch.object(self.bi, "_get_lance_db", return_value=db):
+                results = self.bi.optimize_index_tables(index_dir, ("docs", "code"))
+            self.assertIn("docs", results)
+            self.assertNotIn("code", results)  # absent table skipped
+            self.assertEqual(results["docs"]["tier"], 1)
+            self.assertIn("bytes_before", results["docs"])
+            self.assertIn("bytes_after", results["docs"])
+            self.assertGreater(results["docs"]["bytes_before"], 0)
+
+    def test_finalize_self_heals_on_optimize_failure(self):
+        # AC-5: when _optimize_lance_table returns False, finalize escalates to _compact_by_rewrite,
+        # re-points the table, and returns early (no redundant FTS rebuild on the old handle).
+        w = self.bi._StreamingLayerWriter.__new__(self.bi._StreamingLayerWriter)
+        w.table = MagicMock()
+        w.db = MagicMock()
+        w.table_name = "docs"
+        w.written = self.bi.LANCEDB_INDEX_THRESHOLD + 1
+        new_table = MagicMock()
+        with patch.object(self.bi, "_optimize_lance_table", return_value=False), \
+             patch.object(self.bi, "_compact_by_rewrite", return_value=new_table) as rewrite, \
+             patch.object(self.bi, "_create_fts_index") as fts:
+            result = w._finalize_inner(verbose=False)
+        rewrite.assert_called_once_with(w.db, "docs")
+        self.assertIs(w.table, new_table)
+        fts.assert_not_called()
+        self.assertEqual(result, w.written)
+
+    def test_finalize_reclaim_failure_falls_through_and_does_not_raise(self):
+        # A rewrite failure in finalize must not raise; it falls through to a best-effort normal
+        # index build on the un-reclaimed table.
+        w = self.bi._StreamingLayerWriter.__new__(self.bi._StreamingLayerWriter)
+        w.table = MagicMock()
+        w.db = MagicMock()
+        w.table_name = "docs"
+        w.written = self.bi.LANCEDB_INDEX_THRESHOLD + 1
+        with patch.object(self.bi, "_optimize_lance_table", return_value=False), \
+             patch.object(self.bi, "_compact_by_rewrite", side_effect=RuntimeError("rewrite boom")), \
+             patch.object(self.bi, "_create_fts_index") as fts:
+            result = w._finalize_inner(verbose=False)  # must not raise
+        fts.assert_called_once()  # fell through to the normal FTS build
+        self.assertEqual(result, w.written)
+
+    def test_optimize_index_tables_fails_fast_under_lock_contention(self):
+        # No-DEADLOCK invariant: optimize_index_tables acquires the SAME non-blocking build lock
+        # (`fcntl.LOCK_EX | LOCK_NB` / `msvcrt.LK_NBLCK`) as the main build, so a lock held by another
+        # process makes it raise IndexBuildAlreadyRunning *promptly* — it can never block/wait, so it
+        # can never deadlock. The setup/upgrade auto-run wraps this in try/except, so its worst case is a
+        # skipped optimize, never a hang.
+        with tempfile.TemporaryDirectory() as td:
+            index_dir = Path(td)
+            (index_dir / "docs.lance").mkdir()
+            (index_dir / "docs.lance" / "data.bin").write_bytes(b"x" * 32)
+            holder = textwrap.dedent(
+                f"""
+                import importlib.util, pathlib, sys, time
+                spec = importlib.util.spec_from_file_location("indexer_holder", {str(INDEXER_PATH)!r})
+                mod = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(mod)
+                with mod._index_build_lock(pathlib.Path(sys.argv[1])):
+                    print("locked", flush=True)
+                    time.sleep(3.0)
+                """
+            )
+            proc = subprocess.Popen(
+                [sys.executable, "-B", "-c", holder, str(index_dir)],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            )
+            try:
+                self.assertEqual(proc.stdout.readline().strip(), "locked")
+                start = time.monotonic()
+                with self.assertRaises(self.bi.IndexBuildAlreadyRunning):
+                    self.bi.optimize_index_tables(index_dir, ("docs",))
+                elapsed = time.monotonic() - start
+                # Well under the holder's 3s sleep -> it failed fast, it did NOT wait on the lock.
+                self.assertLess(elapsed, 2.0, "optimize_index_tables blocked on the lock (would deadlock)")
+            finally:
+                proc.terminate()
+                proc.communicate(timeout=5)
+
+
+class ReindexPendingMarkerTests(unittest.TestCase):
+    """Wave 1p9am: the reindex-pending marker (turn-end coalescing sentinel)."""
+
+    def setUp(self):
+        self.bi = load_build_index()
+
+    def test_debounce_window_raised(self):
+        # Non-Stop hosts fall back to a long leading-edge debounce.
+        self.assertGreaterEqual(self.bi.HOOK_REINDEX_DEBOUNCE_SECONDS, 45.0)
+
+    def test_mark_then_consume_then_gone(self):
+        with tempfile.TemporaryDirectory() as td:
+            d = Path(td)
+            self.assertFalse(self.bi.consume_reindex_pending(d))  # nothing pending yet
+            self.assertIsNone(self.bi.reindex_pending_age(d))
+            self.bi.mark_reindex_pending(d)
+            self.assertIsNotNone(self.bi.reindex_pending_age(d))
+            self.assertTrue(self.bi.consume_reindex_pending(d))   # consumed
+            self.assertFalse(self.bi.consume_reindex_pending(d))  # already cleared
+            self.assertIsNone(self.bi.reindex_pending_age(d))
+
+    def test_consume_is_atomic_single_winner(self):
+        with tempfile.TemporaryDirectory() as td:
+            d = Path(td)
+            self.bi.mark_reindex_pending(d)
+            first = self.bi.consume_reindex_pending(d)
+            second = self.bi.consume_reindex_pending(d)
+            self.assertTrue(first)
+            self.assertFalse(second)  # only one unlink wins
+
+    def test_mark_creates_index_dir(self):
+        with tempfile.TemporaryDirectory() as td:
+            d = Path(td) / "nested" / "index"  # does not exist yet
+            self.bi.mark_reindex_pending(d)
+            self.assertTrue((d / self.bi.HOOK_REINDEX_PENDING_NAME).exists())
+
+    def test_reindex_pending_age_is_recent(self):
+        with tempfile.TemporaryDirectory() as td:
+            d = Path(td)
+            self.bi.mark_reindex_pending(d)
+            age = self.bi.reindex_pending_age(d)
+            self.assertIsNotNone(age)
+            self.assertLess(age, 5.0)
+
+
+class DocsLintHookTimeoutTests(unittest.TestCase):
+    """Wave 1p9bg: the docs-lint hook timeout is generous, configurable, and fail-safe."""
+
+    def setUp(self):
+        self.bi = load_build_index()
+
+    def _root_with_config(self, td, cfg_json):
+        root = Path(td)
+        (root / "docs").mkdir()
+        if cfg_json is not None:
+            (root / "docs" / "workflow-config.json").write_text(cfg_json, encoding="utf-8")
+        return root
+
+    def test_default_when_no_config(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = self._root_with_config(td, None)
+            self.assertEqual(
+                self.bi.docs_lint_hook_timeout_seconds(root), self.bi.DOCS_LINT_HOOK_TIMEOUT_DEFAULT
+            )
+        self.assertGreaterEqual(self.bi.DOCS_LINT_HOOK_TIMEOUT_DEFAULT, 60.0)
+
+    def test_override_from_config(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = self._root_with_config(td, '{"docs_lint":{"hook_timeout_seconds":300}}')
+            self.assertEqual(self.bi.docs_lint_hook_timeout_seconds(root), 300.0)
+
+    def test_bad_values_fall_back_to_default(self):
+        default = self.bi.DOCS_LINT_HOOK_TIMEOUT_DEFAULT
+        for bad in ('{"docs_lint":{"hook_timeout_seconds":"lots"}}',
+                    '{"docs_lint":{"hook_timeout_seconds":0}}',
+                    '{"docs_lint":{"hook_timeout_seconds":-5}}',
+                    '{not valid json'):
+            with tempfile.TemporaryDirectory() as td:
+                root = self._root_with_config(td, bad)
+                self.assertEqual(self.bi.docs_lint_hook_timeout_seconds(root), default)
+
+    def test_missing_dir_never_raises(self):
+        self.assertEqual(
+            self.bi.docs_lint_hook_timeout_seconds(Path("/no/such/root/xyz")),
+            self.bi.DOCS_LINT_HOOK_TIMEOUT_DEFAULT,
+        )

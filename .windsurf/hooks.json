@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "pre_write_code": [
+      {
+        "command": "python3 \".windsurf/hooks/seed-protect.py\"",
+        "show_output": true
+      }
+    ],
+    "post_write_code": [
+      {
+        "command": "python3 \".windsurf/hooks/docs-lint.py\"",
+        "show_output": true
+      }
+    ]
+  }
+}

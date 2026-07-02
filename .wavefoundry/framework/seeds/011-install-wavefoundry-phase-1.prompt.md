@@ -14,7 +14,7 @@ Each row points at a step the agent must execute and an artifact the step is exp
 
 Before executing row 1.1, check whether `.wavefoundry/install-log.md` exists:
 
-- **It does not exist (first install):** copy `.wavefoundry/framework/install/install-log.template.md` to `.wavefoundry/install-log.md`. Substitute `{{generated_at}}` with today's date (YYYY-MM-DD).
+- **It does not exist (first install):** copy `.wavefoundry/framework/install/install-log.template.md` to `.wavefoundry/install-log.md`. Substitute `{{generated_at}}` with today's date (YYYY-MM-DD). **Write the file as UTF-8.** The log's row separators are em dashes (`—`); a non-UTF-8 write corrupts them to mojibake (`â€"`) and the install audit can no longer parse the rows. On Windows PowerShell, do **not** use bare `Get-Content`/`Set-Content`/`Out-File` (they default to the ANSI/UTF-16 code page) — pass `-Encoding utf8`, or write via a UTF-8-explicit tool (e.g. `python -c "...write_text(..., encoding='utf-8')"`).
 - **It exists (resuming or upgrading):** continue from the first unchecked row. If you're unsure whether existing `[x]` markers are still valid (fresh agent session, partial recovery from an abort), the trustworthy-invariant rule says: re-execute `wave_install_audit` before trusting them (Phase 2 only — Phase 1 has no MCP).
 
 ## Steps (mirror `wavefoundry-install-log.md` Phase 1)
@@ -82,8 +82,7 @@ Before executing row 1.1, check whether `.wavefoundry/install-log.md` exists:
 1. **Step 1/3 — venv + framework deps + semantic indexes**:
    - Creates the tool venv at `~/.wavefoundry/venv/` (user-home, not project-root — the venv is shared across all wavefoundry projects on the machine; `WAVEFOUNDRY_TOOL_VENV` env var overrides).
    - Installs deps: numpy, fastembed, lancedb, fastmcp, sentence-transformers, etc.
-   - Builds the framework semantic index at `.wavefoundry/framework/index/` (so `docs_search` and `seed_get` work after restart).
-   - Builds the project semantic index at `.wavefoundry/index/`.
+   - Builds the project semantic index at `.wavefoundry/index/` — the framework's seeds and top-level README fold into the project docs index, so `docs_search` and `seed_get` work after restart. There is no separate framework index.
 2. **Step 2/3 — `wf` dispatcher shim + platform host configs** (via `render_platform_surfaces.py`):
    - The cross-OS `wf` entry point and generated `wf.cmd` shim that dispatch to `wf_cli.py`, which routes subcommands `wf docs-lint`, `wf docs-gardener`, `wf gate`, `wf dashboard`, `wf update-indexes`, `wf lifecycle-id`, `wf upgrade`, and `wf setup` to their backing scripts.
    - `.claude/settings.json` (if Claude Code is detected) and equivalents for other hosts; registers the MCP server (the committed `.mcp.json` runs `python3 .wavefoundry/framework/scripts/server.py`).

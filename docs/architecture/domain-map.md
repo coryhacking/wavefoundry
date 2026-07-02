@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-15
+Last verified: 2026-07-01
 
 ## Domains
 
@@ -10,10 +10,9 @@ Last verified: 2026-05-15
 |--------|------|----------------------|-------------|---------------|
 | **Framework Seeds** | `.wavefoundry/framework/seeds/` | Canonical prompt source; numbered seed prompts; overview docs; reference appendices | None — canonical source | Consumed by target repositories via install/upgrade; indexed by `indexer.py` |
 | **Framework Scripts** | `.wavefoundry/framework/scripts/` | Lifecycle ID generation; docs linting; docs gardening; platform surface rendering; packaging; test running; MCP server | `docs/workflow-config.json` (config read); `docs/` tree (lint/gardener read/write) | `.wavefoundry/framework/VERSION` (write); zip archives (write); `.claude/`, `.cursor/`, `.github/hooks/` (render writes); MCP tool responses (stdio) |
-| **MCP Server** | `.wavefoundry/framework/scripts/server.py` | Tool and resource surface for MCP clients: wave lifecycle, search, code navigation, session handoff, index management | `.wavefoundry/index/` (search reads); `docs/` (wave/change/prompt reads and lifecycle writes); `.wavefoundry/framework/index/` (framework seed reads); `chunker.py` tree-sitter parser stack (lazy-loaded at query time for two-hop symbol extraction in `search_combined`); `lancedb` (embedded vector store, primary semantic search backend); `fastembed`, `numpy` (embedding and numpy fallback) | MCP client responses (stdio); background index refresh requests |
+| **MCP Server** | `.wavefoundry/framework/scripts/server.py` | Tool and resource surface for MCP clients: wave lifecycle, search, code navigation, session handoff, index management | `.wavefoundry/index/` (search reads); `docs/` (wave/change/prompt reads and lifecycle writes); `chunker.py` tree-sitter parser stack (lazy-loaded at query time for two-hop symbol extraction in `search_combined`); `lancedb` (embedded vector store, primary semantic search backend); `fastembed`, `numpy` (embedding and numpy fallback) | MCP client responses (stdio); background index refresh requests |
 | **Dashboard Surface** | `.wavefoundry/framework/dashboard/` + `.wavefoundry/framework/scripts/dashboard_{lib,server}.py` | Local operational dashboard assets, loopback HTTP serving, shared repository-state snapshot readers | `docs/` tree (read); `.wavefoundry/framework/VERSION` (read); `docs/workflow-config.json` dashboard settings | Browser responses over localhost HTTP; `.wavefoundry/dashboard-server.json` (host-local metadata write) |
 | **Semantic Index** | `.wavefoundry/index/` | Embedding vectors and chunk metadata for docs and code semantic search; incremental rebuild via file hashes | Repository files (read); `indexer.py` (write) | `server.py` search tools (read) |
-| **Framework Index** | `.wavefoundry/framework/index/` | Packaged embedding index for framework seeds and prompts; shipped in the framework zip | `.wavefoundry/framework/seeds/` (read) | `server.py` search tools (read, merged with project index at query time) |
 | **Self-Hosted Docs** | `docs/` | Wavefoundry project operating surface: plans, waves, architecture, contributing, prompts, agent roles, journals | None | Consumed by framework scripts (lint/gardener); read by MCP server tools |
 | **Wave Framework Distribution** | Root zip archives | Packaged distribution for target repositories | `.wavefoundry/framework/` tree | Target repository `.wavefoundry/framework/` after unpack |
 
@@ -35,7 +34,7 @@ Last verified: 2026-05-15
 | `docs_lint.py` / `docs_gardener.py` → `docs/` | file read/write | stable | Engineering |
 | `render_platform_surfaces.py` → `.claude/`, `.cursor/`, `.github/hooks/`, `.mcp.json` | file write | stable | Engineering |
 | `indexer.py` → `.wavefoundry/index/` | file write | stable | Engineering (setup/incremental) |
-| `server.py` → `.wavefoundry/index/` + `.wavefoundry/framework/index/` | file read | stable | MCP server (search tools) |
+| `server.py` → `.wavefoundry/index/` | file read | stable | MCP server (search tools) |
 | `server.py` → `docs/waves/`, `docs/plans/`, `docs/prompts/` | file read/write | stable | MCP server (lifecycle + inspection tools) |
 | `server.py` → `docs/agents/session-handoff.md` | file read/write | stable | MCP server (handoff tools) |
 | `dashboard_server.py` → `docs/waves/`, `docs/plans/`, `docs/prompts/prompt-surface-manifest.json`, `docs/agents/session-handoff.md` | file read | stable | Dashboard server |

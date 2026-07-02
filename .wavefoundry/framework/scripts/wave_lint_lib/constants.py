@@ -59,6 +59,12 @@ MANIFEST_REQUIRED_KEYS = (
     "framework_revision",
 )
 
+# Wave 1p9cj: docs-lint file-size guard. A markdown doc larger than this cap has its content validators
+# skipped with a loud non-blocking WARNING (docs-lint is a correctness gate — never a silent skip). Matches
+# the secrets `MAX_FILE_BYTES` / indexing file cap (5 MB); overridable via docs/workflow-config.json
+# `docs_lint.max_file_bytes`. Protects the regex/section passes + the read cache from a pathological doc.
+DOCS_LINT_MAX_FILE_BYTES_DEFAULT = 5 * 1024 * 1024
+
 # Wave 1p5b4: the retired-role-slug warning (driven by the canonical-names manifest) was
 # removed along with the manifest. Role renames `council-moderator`→`wave-council` and
 # `code-insight-agent`→`guru` were courtesy `removed_in: null` warnings only; active docs

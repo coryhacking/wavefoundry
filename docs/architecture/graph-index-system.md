@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-27
+Last verified: 2026-07-01
 
 Architecture reference for Wavefoundry's code and documentation graph index: how it is generated, stored, traversed, clustered, and surfaced through MCP tools.
 
@@ -26,7 +26,7 @@ Architecture reference for Wavefoundry's code and documentation graph index: how
 | Community catalog (ambient — id, label, size, top members) | MCP resource `wavefoundry://graph/communities` |
 
 **Single graph layer**: there is one project graph. Wave `1p4ww` removed the separate
-`framework` graph and the `union` (merged) mode along with the shipped framework index; the
+`framework` graph and the `union` (merged) mode; the
 `layer` argument on the graph tools is retained as a back-compat no-op that always resolves to
 `project`.
 

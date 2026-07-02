@@ -44,6 +44,11 @@ if not os.environ.get("FASTEMBED_CACHE_PATH"):
 INDEX_DIR_NAME = ".wavefoundry/index"
 META_JSON = "meta.json"
 INDEX_BUILD_LOCK_NAME = "index-build.lock"
+# Wave 1p99o: the OS lock is taken on this single sentinel byte (both POSIX and Windows), kept far off
+# the byte-0 metadata region so the JSON `{pid, started_at, ended_at, cmdline}` is always readable/
+# writable regardless of lock state (status reads owner/ended_at; finalize writes ended_at while still
+# holding the lock). Byte-range locks beyond EOF are legal and do not extend the file.
+INDEX_BUILD_LOCK_SENTINEL = 1 << 20
 TABLE_LOCK_NAME = ".lock"   # written inside docs.lance/ and code.lance/
 LOCK_STALE_SECONDS = 60 * 60
 TIMESTAMP_LOGS_ENV = "WAVEFOUNDRY_TIMESTAMP_LOGS"
@@ -197,8 +202,36 @@ class IndexBuildAlreadyRunning(RuntimeError):
     """Raised when another process already holds the whole-index build lock."""
 
 
-HOOK_REINDEX_DEBOUNCE_SECONDS = 2.0
+# Wave 1p9am: raised 2.0 -> 45.0. On Claude the post-edit hook no longer spawns a reindex per edit — it
+# marks a `reindex-pending` sentinel and the turn-end Stop hook flushes it once per turn. This debounce
+# now only governs the leading-edge flush on non-Stop hosts (Cursor/Copilot/…), which have no turn-end
+# signal, so a longer window is the churn cut there.
+HOOK_REINDEX_DEBOUNCE_SECONDS = 45.0
 HOOK_REINDEX_LAST_SPAWN_NAME = "hook-reindex.last-spawn"
+# Wave 1p9am: the turn-end coalescing sentinel. Written by the post-edit hook on an index-worthy edit;
+# consumed (atomically cleared) by the Claude Stop hook, or by the staleness monitor's quiet-period
+# safety net if a turn ends without the Stop hook flushing it.
+HOOK_REINDEX_PENDING_NAME = "reindex-pending"
+
+# Wave 1p9bg: generous default timeout (seconds) for the post-edit docs-lint hook subprocess — well
+# above the 30s that was too short in the field, and configurable via docs/workflow-config.json.
+DOCS_LINT_HOOK_TIMEOUT_DEFAULT = 120.0
+
+
+def docs_lint_hook_timeout_seconds(root: Path) -> float:
+    """Timeout (seconds) for the post-edit docs-lint hook subprocess. Wave 1p9bg. Reads
+    ``docs/workflow-config.json`` ``docs_lint.hook_timeout_seconds``; defaults to
+    ``DOCS_LINT_HOOK_TIMEOUT_DEFAULT`` (120s). Fail-safe: any error / missing / non-positive value falls
+    back to the default and never raises. Keeps the docs-lint hook from either failing early on a large
+    repo or hanging the post-edit hook unbounded."""
+    try:
+        cfg = json.loads((root / "docs" / "workflow-config.json").read_text(encoding="utf-8"))
+        val = (cfg.get("docs_lint") or {}).get("hook_timeout_seconds")
+        if isinstance(val, (int, float)) and val > 0:
+            return float(val)
+    except Exception:
+        pass
+    return DOCS_LINT_HOOK_TIMEOUT_DEFAULT
 
 
 def _pid_is_running(pid: int) -> bool:
@@ -223,7 +256,85 @@ def _pid_is_running(pid: int) -> bool:
         return True
     except OSError:
         return False
+    # Wave 1p98u: os.kill(pid, 0) keeps succeeding for a zombie/defunct process until its parent
+    # reaps it, which made a finished-but-unreaped index build read as "live" and block every
+    # later build. A defunct process has already exited (its OS flock is released), so treat it as
+    # not running — mirrors the background-build/dashboard zombie guards (waves 1p654/1p6d6).
+    if _process_is_zombie(pid):
+        return False
     return True
+
+
+# Wave 1p98u: index-build-lock liveness hardening. A recorded owner PID can be a zombie/defunct
+# process (os.kill still succeeds) or a recycled PID now running an unrelated program — both made the
+# lock read as a live build and skipped/blocked index updates. These helpers reconcile against the
+# real process state + cmdline, mirroring the dashboard 1p654 reconciliation. Every probe routes
+# through subprocess_util.isolated_run (windowless on Windows — no console flash) and degrades to a
+# safe default on any failure (never reclaim a possibly-live build; the OS flock stays the authority).
+_INDEX_BUILDER_MARKERS = ("indexer.py", "setup_index.py")
+
+
+def _process_is_zombie(pid: int) -> bool:
+    """POSIX: True iff ``pid`` is in ``Z``/defunct state. Windows / any failure: False.
+
+    Windows has no zombie concept, so this is a no-op there and never spawns a console."""
+    if os.name == "nt" or pid <= 0:
+        return False
+    try:
+        result = subprocess_util.isolated_run(
+            ["ps", "-o", "state=", "-p", str(int(pid))],
+            capture_output=True, text=True, check=False,
+        )
+    except Exception:  # noqa: BLE001 — best-effort; any failure → not-zombie (safe: no reclaim)
+        return False
+    if result.returncode != 0:
+        return False
+    return (result.stdout or "").strip()[:1] == "Z"
+
+
+def _process_cmdline(pid: int) -> Optional[str]:
+    """Best-effort full command line for ``pid`` — cross-OS and windowless. None if unavailable.
+
+    POSIX: ``ps -o args=``. Windows: ``powershell.exe`` + CIM (the only built-in exposing the full
+    CommandLine), invoked EXPLICITLY through the windowless ``isolated_run`` — no ``shell=True`` and
+    no reliance on the parent shell, so it behaves identically whether the operator runs cmd or
+    PowerShell, and no console window flashes. Any failure (incl. PowerShell absent) → None so the
+    caller keeps today's behavior."""
+    if pid <= 0:
+        return None
+    try:
+        if os.name == "nt":
+            ps_script = (
+                f"Get-CimInstance Win32_Process -Filter 'ProcessId={int(pid)}' "
+                "| ForEach-Object { $_.CommandLine }"
+            )
+            result = subprocess_util.isolated_run(
+                ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_script],
+                capture_output=True, text=True, check=False, timeout=10,
+            )
+        else:
+            result = subprocess_util.isolated_run(
+                ["ps", "-o", "args=", "-p", str(int(pid))],
+                capture_output=True, text=True, check=False,
+            )
+    except Exception:  # noqa: BLE001 — best-effort; any failure → None (caller falls back)
+        return None
+    if result.returncode != 0:
+        return None
+    out = (result.stdout or "").strip()
+    return out or None
+
+
+def _pid_is_index_builder(pid: int) -> bool:
+    """True when ``pid``'s live cmdline is an index build (indexer.py / setup_index.py).
+
+    Returns True when the cmdline cannot be read (scan unavailable) — an unverifiable owner must NOT
+    be reclaimed out from under a possibly-live build, so we keep today's behavior and let the OS
+    flock remain the authority (avoids a double-build)."""
+    cmdline = _process_cmdline(pid)
+    if cmdline is None:
+        return True
+    return any(marker in cmdline for marker in _INDEX_BUILDER_MARKERS)
 
 
 def read_index_build_lock_metadata(lock_path: Path) -> Optional[dict]:
@@ -247,7 +358,13 @@ def classify_index_build_lock_owner(metadata: Optional[dict]) -> str:
     pid = metadata.get("pid")
     started_at = metadata.get("started_at")
     if isinstance(pid, int) and _pid_is_running(pid):
-        return "live"
+        # Wave 1p98u: os.kill/tasklist liveness alone accepts a recycled PID now running an unrelated
+        # program. Only an actual index-builder process is a live build; a recycled PID (its cmdline
+        # is not an indexer) falls through to the age-based stale/completed branch so the lock can be
+        # reclaimed. When the cmdline scan is unavailable, _pid_is_index_builder returns True, so an
+        # unverifiable owner stays "live" (never reclaimed out from under a possibly-live build).
+        if _pid_is_index_builder(pid):
+            return "live"
     if isinstance(started_at, (int, float)):
         age = time.time() - float(started_at)
         if age >= LOCK_STALE_SECONDS:
@@ -307,6 +424,39 @@ def record_hook_reindex_spawn(index_dir: Path) -> None:
         str(time.time()),
         encoding="utf-8",
     )
+
+
+def mark_reindex_pending(index_dir: Path) -> None:
+    """Wave 1p9am: record that an index-worthy edit happened this turn. The turn-end Stop hook (or the
+    staleness monitor's quiet-period safety net) consumes this marker and runs ONE coalesced incremental
+    reindex — instead of spawning a reindex per edit. Cheap (a single write); never raises."""
+    try:
+        index_dir.mkdir(parents=True, exist_ok=True)
+        (index_dir / HOOK_REINDEX_PENDING_NAME).write_text(str(time.time()), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def reindex_pending_age(index_dir: Path) -> "Optional[float]":
+    """Seconds since the reindex-pending marker was last refreshed, or None if no marker is pending.
+    Lets the staleness monitor tell a FRESH marker (the turn-end hook owns the next reindex — defer)
+    from a STALE one (a turn ended without the Stop hook flushing — the monitor takes over)."""
+    try:
+        mtime = (index_dir / HOOK_REINDEX_PENDING_NAME).stat().st_mtime
+    except OSError:
+        return None
+    return max(0.0, time.time() - mtime)
+
+
+def consume_reindex_pending(index_dir: Path) -> bool:
+    """Atomically check-and-clear the reindex-pending marker. Returns True iff a marker was pending (and
+    was cleared by this call). ``unlink`` is the atomic primitive — if the Stop hook and the monitor race,
+    only one unlink succeeds, so only one reindex is spawned. Never raises."""
+    try:
+        (index_dir / HOOK_REINDEX_PENDING_NAME).unlink()
+        return True
+    except OSError:
+        return False
 
 
 SOURCE_CODE_EXTENSIONS = {
@@ -1129,7 +1279,7 @@ def _auto_install_lancedb() -> None:
         )
     print("build_index: lancedb not installed — installing into Wavefoundry tool venv ...", flush=True)
     import setup_index  # wave 1p93v: function-local import, mirrors the established direction-safety pattern
-    cmd = [str(venv_python), "-m", "pip", "install", "lancedb"]
+    cmd = [str(venv_python), "-m", "pip", "install", setup_index.LANCEDB_REQUIREMENT]  # wave 1p95j: pinned spec
     result = subprocess_util.isolated_run(cmd, check=False, env=setup_index._pip_tls_env())
     if result.returncode != 0:
         raise ImportError(
@@ -1268,6 +1418,33 @@ class _StreamingLayerWriter:
     def _finalize_inner(self, verbose: bool = False) -> int:
         if self.table is None:
             return 0
+        # Wave 1p95j: compact + clean FIRST — the streaming append leaves ~26 small data fragments,
+        # and `create_table(mode="overwrite")` on a rebuild over a non-empty dir leaves the prior
+        # build's data versions behind. `optimize(cleanup_older_than=0)` compacts the fragments and
+        # reclaims stale versions. This MUST run BEFORE the index builds: running it after would
+        # compact the data out from under a just-built FTS/vector index, invalidating it and forcing
+        # a duplicate rebuild whose stale copy can't be GC'd without `pylance` (a naive
+        # optimize-after-index left TWO ~40 MB FTS copies). Mirrors the incremental path's order
+        # (compact → build indexes). Best-effort; never fails the build.
+        if not _optimize_lance_table(self.table):
+            # Wave 1p9aj: optimize() failed (e.g. the Lance list-offset corruption bug) — self-heal by
+            # compacting via a fresh rewrite so the table reclaims instead of growing unbounded. The
+            # rewrite rebuilds the vector + FTS indices itself, so return early on success. Never raise
+            # out of finalize: on a rewrite failure, warn and fall through to a best-effort normal index
+            # build over the (still readable) un-reclaimed table.
+            try:
+                self.table = _compact_by_rewrite(self.db, self.table_name)
+                if verbose:
+                    print(
+                        f"build_index: reclaimed '{self.table_name}' via compact-by-rewrite (optimize failed)",
+                        flush=True,
+                    )
+                return self.written
+            except Exception as exc:
+                print(
+                    f"build_index: reclaim of '{self.table_name}' skipped ({exc})",
+                    file=sys.stderr,
+                )
         if self.written >= LANCEDB_INDEX_THRESHOLD:
             try:
                 self.table.create_index(metric="cosine", index_type="IVF_HNSW_SQ", replace=True)
@@ -1281,7 +1458,10 @@ class _StreamingLayerWriter:
                     f"build_index: LanceDB index creation for '{self.table_name}' skipped ({exc})",
                     file=sys.stderr,
                 )
-        _create_fts_index(self.table, self.table_name, replace=False)
+        # replace=True (was False) — a full rebuild over a non-empty dir replaces the FTS index
+        # rather than stacking a second ~40 MB copy. Built AFTER the compaction so it indexes the
+        # final compacted data.
+        _create_fts_index(self.table, self.table_name, replace=True)
         return self.written
 
 
@@ -1360,13 +1540,136 @@ def _run_streaming_full_rebuild(
     code_elapsed.append(t_code)
 
 
-def _optimize_lance_table(table) -> None:
-    """Compact a LanceDB table, swallowing errors (advisory)."""
+def _optimize_lance_table(table) -> bool:
+    """Compact a LanceDB table, swallowing errors (advisory).
+
+    Returns ``True`` when ``optimize()`` succeeded, ``False`` when it raised (e.g. the Lance list-offset
+    corruption bug — ``Max offset … exceeds length of values``, lance-format/lance #7538 — where in-place
+    compaction cannot decode the corrupted pages). Callers that hold ``db`` + ``table_name`` context can
+    escalate a ``False`` to ``_compact_by_rewrite`` / ``reclaim_lance_table`` to reclaim the table."""
     try:
         from datetime import timedelta
         table.optimize(cleanup_older_than=timedelta(seconds=0))
+        return True
     except Exception as exc:
         print(f"build_index: LanceDB optimize failed ({exc})", file=sys.stderr)
+        return False
+
+
+def _compact_by_rewrite(db, table_name: str):
+    """Reclaim a LanceDB table whose in-place ``optimize()`` fails by rewriting it fresh.
+
+    Wave 1p9aj. When ``optimize()`` cannot compact a table because of the Lance list-offset corruption
+    bug (lance-format/lance #7538; unbounded on-disk bloat, no in-place recovery), normal *reads* still
+    succeed — only the compaction/decode path fails. So read the live rows with ``to_arrow()`` and write
+    them to a fresh table via ``create_table(mode="overwrite")``: a fresh write recomputes the
+    list-column offsets from the clean in-memory Arrow data, sidestepping the append-time offset-rebasing
+    bug (this is why the rewrite reclaims — proven ``docs.lance`` 1.6 GB → 55 MB, zero re-embed — where
+    ``optimize()`` cannot). Then rebuild the vector + FTS indices and compact.
+
+    The swap uses ``create_table(mode="overwrite")`` and **never** ``db.rename_table`` — the latter raises
+    ``NotImplementedError: rename_table is not supported in LanceDB OSS``, and a drop-then-rename would
+    leave the table missing if the rename failed. ``to_arrow()`` raising (the data itself is unreadable,
+    not just the compaction path) propagates so the caller can fall back to a full re-embed rebuild.
+
+    Returns the new table handle."""
+    src = db.open_table(table_name)
+    data = src.to_arrow()  # propagates on a real read failure -> caller falls back to full rebuild
+    row_count = data.num_rows
+    new_table = db.create_table(table_name, data=data, mode="overwrite")
+    if row_count >= LANCEDB_INDEX_THRESHOLD:
+        try:
+            new_table.create_index(metric="cosine", index_type="IVF_HNSW_SQ", replace=True)
+        except Exception as exc:
+            print(
+                f"build_index: reclaim vector-index rebuild for '{table_name}' skipped ({exc})",
+                file=sys.stderr,
+            )
+    _create_fts_index(new_table, table_name, replace=True)
+    _optimize_lance_table(new_table)
+    return new_table
+
+
+def reclaim_lance_table(db, table_name: str) -> dict:
+    """Tiered reclaim of a bloated LanceDB table. Wave 1p9aj.
+
+    Tier 1: ``optimize()`` in place (the normal, non-corrupt case). Tier 2 (on an ``optimize()``
+    failure): compact by rewrite via ``_compact_by_rewrite`` — no re-embed. Tier 3 (only when the
+    ``to_arrow()`` read itself fails — true data loss, not just compaction corruption): signal the caller
+    to full-rebuild via ``needs_rebuild``. Never raises. Returns
+    ``{tier, rows, needs_rebuild, error}``."""
+    result = {"tier": 0, "rows": 0, "needs_rebuild": False, "error": None}
+    try:
+        table = db.open_table(table_name)
+    except Exception as exc:
+        result["tier"] = 3
+        result["needs_rebuild"] = True
+        result["error"] = f"open failed: {exc}"
+        return result
+    if _optimize_lance_table(table):
+        result["tier"] = 1
+        try:
+            result["rows"] = table.count_rows()
+        except Exception:
+            pass
+        return result
+    # optimize() failed -> Tier 2 compact by rewrite (or Tier 3 if the read/rewrite itself fails).
+    try:
+        new_table = _compact_by_rewrite(db, table_name)
+        result["tier"] = 2
+        try:
+            result["rows"] = new_table.count_rows()
+        except Exception:
+            pass
+        return result
+    except Exception as exc:
+        result["tier"] = 3
+        result["needs_rebuild"] = True
+        result["error"] = f"rewrite failed: {exc}"
+        return result
+
+
+# Wave 1p9aj: semantic Lance tables and their on-disk directories under .wavefoundry/index/.
+_LANCE_TABLE_FILES = {"docs": "docs.lance", "code": "code.lance"}
+
+
+def _lance_dir_bytes(path: Path) -> int:
+    """Best-effort sum of file sizes under a ``.lance`` table directory; 0 on any error."""
+    total = 0
+    try:
+        for dirpath, _dirs, files in os.walk(path):
+            for name in files:
+                try:
+                    total += (Path(dirpath) / name).stat().st_size
+                except OSError:
+                    pass
+    except Exception:
+        return total
+    return total
+
+
+def optimize_index_tables(index_dir: Path, tables: "tuple[str, ...]" = ("docs", "code")) -> dict:
+    """Run the tiered reclaim (``reclaim_lance_table``) over the given Lance tables under the whole-index
+    build lock. Wave 1p9aj. Returns ``{table: {tier, rows, needs_rebuild, error, bytes_before,
+    bytes_after}}`` for each **existing** table (absent tables are skipped). Reclaim-only — it never
+    re-embeds; a Tier-3 (unreadable) table is reported via ``needs_rebuild`` for the caller to rebuild.
+
+    Shared by ``wave_index_optimize`` and the automatic end-of-``setup``/``upgrade`` optimize pass. May
+    raise ``IndexBuildAlreadyRunning`` if another build holds the lock; callers handle that."""
+    results: dict = {}
+    existing = [t for t in tables if t in _LANCE_TABLE_FILES and (index_dir / _LANCE_TABLE_FILES[t]).exists()]
+    if not existing:
+        return results
+    with _index_build_lock(index_dir):
+        db = _get_lance_db(index_dir)
+        for t in existing:
+            tdir = index_dir / _LANCE_TABLE_FILES[t]
+            before = _lance_dir_bytes(tdir)
+            res = reclaim_lance_table(db, t)
+            res["bytes_before"] = before
+            res["bytes_after"] = _lance_dir_bytes(tdir)
+            results[t] = res
+    return results
 
 
 def _create_fts_index(table, table_name: str, replace: bool = False) -> None:
@@ -1907,28 +2210,113 @@ def _lance_incremental_write(
 
             if rows_to_add:
                 table.add(rows_to_add)
+            reclaimed = False
             if _lance_fragment_count(table) > LANCEDB_COMPACT_THRESHOLD:
                 if verbose:
                     print(f"build_index: compacting {table_name} table", flush=True)
-                _optimize_lance_table(table)
-                try:
-                    row_count = table.count_rows()
-                except Exception:
-                    row_count = 0
-                if row_count >= LANCEDB_INDEX_THRESHOLD:
+                if not _optimize_lance_table(table):
+                    # Wave 1p9aj: self-heal a compaction failure (the Lance list-offset corruption bug)
+                    # by rewriting the table fresh — reclaims instead of growing unbounded. The rewrite
+                    # rebuilds the vector + FTS indices, so re-point `table` and skip the redundant
+                    # index builds below. Never raise: on a rewrite failure, warn and continue.
                     try:
-                        table.create_index(metric="cosine", index_type="IVF_HNSW_SQ", replace=True)
+                        table = _compact_by_rewrite(db, table_name)
+                        reclaimed = True
                         if verbose:
                             print(
-                                f"build_index: LanceDB IVF_HNSW_SQ index rebuilt for '{table_name}' ({row_count} rows)",
+                                f"build_index: reclaimed '{table_name}' via compact-by-rewrite (optimize failed)",
                                 flush=True,
                             )
                     except Exception as exc:
                         print(
-                            f"build_index: LanceDB index rebuild for '{table_name}' skipped ({exc})",
+                            f"build_index: reclaim of '{table_name}' skipped ({exc})",
                             file=sys.stderr,
                         )
-            _create_fts_index(table, table_name, replace=True)
+                if not reclaimed:
+                    try:
+                        row_count = table.count_rows()
+                    except Exception:
+                        row_count = 0
+                    if row_count >= LANCEDB_INDEX_THRESHOLD:
+                        try:
+                            table.create_index(metric="cosine", index_type="IVF_HNSW_SQ", replace=True)
+                            if verbose:
+                                print(
+                                    f"build_index: LanceDB IVF_HNSW_SQ index rebuilt for '{table_name}' ({row_count} rows)",
+                                    flush=True,
+                                )
+                        except Exception as exc:
+                            print(
+                                f"build_index: LanceDB index rebuild for '{table_name}' skipped ({exc})",
+                                file=sys.stderr,
+                            )
+            # Wave 1p95j: only rebuild the FTS index when this table actually changed. Previously the
+            # FTS index (~40 MB) was rebuilt (replace=True) on EVERY incremental pass — even a no-op
+            # pass that produced no adds/deletes for this table (e.g. the post-edit hook firing for a
+            # file in the OTHER layer) — needlessly re-materializing an identical index and churning
+            # artifacts. Gating on real change removes that waste, cutting the reindex rate that
+            # drove the observed `_indices/` growth. (A cleanup is NOT run here: `optimize` recompacts
+            # the data, which would invalidate this just-built FTS and force a duplicate whose stale
+            # copy can't be GC'd without `pylance` — the fragment-gated `optimize` above already
+            # compacts BEFORE the indexes when it fires, which is the correct order.)
+            table_changed = bool(rows_to_add) or bool(ids_to_delete) or bool(fallback_paths)
+            if table_changed and not reclaimed:
+                # When reclaimed above, _compact_by_rewrite already rebuilt the FTS index.
+                _create_fts_index(table, table_name, replace=True)
+
+
+# Wave 1p99o: `struct flock` field order differs between Linux and macOS/BSD; there is no portable
+# Python helper. Build/parse it per-platform for the non-destructive F_GETLK probe.
+_FLOCK_STRUCT = {
+    # Linux (asm-generic, x86-64/arm64): short l_type; short l_whence; off_t l_start; off_t l_len; pid_t l_pid;
+    "linux": ("@hhqqi", ("l_type", "l_whence", "l_start", "l_len", "l_pid")),
+    # macOS/BSD: off_t l_start; off_t l_len; pid_t l_pid; short l_type; short l_whence;
+    "darwin": ("@qqihh", ("l_start", "l_len", "l_pid", "l_type", "l_whence")),
+}
+
+
+def _index_build_lock_held(index_dir: Path) -> "tuple[Optional[bool], Optional[int]]":
+    """Non-destructively test whether the whole-index build lock is currently held.
+
+    Returns ``(held, holder_pid)``. ``held`` is ``None`` when the state cannot be determined (probe
+    error / unknown platform) — the acquire-time lock remains the ultimate authority, so status callers
+    treat ``None`` as not-held. POSIX uses ``fcntl`` ``F_GETLK`` (queries without acquiring and returns
+    the holder PID); native Windows uses a momentary non-blocking ``msvcrt`` lock on the sentinel byte
+    (Windows has no F_GETLK; it also has no defunct-owner problem, so the microsecond acquire is safe)."""
+    lock_path = index_dir / INDEX_BUILD_LOCK_NAME
+    if not lock_path.exists():
+        return (False, None)
+    try:
+        if os.name == "nt":
+            import msvcrt
+            with open(lock_path, "r+b") as fh:
+                fh.seek(INDEX_BUILD_LOCK_SENTINEL)
+                try:
+                    msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+                except OSError:
+                    return (True, None)  # could not lock -> a builder holds it
+                fh.seek(INDEX_BUILD_LOCK_SENTINEL)
+                msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)  # got it -> not held; release at once
+                return (False, None)
+        import fcntl
+        import struct as _struct
+        plat = "darwin" if sys.platform == "darwin" else ("linux" if sys.platform.startswith("linux") else None)
+        if plat is None:
+            return (None, None)  # unknown flock struct layout — undetermined
+        fmt, fields = _FLOCK_STRUCT[plat]
+        vals = {"l_type": fcntl.F_WRLCK, "l_whence": 0, "l_start": INDEX_BUILD_LOCK_SENTINEL, "l_len": 1, "l_pid": 0}
+        packed = _struct.pack(fmt, *(vals[name] for name in fields))
+        fd = os.open(str(lock_path), os.O_RDONLY)
+        try:
+            res = fcntl.fcntl(fd, fcntl.F_GETLK, packed)
+        finally:
+            os.close(fd)
+        out = dict(zip(fields, _struct.unpack(fmt, res)))
+        if out["l_type"] == fcntl.F_UNLCK:
+            return (False, None)  # no conflicting lock -> not held
+        return (True, out["l_pid"] or None)
+    except Exception:  # noqa: BLE001 — probe failure -> undetermined; acquire-time lock is the authority
+        return (None, None)
 
 
 @contextmanager
@@ -1961,11 +2349,12 @@ def _index_build_lock(index_dir: Path):
             pass
     fh = lock_path.open("a+", encoding="utf-8")
     acquired = False
+    lock_meta: Optional[dict] = None
     try:
         if os.name == "nt":
             import msvcrt
             try:
-                fh.seek(0)
+                fh.seek(INDEX_BUILD_LOCK_SENTINEL)
                 msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
                 acquired = True
             except OSError as exc:
@@ -1975,9 +2364,12 @@ def _index_build_lock(index_dir: Path):
         else:
             import fcntl
             try:
-                fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                # Wave 1p99o: a fcntl record lock on the sentinel byte (was `flock`) — so status can
+                # probe it non-destructively via F_GETLK, and it is not fork-inherited (a pool worker
+                # can't hold it out from under a finished parent).
+                fcntl.lockf(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB, 1, INDEX_BUILD_LOCK_SENTINEL, 0)
                 acquired = True
-            except BlockingIOError as exc:
+            except OSError as exc:  # BlockingIOError (EAGAIN/EACCES) when another builder holds it
                 raise IndexBuildAlreadyRunning(
                     format_index_build_lock_conflict(index_dir, lock_path=lock_path)
                 ) from exc
@@ -1987,21 +2379,38 @@ def _index_build_lock(index_dir: Path):
                 f"build_index: reclaimed stale {INDEX_BUILD_LOCK_NAME} at {lock_path}",
                 file=sys.stderr,
             )
+        # Wave 1p98u/1p99o: metadata lives at byte 0 (off the sentinel lock byte) so it stays readable
+        # while the lock is held. `ended_at` is added best-effort in `finally` on clean exit — its
+        # absence (with the lock not held) is how status detects an interrupted build.
+        lock_meta = {
+            "pid": os.getpid(),
+            "started_at": time.time(),
+            "cmdline": " ".join(sys.argv),
+        }
         fh.seek(0)
         fh.truncate()
-        fh.write(json.dumps({"pid": os.getpid(), "started_at": time.time()}))
+        fh.write(json.dumps(lock_meta))
         fh.flush()
         yield
     finally:
         if acquired:
+            if lock_meta is not None:
+                try:  # best-effort ended_at; a hard kill skips it → status sees an interrupted build
+                    lock_meta["ended_at"] = time.time()
+                    fh.seek(0)
+                    fh.truncate()
+                    fh.write(json.dumps(lock_meta))
+                    fh.flush()
+                except Exception:  # noqa: BLE001
+                    pass
             try:
                 if os.name == "nt":
                     import msvcrt
-                    fh.seek(0)
+                    fh.seek(INDEX_BUILD_LOCK_SENTINEL)
                     msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
                 else:
                     import fcntl
-                    fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+                    fcntl.lockf(fh.fileno(), fcntl.LOCK_UN, 1, INDEX_BUILD_LOCK_SENTINEL, 0)
             except OSError:
                 pass
         fh.close()
@@ -2066,33 +2475,100 @@ def _onnx_providers() -> list[str]:
     return list(decision.providers)
 
 
+def _precision_class_from_version(value: Optional[str]) -> str:
+    """Parse the precision class suffix from a recorded ``model_versions`` value (wave 1p936):
+    ``"name@class"`` -> ``class``. A legacy bare model-name value (no ``"@"``) -> ``"full"``
+    (indexes built before this wave predate the precision split and are full-precision)."""
+    if not value or "@" not in value:
+        return "full"
+    return value.rsplit("@", 1)[1]
+
+
+def _predicted_precision_class(model_name: str, providers: list[str]) -> str:
+    """The precision class the embedder pipeline resolves for ``model_name`` on the CURRENT machine
+    (wave 1p936). Provider AVAILABILITY only, no ONNX session build — a full resolve-and-probe here
+    would defeat the 1p5d6/1p938 lazy-load optimizations by forcing a ~40s CoreML compile on every
+    incremental build just to check precision.
+
+    Both the ``model_versions`` COMPARE site (has the class changed → re-embed?) and the WRITE site
+    (record the class) call THIS function, so they are consistent by construction — critical, or a
+    same-machine incremental build would perpetually re-embed. ``make_embedder`` is built to resolve
+    exactly what this reports, so the recorded class stays truthful about the stored vectors:
+
+    - GPU available -> ``"full"``. A GPU machine runs FP16 end-to-end (ADR 1p92d); a model whose
+      graph doesn't offload falls back to fastembed FULL (``make_embedder`` returns None → caller's
+      fastembed path), NOT INT8 — so "GPU available" always means "full" here.
+    - no GPU + this model has an INT8 clean-export source -> ``"int8"`` (the CPU-bound pipeline).
+    - otherwise (no GPU, no INT8 source) -> ``"full"`` (fastembed-resident).
+
+    Note FP16 and FP32 both collapse to ``"full"`` (cos 1.0, interchangeable per 1p517 AC-8); only
+    INT8 actually shifts vectors, so it is the only distinct class."""
+    if accel_embedder is None:
+        return "full"
+    provider_list = list(providers)
+    gpu = [p for p in provider_list if p in accel_embedder.GPU_PROVIDERS]
+    if not gpu:
+        gpu = accel_embedder._available_gpu_providers()
+    if gpu:
+        return "full"
+    if model_name in accel_embedder.CLEAN_ONNX_SOURCES:
+        return "int8"
+    return "full"
+
+
 _EMBEDDER_CACHE: dict[str, Any] = {}
 
+# Wave 1p938: route an incremental embed run smaller than one full GPU batch to the full-precision
+# CPU fastembed path instead of constructing the 64x512 GPU accel session — the GPU only amortizes
+# its fixed dispatch cost over a large batch (measurement B, ADR 1p92d); a handful of chunks padded
+# into a 64-row batch loses to plain CPU. Default = accel_embedder.STATIC_BATCH (one full GPU
+# batch), so a bulk/full build (>= threshold chunks) still uses GPU unchanged (AC-2).
+INCREMENTAL_GPU_MIN_CHUNKS = accel_embedder.STATIC_BATCH if accel_embedder is not None else 64
 
-def _get_embedder(model_name: str):
-    """Return a fastembed TextEmbedding instance for model_name.
+
+def _get_embedder(model_name: str, n_chunks: Optional[int] = None):
+    """Return an embedder (accel GPU/CPU-INT8, or fastembed) for model_name.
 
     Wave 1p4wy: cached per process so the ONNX/CoreML session (and its ~40s compile
     on the GPU path) is built once, not re-created if the same model is requested
     again within a build.
+
+    Wave 1p938: when ``n_chunks`` is given, below ``INCREMENTAL_GPU_MIN_CHUNKS``, AND this machine
+    would otherwise use GPU acceleration, route straight to the full-precision fastembed-resident
+    path instead of the GPU accel session — see the module-level constant's docstring for why. Does
+    NOT affect a CPU-bound machine (no GPU to skip in the first place; AC-3) — that machine's normal
+    dispatch already correctly resolves the INT8-CPU accel embedder (wave 1p935) regardless of run
+    size. Precision-safe on a GPU machine: this is the SAME full-precision embedder the GPU machine
+    already falls back to when accel is unavailable for any other reason — cos 1.0 with the FP16
+    index, a "full"-class no-op under wave 1p936's re-embed guard. Cached under a distinct key so a
+    later bulk/full run in the same process still resolves (and caches) the real GPU embedder.
     """
-    cached = _EMBEDDER_CACHE.get(model_name)
+    providers = _onnx_providers()
+    has_gpu = accel_embedder is not None and (
+        any(p in accel_embedder.GPU_PROVIDERS for p in providers) or accel_embedder._available_gpu_providers()
+    )
+    small_run = has_gpu and n_chunks is not None and n_chunks < INCREMENTAL_GPU_MIN_CHUNKS
+    cache_key = f"{model_name}::small_run_cpu" if small_run else model_name
+    cached = _EMBEDDER_CACHE.get(cache_key)
     if cached is not None:
         return cached
-    providers = _onnx_providers()
     # Wave 1p517: when a GPU provider is selected, use the static-shape ONNX embedder
     # (CoreML/CUDA) if this model's graph actually runs on the GPU; else fall back to fastembed.
+    # Wave 1p935: make_embedder also tries a static-shape CPU-INT8 path before giving up to
+    # fastembed, so `accel` here may be either a GPU-FP16 or a CPU-INT8 StaticShapeEmbedder.
     # The accel path resolves its model files cached-first internally (see accel_embedder).
-    if accel_embedder is not None:
+    if accel_embedder is not None and not small_run:
         try:
             accel = accel_embedder.make_embedder(model_name, providers)
         except Exception:
             accel = None
         if accel is not None:
-            print(f"build_index: using GPU-accelerated embedder for {model_name} "
-                  f"({getattr(accel, 'provider', '?')}, static {accel_embedder.STATIC_BATCH}x"
+            provider = getattr(accel, "provider", "?")
+            kind = "CPU-INT8" if provider == "CPUExecutionProvider" else "GPU-accelerated"
+            print(f"build_index: using {kind} embedder for {model_name} "
+                  f"({provider}, static {accel_embedder.STATIC_BATCH}x"
                   f"{accel_embedder.STATIC_SEQ})", flush=True)
-            _EMBEDDER_CACHE[model_name] = accel
+            _EMBEDDER_CACHE[cache_key] = accel
             return accel
     try:
         from fastembed import TextEmbedding
@@ -2103,8 +2579,12 @@ def _get_embedder(model_name: str):
             file=sys.stderr,
         )
         sys.exit(1)
+    if small_run:
+        print(f"build_index: {n_chunks} chunk(s) on a GPU machine — below the batch threshold "
+              f"({INCREMENTAL_GPU_MIN_CHUNKS}), using the CPU embedder for {model_name} "
+              "(skips the GPU accel session for this small run)", flush=True)
     embedder = _text_embedding_cached_first(TextEmbedding, model_name, providers)
-    _EMBEDDER_CACHE[model_name] = embedder
+    _EMBEDDER_CACHE[cache_key] = embedder
     return embedder
 
 
@@ -2452,7 +2932,13 @@ def _build_index_locked(
     # meta["content"] records which layers were built last time (even if 0 chunks were produced).
     previously_built_content = set(meta.get("content", []))
     if build_docs:
-        model_changed = model_changed or old_model_versions.get("docs") != DOCS_MODEL
+        old_docs_value = old_model_versions.get("docs")
+        model_changed = model_changed or (old_docs_value or "").split("@", 1)[0] != DOCS_MODEL
+        # Wave 1p936: a precision-class change (full <-> int8) also forces a full re-embed — old
+        # vectors are only interchangeable within the same class (FP16/FP32 collapse to "full").
+        model_changed = model_changed or _precision_class_from_version(old_docs_value) != (
+            _predicted_precision_class(DOCS_MODEL, _onnx_providers())
+        )
         docs_index_exists = (
             (index_dir / "docs.lance").is_dir()
             or "docs" in previously_built_content
@@ -2462,7 +2948,11 @@ def _build_index_locked(
             current_chunker_version and old_chunker_versions.get("docs") != current_chunker_version
         )
     if build_code:
-        model_changed = model_changed or old_model_versions.get("code") != CODE_MODEL
+        old_code_value = old_model_versions.get("code")
+        model_changed = model_changed or (old_code_value or "").split("@", 1)[0] != CODE_MODEL
+        model_changed = model_changed or _precision_class_from_version(old_code_value) != (
+            _predicted_precision_class(CODE_MODEL, _onnx_providers())
+        )
         code_index_exists = (
             (index_dir / "code.lance").is_dir()
             or "code" in previously_built_content
@@ -2815,12 +3305,18 @@ def _build_index_locked(
     docs_embedder = None
     if build_docs and (full or new_doc_chunks):
         _progress(verbose, f"build_index: loading docs model {DOCS_MODEL}")
-        docs_embedder = _get_embedder(DOCS_MODEL)
+        # Wave 1p938: n_chunks lets _get_embedder route a SMALL INCREMENTAL run to CPU. It must be
+        # None for a full rebuild: the streaming full-rebuild path produces chunks AFTER this load,
+        # so new_doc_chunks is still empty here — passing len()==0 would wrongly route a bulk rebuild
+        # of the entire corpus to the CPU fastembed path and defeat GPU acceleration. A full rebuild
+        # is always a bulk run (→ GPU); the small-N optimization is only for the incremental
+        # post-edit-hook path, where new_doc_chunks is already populated (the guard requires it).
+        docs_embedder = _get_embedder(DOCS_MODEL, n_chunks=None if full else len(new_doc_chunks))
         _progress(verbose, f"build_index: loaded docs model {DOCS_MODEL}")
     code_embedder = None
     if build_code and (full or new_code_chunks):
         _progress(verbose, f"build_index: loading code model {CODE_MODEL}")
-        code_embedder = _get_embedder(CODE_MODEL)
+        code_embedder = _get_embedder(CODE_MODEL, n_chunks=None if full else len(new_code_chunks))
         _progress(verbose, f"build_index: loaded code model {CODE_MODEL}")
 
     # Write to LanceDB — the only index format.
@@ -3018,10 +3514,29 @@ def _build_index_locked(
         raise
 
     new_model_versions = dict(old_model_versions)
+    # Wave 1p936: record the precision class for each built layer using the SAME predictor the
+    # compare site uses (`_predicted_precision_class`), NOT the resolved-embedder class — the two
+    # MUST agree or a same-machine incremental build would perpetually re-embed (the compare would
+    # keep seeing a class mismatch it just wrote). `make_embedder` is constructed to resolve exactly
+    # what the predictor reports (GPU→full incl. non-offload fastembed fallback; no-GPU + INT8
+    # source→int8), so the recorded class stays truthful about the stored vectors on a real build.
+    # A layer with no embedding work this run (embedder is None — e.g. an empty incremental update)
+    # preserves whatever class was already recorded.
+    build_providers = _onnx_providers()
     if build_docs:
-        new_model_versions["docs"] = DOCS_MODEL
+        docs_class = (
+            _predicted_precision_class(DOCS_MODEL, build_providers)
+            if docs_embedder is not None
+            else _precision_class_from_version(old_model_versions.get("docs"))
+        )
+        new_model_versions["docs"] = f"{DOCS_MODEL}@{docs_class}"
     if build_code:
-        new_model_versions["code"] = CODE_MODEL
+        code_class = (
+            _predicted_precision_class(CODE_MODEL, build_providers)
+            if code_embedder is not None
+            else _precision_class_from_version(old_model_versions.get("code"))
+        )
+        new_model_versions["code"] = f"{CODE_MODEL}@{code_class}"
     new_chunker_versions = dict(old_chunker_versions)
     if build_docs and current_chunker_version:
         new_chunker_versions["docs"] = current_chunker_version

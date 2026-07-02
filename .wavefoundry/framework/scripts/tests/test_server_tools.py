@@ -7506,6 +7506,61 @@ class EmbedderSingletonTests(unittest.TestCase):
         self.assertEqual(construct_calls,
                          ["Snowflake/snowflake-arctic-embed-xs", "BAAI/bge-small-en-v1.5"])
 
+    def test_get_embedder_uses_int8_when_index_recorded_int8(self):
+        """Wave 1p935 AC-2 / 1p936 AC-4: when the index's recorded model_versions class is "int8",
+        the query embedder is the accel CPU-INT8 StaticShapeEmbedder (matching the stored vectors'
+        precision), NOT fastembed — regardless of the current machine's own classification."""
+        import accel_embedder
+        model = "Snowflake/snowflake-arctic-embed-xs"
+        self.index._meta = {"project": {"model_versions": {"docs": f"{model}@int8"}}}
+        self.index._embedders = {}
+        int8_sentinel = MagicMock()
+        with patch.object(accel_embedder, "StaticShapeEmbedder", return_value=int8_sentinel) as cls:
+            got = self.index._get_embedder(model)
+        self.assertIs(got, int8_sentinel)
+        # Built for the CPU EP (INT8), driven by the recorded class, not the host's providers.
+        self.assertEqual(cls.call_args.args[1], ["CPUExecutionProvider"])
+
+    def test_get_embedder_uses_fastembed_when_index_recorded_full(self):
+        """The mirror: a "full"-class (or legacy bare-name) index uses the fastembed-resident
+        full-precision embedder, never the INT8 accel path."""
+        import accel_embedder
+        model = "Snowflake/snowflake-arctic-embed-xs"
+        self.index._meta = {"project": {"model_versions": {"docs": f"{model}@full"}}}
+        self.index._embedders = {}
+
+        class _FakeTextEmbedding:
+            def __init__(self, *args, **kwargs):
+                self.kind = "fastembed"
+
+        fake_fastembed = types.ModuleType("fastembed")
+        fake_fastembed.TextEmbedding = _FakeTextEmbedding
+        with patch.object(accel_embedder, "StaticShapeEmbedder") as int8_cls, \
+             patch.dict(sys.modules, {"fastembed": fake_fastembed}):
+            got = self.index._get_embedder(model)
+        self.assertIsInstance(got, _FakeTextEmbedding)
+        int8_cls.assert_not_called()
+
+    def test_get_embedder_int8_build_failure_falls_back_to_fastembed(self):
+        """1p936 residual-risk guard: if the recorded class is int8 but the INT8 build is
+        unavailable (e.g. not cached / offline), fall back to fastembed rather than raising — a
+        degraded but usable query beats no query."""
+        import accel_embedder
+        model = "Snowflake/snowflake-arctic-embed-xs"
+        self.index._meta = {"project": {"model_versions": {"docs": f"{model}@int8"}}}
+        self.index._embedders = {}
+
+        class _FakeTextEmbedding:
+            def __init__(self, *args, **kwargs):
+                self.kind = "fastembed-fallback"
+
+        fake_fastembed = types.ModuleType("fastembed")
+        fake_fastembed.TextEmbedding = _FakeTextEmbedding
+        with patch.object(accel_embedder, "StaticShapeEmbedder", side_effect=RuntimeError("no int8 cache")), \
+             patch.dict(sys.modules, {"fastembed": fake_fastembed}):
+            got = self.index._get_embedder(model)
+        self.assertIsInstance(got, _FakeTextEmbedding, "int8 build failure must degrade to fastembed")
+
 
 class DocsCodeModelSplitTests(unittest.TestCase):
     """1p4wx: docs use arctic-embed-xs (asymmetric, query prefix); code stays bge-small.
@@ -10968,8 +11023,18 @@ class RerankerTests(unittest.TestCase):
         import accel_embedder
         idx = self.srv.WaveIndex.__new__(self.srv.WaveIndex)
         idx._reranker = None
+        # Wave 1p937: _get_reranker also fetches "_onnx_providers" (the resolved provider list
+        # function) via _indexer_constant, so the mock must dispatch by constant name, not return a
+        # single fixed value for every call.
+        def _const(name):
+            if name == "RERANKER_MODEL":
+                return "cross-encoder/ms-marco-MiniLM-L-6-v2"
+            if name == "_onnx_providers":
+                return lambda: ["CPUExecutionProvider"]
+            raise AssertionError(f"unexpected _indexer_constant({name!r})")
+
         with patch.object(accel_embedder, "make_reranker", return_value=None) as mk:
-            with patch.object(idx, "_indexer_constant", return_value="cross-encoder/ms-marco-MiniLM-L-6-v2"):
+            with patch.object(idx, "_indexer_constant", side_effect=_const):
                 with patch.object(idx, "_offline_model_env", return_value=__import__("contextlib").nullcontext()):
                     result = idx._get_reranker()
         mk.assert_called_once()
@@ -10986,8 +11051,17 @@ class RerankerTests(unittest.TestCase):
         mock_reranker = MagicMock()
         mock_reranker.model_name = "cross-encoder/ms-marco-MiniLM-L-6-v2"
         mock_reranker.provider = "CoreMLExecutionProvider"
+
+        # Wave 1p937: _get_reranker also fetches "_onnx_providers" via _indexer_constant.
+        def _const(name):
+            if name == "RERANKER_MODEL":
+                return "cross-encoder/ms-marco-MiniLM-L-6-v2"
+            if name == "_onnx_providers":
+                return lambda: ["CoreMLExecutionProvider"]
+            raise AssertionError(f"unexpected _indexer_constant({name!r})")
+
         with patch.object(accel_embedder, "make_reranker", return_value=mock_reranker) as mk:
-            with patch.object(idx, "_indexer_constant", return_value="cross-encoder/ms-marco-MiniLM-L-6-v2"):
+            with patch.object(idx, "_indexer_constant", side_effect=_const):
                 with patch.object(idx, "_offline_model_env", return_value=__import__("contextlib").nullcontext()):
                     result = idx._get_reranker()
         mk.assert_called_once()
@@ -19838,3 +19912,384 @@ class GpuDoctorToolTests(unittest.TestCase):
         body = rest[: m.start()] if m else rest
         self.assertIn("isolated_stdout_fd", body, "probe must be wrapped in the fd-level stdout isolation")
         self.assertIn("redirect_stdout", body, "Python-level redirect must remain (belt-and-suspenders)")
+
+
+class BackgroundBuildReapRegistryTests(unittest.TestCase):
+    """Wave 1p98u: the long-lived server reaps the background index builds it launches so they don't
+    linger as zombies whose stale PID makes the index-build lock read as live."""
+
+    def setUp(self):
+        import server_impl
+        self.srv = server_impl
+        self._saved = set(server_impl._BACKGROUND_BUILD_PIDS)
+        server_impl._BACKGROUND_BUILD_PIDS.clear()
+
+    def tearDown(self):
+        self.srv._BACKGROUND_BUILD_PIDS.clear()
+        self.srv._BACKGROUND_BUILD_PIDS.update(self._saved)
+
+    def test_register_is_posix_only_and_validates(self):
+        with patch.object(self.srv.os, "name", "posix"):
+            self.srv._register_background_build_pid(1234)
+            self.assertIn(1234, self.srv._BACKGROUND_BUILD_PIDS)
+            self.srv._register_background_build_pid(0)
+            self.srv._register_background_build_pid(-9)
+            self.assertNotIn(0, self.srv._BACKGROUND_BUILD_PIDS)
+            self.assertNotIn(-9, self.srv._BACKGROUND_BUILD_PIDS)
+
+    def test_register_noop_on_windows(self):
+        with patch.object(self.srv.os, "name", "nt"):
+            self.srv._register_background_build_pid(1234)
+        self.assertNotIn(1234, self.srv._BACKGROUND_BUILD_PIDS)
+
+    def test_reap_removes_finished_child(self):
+        self.srv._BACKGROUND_BUILD_PIDS.add(1234)
+        with patch.object(self.srv.os, "name", "posix"), \
+             patch.object(self.srv.os, "waitpid", return_value=(1234, 0)) as wp:
+            self.srv._reap_background_build_pids()
+        wp.assert_called_once_with(1234, self.srv.os.WNOHANG)
+        self.assertNotIn(1234, self.srv._BACKGROUND_BUILD_PIDS)
+
+    def test_reap_keeps_still_running_child(self):
+        self.srv._BACKGROUND_BUILD_PIDS.add(1234)
+        with patch.object(self.srv.os, "name", "posix"), \
+             patch.object(self.srv.os, "waitpid", return_value=(0, 0)):
+            self.srv._reap_background_build_pids()
+        self.assertIn(1234, self.srv._BACKGROUND_BUILD_PIDS)
+
+    def test_reap_discards_non_child(self):
+        self.srv._BACKGROUND_BUILD_PIDS.add(1234)
+        with patch.object(self.srv.os, "name", "posix"), \
+             patch.object(self.srv.os, "waitpid", side_effect=ChildProcessError):
+            self.srv._reap_background_build_pids()
+        self.assertNotIn(1234, self.srv._BACKGROUND_BUILD_PIDS)
+
+    def test_reap_noop_on_windows(self):
+        self.srv._BACKGROUND_BUILD_PIDS.add(1234)
+        with patch.object(self.srv.os, "name", "nt"), \
+             patch.object(self.srv.os, "waitpid") as wp:
+            self.srv._reap_background_build_pids()
+        wp.assert_not_called()
+        self.assertIn(1234, self.srv._BACKGROUND_BUILD_PIDS)
+
+
+class IndexBuildLockStatusTests(unittest.TestCase):
+    """Wave 1p99o: wave_index_build_status exposes an authoritative, lock-TESTED `held` (no
+    classification) + `ended_at`. Plain terminology (no 'zombie')."""
+
+    def setUp(self):
+        import server_impl
+        self.srv = server_impl
+
+    def _fake_indexer(self, meta, held_result):
+        from types import SimpleNamespace
+        return SimpleNamespace(
+            read_index_build_lock_metadata=lambda p: meta,
+            _index_build_lock_held=lambda d: held_result,
+        )
+
+    def _info(self, meta, held_result, write_file=True):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            if write_file:
+                lp = root / ".wavefoundry" / "index" / "index-build.lock"
+                lp.parent.mkdir(parents=True, exist_ok=True)
+                lp.write_text(json.dumps(meta or {}), encoding="utf-8")
+            with patch.object(self.srv, "_indexer_module",
+                              return_value=self._fake_indexer(meta, held_result)):
+                return self.srv._index_build_lock_info(root)
+
+    def test_no_file_not_present_not_held(self):
+        info = self._info(None, (False, None), write_file=False)
+        self.assertFalse(info["present"])
+        self.assertFalse(info["held"])
+        self.assertNotIn("classification", info)
+
+    def test_held_true_from_lock_test_uses_kernel_pid(self):
+        info = self._info({"pid": 4321, "started_at": 1.0, "cmdline": "x"}, (True, 9999))
+        self.assertTrue(info["held"])
+        self.assertTrue(info["present"])
+        self.assertEqual(info["owner_pid"], 9999)  # kernel-reported holder, not the metadata pid
+        self.assertIn("running", info["note"].lower())
+
+    def test_clean_finish(self):
+        info = self._info({"pid": 4321, "started_at": 1.0, "ended_at": 2.0, "cmdline": "x"}, (False, None))
+        self.assertFalse(info["held"])
+        self.assertIsNotNone(info["ended_at"])
+        self.assertIn("finished cleanly", info["note"])
+
+    def test_interrupted_build(self):
+        info = self._info({"pid": 4321, "started_at": 1.0, "cmdline": "x"}, (False, None))
+        self.assertFalse(info["held"])
+        self.assertIsNone(info["ended_at"])
+        self.assertIn("did NOT finish cleanly", info["note"])
+
+    def test_undetermined_treated_not_held(self):
+        info = self._info({"pid": 4321, "started_at": 1.0, "cmdline": "x"}, (None, None))
+        self.assertFalse(info["held"])
+        self.assertIn("could not be determined", info["note"].lower())
+
+    def test_shape_has_no_classification(self):
+        info = self._info({"pid": 1, "started_at": 1.0, "ended_at": 2.0}, (False, None))
+        for k in ("held", "present", "owner_pid", "owner_cmdline", "started_at", "ended_at", "note"):
+            self.assertIn(k, info)
+        self.assertNotIn("classification", info)
+
+    def test_no_zombie_terminology(self):
+        cases = [
+            ({"pid": 1, "started_at": 1.0}, (True, 1)),
+            ({"pid": 1, "started_at": 1.0}, (False, None)),
+            ({"pid": 1, "started_at": 1.0, "ended_at": 2.0}, (False, None)),
+            ({"pid": 1, "started_at": 1.0}, (None, None)),
+        ]
+        for meta, hr in cases:
+            self.assertNotIn("zombie", self._info(meta, hr)["note"].lower())
+
+    def test_build_status_injects_lock_object(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.object(self.srv, "_indexer_module",
+                              return_value=self._fake_indexer(None, (False, None))):
+                resp = self.srv.wave_index_build_status_response(Path(tmp), layer="project")
+        self.assertIn("lock", resp.get("data", {}))
+        self.assertFalse(resp["data"]["lock"]["held"])
+
+    def test_recovery_message_no_longer_instructs_deleting_the_file(self):
+        src = (SCRIPTS_ROOT / "server_impl.py").read_text(encoding="utf-8")
+        self.assertNotIn("index-build.lock and retry", src)
+        self.assertIn("wave_index_build_status and read the `lock`", src)
+
+    def test_health_flags_interrupted_build(self):
+        from types import SimpleNamespace
+        interrupted = {"held": False, "present": True, "owner_pid": 9, "owner_cmdline": "x",
+                       "started_at": 1.0, "ended_at": None, "note": "interrupted"}
+        with tempfile.TemporaryDirectory() as tmp:
+            idx = SimpleNamespace(root=Path(tmp), docs_health=lambda: {})
+            with patch.object(self.srv, "_index_build_lock_info", return_value=interrupted):
+                resp = self.srv.wave_index_health_response(idx)
+        codes = [d.get("code") for d in resp.get("diagnostics", [])]
+        self.assertIn("index_build_interrupted", codes)
+
+
+class IndexSizeHealthTests(unittest.TestCase):
+    """Wave 1p9a9: wave_index_health reports on-disk index size (total + per-component)."""
+
+    def setUp(self):
+        import server_impl
+        self.srv = server_impl
+
+    def test_index_dir_size_total_and_components(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            d = Path(tmp)
+            (d / "docs.lance").mkdir()
+            (d / "docs.lance" / "data").write_bytes(b"x" * 100)
+            (d / "code.lance").mkdir()
+            (d / "code.lance" / "data").write_bytes(b"y" * 50)
+            (d / "meta.json").write_bytes(b"z" * 10)
+            size = self.srv._index_dir_size(d)
+        self.assertEqual(size["total_bytes"], 160)
+        self.assertEqual(size["components"]["docs.lance"], 100)
+        self.assertEqual(size["components"]["code.lance"], 50)
+        self.assertEqual(size["components"]["meta.json"], 10)
+        self.assertIn("total_human", size)
+
+    def test_index_dir_size_missing_returns_none(self):
+        self.assertIsNone(self.srv._index_dir_size(Path("/no/such/index/dir/xyz")))
+
+    def test_human_bytes(self):
+        self.assertEqual(self.srv._human_bytes(0), "0 B")
+        self.assertEqual(self.srv._human_bytes(1023), "1023 B")
+        self.assertEqual(self.srv._human_bytes(1024), "1.0 KB")
+        self.assertEqual(self.srv._human_bytes(1536), "1.5 KB")
+
+    def test_health_includes_size(self):
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / ".wavefoundry" / "index").mkdir(parents=True)
+            (Path(tmp) / ".wavefoundry" / "index" / "meta.json").write_bytes(b"{}")
+            idx = SimpleNamespace(root=Path(tmp), docs_health=lambda: {})
+            resp = self.srv.wave_index_health_response(idx)
+        self.assertIn("size", resp.get("data", {}))
+        self.assertIsNotNone(resp["data"]["size"])
+        self.assertIn("total_bytes", resp["data"]["size"])
+
+
+class IndexOptimizeToolTests(unittest.TestCase):
+    """Wave 1p9aj: wave_index_optimize reclaims Lance-table bloat (tiered, no re-embed)."""
+
+    def setUp(self):
+        import server_impl
+        self.srv = server_impl
+
+    def _fake_indexer(self, results):
+        from types import SimpleNamespace
+
+        class _AlreadyRunning(RuntimeError):
+            pass
+
+        def optimize_index_tables(index_dir, tables=("docs", "code")):
+            return results
+
+        return SimpleNamespace(
+            optimize_index_tables=optimize_index_tables,
+            IndexBuildAlreadyRunning=_AlreadyRunning,
+        )
+
+    def test_optimize_reports_per_table_and_total(self):
+        results = {
+            "docs": {"tier": 2, "rows": 100, "needs_rebuild": False, "error": None,
+                     "bytes_before": 2000, "bytes_after": 500},
+            "code": {"tier": 1, "rows": 50, "needs_rebuild": False, "error": None,
+                     "bytes_before": 800, "bytes_after": 800},
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.object(self.srv, "_load_script", return_value=self._fake_indexer(results)):
+                resp = self.srv._wave_index_optimize_response(Path(tmp), content="all", rebuild_if_needed=True)
+        self.assertEqual(resp["status"], "ok")
+        data = resp["data"]
+        self.assertEqual(data["tables"]["docs"]["tier"], 2)
+        self.assertEqual(data["tables"]["docs"]["reclaimed_bytes"], 1500)
+        self.assertEqual(data["total_reclaimed_bytes"], 1500)
+        self.assertEqual(data["needs_rebuild"], [])
+
+    def test_optimize_tier3_spawns_rebuild(self):
+        results = {"docs": {"tier": 3, "rows": 0, "needs_rebuild": True, "error": "corrupt",
+                            "bytes_before": 100, "bytes_after": 100}}
+        spawned = []
+
+        def fake_rebuild(root, content=None, full=None, rechunk=None, layer=None):
+            spawned.append(content)
+            return {}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.object(self.srv, "_load_script", return_value=self._fake_indexer(results)), \
+                 patch.object(self.srv, "run_index_rebuild", side_effect=fake_rebuild):
+                resp = self.srv._wave_index_optimize_response(Path(tmp), content="docs", rebuild_if_needed=True)
+        self.assertIn("docs", spawned)
+        self.assertEqual(resp["data"]["rebuild_spawned"], ["docs"])
+
+    def test_optimize_tier3_no_rebuild_when_disabled(self):
+        results = {"docs": {"tier": 3, "rows": 0, "needs_rebuild": True, "error": "corrupt",
+                            "bytes_before": 100, "bytes_after": 100}}
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.object(self.srv, "_load_script", return_value=self._fake_indexer(results)), \
+                 patch.object(self.srv, "run_index_rebuild") as rebuild:
+                resp = self.srv._wave_index_optimize_response(Path(tmp), content="docs", rebuild_if_needed=False)
+            rebuild.assert_not_called()
+        self.assertEqual(resp["data"]["needs_rebuild"], ["docs"])
+        self.assertEqual(resp["data"]["rebuild_spawned"], [])
+
+    def test_optimize_invalid_content(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            resp = self.srv._wave_index_optimize_response(Path(tmp), content="graph")
+        self.assertEqual(resp["status"], "error")
+
+    def test_optimize_lock_busy(self):
+        fake = self._fake_indexer({})
+        busy = fake.IndexBuildAlreadyRunning("a build is already running")
+
+        def optimize_index_tables(index_dir, tables=("docs", "code")):
+            raise busy
+
+        fake.optimize_index_tables = optimize_index_tables
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.object(self.srv, "_load_script", return_value=fake):
+                resp = self.srv._wave_index_optimize_response(Path(tmp), content="all")
+        self.assertEqual(resp["status"], "error")
+        codes = [d.get("code") for d in resp.get("diagnostics", [])]
+        self.assertIn("build_skipped_lock_busy", codes)
+
+    def test_optimize_no_tables_present(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.object(self.srv, "_load_script", return_value=self._fake_indexer({})):
+                resp = self.srv._wave_index_optimize_response(Path(tmp), content="all")
+        self.assertEqual(resp["status"], "ok")
+        self.assertEqual(resp["data"]["tables"], {})
+
+
+class StalenessMonitorQuietPeriodTests(unittest.TestCase):
+    """Wave 1p9am: the staleness monitor is a quiet-period safety net, not a competing trigger."""
+
+    def setUp(self):
+        import server_impl
+        self.srv = server_impl
+
+    def _fake_idx(self, pending_age=None, ended_at=None):
+        from types import SimpleNamespace
+        return SimpleNamespace(
+            reindex_pending_age=lambda index_dir: pending_age,
+            read_index_build_lock_metadata=lambda p: ({"ended_at": ended_at} if ended_at is not None else {}),
+            INDEX_BUILD_LOCK_NAME="index-build.lock",
+        )
+
+    def test_not_stale_returns_false(self):
+        with patch.object(self.srv, "_index_inputs_stale", return_value=False):
+            self.assertFalse(self.srv._maybe_refresh_if_stale(Path("/x")))
+
+    def test_active_refresh_returns_false(self):
+        with patch.object(self.srv, "_index_inputs_stale", return_value=True), \
+             patch.object(self.srv, "_background_refresh_active", return_value=True):
+            self.assertFalse(self.srv._maybe_refresh_if_stale(Path("/x")))
+
+    def test_defers_while_pending_marker_fresh(self):
+        with patch.object(self.srv, "_index_inputs_stale", return_value=True), \
+             patch.object(self.srv, "_background_refresh_active", return_value=False), \
+             patch.object(self.srv, "_read_monitor_config", return_value={"quiet_period_seconds": 300.0}), \
+             patch.object(self.srv, "_load_script", return_value=self._fake_idx(pending_age=10.0)), \
+             patch.object(self.srv, "_start_background_index_refresh") as start:
+            self.assertFalse(self.srv._maybe_refresh_if_stale(Path("/x")))
+            start.assert_not_called()
+
+    def test_defers_after_recent_build(self):
+        import time as _t
+        recent = _t.time() - 10
+        with patch.object(self.srv, "_index_inputs_stale", return_value=True), \
+             patch.object(self.srv, "_background_refresh_active", return_value=False), \
+             patch.object(self.srv, "_read_monitor_config", return_value={"quiet_period_seconds": 300.0}), \
+             patch.object(self.srv, "_load_script", return_value=self._fake_idx(pending_age=None, ended_at=recent)), \
+             patch.object(self.srv, "_start_background_index_refresh") as start:
+            self.assertFalse(self.srv._maybe_refresh_if_stale(Path("/x")))
+            start.assert_not_called()
+
+    def test_fires_when_quiet_and_stale(self):
+        import time as _t
+        old = _t.time() - 10000
+        with patch.object(self.srv, "_index_inputs_stale", return_value=True), \
+             patch.object(self.srv, "_background_refresh_active", return_value=False), \
+             patch.object(self.srv, "_read_monitor_config", return_value={"quiet_period_seconds": 300.0}), \
+             patch.object(self.srv, "_load_script", return_value=self._fake_idx(pending_age=9999.0, ended_at=old)), \
+             patch.object(self.srv, "_start_background_index_refresh", return_value=True) as start:
+            self.assertTrue(self.srv._maybe_refresh_if_stale(Path("/x")))
+            start.assert_called_once()
+
+    def test_fires_when_no_marker_and_no_build(self):
+        # External edit path: no pending marker, no prior build -> safety net fires.
+        with patch.object(self.srv, "_index_inputs_stale", return_value=True), \
+             patch.object(self.srv, "_background_refresh_active", return_value=False), \
+             patch.object(self.srv, "_read_monitor_config", return_value={"quiet_period_seconds": 300.0}), \
+             patch.object(self.srv, "_load_script", return_value=self._fake_idx(pending_age=None, ended_at=None)), \
+             patch.object(self.srv, "_start_background_index_refresh", return_value=True) as start:
+            self.assertTrue(self.srv._maybe_refresh_if_stale(Path("/x")))
+            start.assert_called_once()
+
+    def test_config_quiet_period_override_and_default_floor(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "docs").mkdir()
+            (root / "docs" / "workflow-config.json").write_text(
+                '{"indexing":{"monitor":{"quiet_period_seconds":120}}}', encoding="utf-8"
+            )
+            cfg = self.srv._read_monitor_config(root)
+            self.assertEqual(cfg["quiet_period_seconds"], 120.0)
+        with tempfile.TemporaryDirectory() as td:
+            cfg = self.srv._read_monitor_config(Path(td))  # no config -> default
+            self.assertEqual(cfg["quiet_period_seconds"], self.srv._MONITOR_DEFAULT_QUIET_PERIOD_SECONDS)
+
+    def test_config_quiet_period_floored_to_interval(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "docs").mkdir()
+            (root / "docs" / "workflow-config.json").write_text(
+                '{"indexing":{"monitor":{"interval_seconds":30,"quiet_period_seconds":5}}}', encoding="utf-8"
+            )
+            cfg = self.srv._read_monitor_config(root)
+            self.assertEqual(cfg["quiet_period_seconds"], 30.0)  # floored up to the interval

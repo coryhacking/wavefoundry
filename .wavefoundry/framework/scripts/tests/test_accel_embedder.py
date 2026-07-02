@@ -102,11 +102,48 @@ class AccelEmbedderTests(unittest.TestCase):
     def setUp(self):
         self.ae = load_accel()
 
-    def test_make_embedder_none_when_no_gpu_available(self):
-        # No GPU available (CPU-only machine) → None, regardless of the passed selection.
-        with patch.object(self.ae, "_available_gpu_providers", return_value=[]):
-            self.assertIsNone(self.ae.make_embedder("BAAI/bge-small-en-v1.5", ["CPUExecutionProvider"]))
-            self.assertIsNone(self.ae.make_embedder("BAAI/bge-small-en-v1.5", []))
+    def test_make_embedder_int8_cpu_when_no_gpu_registered_model(self):
+        # Wave 1p935: no GPU (CPU-bound machine) + a model with an INT8 clean-export source
+        # (CLEAN_ONNX_SOURCES) → build the INT8-CPU StaticShapeEmbedder, NOT None. This is the core
+        # of the CPU-INT8 embedder path; it replaces the pre-1p935 "no GPU → always None" behavior.
+        with patch.object(self.ae, "_available_gpu_providers", return_value=[]), \
+             patch.object(self.ae, "StaticShapeEmbedder") as cls:
+            got = self.ae.make_embedder("BAAI/bge-small-en-v1.5", ["CPUExecutionProvider"])
+        self.assertIs(got, cls.return_value)
+        # Constructed for the CPU EP only (no GPU provider) → the INT8 branch of StaticShapeEmbedder.
+        self.assertEqual(cls.call_args.args[1], ["CPUExecutionProvider"])
+
+    def test_make_embedder_none_when_no_gpu_unregistered_model(self):
+        # Wave 1p935: no GPU + a model with NO INT8 clean-export source → the INT8 build raises
+        # FileNotFoundError inside StaticShapeEmbedder → make_embedder degrades to None (fastembed).
+        def _raise(*a, **k):
+            raise FileNotFoundError("no INT8 source")
+        with patch.object(self.ae, "_available_gpu_providers", return_value=[]), \
+             patch.object(self.ae, "StaticShapeEmbedder", side_effect=_raise):
+            self.assertIsNone(self.ae.make_embedder("Some/unregistered-model", ["CPUExecutionProvider"]))
+            self.assertIsNone(self.ae.make_embedder("Some/unregistered-model", []))
+
+    def test_make_embedder_none_when_gpu_does_not_offload(self):
+        # Wave 1p935: a GPU is present but this model's graph doesn't offload → fall back to
+        # fastembed FULL (return None), NOT the INT8-CPU path. INT8 is only for a CPU-BOUND machine
+        # (no GPU at all); using it here would split the pipeline precision (1p937) and diverge from
+        # _predicted_precision_class (which reports "full" whenever a GPU exists). The CPU-INT8
+        # StaticShapeEmbedder branch must NOT be constructed on a GPU machine.
+        constructed_providers = []
+
+        def _spy(model_name, providers):
+            constructed_providers.append(list(providers))
+            m = MagicMock()
+            m.offloads_to_gpu.return_value = False  # GPU graph fragmented → doesn't offload
+            return m
+
+        with patch.object(self.ae, "_available_gpu_providers", return_value=["CoreMLExecutionProvider"]), \
+             patch.object(self.ae, "StaticShapeEmbedder", side_effect=_spy):
+            got = self.ae.make_embedder("BAAI/bge-small-en-v1.5", ["CoreMLExecutionProvider"])
+        self.assertIsNone(got, "GPU-present-but-no-offload must fall back to fastembed full, not INT8")
+        # Only the GPU attempt was constructed — never a CPU-only (INT8) construction.
+        self.assertNotIn(["CPUExecutionProvider"], constructed_providers,
+                         "must not build the INT8-CPU embedder on a GPU machine")
 
     def test_make_embedder_falls_back_to_available_gpu(self):
         # Decoupling: even when the (flaky) selection lacks a GPU, accel uses an AVAILABLE GPU so a
@@ -120,10 +157,15 @@ class AccelEmbedderTests(unittest.TestCase):
         self.assertEqual(cls.call_args.args[1], ["CoreMLExecutionProvider", "CPUExecutionProvider"])
 
     def test_make_embedder_respects_explicit_cpu_request(self):
-        # An explicit WAVEFOUNDRY_EMBED_PROVIDER=cpu disables the GPU accel path entirely.
-        with patch.dict(os.environ, {"WAVEFOUNDRY_EMBED_PROVIDER": "cpu"}):
+        # Wave 1p935: WAVEFOUNDRY_EMBED_PROVIDER=cpu disables the GPU FP16 accel path, but now
+        # ENABLES the CPU-INT8 path for a registered model (no GPU → int8), rather than returning
+        # None outright. The GPU StaticShapeEmbedder branch (with a GPU provider) is never built.
+        with patch.dict(os.environ, {"WAVEFOUNDRY_EMBED_PROVIDER": "cpu"}), \
+             patch.object(self.ae, "StaticShapeEmbedder") as cls:
             self.assertEqual(self.ae._available_gpu_providers(), [])
-            self.assertIsNone(self.ae.make_embedder("BAAI/bge-small-en-v1.5", ["CPUExecutionProvider"]))
+            got = self.ae.make_embedder("BAAI/bge-small-en-v1.5", ["CPUExecutionProvider"])
+        self.assertIs(got, cls.return_value)
+        self.assertEqual(cls.call_args.args[1], ["CPUExecutionProvider"], "INT8-CPU build (no GPU provider)")
 
     # ── 1p52p: cross-encoder reranker ───────────────────────────────────────────
 
@@ -231,6 +273,79 @@ class AccelEmbedderTests(unittest.TestCase):
         with patch.object(self.ae, "_available_gpu_providers", return_value=["CoreMLExecutionProvider"]), \
              patch.dict(os.environ, {"WAVEFOUNDRY_DISABLE_RERANKER": "1"}):
             self.assertIsNone(self.ae.make_reranker("cross-encoder/ms-marco-MiniLM-L-6-v2", []))
+
+    def test_make_reranker_cpu_list_with_available_gpu_uses_gpu(self):
+        # Wave 1p937 (corrected): a CPU-only provider list on a machine WITH an available GPU builds
+        # the GPU reranker — because make_reranker mirrors make_embedder's `[list∩GPU] or
+        # _available_gpu_providers()` resolution. This is the whole point: `_onnx_providers()` can be
+        # CPU-only on a GPU box (conservative embedding probe), and make_embedder overrides that with
+        # the available GPU, so the reranker MUST too or the pipeline splits (embedder GPU, reranker
+        # CPU). Found by AC-4 hardware validation: honoring the CPU-only list literally caused exactly
+        # that split.
+        with patch.object(self.ae, "_available_gpu_providers", return_value=["CoreMLExecutionProvider"]), \
+             patch.object(self.ae, "StaticShapeReranker") as cls, \
+             patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("WAVEFOUNDRY_DISABLE_RERANKER", None)
+            cls.return_value.offloads_to_gpu.return_value = True
+            got = self.ae.make_reranker("cross-encoder/ms-marco-MiniLM-L-6-v2", ["CPUExecutionProvider"])
+        self.assertIs(got, cls.return_value)
+        # CPU-only list + available GPU → GPU build (GPU provider + CPU fallback), NOT CPU-only INT8.
+        self.assertEqual(cls.call_args.args[1], ["CoreMLExecutionProvider", "CPUExecutionProvider"])
+
+    def test_make_reranker_honors_explicit_gpu_list(self):
+        # Wave 1p937: an explicit GPU list builds the FP16 GPU reranker (gpu + CPU fallback).
+        with patch.object(self.ae, "_available_gpu_providers", return_value=[]), \
+             patch.object(self.ae, "StaticShapeReranker") as cls, \
+             patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("WAVEFOUNDRY_DISABLE_RERANKER", None)
+            cls.return_value.offloads_to_gpu.return_value = True
+            got = self.ae.make_reranker("cross-encoder/ms-marco-MiniLM-L-6-v2", ["CoreMLExecutionProvider"])
+        self.assertIs(got, cls.return_value)
+        self.assertEqual(cls.call_args.args[1], ["CoreMLExecutionProvider", "CPUExecutionProvider"])
+
+    def test_make_reranker_cpu_only_when_no_gpu_available(self):
+        # Wave 1p937: the ONLY way to a CPU-INT8 reranker is no available GPU (a real CPU-bound
+        # machine, or WAVEFOUNDRY_EMBED_PROVIDER=cpu which zeroes _available_gpu_providers) — then
+        # BOTH embedder and reranker go CPU-INT8 together (consistent).
+        with patch.object(self.ae, "_available_gpu_providers", return_value=[]), \
+             patch.object(self.ae, "StaticShapeReranker") as cls, \
+             patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("WAVEFOUNDRY_DISABLE_RERANKER", None)
+            got = self.ae.make_reranker("cross-encoder/ms-marco-MiniLM-L-6-v2", ["CPUExecutionProvider"])
+        self.assertIs(got, cls.return_value)
+        self.assertEqual(cls.call_args.args[1], ["CPUExecutionProvider"], "no available GPU → CPU INT8")
+
+    def test_embedder_and_reranker_share_classification_cpu(self):
+        # Wave 1p937 AC-1: one provider list drives both — a CPU-only classification resolves BOTH
+        # the embedder and the reranker to the INT8/CPU path (no split pipeline).
+        providers = ["CPUExecutionProvider"]
+        with patch.object(self.ae, "_available_gpu_providers", return_value=[]), \
+             patch.object(self.ae, "StaticShapeEmbedder") as emb_cls, \
+             patch.object(self.ae, "StaticShapeReranker") as rr_cls, \
+             patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("WAVEFOUNDRY_DISABLE_RERANKER", None)
+            self.ae.make_embedder("BAAI/bge-small-en-v1.5", providers)
+            self.ae.make_reranker("cross-encoder/ms-marco-MiniLM-L-6-v2", providers)
+        # Both constructed for CPU-only (INT8), no GPU provider in either construction.
+        self.assertEqual(emb_cls.call_args.args[1], ["CPUExecutionProvider"])
+        self.assertEqual(rr_cls.call_args.args[1], ["CPUExecutionProvider"])
+
+    def test_embedder_and_reranker_share_classification_gpu(self):
+        # Wave 1p937 AC-1 (mirror): a GPU classification resolves BOTH to the FP16/GPU path.
+        providers = ["CoreMLExecutionProvider"]
+        with patch.object(self.ae, "StaticShapeEmbedder") as emb_cls, \
+             patch.object(self.ae, "StaticShapeReranker") as rr_cls, \
+             patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("WAVEFOUNDRY_DISABLE_RERANKER", None)
+            emb_cls.return_value.offloads_to_gpu.return_value = True
+            rr_cls.return_value.offloads_to_gpu.return_value = True
+            emb = self.ae.make_embedder("BAAI/bge-small-en-v1.5", providers)
+            rr = self.ae.make_reranker("cross-encoder/ms-marco-MiniLM-L-6-v2", providers)
+        self.assertIs(emb, emb_cls.return_value)
+        self.assertIs(rr, rr_cls.return_value)
+        # Both constructed with the GPU provider + CPU fallback (FP16/GPU path).
+        self.assertEqual(emb_cls.call_args.args[1], ["CoreMLExecutionProvider", "CPUExecutionProvider"])
+        self.assertEqual(rr_cls.call_args.args[1], ["CoreMLExecutionProvider", "CPUExecutionProvider"])
 
     def test_reranker_static_pin_keeps_logit_output_dim(self):
         # build_static_onnx(output_is_logit=True) pins input dims [B,S] but the [B,1] logit output's
@@ -406,8 +521,42 @@ class AccelEmbedderTests(unittest.TestCase):
         self.assertIn("BAAI/bge-small-en-v1.5", buf.getvalue())
         self.assertIn("falling back", buf.getvalue())
 
+    def test_resolve_embedder_cpu_files_returns_int8_and_tokenizer(self):
+        # Wave 1p935: _resolve_embedder_cpu_files resolves the model's INT8 export + tokenizer from
+        # its CLEAN_ONNX_SOURCES repo (EMBEDDER_CPU_ONNX_FILE = onnx/model_int8.onnx).
+        fetched = []
+        fake_hub = type(sys)("huggingface_hub")
+        def _dl(repo, filename, **k):
+            fetched.append(filename)
+            return f"/cache/{repo.replace('/', '_')}/{filename}"
+        fake_hub.hf_hub_download = _dl
+        with patch.dict(sys.modules, {"huggingface_hub": fake_hub}):
+            got = self.ae._resolve_embedder_cpu_files("BAAI/bge-small-en-v1.5")
+        self.assertIsNotNone(got)
+        onnx_path, tok_path = got
+        self.assertTrue(onnx_path.endswith("onnx/model_int8.onnx"))
+        self.assertTrue(tok_path.endswith("tokenizer.json"))
+        self.assertIn(self.ae.EMBEDDER_CPU_ONNX_FILE, fetched)
+
+    def test_resolve_embedder_cpu_files_none_for_unregistered_model(self):
+        # A model with no CLEAN_ONNX_SOURCES entry has no INT8 source → None (caller → fastembed).
+        self.assertIsNone(self.ae._resolve_embedder_cpu_files("Some/unregistered-model-xyz"))
+
+    def test_resolve_embedder_cpu_files_logs_before_degrading_on_failure(self):
+        # Wave 1p935/1p939: a persisting fetch failure logs before degrading (operator-visible).
+        fake_hub = type(sys)("huggingface_hub")
+        def _fail(*a, **k): raise OSError("offline")
+        fake_hub.hf_hub_download = _fail
+        buf = io.StringIO()
+        with patch.dict(sys.modules, {"huggingface_hub": fake_hub}), patch("sys.stderr", buf):
+            self.assertIsNone(self.ae._resolve_embedder_cpu_files("BAAI/bge-small-en-v1.5"))
+        self.assertIn("BAAI/bge-small-en-v1.5", buf.getvalue())
+        self.assertIn("falling back", buf.getvalue())
+
     def test_resolve_clean_none_for_unregistered_model(self):
-        self.assertIsNone(self.ae._resolve_clean_onnx("Snowflake/snowflake-arctic-embed-xs"))
+        # Wave 1p935: arctic is now IN CLEAN_ONNX_SOURCES (its own export is clean), so use a model
+        # name that genuinely has no clean-export entry to exercise the None-for-unregistered path.
+        self.assertIsNone(self.ae._resolve_clean_onnx("Some/unregistered-model-xyz"))
 
     def test_resolve_downloads_resident_model_on_cold_cache(self):
         # Regression: a model with no clean export (arctic) whose fastembed cache is COLD must

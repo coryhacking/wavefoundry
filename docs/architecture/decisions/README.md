@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-29
+Last verified: 2026-07-01
 
 Architecture Decision Records (ADRs) capture significant design decisions made for Wavefoundry.
 
@@ -34,3 +34,4 @@ Copy `template.md` and fill in all sections. Link new ADRs from `docs/ARCHITECTU
 | [1p5be-adr](1p5be-adr%20retire-canonical-names-rename-manifest.md) | Retire the canonical-names rename manifest (removal pulled forward to 1.6) | accepted |
 | [1p6q5-adr](1p6q5-adr%20dashboard-navigation-shell.md) | Dashboard navigation shell (collapsible sidebar + section registry) | accepted |
 | [1p8t4-adr](1p8t4-adr%20stage-gate-canonical-structure.md) | Keep the stage gate canonically structured; add an anti-drift guard; decline consolidation and anchors | accepted |
+| [1p92d-adr](1p92d-adr%20embedding-precision-policy.md) | FP16 end-to-end on GPU machines, INT8 end-to-end on CPU-bound machines (embed + rerank); queries on CPU; precision folded into model_versions | accepted |

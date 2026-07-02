@@ -445,5 +445,61 @@ class CheckTwoIsNotVacuousTests(unittest.TestCase):
             self.assertEqual(install_log_lib.checked_rows_missing_artifact(rows, Path(tmp)), [])
 
 
+_MOJIBAKE_EMDASH = "â€”"  # UTF-8 em dash (E2 80 94) misread as cp1252 -> "â€”"
+
+
+class EncodingRobustParseTests(unittest.TestCase):
+    """Wave 1p9bh: rows parse regardless of separator encoding; empty parse is never 'complete'."""
+
+    def test_row_parses_across_separator_encodings(self):
+        for sep in ("—", "–", "-", _MOJIBAKE_EMDASH):
+            line = f"- [x] 1.1 {sep} Set lifecycle epoch (seed-020) {sep} artifact: docs/workflow-config.json"
+            row = install_log_lib.parse_row(line, phase=1)
+            self.assertIsNotNone(row, f"separator {sep!r} failed to parse")
+            self.assertEqual(row.state, "x")
+            self.assertEqual(row.number, "1.1")
+            self.assertEqual(row.source, "seed-020")
+            self.assertEqual(row.target, "docs/workflow-config.json")
+
+    def test_parse_log_of_mojibake_log_is_not_empty(self):
+        # The whole point of the fix: a mojibake'd log now PARSES rather than yielding zero rows.
+        log = (
+            "## Phase 1 — Harness\n\n"
+            f"- [x] 1.1 {_MOJIBAKE_EMDASH} Epoch (seed-020) {_MOJIBAKE_EMDASH} artifact: docs/workflow-config.json\n"
+            f"- [ ] 1.2 {_MOJIBAKE_EMDASH} Bootstrap (setup_wavefoundry.py) {_MOJIBAKE_EMDASH} artifact: .mcp.json\n"
+        )
+        rows = install_log_lib.parse_log(log)
+        self.assertEqual(len(rows), 2)
+        self.assertFalse(install_log_lib.is_complete(rows))  # 1.2 still pending
+
+    def test_is_complete_empty_is_false(self):
+        self.assertFalse(install_log_lib.is_complete([]))  # vacuous-truth guard
+        done = install_log_lib.parse_row("- [x] 1.1 — Epoch (seed-020) — artifact: docs/workflow-config.json", 1)
+        pend = install_log_lib.parse_row("- [ ] 1.2 — Boot (setup_wavefoundry.py) — artifact: .mcp.json", 1)
+        self.assertTrue(install_log_lib.is_complete([done]))
+        self.assertFalse(install_log_lib.is_complete([done, pend]))
+
+    def test_is_unparseable_flags_present_but_zero_rows(self):
+        # A log with checkbox-shaped content the parser still can't turn into rows -> unparseable.
+        corrupt = "## Phase 1\n\n- [ ] this line has no number and no source\n"
+        self.assertEqual(install_log_lib.parse_log(corrupt), [])
+        self.assertTrue(install_log_lib.is_unparseable(corrupt, []))
+        # A clean/parseable log is NOT unparseable.
+        clean = "## Phase 1\n\n- [x] 1.1 — Epoch (seed-020) — artifact: docs/workflow-config.json\n"
+        self.assertFalse(install_log_lib.is_unparseable(clean, install_log_lib.parse_log(clean)))
+        # No log / blank text is NOT unparseable (that's "no log", handled elsewhere).
+        self.assertFalse(install_log_lib.is_unparseable(None, []))
+        self.assertFalse(install_log_lib.is_unparseable("   \n", []))
+
+    def test_write_install_log_roundtrips_utf8_emdash(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            content = "## Phase 1\n\n- [ ] 1.1 — Epoch (seed-020) — artifact: docs/workflow-config.json\n"
+            path = install_log_lib.write_install_log(root, content)
+            self.assertTrue(path.exists())
+            self.assertIn("—", path.read_text(encoding="utf-8"))  # em dash survived
+            self.assertEqual(len(install_log_lib.parse_log(install_log_lib.read_install_log(root))), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

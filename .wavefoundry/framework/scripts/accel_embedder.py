@@ -1,20 +1,19 @@
-"""Wave 1p517: bespoke static-shape ONNX embedder for GPU providers (CoreML / CUDA).
+"""Wave 1p517: bespoke static-shape ONNX embedder, provider-conditional precision (1p935).
 
 Why this exists: fastembed feeds onnxruntime a DYNAMIC-shape graph, which CoreML cannot
 accelerate — it falls back to CPU (the GPU sits idle). Pinning the model's input dims to a
 fixed ``(64, 512)`` lets CoreML compile an FP16 MLProgram that runs on the GPU. Benchmarked
 ~24x over INT8/CPU at cos = 1.0 vs the CPU path (M2 Max, arctic-embed-xs).
 
-This module loads the model's EXISTING cached ONNX (bge-small is already FP16, arctic is
-FP32 — CoreML downcasts FP32 to FP16 itself, so NO conversion is needed), pins it to the
-static shape, and runs a raw ``onnxruntime.InferenceSession`` with CoreML's
-``ModelCacheDirectory`` so the ~compile is paid once and persisted across processes.
+ADR `1p92d` (wave 1p935): a GPU machine runs this module's **FP16** clean export; a CPU-bound
+machine runs its **INT8** clean export — both static-shape, both through this module — instead of
+falling back to the fastembed-resident full-precision model. Pooling is **CLS** ([:, 0]) +
+L2-normalize for both precisions — matching fastembed exactly (verified cos = 1.0000; mean-pooling
+was 0.88–0.95 and would corrupt the index). The CoreML ``ModelCacheDirectory`` option applies only
+on the GPU path so the ~compile is paid once and persisted across processes.
 
-Pooling is **CLS** ([:, 0]) + L2-normalize — matching fastembed exactly for both shipped
-models (verified cos = 1.0000; mean-pooling was 0.88–0.95 and would corrupt the index).
-
-CPU machines never reach this module: ``make_embedder`` returns ``None`` unless a GPU
-provider was selected (and the ``1p4u5`` probe passed), and the caller falls back to fastembed.
+``make_embedder`` only returns ``None`` (→ caller falls back to fastembed) when neither a GPU
+offload nor an INT8-CPU clean-export source is available for the requested model.
 """
 from __future__ import annotations
 
@@ -68,6 +67,12 @@ _MODEL_CACHE_DIR_ALIASES: dict[str, tuple[str, ...]] = {
 # clean export's vectors are cos = 1.0 vs fastembed (same weights, CLS pooling).
 CLEAN_ONNX_SOURCES: dict[str, tuple[str, str, str]] = {
     "BAAI/bge-small-en-v1.5": ("Xenova/bge-small-en-v1.5", "onnx/model_fp16.onnx", "tokenizer.json"),
+    # 1p935: arctic's OWN export is already clean (no contrib ops, unlike bge-small's fastembed
+    # graph) — see _resolve_model_files's "arctic's resident graph is already clean" note — so this
+    # entry points at the base Snowflake repo rather than a third-party re-export. The base repo
+    # publishes both model_fp16.onnx (this entry's GPU source) and model_int8.onnx (the CPU source,
+    # EMBEDDER_CPU_ONNX_FILE below) — one entry serves both precision paths.
+    "Snowflake/snowflake-arctic-embed-xs": ("Snowflake/snowflake-arctic-embed-xs", "onnx/model_fp16.onnx", "tokenizer.json"),
     # 1p52p: the cross-encoder reranker (GPU FP16 / CPU INT8 — see _resolve_reranker_cpu_files). The active reranker is
     # ``ms-marco-MiniLM-L-6-v2`` (6-layer, 22M) via its Xenova FP16 export — chosen over the SOTA-but-
     # heavy ``bge-reranker-base`` (278M) after a head-to-head: ms-marco-L6 won known-answer recall
@@ -205,6 +210,31 @@ def _resolve_model_files(model_name: str) -> Optional[tuple[str, str]]:
     return os.path.realpath(onnx_files[0]), tok_files[0]
 
 
+# Wave 1p935 (CPU-INT8 embedder): mirrors RERANKER_CPU_ONNX_FILE below — a gold-labeled NL→code
+# eval showed INT8 = FP16 recall (0/30 regressions, ADR 1p92d), so a CPU-bound machine embeds at
+# INT8 instead of the fastembed-resident full-precision model.
+EMBEDDER_CPU_ONNX_FILE = "onnx/model_int8.onnx"
+
+
+def _resolve_embedder_cpu_files(model_name: str) -> Optional[tuple[str, str]]:
+    """Return (int8_onnx_path, tokenizer_path) for the CPU embedder path, from the same clean repo
+    as the GPU FP16 export (``CLEAN_ONNX_SOURCES``). Downloads + caches under ``onnx-src``
+    (HF-offline-safe). None when the model has no clean source or the INT8 export isn't reachable —
+    the caller then falls back to the fastembed-resident full-precision model."""
+    src = CLEAN_ONNX_SOURCES.get(model_name)
+    if src is None:
+        return None
+    repo, _fp16_file, tok_file = src
+    try:
+        onnx_path = _hf_download_cached_first(repo, EMBEDDER_CPU_ONNX_FILE, str(_CLEAN_ONNX_CACHE))
+        tok_path = _hf_download_cached_first(repo, tok_file, str(_CLEAN_ONNX_CACHE))
+    except Exception as exc:
+        print(f"[wavefoundry] embedder CPU ONNX fetch for {model_name!r} failed ({exc}); falling "
+              "back to the fastembed-resident model.", file=sys.stderr, flush=True)
+        return None
+    return os.path.realpath(onnx_path), tok_path
+
+
 # Wave 1p52p (CPU fallback): a small cross-encoder reranker also runs usefully on the CPU EP — but
 # the FP16 export fails to init at ORT_ENABLE_ALL (a SimplifiedLayerNormFusion cast bug) and is slow,
 # while the INT8 export runs at full optimization and is ~2x faster than FP32 with no ranking loss
@@ -282,7 +312,17 @@ def build_static_onnx(
 
 
 class StaticShapeEmbedder:
-    """fastembed-compatible embedder backed by a static-shape ONNX on a GPU provider.
+    """fastembed-compatible embedder backed by a static-shape ONNX. Dual precision by provider
+    (wave 1p935, mirrors ``StaticShapeReranker``):
+
+    - **GPU** (CoreML/CUDA/ROCm/DirectML): the **FP16** clean export (``CLEAN_ONNX_SOURCES``,
+      ``_resolve_model_files``) — ~24x over CPU at cos = 1.0 (M2 Max, arctic-embed-xs).
+    - **CPU** (no GPU available): the **INT8** export (``_resolve_embedder_cpu_files``) on
+      ``CPUExecutionProvider`` — a gold-labeled NL→code eval showed INT8 = FP16 recall on the
+      reranked retrieval path (0/30 regressions, ADR `1p92d`).
+
+    A GPU provider in ``providers`` selects the FP16/GPU path; otherwise the INT8/CPU path. Callers
+    use ``make_embedder`` rather than constructing directly.
 
     ``embed(texts)`` yields one L2-normalized CLS vector per text (matching fastembed's
     ``TextEmbedding.embed``), batching internally to the fixed ``STATIC_BATCH``.
@@ -293,40 +333,50 @@ class StaticShapeEmbedder:
         import onnxruntime as ort
         from tokenizers import Tokenizer
 
-        files = _resolve_model_files(model_name)
-        if files is None:
-            raise FileNotFoundError(f"No cached ONNX/tokenizer for {model_name!r}")
-        src_onnx, tok_path = files
-
         gpu = next((p for p in providers if p in GPU_PROVIDERS), None)
-        if gpu is None:
-            raise ValueError("StaticShapeEmbedder requires a GPU provider")
-
-        # COREML_CACHE_KEY: model + provider + format + compute-units in the path, so any
-        # change uses a fresh cache dir (ORT does no automatic staleness check).
-        compute_units = "ALL"
-        model_format = "MLProgram"
-        static_path = _ONNX_CACHE / _safe(model_name) / f"static_{STATIC_BATCH}x{STATIC_SEQ}.onnx"
-        if not static_path.exists():
-            build_static_onnx(src_onnx, str(static_path))
-
         so = ort.SessionOptions()
         so.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-        provs: list = []
-        if gpu == COREML_PROVIDER:
-            coreml_cache = _COREML_CACHE / _safe(model_name) / f"{model_format}_{compute_units}"
-            os.makedirs(coreml_cache, exist_ok=True)
-            provs.append((COREML_PROVIDER, {
-                "ModelFormat": model_format,
-                "MLComputeUnits": compute_units,
-                "ModelCacheDirectory": str(coreml_cache),
-            }))
-        else:  # CUDA / ROCm / DirectML — static shapes help; no compiled-model cache option
-            provs.append(gpu)
-        provs.append("CPUExecutionProvider")
+
+        if gpu is not None:
+            # GPU FP16 path.
+            files = _resolve_model_files(model_name)
+            if files is None:
+                raise FileNotFoundError(f"No cached ONNX/tokenizer for {model_name!r}")
+            src_onnx, tok_path = files
+            # COREML_CACHE_KEY: model + provider + format + compute-units in the path, so any
+            # change uses a fresh cache dir (ORT does no automatic staleness check).
+            compute_units = "ALL"
+            model_format = "MLProgram"
+            static_path = _ONNX_CACHE / _safe(model_name) / f"static_{STATIC_BATCH}x{STATIC_SEQ}.onnx"
+            if not static_path.exists():
+                build_static_onnx(src_onnx, str(static_path))
+            provs: list = []
+            if gpu == COREML_PROVIDER:
+                coreml_cache = _COREML_CACHE / _safe(model_name) / f"{model_format}_{compute_units}"
+                os.makedirs(coreml_cache, exist_ok=True)
+                provs.append((COREML_PROVIDER, {
+                    "ModelFormat": model_format,
+                    "MLComputeUnits": compute_units,
+                    "ModelCacheDirectory": str(coreml_cache),
+                }))
+            else:  # CUDA / ROCm / DirectML — static shapes help; no compiled-model cache option
+                provs.append(gpu)
+            provs.append("CPUExecutionProvider")
+            self.provider = gpu
+        else:
+            # CPU INT8 path (wave 1p935). Distinct cache-key filename (`cpu_int8_static_…`) so it
+            # never collides with the FP16 GPU graph cache above.
+            files = _resolve_embedder_cpu_files(model_name)
+            if files is None:
+                raise FileNotFoundError(f"No cached INT8 ONNX/tokenizer for embedder {model_name!r}")
+            src_onnx, tok_path = files
+            static_path = _ONNX_CACHE / _safe(model_name) / f"cpu_int8_static_{STATIC_BATCH}x{STATIC_SEQ}.onnx"
+            if not static_path.exists():
+                build_static_onnx(src_onnx, str(static_path))
+            provs = ["CPUExecutionProvider"]
+            self.provider = "CPUExecutionProvider"
 
         self.model_name = model_name
-        self.provider = gpu
         self.session = ort.InferenceSession(str(static_path), sess_options=so, providers=provs)
         self.input_names = [i.name for i in self.session.get_inputs()]
         self.tokenizer = Tokenizer.from_file(tok_path)
@@ -429,43 +479,56 @@ def _warn_cuda12_gap_if_present() -> None:
 
 
 def make_embedder(model_name: str, providers: Iterable[str]):
-    """Return a ``StaticShapeEmbedder`` when a GPU runs this model's graph faster than CPU;
-    otherwise ``None`` so the caller falls back to fastembed.
+    """Return a ``StaticShapeEmbedder``: FP16 on a GPU that actually offloads this model's graph,
+    else INT8 on the CPU EP when an INT8 clean-export source exists (wave 1p935); otherwise
+    ``None`` so the caller falls back to fastembed.
 
     The GPU provider is taken from ``providers`` (the 1p4u5 selection) if present, else from what's
     actually AVAILABLE — so a transient fastembed-probe failure (e.g. fresh cache) doesn't disable
     acceleration. Never raises — any failure (no GPU, missing ``onnx``/model, fragmented graph)
-    degrades to ``None`` (fastembed CPU path). When an NVIDIA GPU is present but CUDA can't load
-    (the CUDA 12-vs-13 ABI gap), surfaces a loud warning instead of a silent CPU fallback (wave
-    1p5py/1p5qp) — including when CUDA isn't selected at all (091yn).
+    degrades to the CPU INT8 path, then to ``None`` (fastembed). When an NVIDIA GPU is present but
+    CUDA can't load (the CUDA 12-vs-13 ABI gap), surfaces a loud warning instead of a silent CPU
+    fallback (wave 1p5py/1p5qp) — including when CUDA isn't selected at all (091yn).
     """
     provider_list = list(providers)
     gpu = [p for p in provider_list if p in GPU_PROVIDERS]
     if not gpu:
         gpu = _available_gpu_providers()
-    if not gpu:
-        # 091yn: on a fresh CUDA-13 host ORT may not even list CUDA, so we'd never
-        # reach the CUDA-selected path below — probe + warn proactively here.
-        _warn_cuda12_gap_if_present()
-        return None
+        if not gpu:
+            # 091yn: on a fresh CUDA-13 host ORT may not even list CUDA, so we'd never
+            # reach the CUDA-selected path below — probe + warn proactively here.
+            _warn_cuda12_gap_if_present()
     try:
-        import onnx  # noqa: F401  (static-shape pin dependency)
-        import onnxruntime  # noqa: F401
+        import onnx  # noqa: F401  (static-shape pin dependency — needed for both the GPU FP16 and
+        import onnxruntime  # noqa: F401  # CPU INT8 static-graph builds)
         import tokenizers  # noqa: F401
     except ImportError:
         return None
+    if gpu:
+        # This machine has a GPU → it runs the FULL-precision (FP16) pipeline per ADR 1p92d.
+        # If this specific model's graph doesn't actually offload (a fragmented CoreML graph),
+        # fall back to fastembed FULL precision — NOT the INT8-CPU path. INT8 is the classification
+        # for a CPU-BOUND machine (no GPU at all); using it here for one model while another model
+        # runs FP16 on the same GPU machine would split the pipeline's precision (violates 1p937)
+        # AND diverge from _predicted_precision_class (which reports "full" whenever a GPU exists),
+        # which would then force perpetual re-embeds via the 1p936 precision-in-version guard.
+        try:
+            embedder = StaticShapeEmbedder(model_name, gpu + ["CPUExecutionProvider"])
+            if embedder.offloads_to_gpu():
+                return embedder
+            if CUDA_PROVIDER in gpu:
+                _warn_cuda12_gap_if_present()  # CUDA selected but didn't offload — surface the gap
+        except Exception:
+            if CUDA_PROVIDER in gpu:
+                _warn_cuda12_gap_if_present()
+        return None  # GPU present but no offload → fastembed FULL (caller's fallback), not INT8
+    # Wave 1p935: NO GPU on this machine (CPU-bound) → try the INT8-CPU path before giving up to
+    # fastembed. _resolve_embedder_cpu_files returns None (→ FileNotFoundError → caught below) when
+    # this model has no INT8 clean-export source, so this is a no-op (→ fastembed full) for
+    # unregistered models. Matches _predicted_precision_class: no-GPU + in CLEAN_ONNX_SOURCES → int8.
     try:
-        embedder = StaticShapeEmbedder(model_name, gpu + ["CPUExecutionProvider"])
-        # Only use it if the model's graph actually runs on the GPU; otherwise a
-        # fragmented CoreML graph is no faster than fastembed → fall back.
-        if embedder.offloads_to_gpu():
-            return embedder
-        if CUDA_PROVIDER in gpu:
-            _warn_cuda12_gap_if_present()  # CUDA selected but didn't offload — surface the gap
-        return None
+        return StaticShapeEmbedder(model_name, ["CPUExecutionProvider"])
     except Exception:
-        if CUDA_PROVIDER in gpu:
-            _warn_cuda12_gap_if_present()
         return None
 
 
@@ -590,6 +653,18 @@ def make_reranker(model_name: str, providers: Iterable[str]):
     to CPU). No GPU → INT8 on the CPU EP (~960 ms/query, no ranking loss). ``WAVEFOUNDRY_DISABLE_RERANKER``
     forces ``None`` (tests / opt-out). Never raises — any build failure degrades to ``None`` (the caller
     then skips reranking → vector order).
+
+    Wave 1p937 (corrected): resolve the GPU provider **identically to ``make_embedder``** —
+    ``gpu = [providers ∩ GPU_PROVIDERS] or _available_gpu_providers()``. That shared resolution is
+    what actually keeps the embedder and reranker on the same precision (ADR `1p92d`'s
+    single-classification-drives-the-pipeline requirement): if the caller's list contains a GPU
+    provider, use it; otherwise fall back to whatever GPU is AVAILABLE — exactly as ``make_embedder``
+    does. This matters because ``_onnx_providers()`` / ``provider_policy.select_embedding_providers()``
+    can return ``["CPUExecutionProvider"]`` even on a GPU machine (a conservative embedding-throughput
+    probe), and ``make_embedder`` deliberately overrides that with the available GPU — so the reranker
+    MUST apply the same override or the two split (embedder GPU-FP16, reranker CPU-INT8). The only way
+    to force the reranker (and embedder) to CPU is ``WAVEFOUNDRY_EMBED_PROVIDER=cpu``, which makes
+    ``_available_gpu_providers()`` return ``[]`` → both go CPU-INT8 together.
     """
     if _reranker_disabled():
         return None
@@ -602,6 +677,9 @@ def make_reranker(model_name: str, providers: Iterable[str]):
     except ImportError:
         return None
     provider_list = list(providers)
+    # Mirror make_embedder exactly: a GPU in the list wins; otherwise fall back to the available GPU
+    # (NOT to CPU) so a CPU-only `_onnx_providers()` on a GPU machine still yields a GPU reranker,
+    # matching the GPU embedder. `WAVEFOUNDRY_EMBED_PROVIDER=cpu` zeroes _available_gpu_providers().
     gpu = [p for p in provider_list if p in GPU_PROVIDERS] or _available_gpu_providers()
     if gpu:
         try:

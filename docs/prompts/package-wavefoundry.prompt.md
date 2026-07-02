@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-27
+Last verified: 2026-07-01
 
 Shortcut: **`Package Wavefoundry`** | Legacy: **`Package wave framework`** / **`Package wave context`**
 
@@ -47,7 +47,7 @@ python3 -B .wavefoundry/framework/scripts/run_tests.py
 
    **Do not skip this step** — `CHANGELOG.md` is the only release surface that travels with the package and the only place an offline consumer can read what just changed.
 5. Ensure `docs/prompts/prompt-surface-manifest.json` `framework_revision` matches the packaged revision unless you intentionally use `--skip-manifest-check`.
-6. Run the packaging command once. It stamps `.wavefoundry/framework/VERSION`, updates `.wavefoundry/framework/index/` by default, compacts the LanceDB tables, and creates the zip.
+6. Run the packaging command once. It stamps `.wavefoundry/framework/VERSION` and creates the source-only zip — no framework index is built or shipped (framework seeds fold into each project's docs index at setup/upgrade).
 7. Review the produced zip name and stamped `VERSION` for consistency. Spot-check that `CHANGELOG.md` is in the zip (`unzip -l <zip> | grep CHANGELOG`) and that the latest section matches the version just stamped.
 8. Hand off diff + suggested commit message unless the operator explicitly asks to finalize the commit in this request.
 
@@ -67,7 +67,6 @@ wavefoundry-MAJOR.MINOR.PATCH.<build>.zip
 
 - `--version <MAJOR.MINOR.PATCH>`: required semver release version.
 - `--output <dir>`: write zip to an existing directory instead of `~/.wavefoundry/dist/`.
-- `--skip-framework-index`: skip updating and compacting `.wavefoundry/framework/index/` (emergency use only).
 - `--skip-manifest-check`: skip the `framework_revision` consistency check.
 - `--skip-docs-gate`: skip the docs-gardener / docs-lint pre-flight gate.
 - `--verbose` / `-v`: print index build progress.
