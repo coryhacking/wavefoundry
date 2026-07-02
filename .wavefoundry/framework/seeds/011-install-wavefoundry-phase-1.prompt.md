@@ -81,8 +81,8 @@ Before executing row 1.1, check whether `.wavefoundry/install-log.md` exists:
 
 1. **Step 1/3 — venv + framework deps + semantic indexes**:
    - Creates the tool venv at `~/.wavefoundry/venv/` (user-home, not project-root — the venv is shared across all wavefoundry projects on the machine; `WAVEFOUNDRY_TOOL_VENV` env var overrides).
-   - Installs deps: numpy, fastembed, lancedb, fastmcp, sentence-transformers, etc.
-   - Builds the project semantic index at `.wavefoundry/index/` — the framework's seeds and top-level README fold into the project docs index, so `docs_search` and `seed_get` work after restart. There is no separate framework index.
+   - Installs framework deps, including the embedding/index stack and SOCKS proxy support for httpx-backed downloads.
+   - Builds the project index at `.wavefoundry/index/` — docs/seeds, semantic code embeddings, and graph in the foreground by default. The framework's seeds and top-level README fold into the project docs index, so `docs_search`, `seed_get`, and code search are ready after setup returns. There is no separate framework index. Use `--background-code` or `--background-docs` only when the operator intentionally accepts one semantic layer finishing after setup returns.
 2. **Step 2/3 — `wf` dispatcher shim + platform host configs** (via `render_platform_surfaces.py`):
    - The cross-OS `wf` entry point and generated `wf.cmd` shim that dispatch to `wf_cli.py`, which routes subcommands `wf docs-lint`, `wf docs-gardener`, `wf gate`, `wf dashboard`, `wf update-indexes`, `wf lifecycle-id`, `wf upgrade`, and `wf setup` to their backing scripts.
    - `.claude/settings.json` (if Claude Code is detected) and equivalents for other hosts; registers the MCP server (the committed `.mcp.json` runs `python3 .wavefoundry/framework/scripts/server.py`).

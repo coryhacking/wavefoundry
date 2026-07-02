@@ -41,6 +41,8 @@ COREML_PROVIDER = "CoreMLExecutionProvider"
 CUDA_PROVIDER = "CUDAExecutionProvider"
 ROCM_PROVIDER = "ROCMExecutionProvider"      # AMD GPUs
 DML_PROVIDER = "DmlExecutionProvider"        # DirectML (Windows: NVIDIA/AMD/Intel)
+SETUP_SELECTED_ENV = "WAVEFOUNDRY_EMBED_PROVIDER_SELECTED"
+REQUESTED_PROVIDER_ENV = "WAVEFOUNDRY_EMBED_PROVIDER"
 # GPU providers we attempt, in preference order. CoreML needs the MLProgram/cache options below;
 # every other GPU EP (CUDA/ROCm/DirectML) takes the provider name with default options. The
 # static-shape pin + the ``offloads_to_gpu`` probe make this self-protecting: a provider that isn't
@@ -433,7 +435,15 @@ def _available_gpu_providers() -> list[str]:
     cache (model not downloaded yet) → CPU fallback. The static-shape path doesn't use fastembed and
     has its own ``offloads_to_gpu`` gate, so it must not be disabled by that probe.
     """
-    if os.environ.get("WAVEFOUNDRY_EMBED_PROVIDER", "auto").strip().lower() == "cpu":
+    requested = os.environ.get(REQUESTED_PROVIDER_ENV, "auto").strip().lower()
+    if requested == "cpu":
+        return []
+    # setup_index records the probed provider decision before spawning prewarm/indexer subprocesses.
+    # Honor a CPU decision here; otherwise a later raw-availability check can re-enable CoreML after
+    # the bounded setup probe rejected it, which can crash in ONNX/CoreML native code before Python can
+    # catch the failure. An explicit operator GPU request still takes precedence via provider_policy.
+    setup_selected = os.environ.get(SETUP_SELECTED_ENV, "").strip()
+    if setup_selected == "CPUExecutionProvider" and requested in ("", "auto"):
         return []
     try:
         import onnxruntime as ort

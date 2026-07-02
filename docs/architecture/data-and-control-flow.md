@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-01
+Last verified: 2026-07-02
 
 ## Primary Control Paths
 
@@ -56,11 +56,11 @@ Last verified: 2026-07-01
 1. Operator runs `python3 .wavefoundry/framework/scripts/setup_index.py [--root .] [--full]`, the post-edit hook runs `indexer.py --content docs` directly in the background, or a qualifying MCP mutation requests a detached background docs refresh
 2. `setup_index.py` verifies required packages are available in the active Python runtime and prints isolated tool-venv setup commands when missing
 3. `setup_index.py` prewarms the embedding model cache, then verifies the same model in offline-only mode so later `docs_search` calls do not need network access
-4. `setup_index.py --include-code` invokes a single `indexer.py --content all` subprocess (after dependency checks and model prewarm) so docs and code share one coordinated build and one merged `--project-include-prefix` policy
+4. Default `setup_index.py` invokes a single `indexer.py --content all` subprocess (after dependency checks and model prewarm) so docs and code share one coordinated synchronous build and one merged `--project-include-prefix` policy; `--background-code` builds docs first and detaches code, while `--background-docs` builds code first and detaches docs
 5. `walk_repo()` yields all non-excluded files (respects `.gitignore`, `.aiignore`, binary exclusions)
 6. `chunker.py` dispatches each file: Python → AST-based; Markdown → header-split; others → line-window
 7. Chunks classified as `code`, `doc`, or `seed` based on kind and path
-8. `fastembed` embeds docs/seeds by default using `BAAI/bge-base-en-v1.5`; optional semantic code embeddings use the same model, and the code pass skips framework internal tests plus non-source/test/generated files unless `--include-tests` or `--include-generated` is passed
+8. `fastembed` embeds docs/seeds by default using `BAAI/bge-base-en-v1.5`; semantic code embeddings use the same model and run in the foreground by default, and the code pass skips framework internal tests plus non-source/test/generated files unless `--include-tests` or `--include-generated` is passed
 9. Project code indexing excludes `.wavefoundry/framework/` by default; repos can explicitly opt in additional excluded paths with `docs/workflow-config.json` -> `indexing.project_include_prefixes` (`docs` and `code` lists, consumed by `setup_index.py` and forwarded to `indexer.py --project-include-prefix`)
 10. Project index written to `.wavefoundry/index/` (LanceDB `docs`/`code` tables, graph sidecars, and `meta.json`) — this is the single semantic index; framework seeds fold into the project `docs` table at setup/upgrade
 11. Subsequent runs are incremental: only files whose SHA-256 changed are re-chunked; existing LanceDB rows for those paths are compared by `chunk_hash` so unchanged chunk vectors can be reused and only changed/new chunks are re-embedded

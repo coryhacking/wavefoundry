@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-01
+Last verified: 2026-07-02
 
 This document describes how Wavefoundry builds and maintains its search indexes. It covers
 every stage of the pipeline: file discovery, change detection, chunking, embedding, and
@@ -79,16 +79,16 @@ in **Build Coordination** below.
 ### Operator / CLI (explicit, foreground)
 
 - **`wf setup` / `wf update-indexes`** → `setup_index.py` `main` → dependency ensure, model prewarm,
-  then `build_index`. Docs + graph by default; code via `--include-code` (synchronous) or
-  `--background-code` (detached).
+  then `build_index`. Docs, code, and graph build in the foreground by default. `--background-code`
+  builds docs/graph first and detaches code; `--background-docs` builds code first and detaches docs.
 - **Direct indexer CLI** — `python3 .wavefoundry/framework/scripts/indexer.py --root <root>
   --content {docs|code|graph|all} [--full]`. The low-level build entry a manual full rebuild uses.
 
 ### Upgrade
 
 - **`wave_upgrade` phase 4** (the `upgrade_wavefoundry.py` index phases) invokes `setup_index.py`
-  three times — docs, graph-only, and background-code. It auto-escalates an incremental update to a
-  full rebuild when `CHUNKER_VERSION`/model or `GRAPH_BUILDER_VERSION` advanced.
+  for the semantic rebuild and graph refresh. It auto-escalates an incremental update to a full rebuild
+  when `CHUNKER_VERSION`/model or `GRAPH_BUILDER_VERSION` advanced.
 
 ### MCP — explicit
 

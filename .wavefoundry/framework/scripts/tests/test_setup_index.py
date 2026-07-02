@@ -8,14 +8,16 @@ import subprocess
 import sys
 import tempfile
 import threading
+import tomllib
 import unittest
-from contextlib import redirect_stderr, redirect_stdout
+from contextlib import ExitStack, redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest.mock import MagicMock, call, patch
 
 
 SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
 SETUP_INDEX_PATH = SCRIPTS_ROOT / "setup_index.py"
+PYPROJECT_PATH = SCRIPTS_ROOT.parents[2] / "pyproject.toml"
 
 FAKE_VENV_PYTHON = Path("/fake/venv/bin/python")
 
@@ -421,6 +423,15 @@ class SetupIndexTests(unittest.TestCase):
         self.assertIn(self.mod.LANCEDB_REQUIREMENT, self.mod.REQUIRED_IMPORTS)
         self.assertEqual(self.mod.REQUIRED_IMPORTS[self.mod.LANCEDB_REQUIREMENT], "lancedb")
 
+    def test_required_imports_include_httpx_socks(self):
+        self.assertIn("httpx[socks]", self.mod.REQUIRED_IMPORTS)
+        self.assertEqual(self.mod.REQUIRED_IMPORTS["httpx[socks]"], "socksio")
+
+    def test_pyproject_includes_httpx_socks(self):
+        with PYPROJECT_PATH.open("rb") as fh:
+            metadata = tomllib.load(fh)
+        self.assertIn("httpx[socks]", metadata["project"]["dependencies"])
+
     def test_required_imports_include_leiden(self):
         self.assertIn("igraph>=0.11", self.mod.REQUIRED_IMPORTS)
         self.assertEqual(self.mod.REQUIRED_IMPORTS["igraph>=0.11"], "igraph")
@@ -771,7 +782,7 @@ class SetupIndexTests(unittest.TestCase):
 
         self.assertEqual(rc, 0)
         ensure_deps.assert_called_once()
-        prewarm.assert_called_once_with(include_code=True)
+        prewarm.assert_called_once_with(include_code=True, code_only=False)
         build_index.assert_called_once()
         self.assertIn("Done. Project index update complete.", stdout.getvalue())
         self.assertIn("MCP handoff:", stdout.getvalue())
@@ -854,57 +865,135 @@ class IndexerToolVenvTests(unittest.TestCase):
         self.assertIn("tool venv is not bootstrapped", str(raised.exception))
 
 
-class BackgroundCodeTests(unittest.TestCase):
+class SetupLayerSchedulingTests(unittest.TestCase):
     def setUp(self):
         self.mod = load_setup_index()
 
+    def _runtime_patches(self):
+        stack = ExitStack()
+        stack.enter_context(patch.object(self.mod, "ensure_deps"))
+        stack.enter_context(patch.object(self.mod, "_reexec_with_venv_if_needed"))
+        stack.enter_context(patch.object(self.mod, "report_embedding_provider_decision"))
+        stack.enter_context(patch.object(self.mod, "_prewarm_gpu_accel"))
+        return stack
+
+    def test_default_setup_builds_docs_and_code_synchronously(self):
+        """Default setup must treat docs and code the same: one foreground docs+code build."""
+        with self._runtime_patches():
+            with patch.object(self.mod, "prewarm_models") as prewarm:
+                with patch.object(self.mod, "build_index") as build_index:
+                    with patch.object(self.mod, "_spawn_background_code_build") as spawn:
+                        with patch.object(self.mod, "_spawn_background_docs_build") as docs_spawn:
+                            with redirect_stdout(io.StringIO()):
+                                self.mod.main(["--root", "/tmp/repo"])
+        prewarm.assert_called_once_with(include_code=True, code_only=False)
+        _, kwargs = build_index.call_args
+        self.assertTrue(kwargs.get("include_code", False))
+        self.assertFalse(kwargs.get("code_only", False))
+        spawn.assert_not_called()
+        docs_spawn.assert_not_called()
+
     def test_background_code_prewarms_docs_only(self):
         """--background-code must not prewarm the code model in the foreground."""
-        with patch.object(self.mod, "ensure_deps"):
-            with patch.object(self.mod, "_reexec_with_venv_if_needed"):
-                with patch.object(self.mod, "prewarm_models") as prewarm:
-                    with patch.object(self.mod, "build_index"):
-                        with patch.object(self.mod, "_spawn_background_code_build"):
-                            with redirect_stdout(io.StringIO()):
-                                self.mod.main(["--root", "/tmp/repo", "--background-code"])
-        prewarm.assert_called_once_with(include_code=False)
+        with self._runtime_patches():
+            with patch.object(self.mod, "prewarm_models") as prewarm:
+                with patch.object(self.mod, "build_index"):
+                    with patch.object(self.mod, "_spawn_background_code_build"):
+                        with redirect_stdout(io.StringIO()):
+                            self.mod.main(["--root", "/tmp/repo", "--background-code"])
+        prewarm.assert_called_once_with(include_code=False, code_only=False)
 
     def test_background_code_builds_docs_only_in_foreground(self):
-        """--background-code must call build_index with include_code=False."""
-        with patch.object(self.mod, "ensure_deps"):
-            with patch.object(self.mod, "_reexec_with_venv_if_needed"):
-                with patch.object(self.mod, "prewarm_models"):
-                    with patch.object(self.mod, "build_index") as build_index:
-                        with patch.object(self.mod, "_spawn_background_code_build"):
-                            with redirect_stdout(io.StringIO()):
-                                self.mod.main(["--root", "/tmp/repo", "--background-code"])
+        """--background-code must call build_index with include_code=False and code_only=False."""
+        with self._runtime_patches():
+            with patch.object(self.mod, "prewarm_models"):
+                with patch.object(self.mod, "build_index") as build_index:
+                    with patch.object(self.mod, "_spawn_background_code_build"):
+                        with redirect_stdout(io.StringIO()):
+                            self.mod.main(["--root", "/tmp/repo", "--background-code"])
         _, kwargs = build_index.call_args
         self.assertFalse(kwargs.get("include_code", True))
+        self.assertFalse(kwargs.get("code_only", True))
 
     def test_background_code_spawns_background_process(self):
         """--background-code must call _spawn_background_code_build after docs build."""
-        with patch.object(self.mod, "ensure_deps"):
-            with patch.object(self.mod, "_reexec_with_venv_if_needed"):
-                with patch.object(self.mod, "prewarm_models"):
-                    with patch.object(self.mod, "build_index"):
-                        with patch.object(self.mod, "_spawn_background_code_build") as spawn:
-                            with redirect_stdout(io.StringIO()):
-                                self.mod.main(["--root", "/tmp/repo", "--background-code"])
+        with self._runtime_patches():
+            with patch.object(self.mod, "prewarm_models"):
+                with patch.object(self.mod, "build_index"):
+                    with patch.object(self.mod, "_spawn_background_code_build") as spawn:
+                        with redirect_stdout(io.StringIO()):
+                            self.mod.main(["--root", "/tmp/repo", "--background-code"])
         spawn.assert_called_once()
 
     def test_include_code_takes_precedence_over_background_code(self):
         """--include-code with --background-code should behave as --include-code (synchronous)."""
-        with patch.object(self.mod, "ensure_deps"):
-            with patch.object(self.mod, "_reexec_with_venv_if_needed"):
-                with patch.object(self.mod, "prewarm_models") as prewarm:
-                    with patch.object(self.mod, "build_index") as build_index:
-                        with patch.object(self.mod, "_spawn_background_code_build") as spawn:
-                            with redirect_stdout(io.StringIO()):
-                                self.mod.main(["--root", "/tmp/repo", "--include-code", "--background-code"])
-        prewarm.assert_called_once_with(include_code=True)
+        with self._runtime_patches():
+            with patch.object(self.mod, "prewarm_models") as prewarm:
+                with patch.object(self.mod, "build_index") as build_index:
+                    with patch.object(self.mod, "_spawn_background_code_build") as spawn:
+                        with redirect_stdout(io.StringIO()):
+                            self.mod.main(["--root", "/tmp/repo", "--include-code", "--background-code"])
+        prewarm.assert_called_once_with(include_code=True, code_only=False)
         _, kwargs = build_index.call_args
         self.assertTrue(kwargs.get("include_code", False))
+        self.assertFalse(kwargs.get("code_only", False))
         spawn.assert_not_called()
+
+    def test_background_docs_prewarms_code_model_only(self):
+        """--background-docs must not prewarm the docs model in the foreground."""
+        with self._runtime_patches():
+            with patch.object(self.mod, "prewarm_models") as prewarm:
+                with patch.object(self.mod, "build_index"):
+                    with patch.object(self.mod, "_spawn_background_docs_build"):
+                        with redirect_stdout(io.StringIO()):
+                            self.mod.main(["--root", "/tmp/repo", "--background-docs"])
+        prewarm.assert_called_once_with(include_code=True, code_only=True)
+
+    def test_background_docs_builds_code_only_in_foreground(self):
+        """--background-docs must build only the code layer before spawning docs."""
+        with self._runtime_patches():
+            with patch.object(self.mod, "prewarm_models"):
+                with patch.object(self.mod, "build_index") as build_index:
+                    with patch.object(self.mod, "_spawn_background_docs_build"):
+                        with redirect_stdout(io.StringIO()):
+                            self.mod.main(["--root", "/tmp/repo", "--background-docs"])
+        _, kwargs = build_index.call_args
+        self.assertTrue(kwargs.get("include_code", False))
+        self.assertTrue(kwargs.get("code_only", False))
+
+    def test_background_docs_spawns_background_process(self):
+        """--background-docs must call _spawn_background_docs_build after the code build."""
+        with self._runtime_patches():
+            with patch.object(self.mod, "prewarm_models"):
+                with patch.object(self.mod, "build_index"):
+                    with patch.object(self.mod, "_spawn_background_docs_build") as spawn:
+                        with redirect_stdout(io.StringIO()):
+                            self.mod.main(["--root", "/tmp/repo", "--background-docs"])
+        spawn.assert_called_once()
+
+    def test_docs_and_code_only_flags_are_mutually_exclusive(self):
+        with self._runtime_patches():
+            with patch.object(self.mod, "prewarm_models") as prewarm:
+                with patch.object(self.mod, "build_index") as build_index:
+                    stderr = io.StringIO()
+                    with redirect_stderr(stderr):
+                        rc = self.mod.main(["--root", "/tmp/repo", "--docs-only", "--code-only"])
+        self.assertEqual(rc, 2)
+        self.assertIn("mutually exclusive", stderr.getvalue())
+        prewarm.assert_not_called()
+        build_index.assert_not_called()
+
+    def test_background_layer_flags_are_mutually_exclusive(self):
+        with self._runtime_patches():
+            with patch.object(self.mod, "prewarm_models") as prewarm:
+                with patch.object(self.mod, "build_index") as build_index:
+                    stderr = io.StringIO()
+                    with redirect_stderr(stderr):
+                        rc = self.mod.main(["--root", "/tmp/repo", "--background-code", "--background-docs"])
+        self.assertEqual(rc, 2)
+        self.assertIn("cannot be combined", stderr.getvalue())
+        prewarm.assert_not_called()
+        build_index.assert_not_called()
 
 
 class TlsTrustStoreFallbackTests(unittest.TestCase):

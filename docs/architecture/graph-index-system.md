@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-01
+Last verified: 2026-07-02
 
 Architecture reference for Wavefoundry's code and documentation graph index: how it is generated, stored, traversed, clustered, and surfaced through MCP tools.
 
@@ -455,7 +455,7 @@ Additionally, when code files change, doc artifacts that referenced changed symb
 
 ### Separation from Semantic Index
 
-`content="graph"` and `content="docs"` / `content="code"` are completely independent pipelines. The graph pipeline writes JSON artifacts only. The semantic pipeline runs LanceDB embedding and does not call `_build_graph_artifacts()`. `content="all"` (via `setup_index.py --include-code`) runs both.
+`content="graph"` and `content="docs"` / `content="code"` are completely independent pipelines. The graph pipeline writes JSON artifacts only. The semantic pipeline runs LanceDB embedding and does not call `_build_graph_artifacts()`. `content="all"` (the default setup path) runs both.
 
 ---
 

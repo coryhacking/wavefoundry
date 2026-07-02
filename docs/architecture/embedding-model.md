@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-01
+Last verified: 2026-07-02
 
 ## What This Document Covers
 
@@ -260,8 +260,8 @@ When switching to a new model, follow this checklist in order. Partial upgrades 
 # Delete old index — must not leave stale files
 rm -rf .wavefoundry/index/
 
-# Prewarm model cache and rebuild
-python3 .wavefoundry/framework/scripts/setup_index.py --root . --include-code
+# Prewarm model cache and rebuild docs + code + graph
+python3 .wavefoundry/framework/scripts/setup_index.py --root .
 ```
 
 ### 4. Verify

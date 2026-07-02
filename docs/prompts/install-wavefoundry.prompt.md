@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-01
+Last verified: 2026-07-02
 
 Shortcut: **`Init Wavefoundry`** | Legacy: **`Install Wavefoundry`** / **`Init wave framework`** / **`Install wave framework`** / **`Init wave context`** / **`Install wave context`**
 
@@ -113,7 +113,7 @@ The framework's seeds fold into this project docs index — there is no separate
 
 See `docs/contributing/build-and-verification.md` **Update vs rebuild — decision table** for when to use `mode="update"` vs `mode="rebuild"`.
 
-If you launched a detached background code build, poll `wave_index_build_status(layer?)` until it finishes before assuming code search is current.
+If you launched a detached background setup build, poll `wave_index_build_status(layer?)` until it finishes before assuming that layer's search is current.
 
 ## Aliases
 

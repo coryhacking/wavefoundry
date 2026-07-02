@@ -45,6 +45,7 @@ TIMESTAMP_LOGS_ENV = "WAVEFOUNDRY_TIMESTAMP_LOGS"
 LANCEDB_REQUIREMENT = "lancedb==0.33.0"
 REQUIRED_IMPORTS = {
     "fastembed": "fastembed",
+    "httpx[socks]": "socksio",
     "igraph>=0.11": "igraph",
     "leidenalg>=0.10": "leidenalg",
     "numpy": "numpy",
@@ -397,13 +398,16 @@ def _reexec_with_venv_if_needed() -> None:
     venv_bootstrap.activate_tool_venv()
 
 
-def _indexer_models(include_code: bool) -> list[str]:
+def _indexer_models(include_code: bool, code_only: bool = False) -> list[str]:
     indexer_path = SCRIPTS_DIR / "indexer.py"
     spec = importlib.util.spec_from_file_location("wavefoundry_indexer_for_setup", indexer_path)
     mod = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     spec.loader.exec_module(mod)
-    models = [mod.DOCS_MODEL]
+    if code_only:
+        models = [mod.CODE_MODEL]
+    else:
+        models = [mod.DOCS_MODEL]
     if include_code:
         models.append(mod.CODE_MODEL)
     deduped: list[str] = []
@@ -1176,8 +1180,8 @@ def _prewarm_required_model(
             ) from exc
 
 
-def prewarm_models(*, include_code: bool) -> None:
-    models = _indexer_models(include_code)
+def prewarm_models(*, include_code: bool, code_only: bool = False) -> None:
+    models = _indexer_models(include_code, code_only=code_only)
     for model_name in models:
         print(f"Prewarming semantic model cache: {model_name}", flush=True)
         _prewarm_required_model(
@@ -1240,23 +1244,29 @@ def _prewarm_gpu_accel(models: list[str]) -> None:
                   "fastembed path", flush=True)
 
 
-def _spawn_background_code_build(root: Path, args: argparse.Namespace) -> None:
-    """Spawn a detached background process to build the code index."""
+def _spawn_background_semantic_build(root: Path, args: argparse.Namespace, content: str) -> None:
+    """Spawn a detached background process to build one semantic index layer."""
+    if content not in {"docs", "code"}:
+        raise ValueError(f"unsupported background semantic content: {content}")
     # Wave 1p8pe: prefer the console-free tool-venv pythonw.exe on Windows so this detached background
     # build (log-file stdout/stderr) never flashes a console window; falls back to the tool-venv Python
     # (POSIX returns None). The :134 _tool_venv_python resolver stays unchanged (it feeds venv path-math
     # + the console-streaming pip install).
     interp = subprocess_util.windowless_pythonw() or str(_tool_venv_python())
-    cmd = [interp, __file__, "--root", str(root), "--include-code"]
+    layer_flag = "--code-only" if content == "code" else "--docs-only"
+    cmd = [interp, __file__, "--root", str(root), layer_flag]
     if args.full:
         cmd.append("--full")
-    if args.include_tests:
+    if args.rechunk:
+        cmd.append("--rechunk")
+    if content == "code" and args.include_tests:
         cmd.append("--include-tests")
-    if args.include_generated:
+    if content == "code" and args.include_generated:
         cmd.append("--include-generated")
     if args.verbose:
         cmd.append("--verbose")
-    log_path = root / ".wavefoundry" / "logs" / "project-background-build.log"
+    log_name = "project-background-build.log" if content == "code" else "project-background-docs-build.log"
+    log_path = root / ".wavefoundry" / "logs" / log_name
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log_file = open(log_path, "w", encoding="utf-8")  # noqa: SIM115
     try:
@@ -1274,12 +1284,23 @@ def _spawn_background_code_build(root: Path, args: argparse.Namespace) -> None:
         log_file.close()
     pid_path = root / ".wavefoundry" / "index" / "background-build.pid"
     pid_path.write_text(str(proc.pid), encoding="utf-8")
+    label = "Code" if content == "code" else "Docs"
     print(
-        f"Code index build started in background (PID {proc.pid}).\n"
+        f"{label} index build started in background (PID {proc.pid}).\n"
         f"Progress: {log_path}\n"
-        f"MCP is available now — docs index is ready.",
+        f"Foreground index layer is ready.",
         flush=True,
     )
+
+
+def _spawn_background_code_build(root: Path, args: argparse.Namespace) -> None:
+    """Spawn a detached background process to build the code index."""
+    _spawn_background_semantic_build(root, args, "code")
+
+
+def _spawn_background_docs_build(root: Path, args: argparse.Namespace) -> None:
+    """Spawn a detached background process to build the docs index."""
+    _spawn_background_semantic_build(root, args, "docs")
 
 
 def _run_indexer(
@@ -1399,8 +1420,13 @@ def build_index(
     project_include_prefixes_for_docs: tuple[str, ...] = (),
     project_include_prefixes_for_code: tuple[str, ...] = (),
     rechunk: bool = False,
+    code_only: bool = False,
 ) -> None:
-    if include_code:
+    if code_only:
+        print("Building code semantic index...", flush=True)
+        content = "code"
+        prefixes = project_include_prefixes_for_code
+    elif include_code:
         print("Building docs and code semantic index (single indexer pass)...", flush=True)
         content = "all"
         prefixes = _merge_project_include_prefixes(
@@ -1477,8 +1503,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--root", default=None, help="Repository root (default: current directory)")
     p.add_argument("--full", action="store_true", help="Force full rebuild")
     p.add_argument("--rechunk", action="store_true", help="Re-chunk every file but reuse embeddings by content hash (no version change; only new/changed chunks re-embed)")
-    p.add_argument("--include-code", action="store_true", help="Also build semantic code embeddings (slower and more memory-intensive)")
+    p.add_argument("--include-code", action="store_true", help="Build semantic code embeddings synchronously (default; kept for explicit CI/full-build callers)")
     p.add_argument("--background-code", action="store_true", help="Build docs index synchronously (unblocks MCP immediately), then spawn a detached background process for code embedding")
+    p.add_argument("--background-docs", action="store_true", help="Build code index synchronously, then spawn a detached background process for docs embedding")
+    p.add_argument("--docs-only", action="store_true", help="Build only docs/seed semantic embeddings in the foreground")
+    p.add_argument("--code-only", action="store_true", help="Build only semantic code embeddings in the foreground")
     p.add_argument("--graph-only", action="store_true", help="Rebuild only the graph index without re-embedding semantic vectors")
     p.add_argument("--include-tests", action="store_true", help="Include target test files in semantic code indexing")
     p.add_argument("--include-generated", action="store_true", help="Include generated platform hook files in semantic code indexing")
@@ -1523,7 +1552,18 @@ def main(argv: list[str] | None = None) -> int:
         print("\nDone. Graph index rebuild complete.", flush=True)
         return 0
 
+    if args.docs_only and args.code_only:
+        print("ERROR: --docs-only and --code-only are mutually exclusive.", file=sys.stderr)
+        return 2
+    if args.background_docs and args.background_code:
+        print("ERROR: --background-docs and --background-code cannot be combined; run separate commands for two detached layers.", file=sys.stderr)
+        return 2
+    if (args.docs_only or args.code_only) and (args.background_docs or args.background_code):
+        print("ERROR: --docs-only/--code-only cannot be combined with background layer flags.", file=sys.stderr)
+        return 2
+
     background_code = args.background_code and not args.include_code
+    background_docs = args.background_docs
     if background_code:
         # H1 (Phase 4b reliability): stamp THIS process's pid into the background-build marker BEFORE
         # the synchronous docs build, so a crash here (prewarm / docs build) leaves a dead-pid record —
@@ -1536,17 +1576,18 @@ def main(argv: list[str] | None = None) -> int:
             _bg_pid.write_text(str(os.getpid()), encoding="utf-8")
         except OSError:
             pass
-    _include_code = not background_code and args.include_code
+    _code_only = args.code_only or background_docs
+    _include_code = not background_code and not args.docs_only
     try:
         # Download/verify the models BEFORE the provider probe — the probe loads with
         # local_files_only and would transiently fail on a fresh/cleared cache (model absent),
         # silently dropping the whole build to CPU. Order: download → probe → GPU accel prewarm.
-        prewarm_models(include_code=_include_code)
+        prewarm_models(include_code=_include_code, code_only=_code_only)
     except ModelPrewarmError as exc:
         print(str(exc), file=sys.stderr)
         return 2
     report_embedding_provider_decision()
-    _prewarm_gpu_accel(_indexer_models(include_code=_include_code))
+    _prewarm_gpu_accel(_indexer_models(include_code=_include_code, code_only=_code_only))
     build_index(
         root,
         full=args.full,
@@ -1557,12 +1598,15 @@ def main(argv: list[str] | None = None) -> int:
         include_generated=args.include_generated,
         project_include_prefixes_for_docs=docs_prefixes,
         project_include_prefixes_for_code=code_prefixes,
+        code_only=_code_only,
     )
     # Wave 1p9aj: reclaim any accumulated table bloat now that the synchronous build has released the
     # build lock and before the background code build (if any) is spawned — so it never races a build.
     _optimize_after_build(root)
     if background_code:
         _spawn_background_code_build(root, args)
+    if background_docs:
+        _spawn_background_docs_build(root, args)
     print(
         f"\nDone. Project index update complete.\n"
         f"MCP handoff: restart your AI agent so the Wavefoundry MCP server attaches "

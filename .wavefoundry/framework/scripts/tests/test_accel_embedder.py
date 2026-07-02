@@ -156,6 +156,33 @@ class AccelEmbedderTests(unittest.TestCase):
         # Constructed with the available GPU provider + CPU fallback.
         self.assertEqual(cls.call_args.args[1], ["CoreMLExecutionProvider", "CPUExecutionProvider"])
 
+    def test_available_gpu_providers_honors_setup_selected_cpu(self):
+        with patch.dict(os.environ, {
+            "WAVEFOUNDRY_EMBED_PROVIDER": "auto",
+            "WAVEFOUNDRY_EMBED_PROVIDER_SELECTED": "CPUExecutionProvider",
+        }, clear=False), \
+             patch("onnxruntime.get_available_providers", return_value=["CoreMLExecutionProvider", "CPUExecutionProvider"]):
+            self.assertEqual(self.ae._available_gpu_providers(), [])
+
+    def test_available_gpu_providers_explicit_gpu_overrides_setup_selected_cpu(self):
+        with patch.dict(os.environ, {
+            "WAVEFOUNDRY_EMBED_PROVIDER": "coreml",
+            "WAVEFOUNDRY_EMBED_PROVIDER_SELECTED": "CPUExecutionProvider",
+        }, clear=False), \
+             patch("onnxruntime.get_available_providers", return_value=["CoreMLExecutionProvider", "CPUExecutionProvider"]):
+            self.assertEqual(self.ae._available_gpu_providers(), ["CoreMLExecutionProvider"])
+
+    def test_make_embedder_honors_setup_selected_cpu(self):
+        with patch.object(self.ae, "StaticShapeEmbedder") as cls, \
+             patch("onnxruntime.get_available_providers", return_value=["CoreMLExecutionProvider", "CPUExecutionProvider"]), \
+             patch.dict(os.environ, {
+                 "WAVEFOUNDRY_EMBED_PROVIDER": "auto",
+                 "WAVEFOUNDRY_EMBED_PROVIDER_SELECTED": "CPUExecutionProvider",
+             }, clear=False):
+            got = self.ae.make_embedder("BAAI/bge-small-en-v1.5", ["CPUExecutionProvider"])
+        self.assertIs(got, cls.return_value)
+        self.assertEqual(cls.call_args.args[1], ["CPUExecutionProvider"])
+
     def test_make_embedder_respects_explicit_cpu_request(self):
         # Wave 1p935: WAVEFOUNDRY_EMBED_PROVIDER=cpu disables the GPU FP16 accel path, but now
         # ENABLES the CPU-INT8 path for a registered model (no GPU → int8), rather than returning
@@ -291,6 +318,18 @@ class AccelEmbedderTests(unittest.TestCase):
         self.assertIs(got, cls.return_value)
         # CPU-only list + available GPU → GPU build (GPU provider + CPU fallback), NOT CPU-only INT8.
         self.assertEqual(cls.call_args.args[1], ["CoreMLExecutionProvider", "CPUExecutionProvider"])
+
+    def test_make_reranker_honors_setup_selected_cpu(self):
+        with patch.object(self.ae, "StaticShapeReranker") as cls, \
+             patch("onnxruntime.get_available_providers", return_value=["CoreMLExecutionProvider", "CPUExecutionProvider"]), \
+             patch.dict(os.environ, {
+                 "WAVEFOUNDRY_EMBED_PROVIDER": "auto",
+                 "WAVEFOUNDRY_EMBED_PROVIDER_SELECTED": "CPUExecutionProvider",
+             }, clear=False):
+            os.environ.pop("WAVEFOUNDRY_DISABLE_RERANKER", None)
+            got = self.ae.make_reranker("cross-encoder/ms-marco-MiniLM-L-6-v2", ["CPUExecutionProvider"])
+        self.assertIs(got, cls.return_value)
+        self.assertEqual(cls.call_args.args[1], ["CPUExecutionProvider"])
 
     def test_make_reranker_honors_explicit_gpu_list(self):
         # Wave 1p937: an explicit GPU list builds the FP16 GPU reranker (gpu + CPU fallback).

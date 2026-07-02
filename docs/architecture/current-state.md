@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-01
+Last verified: 2026-07-02
 
 ## Runtime Topology
 
@@ -70,8 +70,8 @@ setup_wavefoundry.py --root .
   ├── embedding provider policy → CUDA, verified CoreML, named secondary ONNX providers, or CPU
   ├── prewarm docs/code embedding models in local cache
   ├── verify cached models in offline-only mode
-  ├── indexer.py --root . --content docs   (default; docs/seeds only)
-  ├── or with --include-code: indexer.py --root . --content all  (single subprocess, docs + code)
+  ├── indexer.py --root . --content all  (default; single subprocess, docs + code + graph)
+  ├── or with --background-code / --background-docs: foreground one semantic layer, detach the other
   ├── walk_repo()      →  respects .gitignore, .aiignore, hardcoded excludes; WALKER_VERSION triggers full rebuild on filter changes
   ├── chunker.py       →  chunk_python (AST) / chunk_markdown / tree-sitter chunkers for JS/TS/Go/Rust/Java/C/C++/C#/Bash/Kotlin / chunk_line_window fallback
   ├── fastembed        →  BAAI/bge-small-en-v1.5 via selected ONNX provider

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-01
+Last verified: 2026-07-02
 
 ## Verification Commands
 
@@ -31,30 +31,35 @@ wf update-indexes
 What this does:
 - checks required runtime packages
 - evaluates the local embedding execution provider
-- prewarms the docs embedding model cache
-- rebuilds the project docs index (seeds + docs)
+- prewarms the docs and code embedding model caches
+- rebuilds the project docs index (seeds + docs), semantic code index, and graph index in the foreground
 
-**MCP is available as soon as the docs index build completes** (~2.5 min). The code index is separate and optional.
+**MCP search is complete when setup returns.** The default setup path treats docs and code the same: both semantic layers build in the foreground.
 
-### Two-phase onboarding
+### Onboarding
 
-For new developer onboarding or post-upgrade rebuilds, use the docs-first approach to unblock MCP immediately while the code index builds in the background:
+For new developer onboarding or post-upgrade rebuilds, use the default foreground build:
 
 ```bash
-# Phase 1: docs index — unblocks all MCP tools immediately (~2.5 min)
+wf setup
+# or, after setup already exists:
 wf update-indexes
-
-# Phase 2: code index — builds in the background, foreground returns immediately
-wf update-indexes --background-code
 ```
 
-`--background-code` builds the docs index synchronously, then spawns a detached background process for code model prewarm and code embedding. Progress is written to `.wavefoundry/index/background-build.log`. Call `wave_index_health()` to check whether the background build is still running.
-
-To build both synchronously (e.g. CI):
+`--include-code` remains accepted for explicit CI/full-build callers, but it is redundant with the default code-included setup path:
 
 ```bash
 wf setup --include-code
 ```
+
+Use the background flags only when a foreground layer must be prioritized:
+
+```bash
+wf setup --background-code  # docs/graph foreground, code detached
+wf setup --background-docs  # code foreground, docs detached
+```
+
+Progress for detached setup builds is written under `.wavefoundry/logs/`. Call `wave_index_health()` or `wave_index_build_status(layer="code"|"docs")` to check whether a background build is still running.
 
 ### Embedding provider diagnostics
 
@@ -92,9 +97,8 @@ When a pack upgrade bumps `CHUNKER_VERSION`, a full rebuild is required for both
 
 ```bash
 wf setup --full
-# or docs-first, then background code:
-wf setup --full
-wf setup --background-code --full
+# explicit CI/full rebuild form, equivalent for code inclusion:
+wf setup --full --include-code
 ```
 
 If the repo needs extra project index roots beyond the default, declare them explicitly in `docs/workflow-config.json` under `indexing.project_include_prefixes`. Use repo-relative `docs` and `code` lists rather than one-off booleans. Wavefoundry uses this in self-hosting mode to include `.wavefoundry/framework/scripts` in project code search without changing the default for ordinary target repos.
@@ -114,8 +118,8 @@ The tool-venv dependency check is **version-aware**: when a pack pins a new vers
 | `wave_index_health` reports `chunker_version_mismatch` after a pack upgrade | **Full rebuild required** — file hashes alone won't detect the version change. See *Upgrade rebuild requirement* above |
 | Code navigation (`code_search`, `code_read`) feels stale or was never built | **Code update:** `wave_index_build(content="code", mode="update")` — or `wf update-indexes` |
 | Framework seeds changed in the Wavefoundry source repo itself | **Project docs update:** `wave_index_build(content="docs", mode="update")`; framework seeds are folded into the project docs index |
-| First install / clean environment | `wf setup` |
-| CI deterministic full build | `wf setup --include-code` (~6 min, docs and code synchronous) |
+| First install / clean environment | `wf setup` (docs, code, and graph foreground) |
+| CI deterministic full build | `wf setup --include-code` (~6 min, explicit docs and code synchronous form) |
 
 **Update** re-indexes only changed files (fast, uses file hashes). **Rebuild** (`--full` / `mode="rebuild"`) ignores hashes and reprocesses everything — use it when `CHUNKER_VERSION` changed or the index is known corrupt.
 
