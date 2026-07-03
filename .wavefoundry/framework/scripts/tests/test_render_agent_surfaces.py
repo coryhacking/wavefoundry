@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 import tempfile
@@ -230,6 +231,99 @@ class AgentSurfaceNewlineTests(unittest.TestCase):
                     b"\r\n", raw,
                     f"{'/'.join(parts)} must be written LF-only (no CRLF)",
                 )
+
+
+class GuruWrapperToolAllowlistTests(unittest.TestCase):
+    """Subagent MCP tool access — the rendered guru wrapper's frontmatter
+    `tools:` allowlist must grant the read-only Wavefoundry retrieval tools its
+    own body instructs it to use. An explicit allowlist is not additive in
+    Claude Code, so omitting the MCP tools makes the wrapper self-contradictory
+    (body says "call code_ask", frontmatter forbids it). Guards:
+      1. the enumerated read-only retrieval grant (incl. ToolSearch for hosts
+         that defer MCP schemas),
+      2. no write-capable / lifecycle-mutating wave_* tool ever granted,
+      3. frontmatter grants cover every MCP tool the wrapper body names.
+    """
+
+    # The read-only retrieval set the wrapper must grant. Exact tool names are
+    # the fail-safe frontmatter form: honored -> precise read-only grant;
+    # ignored by a host -> status quo (never a mutator exposure).
+    _REQUIRED_GRANTS = {
+        "ToolSearch",
+        "mcp__wavefoundry__code_ask",
+        "mcp__wavefoundry__code_search",
+        "mcp__wavefoundry__code_keyword",
+        "mcp__wavefoundry__code_read",
+        "mcp__wavefoundry__code_outline",
+        "mcp__wavefoundry__code_definition",
+        "mcp__wavefoundry__code_references",
+        "mcp__wavefoundry__code_callhierarchy",
+        "mcp__wavefoundry__code_dependencies",
+        "mcp__wavefoundry__code_impact",
+        "mcp__wavefoundry__code_list_files",
+        "mcp__wavefoundry__code_constants",
+        "mcp__wavefoundry__code_pattern",
+        "mcp__wavefoundry__code_callgraph",
+        "mcp__wavefoundry__code_graph_path",
+        "mcp__wavefoundry__code_graph_community",
+        "mcp__wavefoundry__docs_search",
+        "mcp__wavefoundry__seed_get",
+    }
+
+    def _rendered_guru(self) -> str:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            (repo_root / "docs" / "agents").mkdir(parents=True)
+            (repo_root / "docs" / "agents" / "guru.md").write_text(GURU_STUB, encoding="utf-8")
+            (repo_root / ".claude" / "agents").mkdir(parents=True)
+            ras.render_agent_surfaces(repo_root)
+            return (repo_root / ".claude" / "agents" / "guru.md").read_text(encoding="utf-8")
+
+    @staticmethod
+    def _tools_entries(rendered: str) -> list[str]:
+        for line in rendered.splitlines():
+            if line.startswith("tools:"):
+                return [entry.strip() for entry in line[len("tools:"):].split(",") if entry.strip()]
+        return []
+
+    def test_required_readonly_grants_present(self) -> None:
+        entries = set(self._tools_entries(self._rendered_guru()))
+        missing = self._REQUIRED_GRANTS - entries
+        self.assertFalse(
+            missing,
+            f"guru wrapper tools: allowlist is missing required read-only grants: {sorted(missing)}",
+        )
+        # The pre-fix baseline tools stay granted.
+        for base in ("Read", "Grep", "Glob", "Bash"):
+            self.assertIn(base, entries)
+
+    def test_no_mutating_wave_tool_granted(self) -> None:
+        entries = self._tools_entries(self._rendered_guru())
+        offenders = [e for e in entries if e.startswith("mcp__wavefoundry__wave_")]
+        self.assertEqual(
+            offenders, [],
+            "guru wrapper must never grant wave_* lifecycle/mutating tools",
+        )
+        # And never a bare server-level grant, which would include the mutators.
+        self.assertNotIn("mcp__wavefoundry", entries)
+        self.assertNotIn("mcp__wavefoundry__*", entries)
+
+    def test_body_instructions_covered_by_grants(self) -> None:
+        rendered = self._rendered_guru()
+        entries = set(self._tools_entries(rendered))
+        body = rendered.split("---", 2)[2] if rendered.count("---") >= 2 else rendered
+        body_named = set(re.findall(r"`((?:code|docs)_[a-z_]+|seed_get|wave_[a-z_]+)`", body))
+        body_named |= set(re.findall(r"`mcp__wavefoundry__([a-z_]+)`", body))
+        self.assertTrue(body_named, "wrapper body should name its MCP tools")
+        uncovered = {
+            name for name in body_named
+            if f"mcp__wavefoundry__{name}" not in entries
+        }
+        self.assertFalse(
+            uncovered,
+            "wrapper body instructs tools its frontmatter does not grant "
+            f"(the self-contradiction this change fixes): {sorted(uncovered)}",
+        )
 
 
 if __name__ == "__main__":

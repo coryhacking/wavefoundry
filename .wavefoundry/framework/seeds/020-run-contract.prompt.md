@@ -78,6 +78,16 @@ If memory conflicts with current evidence from the repository, favor that eviden
 - The wave coordinator owns wave activation, execution order, role assignment, conflict avoidance, and wave completion.
 - Wave artifacts should distinguish completed work, deferred work, moved work, retried work, and failed assumptions clearly enough for later agents to resume safely.
 
+## Retrieval Rules
+
+- **When the Wavefoundry MCP is attached, its retrieval tools are the default for understanding and locating code — for every lane, including reviewer and builder subagents.** Load deferred tool schemas once via the host's tool-loading mechanism (e.g. `ToolSearch("select:...")` in Claude Code) rather than treating the zero-setup shell path as the default.
+- Choose the tool by question shape: `code_ask` is the spearhead when you do not know where to look (cold orientation, cross-cutting how-does-X-work — it opens the inquiry and hands precise targets to the follow-through tools); `code_references` / `code_callhierarchy` enumerate callers, implementations, and blast radius; `code_keyword` / `code_search` run identifier and cross-surface sweeps; `code_read` fetches targeted line ranges once a location is known, instead of whole-file reads. The mix follows task shape — verification work with named targets leans on `code_read` and the counting tools; broad no-map investigations lead with `code_ask`.
+- **Claim-backing rule:** any "how many callers / how many implementations / what is the blast radius" claim must be backed by `code_references` / `code_callhierarchy`, not a sampled grep. Grep can sample; only enumeration is evidence for a completeness claim.
+- Static orientation surfaces complement the tools: `docs/repo-index.md` (module inventory), the codebase map, and per-area `AGENTS.md` are one targeted read with no setup, and they are the fallback spearhead when MCP is absent. For MCP-attached agents they are cold-start orientation only — after the first bearing, live tools dominate.
+- Reserve `grep` / raw file reads for literal-byte checks, git inspection, and the fallback when MCP is absent or its results are genuinely insufficient after a reasonable pass; record a `Gapfill:` note when falling back.
+- The canonical exploration order lives in the implement-shortcut seed (seed-180) and the Guru retrieval loop (seed-211) — point to them; do not restate the order in downstream surfaces or delegated prompts.
+- **Rendered carrier:** this section is carried into the project operating surface as the `## Retrieval Posture (All Lanes)` section of `docs/contributing/agent-team-workflow.md`, with a one-line pointer from `docs/contributing/review-and-evals.md`. Refresh (seed-150) and upgrade (seed-160) reconcile that carrier and pointer whenever this section changes; backfill both when missing.
+
 ## Delegation Rules
 
 - Use read-only subagents for inventory, audits, and comparison work unless the task materially requires edits.

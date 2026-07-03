@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-15
+Last verified: 2026-07-03
 
 ## Review Lane Summary
 
@@ -17,6 +17,8 @@ Last verified: 2026-06-15
 | `release-reviewer` | Packaging, VERSION, or distribution format changes | Yes |
 | `wave-council-readiness` | Every wave before implementation (`wave_review.enabled`) | Yes |
 | `wave-council-delivery` | Every wave after implementation and before closure (`wave_review.enabled`) | Yes |
+
+All review lanes follow the **Retrieval Posture (All Lanes)** in `docs/contributing/agent-team-workflow.md` — MCP retrieval tools first, and how-many/blast-radius claims backed by `code_references`/`code_callhierarchy`, never a sampled grep.
 
 ## Readiness Checklist (Prepare Wave)
 

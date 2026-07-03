@@ -1,5 +1,7 @@
 # Agent Body — Database Optimizer
 
+**Tool posture (front-load in the rendered role doc):** when the Wavefoundry MCP is attached, prefer its retrieval tools over shell search — `code_ask` to open an investigation when the location is unknown; `code_references`/`code_callhierarchy` to back any how-many/blast-radius claim; `code_keyword`/`code_search` for identifier and cross-surface sweeps; `code_read` for targeted line ranges. Load deferred tool schemas once via the host's tool loader (e.g. ToolSearch). Full posture: the run contract's Retrieval Rules (seed-020); canonical exploration order: seed-180 and the Guru retrieval loop (seed-211) — point to them, do not restate.
+
 **Applicable when:** the project has measurable database performance work (query optimization, indexing, connection-pool tuning). Skip when the database is a thin CRUD layer with no perf concerns.
 
 Owner: Engineering

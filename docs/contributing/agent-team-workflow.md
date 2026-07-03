@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-03
+Last verified: 2026-07-03
 
 ## Role Routing
 
@@ -93,6 +93,17 @@ Enable these from repo evidence rather than by default:
 | `factor-05-build-release-run` | Changes to `build_pack.py`, VERSION, or distribution format |
 | `factor-12-admin-processes` | Changes to CLI tool contracts or admin script behavior |
 | `factor-13-api-first` | Changes to MCP tool surface contracts or tool response formats |
+
+## Retrieval Posture (All Lanes)
+
+Carries the **Retrieval Rules** from the framework run contract (seed-020) for every lane — reviewer, builder, and coordinator subagents alike:
+
+- **When the Wavefoundry MCP is attached, its retrieval tools are the default for understanding and locating code.** Load deferred tool schemas once via the host's tool loader (in Claude Code: `ToolSearch("select:mcp__wavefoundry__code_ask,...")`) rather than defaulting to the zero-setup shell path.
+- Choose by question shape: `code_ask` is the **spearhead** when you don't know where to look (it opens the investigation and hands precise targets to the follow-through tools); `code_references`/`code_callhierarchy` enumerate callers, implementations, and blast radius; `code_keyword`/`code_search` run identifier and cross-surface sweeps; `code_read` fetches targeted line ranges instead of whole-file reads. The mix follows task shape — verification lanes with named targets lean on `code_read` and the counting tools; broad no-map reviews lead with `code_ask`.
+- **Claim-backing rule:** any "how many callers / how many implementations / what's the blast radius" claim must be backed by `code_references`/`code_callhierarchy`, not a sampled grep. Only enumeration is evidence for a completeness claim.
+- Static orientation surfaces complement the tools: `docs/repo-index.md`, the codebase map, and per-area `AGENTS.md` are one targeted read with no setup — the fallback spearhead when MCP is absent, cold-start orientation only when it's attached.
+- Reserve `grep`/raw reads for literal-byte checks, git inspection, and the MCP-absent/insufficient fallback; record a `Gapfill:` note when falling back.
+- The canonical exploration order lives in `docs/prompts/implement-feature.prompt.md` (MCP-first code exploration) and `docs/agents/guru.md` (retrieval loop) — point to them; do not restate.
 
 ## Concurrency
 
