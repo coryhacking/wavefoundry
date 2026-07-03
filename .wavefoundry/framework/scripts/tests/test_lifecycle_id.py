@@ -524,5 +524,466 @@ class PeekWithoutConsumeTests(unittest.TestCase):
         self.assertTrue(result.startswith("00000 "))
 
 
+# ----------------------------------------------------------------------
+# Scheme v2 — daily time index + 12-bit deterministic blake2s entropy
+# (wave 1p9q0). Fixed vectors: epoch 2026-01-01T00:00:00Z, offset 100000.
+# ----------------------------------------------------------------------
+
+_V2_EPOCH = datetime(2026, 1, 1, tzinfo=timezone.utc)
+_V2_OFFSET = 100_000
+
+
+def _v2_policy(offset: int = _V2_OFFSET):
+    return (_V2_EPOCH, 0, offset, "v2")
+
+
+class V2EncodingTests(unittest.TestCase):
+    """AC-1 / AC-2 / AC-2b / AC-5 (encoder side)."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.mod = _load_module()
+
+    def test_v2_value_formula_and_min_width(self) -> None:  # AC-1
+        mod = self.mod
+        ts = datetime(2026, 1, 11, 9, 0, tzinfo=timezone.utc)  # day_index = 10
+        prefix = mod.build_prefix(ts, policy=_v2_policy(), kind="enh", slug="golden-vector")
+        expected = _V2_OFFSET + 10 * 4096 + mod._v2_entropy("enh", "golden-vector")
+        self.assertEqual(mod.decode_base36(prefix), expected)
+        self.assertEqual(len(prefix), 5)
+        self.assertGreater(mod.decode_base36(prefix), _V2_OFFSET)
+
+    def test_v2_day_bands_never_overlap(self) -> None:  # AC-1
+        """decode(day d) < decode(day d+1) for ANY entropy — max-entropy day d
+        still sorts below min-entropy day d+1 (bands are 4096 wide)."""
+        mod = self.mod
+        day_d_max = _V2_OFFSET + 7 * 4096 + 4095
+        day_d1_min = _V2_OFFSET + 8 * 4096 + 0
+        self.assertLess(day_d_max, day_d1_min)
+        # And through the real encoder with real (different-entropy) slugs:
+        d7 = mod.build_prefix(datetime(2026, 1, 8, 23, 59, tzinfo=timezone.utc),
+                              policy=_v2_policy(), kind="bug", slug="beta-two")
+        d8 = mod.build_prefix(datetime(2026, 1, 9, 0, 0, tzinfo=timezone.utc),
+                              policy=_v2_policy(), kind="bug", slug="alpha-one")
+        self.assertLess(mod.decode_base36(d7), mod.decode_base36(d8))
+        self.assertLess(d7, d8)  # lex order == value order at equal width
+
+    def test_v2_base_encoder_is_deterministic_across_module_loads(self) -> None:  # AC-2
+        """Same (kind, slug, day, epoch, offset) → same BASE prefix across
+        independent module loads (fresh process state). Scoped to build_prefix,
+        NOT next_available_prefix (which linear-probes past on-disk IDs)."""
+        ts = datetime(2026, 2, 1, 12, 0, tzinfo=timezone.utc)
+        first = _load_module().build_prefix(ts, policy=_v2_policy(), kind="feat", slug="alpha-one")
+        second = _load_module().build_prefix(ts, policy=_v2_policy(), kind="feat", slug="alpha-one")
+        self.assertEqual(first, second)
+
+    def test_v2_pre_verified_golden_slugs_have_distinct_tails(self) -> None:  # AC-2
+        """Distinct-tail asserted with pre-verified golden slugs (entropies 36 /
+        2921 / 1947) — NOT universal injectivity; 4096 buckets birthday-collide."""
+        mod = self.mod
+        entropies = {slug: mod._v2_entropy("bug", slug)
+                     for slug in ("alpha-one", "beta-two", "gamma-three")}
+        self.assertEqual(entropies, {"alpha-one": 36, "beta-two": 2921, "gamma-three": 1947})
+        ts = datetime(2026, 3, 1, tzinfo=timezone.utc)
+        prefixes = {mod.build_prefix(ts, policy=_v2_policy(), kind="bug", slug=s)
+                    for s in entropies}
+        self.assertEqual(len(prefixes), 3)
+
+    def test_v2_golden_vector_freezes_entropy_contract(self) -> None:  # AC-2b
+        """THE contract freeze: (enh, golden-vector, day 10, epoch 2026-01-01,
+        offset 100000) → exactly '0321q'. This hardcoded literal locks blake2s +
+        digest_size 8 + big-endian int + `kind + "\\x00" + slug` UTF-8 + `% 4096`.
+        If this test fails, the entropy mapping changed — that is a NEW SCHEME
+        VERSION, not a refactor."""
+        ts = datetime(2026, 1, 11, 9, 0, tzinfo=timezone.utc)
+        prefix = self.mod.build_prefix(ts, policy=_v2_policy(), kind="enh", slug="golden-vector")
+        self.assertEqual(prefix, "0321q")
+
+    def test_v2_no_wall_clock_or_rng_in_entropy(self) -> None:  # AC-2
+        """Entropy depends only on (kind, slug) — repeated calls agree and a
+        different timestamp changes only the day band, not the entropy tail."""
+        mod = self.mod
+        e1 = mod._v2_entropy("enh", "stable-slug")
+        e2 = mod._v2_entropy("enh", "stable-slug")
+        self.assertEqual(e1, e2)
+        p_day1 = mod.build_prefix(datetime(2026, 1, 2, tzinfo=timezone.utc),
+                                  policy=_v2_policy(), kind="enh", slug="stable-slug")
+        p_day2 = mod.build_prefix(datetime(2026, 1, 3, tzinfo=timezone.utc),
+                                  policy=_v2_policy(), kind="enh", slug="stable-slug")
+        self.assertEqual(mod.decode_base36(p_day2) - mod.decode_base36(p_day1), 4096)
+
+    def test_v2_six_char_overflow_never_wraps(self) -> None:  # AC-5
+        mod = self.mod
+        far = datetime(2080, 1, 1, tzinfo=timezone.utc)  # ~54 yr — past the horizon
+        with contextlib.redirect_stderr(io.StringIO()):
+            prefix = mod.build_prefix(far, policy=_v2_policy(619_519), kind="bug", slug="far-future")
+        self.assertEqual(len(prefix), 6)
+        self.assertGreaterEqual(mod.decode_base36(prefix), 36 ** 5)
+        self.assertGreater(mod.decode_base36(prefix), mod.decode_base36("zzzzz"))
+        # A 6-char string can never equal a 5-char one — width alone separates them.
+
+    def test_v2_near_horizon_warning_fires_within_threshold_only(self) -> None:  # AC-5
+        mod = self.mod
+        # ~1 year from the ceiling: warning fires.
+        near = datetime(2065, 6, 1, tzinfo=timezone.utc)
+        offset = 36 ** 5 - 4096 * 400 - (near.date() - _V2_EPOCH.date()).days * 4096
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            mod.build_prefix(near, policy=(_V2_EPOCH, 0, offset, "v2"), kind="bug", slug="x")
+        self.assertIn("5-character ID space", err.getvalue())
+        # Far from the ceiling: silent.
+        err2 = io.StringIO()
+        with contextlib.redirect_stderr(err2):
+            mod.build_prefix(datetime(2026, 6, 1, tzinfo=timezone.utc),
+                             policy=_v2_policy(), kind="bug", slug="x")
+        self.assertEqual(err2.getvalue(), "")
+
+    def test_v2_near_horizon_threshold_boundary_exact(self) -> None:  # AC-5 (delivery qa)
+        """Boundary-adjacent cases on BOTH sides of the exact threshold, so a
+        widened/narrowed `_NEAR_HORIZON_MARGIN` or a flipped comparison fails."""
+        mod = self.mod
+        ts = datetime(2026, 1, 1, tzinfo=timezone.utc)  # day 0: value = offset + entropy
+        e = mod._v2_entropy("bug", "x")
+        threshold = 36 ** 5 - mod._NEAR_HORIZON_MARGIN
+        # value == threshold - 1 → silent.
+        err_below = io.StringIO()
+        with contextlib.redirect_stderr(err_below):
+            mod.build_prefix(ts, policy=(_V2_EPOCH, 0, threshold - 1 - e, "v2"),
+                             kind="bug", slug="x")
+        self.assertEqual(err_below.getvalue(), "")
+        # value == threshold → fires.
+        err_at = io.StringIO()
+        with contextlib.redirect_stderr(err_at):
+            mod.build_prefix(ts, policy=(_V2_EPOCH, 0, threshold - e, "v2"),
+                             kind="bug", slug="x")
+        self.assertIn("5-character ID space", err_at.getvalue())
+
+    def test_v2_rejects_pre_epoch_timestamp(self) -> None:
+        with self.assertRaises(ValueError):
+            self.mod.build_prefix(datetime(2025, 12, 31, tzinfo=timezone.utc),
+                                  policy=_v2_policy(), kind="bug", slug="x")
+
+
+class V2PolicyLoaderTests(unittest.TestCase):
+    """AC-8 malformed-v2 fixtures + widened-loader behavior (Req 10)."""
+
+    def setUp(self) -> None:
+        self.mod = _load_module()
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.repo_root = Path(self.temp_dir.name)
+        (self.repo_root / "docs").mkdir(parents=True)
+
+    def tearDown(self) -> None:
+        self.temp_dir.cleanup()
+
+    def _write_policy(self, policy) -> None:
+        (self.repo_root / "docs" / "workflow-config.json").write_text(
+            json.dumps({"lifecycle_id_policy": policy}), encoding="utf-8",
+        )
+
+    def test_valid_v2_policy_loads_four_tuple(self) -> None:
+        self._write_policy({"epoch_utc": "2026-01-01T00:00:00Z", "offset": 100000,
+                            "scheme_version": "v2"})
+        epoch, hour_offset, offset, scheme = self.mod.load_lifecycle_policy(self.repo_root)
+        self.assertEqual((offset, scheme), (100000, "v2"))
+        self.assertEqual(epoch.year, 2026)
+
+    def test_absent_policy_block_falls_back_to_v1_defaults(self) -> None:
+        (self.repo_root / "docs" / "workflow-config.json").write_text("{}", encoding="utf-8")
+        epoch, hour_offset, offset, scheme = self.mod.load_lifecycle_policy(self.repo_root)
+        self.assertEqual(scheme, "v1")
+        self.assertEqual(epoch, self.mod.DEFAULT_EPOCH_UTC)
+
+    def test_unknown_scheme_version_raises(self) -> None:
+        self._write_policy({"epoch_utc": "2026-01-01T00:00:00Z", "scheme_version": "v3"})
+        with self.assertRaises(ValueError):
+            self.mod.load_lifecycle_policy(self.repo_root)
+
+    def test_v2_missing_offset_raises(self) -> None:
+        self._write_policy({"epoch_utc": "2026-01-01T00:00:00Z", "scheme_version": "v2"})
+        with self.assertRaises(ValueError):
+            self.mod.load_lifecycle_policy(self.repo_root)
+
+    def test_v2_bool_offset_raises(self) -> None:
+        self._write_policy({"epoch_utc": "2026-01-01T00:00:00Z", "scheme_version": "v2",
+                            "offset": True})
+        with self.assertRaises(ValueError):
+            self.mod.load_lifecycle_policy(self.repo_root)
+
+    def test_v2_below_band_offset_raises(self) -> None:
+        # A silently-defaulted or under-band offset would mint in/below the
+        # reserved band — must fail loudly, never mint.
+        self._write_policy({"epoch_utc": "2026-01-01T00:00:00Z", "scheme_version": "v2",
+                            "offset": 100})
+        with self.assertRaises(ValueError):
+            self.mod.load_lifecycle_policy(self.repo_root)
+
+    def test_v2_missing_epoch_raises(self) -> None:
+        self._write_policy({"scheme_version": "v2", "offset": 100000})
+        with self.assertRaises(ValueError):
+            self.mod.load_lifecycle_policy(self.repo_root)
+
+    def test_v2_nonzero_node_bits_raises(self) -> None:
+        self._write_policy({"epoch_utc": "2026-01-01T00:00:00Z", "scheme_version": "v2",
+                            "offset": 100000, "node_bits": 4})
+        with self.assertRaises(ValueError):
+            self.mod.load_lifecycle_policy(self.repo_root)
+
+    def test_unparseable_config_warns_and_falls_back_to_v1(self) -> None:
+        (self.repo_root / "docs" / "workflow-config.json").write_text("{corrupt", encoding="utf-8")
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            epoch, hour_offset, offset, scheme = self.mod.load_lifecycle_policy(self.repo_root)
+        self.assertEqual(scheme, "v1")
+        self.assertIn("could not parse", err.getvalue())
+
+    def test_legacy_two_tuple_policy_still_accepted(self) -> None:
+        """~20 existing call sites pass (epoch, hour_offset) 2-tuples — those
+        are v1 by construction and must stay byte-unchanged."""
+        mod = self.mod
+        ts = datetime(2025, 1, 1, 0, 30, tzinfo=timezone.utc)
+        self.assertEqual(mod.build_prefix(ts, policy=(mod.DEFAULT_EPOCH_UTC, 0)), "0b2w6")
+
+    def test_malformed_policy_tuple_length_raises(self) -> None:
+        with self.assertRaises(ValueError):
+            self.mod.build_prefix(policy=(self.mod.DEFAULT_EPOCH_UTC, 0, 100))  # type: ignore[arg-type]
+
+
+class V2ProvisioningHelperTests(unittest.TestCase):
+    """AC-3 / AC-3b / AC-4 — the pure compute half of provisioning."""
+
+    def setUp(self) -> None:
+        self.mod = _load_module()
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.repo_root = Path(self.temp_dir.name)
+        (self.repo_root / "docs").mkdir(parents=True)
+
+    def tearDown(self) -> None:
+        self.temp_dir.cleanup()
+
+    def test_migrated_offset_clears_scanned_max_plus_margin(self) -> None:  # AC-3
+        mod = self.mod
+        wave_dir = self.repo_root / "docs" / "waves" / "1p9pk example-wave"
+        wave_dir.mkdir(parents=True)
+        scanned = mod.scan_max_prefix_value(self.repo_root)
+        self.assertEqual(scanned, mod.decode_base36("1p9pk"))  # 2,858,600
+        offset = mod.compute_migrated_offset(scanned)
+        self.assertGreaterEqual(offset, scanned + mod.V1_MERGE_MARGIN)
+        # Lands in the 1xxxx band, continuing the existing sequence.
+        self.assertEqual(mod.encode_base36(offset).rjust(5, "0")[0], "1")
+
+    def test_margin_is_a_named_constant_sized_for_the_merge_window(self) -> None:  # AC-3
+        # ≥ ~1 year of v1 drift at 288/day (operator-tuned from 3 yr post-council).
+        self.assertGreaterEqual(self.mod.V1_MERGE_MARGIN, 288 * 365)
+
+    def test_legacy_baseline_prefix_does_not_count_as_history(self) -> None:
+        (self.repo_root / "docs" / "waves" / "00000 wave-zero").mkdir(parents=True)
+        self.assertIsNone(self.mod.scan_max_prefix_value(self.repo_root))
+
+    def test_fresh_offset_band_and_second_char(self) -> None:  # AC-3b
+        mod = self.mod
+        for seed in ("2026-07-03T10:00:00+00:00|alpha",
+                     "2026-07-03T10:00:00+00:00|beta",
+                     "2027-01-01T00:00:00+00:00|gamma"):
+            offset = mod.compute_fresh_offset(seed)
+            self.assertGreaterEqual(offset, 36 ** 3)
+            self.assertLess(offset, 619_520)
+            # Worst case day-0 value never renders `0000x`; second char in 1..d
+            # even with max entropy.
+            worst_day0 = mod.encode_base36(offset + 4095).rjust(5, "0")
+            self.assertEqual(worst_day0[0], "0")
+            self.assertIn(worst_day0[1], "123456789abcd")
+
+    def test_fresh_offset_deterministic_and_seeds_diverge(self) -> None:  # AC-3b
+        mod = self.mod
+        s1 = "2026-07-03T10:00:00+00:00|alpha"
+        s2 = "2026-07-03T10:00:00+00:00|beta"
+        self.assertEqual(mod.compute_fresh_offset(s1), mod.compute_fresh_offset(s1))
+        self.assertNotEqual(mod.compute_fresh_offset(s1), mod.compute_fresh_offset(s2))
+
+    def test_worst_case_offset_guarantees_forty_year_floor(self) -> None:  # AC-3b
+        # Top-of-band offset + 14,610 days (40.0 yr) + max entropy still < 36^5.
+        self.assertLess(619_519 + 14_610 * 4096 + 4095, 36 ** 5)
+        # And one day fewer than 40 years is NOT yet 6-char for the top offset:
+        self.assertLess(619_519 + 14_609 * 4096 + 4095, 36 ** 5)
+        # Bind the literals to the implementation constants so a band change
+        # cannot silently invalidate this arithmetic (delivery qa).
+        self.assertEqual(self.mod.FRESH_OFFSET_CAP, 619_520)
+        self.assertEqual(self.mod.FRESH_OFFSET_FLOOR, 36 ** 3)
+
+    def test_scan_max_ignores_six_char_word_like_matches(self) -> None:  # delivery red-team F2
+        """v1 history is 5-char by construction; a 6-char token in the scan is
+        always a word-like false positive (`review` decodes above 36^5 and would
+        otherwise freeze an offset that makes every ID 6-char from day one)."""
+        mod = self.mod
+        plans = self.repo_root / "docs" / "plans"
+        plans.mkdir(parents=True, exist_ok=True)
+        (plans / "review-notes.md").write_text("x", encoding="utf-8")
+        self.assertIsNone(mod.scan_max_prefix_value(self.repo_root))
+        # A genuine 5-char prefix alongside it still wins the scan.
+        (plans / "1p9pk-enh real.md").write_text("x", encoding="utf-8")
+        self.assertEqual(mod.scan_max_prefix_value(self.repo_root),
+                         mod.decode_base36("1p9pk"))
+
+    def test_provisioning_epoch_is_install_date_never_stale(self) -> None:  # AC-4
+        mod = self.mod
+        now = datetime(2026, 7, 3, 18, 45, tzinfo=timezone.utc)
+        self.assertEqual(mod.compute_provisioning_epoch(now), "2026-07-03T00:00:00Z")
+        # Compute-or-error: naive datetime is rejected, no silent default.
+        with self.assertRaises(ValueError):
+            mod.compute_provisioning_epoch(datetime(2026, 7, 3))
+        with self.assertRaises(ValueError):
+            mod.compute_provisioning_epoch(None)  # type: ignore[arg-type]
+
+    def test_compute_v2_policy_fields_fresh_vs_migrated(self) -> None:  # AC-3/3b/4
+        mod = self.mod
+        now = datetime(2026, 7, 3, 18, 45, tzinfo=timezone.utc)
+        fresh = mod.compute_v2_policy_fields(self.repo_root, now, "proj")
+        self.assertEqual(fresh["scheme_version"], "v2")
+        self.assertEqual(fresh["epoch_utc"], "2026-07-03T00:00:00Z")
+        self.assertIn("project_seed", fresh)
+        self.assertLess(fresh["offset"], 619_520)
+        (self.repo_root / "docs" / "waves" / "1p9pk w").mkdir(parents=True)
+        migrated = mod.compute_v2_policy_fields(self.repo_root, now, "proj")
+        self.assertNotIn("project_seed", migrated)
+        self.assertEqual(migrated["offset"],
+                         mod.decode_base36("1p9pk") + mod.V1_MERGE_MARGIN)
+
+
+class V2WidthToleranceTests(unittest.TestCase):
+    """AC-6a — 6-char IDs flow through the prefix regex and dedup scan."""
+
+    def setUp(self) -> None:
+        self.mod = _load_module()
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.repo_root = Path(self.temp_dir.name)
+        (self.repo_root / "docs" / "plans").mkdir(parents=True)
+
+    def tearDown(self) -> None:
+        self.temp_dir.cleanup()
+
+    def test_prefix_re_accepts_six_char_ids(self) -> None:
+        m5 = self.mod._PREFIX_RE.match("1p9pk-enh some-slug")
+        m6 = self.mod._PREFIX_RE.match("100001-enh some-slug")
+        self.assertIsNotNone(m5)
+        self.assertIsNotNone(m6)
+        self.assertEqual(m6.group(1), "100001")
+
+    def test_dedup_scan_sees_six_char_prefixes(self) -> None:
+        (self.repo_root / "docs" / "plans" / "100001-enh future.md").write_text("x", encoding="utf-8")
+        self.assertIn("100001", self.mod._existing_prefixes(self.repo_root))
+
+    def test_linear_probe_crosses_the_width_boundary(self) -> None:
+        """A mint whose base is `zzzzz` with the slot taken probes to the
+        6-char `100000` rather than wrapping or erroring."""
+        mod = self.mod
+        (self.repo_root / "docs" / "plans" / "zzzzz-enh last-five.md").write_text("x", encoding="utf-8")
+        # v2 policy engineered so the base value is exactly 36^5 - 1 (zzzzz):
+        # entropy('bug','x') is fixed; pick offset so offset + 0*4096 + e = 36^5 - 1.
+        e = mod._v2_entropy("bug", "x")
+        pol = (datetime(2026, 1, 1, tzinfo=timezone.utc), 0, 36 ** 5 - 1 - e, "v2")
+        with contextlib.redirect_stderr(io.StringIO()):
+            prefix = mod.next_available_prefix(
+                datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
+                policy=pol, repo_root=self.repo_root, kind="bug", slug="x",
+            )
+        self.assertEqual(prefix, "100000")
+
+
+class V2DualSchemeTests(unittest.TestCase):
+    """AC-8 — config-driven cutover; v1 byte-unchanged, v2 active when written."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.mod = _load_module()
+
+    def test_v1_config_mints_current_encoding_unchanged(self) -> None:
+        mod = self.mod
+        ts = datetime(2025, 1, 1, 0, 30, tzinfo=timezone.utc)
+        four_tuple_v1 = (mod.DEFAULT_EPOCH_UTC, 0, 0, "v1")
+        self.assertEqual(mod.build_prefix(ts, policy=four_tuple_v1), "0b2w6")
+        # kind/slug are ignored under v1 — identical output either way.
+        self.assertEqual(mod.build_prefix(ts, policy=four_tuple_v1, kind="bug", slug="any"),
+                         "0b2w6")
+
+    def test_v2_config_mints_new_encoding(self) -> None:
+        mod = self.mod
+        ts = datetime(2026, 1, 11, 9, 0, tzinfo=timezone.utc)
+        self.assertEqual(
+            mod.build_prefix(ts, policy=_v2_policy(), kind="enh", slug="golden-vector"),
+            "0321q",
+        )
+
+    def test_same_repo_probe_stays_dense_under_v2(self) -> None:
+        """Req 12 — the linear probe keeps same-repo re-mints dense/ordered."""
+        mod = self.mod
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        root = Path(temp.name)
+        (root / "docs" / "plans").mkdir(parents=True)
+        ts = datetime(2026, 1, 11, 9, 0, tzinfo=timezone.utc)
+        base = mod.build_prefix(ts, policy=_v2_policy(), kind="enh", slug="golden-vector")
+        (root / "docs" / "plans" / f"{base}-enh taken.md").write_text("x", encoding="utf-8")
+        probed = mod.next_available_prefix(ts, policy=_v2_policy(), repo_root=root,
+                                           kind="enh", slug="golden-vector", commit=False)
+        self.assertEqual(mod.decode_base36(probed), mod.decode_base36(base) + 1)
+
+    def test_in_process_floor_is_scoped_to_the_minting_policy(self) -> None:  # delivery red-team F4
+        """A committed v1 mint must not ratchet a subsequent fresh-band v2 mint
+        (raw decoded values are not comparable across schemes/offsets)."""
+        mod = _load_module()  # fresh module: clean floor state
+        ts = datetime(2026, 1, 11, 9, 0, tzinfo=timezone.utc)
+        v1 = mod.next_available_prefix(ts, policy=(mod.DEFAULT_EPOCH_UTC, 0),
+                                       repo_root=None, commit=True)
+        self.assertGreater(mod.decode_base36(v1), 619_520)  # v1 today ≫ the fresh band
+        v2 = mod.next_available_prefix(ts, policy=_v2_policy(50_000 + 36 ** 3),
+                                       repo_root=None, kind="enh", slug="golden-vector",
+                                       commit=True)
+        expected_base = mod.build_prefix(ts, policy=_v2_policy(50_000 + 36 ** 3),
+                                         kind="enh", slug="golden-vector")
+        self.assertEqual(v2, expected_base)  # NOT v1-floor + 1
+        # And the floor still works WITHIN one policy: an immediate same-input
+        # re-mint advances by exactly one.
+        v2_again = mod.next_available_prefix(ts, policy=_v2_policy(50_000 + 36 ** 3),
+                                             repo_root=None, kind="enh",
+                                             slug="golden-vector", commit=True)
+        self.assertEqual(mod.decode_base36(v2_again), mod.decode_base36(v2) + 1)
+
+    def test_mint_policy_comes_from_the_named_repo_root(self) -> None:
+        """Policy/dedup coherence: a mint scoped to repo_root=X encodes under
+        X's policy, not the ambient CWD-discovered repo's. (Surfaced when the
+        self-hosted repo migrated to v2: secrets-test mints with pinned past
+        timestamps started reading the host repo's new epoch.)"""
+        mod = _load_module()
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        root = Path(temp.name)
+        (root / "docs").mkdir(parents=True)
+        (root / "docs" / "workflow-config.json").write_text(json.dumps({
+            "lifecycle_id_policy": {"epoch_utc": "2026-01-01T00:00:00Z",
+                                    "scheme_version": "v2", "offset": 200_000}
+        }), encoding="utf-8")
+        ts = datetime(2026, 1, 11, 9, 0, tzinfo=timezone.utc)
+        prefix = mod.next_available_prefix(ts, repo_root=root, commit=False,
+                                           kind="enh", slug="golden-vector")
+        expected = 200_000 + 10 * 4096 + mod._v2_entropy("enh", "golden-vector")
+        self.assertEqual(mod.decode_base36(prefix), expected)
+
+    def test_non_dict_policy_block_warns_on_stderr(self) -> None:  # delivery security
+        mod = self.mod
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        root = Path(temp.name)
+        (root / "docs").mkdir(parents=True)
+        (root / "docs" / "workflow-config.json").write_text(
+            json.dumps({"lifecycle_id_policy": "not-an-object"}), encoding="utf-8",
+        )
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            epoch, hour_offset, offset, scheme = mod.load_lifecycle_policy(root)
+        self.assertEqual(scheme, "v1")
+        self.assertIn("not an object", err.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()

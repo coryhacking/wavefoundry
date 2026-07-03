@@ -81,6 +81,71 @@ def _run_mcp_server_dry_run() -> int:
     return result.returncode
 
 
+def _resolve_setup_root(args: list[str]) -> Path:
+    """Resolve the repo root the same way setup_index's --root flag does (default: cwd)."""
+    for i, token in enumerate(args):
+        if token == "--root" and i + 1 < len(args):
+            return Path(args[i + 1]).expanduser().resolve()
+        if token.startswith("--root="):
+            return Path(token.split("=", 1)[1]).expanduser().resolve()
+    return Path.cwd().resolve()
+
+
+def _provision_lifecycle_policy_if_absent(root: Path) -> int:
+    """Fresh repos get the lifecycle-ID scheme-v2 policy automatically — no install step.
+
+    Runs ``materialize_lifecycle_policy`` ONLY when ``docs/workflow-config.json``
+    has no ``lifecycle_id_policy`` block (a genuinely un-provisioned repo).
+    A repo with an existing block — v1 or v2 — is left untouched here: the v1→v2
+    migration of configured repos is the upgrade pipeline's job (Phase 2c), not
+    setup's, so re-running setup as a repair step never flips an existing repo's
+    ID scheme.
+
+    Anchor guard: provisioning only runs when ``root`` is actually a Wavefoundry
+    repo root (the extracted ``.wavefoundry/framework/`` is present — true for
+    every install, since the pack is extracted before setup). Without this, a
+    setup invoked from a non-root cwd would provision a stray policy into an
+    arbitrary directory that then poisons repo-root discovery.
+    """
+    import json
+
+    if not (root / ".wavefoundry" / "framework").is_dir():
+        print(
+            f"lifecycle policy: {root} has no .wavefoundry/framework/ — not a "
+            "Wavefoundry repo root; skipping provisioning (extract the framework "
+            "pack first, or pass --root).",
+            flush=True,
+        )
+        return 0
+
+    cfg = root / "docs" / "workflow-config.json"
+    if cfg.is_file():
+        try:
+            data = json.loads(cfg.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            print(
+                f"ERROR: {cfg} exists but could not be parsed ({exc}); "
+                "fix the JSON and re-run setup.",
+                file=sys.stderr,
+            )
+            return 1
+        if isinstance(data, dict) and isinstance(data.get("lifecycle_id_policy"), dict):
+            print(
+                "lifecycle policy: existing lifecycle_id_policy found — left unchanged "
+                "(configured repos migrate via the upgrade pipeline, not setup).",
+                flush=True,
+            )
+            return 0
+    import upgrade_wavefoundry
+
+    try:
+        print(upgrade_wavefoundry.materialize_lifecycle_policy(root), flush=True)
+    except RuntimeError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
 def _load_provider_policy():
     # Plain import (not importlib spec): registers as "provider_policy" in sys.modules so the
     # frozen @dataclass annotation evaluation resolves; provider_policy imports onnxruntime lazily
@@ -111,6 +176,18 @@ def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     if "--check-gpu" in args:
         return _run_gpu_check()
+    # Step 0: provision the lifecycle-ID policy for un-provisioned (fresh) repos.
+    # Runs BEFORE indexing so no ID is ever minted pre-policy and the docs index
+    # embeds the final config. No-op when a policy block already exists.
+    _print_step("Step 0/3: lifecycle-ID policy (fresh repos auto-provision; existing configs untouched)")
+    rc = _provision_lifecycle_policy_if_absent(_resolve_setup_root(args))
+    if rc != 0:
+        print(
+            f"\nERROR: lifecycle policy provisioning failed with rc={rc}. Harness setup aborted.",
+            file=sys.stderr,
+        )
+        return rc
+
     # Step 1: venv + framework deps + semantic indexes (via setup_index.py).
     # argv is forwarded so operators can pass --root, --full, etc.
     _print_step("Step 1/3: venv + framework deps + semantic indexes (setup_index.py)")

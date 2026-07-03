@@ -189,17 +189,24 @@ class SetupWavefoundryTests(unittest.TestCase):
 
     def test_setup_does_not_print_gui_fallback_guidance(self):
         """Setup must stop on the `python3 --version` prerequisite, not advertise a bypass stanza."""
+        import tempfile
+
         class FakeSetupIndex:
             @staticmethod
             def main(argv=None):
                 return 0
+
+        # A real (writable) root: Step 0 provisions the lifecycle policy here
+        # instead of failing on the old nonexistent placeholder path.
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
 
         out = io.StringIO()
         with patch.object(self.mod, "_load_setup_index", return_value=FakeSetupIndex), \
              patch.object(self.mod, "_run_render_platform_surfaces", return_value=0), \
              patch.object(self.mod, "_run_mcp_server_dry_run", return_value=0), \
              redirect_stdout(out):
-            result = self.mod.main(["--root", "/some/repo"])
+            result = self.mod.main(["--root", tmp.name])
 
         self.assertEqual(result, 0)
         text = out.getvalue()
@@ -354,3 +361,102 @@ class GpuDoctorCheckTests(unittest.TestCase):
         self.assertNotIn("AzureExecutionProvider", report["available_onnx_providers"])
         self.assertIn("CoreMLExecutionProvider", report["available_onnx_providers"])
         self.assertIn("CPUExecutionProvider", report["available_onnx_providers"])
+
+
+class LifecyclePolicyStepZeroTests(unittest.TestCase):
+    """Wave 1p9q0 — setup Step 0 auto-provisions the lifecycle-ID policy on
+    fresh repos and never touches an existing (configured) policy block."""
+
+    def setUp(self):
+        import tempfile
+        self.mod = load_setup_wavefoundry()
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name) / "proj"
+        (self.root / "docs").mkdir(parents=True)
+        # Anchor: provisioning requires the extracted framework dir (repo-root guard).
+        (self.root / ".wavefoundry" / "framework").mkdir(parents=True)
+        self.cfg = self.root / "docs" / "workflow-config.json"
+        self.addCleanup(self._tmp.cleanup)
+
+    def test_absent_policy_block_is_provisioned_v2(self):
+        import json
+        self.cfg.write_text("{}", encoding="utf-8")
+        rc = self.mod._provision_lifecycle_policy_if_absent(self.root)
+        self.assertEqual(rc, 0)
+        pol = json.loads(self.cfg.read_text(encoding="utf-8"))["lifecycle_id_policy"]
+        self.assertEqual(pol["scheme_version"], "v2")
+
+    def test_missing_config_file_is_provisioned_v2(self):
+        import json
+        rc = self.mod._provision_lifecycle_policy_if_absent(self.root)
+        self.assertEqual(rc, 0)
+        pol = json.loads(self.cfg.read_text(encoding="utf-8"))["lifecycle_id_policy"]
+        self.assertEqual(pol["scheme_version"], "v2")
+
+    def test_existing_policy_block_left_untouched(self):
+        import json
+        original = json.dumps({"lifecycle_id_policy": {
+            "epoch_utc": "2021-03-04T00:00:00Z", "hour_offset": 0}})
+        self.cfg.write_text(original, encoding="utf-8")
+        rc = self.mod._provision_lifecycle_policy_if_absent(self.root)
+        self.assertEqual(rc, 0)
+        # Byte-identical: configured repos migrate via the upgrade pipeline, not setup.
+        self.assertEqual(self.cfg.read_text(encoding="utf-8"), original)
+
+    def test_corrupt_config_aborts_setup_before_step_one(self):
+        self.cfg.write_text("{corrupt", encoding="utf-8")
+        err = io.StringIO()
+        import contextlib
+        with contextlib.redirect_stderr(err):
+            rc = self.mod._provision_lifecycle_policy_if_absent(self.root)
+        self.assertEqual(rc, 1)
+        self.assertEqual(self.cfg.read_text(encoding="utf-8"), "{corrupt")
+        # And through main(): step 0 failure aborts before setup_index runs.
+        with patch.object(self.mod, "_load_setup_index") as load_mock, \
+             contextlib.redirect_stderr(io.StringIO()), \
+             redirect_stdout(io.StringIO()):
+            main_rc = self.mod.main(["--root", str(self.root)])
+        self.assertEqual(main_rc, 1)
+        load_mock.assert_not_called()
+
+    def test_non_repo_root_is_skipped_not_provisioned(self):
+        import shutil
+        shutil.rmtree(self.root / ".wavefoundry")
+        rc = self.mod._provision_lifecycle_policy_if_absent(self.root)
+        self.assertEqual(rc, 0)
+        self.assertFalse(self.cfg.exists(),
+                         "must not provision a directory that is not a repo root")
+
+    def test_resolve_setup_root_parses_both_flag_forms(self):
+        self.assertEqual(self.mod._resolve_setup_root(["--root", str(self.root)]),
+                         self.root.resolve())
+        self.assertEqual(self.mod._resolve_setup_root([f"--root={self.root}"]),
+                         self.root.resolve())
+
+    def test_main_runs_step_zero_before_setup_index(self):
+        import json
+        self.cfg.write_text("{}", encoding="utf-8")
+        order: list[str] = []
+
+        class FakeSetupIndex:
+            @staticmethod
+            def main(argv):
+                order.append("setup_index")
+                return 0
+
+        real = self.mod._provision_lifecycle_policy_if_absent
+
+        def traced(root):
+            order.append("provision")
+            return real(root)
+
+        with patch.object(self.mod, "_provision_lifecycle_policy_if_absent", traced), \
+             patch.object(self.mod, "_load_setup_index", return_value=FakeSetupIndex), \
+             patch.object(self.mod, "_run_render_platform_surfaces", return_value=0), \
+             patch.object(self.mod, "_run_mcp_server_dry_run", return_value=0), \
+             redirect_stdout(io.StringIO()):
+            rc = self.mod.main(["--root", str(self.root)])
+        self.assertEqual(rc, 0)
+        self.assertEqual(order, ["provision", "setup_index"])
+        pol = json.loads(self.cfg.read_text(encoding="utf-8"))["lifecycle_id_policy"]
+        self.assertEqual(pol["scheme_version"], "v2")

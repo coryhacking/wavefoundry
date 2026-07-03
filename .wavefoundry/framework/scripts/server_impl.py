@@ -2242,12 +2242,26 @@ def _parse_wave_record(wave_md: Path) -> dict:
     }
 
 
+# Listing order must be TIME order, which means decoded lifecycle-prefix value
+# order — NOT filename-string order: at the graceful 6-char overflow a string
+# sort inverts ("100000" < "zzzzz" lexically while decoding far greater).
+_LIFECYCLE_SORT_PREFIX_RE = re.compile(r"^([0-9a-z]{5,6})[-\s]")
+
+
+def _lifecycle_sort_key(name: str) -> tuple[int, int, str]:
+    """Sort key: decoded lifecycle-prefix value, then name; unprefixed names last."""
+    m = _LIFECYCLE_SORT_PREFIX_RE.match(name)
+    if m:
+        return (0, int(m.group(1), 36), name)
+    return (1, 0, name)
+
+
 def list_waves(root: Path) -> list[dict]:
     waves_root = root / "docs" / "waves"
     if not waves_root.exists():
         return []
     result = []
-    for wave_dir in sorted(waves_root.iterdir()):
+    for wave_dir in sorted(waves_root.iterdir(), key=lambda p: _lifecycle_sort_key(p.name)):
         if not wave_dir.is_dir():
             continue
         wave_md = wave_dir / "wave.md"
@@ -2279,7 +2293,7 @@ def list_plans(root: Path) -> list[dict]:
     if not plans_root.exists():
         return []
     result = []
-    for plan_md in sorted(plans_root.glob("*.md")):
+    for plan_md in sorted(plans_root.glob("*.md"), key=lambda p: _lifecycle_sort_key(p.name)):
         if plan_md.name == "plan-template.md":
             continue
         result.append(_parse_plan_record(root, plan_md))

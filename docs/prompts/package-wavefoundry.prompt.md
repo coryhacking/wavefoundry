@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-01
+Last verified: 2026-07-03
 
 Shortcut: **`Package Wavefoundry`** | Legacy: **`Package wave framework`** / **`Package wave context`**
 
@@ -60,7 +60,7 @@ wavefoundry-MAJOR.MINOR.PATCH.<build>.zip
 ```
 
 - `MAJOR.MINOR.PATCH` is the required semver release version passed via `--version`.
-- `<build>` is the rightmost 4 characters of the lifecycle prefix generated automatically by `wf lifecycle-id --prefix-only`.
+- `<build>` is a standalone 4-character base36 pure-time build suffix (5-minute buckets on a pinned build epoch), computed automatically by `build_pack.py` — independent of the lifecycle-ID policy.
 - `VERSION` is stamped to `MAJOR.MINOR.PATCH+<build>` before zip creation, and manifest `framework_revision` must match unless `--skip-manifest-check` is used.
 
 ## Options

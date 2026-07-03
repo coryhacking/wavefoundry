@@ -53,6 +53,73 @@ class BuildPackTests(unittest.TestCase):
         self.assertEqual(build_pack._build_suffix("12tm5"), "2tm5")
         self.assertEqual(build_pack._build_suffix("abcd"), "abcd")
 
+    # ------------------------------------------------------------------
+    # Build suffix — standalone pure-time index (wave 1p9q0 AC-9)
+    # ------------------------------------------------------------------
+
+    def test_suffix_same_day_different_buckets_differ_and_order(self):
+        from datetime import datetime, timezone
+        a = build_pack.compute_build_suffix(datetime(2026, 7, 3, 10, 0, tzinfo=timezone.utc))
+        b = build_pack.compute_build_suffix(datetime(2026, 7, 3, 10, 5, tzinfo=timezone.utc))
+        self.assertNotEqual(a, b)
+        self.assertLess(a, b)
+
+    def test_suffix_multi_year_span_stays_monotonic_within_lap(self):
+        from datetime import datetime, timedelta, timezone
+        # Days 0 → 5,831 relative to a lap start cover the full ~16-yr lap.
+        epoch = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        samples = [epoch + timedelta(days=d, hours=12) for d in (0, 100, 1000, 3000, 5831)]
+        suffixes = [build_pack.compute_build_suffix(ts, epoch) for ts in samples]
+        self.assertEqual(suffixes, sorted(suffixes))
+        self.assertEqual(len(set(suffixes)), len(suffixes))
+
+    def test_suffix_independent_of_lifecycle_policy(self):
+        """The suffix must not read the repo lifecycle policy at all — a v2
+        offset/epoch change never moves the build number."""
+        from datetime import datetime, timezone
+        import lifecycle_id
+        ts = datetime(2026, 7, 3, 14, 23, tzinfo=timezone.utc)
+        expected = build_pack.compute_build_suffix(ts)
+        def _boom(*a, **k):
+            raise AssertionError("build suffix must not read lifecycle policy")
+        with patch.object(lifecycle_id, "load_lifecycle_policy", _boom):
+            self.assertEqual(build_pack.compute_build_suffix(ts), expected)
+
+    def test_suffix_value_identical_with_shipped_pack_lineage(self):
+        """Pinned 1999-05-01 build epoch keeps the suffix value-identical with
+        the pre-decoupling formula (last-4 of the v1 prefix on this epoch)."""
+        from datetime import datetime, timezone
+        import lifecycle_id
+        ts = datetime(2026, 7, 3, 14, 23, tzinfo=timezone.utc)
+        legacy = lifecycle_id.build_prefix(
+            ts, policy=(build_pack.BUILD_EPOCH_UTC, 0))[-4:]
+        self.assertEqual(build_pack.compute_build_suffix(ts), legacy)
+
+    def test_suffix_min_width_four_after_lap_wrap(self):
+        from datetime import datetime, timezone
+        # 7 minutes after a lap start → packed value 1 → must still emit 4 chars.
+        epoch = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        s = build_pack.compute_build_suffix(datetime(2026, 1, 1, 0, 7, tzinfo=timezone.utc), epoch)
+        self.assertEqual(s, "0001")
+
+    def test_suffix_rejects_pre_epoch_timestamp(self):
+        from datetime import datetime, timezone
+        with self.assertRaises(ValueError):
+            build_pack.compute_build_suffix(datetime(1998, 1, 1, tzinfo=timezone.utc))
+
+    def test_collision_warning_regex_is_width_tolerant(self):
+        """The same-semver warning must keep firing if the suffix width ever
+        changes — a `{4}` pin here went silently vacuous once before."""
+        import io
+        from contextlib import redirect_stderr
+        out = self.tmp / "dist"
+        out.mkdir()
+        (out / "wavefoundry-9.9.9.abcde.zip").write_bytes(b"x")  # 5-char suffix
+        err = io.StringIO()
+        with redirect_stderr(err):
+            build_pack._warn_on_same_semver_collision(out, "9.9.9")
+        self.assertIn("existing pack(s) at version 9.9.9", err.getvalue())
+
     def test_pack_version_file_uses_plus_build_separator(self):
         """VERSION file uses MAJOR.MINOR.PATCH+<build> with '+' separator."""
         fw = self.tmp / "mini-fw"

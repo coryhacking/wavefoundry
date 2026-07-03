@@ -2,12 +2,13 @@
   "schema_version": "1.0",
   "generated_at": "2026-04-28",
   "lifecycle_id_policy": {
-    "epoch_utc": "1999-05-01T00:00:00Z",
+    "epoch_utc": "2026-07-03T00:00:00Z",
     "hour_offset": 0,
     "prefix_width": 5,
-    "time_unit": "5-minute-bucket",
-    "buckets_per_day": 288,
-    "notes": "Epoch shifted to 1999-05-01 (wave 131bt close-out) so today's first new ID under the integer-packed scheme lex-sorts after the historical real-ID max (1p0r6 from wave 12wsj, value 2,846,994). New encoding: base36((days_since_epoch * 288 + bucket_5min_within_day) mod 36^5), right-padded to 5 chars. Bucket index = (hour*60+minute) // 5, range 0..287, 5-minute resolution. The build suffix used by build_pack.py is the last 4 characters of this prefix — single source of truth for both encodings. Lex order matches wall-clock for builds and IDs within their respective horizons: 36^5/288 = 209,952 days (~575 yr) for the lifecycle ID, 36^4/288 = 5,832 days (~15.97 yr) for the build suffix."
+    "notes": "Scheme v2 (provisioned at 2026-07-03T00:00:00Z): value = offset + days_since_epoch * 4096 + blake2s-hash entropy (12 deterministic bits of kind+slug), base36, minimum width 5, no modulo — past 36^5 (~40 yr) IDs widen gracefully to 6 chars, never wrap. Lex/value order == time order for existing and new IDs (offset clears all pre-provisioning values); within a single day, IDs order by hash entropy, not mint time. node_bits is reserved (0 = full 12-bit hash entropy); hour_offset is v1-only and ignored under v2. Do not hand-edit epoch_utc, offset, or scheme_version after provisioning — issued IDs depend on them.",
+    "scheme_version": "v2",
+    "node_bits": 0,
+    "offset": 2964046
   },
   "wave_implement": {
     "waves_required_for_non_trivial_work": true,
@@ -67,7 +68,9 @@
     "port_range_end": 43147,
     "poll_interval_ms": 2000,
     "project_label": "Wavefoundry",
-    "include_dirs": [".wavefoundry"],
+    "include_dirs": [
+      ".wavefoundry"
+    ],
     "terminology": {
       "wave": "wave",
       "change": "change",
@@ -91,9 +94,27 @@
     "notes": "Docs-lint subprocess timeouts (seconds). `hook_timeout_seconds` (wave 1p9bg, default 120) bounds the incremental post-edit docs-lint hook (`--changed`). `full_scan_timeout_seconds` (wave 1p9iu, default 300) bounds the server-side FULL-corpus docs-lint scan run by the wave lifecycle tools (wave_validate / wave_prepare / wave_review / wave_close / wave_install_audit); on timeout those tools now report an actionable diagnostic naming this key instead of failing with a raw error. Both keys are optional — the code defaults apply when unset, so no numeric value is pre-seeded here. Raise `full_scan_timeout_seconds` on a large docs corpus whose full scan legitimately exceeds the default."
   },
   "factor_review_policy": {
-    "applicable_factors": ["03", "05", "12", "13"],
-    "partial_factors": ["02", "07", "09"],
-    "not_applicable_factors": ["01", "04", "06", "08", "10", "11", "14", "15"],
+    "applicable_factors": [
+      "03",
+      "05",
+      "12",
+      "13"
+    ],
+    "partial_factors": [
+      "02",
+      "07",
+      "09"
+    ],
+    "not_applicable_factors": [
+      "01",
+      "04",
+      "06",
+      "08",
+      "10",
+      "11",
+      "14",
+      "15"
+    ],
     "use_native_subagents": true,
     "fallback_to_review_lanes": true,
     "findings_gating": false,
@@ -103,11 +124,22 @@
   "persona_review_policy": {
     "enabled": true,
     "persona_root": "docs/agents/personas/",
-    "invoke_on_change_types": ["feat", "enh", "change"],
-    "invoke_phases": ["spec_authoring", "design_review", "acceptance"],
+    "invoke_on_change_types": [
+      "feat",
+      "enh",
+      "change"
+    ],
+    "invoke_phases": [
+      "spec_authoring",
+      "design_review",
+      "acceptance"
+    ],
     "findings_gating": false,
     "findings_advisory": true,
-    "active_personas": ["framework-operator", "wave-coordinator"]
+    "active_personas": [
+      "framework-operator",
+      "wave-coordinator"
+    ]
   },
   "wave_review": {
     "enabled": true,
@@ -147,7 +179,11 @@
     "require_architecture_reviewer_for_cross_boundary_changes": true,
     "require_docs_contract_reviewer_for_spec_changes": true
   },
-  "design_review_triggers": ["token-file-change", "manifest-change", "spec-json-change"],
+  "design_review_triggers": [
+    "token-file-change",
+    "manifest-change",
+    "spec-json-change"
+  ],
   "require_design_review_for_ui_surface_changes": false,
   "design_system_policy": {
     "governance": "evolvable",

@@ -2059,7 +2059,11 @@ class TestSecretFindingIdShape(unittest.TestCase):
             tmp = Path(tmp_str)
             (tmp / "docs").mkdir(parents=True, exist_ok=True)
             fid = _next_secret_finding_id(tmp, [], timestamp=_MINT_TS)
-            expected_prefix = _lifecycle_id.build_prefix(_MINT_TS)
+            # Derive the expectation under the FIXTURE root's policy (v1 defaults
+            # — tmp has no config), not ambient discovery: the host repo may be
+            # on scheme v2 with a provisioning epoch after _MINT_TS.
+            expected_prefix = _lifecycle_id.build_prefix(
+                _MINT_TS, policy=_lifecycle_id.load_lifecycle_policy(tmp))
             self.assertEqual(fid, f"{expected_prefix}-sec")
 
     def test_multiple_findings_in_one_scan_get_distinct_sec_ids(self) -> None:  # AC-6
@@ -2111,7 +2115,8 @@ class TestSecretFindingIdCollision(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_str:
             tmp = Path(tmp_str)
             (tmp / "docs" / "plans").mkdir(parents=True, exist_ok=True)
-            natural = _lifecycle_id.build_prefix(_MINT_TS)
+            natural = _lifecycle_id.build_prefix(
+                _MINT_TS, policy=_lifecycle_id.load_lifecycle_policy(tmp))
             # Park a plan doc on the natural prefix so the mint must skip it.
             (tmp / "docs" / "plans" / f"{natural}-enh taken.md").touch()
             fid = _next_secret_finding_id(tmp, [], timestamp=_MINT_TS)
@@ -2122,12 +2127,49 @@ class TestSecretFindingIdCollision(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_str:
             tmp = Path(tmp_str)
             (tmp / "docs").mkdir(parents=True, exist_ok=True)
-            natural = _lifecycle_id.build_prefix(_MINT_TS)
+            natural = _lifecycle_id.build_prefix(
+                _MINT_TS, policy=_lifecycle_id.load_lifecycle_policy(tmp))
             existing = [{"id": f"{natural}-sec", "file": "a.py", "line": 1,
                          "rule_id": "r", "status": "pending"}]
             fid = _next_secret_finding_id(tmp, existing, timestamp=_MINT_TS)
             self.assertNotEqual(fid, f"{natural}-sec")
             self.assertRegex(fid, r"^[0-9a-z]{5}-sec$")
+
+    def test_mint_threads_sec_kind_and_entropy_slug(self) -> None:  # wave 1p9q0 delivery
+        """The sec mint must feed the scheme-v2 entropy hash (kind='sec' +
+        per-finding slug); an empty-entropy mint makes same-day cross-branch
+        sec mints a guaranteed collision under v2."""
+        import json
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = Path(tmp_str)
+            (tmp / "docs").mkdir(parents=True, exist_ok=True)
+            captured: list[dict] = []
+            real = _lifecycle_id.next_available_prefix
+
+            def spy(*args, **kwargs):
+                captured.append(kwargs)
+                return real(*args, **kwargs)
+
+            from unittest.mock import patch as _patch
+            import wave_lint_lib.secrets_validators as sv
+            with _patch.object(sv.lifecycle_id, "next_available_prefix", side_effect=spy):
+                _next_secret_finding_id(tmp, [], timestamp=_MINT_TS,
+                                        entropy_slug="src/a.py:rule-a:abc123")
+            self.assertEqual(captured[0].get("kind"), "sec")
+            self.assertEqual(captured[0].get("slug"), "src/a.py:rule-a:abc123")
+
+            # And under a v2 policy, distinct finding identities yield distinct
+            # BASE prefixes on the same day (entropy varies per finding).
+            (tmp / "docs" / "workflow-config.json").write_text(json.dumps({
+                "lifecycle_id_policy": {"epoch_utc": "2024-01-01T00:00:00Z",
+                                        "scheme_version": "v2", "offset": 100000}
+            }), encoding="utf-8")
+            policy = _lifecycle_id.load_lifecycle_policy(tmp)
+            base_a = _lifecycle_id.build_prefix(_MINT_TS, policy=policy,
+                                                kind="sec", slug="src/a.py:rule-a:abc123")
+            base_b = _lifecycle_id.build_prefix(_MINT_TS, policy=policy,
+                                                kind="sec", slug="src/b.py:rule-b:def456")
+            self.assertNotEqual(base_a, base_b)
 
 
 class TestGateSemanticsUnchanged(unittest.TestCase):

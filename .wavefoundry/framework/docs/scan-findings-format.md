@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-29
+Last verified: 2026-07-03
 
 The canonical schema for **`docs/scan-findings.json`** — the committed ledger the
 hardcoded-secrets scanner uses to record, classify, and gate every match. It is
@@ -79,7 +79,7 @@ Each confirmation (appended by the security reviewer per
 
 Scanner-created findings use a **lifecycle-backed** id of the form `<prefix>-sec`
 matching `^[0-9a-z]{5}-sec$` (e.g. `1p8l0-sec`). The `<prefix>` is the same
-5-character base36 lifecycle prefix family used by waves, changes, and ADRs (see
+5-character (6 after the distant overflow horizon) base36 lifecycle prefix family used by waves, changes, and ADRs (see
 `lifecycle_id.py`), with a `sec` suffix.
 
 - **No slug.** Unlike change-doc ids (`<prefix>-<kind> <slug>`), a scanner finding

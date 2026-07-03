@@ -213,7 +213,9 @@ SCAN_ALLOWLIST_PATH = ".wavefoundry/framework/scan-allowlist"
 
 SLUG_PATTERN = r"[a-z0-9][a-z0-9-]*"
 LEGACY_SLUG_PATTERN = r"legacy[a-z0-9-]*"
-LIFECYCLE_PREFIX_PATTERN = r"(?:[0-9a-z]{5}|00000)"
+# 5 chars standard; 6 chars is the graceful post-horizon overflow (scheme v2
+# never wraps — values past 36^5 encode naturally to 6 chars ~40 years out).
+LIFECYCLE_PREFIX_PATTERN = r"(?:[0-9a-z]{5,6}|00000)"
 
 WAVE_ID_PATTERN = re.compile(rf"^wave-id:\s+`({LIFECYCLE_PREFIX_PATTERN} {SLUG_PATTERN})`$", re.MULTILINE)
 CHANGE_KIND_PATTERN = r"(?:bug|feat|enh|change|doc|debt|ref|task|maint|ops)"

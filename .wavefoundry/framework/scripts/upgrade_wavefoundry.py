@@ -1541,6 +1541,12 @@ def phase_cleanup(
     # must never fail the upgrade. ``generate_safe`` is change-only/idempotent.
     if not failed_phase:
         _regenerate_codebase_map_on_upgrade(root)
+        # End-of-upgrade lifecycle-policy backstop (operator directive): Phase 2c
+        # already provisioned scheme v2 earlier in the pipeline; re-verify here at
+        # reconciliation time and heal via the idempotent materialization if it
+        # somehow did not land (soft failure, out-of-band edit, or a transition
+        # upgrade that ran an older pipeline without Phase 2c).
+        _ensure_lifecycle_policy_backstop(root)
 
     _print_operator_summary(
         from_version=from_version,
@@ -1551,6 +1557,30 @@ def phase_cleanup(
         failed_phase=failed_phase,
         root=root,
     )
+
+
+def _ensure_lifecycle_policy_backstop(root: Path) -> None:
+    """Reconciliation-time re-check that the scheme-v2 lifecycle policy landed.
+
+    Calls the idempotent ``materialize_lifecycle_policy``: a repo Phase 2c
+    already provisioned is a no-op; an un-provisioned repo (Phase 2c soft
+    failure, out-of-band edit mid-upgrade, or a transition upgrade whose old
+    pipeline predated Phase 2c) is healed here. Fail-safe — a backstop error
+    must never fail cleanup; it degrades to a loud pointer at the recovery
+    command.
+    """
+    try:
+        msg = materialize_lifecycle_policy(root)
+    except RuntimeError as exc:
+        _log(
+            f"  ⚠  Lifecycle policy check: {exc}\n"
+            "     Fix the config, then run `wf upgrade --materialize-lifecycle-policy`."
+        )
+        return
+    if "left unchanged" in msg:
+        _log("  Lifecycle policy check: scheme v2 present — OK.")
+    else:
+        _log(f"  Lifecycle policy check (backstop healed): {msg}")
 
 
 def _regenerate_codebase_map_on_upgrade(root: Path) -> None:
@@ -2082,6 +2112,135 @@ def materialize_secrets_policy(root: Path) -> str:
     )
 
 
+def _atomic_write_json(path: Path, data: dict) -> None:
+    """Atomically write ``data`` as JSON via same-directory temp + os.replace.
+
+    Same-directory temp (not /tmp) so the rename never crosses devices; bounded
+    retry on the replace for Windows sharing violations (WinError 5/32 — the
+    1p9iw pattern). A crash before the replace leaves the original file intact.
+    """
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        if sys.platform == "win32":
+            import time
+            for attempt in range(5):
+                try:
+                    os.replace(tmp, path)
+                    return
+                except PermissionError:
+                    if attempt == 4:
+                        raise
+                    time.sleep(0.2 * (attempt + 1))
+        else:
+            os.replace(tmp, path)
+    finally:
+        # No-op after a successful replace (the temp name no longer exists);
+        # cleans up a partial temp after a failed write or exhausted retry.
+        tmp.unlink(missing_ok=True)
+
+
+def materialize_lifecycle_policy(root: Path) -> str:
+    """Provision the lifecycle-ID scheme-v2 policy in docs/workflow-config.json.
+
+    Deterministic, idempotent, atomic — the code path behind both the install
+    seed (fresh epoch + scattered offset) and the upgrade pipeline (v1→v2
+    migration: epoch = rollout date, offset = scanned max + merge margin).
+    Idempotence is keyed on ``scheme_version == "v2"`` presence, all-or-nothing:
+    a partial prior write (no scheme_version) is re-attempted; a repo already
+    v2 is never re-epoched or re-offset. Existing IDs are never rewritten.
+
+    Read-modify-write: only the ``lifecycle_id_policy`` value is replaced;
+    every other top-level key is preserved byte-for-byte. An unparseable
+    existing file fails loudly with NO write — never replace a
+    corrupt-but-recoverable operator file. (The materialize_secrets_policy
+    precedent above supplies the phase shape only; it is create-only and does
+    not need any of this.)
+    """
+    import lifecycle_id
+
+    cfg = root / "docs" / "workflow-config.json"
+    data: dict = {}
+    if cfg.is_file():
+        try:
+            data = json.loads(cfg.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise RuntimeError(
+                f"lifecycle policy: {cfg} exists but could not be parsed ({exc}); "
+                "refusing to overwrite a corrupt-but-recoverable file — fix the JSON and re-run"
+            ) from exc
+        if not isinstance(data, dict):
+            raise RuntimeError(
+                f"lifecycle policy: {cfg} must contain a JSON object at the top level"
+            )
+
+    policy = data.get("lifecycle_id_policy")
+    if not isinstance(policy, dict):
+        policy = {}
+    if policy.get("scheme_version") == "v2":
+        return "lifecycle policy: scheme_version v2 already provisioned — left unchanged (idempotent)."
+
+    now_utc = datetime.datetime.now(datetime.timezone.utc)
+    fields = lifecycle_id.compute_v2_policy_fields(root, now_utc, root.name)
+    migrated = "project_seed" not in fields
+
+    # Preserve operator/unknown keys inside the block; replace the
+    # framework-owned descriptive keys that describe the retired v1 packing.
+    new_policy = dict(policy)
+    for stale_key in ("time_unit", "buckets_per_day"):
+        new_policy.pop(stale_key, None)
+    new_policy.update(fields)
+    new_policy.setdefault("prefix_width", 5)
+    new_policy["notes"] = (
+        "Scheme v2 (provisioned at "
+        f"{fields['epoch_utc']}): value = offset + days_since_epoch * 4096 + "
+        "blake2s-hash entropy (12 deterministic bits of kind+slug), base36, "
+        "minimum width 5, no modulo — past 36^5 (~40 yr) IDs widen gracefully "
+        "to 6 chars, never wrap. Lex/value order == time order for existing "
+        "and new IDs (offset clears all pre-provisioning values); within a "
+        "single day, IDs order by hash entropy, not mint time. node_bits is "
+        "reserved (0 = full 12-bit hash entropy); hour_offset is v1-only and "
+        "ignored under v2. Do not hand-edit epoch_utc, offset, or "
+        "scheme_version after provisioning — issued IDs depend on them."
+    )
+    data["lifecycle_id_policy"] = new_policy
+
+    try:
+        cfg.parent.mkdir(parents=True, exist_ok=True)  # brand-new repo may lack docs/
+        _atomic_write_json(cfg, data)
+    except OSError as exc:
+        # Fail LOUD: a soft return here would report exit 0 while the repo
+        # silently keeps minting v1 (idempotence re-attempts on the next run,
+        # but the caller must know THIS run did not provision).
+        raise RuntimeError(f"lifecycle policy: could not write {cfg}: {exc}") from exc
+    mode = (
+        f"migrated v1→v2 (offset = scanned max + {lifecycle_id.V1_MERGE_MARGIN} margin)"
+        if migrated
+        else "fresh install (scattered start band, 40-year horizon floor)"
+    )
+    message = (
+        f"lifecycle policy: provisioned scheme v2 — epoch {fields['epoch_utc']}, "
+        f"offset {fields['offset']}; {mode}."
+    )
+    # Sanity backstop (delivery red-team): a genuine v1 history tops out around
+    # a few million; an anomalously large scanned max (e.g. a word-like filename
+    # matching the prefix pattern) silently burns the 5-char horizon. Warn loudly
+    # when fewer than ~5 years of 5-char space remain so the operator can rename
+    # the offending artifact and re-provision before the offset is depended upon.
+    five_years_of_values = 1826 * 4096  # 5 yr × 365.25 d × 4096/day
+    if fields["offset"] > 36 ** 5 - five_years_of_values:
+        max_token = lifecycle_id.encode_base36(
+            lifecycle_id.scan_max_prefix_value(root) or 0
+        ).rjust(5, "0")
+        message += (
+            f" WARNING: the provisioned offset leaves under ~5 years of 5-character ID "
+            f"space (scanned max prefix `{max_token}`) — if that prefix belongs to a stray "
+            "word-like filename rather than a real ID, rename it, delete the "
+            "lifecycle_id_policy block, and re-run provisioning."
+        )
+    return message
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main(argv: list[str] | None = None) -> int:
@@ -2162,6 +2321,21 @@ def main(argv: list[str] | None = None) -> int:
             "are found (prints nothing in that case)."
         ),
     )
+    parser.add_argument(
+        "--materialize-lifecycle-policy",
+        action="store_true",
+        dest="materialize_lifecycle_policy",
+        help=(
+            "Run ONLY the lifecycle-ID policy provisioning (Phase 2c) against "
+            "--root and exit: computes and atomically writes the scheme-v2 "
+            "epoch/offset into docs/workflow-config.json (fresh install → "
+            "install-date epoch + deterministic scattered offset; existing v1 "
+            "history → rollout-date epoch + offset above the scanned max). "
+            "Idempotent — a repo already on v2 is left unchanged. This is the "
+            "command the install and upgrade seeds call; agents must not "
+            "hand-compute epochs or offsets."
+        ),
+    )
     args = parser.parse_args(argv)
     root = Path(args.root).resolve()
 
@@ -2173,6 +2347,13 @@ def main(argv: list[str] | None = None) -> int:
     # Routed before any other phase so they short-circuit without spawning
     # the upgrade pipeline. Both produce stable, machine-readable output for
     # agents that previously fell back to `ls -1` (broken under lex sort).
+    if args.materialize_lifecycle_policy:
+        try:
+            print(materialize_lifecycle_policy(root))
+        except RuntimeError as exc:
+            print(f"upgrade: error: {exc}", file=sys.stderr)
+            return 1
+        return 0
     if args.detect_zip:
         z = _find_latest_release_zip(root)
         if z is None:
@@ -2467,6 +2648,20 @@ def main(argv: list[str] | None = None) -> int:
         current_phase = "policy_materialization"
         _log("\n── Phase 2b: Secrets policy ──")
         _log(f"  {materialize_secrets_policy(root)}")
+
+        # Phase 2c — provision/migrate the lifecycle-ID scheme-v2 policy
+        # (epoch = rollout date, offset clears scanned history). Idempotent:
+        # a repo already on v2 is left unchanged. RuntimeError (corrupt config /
+        # failed atomic write) converts to SystemExit so the pipeline's failure
+        # handler records failed_phase in the retained lock and closes the log
+        # instead of leaking a raw traceback.
+        current_phase = "lifecycle_policy_materialization"
+        _log("\n── Phase 2c: Lifecycle-ID policy ──")
+        try:
+            _log(f"  {materialize_lifecycle_policy(root)}")
+        except RuntimeError as exc:
+            _err(f"  ERROR: {exc}")
+            raise SystemExit(1)
 
         # Phase 3
         current_phase = "docs_gate"

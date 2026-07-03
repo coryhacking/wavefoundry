@@ -42,9 +42,37 @@ def _check_lifecycle_id_policy(data: dict) -> list[str]:
         failures.append("docs/workflow-config.json: lifecycle_id_policy.hour_offset must be a non-negative integer")
     elif hour_offset < 0:
         failures.append("docs/workflow-config.json: lifecycle_id_policy.hour_offset must be non-negative")
+    # prefix_width 5 is the MINIMUM display width: scheme v2 never wraps, so IDs
+    # may widen to 6 chars at the ~40-year overflow horizon. The config value
+    # stays pinned at 5 (it names the standard width, not a hard cap).
     width = policy.get("prefix_width")
     if width is not None and width != 5:
-        failures.append("docs/workflow-config.json: lifecycle_id_policy.prefix_width must be 5 when set")
+        failures.append(
+            "docs/workflow-config.json: lifecycle_id_policy.prefix_width must be 5 when set "
+            "(minimum display width; IDs may widen to 6 chars at the scheme-v2 overflow horizon)"
+        )
+    # v2 keys — mirror lifecycle_id.load_lifecycle_policy's strict rules so
+    # docs-lint catches a hand-edited malformed v2 block before a mint does.
+    scheme = policy.get("scheme_version")
+    if scheme is not None and scheme not in ("v1", "v2"):
+        failures.append("docs/workflow-config.json: lifecycle_id_policy.scheme_version must be 'v1' or 'v2' when set")
+    offset = policy.get("offset")
+    if scheme == "v2":
+        if isinstance(offset, bool) or not isinstance(offset, int):
+            failures.append("docs/workflow-config.json: lifecycle_id_policy.offset must be an integer when scheme_version is 'v2'")
+        elif offset < 36 ** 3:
+            failures.append("docs/workflow-config.json: lifecycle_id_policy.offset must be >= 36^3 (46656) when scheme_version is 'v2'")
+        if not (isinstance(epoch_raw, str) and epoch_raw.strip()):
+            failures.append("docs/workflow-config.json: lifecycle_id_policy.epoch_utc is required when scheme_version is 'v2'")
+        node_bits = policy.get("node_bits")
+        if node_bits not in (None, 0):
+            failures.append(
+                "docs/workflow-config.json: lifecycle_id_policy.node_bits is reserved and must be 0 when set "
+                "(unset = full 12-bit hash entropy)"
+            )
+        project_seed = policy.get("project_seed")
+        if project_seed is not None and (not isinstance(project_seed, str) or not project_seed.strip()):
+            failures.append("docs/workflow-config.json: lifecycle_id_policy.project_seed must be a non-empty string when set")
     return failures
 
 

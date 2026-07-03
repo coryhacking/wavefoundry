@@ -35,19 +35,19 @@ between the markers is machine-maintained; the surrounding narrative is not.
 
 | Area | Path | Kind | Size (nodes) |
 | ---- | ---- | ---- | ------------ |
-| tests | `.wavefoundry/framework/scripts/tests` | code | 6438 |
-| server_impl | `.wavefoundry/framework/scripts` | code | 667 |
+| tests | `.wavefoundry/framework/scripts/tests` | code | 6558 |
+| server_impl | `.wavefoundry/framework/scripts` | code | 673 |
 | graph | `.wavefoundry/framework/scripts` | code | 224 |
 | dashboard | `.wavefoundry/framework/dashboard` | code | 213 |
-| wave_lint_lib | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 178 |
-| subprocess_util | `.wavefoundry/framework/scripts` | code | 169 |
+| scripts/workflow-config | `.wavefoundry/framework/scripts` | code | 205 |
+| wave_lint_lib | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 177 |
+| subprocess_util | `.wavefoundry/framework/scripts` | code | 170 |
 | chunker | `.wavefoundry/framework/scripts` | code | 161 |
-| scripts/workflow-config | `.wavefoundry/framework/scripts` | code | 122 |
-| indexer | `.wavefoundry/framework/scripts` | code | 111 |
-| scripts/subprocess_util | `.wavefoundry/framework/scripts` | code | 85 |
+| indexer | `.wavefoundry/framework/scripts` | code | 112 |
+| scripts/subprocess_util | `.wavefoundry/framework/scripts` | code | 86 |
+| render_agent_surfaces | `.wavefoundry/framework/scripts` | code | 69 |
 | render_platform_surfaces | `.wavefoundry/framework/scripts` | code | 63 |
-| gen_codebase_map | `.wavefoundry/framework/scripts` | code | 56 |
-| render_agent_surfaces | `.wavefoundry/framework/scripts` | code | 48 |
+| gen_codebase_map | `.wavefoundry/framework/scripts` | code | 58 |
 | graph_cluster | `.wavefoundry/framework/scripts` | code | 36 |
 | accel_embedder | `.wavefoundry/framework/scripts` | code | 26 |
 | design_token_build | `.wavefoundry/framework/scripts` | code | 25 |
@@ -55,8 +55,8 @@ between the markers is machine-maintained; the surrounding narrative is not.
 | docs_gardener | `.wavefoundry/framework/scripts` | code | 17 |
 | server | `.wavefoundry/framework/scripts` | code | 13 |
 | tokens | `docs/design-system/tokens` | config | 320 |
-| docs | `docs` | config | 187 |
 | modes | `docs/design-system/tokens/modes` | config | 150 |
+| docs | `docs` | config | 89 |
 | json | `docs/design-system/exports/json` | config | 86 |
 | nav-sidebar | `docs/design-system/components/nav-sidebar` | config | 32 |
 <!-- waveframework:repo-index-modules end -->

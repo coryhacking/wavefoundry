@@ -23,7 +23,7 @@ The install state machine is `wavefoundry-install-log.md`, a pre-populated check
 
 ## What about Upgrade?
 
-When the repository already has an installed Wave Framework layer, hand off to **`Upgrade Wavefoundry`** (legacy: **`Upgrade wave framework`** / **`Upgrade wave context`**) (`seed-160`) instead of re-running bootstrap as init. Detection runs as part of agent entry — `seed-011` row 1.2's setup script handles the upgrade-detection branch.
+When the repository already has an installed Wave Framework layer, hand off to **`Upgrade Wavefoundry`** (legacy: **`Upgrade wave framework`** / **`Upgrade wave context`**) (`seed-160`) instead of re-running bootstrap as init. Detection runs as part of agent entry — `seed-011` row 1.1's setup script handles the upgrade-detection branch.
 
 ## Authoritative content moved
 

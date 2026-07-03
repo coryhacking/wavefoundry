@@ -9,9 +9,11 @@ Last verified: 2026-07-03
 ### Path 1: Lifecycle ID Generation
 
 1. Operator mints an ID via the MCP `wave_create_wave` / `wave_new_<kind>` tools (preferred — they dedupe against on-disk IDs), or, when MCP is unavailable, the CLI `python3 .wavefoundry/framework/scripts/lifecycle_id.py --kind wave --slug <slug>`
-2. Script reads `docs/workflow-config.json` for `lifecycle_id_policy.epoch_utc` and `hour_offset`
-3. Computes hours since epoch → Crockford Base32 → `0xxxx` prefix ID
+2. Script reads `docs/workflow-config.json` for the `lifecycle_id_policy` block (`scheme_version`, `epoch_utc`, `offset`, `hour_offset`) once per mint
+3. Encodes the base value per scheme — `v2`: `offset + days_since_epoch × 4096 + blake2s-hash entropy(kind, slug)`, min-width-5 base36, no modulo (values past 36^5 widen gracefully to 6 chars); `v1`/absent: `(days_since_epoch × 288 + bucket_5min) mod 36^5`, 5 base36 chars — then linear-probes past on-disk IDs to the final prefix
 4. Prints ID to stdout for operator to use in wave or change documents
+
+The `scheme_version: "v2"` policy is provisioned by code, not agents: fresh installs auto-provision via `wf setup` Step 0 (`setup_wavefoundry._provision_lifecycle_policy_if_absent`, repo-root-anchored, absent-block-only); upgrades run `upgrade_wavefoundry.py` Phase 2c (`materialize_lifecycle_policy`) automatically and re-verify at cleanup via the reconciliation backstop; the standalone `wf upgrade --materialize-lifecycle-policy` command is the recovery fallback. All paths are idempotent — a repo already on v2 is never re-provisioned.
 
 **State read:** `docs/workflow-config.json`
 **State written:** none (ID is printed only)

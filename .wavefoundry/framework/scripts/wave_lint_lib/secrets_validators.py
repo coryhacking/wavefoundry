@@ -468,7 +468,8 @@ def save_exceptions(root: Path, exceptions: list[dict]) -> None:
 # tools do not expose it; only the scanner mints `<prefix>-sec`.
 # ---------------------------------------------------------------------------
 
-_SEC_ID_RE = re.compile(r"^[0-9a-z]{5}-sec$")
+# 5-6 chars: 6 is the lifecycle scheme's graceful post-horizon overflow width.
+_SEC_ID_RE = re.compile(r"^[0-9a-z]{5,6}-sec$")
 
 
 def _existing_finding_ids(exceptions: list[dict]) -> set[str]:
@@ -490,6 +491,7 @@ def _next_secret_finding_id(
     *,
     timestamp: datetime | None = None,
     taken: set[str] | None = None,
+    entropy_slug: str = "",
 ) -> str:
     """Mint the next available lifecycle-backed secret-finding id `<prefix>-sec`.
 
@@ -504,6 +506,12 @@ def _next_secret_finding_id(
 
     ``timestamp`` is forwarded to the lifecycle generator so tests can pin the
     minted prefix for deterministic output (Requirement 10 / AC-10).
+
+    ``entropy_slug`` feeds the scheme-v2 per-mint hash entropy (ignored under
+    v1). Callers pass a per-finding identity (file:rule:line_hash) so distinct
+    findings hash to distinct entropy — without it every sec mint on a given
+    day would share one constant base value, making same-day cross-branch sec
+    mints a guaranteed collision (a wider window than v1's 5-minute bucket).
     """
     used = _existing_finding_ids(exceptions)
     if taken:
@@ -512,12 +520,14 @@ def _next_secret_finding_id(
     # so re-calling on a collision yields a strictly later prefix. Bounded loop
     # guards against a pathological run rather than the expected 0–1 retries.
     for _ in range(len(used) + 2):
-        prefix = lifecycle_id.next_available_prefix(timestamp, repo_root=root)
+        prefix = lifecycle_id.next_available_prefix(
+            timestamp, repo_root=root, kind="sec", slug=entropy_slug,
+        )
         candidate = f"{prefix}-sec"
         if candidate not in used:
             return candidate
     # Unreachable in practice; fall through to the last advanced prefix.
-    return f"{lifecycle_id.next_available_prefix(timestamp, repo_root=root)}-sec"
+    return f"{lifecycle_id.next_available_prefix(timestamp, repo_root=root, kind='sec', slug=entropy_slug)}-sec"
 
 
 def _sha256_file(path: Path) -> str:
@@ -1196,6 +1206,7 @@ def _match_hits_for_file(
                     root if root is not None else Path("."),
                     exceptions,
                     timestamp=mint_timestamp,
+                    entropy_slug=f"{rel}:{rule_id}:{hit['line_hash']}",
                 ),
                 "file": rel,
                 "line": line_no,

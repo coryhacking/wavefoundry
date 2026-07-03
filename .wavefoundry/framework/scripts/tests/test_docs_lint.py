@@ -2270,5 +2270,85 @@ class DocsLintFileSizeGuardTests(DocsLintFixtureTests):
                          f"the oversized changed doc's content validators must be skipped; got {failures}")
 
 
+class LifecycleIdPolicyValidatorTests(unittest.TestCase):
+    """Wave 1p9q0 — `_check_lifecycle_id_policy` v2 rules mirror the loader so
+    docs-lint catches a hand-edited malformed v2 block before a mint does."""
+
+    @classmethod
+    def setUpClass(cls):
+        # Order-independent import (delivery review): don't rely on another
+        # class's setUp having inserted SCRIPTS_ROOT into sys.path.
+        import sys
+        if str(SCRIPTS_ROOT) not in sys.path:
+            sys.path.insert(0, str(SCRIPTS_ROOT))
+
+    def _check(self, policy):
+        from wave_lint_lib.core_validators import _check_lifecycle_id_policy
+        return _check_lifecycle_id_policy({"lifecycle_id_policy": policy})
+
+    def test_valid_v1_block_passes(self):
+        self.assertEqual(self._check({"epoch_utc": "2020-02-02T02:02:00Z",
+                                      "hour_offset": 0, "prefix_width": 5}), [])
+
+    def test_valid_v2_block_passes(self):
+        self.assertEqual(self._check({"epoch_utc": "2026-07-03T00:00:00Z",
+                                      "scheme_version": "v2", "offset": 100000,
+                                      "node_bits": 0, "prefix_width": 5,
+                                      "project_seed": "2026-07-03T…|proj"}), [])
+
+    def test_unknown_scheme_version_fails(self):
+        failures = self._check({"epoch_utc": "2026-07-03T00:00:00Z", "scheme_version": "v3"})
+        self.assertTrue(any("scheme_version" in f for f in failures), failures)
+
+    def test_v2_missing_offset_fails(self):
+        failures = self._check({"epoch_utc": "2026-07-03T00:00:00Z", "scheme_version": "v2"})
+        self.assertTrue(any("offset" in f for f in failures), failures)
+
+    def test_v2_below_band_offset_fails(self):
+        failures = self._check({"epoch_utc": "2026-07-03T00:00:00Z",
+                                "scheme_version": "v2", "offset": 100})
+        self.assertTrue(any("36^3" in f for f in failures), failures)
+
+    def test_v2_missing_epoch_fails(self):
+        failures = self._check({"scheme_version": "v2", "offset": 100000})
+        self.assertTrue(any("epoch_utc is required" in f for f in failures), failures)
+
+    def test_v2_nonzero_node_bits_fails(self):
+        failures = self._check({"epoch_utc": "2026-07-03T00:00:00Z",
+                                "scheme_version": "v2", "offset": 100000, "node_bits": 4})
+        self.assertTrue(any("node_bits" in f for f in failures), failures)
+
+    def test_prefix_width_five_still_pins(self):
+        failures = self._check({"epoch_utc": "2020-02-02T02:02:00Z", "prefix_width": 6})
+        self.assertTrue(any("prefix_width" in f for f in failures), failures)
+
+
+class LifecyclePrefixWidthPatternTests(unittest.TestCase):
+    """Wave 1p9q0 AC-6a — the central prefix pattern (feeding the wave-id /
+    change-id / plan-overview / wave-reference validators) accepts 6-char IDs."""
+
+    @classmethod
+    def setUpClass(cls):
+        import sys
+        if str(SCRIPTS_ROOT) not in sys.path:
+            sys.path.insert(0, str(SCRIPTS_ROOT))
+
+    def test_wave_id_pattern_accepts_five_and_six_char_prefixes(self):
+        from wave_lint_lib.constants import WAVE_ID_PATTERN
+        self.assertIsNotNone(WAVE_ID_PATTERN.search("wave-id: `1p9pk my-wave`"))
+        self.assertIsNotNone(WAVE_ID_PATTERN.search("wave-id: `100001 future-wave`"))
+
+    def test_change_id_pattern_accepts_five_and_six_char_prefixes(self):
+        from wave_lint_lib.constants import CHANGE_ID_PATTERN
+        self.assertIsNotNone(CHANGE_ID_PATTERN.search("Change ID: `1p9pt-enh sample-slug`"))
+        self.assertIsNotNone(CHANGE_ID_PATTERN.search("Change ID: `100001-bug future-slug`"))
+
+    def test_sec_id_pattern_accepts_five_and_six_char_prefixes(self):
+        from wave_lint_lib.secrets_validators import _SEC_ID_RE
+        self.assertIsNotNone(_SEC_ID_RE.match("1p9pk-sec"))
+        self.assertIsNotNone(_SEC_ID_RE.match("100001-sec"))
+        self.assertIsNone(_SEC_ID_RE.match("1234-sec"))
+
+
 if __name__ == "__main__":
     unittest.main()

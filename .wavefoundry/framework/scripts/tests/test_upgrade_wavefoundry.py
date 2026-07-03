@@ -3491,5 +3491,229 @@ class SandboxResilientPackDiscoveryTests(unittest.TestCase):
         self.assertEqual(summary["skipped_scan_locations"], [])
 
 
+class MaterializeLifecyclePolicyTests(unittest.TestCase):
+    """Wave 1p9q0 AC-7 — idempotent, atomic, key-preserving v2 provisioning."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.mod = load_upgrade_module()
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp_dir.name) / "proj"
+        (self.root / "docs").mkdir(parents=True)
+        self.cfg = self.root / "docs" / "workflow-config.json"
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def _write_cfg(self, data):
+        self.cfg.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+    def _policy(self):
+        return json.loads(self.cfg.read_text(encoding="utf-8"))["lifecycle_id_policy"]
+
+    def test_v1_repo_migrates_to_v2_with_scanned_offset(self):
+        (self.root / "docs" / "waves" / "1p9pk example-wave").mkdir(parents=True)
+        self._write_cfg({"lifecycle_id_policy": {"epoch_utc": "1999-05-01T00:00:00Z",
+                                                 "hour_offset": 0}})
+        msg = self.mod.materialize_lifecycle_policy(self.root)
+        self.assertIn("provisioned scheme v2", msg)
+        pol = self._policy()
+        self.assertEqual(pol["scheme_version"], "v2")
+        self.assertEqual(pol["offset"], int("1p9pk", 36) + 288 * 366)
+        self.assertNotIn("project_seed", pol)  # migrated, not fresh
+        # Rollout-date epoch, never the stale 1999/2020 values.
+        self.assertNotIn(pol["epoch_utc"][:4], ("1999", "2020"))
+
+    def test_fresh_repo_gets_scattered_band_and_project_seed(self):
+        self._write_cfg({})
+        self.mod.materialize_lifecycle_policy(self.root)
+        pol = self._policy()
+        self.assertEqual(pol["scheme_version"], "v2")
+        self.assertGreaterEqual(pol["offset"], 36 ** 3)
+        self.assertLess(pol["offset"], 619_520)
+        self.assertIn("proj", pol["project_seed"])
+
+    def test_second_run_is_a_noop(self):
+        self._write_cfg({})
+        self.mod.materialize_lifecycle_policy(self.root)
+        before = self.cfg.read_text(encoding="utf-8")
+        msg = self.mod.materialize_lifecycle_policy(self.root)
+        self.assertIn("left unchanged", msg)
+        self.assertEqual(self.cfg.read_text(encoding="utf-8"), before)
+
+    def test_idempotence_keyed_on_scheme_version_not_epoch(self):
+        """A partial prior write (epoch present, scheme_version absent) is
+        re-attempted — all-or-nothing."""
+        self._write_cfg({"lifecycle_id_policy": {"epoch_utc": "2026-06-01T00:00:00Z"}})
+        msg = self.mod.materialize_lifecycle_policy(self.root)
+        self.assertIn("provisioned scheme v2", msg)
+        self.assertEqual(self._policy()["scheme_version"], "v2")
+
+    def test_unrelated_top_level_keys_preserved_value_and_order_equal(self):
+        # Value- and key-order-preserving via whole-document re-serialization
+        # (indent 2). NOT byte-equal for arbitrary input formatting — the AC-7
+        # contract wording was reconciled to this by the delivery code lane.
+        extra = {"wave_implement": {"waves_required_for_non_trivial_work": True},
+                 "custom_operator_key": {"nested": [1, 2, 3]},
+                 "lifecycle_id_policy": {"epoch_utc": "1999-05-01T00:00:00Z",
+                                         "custom_inner": "kept"}}
+        self._write_cfg(extra)
+        self.mod.materialize_lifecycle_policy(self.root)
+        data = json.loads(self.cfg.read_text(encoding="utf-8"))
+        self.assertEqual(data["wave_implement"], extra["wave_implement"])
+        self.assertEqual(data["custom_operator_key"], extra["custom_operator_key"])
+        # Unknown keys INSIDE the policy block are preserved too.
+        self.assertEqual(data["lifecycle_id_policy"]["custom_inner"], "kept")
+        # Top-level key ORDER is preserved (json round-trip is insertion-ordered).
+        self.assertEqual(list(data.keys()), list(extra.keys()))
+
+    def test_crash_mid_write_leaves_original_valid_and_reattempts(self):
+        """AC-7 crash-window clause at the mechanism level: a failure inside the
+        atomic write must leave the original config byte-identical + parseable,
+        strand no temp file, raise loudly, and succeed on the next run."""
+        self._write_cfg({"lifecycle_id_policy": {"epoch_utc": "1999-05-01T00:00:00Z"}})
+        before = self.cfg.read_text(encoding="utf-8")
+        with patch.object(self.mod.os, "replace", side_effect=OSError("simulated crash")):
+            with self.assertRaises(RuntimeError):
+                self.mod.materialize_lifecycle_policy(self.root)
+        self.assertEqual(self.cfg.read_text(encoding="utf-8"), before)
+        json.loads(before)  # still valid JSON
+        leftovers = [p.name for p in (self.root / "docs").iterdir()
+                     if p.name != "workflow-config.json"]
+        self.assertEqual(leftovers, [])
+        # Re-attempt (no crash) provisions normally — idempotence key still absent.
+        self.mod.materialize_lifecycle_policy(self.root)
+        self.assertEqual(self._policy()["scheme_version"], "v2")
+
+    def test_low_horizon_warning_names_the_scanned_max(self):
+        """A scanned max that leaves under ~5 years of 5-char space triggers the
+        loud backstop naming the max prefix token (word-like false matches on
+        6-char tokens are already excluded by the 5-char-only scan)."""
+        # decode("w0000") = 53,747,712 → offset 54,063,936 > 36^5 − 1826×4096.
+        (self.root / "docs" / "waves" / "w0000 anomalous").mkdir(parents=True)
+        self._write_cfg({})
+        msg = self.mod.materialize_lifecycle_policy(self.root)
+        self.assertIn("WARNING", msg)
+        self.assertIn("w0000", msg)
+
+    def test_below_threshold_scanned_max_stays_silent(self):
+        """Just under the 5-year threshold from the other side: a large-but-legal
+        scanned max that still leaves 5+ years emits no warning."""
+        # decode("j0000") = 31,912,704 → offset 32,228,928 ≪ threshold 52,986,880.
+        (self.root / "docs" / "waves" / "j0000 large-legit").mkdir(parents=True)
+        self._write_cfg({})
+        msg = self.mod.materialize_lifecycle_policy(self.root)
+        self.assertNotIn("WARNING", msg)
+
+    def test_normal_migration_emits_no_horizon_warning(self):
+        (self.root / "docs" / "waves" / "1p9pk example-wave").mkdir(parents=True)
+        self._write_cfg({})
+        msg = self.mod.materialize_lifecycle_policy(self.root)
+        self.assertNotIn("WARNING", msg)
+
+    def test_word_like_six_char_filename_does_not_poison_migration(self):
+        """Delivery red-team F2: `review-notes.md` decodes above 36^5 as a
+        6-char token; the migration scan must ignore it (v1 history is 5-char
+        by construction) and take the fresh path here."""
+        (self.root / "docs" / "plans").mkdir(parents=True)
+        (self.root / "docs" / "plans" / "review-notes.md").write_text("x", encoding="utf-8")
+        self._write_cfg({})
+        self.mod.materialize_lifecycle_policy(self.root)
+        pol = self._policy()
+        self.assertLess(pol["offset"], 619_520)  # fresh band, not 1.6B
+        self.assertIn("project_seed", pol)
+
+    def test_stale_v1_descriptor_keys_removed(self):
+        self._write_cfg({"lifecycle_id_policy": {"epoch_utc": "1999-05-01T00:00:00Z",
+                                                 "time_unit": "5-minute-bucket",
+                                                 "buckets_per_day": 288}})
+        self.mod.materialize_lifecycle_policy(self.root)
+        pol = self._policy()
+        self.assertNotIn("time_unit", pol)
+        self.assertNotIn("buckets_per_day", pol)
+
+    def test_unparseable_config_fails_loudly_with_no_write(self):
+        self.cfg.write_text("{corrupt json", encoding="utf-8")
+        with self.assertRaises(RuntimeError):
+            self.mod.materialize_lifecycle_policy(self.root)
+        self.assertEqual(self.cfg.read_text(encoding="utf-8"), "{corrupt json")
+
+    def test_missing_config_file_is_created(self):
+        self.assertFalse(self.cfg.exists())
+        self.mod.materialize_lifecycle_policy(self.root)
+        self.assertEqual(self._policy()["scheme_version"], "v2")
+
+    def test_no_temp_file_left_behind(self):
+        self._write_cfg({})
+        self.mod.materialize_lifecycle_policy(self.root)
+        leftovers = [p.name for p in (self.root / "docs").iterdir()
+                     if p.name != "workflow-config.json"]
+        self.assertEqual(leftovers, [])
+
+    def test_written_config_is_valid_json_and_loader_accepts_it(self):
+        """End-to-end: the written policy round-trips through the strict loader
+        and the first mint decodes above the scanned pre-migration max."""
+        (self.root / "docs" / "waves" / "1p9pk example-wave").mkdir(parents=True)
+        self._write_cfg({"lifecycle_id_policy": {"epoch_utc": "1999-05-01T00:00:00Z"}})
+        self.mod.materialize_lifecycle_policy(self.root)
+        spec = importlib.util.spec_from_file_location(
+            "lifecycle_id_mig_test", SCRIPTS_ROOT / "lifecycle_id.py")
+        lid = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(lid)
+        policy = lid.load_lifecycle_policy(self.root)
+        prefix = lid.build_prefix(policy=policy, kind="bug", slug="post-migration")
+        self.assertGreater(lid.decode_base36(prefix), int("1p9pk", 36))
+
+    def test_cli_flag_runs_only_provisioning_and_exits_zero(self):
+        self._write_cfg({})
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout):
+            rc = self.mod.main(["--materialize-lifecycle-policy", "--root", str(self.root)])
+        self.assertEqual(rc, 0)
+        self.assertIn("provisioned scheme v2", stdout.getvalue())
+        self.assertEqual(self._policy()["scheme_version"], "v2")
+
+    def test_cli_flag_propagates_corrupt_config_as_error(self):
+        self.cfg.write_text("{corrupt", encoding="utf-8")
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            rc = self.mod.main(["--materialize-lifecycle-policy", "--root", str(self.root)])
+        self.assertEqual(rc, 1)
+        self.assertIn("refusing to overwrite", stderr.getvalue())
+
+    def test_cleanup_backstop_heals_unprovisioned_repo(self):
+        """End-of-upgrade reconciliation check (operator directive): an
+        un-provisioned repo at cleanup time is healed via the idempotent
+        materialization."""
+        self._write_cfg({})
+        logged: list[str] = []
+        with patch.object(self.mod, "_log", side_effect=logged.append):
+            self.mod._ensure_lifecycle_policy_backstop(self.root)
+        self.assertEqual(self._policy()["scheme_version"], "v2")
+        self.assertTrue(any("backstop healed" in line for line in logged), logged)
+
+    def test_cleanup_backstop_noop_when_already_v2(self):
+        self._write_cfg({})
+        self.mod.materialize_lifecycle_policy(self.root)
+        before = self.cfg.read_text(encoding="utf-8")
+        logged: list[str] = []
+        with patch.object(self.mod, "_log", side_effect=logged.append):
+            self.mod._ensure_lifecycle_policy_backstop(self.root)
+        self.assertEqual(self.cfg.read_text(encoding="utf-8"), before)
+        self.assertTrue(any("scheme v2 present" in line for line in logged), logged)
+
+    def test_cleanup_backstop_never_raises_on_corrupt_config(self):
+        """Fail-safe: a backstop error degrades to a loud recovery pointer —
+        it must never fail cleanup."""
+        self.cfg.write_text("{corrupt", encoding="utf-8")
+        logged: list[str] = []
+        with patch.object(self.mod, "_log", side_effect=logged.append):
+            self.mod._ensure_lifecycle_policy_backstop(self.root)  # no raise
+        self.assertEqual(self.cfg.read_text(encoding="utf-8"), "{corrupt")
+        self.assertTrue(any("--materialize-lifecycle-policy" in line for line in logged), logged)
+
+
 if __name__ == "__main__":
     unittest.main()

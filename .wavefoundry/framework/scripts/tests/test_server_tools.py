@@ -1397,6 +1397,34 @@ class ListWavesTests(unittest.TestCase):
         names = [w["wave_id"] for w in waves]
         self.assertEqual(names, sorted(names))
 
+    def test_mixed_width_corpus_sorts_by_decoded_value(self):
+        """Wave 1p9q0 AC-6b — a 6-char (post-overflow) wave must list AFTER
+        every 5-char wave. A filename-string sort inverts this ("100000" <
+        "zzzzz" lexically while decoding to 36^5 > 36^5 - 1)."""
+        _make_wave(self.root, "zzzzz last-five-char", "closed", [])
+        _make_wave(self.root, "100000 first-six-char", "active", [])
+        _make_wave(self.root, "1p9pk mid-v1", "closed", [])
+        _make_wave(self.root, "1w1zk early-v2", "closed", [])
+        waves = self.srv.list_waves(self.root)
+        self.assertEqual(
+            [w["wave_id"] for w in waves],
+            ["1p9pk mid-v1", "1w1zk early-v2", "zzzzz last-five-char",
+             "100000 first-six-char"],
+        )
+
+    def test_legacy_baseline_sorts_first_and_unprefixed_last(self):
+        _make_wave(self.root, "00000 wave-zero", "closed", [])
+        _make_wave(self.root, "1200a normal", "active", [])
+        (self.root / "docs" / "waves" / "unprefixed-dir").mkdir(parents=True, exist_ok=True)
+        (self.root / "docs" / "waves" / "unprefixed-dir" / "wave.md").write_text(
+            "# Wave Record\n\nwave-id: `unprefixed-dir`\nStatus: closed\n",
+            encoding="utf-8",
+        )
+        waves = self.srv.list_waves(self.root)
+        ids = [w["wave_id"] for w in waves]
+        self.assertEqual(ids[0], "00000 wave-zero")
+        self.assertEqual(ids[1], "1200a normal")
+
 
 class ListPlansTests(unittest.TestCase):
     @classmethod
@@ -1441,6 +1469,23 @@ class ListPlansTests(unittest.TestCase):
         plans = self.srv.list_plans(self.root)
 
         self.assertEqual([p["id"] for p in plans], ["1234-feat sample"])
+
+    def test_mixed_width_corpus_sorts_by_decoded_value(self):
+        """Wave 1p9q0 AC-6b — plans listing is decode-keyed, so a 6-char
+        (post-overflow) plan lists after every 5-char plan and v1/v2 5-char
+        plans interleave by value."""
+        _make_repo(self.root, {
+            "docs/plans/zzzzz-enh last-five.md": "# Last Five\n\nChange ID: `zzzzz-enh last-five`\n",
+            "docs/plans/100000-bug first-six.md": "# First Six\n\nChange ID: `100000-bug first-six`\n",
+            "docs/plans/1p9pk-enh mid-v1.md": "# Mid V1\n\nChange ID: `1p9pk-enh mid-v1`\n",
+            "docs/plans/1w1zk-bug early-v2.md": "# Early V2\n\nChange ID: `1w1zk-bug early-v2`\n",
+        })
+        plans = self.srv.list_plans(self.root)
+        self.assertEqual(
+            [p["id"] for p in plans],
+            ["1p9pk-enh mid-v1", "1w1zk-bug early-v2", "zzzzz-enh last-five",
+             "100000-bug first-six"],
+        )
 
 
 class CurrentWaveTests(unittest.TestCase):
