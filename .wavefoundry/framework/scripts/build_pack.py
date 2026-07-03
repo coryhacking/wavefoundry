@@ -82,6 +82,7 @@ def _get_build_prefix() -> str:
         [sys.executable, str(script_dir / "lifecycle_id.py"), "--prefix-only"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
         check=True,
     )
     return result.stdout.strip()
@@ -370,6 +371,7 @@ def _check_git_working_tree_clean(repo_root: Path) -> None:
         check=False,
         capture_output=True,
         text=True,
+        encoding="utf-8",
     )
     if result.returncode != 0:
         raise RuntimeError(f"git status failed: {result.stderr.strip()}")
@@ -391,6 +393,7 @@ def _check_on_main_branch(repo_root: Path) -> None:
         check=False,
         capture_output=True,
         text=True,
+        encoding="utf-8",
     )
     if result.returncode != 0:
         raise RuntimeError(f"git rev-parse failed: {result.stderr.strip()}")
@@ -411,6 +414,7 @@ def _check_tag_does_not_exist(repo_root: Path, tag: str) -> None:
         check=False,
         capture_output=True,
         text=True,
+        encoding="utf-8",
     )
     if local.returncode == 0:
         raise RuntimeError(
@@ -424,6 +428,7 @@ def _check_tag_does_not_exist(repo_root: Path, tag: str) -> None:
         check=False,
         capture_output=True,
         text=True,
+        encoding="utf-8",
     )
     if remote.returncode != 0:
         # Network failure or no remote configured — surface but don't fail
@@ -448,6 +453,7 @@ def _check_gh_authenticated() -> None:
         check=False,
         capture_output=True,
         text=True,
+        encoding="utf-8",
     )
     if result.returncode != 0:
         raise RuntimeError(
@@ -471,6 +477,7 @@ def _derive_tag_message(repo_root: Path, version: str) -> str:
         check=False,
         capture_output=True,
         text=True,
+        encoding="utf-8",
     )
     if result.returncode != 0:
         return f"Release v{version}"
@@ -570,6 +577,7 @@ def _run_release_orchestration(
         check=False,
         capture_output=True,
         text=True,
+        encoding="utf-8",
     )
     if add_result.returncode != 0:
         raise RuntimeError(
@@ -583,6 +591,7 @@ def _run_release_orchestration(
         check=False,
         capture_output=True,
         text=True,
+        encoding="utf-8",
     )
     if staged.returncode != 0:
         commit_result = subprocess.run(
@@ -591,6 +600,7 @@ def _run_release_orchestration(
             check=False,
             capture_output=True,
             text=True,
+            encoding="utf-8",
         )
         if commit_result.returncode != 0:
             raise RuntimeError(
@@ -606,6 +616,7 @@ def _run_release_orchestration(
         check=False,
         capture_output=True,
         text=True,
+        encoding="utf-8",
     )
     if tag_result.returncode != 0:
         raise RuntimeError(
@@ -621,6 +632,7 @@ def _run_release_orchestration(
         check=False,
         capture_output=True,
         text=True,
+        encoding="utf-8",
     )
     if push_main.returncode != 0:
         raise RuntimeError(
@@ -638,6 +650,7 @@ def _run_release_orchestration(
         check=False,
         capture_output=True,
         text=True,
+        encoding="utf-8",
     )
     if push_result.returncode != 0:
         raise RuntimeError(
@@ -664,6 +677,7 @@ def _run_release_orchestration(
             check=False,
             capture_output=True,
             text=True,
+            encoding="utf-8",
         )
     finally:
         try:

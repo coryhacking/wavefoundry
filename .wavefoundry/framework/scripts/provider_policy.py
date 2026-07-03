@@ -61,6 +61,12 @@ class ProviderDecision:
     available_providers: tuple[str, ...]
     reason: str
     remediation: str | None = None
+    # Wave 1p9lj: where this decision came from — "setup-cache" (honoring the decision setup
+    # recorded in WAVEFOUNDRY_EMBED_PROVIDER_SELECTED), "fresh-probe" (availability/probe run in
+    # this process), or "operator-request" (WAVEFOUNDRY_EMBED_PROVIDER forced it). Setup and
+    # wave_gpu_doctor share the same probe chain; process-scoped cache state is the one intentional
+    # difference between them, so every decision names its source explicitly.
+    provenance: str = "fresh-probe"
 
 
 ProviderProbe = Callable[[str], ProviderProbeResult]
@@ -111,13 +117,19 @@ def _requested_provider(raw: str | None = None) -> str | None:
     return PROVIDER_REQUESTS.get(token)
 
 
-def _cpu_decision(available: tuple[str, ...], reason: str, remediation: str | None = None) -> ProviderDecision:
+def _cpu_decision(
+    available: tuple[str, ...],
+    reason: str,
+    remediation: str | None = None,
+    provenance: str = "fresh-probe",
+) -> ProviderDecision:
     return ProviderDecision(
         selected_provider=CPU_PROVIDER,
         providers=(CPU_PROVIDER,),
         available_providers=available,
         reason=reason,
         remediation=remediation,
+        provenance=provenance,
     )
 
 
@@ -143,20 +155,27 @@ def select_embedding_providers(
     available_set = set(available)
     requested = _requested_provider(requested_provider)
     if requested == CPU_PROVIDER:
-        return _cpu_decision(available, "operator forced CPU provider")
+        return _cpu_decision(available, "operator forced CPU provider", provenance="operator-request")
 
     setup_selected = os.environ.get(SETUP_SELECTED_ENV)
     if setup_selected and not requested and setup_selected in available_set:
         if setup_selected == CPU_PROVIDER:
-            return _cpu_decision(available, "CPU provider selected by setup probe")
+            return _cpu_decision(
+                available, "CPU provider selected by setup probe", provenance="setup-cache"
+            )
         return ProviderDecision(
             selected_provider=setup_selected,
             providers=_dedupe_providers((setup_selected, CPU_PROVIDER)),
             available_providers=available,
             reason=f"{setup_selected} selected by setup provider probe",
+            provenance="setup-cache",
         )
 
     candidates = (requested,) if requested else PROVIDER_PRIORITY
+    # A selection driven by WAVEFOUNDRY_EMBED_PROVIDER is operator-requested even when a probe
+    # validates it; the bottom CPU fallback stays "fresh-probe" because there the probe failure,
+    # not the operator, drove the outcome.
+    success_provenance = "operator-request" if requested else "fresh-probe"
     probe_failures: list[str] = []
     for provider in candidates:
         if not provider:
@@ -165,13 +184,14 @@ def select_embedding_providers(
             probe_failures.append(f"{provider} unavailable")
             continue
         if provider == CPU_PROVIDER:
-            return _cpu_decision(available, "operator forced CPU provider")
+            return _cpu_decision(available, "operator forced CPU provider", provenance="operator-request")
         if provider == CUDA_PROVIDER:
             return ProviderDecision(
                 selected_provider=provider,
                 providers=_dedupe_providers((provider, CPU_PROVIDER)),
                 available_providers=available,
                 reason=f"{provider} available in ONNX Runtime",
+                provenance=success_provenance,
             )
         if provider_probe is None and _provider_requires_probe(provider):
             probe_failures.append(f"{provider} requires a bounded model probe")
@@ -189,6 +209,7 @@ def select_embedding_providers(
             providers=_dedupe_providers((provider, CPU_PROVIDER)),
             available_providers=available,
             reason=reason,
+            provenance=success_provenance,
         )
 
     remediation = None
@@ -330,6 +351,7 @@ def format_provider_decision(decision: ProviderDecision) -> str:
         f"providers={list(decision.providers)}",
         f"available={list(decision.available_providers)}",
         f"reason={decision.reason}",
+        f"decision-source={decision.provenance}",
     ]
     if decision.remediation:
         parts.append(f"remediation={decision.remediation}")
@@ -376,6 +398,7 @@ def diagnostic_report(provider_probe: "ProviderProbe | None" = None) -> dict:
         "providers": list(decision.providers),
         "selection_reason": decision.reason,
         "selection_remediation": decision.remediation,
+        "decision_provenance": decision.provenance,
         "cuda12_abi_gap": str(gap) if gap else None,
     }
 
@@ -393,6 +416,7 @@ def format_diagnostic_report(report: dict) -> str:
         f"  ORT providers             : {', '.join(report.get('available_onnx_providers') or [])}",
         f"  would select              : {report.get('selected_provider')}",
         f"    reason                  : {report.get('selection_reason')}",
+        f"    decision source         : {report.get('decision_provenance') or 'fresh-probe'}",
     ]
     if report.get("selection_remediation"):
         lines.append(f"    remediation             : {report['selection_remediation']}")

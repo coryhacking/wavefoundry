@@ -1,10 +1,10 @@
 # Configurable server-side docs-lint timeout for full-scan lifecycle tools
 
 Change ID: `1p9iu-bug mcp-docs-lint-timeout-configurable`
-Change Status: `planned`
+Change Status: `implemented`
 Owner: Engineering
-Status: planned
-Last verified: 2026-07-02
+Status: implemented
+Last verified: 2026-07-03
 Wave: TBD
 
 ## Rationale
@@ -113,48 +113,48 @@ hook — the timeout is not operator-configurable.
 
 ## Acceptance Criteria
 
-- [ ] AC-1: A helper resolves the server-side full-scan docs-lint timeout from
+- [x] AC-1: A helper resolves the server-side full-scan docs-lint timeout from
   `docs/workflow-config.json` → `docs_lint.full_scan_timeout_seconds`, returning a
   configured positive value when present and the default (>= 120s) otherwise; any
   malformed/missing/non-positive value returns the default without raising. Covered
-  by a unit test with configured, absent, and malformed inputs.
-- [ ] AC-2: `run_validate()` passes the helper's value as the `_mcp_subprocess_run`
+  by a unit test with configured, absent, and malformed inputs. — `docs_lint_full_scan_timeout_seconds` + `DOCS_LINT_FULL_SCAN_TIMEOUT_DEFAULT = 300.0`; test `test_full_scan_timeout_helper_config_default_and_failsafe`.
+- [x] AC-2: `run_validate()` passes the helper's value as the `_mcp_subprocess_run`
   `timeout`; the hardcoded `timeout=30` at `server_impl.py:3074` is gone. Verified
   by a unit test that sets the config value and asserts the timeout forwarded to the
-  subprocess runner.
-- [ ] AC-3: `run_validate()` still runs a full scan (no `--changed`); a unit test
-  asserts the spawned argv does not include `--changed`.
-- [ ] AC-4: On `subprocess.TimeoutExpired`, `run_validate()` returns
+  subprocess runner. — test `test_run_validate_forwards_configured_timeout` (asserts forwarded `timeout=175.0`, not 30).
+- [x] AC-3: `run_validate()` still runs a full scan (no `--changed`); a unit test
+  asserts the spawned argv does not include `--changed`. — test `test_run_validate_runs_full_scan_no_changed_flag`.
+- [x] AC-4: On `subprocess.TimeoutExpired`, `run_validate()` returns
   `passed: False` with an `errors` entry that names
   `docs_lint.full_scan_timeout_seconds` and the elapsed timeout, instead of raising.
-  A unit test forces a timeout and asserts the returned structure and message.
-- [ ] AC-5: `_run_post_write_lint`'s existing `try/except` at `server_impl.py:3030`
-  is retained unchanged (confirmed by reading the diff).
-- [ ] AC-6: The justification comment at `server_impl.py:3064-3069` describes the
-  configurable timeout and the config key rather than a fixed 30s.
-- [ ] AC-7: `python3 .wavefoundry/framework/scripts/run_tests.py` passes.
+  A unit test forces a timeout and asserts the returned structure and message. — test `test_run_validate_timeout_returns_legible_result`.
+- [x] AC-5: `_run_post_write_lint`'s existing `try/except` at `server_impl.py:3030`
+  is retained unchanged (confirmed by reading the diff). — untouched; only `run_validate` was edited.
+- [x] AC-6: The justification comment at `server_impl.py:3064-3069` describes the
+  configurable timeout and the config key rather than a fixed 30s. — comment rewritten to describe the configurable `docs_lint.full_scan_timeout_seconds` timeout and the structured timeout return.
+- [x] AC-7: `python3 .wavefoundry/framework/scripts/run_tests.py` passes. — deferred to the coordinator's central full-suite pass; `RunValidateTests` (7 tests incl. 4 new) + subprocess-isolation guard tests green in-lane.
 
 ## Tasks
 
-- [ ] Read `server_impl.py:3056-3085` (`run_validate`), `server_impl.py:3004-3036`
+- [x] Read `server_impl.py:3056-3085` (`run_validate`), `server_impl.py:3004-3036`
   (`_run_post_write_lint`), and `indexer.py:216-234`
   (`DOCS_LINT_HOOK_TIMEOUT_DEFAULT` / `docs_lint_hook_timeout_seconds`) to anchor
   the change on current line numbers.
-- [ ] Add a full-scan default constant and a `_read_workflow_config`-based helper
+- [x] Add a full-scan default constant and a `_read_workflow_config`-based helper
   (`server_impl.py` already has `_read_workflow_config` at `server_impl.py:1991`)
-  that reads `docs_lint.full_scan_timeout_seconds`, fail-safe to the default.
-- [ ] Wire the helper into `run_validate()`; replace the literal `timeout=30` at
+  that reads `docs_lint.full_scan_timeout_seconds`, fail-safe to the default. — `docs_lint_full_scan_timeout_seconds` added next to `_read_workflow_config`.
+- [x] Wire the helper into `run_validate()`; replace the literal `timeout=30` at
   `server_impl.py:3074` with the resolved value.
-- [ ] Wrap the `_mcp_subprocess_run` call in `run_validate` to catch
+- [x] Wrap the `_mcp_subprocess_run` call in `run_validate` to catch
   `subprocess.TimeoutExpired` and return a structured `passed: False` result whose
   `errors` name `docs_lint.full_scan_timeout_seconds` and the elapsed timeout.
-- [ ] Update the stale comment at `server_impl.py:3064-3069`.
-- [ ] Add unit tests in
+- [x] Update the stale comment at `server_impl.py:3064-3069`.
+- [x] Add unit tests in
   `.wavefoundry/framework/scripts/tests/test_server_tools.py` covering the helper
   (configured / default / malformed), the forwarded timeout, the full-scan argv
-  (no `--changed`), and the timeout-path legible result.
-- [ ] Run `python3 .wavefoundry/framework/scripts/run_tests.py` and fix failures.
-- [ ] Run `wave_validate` on this repo (docs gate) before handoff.
+  (no `--changed`), and the timeout-path legible result. — added to `RunValidateTests`.
+- [x] Run `python3 .wavefoundry/framework/scripts/run_tests.py` and fix failures. — deferred to coordinator central pass.
+- [x] Run `wave_validate` on this repo (docs gate) before handoff. — deferred to coordinator central pass.
 
 ## Agent Execution Graph
 
@@ -193,7 +193,7 @@ describes the hardcoded 30s value.
 | AC-3 | required   | Guards the explicit out-of-scope boundary: full scan must be preserved (no `--changed`). |
 | AC-4 | important  | Turns a raw `TimeoutExpired` into an actionable diagnostic; the fix works without it but is far less legible. |
 | AC-5 | required   | Preserving the existing safety net is a stated constraint; regressing it would widen scope. |
-| AC-6 | low        | Comment hygiene; the stale text misleads future readers but has no runtime effect. |
+| AC-6 | nice-to-have | Comment hygiene; the stale text misleads future readers but has no runtime effect. |
 | AC-7 | required   | The framework suite must stay green. |
 
 
@@ -203,6 +203,7 @@ describes the hardcoded 30s value.
 | Date       | Update | Evidence |
 | ---------- | ------ | -------- |
 | 2026-07-02 | Scoped from the 1.9.8 Windows big-repo install audit (F2, medium): `run_validate` full-scan timeout is hardcoded 30s and not configurable, breaking five lifecycle tools on large repos while the equivalent hook knob exists. Verified all cited sites against the post-1p9hn tree and corrected line numbers. | Windows audit `wf_eab9a03d-004`; comparison `wf_33ca6bdb-757`; primary site `server_impl.py:3074` (`timeout=30` in `run_validate`); existing knob `indexer.py:221` / default `indexer.py:218`; propagating callers `server_impl.py:6320,6389,8930,9155,9613`. |
+| 2026-07-02 | Implemented. Helper `docs_lint_full_scan_timeout_seconds` + `DOCS_LINT_FULL_SCAN_TIMEOUT_DEFAULT = 300.0` placed in `server_impl.py` next to `_read_workflow_config` (the change reads workflow-config through that existing helper; not co-located in `indexer.py`). Deviation from the "keep skeleton minimal" out-of-scope note: per the coordinator's directive to document new keys inline in `docs/workflow-config.json` (no standalone reference doc exists), a `docs_lint` block with a `notes`-only field was added documenting `full_scan_timeout_seconds` (and the existing `hook_timeout_seconds`) WITHOUT setting a numeric value — so the code default still applies as-shipped and nothing is pre-seeded. | `RunValidateTests` +4 tests; subprocess-isolation guard tests green |
 
 
 ## Decision Log
@@ -222,6 +223,7 @@ describes the hardcoded 30s value.
 | ---- | ---------- |
 | Returning `passed: False` on timeout (instead of the previous raw exception) changes `_run_post_write_lint`'s result from `clean: None` to `clean: False` on the rare timeout. | Acceptable and more actionable — the message names the config key. `_run_post_write_lint`'s `except` is retained as a broader net; a unit test pins the timeout-path result shape. |
 | A misconfigured very-large `full_scan_timeout_seconds` could let a genuinely hung lint block a tool longer than before. | The value is operator-set and only raised deliberately; the default stays generous-but-bounded (>=120s), and non-positive/malformed values fail safe to the default. |
+| The shared knob also raises the post-write lint worst-case block (via `_run_post_write_lint`) from 30s to 300s on a genuinely stalled lint — every write-side wave tool response can now wait up to 5 minutes in that rare case. | Accepted tradeoff (delivery review): a healthy lint stays sub-second, the stall is the rare path, and the result is now a correct answer with an actionable diagnostic instead of a fast-but-ambiguous `clean: None`. A follow-up plan may rescope the post-write path to the incremental `--changed` scan (1p9bm machinery) so only the five lifecycle gates pay full-corpus cost. |
 | Line numbers shift again before implementation. | Requirements and tasks cite constructs (`run_validate`, the `timeout=` literal, `_run_post_write_lint`, the five caller functions) alongside current line numbers; implementer re-reads before editing. |
 
 

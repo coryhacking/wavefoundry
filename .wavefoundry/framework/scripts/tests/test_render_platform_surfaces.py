@@ -1052,5 +1052,141 @@ class RenderGitattributesBlockTests(unittest.TestCase):
                       "main() must call render_gitattributes_block so the block is enforced on every render")
 
 
+class HookStdinUtf8Tests(unittest.TestCase):
+    """Wave 1p9j0 / change 1p9iv: rendered hooks must decode their host JSON payload from stdin as
+    UTF-8 (HOOK_BOOTSTRAP calls cli_stdio.configure_utf8_stdio()), and the dev-simulation spawn must
+    encode its input=payload as UTF-8 — so a native-Windows cp1252 console never mis-decodes / fails
+    to encode a non-ASCII payload (a file path / message / diff excerpt carrying em-dash / box-drawing
+    / accented characters)."""
+
+    def setUp(self):
+        self.mod = _load_render_module()
+
+    def test_hook_bootstrap_calls_configure_utf8_stdio_guarded(self):
+        # AC-2: HOOK_BOOTSTRAP calls configure_utf8_stdio() via a guarded import, AFTER the framework
+        # scripts dir is on sys.path (so the import resolves), and the composed hook source carries it.
+        bootstrap = self.mod.HOOK_BOOTSTRAP
+        self.assertIn("import cli_stdio as _wf_cli_stdio", bootstrap)
+        self.assertIn("_wf_cli_stdio.configure_utf8_stdio()", bootstrap)
+        self.assertLess(
+            bootstrap.index("_wf_sys.path.insert"),
+            bootstrap.index("import cli_stdio"),
+            "configure_utf8_stdio import must come after the sys.path insert",
+        )
+        # Best-effort: the import + call are wrapped in try/except so a hook rendered against an
+        # old/transient tree lacking cli_stdio still runs.
+        guarded = (
+            "try:\n"
+            "    import cli_stdio as _wf_cli_stdio\n"
+            "\n"
+            "    _wf_cli_stdio.configure_utf8_stdio()\n"
+            "except Exception:\n"
+            "    pass"
+        )
+        self.assertIn(guarded, bootstrap)
+        composed = self.mod.compose_script("def main() -> int:\n    return 0\n")
+        self.assertIn("_wf_cli_stdio.configure_utf8_stdio()", composed)
+
+    def test_hook_bootstrap_tolerates_unimportable_cli_stdio(self):
+        # AC-2 (best-effort): executing HOOK_BOOTSTRAP when cli_stdio (and venv_bootstrap) are
+        # unimportable must NOT raise — the guarded try/except swallows the ImportError so the hook
+        # still runs. Setting sys.modules[name] = None makes `import name` raise ImportError.
+        import sys as _sys
+
+        with tempfile.TemporaryDirectory() as tmp:
+            ns = {"__file__": str(Path(tmp) / ".claude" / "hooks" / "hook.py")}
+            with patch.dict(
+                _sys.modules,
+                {"cli_stdio": None, "venv_bootstrap": None, "subprocess_util": None},
+            ):
+                exec(compile(self.mod.HOOK_BOOTSTRAP, "<bootstrap>", "exec"), ns)  # must not raise
+
+    def test_rendered_hook_body_decodes_utf8_stdin_payload(self):
+        # AC-3: a composed hook body (real read_payload_text/load_payload/detect_file_path helpers)
+        # decodes a non-ASCII UTF-8 stdin payload correctly. The child's std streams are forced to
+        # cp1252 (simulating a native-Windows console) via PYTHONIOENCODING; without the bootstrap
+        # stdin reconfigure the UTF-8 bytes would mis-decode. Platform-independent: cp1252 is always
+        # available, so this runs identically on POSIX and never depends on the host being Windows.
+        body = """
+            def main() -> int:
+                payload = load_payload(read_payload_text())
+                sys.stdout.write("DECODED:" + detect_file_path(payload))
+                sys.stdout.flush()
+                return 0
+
+            if __name__ == "__main__":
+                raise SystemExit(main())
+        """
+        script = self.mod.compose_script(body)
+        scripts_dir = SCRIPT_PATH.parent
+        non_ascii = "docs/café/—résumé⚠.md"
+        payload = json.dumps({"tool_input": {"file_path": non_ascii}})
+        with tempfile.TemporaryDirectory() as tmp:
+            hook = Path(tmp) / "hook.py"
+            hook.write_text(script, encoding="utf-8")
+            env = {
+                **os.environ,
+                "PYTHONIOENCODING": "cp1252:replace",
+                "PYTHONPATH": str(scripts_dir),
+                "WAVEFOUNDRY_SKIP_PYTHON_HEAL": "1",
+            }
+            result = subprocess.run(
+                ["python3", str(hook)],
+                input=payload,
+                text=True,
+                encoding="utf-8",
+                capture_output=True,
+                env=env,
+                timeout=60,
+            )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("DECODED:" + non_ascii, result.stdout)
+
+    def test_simulate_spawn_encodes_input_as_utf8(self):
+        # AC-4: the claude_simulate_hooks_source() spawn encodes input=payload as UTF-8 (errors=replace)
+        # so a non-ASCII payload never triggers a locale-codepage encode error on Windows. Exec the
+        # generated simulate source with the bootstrap imports stubbed (deterministic, no real spawn)
+        # and a patched subprocess.run that records the kwargs the spawn is invoked with.
+        import sys as _sys
+        import types as _types
+
+        sim_src = self.mod.claude_simulate_hooks_source()
+        recorded: dict[str, object] = {}
+
+        def fake_run(args, **kwargs):
+            recorded["args"] = args
+            recorded["kwargs"] = kwargs
+
+            class _R:
+                returncode = 0
+
+            return _R()
+
+        stub_vb = _types.ModuleType("venv_bootstrap")
+        stub_vb.activate_tool_venv = lambda: None
+        stub_cs = _types.ModuleType("cli_stdio")
+        stub_cs.configure_utf8_stdio = lambda: None
+        stub_su = _types.ModuleType("subprocess_util")
+        stub_su.windowless_pythonw = lambda: None
+
+        payload = "payload-—⚠"
+        with patch.dict(
+            _sys.modules,
+            {"venv_bootstrap": stub_vb, "cli_stdio": stub_cs, "subprocess_util": stub_su},
+        ), patch.object(subprocess, "run", fake_run):
+            with tempfile.TemporaryDirectory() as tmp:
+                ns = {
+                    "__name__": "wavefoundry_sim_under_test",
+                    "__file__": str(Path(tmp) / ".claude" / "hooks" / "simulate-hooks.py"),
+                }
+                exec(compile(sim_src, "<simulate>", "exec"), ns)
+                rc = ns["main"](["post-edit", payload])
+        self.assertEqual(rc, 0)
+        kwargs = recorded["kwargs"]
+        self.assertEqual(kwargs.get("encoding"), "utf-8", "simulate spawn must pin encoding=utf-8")
+        self.assertEqual(kwargs.get("errors"), "replace", "simulate spawn must use errors=replace")
+        self.assertEqual(kwargs.get("input"), payload, "the payload must be passed through unchanged")
+
+
 if __name__ == "__main__":
     unittest.main()

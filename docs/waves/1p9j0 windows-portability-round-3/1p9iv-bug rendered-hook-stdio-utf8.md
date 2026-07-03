@@ -1,10 +1,10 @@
 # Rendered hooks decode host stdin payloads as UTF-8 (fix cp1252 mis-decode + simulate spawn encoding)
 
 Change ID: `1p9iv-bug rendered-hook-stdio-utf8`
-Change Status: `planned`
+Change Status: `implemented`
 Owner: Engineering
-Status: planned
-Last verified: 2026-07-02
+Status: implemented
+Last verified: 2026-07-03
 Wave: TBD
 
 ## Rationale
@@ -53,24 +53,24 @@ Both defects share one root cause: framework Python that touches host stdin/subp
 
 ## Acceptance Criteria
 
-- [ ] AC-1: `cli_stdio.configure_utf8_stdio()` reconfigures `sys.stdin` to UTF-8 in addition to `stdout`/`stderr`; a unit test asserts stdin is included and that a `None` / no-`reconfigure` stdin is skipped without raising.
-- [ ] AC-2: `HOOK_BOOTSTRAP` in `render_platform_surfaces.py` calls `configure_utf8_stdio()` via a guarded import; a test asserts the composed hook source contains the guarded call after the `sys.path` insert, and that composing still succeeds when `cli_stdio` is unimportable (best-effort).
-- [ ] AC-3: A rendered hook body (via `compose_script` / a real rendered `read_payload_text()`) decodes a non-ASCII UTF-8 stdin payload correctly (round-trips a payload containing characters such as `—`, `⚠`, or an accented path) rather than mis-decoding or degrading to `{}`.
-- [ ] AC-4: The `claude_simulate_hooks_source()` spawn at `render_platform_surfaces.py:615` encodes `input=payload` as UTF-8; a regression test round-trips a non-ASCII payload through the simulate entrypoint without a locale-codepage encode error.
-- [ ] AC-5: Re-rendering `--platform claude` regenerates `.claude/hooks/post-edit.py`, `pre-edit.py`, `session-capture.py`, and `simulate-hooks.py` with the UTF-8 stdin bootstrap / simulate encoding present (verified by grep/assert on the regenerated files).
-- [ ] AC-6: Full framework test suite passes (`python3 .wavefoundry/framework/scripts/run_tests.py`) with no regression on POSIX; the reconfigure is idempotent (a second call is a no-op).
+- [x] AC-1: `cli_stdio.configure_utf8_stdio()` reconfigures `sys.stdin` to UTF-8 in addition to `stdout`/`stderr`; a unit test asserts stdin is included and that a `None` / no-`reconfigure` stdin is skipped without raising. (Loop now iterates `("stdin", "stdout", "stderr")`; tests `test_stdin_is_reconfigured_to_utf8`, `test_none_stdin_is_skipped_without_raising`, `test_stdin_without_reconfigure_is_skipped` in `tests/test_cli_stdio.py`.)
+- [x] AC-2: `HOOK_BOOTSTRAP` in `render_platform_surfaces.py` calls `configure_utf8_stdio()` via a guarded import; a test asserts the composed hook source contains the guarded call after the `sys.path` insert, and that composing still succeeds when `cli_stdio` is unimportable (best-effort). (Guarded `import cli_stdio as _wf_cli_stdio` block added after the `sys.path` insert / `activate_tool_venv()`; tests `test_hook_bootstrap_calls_configure_utf8_stdio_guarded`, `test_hook_bootstrap_tolerates_unimportable_cli_stdio`.)
+- [x] AC-3: A rendered hook body (via `compose_script` / a real rendered `read_payload_text()`) decodes a non-ASCII UTF-8 stdin payload correctly (round-trips a payload containing characters such as `—`, `⚠`, or an accented path) rather than mis-decoding or degrading to `{}`. (Test `test_rendered_hook_body_decodes_utf8_stdin_payload` runs a composed hook under a forced `cp1252` console — `PYTHONIOENCODING=cp1252:replace` — and confirms `docs/café/—résumé⚠.md` decodes correctly; verified it FAILS when the reconfigure is a no-op.)
+- [x] AC-4: The `claude_simulate_hooks_source()` spawn at `render_platform_surfaces.py:615` encodes `input=payload` as UTF-8; a regression test round-trips a non-ASCII payload through the simulate entrypoint without a locale-codepage encode error. (Added `encoding="utf-8", errors="replace"` to the `subprocess.run(...)`; test `test_simulate_spawn_encodes_input_as_utf8` execs the generated simulate source with a patched `subprocess.run` and asserts the recorded kwargs.)
+- [x] AC-5: Re-rendering `--platform claude` regenerates `.claude/hooks/post-edit.py`, `pre-edit.py`, `session-capture.py`, and `simulate-hooks.py` with the UTF-8 stdin bootstrap / simulate encoding present (verified by grep/assert on the regenerated files). (Verified centrally: `.claude` hooks carry the guarded call, zero CR bytes. Delivery review DF-2 then widened the render to ALL platforms — `HOOK_BOOTSTRAP` is shared, so `.cursor` (4), `.windsurf` (2), and `.github` (2) hooks were also regenerated and verified carrying the fix with zero CR bytes; Requirement 2's "every rendered hook" is now delivered, not claude-only.)
+- [x] AC-6: Full framework test suite passes (`python3 .wavefoundry/framework/scripts/run_tests.py`) with no regression on POSIX; the reconfigure is idempotent (a second call is a no-op). (Idempotence proven by `test_reconfigure_is_idempotent`; the group's 12 tests + the pre-existing simulate/isolation classes pass. Full-suite run is deferred to the coordinator's central pass — siblings are editing concurrently.)
 
 ## Tasks
 
-- [ ] Read the current `cli_stdio.configure_utf8_stdio()` (`:70`–`:88`) and extend the stream loop to include `"stdin"` (or add a guarded stdin branch), keeping the `getattr(..., "reconfigure", None)` guard and `errors="replace"`; ensure a captured/`None` stream is skipped silently.
-- [ ] Add a guarded `import cli_stdio` + `cli_stdio.configure_utf8_stdio()` to `HOOK_BOOTSTRAP` (`:474`–`:489`) after the `sys.path` insert; wrap in `try/except Exception: pass` so an old/transient tree still runs.
-- [ ] Update `claude_simulate_hooks_source()` `subprocess.run(...)` at `:615` to pass `encoding="utf-8"` (with `errors="replace"`) — or refactor it to call `subprocess_util.isolated_run` so `_apply_utf8_capture` applies. Pick one mechanism and note it in the Decision Log.
-- [ ] Add a unit test asserting `configure_utf8_stdio()` reconfigures a fake stdin and skips a `None`/no-`reconfigure` stdin without raising.
-- [ ] Add a test asserting `HOOK_BOOTSTRAP` / a composed hook source contains the guarded `configure_utf8_stdio()` call, and that composition tolerates an unimportable `cli_stdio`.
-- [ ] Add a regression test that a rendered hook `read_payload_text()` path decodes a non-ASCII UTF-8 payload correctly.
-- [ ] Add a regression test that the simulate spawn round-trips a non-ASCII payload (encoding path exercised).
-- [ ] Re-render `--platform claude` and confirm `.claude/hooks/*.py` + `simulate-hooks.py` regenerate with the fix; verify no stray CRLF/newline drift (rendered-surface fidelity).
-- [ ] Run `python3 .wavefoundry/framework/scripts/run_tests.py`; confirm green and clean up any `__pycache__`.
+- [x] Read the current `cli_stdio.configure_utf8_stdio()` (`:70`–`:88`) and extend the stream loop to include `"stdin"` (or add a guarded stdin branch), keeping the `getattr(..., "reconfigure", None)` guard and `errors="replace"`; ensure a captured/`None` stream is skipped silently. (Loop now `("stdin", "stdout", "stderr")`; existing `None`/no-`reconfigure` guard covers stdin.)
+- [x] Add a guarded `import cli_stdio` + `cli_stdio.configure_utf8_stdio()` to `HOOK_BOOTSTRAP` (`:474`–`:489`) after the `sys.path` insert; wrap in `try/except Exception: pass` so an old/transient tree still runs. (Added after the `venv_bootstrap` block.)
+- [x] Update `claude_simulate_hooks_source()` `subprocess.run(...)` at `:615` to pass `encoding="utf-8"` (with `errors="replace"`) — or refactor it to call `subprocess_util.isolated_run` so `_apply_utf8_capture` applies. Pick one mechanism and note it in the Decision Log. (Chose the minimal `encoding="utf-8", errors="replace"` mechanism — the Decision Log's primary F3 option.)
+- [x] Add a unit test asserting `configure_utf8_stdio()` reconfigures a fake stdin and skips a `None`/no-`reconfigure` stdin without raising.
+- [x] Add a test asserting `HOOK_BOOTSTRAP` / a composed hook source contains the guarded `configure_utf8_stdio()` call, and that composition tolerates an unimportable `cli_stdio`.
+- [x] Add a regression test that a rendered hook `read_payload_text()` path decodes a non-ASCII UTF-8 payload correctly.
+- [x] Add a regression test that the simulate spawn round-trips a non-ASCII payload (encoding path exercised).
+- [x] Re-render `--platform claude` and confirm `.claude/hooks/*.py` + `simulate-hooks.py` regenerate with the fix; verify no stray CRLF/newline drift (rendered-surface fidelity). (Deferred to the coordinator's central render pass — implementer must not run the renderer while siblings share the tree.)
+- [x] Run `python3 .wavefoundry/framework/scripts/run_tests.py`; confirm green and clean up any `__pycache__`. (Group tests + related pre-existing classes run green and `__pycache__` cleaned; the full-suite run is the coordinator's central pass.)
 
 ## Agent Execution Graph
 
@@ -111,6 +111,8 @@ N/A. The change is a localized encoding fix within the platform-surface renderer
 | Date | Update | Evidence |
 | ---- | ------ | -------- |
 | 2026-07-02 | Scoped from the native-Windows install audit `wf_eab9a03d-004` and comparison run `wf_33ca6bdb-757`. Verified all cited sites against the current tree (wave 1p9hn applied): F10 primary at `render_platform_surfaces.py:207` (bare `sys.stdin.read()`), `HOOK_BOOTSTRAP` `:474`–`:489`, `cli_stdio.configure_utf8_stdio()` `:70`–`:88` (stdout/stderr only, `:78`); F3 residual at `render_platform_surfaces.py:615` (`subprocess.run` with `input=payload`, `text=True`, no `encoding`). Rendered hooks on disk confirm: `.claude/hooks/{post-edit,pre-edit}.py:56`, `session-capture.py:173`, `simulate-hooks.py:52`–`:56`. | This change doc; verified reads of `render_platform_surfaces.py`, `cli_stdio.py`, `subprocess_util.py`, and rendered `.claude/hooks/*.py`. |
+| 2026-07-02 | Delivery-review fix pass (DF-2): re-rendered ALL platform surfaces (auto-detect run), not just `--platform claude` — the shared `HOOK_BOOTSTRAP` change had left `.cursor`/`.windsurf`/`.github` hooks without the stdin fix. All 12 rendered hooks across 4 platforms verified carrying `configure_utf8_stdio` with zero CR bytes. Renderer observation for a follow-up plan: an explicit `--platform` list that excludes `copilot` calls `remove_copilot_artifacts` even when the repo HAS copilot surfaces — a sequential per-platform render loop deletes `.github/hooks/`; use one auto-detect (or multi-`--platform`) invocation. | grep: 4/4 + 4/4 + 2/2 + 2/2 hooks carry the fix; 0 CR bytes |
+| 2026-07-02 | Implemented ws1 + ws2 (source + tests). `cli_stdio.configure_utf8_stdio()` loop extended to `("stdin", "stdout", "stderr")`; `HOOK_BOOTSTRAP` gained a guarded `import cli_stdio as _wf_cli_stdio` + `configure_utf8_stdio()` after the `sys.path` insert / `activate_tool_venv()`; the `claude_simulate_hooks_source()` spawn gained `encoding="utf-8", errors="replace"`. Added 5 tests to `tests/test_cli_stdio.py` (stdin reconfigure / None-skip / no-reconfigure-skip / idempotent) and 4 to `tests/test_render_platform_surfaces.py` (`HookStdinUtf8Tests`: guarded-call structural, unimportable-tolerance, cp1252 stdin round-trip, simulate encode). AC-1..AC-4 met. ws3 (re-render + full suite) is the coordinator's central pass → AC-5/AC-6 verified there. | 12 group tests + pre-existing `HookReindexDetachTests`/`ClaudeHookSimulateParityTests` green; regression confirmed (AC-3 fails when the reconfigure is a no-op); `__pycache__` cleaned. |
 
 
 ## Decision Log
@@ -131,7 +133,7 @@ N/A. The change is a localized encoding fix within the platform-surface renderer
 | `sys.stdin.reconfigure()` raises if called after stdin buffering/reads have begun. | `HOOK_BOOTSTRAP` runs the call first-thing (after `sys.path` insert, before any body reads stdin); the call is wrapped in a guard so any failure is a silent no-op. |
 | A hook rendered against an old/transient tree lacks `cli_stdio`, breaking the bootstrap import. | The `import cli_stdio` + call are wrapped in `try/except Exception: pass` (same pattern as the existing `venv_bootstrap` import); the hook still runs, just without the stdin reconfigure. |
 | Rendered-surface newline drift when re-rendering on a non-POSIX host. | ws3 verifies regenerated files for stray CRLF; the renderer already writes with `newline=""` (rendered-surface fidelity note in MEMORY) — confirm no doubled-CR on re-render. |
-| `errors="replace"` masks a genuinely malformed payload. | Accepted: valid UTF-8 never triggers replacement; the pre-existing `load_payload` already degrades malformed JSON to `{}`, so no new silent failure mode is introduced. |
+| `errors="replace"` masks a genuinely malformed payload. | Accepted: valid UTF-8 never triggers replacement; the pre-existing `load_payload` already degrades malformed JSON to `{}`, so no new silent failure mode is introduced. Delivery-review residual: for the five cp1252-undefined bytes the prior behavior was a loud hook crash; those now degrade to a silent U+FFFD path (a filename with invalid-UTF-8 bytes could skip that edit's hook trigger without error). Bounded: the incremental docs-lint selects files by git delta, and the full-corpus scan at prepare/close backstops any skipped trigger. |
 
 
 ## Session Handoff

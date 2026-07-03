@@ -529,11 +529,7 @@ class WaveIndex:
     def _fts_query(query: str) -> str:
         stripped = query.strip()
         if len(stripped) >= 2 and stripped[0] == stripped[-1] and stripped[0] in ('"', "'", "`"):
-            inner = stripped[1:-1]
-        else:
-            inner = stripped
-        if inner and re.search(r"\w", inner) and re.fullmatch(r"[\w._]+", inner):
-            return f'"{inner}"'
+            return stripped[1:-1]
         return query
 
     def _lance_fts_search(self, table, query: str, top_n: int, where: Optional[str] = None, layer: str = "project") -> list[dict]:
@@ -1998,6 +1994,32 @@ def _read_workflow_config(root: Path) -> dict:
     return {}
 
 
+# Wave 1p9iu: generous default timeout (seconds) for the server-side FULL-corpus docs-lint subprocess
+# in run_validate — well above the old hardcoded 30s that was too short on a large field repo, and at
+# minimum matching the post-edit hook's 120s floor (indexer.DOCS_LINT_HOOK_TIMEOUT_DEFAULT). The full
+# scan (no --changed) is heavier than the incremental hook, so it carries a higher generous-but-bounded
+# default.
+DOCS_LINT_FULL_SCAN_TIMEOUT_DEFAULT = 300.0
+
+
+def docs_lint_full_scan_timeout_seconds(root: Path) -> float:
+    """Timeout (seconds) for the server-side full-corpus docs-lint subprocess run by ``run_validate``
+    (wave 1p9iu). Reads ``docs/workflow-config.json`` ``docs_lint.full_scan_timeout_seconds``; defaults
+    to ``DOCS_LINT_FULL_SCAN_TIMEOUT_DEFAULT``. Mirrors the fail-safe contract of
+    ``indexer.docs_lint_hook_timeout_seconds``: any error / missing key / non-positive value falls back
+    to the default and never raises. A distinct knob (co-located with the hook's under the ``docs_lint``
+    namespace) lets an operator raise the heavy full-scan path on a large repo without loosening the
+    light incremental hook path."""
+    try:
+        cfg = _read_workflow_config(root)
+        val = (cfg.get("docs_lint") or {}).get("full_scan_timeout_seconds")
+        if isinstance(val, (int, float)) and not isinstance(val, bool) and val > 0:
+            return float(val)
+    except Exception:
+        pass
+    return DOCS_LINT_FULL_SCAN_TIMEOUT_DEFAULT
+
+
 def _read_project_required_review_lanes(root: Path) -> list[str]:
     """Return project-declared required review lanes from workflow-config.json."""
     cfg = _read_workflow_config(root)
@@ -2446,17 +2468,10 @@ def _find_other_active_wave(
 
 
 def get_change(root: Path, change_id_prefix: str) -> Optional[str]:
-    prefix = change_id_prefix.strip().lower()
-    search_dirs = [
-        root / "docs" / "plans",
-        root / "docs" / "waves",
-    ]
-    for base in search_dirs:
-        if not base.exists():
-            continue
-        for p in base.rglob("*.md"):
-            if prefix in p.stem.lower():
-                return p.read_text(encoding="utf-8")
+    matches = _resolve_change_doc_matches(root, change_id_prefix)
+    if len(matches) != 1:
+        return None
+    return str(matches[0].get("content") or "")
     return None
 
 
@@ -3060,19 +3075,41 @@ def run_validate(root: Path) -> dict:
     correct tree even when the caller's environment already has ``PROJECT_ROOT``
     set to a different path (e.g. in multi-project MCP setups).
     """
+    import subprocess
+
     script = Path(__file__).resolve().parent / "docs_lint.py"
-    # Wave 1p3dk delivery-council finding (red-team): every write-side wave
-    # tool now invokes run_validate via _run_post_write_lint. Without a
-    # subprocess timeout, a hung lint process would freeze the calling tool
-    # indefinitely. 30s is generous (lint typically completes <100ms on this
-    # repo's corpus); the surrounding _run_post_write_lint catches the
-    # TimeoutExpired and reports `clean: None` rather than breaking the tool.
-    result = _mcp_subprocess_run(
-        [_preferred_python(), str(script)],
-        cwd=str(root),
-        env={**os.environ, "PROJECT_ROOT": str(root)},
-        timeout=30,
-    )
+    # Wave 1p3dk delivery-council finding (red-team): every write-side wave tool invokes run_validate
+    # via _run_post_write_lint, so a hung lint process would otherwise freeze the calling tool. Wave
+    # 1p9iu makes the timeout configurable via docs/workflow-config.json ``docs_lint.full_scan_timeout_
+    # seconds`` (default DOCS_LINT_FULL_SCAN_TIMEOUT_DEFAULT) because the old hardcoded 30s was too short
+    # for a large field repo's full-corpus scan. This is a FULL scan (no --changed) — only the timeout
+    # is tunable, not the scan scope. On timeout we return a structured passed:False result naming the
+    # config key instead of propagating TimeoutExpired: the five lifecycle callers (wave_validate,
+    # wave_prepare, wave_review, wave_close, wave_install_audit) render ``errors`` via docs_lint_error,
+    # so one catch here surfaces an actionable diagnostic through all of them. _run_post_write_lint keeps
+    # its own broader try/except as a defense-in-depth net.
+    timeout_s = docs_lint_full_scan_timeout_seconds(root)
+    try:
+        result = _mcp_subprocess_run(
+            [_preferred_python(), str(script)],
+            cwd=str(root),
+            env={**os.environ, "PROJECT_ROOT": str(root)},
+            timeout=timeout_s,
+        )
+    except subprocess.TimeoutExpired as exc:
+        elapsed = exc.timeout if getattr(exc, "timeout", None) else timeout_s
+        message = (
+            f"ERROR: docs-lint full-corpus scan timed out after {elapsed:g}s. Raise "
+            f"`docs_lint.full_scan_timeout_seconds` in docs/workflow-config.json (default "
+            f"{DOCS_LINT_FULL_SCAN_TIMEOUT_DEFAULT:g}s) if this repo's docs corpus legitimately needs "
+            f"longer, or investigate a stalled docs_lint.py."
+        )
+        return {
+            "passed": False,
+            "errors": [message],
+            "warnings": [],
+            "output": message,
+        }
     lines = (result.stdout + result.stderr).strip().splitlines()
     errors = [l for l in lines if l.startswith("ERROR:")]
     warnings = [l for l in lines if l.startswith("WARNING:")]
@@ -4189,8 +4226,8 @@ def wave_get_change_response(root: Path, change_id: str = "", wave_id: str = "")
 
     # Bulk mode: wave_id provided, no specific change_id
     if wave_id_s and not change_id_s:
-        wave_md = _find_wave_md(root, wave_id_s)
-        if wave_md is None:
+        wave_matches = _resolve_wave_md_matches(root, wave_id_s)
+        if not wave_matches:
             return _response(
                 "ok",
                 {"wave_id": wave_id_s, "changes": []},
@@ -4198,6 +4235,23 @@ def wave_get_change_response(root: Path, change_id: str = "", wave_id: str = "")
                 next_tools=["wave_list_waves"],
                 usage="wave_list_waves()",
             )
+        if len(wave_matches) > 1:
+            candidates = ", ".join(f"{m['wave_id']} ({m['path']})" for m in wave_matches)
+            return _response(
+                "ok",
+                {"wave_id": wave_id_s, "wave": None, "waves": wave_matches, "changes": []},
+                diagnostics=[
+                    _diagnostic(
+                        "ambiguous_wave_id",
+                        f"Multiple waves match '{wave_id_s}': {candidates}. Use a more specific wave ID.",
+                        recovery_tools=["wave_list_waves"],
+                        recovery_usage="wave_list_waves()",
+                    )
+                ],
+                next_tools=["wave_list_waves"],
+                usage="wave_list_waves()",
+            )
+        wave_md = root / str(wave_matches[0]["path"])
         wave_text = wave_md.read_text(encoding="utf-8")
         admitted_ids = _extract_change_ids_from_wave_text(wave_text)
         changes: list[dict[str, Any]] = []
@@ -4241,12 +4295,12 @@ def wave_get_change_response(root: Path, change_id: str = "", wave_id: str = "")
             usage="wave_validate()",
         )
 
-    # Single lookup mode (original behavior)
-    text = get_change(root, change_id_s)
-    if text is None:
+    # Single lookup mode.
+    matches = _resolve_change_doc_matches(root, change_id_s)
+    if not matches:
         return _response(
             "ok",
-            {"change_id": change_id_s, "change": None},
+            {"change_id": change_id_s, "change": None, "changes": []},
             diagnostics=[
                 _diagnostic(
                     "change_not_found",
@@ -4258,12 +4312,32 @@ def wave_get_change_response(root: Path, change_id: str = "", wave_id: str = "")
             next_tools=["wave_list_plans", "wave_current"],
             usage="wave_list_plans()",
         )
+    if len(matches) > 1:
+        candidates = ", ".join(f"{m['change_id']} ({m['path']})" for m in matches)
+        return _response(
+            "ok",
+            {"change_id": change_id_s, "change": None, "changes": matches},
+            diagnostics=[
+                _diagnostic(
+                    "ambiguous_change_id",
+                    f"Multiple change docs match '{change_id_s}': {candidates}. Use a more specific change ID.",
+                    recovery_tools=["wave_list_plans", "wave_current"],
+                    recovery_usage="wave_list_plans()",
+                )
+            ],
+            next_tools=["wave_list_plans", "wave_current"],
+            usage="wave_list_plans()",
+        )
+    match = matches[0]
     return _response(
         "ok",
         {
             "change_id": change_id_s,
+            "changes": [],
             "change": {
-                "content": text,
+                "content": match["content"],
+                "path": match["path"],
+                "change_id": match["change_id"],
                 "trust_label": TRUSTED_PROJECT_METADATA,
             },
         },
@@ -4487,25 +4561,60 @@ def wave_map_response(root: Path, address: str, index: WaveIndex) -> dict[str, A
     )
 
 
-def _find_wave_md(root: Path, wave_id_or_prefix: str) -> Optional[Path]:
+def _token_matches_id(candidate: str, query: str) -> bool:
+    token = (query or "").strip().lower()
+    if not token:
+        return False
+    return (candidate or "").strip().lower().startswith(token)
+
+
+def _change_doc_matches_token(path: Path, canonical_change_id: str, token: str) -> bool:
+    stem = path.stem
+    return _token_matches_id(canonical_change_id, token) or _token_matches_id(stem, token)
+
+
+def _wave_match_payload(root: Path, wave_md: Path) -> dict[str, Any]:
+    try:
+        parsed = _parse_wave_record(wave_md)
+        text = wave_md.read_text(encoding="utf-8")
+    except OSError:
+        parsed = {}
+        text = ""
+    wave_id = str(parsed.get("wave_id") or wave_md.parent.name)
+    return {
+        "wave_id": wave_id,
+        "path": str(wave_md.relative_to(root)).replace("\\", "/"),
+        "changes": _extract_change_ids_from_wave_text(text),
+    }
+
+
+def _resolve_wave_md_matches(root: Path, wave_id_or_prefix: str) -> list[dict[str, Any]]:
     token = (wave_id_or_prefix or "").strip().lower()
     if not token:
-        return None
+        return []
     waves_root = root / "docs" / "waves"
     if not waves_root.exists():
-        return None
-    matches: list[Path] = []
+        return []
+    matches: list[dict[str, Any]] = []
     for wave_md in waves_root.glob("*/wave.md"):
         try:
             parsed = _parse_wave_record(wave_md)
             wave_id = str(parsed.get("wave_id") or wave_md.parent.name).lower()
         except OSError:
             continue
-        if token in wave_id:
-            matches.append(wave_md)
-    if len(matches) != 1:
+        if _token_matches_id(wave_id, token) or _token_matches_id(wave_md.parent.name, token):
+            matches.append(_wave_match_payload(root, wave_md))
+    return sorted(matches, key=lambda m: str(m.get("path") or ""))
+
+
+def _find_wave_md(root: Path, wave_id_or_prefix: str) -> Optional[Path]:
+    matches = _resolve_wave_md_matches(root, wave_id_or_prefix)
+    if not matches:
         return None
-    return matches[0]
+    if len(matches) > 1:
+        candidates = ", ".join(f"{m['wave_id']} ({m['path']})" for m in matches)
+        raise ValueError(f"Multiple wave records match {wave_id_or_prefix!r}: {candidates}")
+    return root / str(matches[0]["path"])
 
 
 def _extract_change_ids_from_wave_text(text: str) -> list[str]:
@@ -4522,7 +4631,7 @@ def _resolve_change_doc_matches(root: Path, change_id_prefix: str) -> list[dict[
         if not base.exists():
             continue
         for p in base.rglob("*.md"):
-            if token not in p.stem.lower():
+            if p.name == "wave.md":
                 continue
             try:
                 text = p.read_text(encoding="utf-8")
@@ -4530,6 +4639,8 @@ def _resolve_change_doc_matches(root: Path, change_id_prefix: str) -> list[dict[
                 continue
             change_match = _CHANGE_ID_PATTERN.search(text)
             canonical_change_id = change_match.group(1) if change_match else p.stem
+            if not _change_doc_matches_token(p, canonical_change_id, token):
+                continue
             matches.append(
                 {
                     "path": str(p.relative_to(root)).replace("\\", "/"),
@@ -4537,7 +4648,7 @@ def _resolve_change_doc_matches(root: Path, change_id_prefix: str) -> list[dict[
                     "content": text,
                 }
             )
-    return matches
+    return sorted(matches, key=lambda m: str(m.get("path") or ""))
 
 
 _REVIEW_EVIDENCE_MARKERS = ("## Review Evidence", "## Review Signoff Evidence")
@@ -4689,7 +4800,8 @@ def _resolve_unique_change_doc(root: Path, change_id: str) -> tuple[Optional[dic
     if not matches:
         return None, _diagnostic("change_not_found", f"No change doc found matching '{change_id}'.", recovery_tools=["wave_list_plans"], recovery_usage="wave_list_plans()")
     if len(matches) > 1:
-        return None, _diagnostic("ambiguous_change_id", f"Multiple change docs match '{change_id}'. Use a more specific ID.", recovery_tools=["wave_list_plans"], recovery_usage="wave_list_plans()")
+        candidates = ", ".join(f"{m['change_id']} ({m['path']})" for m in matches)
+        return None, _diagnostic("ambiguous_change_id", f"Multiple change docs match '{change_id}': {candidates}. Use a more specific ID.", recovery_tools=["wave_list_plans"], recovery_usage="wave_list_plans()")
     return matches[0], None
 
 
@@ -16572,8 +16684,10 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
     def wave_gpu_doctor(**kwargs: Any) -> dict[str, Any]:
         """Embedding-provider / GPU capability diagnostic — platform, onnxruntime, GPU detection
         (nvidia/apple), available ONNX execution providers, the provider Wavefoundry would select
-        (+ reason/remediation), and the CUDA 12/13 ABI-gap check. Read-only, pure introspection
-        (no model load / index build). Same report as the `setup-wavefoundry --check-gpu` CLI.
+        (+ reason/remediation + decision provenance: setup-cache / fresh-probe / operator-request),
+        and the CUDA 12/13 ABI-gap check. Read-only, no index build; note it RUNS the bounded
+        model-loading provider probe (seconds; needs the model cached), the same probe setup uses.
+        Same report as the `setup-wavefoundry --check-gpu` CLI.
         """
         bad = _ensure_no_extra_args("wave_gpu_doctor", kwargs)
         if bad is not None:
@@ -18626,10 +18740,21 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
     )
     def resource_change(change_id: str) -> str:
         """Return the change doc matching the given ID or prefix."""
-        text = get_change(get_handler().root, change_id)
-        if text is None:
+        root = get_handler().root
+        matches = _resolve_change_doc_matches(root, change_id)
+        if not matches:
             return f"# Not Found\n\nNo change doc found matching `{change_id}`. Use `wave_get_change(change_id=...)` for structured lookup.\n"
-        return text
+        if len(matches) > 1:
+            lines = [
+                "# Ambiguous Change",
+                "",
+                f"Multiple change docs match `{change_id}`. Use `wave_get_change(change_id=...)` for structured lookup.",
+                "",
+            ]
+            for match in matches:
+                lines.append(f"- `{match['change_id']}` — `{match['path']}`")
+            return "\n".join(lines) + "\n"
+        return str(matches[0]["content"])
 
     @mcp.resource(
         "wavefoundry://wave/{wave_id}",
@@ -18639,9 +18764,23 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
     )
     def resource_wave(wave_id: str) -> str:
         """Return the wave.md for the given wave ID or prefix."""
-        wave_md = _find_wave_md(get_handler().root, wave_id)
-        if wave_md is None:
+        root = get_handler().root
+        matches = _resolve_wave_md_matches(root, wave_id)
+        if not matches:
             return f"# Not Found\n\nNo wave found matching `{wave_id}`. Use `wave_list_waves()` to see available waves.\n"
+        if len(matches) > 1:
+            lines = [
+                "# Ambiguous Wave",
+                "",
+                f"Multiple waves match `{wave_id}`. Use `wave_list_waves()` to see available waves.",
+                "",
+            ]
+            for match in matches:
+                changes = ", ".join(match.get("changes") or [])
+                suffix = f" — changes: {changes}" if changes else ""
+                lines.append(f"- `{match['wave_id']}` — `{match['path']}`{suffix}")
+            return "\n".join(lines) + "\n"
+        wave_md = root / str(matches[0]["path"])
         return wave_md.read_text(encoding="utf-8")
 
     @mcp.resource(

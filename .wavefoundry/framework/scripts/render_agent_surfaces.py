@@ -294,7 +294,14 @@ def patch_root_bridge(path: Path) -> bool:
 
 def write_text(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
+    # newline="" disables newline translation so the embedded line terminators are written
+    # VERBATIM, byte-identical on every rendering host (mirrors render_platform_surfaces.write_text,
+    # wave 1p7tz). With the default newline=None, a re-render on native Windows translates every
+    # "\n" → os.linesep ("\r\n"), so the freshly generated agent surfaces (auto-guru.mdc, guru.md,
+    # SKILL.md, config.toml) would gain CRLF and diff full-file on re-render. The source strings
+    # already carry LF terminators, so newline="" is right for all hosts.
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        handle.write(content)
 
 
 def render_agent_surfaces(repo_root: Path) -> list[str]:

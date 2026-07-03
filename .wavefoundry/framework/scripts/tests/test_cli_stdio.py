@@ -83,6 +83,47 @@ class ConfigureUtf8StdioTests(unittest.TestCase):
         with patch.object(sys, "stdout", RaisingStream()), patch.object(sys, "stderr", RaisingStream()):
             cli_stdio.configure_utf8_stdio()  # no exception
 
+    def test_stdin_is_reconfigured_to_utf8(self):
+        # Wave 1p9iv: a rendered hook reads its host JSON payload from stdin; configure_utf8_stdio()
+        # must reconfigure stdin too so a cp1252 console does not mis-decode non-ASCII payload bytes
+        # (a file path / message / diff excerpt carrying em-dash / box-drawing / accented characters).
+        stdin = _Cp1252Stream()
+        with patch.object(sys, "stdin", stdin), \
+             patch.object(sys, "stdout", _Cp1252Stream()), \
+             patch.object(sys, "stderr", _Cp1252Stream()):
+            cli_stdio.configure_utf8_stdio()
+        self.assertEqual(stdin.encoding, "utf-8")
+        self.assertEqual(stdin.errors, "replace")
+
+    def test_none_stdin_is_skipped_without_raising(self):
+        # A detached stdin (None — e.g. a GUI/pythonw host with no console stdin) must be skipped
+        # silently; the helper must never crash the program it is hardening.
+        with patch.object(sys, "stdin", None), \
+             patch.object(sys, "stdout", _Cp1252Stream()), \
+             patch.object(sys, "stderr", _Cp1252Stream()):
+            cli_stdio.configure_utf8_stdio()  # no exception
+
+    def test_stdin_without_reconfigure_is_skipped(self):
+        # A stdin object lacking reconfigure (e.g. a redirected/captured stream) is skipped silently.
+        class NoReconfigure:
+            encoding = "cp1252"
+
+        with patch.object(sys, "stdin", NoReconfigure()), \
+             patch.object(sys, "stdout", _Cp1252Stream()), \
+             patch.object(sys, "stderr", _Cp1252Stream()):
+            cli_stdio.configure_utf8_stdio()  # no exception
+
+    def test_reconfigure_is_idempotent(self):
+        # AC-6: a second call is a no-op — all three streams stay UTF-8/replace and nothing raises.
+        stdin, out, err = _Cp1252Stream(), _Cp1252Stream(), _Cp1252Stream()
+        with patch.object(sys, "stdin", stdin), patch.object(sys, "stdout", out), \
+             patch.object(sys, "stderr", err):
+            cli_stdio.configure_utf8_stdio()
+            cli_stdio.configure_utf8_stdio()
+        for stream in (stdin, out, err):
+            self.assertEqual(stream.encoding, "utf-8")
+            self.assertEqual(stream.errors, "replace")
+
 
 class IsolatedStdoutFdTests(unittest.TestCase):
     """Wave 1p8vc: the fd-level stdout isolation that protects the MCP JSON-RPC channel from native

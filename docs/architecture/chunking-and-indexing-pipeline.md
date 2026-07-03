@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-02
+Last verified: 2026-07-03
 
 This document describes how Wavefoundry builds and maintains its search indexes. It covers
 every stage of the pipeline: file discovery, change detection, chunking, embedding, and
@@ -448,15 +448,25 @@ model even though they originate from `.py`, `.java`, etc.
 
 1. `CUDAExecutionProvider` for NVIDIA/CUDA when ONNX Runtime exposes it.
 2. `CoreMLExecutionProvider` on Apple Silicon only after a bounded active-model probe produces
-   valid embeddings and beats the CPU path by a material margin.
+   valid embeddings (accepted on correctness alone — CoreML partitions unsupported ops back to
+   CPU, so no speedup margin is required). A CoreML probe failure matching the known macOS
+   temp-working-directory shape (`Failed to create a working directory …` under
+   `/var/folders/…/T/`) gets one bounded repair-and-retry inside the probe window — before the
+   decision is recorded — so a transient temp-dir failure no longer pins the whole build to CPU;
+   a persistent failure still falls back to CPU with an actionable recovery diagnostic.
 3. Named secondary ONNX providers such as `DmlExecutionProvider`, `OpenVINOExecutionProvider`,
    `MIGraphXExecutionProvider`, or `ROCMExecutionProvider`, only after explicit availability and
-   model probing.
+   model probing (these keep the CPU-speedup gate).
 4. `CPUExecutionProvider` as the safe fallback.
 
 There is intentionally no generic GPU provider tier. Each non-CPU provider has different package,
 driver, and model-compatibility constraints, so setup diagnostics report the actual provider name
-and fallback reason. On NVIDIA machines, setup plans the `fastembed-gpu` dependency path when local
+and fallback reason. Every provider decision also names its source (`decision-source=` /
+`decision_provenance`): `setup-cache` when a process honors the decision setup recorded in
+`WAVEFOUNDRY_EMBED_PROVIDER_SELECTED`, `fresh-probe` when the availability/probe chain ran in that
+process, or `operator-request` when `WAVEFOUNDRY_EMBED_PROVIDER` forced it — setup/index-build and
+`wave_gpu_doctor` share the same probe chain, and process-scoped cache state is the one intentional
+difference between their reports. On NVIDIA machines, setup plans the `fastembed-gpu` dependency path when local
 `nvidia-smi` detection succeeds. If hardware is present but `CUDAExecutionProvider` is missing after
 installation, setup keeps CPU execution and prints remediation guidance instead of failing the
 index build.
@@ -543,7 +553,9 @@ After all rows have been written, two secondary indexes are created if the total
 reaches `LANCEDB_INDEX_THRESHOLD` (1000 rows):
 
 - **HNSW** — approximate nearest-neighbour vector index, used for semantic search queries.
-- **FTS (Tantivy/BM25)** — full-text search index, used for keyword queries.
+- **FTS (Tantivy/BM25)** — full-text search index, used for keyword/candidate-recall
+  queries. The index is built without positional data (`with_position=False`), so
+  server-side query shaping must avoid phrase queries that require positions.
 
 Below the threshold, queries fall back to a brute-force scan, which is fast enough at small
 scale and avoids the overhead of index construction on near-empty tables.

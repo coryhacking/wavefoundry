@@ -1,15 +1,21 @@
 from __future__ import annotations
 
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 TESTS_ROOT = Path(__file__).resolve().parent
 PROJECT_ROOT = TESTS_ROOT.parents[2]
-RENDER_SCRIPT = PROJECT_ROOT / "framework" / "scripts" / "render_agent_surfaces.py"
+SCRIPTS_ROOT = PROJECT_ROOT / "framework" / "scripts"
+RENDER_SCRIPT = SCRIPTS_ROOT / "render_agent_surfaces.py"
 GURU_STUB = "# Guru\n\nRole: guru\n"
+
+sys.path.insert(0, str(SCRIPTS_ROOT))
+import render_agent_surfaces as ras  # noqa: E402
 
 
 class RenderAgentSurfacesTests(unittest.TestCase):
@@ -161,6 +167,69 @@ class AutoGuruRoutingAnchorRegressionTests(unittest.TestCase):
         self.assertIn("anchoring", window.lower(),
             "table must be framed as 'anchoring examples for an intent rule, not the rule itself' — "
             "guards against the table becoming a keyword-match list")
+
+
+class AgentSurfaceNewlineTests(unittest.TestCase):
+    """Wave 1p9ix (F14) — render_agent_surfaces.write_text must write embedded
+    line terminators VERBATIM (newline="") so the freshly generated agent surfaces
+    are byte-identical LF on every host, matching render_platform_surfaces.write_text.
+    """
+
+    # The four freshly generated agent surfaces write_text produces.
+    _GENERATED_SURFACES = (
+        (".cursor", "rules", "auto-guru.mdc"),
+        (".claude", "agents", "guru.md"),
+        (".codex", "skills", "auto-guru", "SKILL.md"),
+        (".codex", "config.toml"),
+    )
+
+    def _make_repo(self, repo_root: Path) -> None:
+        (repo_root / "docs" / "agents").mkdir(parents=True)
+        (repo_root / "docs" / "agents" / "guru.md").write_text(GURU_STUB, encoding="utf-8")
+        (repo_root / ".cursor" / "rules").mkdir(parents=True)
+        (repo_root / ".claude" / "agents").mkdir(parents=True)
+
+    def test_write_text_uses_newline_empty_and_writes_verbatim(self) -> None:
+        # Durable, host-independent guard: capture the newline kwarg passed to
+        # Path.open. The old `path.write_text(content, encoding="utf-8")` never
+        # passes newline="" (it uses the default newline=None, which translates
+        # every "\n" -> os.linesep on native Windows), so this fails on a revert
+        # on ANY host, not only on Windows.
+        real_open = Path.open
+        captured: dict[str, object] = {}
+
+        def spy_open(self, *args, **kwargs):  # noqa: ANN001
+            captured["newline"] = kwargs.get("newline", "<absent>")
+            return real_open(self, *args, **kwargs)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            target = Path(temp_dir) / "nested" / "surface.txt"
+            with patch.object(Path, "open", spy_open):
+                ras.write_text(target, "line-1\nline-2\nline-3\n")
+            self.assertEqual(
+                captured.get("newline"), "",
+                "write_text must open with newline='' so embedded \\n are written verbatim",
+            )
+            raw = target.read_bytes()
+            self.assertNotIn(b"\r\n", raw, "written bytes must be LF-only")
+            self.assertEqual(target.read_text(encoding="utf-8"), "line-1\nline-2\nline-3\n")
+
+    def test_rendered_agent_surfaces_are_lf_only(self) -> None:
+        # Render the four generated surfaces and assert their bytes contain no
+        # \r\n (LF-only) regardless of os.linesep on the rendering host.
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            self._make_repo(repo_root)
+            written = ras.render_agent_surfaces(repo_root)
+            self.assertTrue(written, "render should produce surfaces when guru.md is present")
+            for parts in self._GENERATED_SURFACES:
+                surface = repo_root.joinpath(*parts)
+                self.assertTrue(surface.is_file(), f"missing generated surface {surface}")
+                raw = surface.read_bytes()
+                self.assertNotIn(
+                    b"\r\n", raw,
+                    f"{'/'.join(parts)} must be written LF-only (no CRLF)",
+                )
 
 
 if __name__ == "__main__":

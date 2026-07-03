@@ -1257,11 +1257,40 @@ def project_index_inputs_stale(root: Path, meta: dict | None = None) -> bool | N
 # Atomic file write helper
 # ---------------------------------------------------------------------------
 
+# Wave 1p9iw: bounded retry for the atomic meta.json swap on native Windows. Only the os.replace
+# (a MoveFileEx rename) can sharing-violate — WinError 32 (ERROR_SHARING_VIOLATION) or WinError 5
+# (ERROR_ACCESS_DENIED) — when a concurrent framework reader (wave_index_health,
+# wave_index_build_status, an MCP freshness check, or the dashboard watcher) has meta.json open at the
+# instant of the swap. A small fixed bound covers that brief read window; on genuine persistence the
+# last exception re-raises (the failure surface is unchanged, not masked).
+_META_REPLACE_MAX_ATTEMPTS = 5
+_META_REPLACE_BACKOFF_SECONDS = 0.1
+
+
 def _atomic_write_text(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
     tmp.write_text(text, encoding="utf-8")
-    os.replace(tmp, path)
+    # Wave 1p9iw: Windows-only bounded retry-with-backoff around the os.replace swap. Mirrors the
+    # "Windows-only, bounded retry, POSIX untouched" shape of setup_index._rmtree_clearing_readonly /
+    # _clear_readonly_and_retry (waves 1p9hk / 1p6d6): retry ONLY the WinError 5/32 sharing-violation
+    # transient on ``os.name == "nt"``, re-raise the last exception once the small bound is exhausted so
+    # a persistent lock still surfaces (mirrors the setup_index caller-checks-afterward discipline), and
+    # re-raise any other error immediately so a genuinely different failure is not masked or delayed.
+    # On POSIX os.replace is atomic and never sharing-violates, so this reduces to a single call — the
+    # original path is behaviorally unchanged there.
+    for attempt in range(_META_REPLACE_MAX_ATTEMPTS):
+        try:
+            os.replace(tmp, path)
+            return
+        except OSError as exc:  # PermissionError is an OSError subclass — both are covered
+            if (
+                os.name != "nt"
+                or getattr(exc, "winerror", None) not in (5, 32)
+                or attempt >= _META_REPLACE_MAX_ATTEMPTS - 1
+            ):
+                raise
+            time.sleep(_META_REPLACE_BACKOFF_SECONDS)
 
 
 # ---------------------------------------------------------------------------
@@ -1404,8 +1433,16 @@ class _StreamingLayerWriter:
         else:
             self.table.add(rows)
         self.written += len(chunks)
+        # Watchdog heartbeat (wave 1p9j0): one unconditional line per embed flush so the setup
+        # stall watchdog's no-progress window keeps resetting during long/thrashing embed
+        # stretches between the per-50-file progress prints.
+        print(f"build_index: embedded {self.written} chunks ({self.label})", flush=True)
 
     def finalize(self, verbose: bool = False) -> int:
+        # Watchdog heartbeat (wave 1p9j0): the finalize tail (optimize/compact, vector-index and
+        # FTS builds) printed only under verbose, leaving a minutes-long silent window at "99%"
+        # that could trip the setup stall watchdog on a slow host — announce it unconditionally.
+        print(f"build_index: finalizing {self.label} index ({self.written} chunks)", flush=True)
         try:
             return self._finalize_inner(verbose)
         finally:
@@ -1684,7 +1721,8 @@ def _create_fts_index(table, table_name: str, replace: bool = False) -> None:
     refresh Tantivy indexes; an explicit rebuild is required.
 
     Tokenizer: ``simple`` (splits on whitespace and punctuation) with stemming
-    and stop-word removal disabled and ``max_token_length=80``.
+    and stop-word removal disabled, ``max_token_length=80``, and
+    ``with_position=False``.
 
     Why ``simple``:  punctuation like ``.`` and ``(`` acts as a token boundary,
     so ``build_pack.version`` indexes as ``build_pack`` and ``version`` — both
@@ -1701,6 +1739,11 @@ def _create_fts_index(table, table_name: str, replace: bool = False) -> None:
     (``SORT_WINDOW_SIZE``) are indexed as individual tokens (``sort``, ``window``,
     ``size``).  The dense retrieval path compensates: exact identifier queries
     that produce noisy BM25 hits are rescored by the cross-encoder reranker.
+
+    Why ``with_position=False``: Wavefoundry uses FTS for candidate recall in
+    hybrid docs/code retrieval, not exact phrase/proximity search. Dropping
+    positions substantially reduces FTS storage; server-side query shaping must
+    avoid phrase queries that require positions.
     """
     try:
         table.create_fts_index(
@@ -1711,7 +1754,7 @@ def _create_fts_index(table, table_name: str, replace: bool = False) -> None:
             remove_stop_words=False,
             lower_case=True,
             max_token_length=80,
-            with_position=True,
+            with_position=False,
         )
     except Exception as exc:
         print(

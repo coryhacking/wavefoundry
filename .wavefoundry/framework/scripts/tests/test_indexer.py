@@ -3221,6 +3221,17 @@ class IndexReclaimTests(unittest.TestCase):
         self.assertNotIn("vector", kinds)  # below LANCEDB_INDEX_THRESHOLD -> flat scan
         self.assertIn("fts", kinds)
 
+    def test_create_fts_index_disables_positions(self):
+        table = _ReclaimFakeTable(rows=10)
+        self.bi._create_fts_index(table, "docs", replace=True)
+        self.assertEqual(len(table.created_indices), 1)
+        kind, kwargs = table.created_indices[0]
+        self.assertEqual(kind, "fts")
+        self.assertFalse(kwargs.get("with_position"))
+        self.assertEqual(kwargs.get("base_tokenizer"), "simple")
+        self.assertFalse(kwargs.get("stem"))
+        self.assertFalse(kwargs.get("remove_stop_words"))
+
     def test_tier3_only_on_read_failure_not_optimize_failure(self):
         # AC-3: a full rebuild (needs_rebuild) fires ONLY when to_arrow() raises, never for a mere
         # optimize() failure (which is Tier 2).
@@ -3412,3 +3423,94 @@ class DocsLintHookTimeoutTests(unittest.TestCase):
             self.bi.docs_lint_hook_timeout_seconds(Path("/no/such/root/xyz")),
             self.bi.DOCS_LINT_HOOK_TIMEOUT_DEFAULT,
         )
+
+
+class AtomicWriteWindowsShareRetryTests(unittest.TestCase):
+    """Wave 1p9iw — `_atomic_write_text`'s os.replace swap gets a bounded Windows-only sharing-violation
+    retry (WinError 5/32) so a concurrent meta.json reader can't abort _save_meta mid-build. POSIX and
+    non-{5,32} errors are single-call, immediate-reraise. Windows is simulated by forcing os.name and
+    injecting a PermissionError with .winerror set, so the branch is exercised platform-independently."""
+
+    def setUp(self):
+        self.bi = load_build_index()
+
+    def test_retries_then_succeeds_on_sharing_violation(self):
+        # AC-1: first attempt raises WinError 32 (sharing violation), retry succeeds, content lands.
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "meta.json"
+            real_replace = os.replace
+            calls = {"n": 0}
+
+            def flaky(src, dst):
+                calls["n"] += 1
+                if calls["n"] == 1:
+                    exc = PermissionError("sharing violation")
+                    exc.winerror = 32
+                    raise exc
+                return real_replace(src, dst)
+
+            with patch.object(self.bi.os, "name", "nt"), \
+                 patch.object(self.bi.os, "replace", side_effect=flaky), \
+                 patch.object(self.bi.time, "sleep", return_value=None):
+                self.bi._atomic_write_text(target, "final-content")
+
+            self.assertEqual(calls["n"], 2)
+            self.assertEqual(target.read_text(encoding="utf-8"), "final-content")
+
+    def test_persistent_sharing_violation_reraises_after_bound(self):
+        # AC-2: every attempt raises WinError 5 → the last exception is re-raised (not swallowed).
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "meta.json"
+            calls = {"n": 0}
+
+            def always(src, dst):
+                calls["n"] += 1
+                exc = PermissionError("access denied")
+                exc.winerror = 5
+                raise exc
+
+            with patch.object(self.bi.os, "name", "nt"), \
+                 patch.object(self.bi.os, "replace", side_effect=always), \
+                 patch.object(self.bi.time, "sleep", return_value=None):
+                with self.assertRaises(PermissionError):
+                    self.bi._atomic_write_text(target, "x")
+
+        self.assertEqual(calls["n"], self.bi._META_REPLACE_MAX_ATTEMPTS)
+
+    def test_non_share_winerror_reraises_immediately(self):
+        # AC-3: a winerror outside {5,32} is re-raised on the FIRST call with no retry.
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "meta.json"
+            calls = {"n": 0}
+
+            def wrong(src, dst):
+                calls["n"] += 1
+                exc = PermissionError("some other error")
+                exc.winerror = 13
+                raise exc
+
+            with patch.object(self.bi.os, "name", "nt"), \
+                 patch.object(self.bi.os, "replace", side_effect=wrong), \
+                 patch.object(self.bi.time, "sleep", return_value=None) as sleep:
+                with self.assertRaises(PermissionError):
+                    self.bi._atomic_write_text(target, "x")
+
+        self.assertEqual(calls["n"], 1)
+        sleep.assert_not_called()
+
+    def test_posix_single_replace_call_on_success(self):
+        # AC-4: POSIX success path calls os.replace exactly once (no retry wrapper active).
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "meta.json"
+            real_replace = os.replace
+
+            with patch.object(self.bi.os, "name", "posix"), \
+                 patch.object(self.bi.os, "replace", side_effect=real_replace) as replace:
+                self.bi._atomic_write_text(target, "hello")
+
+            self.assertEqual(replace.call_count, 1)
+            self.assertEqual(target.read_text(encoding="utf-8"), "hello")
+
+
+if __name__ == "__main__":
+    unittest.main()

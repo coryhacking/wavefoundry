@@ -1,10 +1,10 @@
 # Dev/test-infra Windows hardening: run_tests run-lock + UTF-8 subprocess capture in build_pack
 
 Change ID: `1p9iy-bug dev-test-infra-windows-hardening`
-Change Status: `planned`
+Change Status: `implemented`
 Owner: Engineering
-Status: planned
-Last verified: 2026-07-02
+Status: implemented
+Last verified: 2026-07-03
 Wave: TBD
 
 ## Rationale
@@ -45,20 +45,20 @@ All three are dev/test-host-only; none alter shipped target-repo runtime behavio
 
 ## Acceptance Criteria
 
-- [ ] AC-1: On native Windows (`os.name == "nt"`), `run_tests.py` imports without `ImportError` and both `_acquire_run_lock`/`_release_run_lock` acquire and release the run lock via `msvcrt.locking`; on POSIX, `fcntl.flock` mutual exclusion is unchanged (a second concurrent invocation still returns the "already running" busy diagnostic).
-- [ ] AC-2: `_run_file`'s `subprocess.run` at `run_tests.py:223` passes `encoding="utf-8"` with an error-tolerant policy, and the child env sets `PYTHONUTF8=1`; non-ASCII worker output is decoded without `UnicodeDecodeError` or mojibake under a cp1252 host locale.
-- [ ] AC-3: Every `build_pack.py` `subprocess.run(..., capture_output=True, text=True)` site decoding git/gh/`lifecycle_id.py` output passes `encoding="utf-8"`; specifically the `git log -1 --format=%s` decode at `build_pack.py:468` returns a subject containing `→` intact so the regex at `build_pack.py:478` matches, with no `UnicodeDecodeError`.
-- [ ] AC-4: A unit test confirms the run-lock helpers select the Windows path under a simulated `os.name == "nt"` (with a stubbed `msvcrt`) and do not raise `ImportError`.
-- [ ] AC-5: No target-repo runtime behavior changes; `python3 .wavefoundry/framework/scripts/run_tests.py` passes on POSIX (existing suite green, no new `__pycache__`).
+- [x] AC-1: On native Windows (`os.name == "nt"`), `run_tests.py` imports without `ImportError` and both `_acquire_run_lock`/`_release_run_lock` acquire and release the run lock via `msvcrt.locking`; on POSIX, `fcntl.flock` mutual exclusion is unchanged (a second concurrent invocation still returns the "already running" busy diagnostic). — Evidence: both helpers branch on `os.name` (`run_tests.py:160`, `:206` — line refs refreshed at delivery review); `tests/test_run_tests_lock.py` proves the Windows `msvcrt` path (stubbed: acquire/release/roundtrip plus the contended-lock busy diagnostic added at delivery review) and the POSIX busy diagnostic (`RunLockPosixMutualExclusionTests`). The lock-file module's tests are 6 OK (the earlier "9 tests" count spanned this module plus the build_pack tag-derivation class).
+- [x] AC-2: `_run_file`'s `subprocess.run` passes `encoding="utf-8"` with an error-tolerant policy, and the child env sets `PYTHONUTF8=1`; non-ASCII worker output is decoded without `UnicodeDecodeError` or mojibake under a cp1252 host locale. — Evidence: `_run_file` passes `encoding="utf-8", errors="replace"` to the capture (consistent with the timeout branch's replace-decode) and, per delivery review, now builds the child env via `subprocess_util.utf8_child_env` so BOTH `PYTHONUTF8=1` and `PYTHONIOENCODING=utf-8` are set (an inherited `PYTHONIOENCODING=cp1252` would otherwise win over `PYTHONUTF8`, per the 1p8gv helper contract). Pinned by the new `RunFileEncodingTests` kwarg-capture test (the AC previously had no automated test).
+- [x] AC-3: Every `build_pack.py` `subprocess.run(..., capture_output=True, text=True)` site decoding git/gh/`lifecycle_id.py` output passes `encoding="utf-8"`; specifically the `git log -1 --format=%s` decode returns a subject containing `→` intact so the regex matches, with no `UnicodeDecodeError`. — Evidence: all 14 sites now pass `encoding="utf-8"` (verified: 14 `text=True` → 14 paired `encoding="utf-8"`); `tests/test_build_pack.py::test_git_log_decoded_as_utf8` asserts the `encoding="utf-8"` kwarg and the intact `→` subject.
+- [x] AC-4: A unit test confirms the run-lock helpers select the Windows path under a simulated `os.name == "nt"` (with a stubbed `msvcrt`) and do not raise `ImportError`. — Evidence: new `tests/test_run_tests_lock.py::RunLockWindowsPathTests` (3 tests: acquire, release, roundtrip-no-ImportError).
+- [x] AC-5: No target-repo runtime behavior changes; the existing suite stays green on POSIX (no new `__pycache__`). — Evidence: change is confined to two dev/CI-host scripts (`run_tests.py`, `build_pack.py`), no runtime paths touched; my owned test modules pass (9 OK), run with `-B` so no bytecode was written. Full-suite POSIX green is confirmed by the coordinator's central run (I must not run `run_tests.py` while siblings edit the shared tree).
 
 ## Tasks
 
-- [ ] Re-read the three cited sites to confirm constructs and current line numbers before editing (tree has wave 1p9hn applied).
-- [ ] F16: refactor `_acquire_run_lock` (`run_tests.py:155`) and `_release_run_lock` (`run_tests.py:184`) to branch on `os.name == "nt"`, using `msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)` / `LK_UNLCK` on Windows and the existing `fcntl.flock` on POSIX, mirroring `dashboard_lib.py:189`–`:224`. Map the Windows `OSError` to the existing "already running / lock file busy" diagnostic so behavior parity holds. Ensure the pid write/truncate (`run_tests.py:173`–`:179`) does not collide with a mandatory byte-range lock — follow `dashboard_lib.py`'s sentinel-byte-offset rationale (`dashboard_lib.py:192`–`:196`) if locking byte 0 interferes with the same-handle pid write.
-- [ ] F13: add `encoding="utf-8", errors="replace"` to the `subprocess.run` at `run_tests.py:223` (consistent with the timeout branch's replace-decode at `:235`–`:236`) and add `env["PYTHONUTF8"] = "1"` to the env dict built at `run_tests.py:207`–`:221`.
-- [ ] F12: add `encoding="utf-8"` to each of the 14 `capture_output=True, text=True` `subprocess.run` sites in `build_pack.py` (`:81`, `:367`, `:388`, `:408`, `:421`, `:446`, `:468`, `:567`, `:580`, `:588`, `:603`, `:618`, `:635`, `:656`).
-- [ ] Add a unit test that patches `os.name` to `"nt"` and injects a stub `msvcrt` into `sys.modules`, asserting `_acquire_run_lock`/`_release_run_lock` select the Windows locking path without `ImportError`.
-- [ ] Run `python3 .wavefoundry/framework/scripts/run_tests.py` on POSIX; confirm the suite is green and clean up any stray `__pycache__`.
+- [x] Re-read the three cited sites to confirm constructs and current line numbers before editing (tree has wave 1p9hn applied). — All three confirmed: F16 `run_tests.py:157`/`:165`/`:186`/`:189`; F13 `run_tests.py:222`–`:229`; F12 the 14 `text=True` sites incl. `build_pack.py:468` (`→` regex at `:478`).
+- [x] F16: refactor `_acquire_run_lock` and `_release_run_lock` to branch on `os.name == "nt"`, using `msvcrt.locking(...LK_NBLCK, 1)` / `LK_UNLCK` on Windows and the existing `fcntl.flock` on POSIX, mirroring `dashboard_lib.py`. Map the Windows `OSError` to the "already running / lock file busy" diagnostic; take the lock on a SENTINEL byte at `_LOCK_BYTE_OFFSET` (1 GiB) so the same-handle pid write/truncate at byte 0 is not blocked. — Done; POSIX path preserved (BlockingIOError → busy, other exceptions → "could not acquire").
+- [x] F13: add `encoding="utf-8", errors="replace"` to the `_run_file` `subprocess.run` (consistent with the timeout branch's replace-decode) and add `env["PYTHONUTF8"] = "1"` to the child env dict.
+- [x] F12: add `encoding="utf-8"` to each of the 14 `capture_output=True, text=True` `subprocess.run` sites in `build_pack.py` (lifecycle prefix, git status/rev-parse/tag-verify/ls-remote/gh-auth/git-log/add/diff/commit/tag/push-main/push-tag/gh-release). — Verified 14 `text=True` → 14 paired `encoding="utf-8"`; line 274's `subprocess.run` (no capture, no decode) correctly untouched.
+- [x] Add a unit test that patches `os.name` to `"nt"` and injects a stub `msvcrt` into `sys.modules`, asserting the run-lock helpers select the Windows locking path without `ImportError`. — New `tests/test_run_tests_lock.py` (3 Windows-path tests + 1 POSIX busy test).
+- [x] Run the POSIX suite; confirm green and clean up any stray `__pycache__`. — Delegated to the coordinator's central full-suite run (I must not launch `run_tests.py` while siblings edit the shared tree). My owned modules pass (`tests.test_run_tests_lock` + `tests.test_build_pack.TagMessageDerivationTests`: 9 OK); run with `-B`, so no `__pycache__` was written by my run (the pre-existing gitignored `scripts/__pycache__` is from another process, not this change).
 
 ## Agent Execution Graph
 
@@ -99,6 +99,8 @@ N/A — the change is confined to two dev/CI-host scripts (`run_tests.py`, `buil
 | Date | Update | Evidence |
 | ---------- | ------ | -------- |
 | 2026-07-02 | Scoped from the native-Windows audit and dashboard/indexer comparison; verified all three cited sites against the current tree (wave 1p9hn applied, line numbers re-confirmed): F16 `run_tests.py:157`/`:165`/`:186`/`:189`, F13 `run_tests.py:223`/`:226`–`:229`, F12 `build_pack.py:468` (`→` decode feeding `:478` regex) + 13 sibling sites. | Windows audit `wf_eab9a03d-004`; comparison `wf_33ca6bdb-757`; reference pattern `dashboard_lib.py:189`–`:224`. |
+| 2026-07-02 | Delivery-review fix pass: `_run_file` child env now built via `subprocess_util.utf8_child_env` (adds `PYTHONIOENCODING=utf-8` alongside `PYTHONUTF8=1` — closes the inherited-cp1252 override gap the factor-12 lane found); added `RunFileEncodingTests` (kwarg/env capture — F13 previously evidence-by-diff-read only) and `test_windows_busy_lock_reports_already_running` (the stubbed contended-lock branch previously uncovered); refreshed drifted line refs in AC-1 evidence. | `tests.test_run_tests_lock` 6 OK + `SetupPhase1DeadlineTests` 18 OK |
+| 2026-07-02 | Implemented F16/F13/F12. F16: added `_LOCK_BYTE_OFFSET` and branched `_acquire_run_lock`/`_release_run_lock` on `os.name` (msvcrt sentinel-byte lock on Windows, fcntl.flock on POSIX; POSIX busy/other-error split preserved). F13: `_run_file` sets `PYTHONUTF8=1` in the child env and passes `encoding="utf-8", errors="replace"`. F12: added `encoding="utf-8"` to all 14 git/gh/lifecycle subprocess sites. Added `tests/test_run_tests_lock.py` (4 tests) and `test_build_pack.py::test_git_log_decoded_as_utf8`. | 4 files ast-parse clean; owned test modules 9 OK (`-B`, no `__pycache__` written). Central full-suite POSIX run delegated to the coordinator. |
 
 
 ## Decision Log

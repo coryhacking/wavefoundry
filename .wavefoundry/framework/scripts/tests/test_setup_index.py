@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import importlib.util
 import io
+import json
 import os
 import re
 import subprocess
 import sys
 import tempfile
 import threading
+import time
 import tomllib
 import unittest
 from contextlib import ExitStack, redirect_stderr, redirect_stdout
@@ -306,7 +308,8 @@ class SetupIndexTests(unittest.TestCase):
                     with redirect_stdout(io.StringIO()):
                         self.mod.ensure_deps()
 
-        mock_install.assert_called_once_with(missing, FAKE_VENV_PYTHON)
+        # Wave 1p9it: ensure_deps threads root through to _install_deps (root=None here — direct call).
+        mock_install.assert_called_once_with(missing, FAKE_VENV_PYTHON, None)
 
     def test_install_deps_invokes_pip_via_venv_python(self):
         """_install_deps uses the venv Python, not sys.executable."""
@@ -1571,6 +1574,580 @@ class GpuDoctorProbeSerialTests(unittest.TestCase):
         self.assertNotIn("parallel=", code,
                          "the in-server probe must not pass parallel= to fastembed (spawn workers "
                          "would re-load ORT against the inherited MCP stdout fd — wave 1p8vc)")
+
+
+class SetupPhase1DeadlineTests(unittest.TestCase):
+    """Wave 1p9it — every `wf setup` Phase-1 child is bounded by a per-step deadline / no-progress
+    watchdog; a stall fails loud with stage-specific guidance instead of hanging, defaults ship in code,
+    and each deadline is overridable via docs/workflow-config.json `setup.<key>`."""
+
+    def setUp(self):
+        self.mod = load_setup_index()
+
+    # --- AC-4: config loader (override honored; missing/malformed -> defaults, never raises) ----------
+
+    def _write_config(self, root: Path, setup_block: object) -> None:
+        (root / "docs").mkdir(parents=True, exist_ok=True)
+        (root / "docs" / "workflow-config.json").write_text(
+            json.dumps({"setup": setup_block}), encoding="utf-8"
+        )
+
+    def test_setup_deadlines_reads_config_override(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._write_config(root, {"venv_create_timeout_seconds": 42, "model_warm_timeout_seconds": 99.5})
+            d = self.mod._setup_deadlines(root)
+        self.assertEqual(d["venv_create_timeout_seconds"], 42.0)
+        self.assertEqual(d["model_warm_timeout_seconds"], 99.5)
+        # unspecified keys keep their shipped defaults
+        self.assertEqual(d["dep_install_timeout_seconds"], self.mod.DEP_INSTALL_TIMEOUT_DEFAULT)
+        self.assertEqual(d["index_build_stall_timeout_seconds"], self.mod.INDEX_BUILD_STALL_TIMEOUT_DEFAULT)
+
+    def test_setup_deadlines_none_root_returns_all_defaults(self):
+        self.assertEqual(self.mod._setup_deadlines(None), dict(self.mod._SETUP_DEADLINE_KEYS))
+
+    def test_setup_deadlines_missing_file_returns_defaults(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            d = self.mod._setup_deadlines(Path(tmp))
+        self.assertEqual(d, dict(self.mod._SETUP_DEADLINE_KEYS))
+
+    def test_setup_deadlines_malformed_and_nonpositive_fall_back(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "docs").mkdir(parents=True, exist_ok=True)
+            (root / "docs" / "workflow-config.json").write_text("{ not valid json", encoding="utf-8")
+            self.assertEqual(self.mod._setup_deadlines(root), dict(self.mod._SETUP_DEADLINE_KEYS))
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            # non-positive, non-numeric, and boolean values must all fall back to the default
+            self._write_config(root, {
+                "venv_create_timeout_seconds": -5,
+                "dep_install_timeout_seconds": "soon",
+                "model_warm_timeout_seconds": True,
+            })
+            d = self.mod._setup_deadlines(root)
+        self.assertEqual(d["venv_create_timeout_seconds"], self.mod.VENV_CREATE_TIMEOUT_DEFAULT)
+        self.assertEqual(d["dep_install_timeout_seconds"], self.mod.DEP_INSTALL_TIMEOUT_DEFAULT)
+        self.assertEqual(d["model_warm_timeout_seconds"], self.mod.MODEL_WARM_TIMEOUT_DEFAULT)
+
+    # --- AC-1: venv / uv / dep-install spawn timeouts (loud, stage-named) -----------------------------
+
+    def test_bootstrap_venv_timeout_fails_loud(self):
+        with patch.object(self.mod, "_tool_venv_python", return_value=FAKE_VENV_PYTHON):
+            with patch("pathlib.Path.exists", return_value=False):
+                with patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd="venv", timeout=1)):
+                    err = io.StringIO()
+                    with redirect_stderr(err), redirect_stdout(io.StringIO()):
+                        with self.assertRaises(SystemExit) as raised:
+                            self.mod._bootstrap_venv()
+        self.assertEqual(raised.exception.code, 2)
+        msg = err.getvalue().lower()
+        self.assertIn("venv", msg)
+        self.assertIn("timed out", msg)
+
+    def test_bootstrap_uv_timeout_falls_back_with_loud_message(self):
+        with patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd="pip install uv", timeout=1)):
+            err = io.StringIO()
+            with redirect_stderr(err), redirect_stdout(io.StringIO()):
+                result = self.mod._bootstrap_uv(FAKE_VENV_PYTHON)
+        # uv is optional: a stalled bootstrap is loud but returns None so the caller falls back to pip.
+        self.assertIsNone(result)
+        msg = err.getvalue().lower()
+        self.assertIn("uv", msg)
+        self.assertIn("timed out", msg)
+        self.assertIn("pypi", msg)
+
+    def test_install_deps_timeout_fails_loud_with_network_guidance(self):
+        with patch.object(self.mod, "_uv_bin", return_value=None):
+            with patch.object(self.mod, "_bootstrap_uv", return_value=None):  # force the plain-pip path
+                with patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd="pip", timeout=1)):
+                    err = io.StringIO()
+                    with redirect_stderr(err), redirect_stdout(io.StringIO()):
+                        with self.assertRaises(SystemExit) as raised:
+                            self.mod._install_deps(["fastembed"], FAKE_VENV_PYTHON)
+        self.assertEqual(raised.exception.code, 2)
+        msg = err.getvalue().lower()
+        self.assertIn("timed out", msg)
+        self.assertIn("pypi", msg)  # names network/proxy/TLS reachability
+
+    def test_bootstrap_venv_forwards_configured_timeout(self):
+        # AC-1 + AC-4: the configured venv deadline reaches the spawn as `timeout=`.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._write_config(root, {"venv_create_timeout_seconds": 7})
+            with patch.object(self.mod, "_tool_venv_python", return_value=FAKE_VENV_PYTHON):
+                with patch("pathlib.Path.exists", return_value=False):
+                    with patch("subprocess.run", return_value=subprocess.CompletedProcess([], 0)) as run:
+                        with redirect_stdout(io.StringIO()):
+                            self.mod._bootstrap_venv(root)
+        self.assertEqual(run.call_args.kwargs.get("timeout"), 7.0)
+
+    def test_bootstrap_uv_forwards_configured_timeout(self):
+        # Delivery-review binding gap: the uv spawn must carry the configured deadline as
+        # `timeout=` — the timeout-path test alone would still pass if the kwarg were dropped.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._write_config(root, {"uv_bootstrap_timeout_seconds": 11})
+            with patch("subprocess.run", return_value=subprocess.CompletedProcess([], 0)) as run:
+                with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                    self.mod._bootstrap_uv(FAKE_VENV_PYTHON, root)
+        self.assertEqual(run.call_args_list[0].kwargs.get("timeout"), 11.0)
+
+    def test_install_deps_forwards_configured_timeout(self):
+        # Delivery-review binding gap: the dep-install spawn must carry the configured deadline.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._write_config(root, {"dep_install_timeout_seconds": 13})
+            with patch.object(self.mod, "_uv_bin", return_value=None):
+                with patch.object(self.mod, "_bootstrap_uv", return_value=None):  # plain-pip path
+                    with patch("subprocess.run", return_value=subprocess.CompletedProcess([], 0)) as run:
+                        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                            self.mod._install_deps(["fastembed"], FAKE_VENV_PYTHON, root)
+        self.assertEqual(run.call_args_list[0].kwargs.get("timeout"), 13.0)
+
+    # --- AC-2: in-process model-warm wall-clock deadline ----------------------------------------------
+
+    def test_warm_model_aborts_over_deadline(self):
+        def slow_inner(model_name, *, local_files_only):
+            time.sleep(2)  # still running when the tiny deadline elapses; daemon thread, self-terminating
+
+        with patch.object(self.mod, "_warm_model_inner", side_effect=slow_inner):
+            with self.assertRaises(self.mod.ModelPrewarmError) as raised:
+                self.mod._warm_model("bge-small", local_files_only=False, deadline_seconds=0.05)
+        msg = str(raised.exception)
+        self.assertIn("model_warm_timeout_seconds", msg)
+        self.assertIn("network", msg.lower())
+
+    def test_warm_model_within_deadline_runs_inner(self):
+        seen = {}
+
+        def fast_inner(model_name, *, local_files_only):
+            seen["args"] = (model_name, local_files_only)
+
+        with patch.object(self.mod, "_warm_model_inner", side_effect=fast_inner):
+            self.mod._warm_model("bge-small", local_files_only=True, deadline_seconds=5.0)
+        self.assertEqual(seen["args"], ("bge-small", True))
+
+    def test_warm_model_propagates_inner_error_within_deadline(self):
+        def boom_inner(model_name, *, local_files_only):
+            raise RuntimeError("cache miss")
+
+        with patch.object(self.mod, "_warm_model_inner", side_effect=boom_inner):
+            with self.assertRaises(RuntimeError):
+                self.mod._warm_model("bge-small", local_files_only=False, deadline_seconds=5.0)
+
+    def test_warm_model_uses_active_run_deadline_when_arg_default(self):
+        captured = {}
+
+        def _fake_deadline(fn, *, deadline_seconds, timeout_error):
+            captured["deadline"] = deadline_seconds
+
+        prior = self.mod._ACTIVE_MODEL_WARM_DEADLINE_SECONDS
+        try:
+            self.mod._ACTIVE_MODEL_WARM_DEADLINE_SECONDS = 123.0
+            with patch.object(self.mod, "_run_in_process_with_deadline", side_effect=_fake_deadline):
+                self.mod._warm_model("bge-small", local_files_only=False)
+        finally:
+            self.mod._ACTIVE_MODEL_WARM_DEADLINE_SECONDS = prior
+        self.assertEqual(captured["deadline"], 123.0)
+
+    def test_prewarm_timeout_skips_quarantine_and_propagates(self):
+        # Delivery-review DF-1: a deadline abort must NOT run the corruption-check/quarantine/retry —
+        # the abandoned warm thread may still be writing the cache, so the corruption check would
+        # misread the in-flight download and the quarantine would move a directory with live open
+        # handles (raw sharing violation on Windows). The timeout propagates unchanged, single attempt.
+        timeout_exc = self.mod.ModelPrewarmTimeout("model warm exceeded the deadline")
+        calls = {"warm": 0}
+
+        def timing_out_warm(model_name, *, local_files_only):
+            calls["warm"] += 1
+            raise timeout_exc
+
+        with patch.object(self.mod, "_model_cache_corruption_reason") as corruption:
+            with patch.object(self.mod, "_quarantine_model_cache") as quarantine:
+                with self.assertRaises(self.mod.ModelPrewarmTimeout) as raised:
+                    self.mod._prewarm_required_model(
+                        "bge-small", model_kind="docs embedding", action="setup",
+                        warm_fn=timing_out_warm,
+                    )
+        self.assertIs(raised.exception, timeout_exc)  # propagated unwrapped, message intact
+        self.assertEqual(calls["warm"], 1)  # no retry attempt
+        corruption.assert_not_called()
+        quarantine.assert_not_called()
+
+    def test_prewarm_timeout_is_a_prewarm_error_for_mains_handler(self):
+        # main's `except ModelPrewarmError` must catch the timeout subtype (clean exit 2 path).
+        self.assertTrue(issubclass(self.mod.ModelPrewarmTimeout, self.mod.ModelPrewarmError))
+
+    # --- AC-3: index-build no-progress watchdog terminates + reaps a stalled child --------------------
+
+    def test_run_indexer_stalled_child_terminated_and_reaped(self):
+        class _BlockingStdout:
+            """Stdout that never yields a line and never hits EOF until `event` is set — a child that
+            produces no output and does not exit."""
+
+            def __init__(self, event):
+                self._event = event
+
+            def __iter__(self):
+                return self
+
+            def __next__(self):
+                self._event.wait()  # unblocks only when the child is 'killed' (event set below)
+                raise StopIteration
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._write_config(root, {"index_build_stall_timeout_seconds": 0.1})
+            event = threading.Event()
+            proc = MagicMock()
+            proc.stdout = _BlockingStdout(event)
+            proc.kill.side_effect = lambda: event.set()  # kill closes the pipe -> reader hits EOF
+            wait_calls = {"n": 0}
+
+            def fake_wait(timeout=None):
+                wait_calls["n"] += 1
+                if wait_calls["n"] == 1:
+                    # terminate() did not stop it within the grace window -> force escalation to kill()
+                    raise subprocess.TimeoutExpired(cmd="idx", timeout=timeout)
+                return 0
+
+            proc.wait.side_effect = fake_wait
+
+            with patch.object(self.mod, "_tool_venv_python", return_value=FAKE_VENV_PYTHON):
+                with patch("subprocess.Popen", return_value=proc):
+                    with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                        with self.assertRaises(TimeoutError) as raised:
+                            self.mod._run_indexer(
+                                root,
+                                full=False,
+                                content="docs",
+                                verbose=False,
+                                include_tests=False,
+                                include_generated=False,
+                                project_include_prefixes=(),
+                            )
+
+        proc.terminate.assert_called_once()
+        proc.kill.assert_called_once()
+        message = str(raised.exception)
+        self.assertIn("no output", message.lower())
+        self.assertIn("index_build_stall_timeout_seconds", message)
+
+    # --- AC-5: within-deadline (normal) index build is behaviorally unchanged --------------------------
+
+    def test_run_indexer_within_deadline_streams_all_lines_in_order(self):
+        root = Path("/tmp/wavefoundry-test-root")
+        proc = MagicMock()
+        proc.returncode = 0
+        proc.stdout = iter(["a\n", "b\n", "c\n"])
+        proc.wait.return_value = None
+        with patch.object(self.mod, "_tool_venv_python", return_value=FAKE_VENV_PYTHON):
+            with patch("subprocess.Popen", return_value=proc):
+                out = io.StringIO()
+                with redirect_stdout(out):
+                    self.mod._run_indexer(
+                        root,
+                        full=False,
+                        content="docs",
+                        verbose=False,
+                        include_tests=False,
+                        include_generated=False,
+                        project_include_prefixes=(),
+                    )
+        self.assertEqual(out.getvalue(), "a\nb\nc\n")
+        proc.wait.assert_called_once()
+        # Hardening (b): the post-loop reap is BOUNDED — a reader-thread failure is
+        # indistinguishable from EOF, so an unbounded wait could hang on a live silent child.
+        self.assertIsNotNone(proc.wait.call_args.kwargs.get("timeout"))
+        proc.terminate.assert_not_called()
+        proc.kill.assert_not_called()
+
+    def test_run_indexer_post_eof_nonexiting_child_terminated(self):
+        # Hardening (b) expiry branch: EOF arrives but the child never exits (reader-death /
+        # grandchild-holds-pipe shape) → bounded wait expires → terminate/kill + loud TimeoutError.
+        root = Path("/tmp/wavefoundry-test-root")
+        proc = MagicMock()
+        proc.returncode = None
+        proc.stdout = iter(["a\n"])
+        proc.wait.side_effect = [
+            subprocess.TimeoutExpired(cmd="indexer", timeout=1),  # post-loop bounded wait
+            None,  # grace wait inside _terminate_and_reap after terminate()
+            None,  # reap wait inside _terminate_and_reap
+        ]
+        with patch.object(self.mod, "_tool_venv_python", return_value=FAKE_VENV_PYTHON):
+            with patch("subprocess.Popen", return_value=proc):
+                with redirect_stdout(io.StringIO()):
+                    with self.assertRaises(TimeoutError) as raised:
+                        self.mod._run_indexer(
+                            root,
+                            full=False,
+                            content="docs",
+                            verbose=False,
+                            include_tests=False,
+                            include_generated=False,
+                            project_include_prefixes=(),
+                        )
+        self.assertIn("did not exit", str(raised.exception))
+        proc.terminate.assert_called_once()
+
+    def test_main_graph_only_stall_timeout_exits_2_with_message(self):
+        # Hardening (a): a stall-watchdog TimeoutError from the indexer surfaces as a clean,
+        # stage-named exit 2 from main — not a raw traceback with exit 1.
+        stall = TimeoutError(
+            "Index build produced no output for 1s and was terminated as stalled."
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.object(self.mod, "ensure_deps"), \
+                 patch.object(self.mod, "_reexec_with_venv_if_needed"), \
+                 patch.object(self.mod, "_workflow_project_include_prefixes", return_value={}), \
+                 patch.object(self.mod, "_run_indexer", side_effect=stall):
+                err = io.StringIO()
+                with redirect_stdout(io.StringIO()), redirect_stderr(err):
+                    rc = self.mod.main(["--root", tmp, "--graph-only"])
+        self.assertEqual(rc, 2)
+        self.assertIn("terminated as stalled", err.getvalue())
+
+
+class CoremlProbeTempdirRetryTests(unittest.TestCase):
+    """Wave 1p9lj: CoreML probe temp-working-directory failure gets one bounded repair+retry inside
+    the probe/decision window; every other failure shape stays fail-safe CPU with no retry."""
+
+    TEMPDIR_ERROR = RuntimeError(
+        "Error compiling model: Failed to create a working directory appropriate for URL: "
+        "file:///var/folders/ab/xyz/T/"
+    )
+
+    def setUp(self):
+        self.mod = load_setup_index()
+
+    def _fake_embed_factory(self, fail_attempts: int, calls: list):
+        """TextEmbedding stand-in that raises the temp-dir error for the first `fail_attempts`
+        CANDIDATE constructions (provider list longer than 1), succeeding afterwards."""
+        outer = self
+
+        class _FakeEmbed:
+            def __init__(self, *a, **k):
+                providers = k.get("providers") or []
+                is_candidate = len(providers) > 1
+                if is_candidate:
+                    calls.append(providers[0])
+                    if len(calls) <= fail_attempts:
+                        raise outer.TEMPDIR_ERROR
+
+            def embed(self, texts):
+                return [[0.1, 0.2] for _ in texts]
+
+        return _FakeEmbed
+
+    def test_tempdir_failure_repairs_and_retries_then_selects_coreml(self):
+        # AC-1 + AC-2: first CoreML attempt fails with the working-directory shape → repair runs,
+        # one retry succeeds → the probe accepts CoreML (correctness acceptance path).
+        import fastembed
+
+        calls: list = []
+        with patch.object(fastembed, "TextEmbedding", self._fake_embed_factory(1, calls)), \
+                patch.object(self.mod, "_repair_probe_tempdir", return_value="temp directory present") as repair, \
+                redirect_stdout(io.StringIO()) as out:
+            probe = self.mod._probe_embedding_provider(
+                self.mod.provider_policy.COREML_PROVIDER, model_name="m")
+        self.assertTrue(probe.ok, probe.reason)
+        self.assertEqual(len(calls), 2)  # exactly one retry
+        repair.assert_called_once()
+        self.assertIn("retrying once", out.getvalue())
+
+    def test_retry_success_records_coreml_decision_and_providers(self):
+        # AC-2: with the retried probe passing, the setup decision selects CoreML, records it in
+        # the setup env cache, and heads the provider list with CoreML.
+        import fastembed
+
+        calls: list = []
+        with patch.object(fastembed, "TextEmbedding", self._fake_embed_factory(1, calls)), \
+                patch.object(self.mod, "_repair_probe_tempdir", return_value="temp directory present"), \
+                patch.object(self.mod.provider_policy, "available_onnx_providers",
+                             return_value=("CoreMLExecutionProvider", "CPUExecutionProvider")), \
+                patch.object(self.mod, "_indexer_models", return_value=["m"]), \
+                patch.dict(os.environ, {}, clear=True), \
+                redirect_stdout(io.StringIO()):
+            decision = self.mod.report_embedding_provider_decision()
+            recorded = os.environ.get(self.mod.provider_policy.SETUP_SELECTED_ENV)
+        self.assertEqual(decision.selected_provider, "CoreMLExecutionProvider")
+        self.assertEqual(decision.providers[0], "CoreMLExecutionProvider")
+        self.assertEqual(recorded, "CoreMLExecutionProvider")
+        self.assertEqual(decision.provenance, "fresh-probe")
+
+    def test_persistent_tempdir_failure_falls_back_with_actionable_reason(self):
+        # AC-3: both attempts fail → fail-safe CPU with a reason naming the temp-dir failure and
+        # the recovery path; exactly two attempts (retry bound 1).
+        import fastembed
+
+        calls: list = []
+        with patch.object(fastembed, "TextEmbedding", self._fake_embed_factory(99, calls)), \
+                patch.object(self.mod, "_repair_probe_tempdir", return_value="temp directory present"), \
+                redirect_stdout(io.StringIO()):
+            probe = self.mod._probe_embedding_provider(
+                self.mod.provider_policy.COREML_PROVIDER, model_name="m")
+        self.assertFalse(probe.ok)
+        self.assertEqual(len(calls), 2)  # bounded: initial + one retry, never more
+        self.assertIn("working directory", probe.reason)
+        self.assertIn("wf setup", probe.reason)  # recovery guidance present
+
+    def test_non_tempdir_failure_gets_no_retry_or_repair(self):
+        # AC-5: a non-temp-dir failure shape is not retried and not repaired — fail-safe CPU.
+        import fastembed
+
+        class _BoomEmbed:
+            count = 0
+
+            def __init__(self, *a, **k):
+                providers = k.get("providers") or []
+                if len(providers) > 1:
+                    type(self).count += 1
+                    raise RuntimeError("some unrelated compile failure")
+
+            def embed(self, texts):
+                return [[0.1, 0.2] for _ in texts]
+
+        with patch.object(fastembed, "TextEmbedding", _BoomEmbed), \
+                patch.object(self.mod, "_repair_probe_tempdir") as repair:
+            probe = self.mod._probe_embedding_provider(
+                self.mod.provider_policy.COREML_PROVIDER, model_name="m")
+        self.assertFalse(probe.ok)
+        self.assertEqual(_BoomEmbed.count, 1)  # single attempt, no retry
+        repair.assert_not_called()
+        self.assertIn("unrelated compile failure", probe.reason)
+        self.assertNotIn("wf setup", probe.reason)  # temp-dir guidance not misapplied
+
+    def test_tempdir_failure_on_other_provider_gets_no_retry(self):
+        # AC-5 guard: the retry is CoreML-scoped; the same error text on another provider is not retried.
+        import fastembed
+
+        calls: list = []
+        with patch.object(fastembed, "TextEmbedding", self._fake_embed_factory(99, calls)), \
+                patch.object(self.mod, "_repair_probe_tempdir") as repair:
+            probe = self.mod._probe_embedding_provider("OpenVINOExecutionProvider", model_name="m")
+        self.assertFalse(probe.ok)
+        self.assertEqual(len(calls), 1)
+        repair.assert_not_called()
+
+    def test_repair_probe_tempdir_recreates_missing_dir_and_never_raises(self):
+        import tempfile as _tf
+
+        with tempfile.TemporaryDirectory() as tmp:
+            missing = Path(tmp) / "reaped-temp"
+            with patch.object(_tf, "gettempdir", return_value=str(missing)):
+                note = self.mod._repair_probe_tempdir()
+            self.assertTrue(missing.exists())
+            self.assertIn("recreated", note)
+        with patch.object(_tf, "gettempdir", side_effect=RuntimeError("boom")):
+            note = self.mod._repair_probe_tempdir()
+        self.assertIn("repair failed", note)
+
+    def test_repair_probe_tempdir_recreates_stale_tmpdir_env_path(self):
+        # Delta-review finding: `gettempdir()` silently SKIPS an unusable TMPDIR candidate and
+        # falls back to /tmp, so repairing only gettempdir()'s answer is a no-op in the
+        # fresh-process stale-TMPDIR scenario. The TMPDIR tier repairs the directory CoreML
+        # actually resolves there — derived from process env only, never from error text.
+        with tempfile.TemporaryDirectory() as tmp:
+            reaped = Path(tmp) / "var-folders-reaped" / "T"
+            with patch.dict(os.environ, {"TMPDIR": str(reaped)}):
+                note = self.mod._repair_probe_tempdir()
+            self.assertTrue(reaped.exists())
+            self.assertIn("recreated missing TMPDIR", note)
+            if os.name != "nt":
+                # Private perms on EVERY created level (cross-platform posture, not macOS-only):
+                # Path.mkdir(parents=True, mode=...) would leave umask-default intermediates,
+                # so _mkdir_private pins 0o700 on the leaf AND the created ancestor.
+                self.assertEqual(reaped.stat().st_mode & 0o777, 0o700)
+                self.assertEqual(reaped.parent.stat().st_mode & 0o777, 0o700)
+
+
+class ProviderDecisionProvenanceTests(unittest.TestCase):
+    """Wave 1p9lj AC-4: every provider decision names its source — setup-cache vs fresh-probe vs
+    operator-request — and identical probe outcomes yield identical decisions (parity)."""
+
+    def setUp(self):
+        self.mod = load_setup_index()
+        self.pp = self.mod.provider_policy
+
+    def test_cached_decision_reports_setup_cache_provenance(self):
+        with patch.dict(os.environ,
+                        {self.pp.SETUP_SELECTED_ENV: "CoreMLExecutionProvider"}, clear=True):
+            decision = self.pp.select_embedding_providers(
+                available_providers=("CoreMLExecutionProvider", "CPUExecutionProvider"))
+        self.assertEqual(decision.selected_provider, "CoreMLExecutionProvider")
+        self.assertEqual(decision.provenance, "setup-cache")
+        with patch.dict(os.environ, {self.pp.SETUP_SELECTED_ENV: "CPUExecutionProvider"}, clear=True):
+            decision = self.pp.select_embedding_providers(
+                available_providers=("CoreMLExecutionProvider", "CPUExecutionProvider"))
+        self.assertEqual(decision.selected_provider, "CPUExecutionProvider")
+        self.assertEqual(decision.provenance, "setup-cache")
+
+    def test_fresh_probe_and_operator_request_provenance(self):
+        probe = lambda provider: self.pp.ProviderProbeResult(provider, True, f"{provider} ok")
+        with patch.dict(os.environ, {}, clear=True):
+            fresh = self.pp.select_embedding_providers(
+                available_providers=("CoreMLExecutionProvider", "CPUExecutionProvider"),
+                provider_probe=probe)
+        self.assertEqual(fresh.provenance, "fresh-probe")
+        with patch.dict(os.environ, {self.pp.REQUESTED_PROVIDER_ENV: "cpu"}, clear=True):
+            forced = self.pp.select_embedding_providers(
+                available_providers=("CoreMLExecutionProvider", "CPUExecutionProvider"))
+        self.assertEqual(forced.provenance, "operator-request")
+
+    def test_operator_forced_gpu_paths_report_operator_request(self):
+        # Second delivery-council finding: forced-CUDA (availability path) and forced-CoreML
+        # (probe-pass path) must ALSO report operator-request — previously only forced-CPU did,
+        # contradicting the field docstring and the shipped architecture doc.
+        probe = lambda provider: self.pp.ProviderProbeResult(provider, True, f"{provider} ok")
+        with patch.dict(os.environ, {self.pp.REQUESTED_PROVIDER_ENV: "cuda"}, clear=True):
+            forced_cuda = self.pp.select_embedding_providers(
+                available_providers=("CUDAExecutionProvider", "CPUExecutionProvider"))
+        self.assertEqual(forced_cuda.selected_provider, "CUDAExecutionProvider")
+        self.assertEqual(forced_cuda.provenance, "operator-request")
+        with patch.dict(os.environ, {self.pp.REQUESTED_PROVIDER_ENV: "coreml"}, clear=True):
+            forced_coreml = self.pp.select_embedding_providers(
+                available_providers=("CoreMLExecutionProvider", "CPUExecutionProvider"),
+                provider_probe=probe)
+        self.assertEqual(forced_coreml.selected_provider, "CoreMLExecutionProvider")
+        self.assertEqual(forced_coreml.provenance, "operator-request")
+        # The CPU FALLBACK after a failed forced-GPU probe stays fresh-probe: the probe failure,
+        # not the operator, drove that outcome.
+        failing = lambda provider: self.pp.ProviderProbeResult(provider, False, "nope")
+        with patch.dict(os.environ, {self.pp.REQUESTED_PROVIDER_ENV: "coreml"}, clear=True):
+            fell_back = self.pp.select_embedding_providers(
+                available_providers=("CoreMLExecutionProvider", "CPUExecutionProvider"),
+                provider_probe=failing)
+        self.assertEqual(fell_back.selected_provider, "CPUExecutionProvider")
+        self.assertEqual(fell_back.provenance, "fresh-probe")
+
+    def test_identical_probe_outcomes_yield_identical_decisions(self):
+        # Parity: the doctor and setup share this exact function; given the same availability and
+        # probe outcome, two invocations decide identically.
+        probe = lambda provider: self.pp.ProviderProbeResult(provider, True, f"{provider} ok")
+        with patch.dict(os.environ, {}, clear=True):
+            first = self.pp.select_embedding_providers(
+                available_providers=("CoreMLExecutionProvider", "CPUExecutionProvider"),
+                provider_probe=probe)
+            second = self.pp.select_embedding_providers(
+                available_providers=("CoreMLExecutionProvider", "CPUExecutionProvider"),
+                provider_probe=probe)
+        self.assertEqual(first, second)
+
+    def test_diagnostic_report_carries_decision_provenance(self):
+        with patch.object(self.pp, "available_onnx_providers", return_value=("CPUExecutionProvider",)), \
+                patch.object(self.pp, "nvidia_gpu_present", return_value=False), \
+                patch.dict(os.environ, {}, clear=True):
+            report = self.pp.diagnostic_report()
+        self.assertIn("decision_provenance", report)
+        self.assertEqual(report["decision_provenance"], "fresh-probe")
+        rendered = self.pp.format_diagnostic_report(report)
+        self.assertIn("decision source", rendered)
+
+    def test_format_provider_decision_names_source(self):
+        decision = self.pp.select_embedding_providers(
+            available_providers=("CPUExecutionProvider",))
+        self.assertIn("decision-source=", self.pp.format_provider_decision(decision))
 
 
 if __name__ == "__main__":

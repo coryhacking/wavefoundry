@@ -1947,6 +1947,46 @@ class ScannerScopeHardeningTests(unittest.TestCase):
             self.assertEqual(_sv._filter_gitignored(tmp, paths), paths,
                              "non-git dir: check-ignore errors → keep the walk")
 
+    def test_filter_gitignored_matches_posix_relpaths_on_windows_seps(self):
+        # Wave 1p9ix (F18): `git check-ignore --stdin` emits forward-slash paths on
+        # EVERY host, including native Windows. On Windows str(PurePath) yields
+        # backslash-separated relpaths (`sub\secret.txt`), so the membership test at
+        # line ~177 would never match git's `sub/secret.txt` and gitignored files
+        # would not be dropped from the rglob fallback. `.as_posix()` normalizes the
+        # relpath so the membership test matches. Simulate a native-Windows path with
+        # PureWindowsPath so this regression guard fails on ANY host if the relpath is
+        # not posix-normalized (backslash relpaths would leave secret.txt in the walk).
+        from pathlib import PureWindowsPath
+        from types import SimpleNamespace
+
+        class _WinPath:
+            """Path stub whose relative_to() yields a Windows (backslash) PurePath."""
+
+            def __init__(self, rel_str: str) -> None:
+                self.rel_str = rel_str
+                self._rel = PureWindowsPath(rel_str)
+
+            def relative_to(self, root):  # noqa: ANN001
+                return self._rel
+
+        paths = [_WinPath("sub/secret.txt"), _WinPath("kept.py")]
+        captured: dict[str, str] = {}
+
+        def fake_run(cmd, **kwargs):  # noqa: ANN001
+            captured["input"] = kwargs["input"]
+            # git speaks forward-slash on stdout regardless of host.
+            return SimpleNamespace(returncode=0, stdout="sub/secret.txt\n")
+
+        with patch.object(_sv.subprocess_util, "isolated_run", fake_run):
+            filtered = _sv._filter_gitignored(Path("/repo"), paths)
+
+        # relpaths sent to git are posix-normalized (no backslash separators).
+        self.assertIn("sub/secret.txt", captured["input"])
+        self.assertNotIn("\\", captured["input"])
+        # the gitignored nested path is dropped; the kept file survives.
+        self.assertEqual([p.rel_str for p in filtered], ["kept.py"],
+                         "posix-normalized relpath must match git's forward-slash output")
+
     def test_artifact_with_secret_not_flagged_source_is(self):
         # AC-1 end-to-end (non-git tree → rglob fallback selects everything): a
         # secret-looking string in a .lance is skipped; the same in a .py is flagged.

@@ -84,6 +84,12 @@
       ]
     }
   },
+  "setup": {
+    "notes": "Wave 1p9it: per-step deadlines (seconds) for each `wf setup` Phase-1 child, so a single stalled child fails loud with stage-specific guidance instead of hanging setup indefinitely. Keys: `venv_create_timeout_seconds` (default 300), `uv_bootstrap_timeout_seconds` (default 600), `dep_install_timeout_seconds` (default 1800), `model_warm_timeout_seconds` (default 1800), `index_build_stall_timeout_seconds` (default 1800). Every key is optional — the code defaults (sized for slow-but-legit environments: corp proxy, low-RAM WSL2) apply when a key is absent, non-numeric, or non-positive, so no numeric value is pre-seeded here; set a key only when a legitimately slow machine trips a default. `index_build_stall_timeout_seconds` is a NO-PROGRESS window (reset on each output line the index-build child emits), NOT a total build cap, so a long large-repo build that keeps emitting progress never trips it."
+  },
+  "docs_lint": {
+    "notes": "Docs-lint subprocess timeouts (seconds). `hook_timeout_seconds` (wave 1p9bg, default 120) bounds the incremental post-edit docs-lint hook (`--changed`). `full_scan_timeout_seconds` (wave 1p9iu, default 300) bounds the server-side FULL-corpus docs-lint scan run by the wave lifecycle tools (wave_validate / wave_prepare / wave_review / wave_close / wave_install_audit); on timeout those tools now report an actionable diagnostic naming this key instead of failing with a raw error. Both keys are optional — the code defaults apply when unset, so no numeric value is pre-seeded here. Raise `full_scan_timeout_seconds` on a large docs corpus whose full scan legitimately exceeds the default."
+  },
   "factor_review_policy": {
     "applicable_factors": ["03", "05", "12", "13"],
     "partial_factors": ["02", "07", "09"],

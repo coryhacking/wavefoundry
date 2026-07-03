@@ -485,6 +485,12 @@ HOOK_BOOTSTRAP = dedent(
         _wf_venv_bootstrap.activate_tool_venv()
     except Exception:
         pass
+    try:
+        import cli_stdio as _wf_cli_stdio
+
+        _wf_cli_stdio.configure_utf8_stdio()
+    except Exception:
+        pass
     """
 ).strip()
 
@@ -617,6 +623,8 @@ def claude_simulate_hooks_source() -> str:
                 cwd=REPO_ROOT,
                 input=payload,
                 text=True,
+                encoding="utf-8",  # wave 1p9iv: pin UTF-8 so input=payload never encodes with a cp1252 locale codepage
+                errors="replace",
                 check=False,
                 creationflags=(getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0),
             )

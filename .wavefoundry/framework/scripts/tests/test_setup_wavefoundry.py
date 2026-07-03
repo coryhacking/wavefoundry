@@ -268,7 +268,8 @@ if __name__ == "__main__":
 
 class GpuDoctorCheckTests(unittest.TestCase):
     """1p6et: `setup_wavefoundry --check` prints the GPU/provider diagnostic and skips setup;
-    provider_policy.diagnostic_report() is pure-introspection and reflects the probes."""
+    provider_policy.diagnostic_report() runs the bounded model-loading provider probe when one is
+    supplied (not pure introspection — wave 1p9lj docstring correction) and reflects the probes."""
 
     def setUp(self):
         self.mod = load_setup_wavefoundry()

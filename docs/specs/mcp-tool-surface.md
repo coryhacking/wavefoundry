@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-01
+Last verified: 2026-07-03
 
 Behavioral contract for the Wavefoundry local MCP server. This spec covers the
 tool names, response conventions, safety rules, and compatibility expectations that
@@ -85,7 +85,7 @@ Initial core set:
 | `wave_index_build_status` | Poll a detached background index refresh; also returns a `lock` object (`held`, `present`, `owner_pid`, `owner_cmdline`, `started_at`, `ended_at`, `note`) — the **authoritative** "is a build running" signal, where `held` is determined by **testing the real OS lock** (POSIX `fcntl` `F_GETLK` / Windows momentary `msvcrt`), not the file's presence. `ended_at` distinguishes a clean finish from an interrupted build. Read `lock.held`, never the file. |
 | `wave_index_build`   | Run a synchronous index build: `**mode='update'**` (incremental) or `**mode='rebuild'**` (full) |
 | `wave_index_optimize` | Reclaim on-disk index bloat by compacting the Lance tables — tiered optimize → copy-and-replace rewrite → rebuild-if-needed, **no re-embed** in the common case. Also runs automatically at the end of install/upgrade |
-| `wave_gpu_doctor`    | Embedding-provider / GPU capability diagnostic — platform, onnxruntime, GPU detection (nvidia/apple), available ONNX providers, the provider Wavefoundry would select (+ reason/remediation), CUDA 12/13 ABI-gap. Read-only; same report as the `wf gpu-doctor` dispatcher subcommand and `setup-wavefoundry --check-gpu` |
+| `wave_gpu_doctor`    | Embedding-provider / GPU capability diagnostic — platform, onnxruntime, GPU detection (nvidia/apple), available ONNX providers, the provider Wavefoundry would select (+ reason/remediation + `decision_provenance`: `setup-cache` when honoring the setup-recorded decision, `fresh-probe` for an in-process probe, or `operator-request` when `WAVEFOUNDRY_EMBED_PROVIDER` forced the selection), CUDA 12/13 ABI-gap. Read-only (no index build) but runs the bounded model-loading provider probe — the same probe setup uses; same report as the `wf gpu-doctor` dispatcher subcommand and `setup-wavefoundry --check-gpu` |
 
 
 The `wave_new_<kind>` family covers all ten change kinds. Use the kind-specific tool that matches the change; `wave_new_change` is the general fallback.
@@ -267,10 +267,18 @@ action when known.
 - Response `data` includes `plans` (truncated list), `total` (untruncated count), and
 `has_more` (boolean indicating whether results were truncated).
 
-`wave_get_change(change_id: str)`
+`wave_get_change(change_id: str = "", wave_id: str = "")`
 
 - Returns a change document by ID or prefix.
-- Must reject ambiguous matches once structured diagnostics are available.
+- With `wave_id` and no `change_id`, returns all admitted change docs for the matching wave.
+- Ambiguous `change_id` matches return `data.change: null`, all candidates in
+  `data.changes[]` (`change_id`, `path`, `content`), and an
+  `ambiguous_change_id` diagnostic.
+- Ambiguous `wave_id` matches return all candidates in `data.waves[]`
+  (`wave_id`, `path`, `changes`) and an `ambiguous_wave_id` diagnostic.
+- Change lookup is namespace-scoped to change docs; wave lookup is namespace-scoped
+  to `wave.md` records. Matching is anchored to the leading ID token rather than a
+  loose substring in the slug.
 
 `wave_get_prompt(shortcut: str)`
 
@@ -526,8 +534,8 @@ Parameterized reads — supply the URI variable to select a specific document:
 
 | URI template | MIME | Content | Equivalent tool |
 |---|---|---|---|
-| `wavefoundry://change/{change_id}` | `text/markdown` | Change doc matching ID or prefix | `wave_get_change(change_id=…)` |
-| `wavefoundry://wave/{wave_id}` | `text/markdown` | `wave.md` for the given wave ID or prefix | `wave_get_change(wave_id=…)` |
+| `wavefoundry://change/{change_id}` | `text/markdown` | Change doc matching ID or prefix; ambiguous matches return an `# Ambiguous Change` markdown list | `wave_get_change(change_id=…)` |
+| `wavefoundry://wave/{wave_id}` | `text/markdown` | `wave.md` for the given wave ID or prefix; ambiguous matches return an `# Ambiguous Wave` markdown list | `wave_get_change(wave_id=…)` |
 | `wavefoundry://prompt/{slug}` | `text/markdown` | Prompt doc matching slug or shortcut | `wave_get_prompt(shortcut=…)` |
 | `wavefoundry://seed/{slug}` | `text/markdown` | Seed doc matching slug or name | `seed_get(name=…)` |
 | `wavefoundry://architecture/{slug}` | `text/markdown` | Architecture doc matching slug (e.g. `domain-map`) | — |

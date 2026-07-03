@@ -1,11 +1,11 @@
 # Change and wave lookups silently collapse colliding IDs; both must return all matches and stay namespace-separate
 
 Change ID: `1p9ip-bug change-lookup-ambiguity-disambiguation`
-Change Status: `planned`
+Change Status: `implemented`
 Owner: Engineering
-Status: planned
+Status: implemented
 Last verified: 2026-07-02
-Wave: TBD
+Wave: `1p9jn retrieval-lookup-hardening`
 
 ## Rationale
 
@@ -51,23 +51,23 @@ Two invariants across both resolvers:
 
 ## Acceptance Criteria
 
-- [ ] AC-1: `wave_get_change(change_id=X)` with two change docs matching X returns both in `data.changes` (canonical ID + path + content each), `data.change` is `null`, and an `ambiguous_change_id` diagnostic lists the candidates.
-- [ ] AC-2: `wave_get_change(change_id=X)` with exactly one match returns that change in `data.change` unchanged; zero matches returns the existing `not_found` diagnostic.
-- [ ] AC-3: A wave-by-id lookup with two waves matching the token returns both (wave ID + `wave.md` path + admitted-change summary each) plus an `ambiguous_wave_id` diagnostic; exactly one match returns the single wave unchanged; zero returns `not_found` (never a silent `None`).
-- [ ] AC-4: A change lookup for a token that is also a wave ID returns only the change doc(s); the wave lookup for that token returns only the wave(s). Neither cross-resolves.
-- [ ] AC-5: `wave.md` files are excluded from change matching (fixture: a wave record whose body contains the queried change-ID token is not returned by the change lookup).
-- [ ] AC-6: Matching is anchored to the ID token — a query equal to a full ID does not match an unrelated doc whose slug merely contains that token; partial-prefix lookups still match and, when multiple, return the list.
-- [ ] AC-7: Every remaining caller of `get_change` and `_find_wave_md` is migrated (verified by a guard test or grep assertion that the first-match-wins / None-on-ambiguity forms are no longer reachable from a tool/resource handler).
-- [ ] AC-8: Full framework suite passes; docs-lint clean.
+- [x] AC-1: `wave_get_change(change_id=X)` with two change docs matching X returns both in `data.changes` (canonical ID + path + content each), `data.change` is `null`, and an `ambiguous_change_id` diagnostic lists the candidates.
+- [x] AC-2: `wave_get_change(change_id=X)` with exactly one match returns that change in `data.change` unchanged; zero matches returns the existing `not_found` diagnostic.
+- [x] AC-3: A wave-by-id lookup with two waves matching the token returns both (wave ID + `wave.md` path + admitted-change summary each) plus an `ambiguous_wave_id` diagnostic; exactly one match returns the single wave unchanged; zero returns `not_found` (never a silent `None`).
+- [x] AC-4: A change lookup for a token that is also a wave ID returns only the change doc(s); the wave lookup for that token returns only the wave(s). Neither cross-resolves.
+- [x] AC-5: `wave.md` files are excluded from change matching (fixture: a wave record whose body contains the queried change-ID token is not returned by the change lookup).
+- [x] AC-6: Matching is anchored to the ID token — a query equal to a full ID does not match an unrelated doc whose slug merely contains that token; partial-prefix lookups still match and, when multiple, return the list.
+- [x] AC-7: Every remaining caller of `get_change` and `_find_wave_md` is migrated (verified by a guard test or grep assertion that the first-match-wins / None-on-ambiguity forms are no longer reachable from a tool/resource handler).
+- [x] AC-8: Full framework suite passes; docs-lint clean.
 
 ## Tasks
 
-- [ ] Add a change single-result-with-ambiguity resolver over `_resolve_change_doc_matches` — excludes `wave.md`, token-anchored.
-- [ ] Add a symmetric list-returning wave resolver (matching-waves list) alongside `_find_wave_md`; token-anchored, `wave.md`-only.
-- [ ] Wire `wave_get_change` (both modes), the `wavefoundry://wave/{wave_id}` resource, and other wave/change-by-id consumers to the new resolvers; shape `data.changes` / matching-waves + the two `ambiguous_*` diagnostics.
-- [ ] Audit and migrate all `get_change` and `_find_wave_md` callers; remove or quarantine the first-match-wins / None-on-ambiguity forms.
-- [ ] Add regression tests: colliding change IDs → list; colliding wave IDs → list; wave-ID/change-ID shared token → correct namespace both directions; single match → unchanged both sides; `wave.md`-excluded fixture; token-anchoring fixture.
-- [ ] Run the full framework suite and docs-lint.
+- [x] Add a change single-result-with-ambiguity resolver over `_resolve_change_doc_matches` — excludes `wave.md`, token-anchored.
+- [x] Add a symmetric list-returning wave resolver (matching-waves list) alongside `_find_wave_md`; token-anchored, `wave.md`-only.
+- [x] Wire `wave_get_change` (both modes), the `wavefoundry://wave/{wave_id}` resource, and other wave/change-by-id consumers to the new resolvers; shape `data.changes` / matching-waves + the two `ambiguous_*` diagnostics.
+- [x] Audit and migrate all `get_change` and `_find_wave_md` callers; remove or quarantine the first-match-wins / None-on-ambiguity forms.
+- [x] Add regression tests: colliding change IDs → list; colliding wave IDs → list; wave-ID/change-ID shared token → correct namespace both directions; single match → unchanged both sides; `wave.md`-excluded fixture; token-anchoring fixture.
+- [x] Run the full framework suite and docs-lint.
 
 ## Agent Execution Graph
 
@@ -112,6 +112,9 @@ N/A — confined to the change/wave lookup functions in `server_impl.py`, their 
 | Date | Update | Evidence |
 | ---- | ------ | -------- |
 | 2026-07-02 | Change scoped from the `1p9hh` collision observed landing wave `1p9hn`. Change resolver first-match-wins at `server_impl.py:2448` (`get_change`); list primitive `_resolve_change_doc_matches` at `:4515` unused on that path; wave resolver `_find_wave_md` at `:4490` returns `None` on multiple matches (needs a symmetric list variant). | Operator request; code read. |
+| 2026-07-02 | Admitted into wave `1p9jn retrieval-lookup-hardening` with `1p9j1-enh fts-no-position-query-shape` and prepared/readied. | `docs/waves/1p9jn retrieval-lookup-hardening/wave.md` |
+| 2026-07-02 | Implemented list-aware, token-anchored, namespace-separated change and wave lookup resolution. | `_resolve_change_doc_matches`, `_resolve_wave_md_matches`, `wave_get_change_response`, `wavefoundry://change/{change_id}`, and `wavefoundry://wave/{wave_id}` now report ambiguous candidates instead of silently collapsing them. |
+| 2026-07-02 | Added regression coverage for ambiguous change lookup, ambiguous wave lookup, namespace separation, `wave.md` exclusion, token anchoring, and single-match compatibility. | `BulkWaveGetChangeTests`; full framework suite passed (`4161 tests across 41 files`); docs-lint clean. |
 
 
 ## Decision Log
@@ -133,4 +136,4 @@ N/A — confined to the change/wave lookup functions in `server_impl.py`, their 
 
 ## Session Handoff
 
-See `docs/agents/session-handoff.md` for current session state.
+This change is admitted into readied wave `1p9jn retrieval-lookup-hardening`. Before implementation, open the wave through the normal single-OPEN-gated implementation path. See `docs/agents/session-handoff.md` for current session state.

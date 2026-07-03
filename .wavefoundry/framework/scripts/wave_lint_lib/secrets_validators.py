@@ -157,7 +157,11 @@ def _filter_gitignored(root: Path, paths: list[Path]) -> list[Path]:
     rels: list[str] = []
     for p in paths:
         try:
-            rels.append(str(p.relative_to(root)))
+            # .as_posix() → forward-slash separators so the membership test matches
+            # `git check-ignore` stdout, which emits posix paths on every host including
+            # Windows (wave 1p9ix). str(PurePath) is backslash-separated on Windows, so the
+            # relpaths would never match git's output and gitignored files would not be dropped.
+            rels.append(p.relative_to(root).as_posix())
         except ValueError:
             rels.append(str(p))
     try:

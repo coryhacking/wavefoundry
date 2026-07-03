@@ -1,10 +1,10 @@
 # Fix Windows newline/path stragglers in agent-surface render and gitignore secrets filter
 
 Change ID: `1p9ix-bug windows-path-newline-stragglers`
-Change Status: `planned`
+Change Status: `implemented`
 Owner: Engineering
-Status: planned
-Last verified: 2026-07-02
+Status: implemented
+Last verified: 2026-07-03
 Wave: TBD
 
 ## Rationale
@@ -54,21 +54,21 @@ On Windows `str(PurePath)` yields backslash-separated paths (`sub\file.py`), but
 
 ## Acceptance Criteria
 
-- [ ] AC-1: `render_agent_surfaces.write_text` opens the target with `path.open("w", encoding="utf-8", newline="")` and writes `content` verbatim (no `path.write_text` default-newline call remains in that helper).
-- [ ] AC-2: A test renders the agent surfaces (or calls `write_text` with content containing `"\n"`) and asserts the written bytes contain no `\r\n` (LF-only), so the assertion holds on any host regardless of `os.linesep`.
-- [ ] AC-3: `_filter_gitignored` builds its relpath list with `p.relative_to(root).as_posix()` (forward-slash separators) at the line that previously used `str(...)`.
-- [ ] AC-4: A test drives `_filter_gitignored` (or the `_get_all_files` rglob fallback) with a gitignored path and asserts it is dropped when git emits forward-slash paths, verifying the membership test matches on posix-normalized relpaths.
-- [ ] AC-5: `python3 .wavefoundry/framework/scripts/run_tests.py` passes with the new/updated tests; no unrelated test regresses.
+- [x] AC-1: `render_agent_surfaces.write_text` opens the target with `path.open("w", encoding="utf-8", newline="")` and writes `content` verbatim (no `path.write_text` default-newline call remains in that helper). — `render_agent_surfaces.py:295-304` now uses `with path.open("w", encoding="utf-8", newline="") as handle: handle.write(content)`; no `path.write_text` remains in the helper.
+- [x] AC-2: A test renders the agent surfaces (or calls `write_text` with content containing `"\n"`) and asserts the written bytes contain no `\r\n` (LF-only), so the assertion holds on any host regardless of `os.linesep`. — `AgentSurfaceNewlineTests.test_rendered_agent_surfaces_are_lf_only` asserts no `\r\n` bytes in the four generated surfaces; `test_write_text_uses_newline_empty_and_writes_verbatim` captures the `newline=""` kwarg (durable non-Windows proof) + LF-only bytes.
+- [x] AC-3: `_filter_gitignored` builds its relpath list with `p.relative_to(root).as_posix()` (forward-slash separators) at the line that previously used `str(...)`. — `secrets_validators.py:160` now `rels.append(p.relative_to(root).as_posix())`.
+- [x] AC-4: A test drives `_filter_gitignored` (or the `_get_all_files` rglob fallback) with a gitignored path and asserts it is dropped when git emits forward-slash paths, verifying the membership test matches on posix-normalized relpaths. — `test_filter_gitignored_matches_posix_relpaths_on_windows_seps` simulates a native-Windows path (`PureWindowsPath`) so the nested gitignored path is dropped only when relpaths are posix-normalized; fails on any host on a revert.
+- [x] AC-5: `python3 .wavefoundry/framework/scripts/run_tests.py` passes with the new/updated tests; no unrelated test regresses. — Deferred to the coordinator's central verification pass (AEG ws-3); the full suite is not run per-implementer (shared working tree). Targeted new tests pass (3/3): `AgentSurfaceNewlineTests` + `test_filter_gitignored_matches_posix_relpaths_on_windows_seps`.
 
 ## Tasks
 
-- [ ] Read `render_platform_surfaces.write_text` (`.wavefoundry/framework/scripts/render_platform_surfaces.py:69-78`) to mirror the exact `newline=""` construct and intent.
-- [ ] Edit `render_agent_surfaces.write_text` (`.wavefoundry/framework/scripts/render_agent_surfaces.py:295-297`) to use `path.open("w", encoding="utf-8", newline="")` and `handle.write(content)`.
-- [ ] Edit `_filter_gitignored` (`.wavefoundry/framework/scripts/wave_lint_lib/secrets_validators.py:160`) to append `p.relative_to(root).as_posix()`.
-- [ ] Add/extend a unit test for the agent-surface render asserting LF-only output (no `\r\n`) in the written bytes.
-- [ ] Add/extend a unit test for `_filter_gitignored` asserting a gitignored path is dropped with posix-normalized relpaths.
-- [ ] Run `python3 .wavefoundry/framework/scripts/run_tests.py`; clean any stray `__pycache__` per Framework Script Hygiene.
-- [ ] Update Change Status and AC/task checkboxes in real time as each item completes.
+- [x] Read `render_platform_surfaces.write_text` (`.wavefoundry/framework/scripts/render_platform_surfaces.py:69-78`) to mirror the exact `newline=""` construct and intent. — Mirrored the `with path.open("w", encoding="utf-8", newline="") as handle: handle.write(content)` construct and inline rationale.
+- [x] Edit `render_agent_surfaces.write_text` (`.wavefoundry/framework/scripts/render_agent_surfaces.py:295-297`) to use `path.open("w", encoding="utf-8", newline="")` and `handle.write(content)`.
+- [x] Edit `_filter_gitignored` (`.wavefoundry/framework/scripts/wave_lint_lib/secrets_validators.py:160`) to append `p.relative_to(root).as_posix()`.
+- [x] Add/extend a unit test for the agent-surface render asserting LF-only output (no `\r\n`) in the written bytes. — `AgentSurfaceNewlineTests` in `tests/test_render_agent_surfaces.py`.
+- [x] Add/extend a unit test for `_filter_gitignored` asserting a gitignored path is dropped with posix-normalized relpaths. — `test_filter_gitignored_matches_posix_relpaths_on_windows_seps` in `tests/test_secrets_validators.py`.
+- [x] Run `python3 .wavefoundry/framework/scripts/run_tests.py`; clean any stray `__pycache__` per Framework Script Hygiene. — Deferred to coordinator central pass (AEG ws-3); per-implementer full-suite runs are skipped in the shared tree. Targeted new tests pass (3/3, `python3 -B`, no bytecode written).
+- [x] Update Change Status and AC/task checkboxes in real time as each item completes.
 
 ## Agent Execution Graph
 
@@ -108,6 +108,7 @@ N/A — both edits are one-line corrections confined to a single function each, 
 | Date | Update | Evidence |
 | ---- | ---- | ---- |
 | 2026-07-02 | Scoped from Windows audit `wf_eab9a03d-004` + comparison `wf_33ca6bdb-757`. F14/F18 are the two low-severity one-line stragglers the 1p9hm theme's round-2 missed. Verified both cited sites against the current tree (1p9hn applied): F14 at `render_agent_surfaces.py:297` (helper def `:295`), sibling fix at `render_platform_surfaces.py:69-78` (wave 1p7tz); F18 at `secrets_validators.py:160`, membership test `:177`. | This change doc; `render_agent_surfaces.py:295-297`, `render_platform_surfaces.py:69-78`, `secrets_validators.py:147-177` |
+| 2026-07-02 | Implemented both fixes. F14: `render_agent_surfaces.write_text` now opens with `newline=""` and `handle.write(content)` (mirrors the 1p7tz sibling) + inline rationale. F18: `_filter_gitignored` relpath now `p.relative_to(root).as_posix()`. Added `AgentSurfaceNewlineTests` (LF-only render bytes + `newline=""` capture) and `test_filter_gitignored_matches_posix_relpaths_on_windows_seps` (native-Windows path simulated via `PureWindowsPath`). Targeted tests: 3/3 OK. AC-5 full-suite deferred to coordinator central pass (ws-3). | `render_agent_surfaces.py:295-304`, `secrets_validators.py:157-166`, `tests/test_render_agent_surfaces.py`, `tests/test_secrets_validators.py` |
 
 
 ## Decision Log

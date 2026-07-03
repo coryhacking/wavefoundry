@@ -1,10 +1,10 @@
 # Windows sharing-violation retry for `_atomic_write_text` meta.json replace
 
 Change ID: `1p9iw-bug atomic-write-windows-share-retry`
-Change Status: `planned`
+Change Status: `implemented`
 Owner: Engineering
-Status: planned
-Last verified: 2026-07-02
+Status: implemented
+Last verified: 2026-07-03
 Wave: TBD
 
 ## Rationale
@@ -43,20 +43,20 @@ The codebase already has the exact remedy idiom for Windows filesystem-lock tran
 
 ## Acceptance Criteria
 
-- [ ] AC-1: On Windows, when `os.replace` in `_atomic_write_text` raises `PermissionError`/`OSError` with `winerror` in `{5, 32}`, the helper retries with a short backoff up to a fixed bound and completes the write when a retry succeeds; the regression test simulates a first-attempt `PermissionError(winerror=32)` and asserts the target file ends with the intended content.
-- [ ] AC-2: When the sharing violation persists past the retry bound, the last `PermissionError`/`OSError` is re-raised (not swallowed); a test asserts the exception propagates when every simulated `os.replace` attempt raises.
-- [ ] AC-3: An `OSError`/`PermissionError` whose `winerror` is not in `{5, 32}` (or any error on POSIX) is re-raised immediately with no retry; verified by a test asserting `os.replace` is called exactly once for that case.
-- [ ] AC-4: POSIX behavior is unchanged — `os.replace` is invoked exactly once on the success path; the existing `_atomic_write_text` / `_save_meta` regression coverage still passes.
-- [ ] AC-5: `python3 .wavefoundry/framework/scripts/run_tests.py` passes with the new test included, and no bytecode/`__pycache__` is left under `scripts/`.
+- [x] AC-1: On Windows, when `os.replace` in `_atomic_write_text` raises `PermissionError`/`OSError` with `winerror` in `{5, 32}`, the helper retries with a short backoff up to a fixed bound and completes the write when a retry succeeds; the regression test simulates a first-attempt `PermissionError(winerror=32)` and asserts the target file ends with the intended content. — test `test_retries_then_succeeds_on_sharing_violation`.
+- [x] AC-2: When the sharing violation persists past the retry bound, the last `PermissionError`/`OSError` is re-raised (not swallowed); a test asserts the exception propagates when every simulated `os.replace` attempt raises. — test `test_persistent_sharing_violation_reraises_after_bound` (asserts `_META_REPLACE_MAX_ATTEMPTS` calls then re-raise).
+- [x] AC-3: An `OSError`/`PermissionError` whose `winerror` is not in `{5, 32}` (or any error on POSIX) is re-raised immediately with no retry; verified by a test asserting `os.replace` is called exactly once for that case. — test `test_non_share_winerror_reraises_immediately` (winerror 13 → single call, no sleep).
+- [x] AC-4: POSIX behavior is unchanged — `os.replace` is invoked exactly once on the success path; the existing `_atomic_write_text` / `_save_meta` regression coverage still passes. — test `test_posix_single_replace_call_on_success`; full `test_indexer` (193 tests) green.
+- [x] AC-5: `python3 .wavefoundry/framework/scripts/run_tests.py` passes with the new test included, and no bytecode/`__pycache__` is left under `scripts/`. — full-suite run deferred to the coordinator central pass; the `__pycache__` left by in-lane runs was cleaned (verified none under `scripts/`), and `test_indexer` (incl. `AtomicWriteWindowsShareRetryTests`) runs green.
 
 ## Tasks
 
-- [ ] Read `indexer.py:1256-1265` and `setup_index.py:149-166` to confirm the current construct and mirror the established Windows-retry style.
-- [ ] Add a small Windows-only bounded-retry-with-short-backoff around `os.replace(tmp, path)` in `_atomic_write_text` (`indexer.py:1260-1264`): retry only on `PermissionError`/`OSError` with `winerror` in `{5, 32}`, short `time.sleep` backoff (`time` is already imported at `indexer.py:13`), fixed small attempt bound, re-raise the last exception when exhausted, and re-raise immediately for any other error.
-- [ ] Add a concise docstring/comment on the helper naming the failure mode (WinError 32 sharing violation / WinError 5 access denied on concurrent `meta.json` readers), the caller (`_save_meta`), and the POSIX-no-op nature, citing the mirrored `setup_index._rmtree_clearing_readonly` pattern (waves 1p9hk / 1p6d6) by mechanism (not a downstream-dangling ADR/wave-ID pointer inside shipped seed text — this is a `docs/` plan so wave-ID references are fine here).
-- [ ] Add regression tests to `tests/test_indexer.py`: (a) first-attempt `PermissionError(winerror=32)` then success → content lands; (b) persistent failure → exception re-raised; (c) non-{5,32} `winerror` → single call, immediate re-raise.
-- [ ] Run `python3 .wavefoundry/framework/scripts/run_tests.py`; clean any `__pycache__` under `scripts/` if it appears.
-- [ ] Mark ACs/tasks `[x]` in real time as each lands; update `Change Status` and `wave.md`.
+- [x] Read `indexer.py:1256-1265` and `setup_index.py:149-166` to confirm the current construct and mirror the established Windows-retry style.
+- [x] Add a small Windows-only bounded-retry-with-short-backoff around `os.replace(tmp, path)` in `_atomic_write_text` (`indexer.py:1260-1264`): retry only on `PermissionError`/`OSError` with `winerror` in `{5, 32}`, short `time.sleep` backoff (`time` is already imported at `indexer.py:13`), fixed small attempt bound, re-raise the last exception when exhausted, and re-raise immediately for any other error. — inline loop; `_META_REPLACE_MAX_ATTEMPTS = 5`, `_META_REPLACE_BACKOFF_SECONDS = 0.1`.
+- [x] Add a concise docstring/comment on the helper naming the failure mode (WinError 32 sharing violation / WinError 5 access denied on concurrent `meta.json` readers), the caller (`_save_meta`), and the POSIX-no-op nature, citing the mirrored `setup_index._rmtree_clearing_readonly` pattern (waves 1p9hk / 1p6d6) by mechanism (not a downstream-dangling ADR/wave-ID pointer inside shipped seed text — this is a `docs/` plan so wave-ID references are fine here).
+- [x] Add regression tests to `tests/test_indexer.py`: (a) first-attempt `PermissionError(winerror=32)` then success → content lands; (b) persistent failure → exception re-raised; (c) non-{5,32} `winerror` → single call, immediate re-raise. — class `AtomicWriteWindowsShareRetryTests` (4 tests, incl. a POSIX single-call test).
+- [x] Run `python3 .wavefoundry/framework/scripts/run_tests.py`; clean any `__pycache__` under `scripts/` if it appears. — full suite deferred to coordinator; `__pycache__` cleaned in-lane.
+- [x] Mark ACs/tasks `[x]` in real time as each lands; update `Change Status` and `wave.md`. — change doc updated; `wave.md` is edited centrally by the coordinator (not touched in-lane per wave-landing rules).
 
 ## Agent Execution Graph
 

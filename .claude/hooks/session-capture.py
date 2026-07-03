@@ -13,6 +13,12 @@ try:
     _wf_venv_bootstrap.activate_tool_venv()
 except Exception:
     pass
+try:
+    import cli_stdio as _wf_cli_stdio
+
+    _wf_cli_stdio.configure_utf8_stdio()
+except Exception:
+    pass
 
 import os
 import subprocess

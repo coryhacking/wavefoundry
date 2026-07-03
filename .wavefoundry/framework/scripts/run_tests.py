@@ -49,12 +49,18 @@ _FRAMEWORK_DIR = _SCRIPT_DIR.parent
 _CACHE_FILE = _FRAMEWORK_DIR / "test-cache.json"
 _LOCK_FILE = _FRAMEWORK_DIR / "test-run.lock"
 
+# Wave 1p9j0: msvcrt.locking (native Windows) is mandatory byte-range, so the run lock is taken on
+# a SENTINEL byte at this high fixed offset — NOT byte 0 — so the same-handle pid write/truncate at
+# byte 0 below is not blocked, mirroring dashboard_lib.py's sentinel-offset rationale.
+_LOCK_BYTE_OFFSET = 1 << 30  # 1 GiB — well beyond the short pid line written at byte 0
+
 # Ensure scripts/ is on sys.path explicitly — tests/__init__.py handles this
 # for individual-file runs; repeat it here so run_tests.py is self-contained
 # and does not rely on Python's implicit entry-point path insertion.
 if str(_SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPT_DIR))
 
+import subprocess_util  # UTF-8 child env for worker spawns (wave 1p9j0)
 import venv_bootstrap  # the single venv resolver (wave 1p7pl)
 
 # Activate the shared tool venv IN-PROCESS before any heavy work (wave 1p7pl/1p802 AC-3): every
@@ -153,19 +159,36 @@ def _test_runner_python() -> str:
 
 
 def _acquire_run_lock():
-    """Acquire the runner lock or return (None, diagnostic) when already held."""
-    import fcntl
+    """Acquire the runner lock or return (None, diagnostic) when already held.
 
+    Wave 1p9j0: branch on ``os.name`` so the runner imports and runs on native Windows —
+    ``fcntl`` does not exist there. Mirrors dashboard_lib.py's fcntl/msvcrt split: POSIX uses
+    ``fcntl.flock``; Windows uses ``msvcrt.locking`` on a SENTINEL byte (``_LOCK_BYTE_OFFSET``)
+    so the same-handle pid write/truncate at byte 0 below is not blocked. POSIX mutual-exclusion
+    ("already running" busy diagnostic) is preserved unchanged.
+    """
     try:
         lock_file = _LOCK_FILE.open("a+", encoding="utf-8")
     except Exception as exc:  # noqa: BLE001
         return None, f"Could not open test runner lock file {_LOCK_FILE}: {exc}"
 
+    busy_msg = f"Another run_tests.py invocation is already running; lock file busy: {_LOCK_FILE}"
     try:
-        fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
-        lock_file.close()
-        return None, f"Another run_tests.py invocation is already running; lock file busy: {_LOCK_FILE}"
+        if os.name == "nt":
+            import msvcrt
+            lock_file.seek(_LOCK_BYTE_OFFSET)
+            try:
+                msvcrt.locking(lock_file.fileno(), msvcrt.LK_NBLCK, 1)
+            except OSError:
+                lock_file.close()
+                return None, busy_msg
+        else:
+            import fcntl
+            try:
+                fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                lock_file.close()
+                return None, busy_msg
     except Exception as exc:  # noqa: BLE001
         lock_file.close()
         return None, f"Could not acquire test runner lock: {exc}"
@@ -183,10 +206,14 @@ def _acquire_run_lock():
 
 def _release_run_lock(lock_file) -> None:
     """Release the runner lock and close the underlying file handle."""
-    import fcntl
-
     try:
-        fcntl.flock(lock_file, fcntl.LOCK_UN)
+        if os.name == "nt":
+            import msvcrt
+            lock_file.seek(_LOCK_BYTE_OFFSET)  # unlock the SAME sentinel byte we locked
+            msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(lock_file, fcntl.LOCK_UN)
     except Exception:  # noqa: BLE001
         pass
     try:
@@ -219,12 +246,20 @@ def _run_file(file_path: Path) -> tuple[str, int, str, int]:
     # disable flag turns reranking off entirely for the suite — fast + deterministic. Tests that
     # exercise the reranker mock `_get_reranker`/`make_reranker` directly.
     env.setdefault("WAVEFOUNDRY_DISABLE_RERANKER", "1")
+    # Wave 1p9j0 (F13): force UTF-8 in the worker so its output is emitted as UTF-8 regardless of
+    # the host locale (native Windows defaults to cp1252), and decode the captured text as UTF-8
+    # with an error-tolerant policy — consistent with the timeout branch's replace-decode below.
+    # utf8_child_env sets PYTHONUTF8=1 AND PYTHONIOENCODING=utf-8: an inherited
+    # PYTHONIOENCODING=cp1252 would otherwise win over PYTHONUTF8 in the child.
+    env = subprocess_util.utf8_child_env(env)
     try:
         result = subprocess.run(
             [_test_runner_python(), "-B", "-m", "unittest", "discover",
              "-s", str(_TESTS_DIR), "-p", file_path.name, "-v"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             cwd=str(_SCRIPT_DIR),
             env=env,
             timeout=600,

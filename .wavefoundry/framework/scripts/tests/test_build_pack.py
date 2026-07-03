@@ -757,6 +757,25 @@ class TagMessageDerivationTests(unittest.TestCase):
             msg = build_pack._derive_tag_message(Path("/tmp"), "1.4.1")
         self.assertEqual(msg, "Release v1.4.1")
 
+    def test_git_log_decoded_as_utf8(self):
+        """Wave 1p9j0 (F12): the git-log decode passes encoding='utf-8', so a unicode `→`
+        subject survives intact (no cp1252 UnicodeDecodeError/mojibake) and the regex matches."""
+        captured = {}
+
+        class _CP:
+            returncode = 0
+            stdout = "Close wave 1p337 and ship 1.3.32 → 1.4.0\n"
+            stderr = ""
+
+        def _runner(*args, **kwargs):
+            captured.update(kwargs)
+            return _CP()
+
+        with patch("build_pack.subprocess.run", _runner):
+            msg = build_pack._derive_tag_message(Path("/tmp"), "1.4.0")
+        self.assertEqual(msg, "Close wave 1p337 and ship 1.3.32 → 1.4.0")
+        self.assertEqual(captured.get("encoding"), "utf-8")
+
 
 # ---------------------------------------------------------------------------
 # Release orchestration ordering (wave 1p5l4): the build stamp must be committed

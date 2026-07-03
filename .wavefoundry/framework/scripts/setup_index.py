@@ -9,6 +9,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import queue
 import re
 import shutil
 import stat
@@ -141,6 +142,14 @@ class ModelPrewarmError(RuntimeError):
     """Raised when a required model cache could not be prepared for setup."""
 
 
+class ModelPrewarmTimeout(ModelPrewarmError):
+    """Deadline abort of an in-process model warm (wave 1p9j0 DF-1). Distinct from a plain
+    ``ModelPrewarmError`` because the abandoned warm thread may still be writing the model cache:
+    the cache-corruption check would misread an in-flight download as corruption and the quarantine
+    would move a directory with live open handles (a raw sharing violation on Windows). Callers
+    that repair-and-retry on warm failure must let this propagate instead."""
+
+
 def _tool_venv_python() -> Path:
     """Tool-venv Python path — delegates to the single resolver (wave 1p7pl)."""
     return venv_bootstrap.tool_venv_python()
@@ -166,7 +175,7 @@ def _rmtree_clearing_readonly(path: Path) -> None:
     shutil.rmtree(path, **_rm_kw)
 
 
-def _bootstrap_venv() -> Path:
+def _bootstrap_venv(root: Path | None = None) -> Path:
     """Ensure the tool venv exists; return the path to its Python binary."""
     venv_python = _tool_venv_python()
     venv_dir = venv_python.parent.parent
@@ -207,7 +216,27 @@ def _bootstrap_venv() -> Path:
 
     if not venv_dir.exists():
         print(f"Creating tool venv at {venv_dir} ...", flush=True)
-        subprocess_util.isolated_run([sys.executable, "-m", "venv", str(venv_dir)], check=True)
+        venv_timeout = _setup_deadlines(root)["venv_create_timeout_seconds"]
+        try:
+            subprocess_util.isolated_run(
+                [sys.executable, "-m", "venv", str(venv_dir)],
+                check=True,
+                timeout=venv_timeout,
+            )
+        except subprocess.TimeoutExpired:
+            # Wave 1p9it: creating a venv is a LOCAL op, so a stall is almost always antivirus/endpoint
+            # security scanning the new files, a slow/overloaded disk, or a filesystem lock — not the
+            # network. Fail loud rather than hang.
+            print(
+                f"Tool-venv creation timed out after {venv_timeout:g}s (`python -m venv {venv_dir}`). "
+                "A venv is a local operation, so a stall usually means realtime antivirus/endpoint "
+                "security is scanning the new files, the disk is slow/overloaded, or a filesystem lock "
+                "is held. Exclude the venv path from realtime AV / free the disk and rerun `wf setup`; "
+                "raise `setup.venv_create_timeout_seconds` in docs/workflow-config.json if the machine "
+                "is legitimately slow.",
+                file=sys.stderr,
+            )
+            raise SystemExit(2)
 
     return venv_python
 
@@ -347,20 +376,36 @@ def _uv_bin(venv_python: Path) -> Path | None:
     return None
 
 
-def _bootstrap_uv(venv_python: Path) -> Path | None:
+def _bootstrap_uv(venv_python: Path, root: Path | None = None) -> Path | None:
     """Install uv into the tool venv via pip and return its path, or None on failure."""
     print("uv not found — installing uv for package age enforcement ...", flush=True)
-    result = subprocess_util.isolated_run(
-        [str(venv_python), "-m", "pip", "install", "uv"],
-        check=False,
-        env=_pip_tls_env(),
-    )
+    uv_timeout = _setup_deadlines(root)["uv_bootstrap_timeout_seconds"]
+    try:
+        result = subprocess_util.isolated_run(
+            [str(venv_python), "-m", "pip", "install", "uv"],
+            check=False,
+            env=_pip_tls_env(),
+            timeout=uv_timeout,
+        )
+    except subprocess.TimeoutExpired:
+        # Wave 1p9it: uv is an OPTIONAL supply-chain age guard; a stalled `pip install uv` (hung PyPI
+        # fetch behind a corp MITM / flaky proxy) must not hang setup. Fail loud for THIS stage and fall
+        # back to plain pip for the actual dependency install (which is itself deadline-bounded).
+        print(
+            f"Installing uv timed out after {uv_timeout:g}s (`pip install uv`). This is almost always a "
+            "stalled PyPI fetch — check network/proxy/TLS reachability to https://pypi.org (corp MITM / "
+            "flaky proxy). Falling back to plain pip without the package-age guard; raise "
+            "`setup.uv_bootstrap_timeout_seconds` in docs/workflow-config.json if the network is "
+            "legitimately slow.",
+            file=sys.stderr,
+        )
+        return None
     if result.returncode != 0:
         return None
     return _uv_bin(venv_python)
 
 
-def _install_deps(missing: list[str], venv_python: Path) -> None:
+def _install_deps(missing: list[str], venv_python: Path, root: Path | None = None) -> None:
     """Install missing packages into the tool venv.
 
     Prefers ``uv`` with ``--exclude-newer`` (21-day package age guard) to reduce
@@ -373,7 +418,7 @@ def _install_deps(missing: list[str], venv_python: Path) -> None:
     )
     print(f"Installing missing dependencies: {display}", flush=True)
 
-    uv = _uv_bin(venv_python) or _bootstrap_uv(venv_python)
+    uv = _uv_bin(venv_python) or _bootstrap_uv(venv_python, root)
 
     if uv is not None:
         cutoff = _exclude_newer_cutoff(days=21)
@@ -398,7 +443,23 @@ def _install_deps(missing: list[str], venv_python: Path) -> None:
         # exists so it reaches PyPI whether PyPI is public or MITM-intercepted (wave 1p8tf).
         run_env = _pip_tls_env()
 
-    result = subprocess_util.isolated_run(cmd, check=False, env=run_env)
+    deps_timeout = _setup_deadlines(root)["dep_install_timeout_seconds"]
+    try:
+        result = subprocess_util.isolated_run(cmd, check=False, env=run_env, timeout=deps_timeout)
+    except subprocess.TimeoutExpired:
+        # Wave 1p9it: a stalled dependency download/resolve (hung PyPI fetch behind a corp MITM / flaky
+        # proxy) is a Phase-1 hang path. Fail loud with network/proxy/TLS guidance rather than blocking
+        # setup forever.
+        installer = "uv" if uv is not None else "pip"
+        print(
+            f"Dependency install timed out after {deps_timeout:g}s ({installer}). A stalled package "
+            "download/resolve is almost always a network/proxy/TLS problem — check reachability to "
+            "https://pypi.org (corp MITM / flaky proxy / offline). Fix connectivity and rerun "
+            "`wf setup`; raise `setup.dep_install_timeout_seconds` in docs/workflow-config.json if a "
+            "legitimately slow link needs longer.",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
     if result.returncode != 0:
         installer = "uv" if uv is not None else "pip"
         print(
@@ -410,14 +471,14 @@ def _install_deps(missing: list[str], venv_python: Path) -> None:
     print("Dependencies installed successfully.", flush=True)
 
 
-def ensure_deps() -> None:
-    venv_python = _bootstrap_venv()
+def ensure_deps(root: Path | None = None) -> None:
+    venv_python = _bootstrap_venv(root)
     required_imports = _planned_required_imports()
     missing = _missing_in_venv(venv_python, required_imports)
     if not missing:
         print(f"Dependencies satisfied ({', '.join(required_imports)})", flush=True)
         return
-    _install_deps(missing, venv_python)
+    _install_deps(missing, venv_python, root)
     still_missing = _missing_in_venv(venv_python, required_imports)
     if still_missing:
         print(
@@ -809,7 +870,33 @@ def retry_with_ca_bundle_ladder(attempt, model_name: str):
     raise_with_ca_bundle_diagnostic(model_name, last_exc)
 
 
-def _warm_model(model_name: str, *, local_files_only: bool) -> None:
+def _warm_model(model_name: str, *, local_files_only: bool, deadline_seconds: float | None = None) -> None:
+    """Bounded in-process model warm (wave 1p9it). Runs the reactive CA-retry warm ladder
+    (``_warm_model_inner``) under a wall-clock deadline so a hung TLS model fetch behind a corp
+    MITM/flaky proxy fails loud with model-download reachability guidance instead of stalling setup
+    forever. The deadline is the explicit ``deadline_seconds`` when given, else the per-run value
+    ``main`` set from workflow-config (``setup.model_warm_timeout_seconds``), else
+    ``MODEL_WARM_TIMEOUT_DEFAULT``. Within the deadline this behaves exactly as before — the full
+    CA-retry ladder runs inside the bounded attempt and its error semantics are preserved."""
+    if deadline_seconds is None:
+        deadline_seconds = _ACTIVE_MODEL_WARM_DEADLINE_SECONDS or MODEL_WARM_TIMEOUT_DEFAULT
+    _run_in_process_with_deadline(
+        lambda: _warm_model_inner(model_name, local_files_only=local_files_only),
+        deadline_seconds=deadline_seconds,
+        timeout_error=ModelPrewarmTimeout(
+            f"Model '{model_name}' warm exceeded the {deadline_seconds:g}s deadline and was aborted. A "
+            "hung model download is almost always a network/proxy/TLS problem — check reachability to "
+            "the model host (Hugging Face) behind a corp MITM / flaky proxy, or point the CA bundle at "
+            "the right store (SSL_CERT_FILE / REQUESTS_CA_BUNDLE / host-agent CA var). Raise "
+            "`setup.model_warm_timeout_seconds` in docs/workflow-config.json if the link is legitimately "
+            "slow. If the network is healthy, a corrupted model cache can also hang the warm — clear "
+            "the fastembed cache directory (FASTEMBED_CACHE_PATH, default ~/.wavefoundry/cache/fastembed) "
+            "and rerun."
+        ),
+    )
+
+
+def _warm_model_inner(model_name: str, *, local_files_only: bool) -> None:
     from fastembed import TextEmbedding
 
     def _build() -> None:
@@ -917,8 +1004,87 @@ def _warm_model(model_name: str, *, local_files_only: bool) -> None:
             _restore_stack_env()
 
 
+# Wave 1p9lj: the Apple CoreML framework error raised when the model-compile working directory
+# under the per-user temp root (/var/folders/.../T/) is unusable — the one transient failure shape
+# the probe retries. The text is not a stable API contract, so the marker set stays narrow: an
+# unrecognized failure shape falls back to CPU fail-safe (protects AC-5).
+_COREML_TEMPDIR_ERROR_MARKERS: tuple[str, ...] = ("Failed to create a working directory",)
+
+
+def _is_coreml_tempdir_error(exc: BaseException) -> bool:
+    text = str(exc)
+    return any(marker in text for marker in _COREML_TEMPDIR_ERROR_MARKERS)
+
+
+def _mkdir_private(path: Path) -> None:
+    """Create ``path`` and any missing ancestors, EACH with mode 0o700 — private per-user temp
+    permissions on every platform (macOS ships /var/folders per-user dirs 0700; the same posture
+    applies to Linux/WSL2 temp paths; the mode is a harmless no-op on Windows ACL filesystems).
+    ``Path.mkdir(parents=True, mode=...)`` applies the mode only to the LEAF, leaving umask-default
+    intermediates, so missing ancestors are created explicitly bottom-up. Existing directories are
+    never touched or chmod'd."""
+    missing: list[Path] = []
+    current = path
+    while not current.exists():
+        missing.append(current)
+        if current.parent == current:
+            break
+        current = current.parent
+    for directory in reversed(missing):
+        directory.mkdir(mode=0o700, exist_ok=True)
+
+
+def _repair_probe_tempdir() -> str:
+    """Cheap, bounded repair for the CoreML compile working-directory failure (wave 1p9lj): recreate
+    the process temp directory if macOS periodic cleanup reaped it while a stale path lingered in
+    TMPDIR. Two env-derived tiers (the repair target NEVER comes from error text — security
+    boundary): (1) a set-but-absent ``TMPDIR`` path is recreated directly, because
+    ``tempfile.gettempdir()`` silently skips an unusable candidate and falls back to ``/tmp`` —
+    repairing the fallback would miss the directory CoreML actually resolves in a fresh process
+    with a stale TMPDIR; (2) the ``gettempdir()`` answer is recreated when missing, covering the
+    mid-process-reap window where the stale path is already cached in ``tempfile.tempdir``.
+    Every created directory (including intermediates, on every platform) gets private 0o700 via
+    ``_mkdir_private``. Best-effort — a failure to repair only means the single retry probes the
+    unrepaired state. Never raises."""
+    import tempfile
+
+    try:
+        notes: list[str] = []
+        env_tmp = os.environ.get("TMPDIR")
+        if env_tmp:
+            env_path = Path(env_tmp)
+            if not env_path.exists():
+                _mkdir_private(env_path)
+                notes.append(f"recreated missing TMPDIR {env_path}")
+        tmp = Path(tempfile.gettempdir())
+        if not tmp.exists():
+            _mkdir_private(tmp)
+            notes.append(f"recreated missing temp directory {tmp}")
+        if not notes:
+            notes.append(f"temp directory {tmp} present")
+        return "; ".join(notes)
+    except Exception as exc:  # noqa: BLE001 — repair is best-effort by contract
+        return f"temp-directory repair failed ({type(exc).__name__}: {exc})"
+
+
+_COREML_TEMPDIR_RECOVERY = (
+    "CoreML could not create its model-compile working directory (macOS may have reaped the "
+    "per-user temp dir under /var/folders while a stale path lingered in TMPDIR); a bounded "
+    "repair+retry already ran. Recovery: open a fresh shell (re-resolves TMPDIR) or clear a stale "
+    "TMPDIR override, then rerun `wf setup`. The build continues on CPU (slower, correct)."
+)
+
+
 def _probe_embedding_provider(provider: str, *, model_name: str | None = None) -> provider_policy.ProviderProbeResult:
-    """Bounded correctness/performance probe for providers that need model proof."""
+    """Bounded correctness/performance probe for providers that need model proof.
+
+    Wave 1p9lj: a CoreML failure matching the known temp-working-directory shape gets ONE bounded
+    repair+retry INSIDE this probe — before any decision is recorded to
+    ``WAVEFOUNDRY_EMBED_PROVIDER_SELECTED`` — so a transient temp-dir failure no longer pins the
+    whole build to CPU while `wave_gpu_doctor` later accepts CoreML. The retry never applies to any
+    other failure shape (shape mismatch, non-finite vectors, other compile errors stay fail-safe),
+    and there is no post-decision re-enable (the cached-CPU decision remains the native-crash guard
+    honored by ``accel_embedder``)."""
     import math
     import time as _time
 
@@ -935,35 +1101,50 @@ def _probe_embedding_provider(provider: str, *, model_name: str | None = None) -
         "This bounded probe uses a mixed text batch so setup does not choose a provider based on one tiny input.",
         "If a provider cannot beat CPU by a material margin for the active model, CPU remains the default.",
     ]
-    try:
-        # Run one unmeasured warm pass for each provider, then time the second pass.
-        # FastEmbed and ONNX Runtime both do lazy setup that would otherwise dominate
-        # a tiny benchmark and make CoreML look better than a full-corpus rebuild.
-        # SERIAL ONLY (wave 1p8vc): every `embed()` below runs with the default `parallel=None`
-        # (serial inline path). Do NOT pass `parallel=` here — this probe runs in-process inside the
-        # MCP server (wave_gpu_doctor), and fastembed's parallel path spawns workers that re-load ORT
-        # and would write cold-load diagnostics to the inherited MCP stdout fd, corrupting JSON-RPC.
-        cpu_embedding = TextEmbedding(
-            model_name=model,
-            local_files_only=True,
-            providers=[provider_policy.CPU_PROVIDER],
-        )
-        list(cpu_embedding.embed(sample))
-        started = _time.perf_counter()
-        cpu_vectors = [list(vector) for vector in cpu_embedding.embed(sample)]
-        cpu_seconds = _time.perf_counter() - started
+    for attempt in range(2):
+        try:
+            # Run one unmeasured warm pass for each provider, then time the second pass.
+            # FastEmbed and ONNX Runtime both do lazy setup that would otherwise dominate
+            # a tiny benchmark and make CoreML look better than a full-corpus rebuild.
+            # SERIAL ONLY (wave 1p8vc): every `embed()` below runs with the default `parallel=None`
+            # (serial inline path). Do NOT pass `parallel=` here — this probe runs in-process inside the
+            # MCP server (wave_gpu_doctor), and fastembed's parallel path spawns workers that re-load ORT
+            # and would write cold-load diagnostics to the inherited MCP stdout fd, corrupting JSON-RPC.
+            cpu_embedding = TextEmbedding(
+                model_name=model,
+                local_files_only=True,
+                providers=[provider_policy.CPU_PROVIDER],
+            )
+            list(cpu_embedding.embed(sample))
+            started = _time.perf_counter()
+            cpu_vectors = [list(vector) for vector in cpu_embedding.embed(sample)]
+            cpu_seconds = _time.perf_counter() - started
 
-        candidate_embedding = TextEmbedding(
-            model_name=model,
-            local_files_only=True,
-            providers=[provider, provider_policy.CPU_PROVIDER],
-        )
-        list(candidate_embedding.embed(sample))
-        started = _time.perf_counter()
-        candidate_vectors = [list(vector) for vector in candidate_embedding.embed(sample)]
-        candidate_seconds = _time.perf_counter() - started
-    except Exception as exc:
-        return provider_policy.ProviderProbeResult(provider, False, f"{type(exc).__name__}: {exc}")
+            candidate_embedding = TextEmbedding(
+                model_name=model,
+                local_files_only=True,
+                providers=[provider, provider_policy.CPU_PROVIDER],
+            )
+            list(candidate_embedding.embed(sample))
+            started = _time.perf_counter()
+            candidate_vectors = [list(vector) for vector in candidate_embedding.embed(sample)]
+            candidate_seconds = _time.perf_counter() - started
+            break
+        except Exception as exc:
+            coreml_tempdir = (
+                provider == provider_policy.COREML_PROVIDER and _is_coreml_tempdir_error(exc)
+            )
+            if coreml_tempdir and attempt == 0:
+                repair_note = _repair_probe_tempdir()
+                print(
+                    f"CoreML probe hit a temp working-directory failure; {repair_note}; retrying once.",
+                    flush=True,
+                )
+                continue
+            reason = f"{type(exc).__name__}: {exc}"
+            if coreml_tempdir:
+                reason = f"{reason}. {_COREML_TEMPDIR_RECOVERY}"
+            return provider_policy.ProviderProbeResult(provider, False, reason)
 
     if len(candidate_vectors) != len(cpu_vectors) or not candidate_vectors:
         return provider_policy.ProviderProbeResult(provider, False, "embedding shape mismatch")
@@ -1197,6 +1378,12 @@ def _prewarm_required_model(
             with _offline_env():
                 warm_fn(model_name, local_files_only=True)
             return
+        except ModelPrewarmTimeout:
+            # Deadline abort: the abandoned warm thread may still be writing this cache, so the
+            # corruption check below would flag the in-flight download and the quarantine would
+            # move a directory with live open handles. Propagate to main's handler; process exit
+            # reaps the daemon worker.
+            raise
         except Exception as exc:
             corruption_reason = _model_cache_corruption_reason(model_name)
             if attempt == 0 and corruption_reason:
@@ -1395,11 +1582,59 @@ def _run_indexer(
     collected: list[str] = []
     assert proc.stdout is not None
     raw_out = getattr(sys.stdout, "_wrapped", sys.stdout)
-    for line in proc.stdout:
-        collected.append(line)
-        raw_out.write(line)
+
+    # Wave 1p9it: no-progress watchdog. A reader thread pushes each stdout line onto a queue; the main
+    # loop waits up to `stall_timeout` for the next line. A bare `for line in proc.stdout:` would pin the
+    # parent forever on a child that emits nothing and never exits (the ~4h stall-at-step-2.3 field
+    # report). The stall window is RESET on every line, so a legit long large-repo build that keeps
+    # emitting progress runs as long as it needs and only a genuinely silent/stalled child trips it. On
+    # stall: terminate, escalate to kill, drain, and fail loud so the child is reaped (no orphan).
+    stall_timeout = _setup_deadlines(root)["index_build_stall_timeout_seconds"]
+    line_queue: queue.Queue = queue.Queue()
+
+    def _pump() -> None:
+        try:
+            for line in proc.stdout:
+                line_queue.put(line)
+        finally:
+            # Sentinel: stream reached EOF (child exited or was killed → pipe closed).
+            line_queue.put(None)
+
+    reader = threading.Thread(target=_pump, name="wavefoundry-indexer-reader", daemon=True)
+    reader.start()
+    while True:
+        try:
+            item = line_queue.get(timeout=stall_timeout)
+        except queue.Empty:
+            _terminate_and_reap(proc)
+            reader.join(timeout=5)
+            raise TimeoutError(
+                f"Index build produced no output for {stall_timeout:g}s and was terminated as stalled. "
+                "A hung index build is usually a resource problem — check free disk (the LanceDB store "
+                "and temp files), CPU load, and available memory/swap (embedding is memory-heavy; a "
+                "low-RAM or paused/frozen host can stall it). Free resources and rerun "
+                "`wf update-indexes`; raise `setup.index_build_stall_timeout_seconds` in "
+                "docs/workflow-config.json if a legitimately slow host needs a longer stall window."
+            )
+        if item is None:
+            break
+        collected.append(item)
+        raw_out.write(item)
         raw_out.flush()
-    proc.wait()
+    reader.join(timeout=5)
+    try:
+        # Bounded: a reader-thread failure is indistinguishable from EOF via the sentinel, so an
+        # unbounded wait here could hang on a live silent child with nobody draining its pipe.
+        proc.wait(timeout=stall_timeout)
+    except subprocess.TimeoutExpired:
+        _terminate_and_reap(proc)
+        raise TimeoutError(
+            f"Index build reached end-of-output but the child did not exit within {stall_timeout:g}s "
+            "and was terminated as stalled. A hung index build is usually a resource problem — check "
+            "free disk, CPU load, and available memory/swap, then rerun `wf update-indexes`; raise "
+            "`setup.index_build_stall_timeout_seconds` in docs/workflow-config.json if a legitimately "
+            "slow host needs a longer window."
+        ) from None
     combined_output = "".join(collected)
     if "Another index build is already running" in combined_output or "lock file busy" in combined_output:
         index_dir = root / ".wavefoundry" / "index"
@@ -1539,6 +1774,110 @@ def _workflow_project_include_prefixes(root: Path) -> dict[str, tuple[str, ...]]
     return {DOCS_PREFIXES_KEY: docs_prefixes, CODE_PREFIXES_KEY: code_prefixes}
 
 
+# ---------------------------------------------------------------------------
+# Wave 1p9it: Phase-1 setup child deadlines
+# ---------------------------------------------------------------------------
+#
+# Every `wf setup` Phase-1 child (venv create, uv bootstrap, dependency install, in-process model warm,
+# index-build subprocess) is bounded by a per-step deadline / no-progress watchdog so a single stalled
+# child fails loud with stage-specific guidance instead of hanging setup indefinitely (the native-
+# Windows field defect: a reboot-needed post-Phase-1 hang and a ~4h stall). Defaults are conservative,
+# sized for slow-but-legit environments (corp proxy, low-RAM WSL2); every value is overridable via
+# docs/workflow-config.json `setup.<key>`. INDEX_BUILD_STALL is a NO-PROGRESS window (reset on each
+# output line), NOT a total cap — a legit long large-repo build that keeps emitting progress never
+# trips, only a genuinely silent/stalled child does. stdlib threading/subprocess/queue only; no new dep.
+SETUP_WORKFLOW_KEY = "setup"
+VENV_CREATE_TIMEOUT_DEFAULT = 300.0          # local `python -m venv`
+UV_BOOTSTRAP_TIMEOUT_DEFAULT = 600.0         # `pip install uv` (network)
+DEP_INSTALL_TIMEOUT_DEFAULT = 1800.0         # full dependency resolve + download (network, large wheels)
+MODEL_WARM_TIMEOUT_DEFAULT = 1800.0          # in-process model download + load (network)
+INDEX_BUILD_STALL_TIMEOUT_DEFAULT = 1800.0   # no-progress window for the index-build child stdout stream
+
+_SETUP_DEADLINE_KEYS: dict[str, float] = {
+    "venv_create_timeout_seconds": VENV_CREATE_TIMEOUT_DEFAULT,
+    "uv_bootstrap_timeout_seconds": UV_BOOTSTRAP_TIMEOUT_DEFAULT,
+    "dep_install_timeout_seconds": DEP_INSTALL_TIMEOUT_DEFAULT,
+    "model_warm_timeout_seconds": MODEL_WARM_TIMEOUT_DEFAULT,
+    "index_build_stall_timeout_seconds": INDEX_BUILD_STALL_TIMEOUT_DEFAULT,
+}
+
+# Set once per run by ``main`` from ``_setup_deadlines(root)`` before prewarm, then read by
+# ``_warm_model`` when its ``deadline_seconds`` arg is left default. A module-level channel (rather than
+# threading root through ``prewarm_models`` -> ``_prewarm_required_model`` -> ``warm_fn``) keeps the
+# generic ``_prewarm_required_model`` warm_fn contract — ``(model_name, local_files_only)`` — unchanged.
+_ACTIVE_MODEL_WARM_DEADLINE_SECONDS: float | None = None
+
+
+def _setup_deadlines(root: Path | None) -> dict[str, float]:
+    """Resolve Phase-1 setup child deadlines (seconds) from ``docs/workflow-config.json`` ``setup.<key>``
+    (wave 1p9it). Analogous to ``_workflow_project_include_prefixes``. Fail-safe: a missing file,
+    malformed JSON, missing block/key, or a non-positive/non-numeric value falls back to the shipped
+    default for that key and never raises. ``root=None`` (e.g. a direct unit-test call) yields all
+    defaults."""
+    resolved = dict(_SETUP_DEADLINE_KEYS)
+    if root is None:
+        return resolved
+    try:
+        data = json.loads((root / "docs" / "workflow-config.json").read_text(encoding="utf-8"))
+        block = data.get(SETUP_WORKFLOW_KEY) if isinstance(data, dict) else None
+        if isinstance(block, dict):
+            for key in _SETUP_DEADLINE_KEYS:
+                val = block.get(key)
+                if isinstance(val, (int, float)) and not isinstance(val, bool) and val > 0:
+                    resolved[key] = float(val)
+    except Exception:
+        pass
+    return resolved
+
+
+def _run_in_process_with_deadline(fn, *, deadline_seconds: float, timeout_error: BaseException) -> None:
+    """Run in-process ``fn()`` under a wall-clock deadline (wave 1p9it). Executes ``fn`` on a daemon
+    worker thread joined with ``deadline_seconds``; if the thread is still alive at the deadline, raise
+    ``timeout_error``. The daemon worker is then abandoned — a blocked native call (e.g. a hung fastembed
+    TLS fetch) cannot be interrupted from outside, so the abort path fails loud and the process should be
+    exited rather than resumed. On the within-deadline path this is behaviorally identical to calling
+    ``fn()`` directly: any exception ``fn`` raised is re-raised here, preserving existing error semantics
+    exactly."""
+    box: dict[str, BaseException] = {}
+
+    def _worker() -> None:
+        try:
+            fn()
+        except BaseException as exc:  # noqa: BLE001 — surfaced on the joining thread
+            box["exc"] = exc
+
+    worker = threading.Thread(target=_worker, name="wavefoundry-model-warm", daemon=True)
+    worker.start()
+    worker.join(deadline_seconds)
+    if worker.is_alive():
+        raise timeout_error
+    if "exc" in box:
+        raise box["exc"]
+
+
+def _terminate_and_reap(proc) -> None:
+    """Terminate a stalled child, escalate to kill, and reap it so no orphan/zombie survives (wave
+    1p9it). Best-effort at each step: ``terminate()``; if it does not exit within a short grace window,
+    ``kill()``; then ``wait()`` to reap. A child that is already gone raises harmlessly and is ignored."""
+    try:
+        proc.terminate()
+    except Exception:
+        pass
+    try:
+        proc.wait(timeout=5)
+        return
+    except Exception:
+        pass
+    try:
+        proc.kill()
+    except Exception:
+        pass
+    try:
+        proc.wait(timeout=5)
+    except Exception:
+        pass
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Set up the Wavefoundry semantic index")
     p.add_argument("--root", default=None, help="Repository root (default: current directory)")
@@ -1568,8 +1907,14 @@ def main(argv: list[str] | None = None) -> int:
             ds.unlink()
         except OSError:
             pass
-    ensure_deps()
+    ensure_deps(root)
     _reexec_with_venv_if_needed()
+    # Wave 1p9it: establish the in-process model-warm deadline for THIS run from workflow-config (the
+    # default applies when unset). Read once here; `_warm_model` reads it when its `deadline_seconds`
+    # arg is left default. This keeps the `prewarm_models`/`_prewarm_required_model` warm_fn contract
+    # unchanged (see `_ACTIVE_MODEL_WARM_DEADLINE_SECONDS`).
+    global _ACTIVE_MODEL_WARM_DEADLINE_SECONDS
+    _ACTIVE_MODEL_WARM_DEADLINE_SECONDS = _setup_deadlines(root)["model_warm_timeout_seconds"]
     include_prefixes = _workflow_project_include_prefixes(root)
     docs_prefixes = include_prefixes.get(DOCS_PREFIXES_KEY, ())
     code_prefixes = include_prefixes.get(CODE_PREFIXES_KEY, ())
@@ -1581,15 +1926,21 @@ def main(argv: list[str] | None = None) -> int:
         )
     if args.graph_only:
         graph_prefixes = tuple(dict.fromkeys((*docs_prefixes, *code_prefixes)))
-        _run_indexer(
-            root,
-            full=args.full,
-            content="graph",
-            verbose=args.verbose,
-            include_tests=False,
-            include_generated=False,
-            project_include_prefixes=graph_prefixes,
-        )
+        try:
+            _run_indexer(
+                root,
+                full=args.full,
+                content="graph",
+                verbose=args.verbose,
+                include_tests=False,
+                include_generated=False,
+                project_include_prefixes=graph_prefixes,
+            )
+        except TimeoutError as exc:
+            # Stall watchdog abort: exit clean with the stage-named message, matching the
+            # venv/deps/model-warm deadline convention (no raw traceback, exit code 2).
+            print(str(exc), file=sys.stderr)
+            return 2
         print("\nDone. Graph index rebuild complete.", flush=True)
         return 0
 
@@ -1629,18 +1980,24 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     report_embedding_provider_decision()
     _prewarm_gpu_accel(_indexer_models(include_code=_include_code, code_only=_code_only))
-    build_index(
-        root,
-        full=args.full,
-        rechunk=args.rechunk,
-        include_code=_include_code,
-        verbose=args.verbose,
-        include_tests=args.include_tests,
-        include_generated=args.include_generated,
-        project_include_prefixes_for_docs=docs_prefixes,
-        project_include_prefixes_for_code=code_prefixes,
-        code_only=_code_only,
-    )
+    try:
+        build_index(
+            root,
+            full=args.full,
+            rechunk=args.rechunk,
+            include_code=_include_code,
+            verbose=args.verbose,
+            include_tests=args.include_tests,
+            include_generated=args.include_generated,
+            project_include_prefixes_for_docs=docs_prefixes,
+            project_include_prefixes_for_code=code_prefixes,
+            code_only=_code_only,
+        )
+    except TimeoutError as exc:
+        # Stall watchdog abort: exit clean with the stage-named message, matching the
+        # venv/deps/model-warm deadline convention (no raw traceback, exit code 2).
+        print(str(exc), file=sys.stderr)
+        return 2
     # Wave 1p9aj: reclaim any accumulated table bloat now that the synchronous build has released the
     # build lock and before the background code build (if any) is spawned — so it never races a build.
     _optimize_after_build(root)

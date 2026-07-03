@@ -1506,7 +1506,7 @@ class GetChangeTests(unittest.TestCase):
         _make_repo(self.root, {
             "docs/waves/1200a wave/1234-feat Foo.md": "# Change\n",
         })
-        text = self.srv.get_change(self.root, "FOO")
+        text = self.srv.get_change(self.root, "1234-FEAT")
         self.assertIsNotNone(text)
 
 
@@ -2588,7 +2588,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
                 "Change Status: `planned`\n"
             ),
         })
-        result = self.srv.wave_add_change_response(self.root, "1200a test-wave", "sample", mode="dry_run")
+        result = self.srv.wave_add_change_response(self.root, "1200a test-wave", "1200a", mode="dry_run")
         self.assertEqual(result["status"], "error")
         self.assertEqual(result["diagnostics"][0]["code"], "ambiguous_change_id")
 
@@ -3488,6 +3488,71 @@ class RunValidateTests(unittest.TestCase):
         result = self._run(1, "ERROR: bad field\nWARNING: stale date\n")
         self.assertIn("ERROR: bad field", result["errors"])
         self.assertIn("WARNING: stale date", result["warnings"])
+
+    # --- Wave 1p9iu: configurable server-side full-scan docs-lint timeout ----------------------------
+
+    def _write_docs_lint_config(self, full_scan_timeout: object) -> None:
+        (self.root / "docs").mkdir(parents=True, exist_ok=True)
+        (self.root / "docs" / "workflow-config.json").write_text(
+            json.dumps({"docs_lint": {"full_scan_timeout_seconds": full_scan_timeout}}),
+            encoding="utf-8",
+        )
+
+    def test_full_scan_timeout_helper_config_default_and_failsafe(self):
+        # AC-1: default when absent, configured value when present, default on malformed/non-positive.
+        self.assertGreaterEqual(self.srv.DOCS_LINT_FULL_SCAN_TIMEOUT_DEFAULT, 120)
+        self.assertEqual(
+            self.srv.docs_lint_full_scan_timeout_seconds(self.root),
+            self.srv.DOCS_LINT_FULL_SCAN_TIMEOUT_DEFAULT,
+        )
+        self._write_docs_lint_config(240)
+        self.assertEqual(self.srv.docs_lint_full_scan_timeout_seconds(self.root), 240.0)
+        self._write_docs_lint_config(-5)
+        self.assertEqual(
+            self.srv.docs_lint_full_scan_timeout_seconds(self.root),
+            self.srv.DOCS_LINT_FULL_SCAN_TIMEOUT_DEFAULT,
+        )
+        (self.root / "docs" / "workflow-config.json").write_text("{ not json", encoding="utf-8")
+        self.assertEqual(
+            self.srv.docs_lint_full_scan_timeout_seconds(self.root),
+            self.srv.DOCS_LINT_FULL_SCAN_TIMEOUT_DEFAULT,
+        )
+
+    def test_run_validate_forwards_configured_timeout(self):
+        # AC-2: run_validate passes the resolved value as the subprocess timeout (not the old 30).
+        self._write_docs_lint_config(175)
+        mock_result = MagicMock(returncode=0, stdout="ok\n", stderr="")
+        with patch.object(self.srv, "_mcp_subprocess_run", return_value=mock_result) as run:
+            self.srv.run_validate(self.root)
+        self.assertEqual(run.call_args.kwargs.get("timeout"), 175.0)
+        self.assertNotEqual(run.call_args.kwargs.get("timeout"), 30)
+
+    def test_run_validate_runs_full_scan_no_changed_flag(self):
+        # AC-3: full corpus scan is preserved — the spawned argv must not include --changed.
+        mock_result = MagicMock(returncode=0, stdout="ok\n", stderr="")
+        with patch.object(self.srv, "_mcp_subprocess_run", return_value=mock_result) as run:
+            self.srv.run_validate(self.root)
+        cmd = run.call_args.args[0]
+        self.assertNotIn("--changed", cmd)
+
+    def test_run_validate_timeout_returns_legible_result(self):
+        # AC-4: on TimeoutExpired, return passed:False naming the config key + elapsed, not a raise.
+        self._write_docs_lint_config(61)
+
+        def _timeout(*args, **kwargs):
+            raise subprocess.TimeoutExpired(cmd="docs_lint", timeout=61)
+
+        with patch.object(self.srv, "_mcp_subprocess_run", side_effect=_timeout):
+            result = self.srv.run_validate(self.root)
+        self.assertFalse(result["passed"])
+        self.assertTrue(
+            any("docs_lint.full_scan_timeout_seconds" in e for e in result["errors"]),
+            f"timeout error must name the config key: {result['errors']}",
+        )
+        self.assertTrue(
+            any("61" in e for e in result["errors"]),
+            f"timeout error must name the elapsed timeout: {result['errors']}",
+        )
 
 
 class RunGardenTests(unittest.TestCase):
@@ -7171,6 +7236,87 @@ class BulkWaveGetChangeTests(unittest.TestCase):
         resp = self.srv.wave_get_change_response(self.root, change_id="ch1xx-feat first")
         self.assertEqual(resp["status"], "ok")
         self.assertIn("change", resp["data"])
+        self.assertIn("First", resp["data"]["change"]["content"])
+
+    def test_single_mode_ambiguous_change_returns_all_matches(self):
+        self._setup_wave()
+        (self.root / "docs" / "plans").mkdir(parents=True, exist_ok=True)
+        other = self.root / "docs" / "plans" / "ch1xx-bug collision.md"
+        other.write_text("# Collision\n\nChange ID: `ch1xx-bug collision`\n", encoding="utf-8")
+        resp = self.srv.wave_get_change_response(self.root, change_id="ch1xx")
+        self.assertEqual(resp["status"], "ok")
+        self.assertIsNone(resp["data"]["change"])
+        ids = {m["change_id"] for m in resp["data"]["changes"]}
+        self.assertEqual(ids, {"ch1xx-feat first", "ch1xx-bug collision"})
+        codes = [d.get("code") for d in resp.get("diagnostics") or []]
+        self.assertIn("ambiguous_change_id", codes)
+
+    def test_single_mode_excludes_wave_md_from_change_lookup(self):
+        self._setup_wave()
+        wave_text = (self.root / "docs" / "waves" / "bulk-wave" / "wave.md").read_text(encoding="utf-8")
+        self.assertIn("ch1xx-feat first", wave_text)
+        matches = self.srv._resolve_change_doc_matches(self.root, "bulk-wave")
+        self.assertEqual(matches, [])
+
+    def test_token_anchored_change_matching_ignores_slug_substring(self):
+        plans = self.root / "docs" / "plans"
+        plans.mkdir(parents=True, exist_ok=True)
+        (plans / "zzzzz-bug mentions-ch1xx.md").write_text(
+            "# Mention\n\nChange ID: `zzzzz-bug mentions-ch1xx`\n",
+            encoding="utf-8",
+        )
+        resp = self.srv.wave_get_change_response(self.root, change_id="ch1xx")
+        self.assertEqual(resp["data"]["change"], None)
+        codes = [d.get("code") for d in resp.get("diagnostics") or []]
+        self.assertIn("change_not_found", codes)
+
+    def test_ambiguous_wave_lookup_returns_all_matches(self):
+        self._setup_wave()
+        second = self.root / "docs" / "waves" / "bulk-wave-extra"
+        second.mkdir(parents=True, exist_ok=True)
+        (second / "wave.md").write_text(
+            "# Wave Record\n\nOwner: Engineering\nStatus: planned\nLast verified: 2026-01-01\n\nwave-id: `bulk-wave-extra`\nTitle: Extra\n\n## Changes\n\nChange ID: `ch3xx-feat third`\nChange Status: `planned`\n",
+            encoding="utf-8",
+        )
+        resp = self.srv.wave_get_change_response(self.root, wave_id="bulk-wave")
+        self.assertEqual(resp["status"], "ok")
+        self.assertEqual(resp["data"]["changes"], [])
+        wave_ids = {m["wave_id"] for m in resp["data"]["waves"]}
+        self.assertEqual(wave_ids, {"bulk-wave", "bulk-wave-extra"})
+        codes = [d.get("code") for d in resp.get("diagnostics") or []]
+        self.assertIn("ambiguous_wave_id", codes)
+
+    def test_wave_and_change_namespaces_do_not_cross_resolve(self):
+        self._setup_wave()
+        plans = self.root / "docs" / "plans"
+        plans.mkdir(parents=True, exist_ok=True)
+        (plans / "bulk-wave-bug same-token.md").write_text(
+            "# Same Token\n\nChange ID: `bulk-wave-bug same-token`\n",
+            encoding="utf-8",
+        )
+        change_resp = self.srv.wave_get_change_response(self.root, change_id="bulk-wave")
+        self.assertEqual(change_resp["data"]["change"]["change_id"], "bulk-wave-bug same-token")
+        self.assertNotIn("waves", change_resp["data"])
+        wave_resp = self.srv.wave_get_change_response(self.root, wave_id="bulk-wave")
+        self.assertEqual(wave_resp["data"]["wave_id"], "bulk-wave")
+        self.assertEqual(wave_resp["data"]["count"], 2)
+
+
+class FtsQueryShapeTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def test_identifier_like_queries_are_not_quoted(self):
+        for query in ("build_pack.version", "SORT_WINDOW_SIZE", "wave_index_build_status"):
+            self.assertEqual(self.srv.WaveIndex._fts_query(query), query)
+
+    def test_explicit_phrase_quotes_are_stripped_for_no_position_fts(self):
+        self.assertEqual(self.srv.WaveIndex._fts_query('"semantic code embeddings"'), "semantic code embeddings")
+
+    def test_natural_language_query_is_preserved(self):
+        query = "how does index build status work"
+        self.assertEqual(self.srv.WaveIndex._fts_query(query), query)
 
 
 class HandoffToolTests(unittest.TestCase):

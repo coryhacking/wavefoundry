@@ -6,6 +6,24 @@ the individual wave records under [`docs/waves/`](docs/waves/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.1] - 2026-07-03
+
+### Changed
+
+- **First setup now builds the code index by default and verifies SOCKS proxy support.** `wf setup` validates the `httpx[socks]` dependency through `socksio`, builds docs and code indexes synchronously unless an explicit background-layer flag is used, and preserves the setup-selected CPU provider for accelerator prewarm/index subprocesses. Wave 1p9gr / 1p9gq.
+- **FTS indexes use no-position storage with compatible query shaping.** Index rebuild and rewrite paths create FTS indexes without positional data, while docs/code query construction avoids phrase-shaped identifier searches that no-position FTS cannot satisfy. Wave 1p9jn / 1p9j1.
+- **Server-side full docs-lint scans have a configurable timeout.** Lifecycle tools now use the full-scan timeout setting and return a clear validation failure on timeout instead of surfacing a raw subprocess timeout. Wave 1p9j0 / 1p9iu.
+
+### Fixed
+
+- **Setup fails closed when `python3` is missing or too old.** Setup now requires `python3 --version` to resolve to Python 3.11 or newer and gives repair guidance instead of implying a tool-venv MCP fallback can bypass the committed launch contract. Wave 1p9hi / 1p9hh.
+- **Native Windows lifecycle paths no longer corrupt stdout or fail common process checks.** In-process server helpers keep diagnostics off the MCP JSON-RPC stdout channel, dashboard/process liveness uses Windows-safe checks, install-log reads tolerate non-UTF-8 logs, venv recreation detects failed removal, spaced dashboard roots parse correctly, line endings and cosmetic paths normalize, and server startup detects a missing venv before handshake. Wave 1p9hn / 1p9io, 1p9hi, 1p9hj, 1p9hk, 1p9hl, 1p9hm, 1p9i7.
+- **Setup/index child processes are bounded and keep the operator informed.** Phase-1 setup children and model warmup paths now have per-step deadlines, no-progress watchdogs, clean timeout exits, corruption-quarantine bypass for model-warm timeouts, bounded post-EOF indexer waits, and unconditional indexer heartbeat prints during long embed/finalize phases. Wave 1p9j0 / 1p9it.
+- **Rendered hooks decode host stdin as UTF-8 across host surfaces.** Generated Claude, Cursor, Windsurf, and GitHub/Copilot hooks reconfigure stdin consistently so non-ASCII file paths no longer mis-decode under cp1252-style host encodings. Wave 1p9j0 / 1p9iv.
+- **Windows metadata writes and development test paths are more robust.** Atomic metadata replacement retries Windows sharing violations, rendered surfaces and secret-scan path filters keep forward-slash/line-ending behavior consistent, and the framework test runner uses a cross-platform run lock plus UTF-8 subprocess capture. Wave 1p9j0 / 1p9iw, 1p9ix, 1p9iy.
+- **Change and wave lookups report ambiguous lifecycle IDs instead of silently choosing one match.** Lookup tools/resources now return candidate lists for ambiguous change or wave prefixes, keep change and wave namespaces separate, exclude `wave.md` from change lookup, and preserve token-anchored matching. Wave 1p9jn / 1p9ip.
+- **Apple Silicon CoreML provider-probe temp-dir failures fall back safely to CPU.** Provider selection retries a bounded private temp-dir repair inside the probe window, records setup-cache/fresh-probe/operator-request provenance consistently, and reports recovery guidance without masking persistent CoreML failure. Wave 1p9j0 / 1p9lj.
+
 ## [1.10.0] - 2026-07-01
 
 ### Added

@@ -68,14 +68,20 @@ def isolated_stdout_fd():
 
 
 def configure_utf8_stdio() -> None:
-    """Reconfigure ``stdout``/``stderr`` to UTF-8 so non-ASCII prints never raise.
+    """Reconfigure ``stdin``/``stdout``/``stderr`` to UTF-8 so non-ASCII never mis-decodes or raises.
 
     Mirrors ``server.py``'s guarded ``getattr(stream, "reconfigure", None)``
     pattern. Unlike the MCP runner this does NOT pin a newline translation —
     plain CLI output should keep the platform default — it only fixes the
-    *encoding* so a cp1252 console can render ``⚠`` / box-drawing characters.
+    *encoding* so a cp1252 console can render ``⚠`` / box-drawing characters,
+    and so a hook reading a UTF-8 JSON payload from ``stdin`` (a file path,
+    message, or diff excerpt carrying box-drawing / accented / em-dash bytes)
+    decodes it correctly instead of mis-decoding under the console codepage
+    (wave 1p9j0 / change 1p9iv). Streams that are ``None`` or lack a
+    ``reconfigure`` method (e.g. a captured ``StringIO`` under test) are skipped
+    silently.
     """
-    for stream_name in ("stdout", "stderr"):
+    for stream_name in ("stdin", "stdout", "stderr"):
         stream = getattr(sys, stream_name, None)
         reconfigure = getattr(stream, "reconfigure", None)
         if reconfigure is None:
