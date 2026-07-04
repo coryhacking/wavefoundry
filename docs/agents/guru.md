@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: guru
 Category: specialist
-Last verified: 2026-06-17
+Last verified: 2026-07-04
 
 Shortcut: **`Guru`** | MCP tool: **`code_ask`**
 
@@ -137,8 +137,7 @@ When you see one of these suffixes in a retrieval result: the chunk is one slice
 - **chokepoints** — `function` / `method` / `class` entries with fan_out ≥ 20 (potential bottlenecks).
 - **file_hubs** — file-level (`kind: "module"`) entries with fan_out ≥ 20 (the dedicated file-level view, wave 13129).
 - **orphan_docs** — disconnected documentation.
-- **cross_layer** — edges crossing the project/framework boundary (`layer="union"` only).
-- **betweenness** — bridge nodes by betweenness centrality (skipped on graphs > 10,000 nodes with diagnostic).
+- **betweenness** — bridge nodes by betweenness centrality, computed at build time with a size-tiered strategy and served from the persisted ranking (`method` metadata: `exact` / `cutoff` / `degree_fallback`); no query-time node cap.
 - **communities** — top communities by node_count with `community_id`, `label`, `hub_node_id`, `hub_label`.
 
 **Migration note (wave 13129):** if you previously queried `sections=["chokepoints"]` to find both file-level and function-level hubs, switch to `sections=["chokepoints", "file_hubs"]` to keep both views. The default section set now returns both automatically.
@@ -155,8 +154,7 @@ When you see one of these suffixes in a retrieval result: the chunk is one slice
 - `chokepoints_candidates_total` / `chokepoints_threshold` — how many candidates were considered before the threshold filter.
 - `file_hubs_candidates_total` / `file_hubs_threshold` — same shape for file_hubs.
 - `orphan_docs_candidates_total` — docs node pool considered.
-- `cross_layer_candidates_total` — edges considered before the boundary filter.
-- `betweenness_computed` (bool) + `betweenness_skipped_reason` (string when False) — from wave 130rj.
+- `betweenness_computed` (bool) + `betweenness_skipped_reason` (string when False — e.g. `betweenness_not_in_artifact` for a pre-upgrade clusters artifact awaiting its first rebuild).
 
 When a section is `[]` AND `<section>_candidates_total: 0`, the graph genuinely has nothing. When `[]` AND `_candidates_total > 0`, the filter threshold removed everything — adjust `sections` parameters or investigate whether the threshold matches your project shape.
 
@@ -243,7 +241,7 @@ The single-tool descriptions above tell you *what* each tool returns. Most agent
 - **"If I change X, what breaks?"** — run `code_impact(symbol=X, max_hops=3, include_tests=true)` AND `code_impact(symbol=X, max_hops=3, include_tests=false)`. Difference between the counts shows test-only breakage vs production callers. Chain `code_callhierarchy(direction="outgoing")` per affected node for per-edge line numbers (`code_impact` returns affected files but no lines). Also run `code_keyword(queries=[<X_name>], glob="**/*")` to catch non-code references (comments, doc citations, log strings) the graph doesn't model.
 - **"What edge cases does X handle?"** — `code_outline(<file>)` for function boundaries → `code_read(<file>, start_line=N, end_line=M)` for the body → `code_callhierarchy(symbol=X, direction="outgoing")` to find delegated guards/helpers → recurse on each guard helper. For language-specific early-exit patterns scoped to the file: `code_keyword(queries=<project.code_navigation_hints.guard_tokens>, glob="<file>")` if the project has declared `code_navigation_hints` in `docs/workflow-config.json` (matches the existing `design_review_triggers`/`architecture_triggers` schema; project owners tune tokens to local convention).
 - **"Where do we handle X?"** — `wavefoundry://graph/communities` resource read to identify the community by label or top-member file paths → `code_graph_community(community_id=project:cN)` drilldown for top-degree members (the community's public API) → `docs_search(X)` + `code_search(X, kind="code-summary")` for related discussion.
-- **"Is module A coupled to module B?"** — `code_graph_path(from=A_entry, to=B_entry, direction="either")`. The `either` direction is required for AOP, reactive, and event-driven codebases where data flows backward through shared mutable state (`onEnter` writes a field, `onExit` reads it — the edge direction reverses at the field). Each `path_edges[i].traversal_direction` makes the flow readable. Confirm with `wave_graph_report(sections=["cross_layer"], layer="union")` for boundary-edge counts.
+- **"Is module A coupled to module B?"** — `code_graph_path(from=A_entry, to=B_entry, direction="either")`. The `either` direction is required for AOP, reactive, and event-driven codebases where data flows backward through shared mutable state (`onEnter` writes a field, `onExit` reads it — the edge direction reverses at the field). Each `path_edges[i].traversal_direction` makes the flow readable. Corroborate with `code_dependencies` on the two modules' key files to confirm file-level import coupling alongside the symbol-level path.
 - **"Where does this advice/AOP method actually get called?"** (Java with ByteBuddy/AspectJ): `code_callhierarchy(symbol=X)` will return empty incoming for `@Advice.OnMethodEnter`/`@Around`/`@Before`/`@After`/`@AfterReturning`/`@AfterThrowing` methods. Do NOT fall back to `code_references` — the callers are wired at weave time and have no Java call sites. Instead: `code_keyword(queries=[<AdviceClassName>], glob="**/*Instrumentation*.java")` to find the `TypeInstrumentation.transform()` declaration that lists this class. That `transform()` method IS the caller; read it to understand the bytecode join point it intercepts.
 - **"Bug investigation: enumerate every change site for this defect"** — `code_callhierarchy(symbol=<symptom_fn>, direction="incoming")` for direct callers + line numbers → identify the conditional that selects the buggy branch → `code_impact(symbol=<symptom_fn>, max_hops=3)` for transitive entry points → `code_keyword(queries=[<bug_conditional>, <inverse_conditional>, <related_field>], glob="**/*.<lang>", graph=false)` for exhaustive catalog of sites flipping the conditional → judge per site whether the semantic matches the bug or is parallel-but-correct.
 - **"What value does this constant / enum member resolve to?"** — `code_constants(symbols=[X])` retrieves module-/type-level constant and enum-member values; qualified (`Status.OK`) AND short (`OK`) both resolve, Go grouped `const(...)`/iota members each resolve to their own value, and values are string-aware (a `,`/`;`/`}` inside a quoted literal is kept) and leading-comment-clean. Chain `code_definition(symbol=X)` (resolves the declaration, including short constants exempt from the short-symbol prune) + `code_references(symbol=X)` (the `reads` bucket lists constant readers).

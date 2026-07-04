@@ -8,6 +8,7 @@ import heapq
 import importlib.util
 import itertools
 import math
+import os
 import sys
 from collections import deque
 from pathlib import Path
@@ -17,9 +18,11 @@ import cli_stdio  # wave 1p9io: isolated_stdout_fd() for the in-process graph au
 
 Layer = Literal["project"]
 Direction = Literal["callers", "callees", "both"]
-ReportSection = Literal["fan_in", "fan_out", "orphan_docs", "chokepoints", "file_hubs", "betweenness"]
-
-_BETWEENNESS_NODE_LIMIT = 10_000
+# Wave 1p9q3 (1p9q1): "betweenness" is no longer a GraphQueryIndex.report section —
+# betweenness centrality is computed at build time (graph_cluster.compute_betweenness_ranking,
+# size-tiered) and persisted in the clusters artifact; `wave_graph_report` serves the
+# persisted ranking. The per-query computation and its 10k-node cap are retired.
+ReportSection = Literal["fan_in", "fan_out", "orphan_docs", "chokepoints", "file_hubs"]
 
 _DEFAULT_IMPACT_RELATIONS = ("imports", "calls")
 _DEFAULT_CALL_RELATIONS = ("calls",)
@@ -88,6 +91,25 @@ _VERSION_REBUILD_INFLIGHT_LOCK = _threading.Lock()
 _VERSION_REBUILD_INFLIGHT: dict[tuple[str, str], float] = {}
 _INFLIGHT_REBUILD_STALE_SECONDS = 120.0
 
+# Wave 1p9q3 (1p9pz): process-level cache of the constructed GraphQueryIndex.
+# Long-lived processes (the MCP server) issue graph-tool bursts against a graph
+# that rarely changes between calls, yet every call previously re-parsed the
+# full payload and rebuilt three adjacency structures. The cache holds at most
+# ONE entry per (resolved root, layer) — only the "project" layer exists — and
+# is validated on every access by (st_mtime_ns, st_size) of the payload file.
+# Stat validation is safe because graph artifacts are written atomically
+# (same-directory temp + os.replace, wave 1p9q3/1p9py); the in-query
+# auto-rebuild path additionally invalidates explicitly (see
+# _ensure_graph_builder_current) so a same-stat rewrite cannot pin a stale
+# entry. Construction/replacement are guarded by _QUERY_INDEX_CACHE_LOCK —
+# same module-lock discipline as _VERSION_REBUILD_INFLIGHT above.
+_QUERY_INDEX_CACHE_LOCK = _threading.Lock()
+_QUERY_INDEX_CACHE: dict[tuple[str, str], dict[str, Any]] = {}
+# Kill switch (diagnosis): restores load-per-call behavior when truthy.
+_QUERY_CACHE_DISABLE_ENV = "WAVEFOUNDRY_DISABLE_GRAPH_QUERY_CACHE"
+# Once-per-process stderr note when a stale-builder payload disables pinning.
+_STALE_BUILDER_WARNED = False
+
 # Wave 1p2q3 (131hh): post-rebuild callback registry. server_impl wires this at
 # MCP startup to dispatch `notifications/resources/updated` for wavefoundry://
 # graph/* URIs whenever the auto-rebuild path completes. graph_query stays
@@ -109,10 +131,6 @@ def set_post_rebuild_callback(fn) -> None:
 def _graph_payload_path(root: Path, layer: str = "project") -> Path:
     # Wave 1p4ww: single project graph — the framework graph layer was removed.
     return root / ".wavefoundry" / "index" / "graph" / "project-graph.json"
-
-
-def _graph_state_path(root: Path, layer: str = "project") -> Path:
-    return _graph_payload_path(root).with_name("project-graph-state.json")
 
 
 def _graph_index_dir(root: Path, layer: str = "project") -> Path:
@@ -152,22 +170,18 @@ def _ensure_graph_builder_current(root: Path, layer: str) -> dict[str, Any] | No
         cached = _VERSION_CHECK_CACHE.get(cache_key)
         if cached is not None and cached[0] == payload_mtime and cached[1] == runtime_version:
             return None  # Already verified this exact graph state.
-    state_path = _graph_state_path(root, layer)
-    if not state_path.exists():
-        # No state file — can't determine builder_version. Mark as verified
-        # to avoid re-checking on every query.
-        with _VERSION_CHECK_LOCK:
-            _VERSION_CHECK_CACHE[cache_key] = (payload_mtime, runtime_version)
-        return None
-    import json
+    # Wave 1p9q3 (1p9q2): the graph state lives in the per-file SQLite store —
+    # probe its meta table via the read-only helper (sub-ms; no file creation)
+    # with a legacy monolithic-JSON fallback for pre-upgrade repos. An empty
+    # probe means the builder version cannot be determined; mark verified,
+    # matching the historical missing/corrupted-state contract.
     try:
-        state = json.loads(state_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        with _VERSION_CHECK_LOCK:
-            _VERSION_CHECK_CACHE[cache_key] = (payload_mtime, runtime_version)
-        return None
-    state_version = str(state.get("builder_version") or "")
-    if state_version == runtime_version:
+        state_version = str(
+            indexer.read_state_builder_version(_graph_index_dir(root, layer), layer) or ""
+        )
+    except Exception:
+        state_version = ""
+    if not state_version or state_version == runtime_version:
         with _VERSION_CHECK_LOCK:
             _VERSION_CHECK_CACHE[cache_key] = (payload_mtime, runtime_version)
         return None
@@ -250,6 +264,11 @@ def _ensure_graph_builder_current(root: Path, layer: str) -> dict[str, Any] | No
         # or unhandled exception). Idempotent: pop returns None if no entry.
         with _VERSION_REBUILD_INFLIGHT_LOCK:
             _VERSION_REBUILD_INFLIGHT.pop(cache_key, None)
+    # Wave 1p9q3 (1p9pz): the rebuild rewrote the payload — explicitly drop the
+    # cached constructed index for this key. Stat validation alone cannot see a
+    # rewrite that lands with identical (mtime_ns, size) on a coarse-mtime
+    # filesystem; the explicit hook makes the in-process rebuild path immune.
+    _invalidate_query_index_cache_key(cache_key)
     # Cache the post-rebuild state (mtime has changed) so subsequent queries
     # don't re-check.
     try:
@@ -292,6 +311,144 @@ def load_graph(root: Path, *, layer: str = "project") -> dict[str, Any]:
     if rebuild_diag is not None:
         payload["auto_rebuild_diagnostic"] = rebuild_diag
     return payload
+
+
+def _query_index_cache_disabled() -> bool:
+    """True when the kill-switch env var disables the constructed-index cache (wave 1p9q3 — 1p9pz)."""
+    return os.environ.get(_QUERY_CACHE_DISABLE_ENV, "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _payload_stat(payload_path: Path) -> tuple[int, int] | None:
+    """(st_mtime_ns, st_size) of the graph payload file, or None when unreadable/absent."""
+    try:
+        st = payload_path.stat()
+    except OSError:
+        return None
+    return (st.st_mtime_ns, st.st_size)
+
+
+def _invalidate_query_index_cache_key(cache_key: tuple[str, str]) -> None:
+    with _QUERY_INDEX_CACHE_LOCK:
+        _QUERY_INDEX_CACHE.pop(cache_key, None)
+
+
+def invalidate_query_index_cache(root: Path, layer: str = "project") -> None:
+    """Explicitly drop the cached constructed index for (root, layer) (wave 1p9q3 — 1p9pz).
+
+    Called by paths that KNOW the payload was (or may have been) rewritten —
+    the in-query auto-rebuild and the server's refresh-then-recheck helper —
+    so the next access reloads even when the rewrite landed with identical
+    (mtime_ns, size). Idempotent; a missing entry is a no-op.
+    """
+    _invalidate_query_index_cache_key((str(root.resolve()), layer))
+
+
+def _index_with_diagnostic(index: GraphQueryIndex, diag: dict[str, Any] | None) -> GraphQueryIndex:
+    """O(1) per-call view of a cached index carrying an auto_rebuild_diagnostic.
+
+    Shares every underlying structure (nodes/edges/_node_by_id/_out/_in) with
+    the cached object — no copy of graph data — while keeping the diagnostic
+    per-call, so the shared cached index is never mutated and load-per-call
+    diagnostic semantics are preserved exactly (a diagnostic surfaces only on
+    the calls where the uncached path would have attached one).
+    """
+    clone = GraphQueryIndex.__new__(GraphQueryIndex)
+    clone.layer = index.layer
+    clone.present = index.present
+    clone.builder_version = index.builder_version
+    clone.nodes = index.nodes
+    clone.edges = index.edges
+    clone._node_by_id = index._node_by_id
+    clone._out = index._out
+    clone._in = index._in
+    clone.auto_rebuild_diagnostic = diag if isinstance(diag, dict) else None
+    return clone
+
+
+def get_query_index(root: Path, *, layer: str = "project") -> GraphQueryIndex:
+    """Cached accessor for the constructed ``GraphQueryIndex`` (wave 1p9q3 — 1p9pz).
+
+    Hit → reuse the constructed index (payload parse + adjacency build skipped);
+    miss/stale → reload, rebuild, replace (releasing the prior entry). Validation
+    is ``(st_mtime_ns, st_size)`` of the payload file on every access — safe over
+    the atomic artifact writes introduced in 1p9py. The version-staleness check
+    runs BEFORE cache consultation; a rebuild it fires explicitly invalidates the
+    entry in-process (same-stat-rewrite immunity), and a rebuild observed in this
+    call additionally bypasses the stat hit as belt-and-suspenders.
+
+    The cached index is immutable after construction (all query methods audited
+    non-mutating). Results are identical to ``GraphQueryIndex.from_root`` —
+    including per-call ``auto_rebuild_diagnostic`` semantics, carried on an O(1)
+    structural view instead of the shared cached object.
+
+    Kill switch: ``WAVEFOUNDRY_DISABLE_GRAPH_QUERY_CACHE=1`` (or true/yes/on)
+    restores load-per-call behavior for diagnosis.
+    """
+    if layer != "project":
+        raise ValueError(f"Unsupported graph layer: {layer}")
+    if _query_index_cache_disabled():
+        return GraphQueryIndex.from_root(root, layer=layer)
+    cache_key = (str(root.resolve()), layer)
+    # Requirement 2: the version-staleness path runs before cache consultation.
+    rebuild_diag = _ensure_graph_builder_current(root, layer)
+    rebuild_ran = isinstance(rebuild_diag, dict) and rebuild_diag.get("code") == "graph_auto_rebuilt"
+    # Stat BEFORE reading: if the payload is atomically replaced between the
+    # stat and the read, new content pairs with old stats and the next access
+    # simply misses and self-heals. The reverse order could pin stale content.
+    stat = _payload_stat(_graph_payload_path(root, layer))
+    with _QUERY_INDEX_CACHE_LOCK:
+        entry = _QUERY_INDEX_CACHE.get(cache_key)
+        if stat is None:
+            # Payload absent/unreadable — drop any cached entry, serve fresh.
+            _QUERY_INDEX_CACHE.pop(cache_key, None)
+        elif entry is not None and entry["stat"] == stat and not rebuild_ran:
+            if rebuild_diag is None:
+                return entry["index"]
+            # Failure/in-progress diagnostics recur per-call on the uncached
+            # path too (the version check did not mark verified) — carry them
+            # on a per-call view of the shared index.
+            return _index_with_diagnostic(entry["index"], rebuild_diag)
+        # Miss / stale / rebuild-just-ran: reload, rebuild, replace under the
+        # lock so concurrent callers never observe a half-constructed index and
+        # never double-build (they block briefly, then hit the fresh entry).
+        gi = _get_graph_indexer()
+        payload = gi.read_graph_payload(root, layer)
+        index = GraphQueryIndex(payload)
+        # Old-code-window hardening: a stale pre-upgrade process can rewrite
+        # the payload with an older builder while the store meta (which the
+        # version check probes) still says current. Never PIN such a payload —
+        # serve it uncached so every access re-checks until the next build's
+        # binding mismatch forces the healing full re-merge.
+        payload_builder = str(payload.get("builder_version") or "")
+        if payload_builder and payload_builder != str(gi.GRAPH_BUILDER_VERSION):
+            _QUERY_INDEX_CACHE.pop(cache_key, None)
+            stat = None
+            # Once per process: make the degraded (uncached) state observable
+            # so "graph tools got slow after upgrade" is field-diagnosable.
+            global _STALE_BUILDER_WARNED
+            if not _STALE_BUILDER_WARNED:
+                _STALE_BUILDER_WARNED = True
+                print(
+                    f"[graph-query-cache] payload builder_version "
+                    f"{payload_builder!r} != runtime "
+                    f"{gi.GRAPH_BUILDER_VERSION!r}; serving uncached until a "
+                    f"current-code build rewrites the payload (a stale "
+                    f"pre-upgrade process is likely still running builds)",
+                    file=sys.stderr,
+                )
+        if stat is not None:
+            _QUERY_INDEX_CACHE[cache_key] = {
+                "index": index,
+                "stat": stat,
+                # generated_at/input_fingerprint recorded for the same-stat
+                # tiebreak: a replacement on equal stats is observable (and
+                # test-assertable) through these content markers.
+                "generated_at": str(payload.get("generated_at") or ""),
+                "input_fingerprint": str(payload.get("input_fingerprint") or ""),
+            }
+    if rebuild_diag is not None:
+        return _index_with_diagnostic(index, rebuild_diag)
+    return index
 
 
 def collapse_generated_view(payload: dict[str, Any]) -> dict[str, Any]:
@@ -1660,41 +1817,11 @@ class GraphQueryIndex:
             result["file_hubs"] = file_hubs
             result["file_hubs_candidates_total"] = file_hubs_candidates_total
             result["file_hubs_threshold"] = chokepoint_threshold
-        if "betweenness" in wanted:
-            node_count = len(self.nodes)
-            if node_count > _BETWEENNESS_NODE_LIMIT:
-                result["betweenness"] = {
-                    "diagnostic": "graph_too_large_for_betweenness",
-                    "node_count": node_count,
-                    "limit": _BETWEENNESS_NODE_LIMIT,
-                }
-            else:
-                try:
-                    import igraph as ig  # type: ignore[import]
-                    node_list = list(self._node_by_id.keys())
-                    node_index = {nid: i for i, nid in enumerate(node_list)}
-                    edges_ig = [
-                        (node_index[e["source"]], node_index[e["target"]])
-                        for e in self.edges
-                        if e.get("relation") == "calls"
-                        and e.get("source") in node_index
-                        and e.get("target") in node_index
-                    ]
-                    g = ig.Graph(n=len(node_list), edges=edges_ig, directed=True)
-                    scores = g.betweenness(directed=True)
-                    ranked = sorted(enumerate(scores), key=lambda x: -x[1])[:limit]
-                    result["betweenness"] = [
-                        {
-                            "node_id": node_list[i],
-                            "score": round(score, 4),
-                            "label": (self._node_by_id.get(node_list[i]) or {}).get("label", node_list[i]),
-                            "kind": (self._node_by_id.get(node_list[i]) or {}).get("kind"),
-                        }
-                        for i, score in ranked
-                        if score > 0 and math.isfinite(score)
-                    ][:limit]
-                except ImportError:
-                    result["betweenness"] = {"diagnostic": "igraph_unavailable"}
+        # Wave 1p9q3 (1p9q1): the per-query betweenness computation that lived here
+        # (igraph betweenness behind a 10k-node cap) is retired — betweenness is
+        # computed at BUILD time (graph_cluster.compute_betweenness_ranking) and
+        # persisted in the clusters artifact; `wave_graph_report` reads that
+        # section directly. This method never computes centrality.
         # Wave 1p4ww: the ``cross_layer`` section required the union layer
         # (project×framework boundary edges), which no longer exists.
         return result

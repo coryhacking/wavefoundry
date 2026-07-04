@@ -5476,21 +5476,40 @@ class StaleGraphAutoRebuildTests(unittest.TestCase):
     def _state_path(self):
         return self.root / ".wavefoundry" / "index" / "graph" / "project-graph-state.json"
 
+    def _store_path(self):
+        # 1p9q2: the live graph state is the per-file SQLite store.
+        return self.root / ".wavefoundry" / "index" / "graph" / "project-graph-state.sqlite"
+
     def _payload_path(self):
         return self.root / ".wavefoundry" / "index" / "graph" / "project-graph.json"
 
     def _force_stale_state(self, old_version: str = "0"):
-        """Rewrite the state file with an older builder_version + bust the cache."""
+        """Simulate a pre-upgrade repo: legacy plain-JSON monolithic state with
+        an older builder_version and NO SQLite store — exercising the probe's
+        legacy fallback path — plus a plain-JSON payload (pre-1p9py format)."""
         import json
-        state_path = self._state_path()
-        self.assertTrue(state_path.exists(), "state file missing — graph build failed")
-        state = json.loads(state_path.read_text(encoding="utf-8"))
-        state["builder_version"] = old_version
-        state_path.write_text(json.dumps(state), encoding="utf-8")
-        # Also touch the payload file so its mtime differs from any cached entry.
+        import os
+        gi = self.gq._get_graph_indexer()
+        store_path = self._store_path()
+        self.assertTrue(store_path.exists(), "state store missing — graph build failed")
+        index_dir = self.root / ".wavefoundry" / "index"
+        self.assertTrue(
+            gi.read_state_builder_version(index_dir),
+            "state store unreadable — graph build failed",
+        )
+        for suffix in ("", "-wal", "-shm"):
+            try:
+                os.unlink(f"{store_path}{suffix}")
+            except OSError:
+                pass
+        self._state_path().write_text(
+            json.dumps({"builder_version": old_version}), encoding="utf-8"
+        )
         payload_path = self._payload_path()
         if payload_path.exists():
-            import os
+            payload = gi.read_json_artifact(payload_path, {})
+            payload_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+            # Touch the payload file so its mtime differs from any cached entry.
             t = payload_path.stat().st_mtime - 1.0
             os.utime(payload_path, (t, t))
         # Clear the in-process cache so the next load re-checks.
@@ -5503,11 +5522,21 @@ class StaleGraphAutoRebuildTests(unittest.TestCase):
         self.assertIsNotNone(diag, f"Expected auto_rebuild_diagnostic on stale graph; got payload keys={sorted(payload.keys())}")
         self.assertEqual(diag.get("code"), "graph_auto_rebuilt")
         self.assertEqual(diag.get("from_builder_version"), "0")
-        # After rebuild the state file's builder_version should match runtime.
-        import json
-        state = json.loads(self._state_path().read_text(encoding="utf-8"))
-        runtime_version = self.gq._get_graph_indexer().GRAPH_BUILDER_VERSION
-        self.assertEqual(state["builder_version"], runtime_version)
+        # After rebuild the store's builder_version should match runtime.
+        gi = self.gq._get_graph_indexer()
+        runtime_version = gi.GRAPH_BUILDER_VERSION
+        index_dir = self.root / ".wavefoundry" / "index"
+        self.assertEqual(gi.read_state_builder_version(index_dir), runtime_version)
+        # 1p9py AC-6: the rebuild rewrote the pre-change (plain JSON) payload as
+        # gzip-compressed compact JSON, and subsequent queries hit it cleanly.
+        self.assertEqual(self._payload_path().read_bytes()[:2], b"\x1f\x8b")
+        # 1p9q2: the legacy monolithic state was discarded (one-time) and the
+        # per-file SQLite store reseeded in its place.
+        self.assertFalse(self._state_path().exists())
+        self.assertTrue(self._store_path().exists())
+        again = self.gq.load_graph(self.root, layer="project")
+        self.assertNotIn("auto_rebuild_diagnostic", again)
+        self.assertTrue(again.get("present"))
 
     def test_already_fresh_graph_does_not_trigger_rebuild(self):
         # Setup wrote a fresh graph. First load should NOT carry diagnostic.
@@ -15476,8 +15505,12 @@ class TestModuleFanOutCountSemantics(unittest.TestCase):
         self.assertEqual(lib_entry["kind"], "module")
 
 
-class TestBetweennessComputedField(unittest.TestCase):
-    """130tw-enh betweenness-computed-field: distinguish empty from skipped betweenness."""
+class TestBetweennessServedFromArtifact(unittest.TestCase):
+    """Wave 1p9q3 (1p9q1): wave_graph_report serves the betweenness ranking
+    persisted at build time in the clusters artifact — no query-time igraph
+    computation, no graph-size cap; legacy artifacts degrade gracefully.
+    (Supersedes 130tw's TestBetweennessComputedField: the computed/skipped
+    fields remain, but the only skip reason is a missing artifact section.)"""
 
     @classmethod
     def setUpClass(cls):
@@ -15502,8 +15535,22 @@ class TestBetweennessComputedField(unittest.TestCase):
         }
         (graph_dir / "project-graph.json").write_text(json.dumps(graph), encoding="utf-8")
 
-    # AC-2: small graph → betweenness_computed: true, list present.
-    def test_betweenness_computed_true_on_small_graph(self):
+    def _write_clusters(self, betweenness=None):
+        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
+        graph_dir.mkdir(parents=True, exist_ok=True)
+        import json
+        payload = {
+            "cluster_schema_version": "1", "cluster_builder_version": "11",
+            "cluster_algorithm": "leiden", "layer": "project",
+            "communities": [], "community_count": 0,
+        }
+        if betweenness is not None:
+            payload["betweenness"] = betweenness
+        (graph_dir / "project-graph-clusters.json").write_text(
+            json.dumps(payload), encoding="utf-8"
+        )
+
+    def _small_graph(self):
         nodes = [
             {"id": "src/a.py::foo", "label": "foo", "kind": "function", "source_file": "src/a.py", "source_location": "1:0"},
             {"id": "src/b.py::bar", "label": "bar", "kind": "function", "source_file": "src/b.py", "source_location": "1:0"},
@@ -15514,32 +15561,126 @@ class TestBetweennessComputedField(unittest.TestCase):
             {"source": "src/b.py::bar", "target": "src/c.py::baz", "relation": "calls"},
         ]
         self._write_graph(nodes, edges)
+
+    def _betweenness_section(self, method="exact", **extra):
+        section = {
+            "method": method,
+            "node_count": 3,
+            "edge_count": 2,
+            "top_n": 200,
+            "elapsed_ms": 4,
+            "ranking": [
+                {"node_id": "src/b.py::bar", "score": 1.0, "label": "bar", "kind": "function"},
+            ],
+        }
+        section.update(extra)
+        return section
+
+    def test_betweenness_served_from_persisted_artifact(self):
+        self._small_graph()
+        self._write_clusters(betweenness=self._betweenness_section())
         result = self.srv.wave_graph_report_response(
             self.root, layer="project", limit=10, sections=["betweenness"]
         )
         report = result["data"]
         self.assertEqual(report["betweenness_computed"], True)
-        self.assertIsInstance(report["betweenness"], list)
         self.assertNotIn("betweenness_skipped_reason", report)
+        self.assertEqual(report["betweenness_method"], "exact")
+        rows = report["betweenness"]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["node_id"], "src/b.py::bar")
+        self.assertEqual(rows[0]["score"], 1.0)
+        meta = report["betweenness_metadata"]
+        self.assertEqual(meta["node_count"], 3)
+        self.assertEqual(meta["edge_count"], 2)
+        self.assertEqual(meta["elapsed_ms"], 4)
+        self.assertNotIn("cutoff", meta)
 
-    # AC-2/AC-3: large graph → betweenness_computed: false + reason enum.
-    def test_betweenness_computed_false_when_graph_too_large(self):
-        # Build a graph above _BETWEENNESS_NODE_LIMIT (10_000) to force the skip path.
-        nodes = [
-            {"id": f"src/f{i}.py::node{i}", "label": f"node{i}", "kind": "function",
-             "source_file": f"src/f{i}.py", "source_location": "1:0"}
-            for i in range(10_005)
+    def test_betweenness_cutoff_metadata_surfaced(self):
+        self._small_graph()
+        self._write_clusters(betweenness=self._betweenness_section(method="cutoff", cutoff=6))
+        result = self.srv.wave_graph_report_response(
+            self.root, layer="project", limit=10, sections=["betweenness"]
+        )
+        report = result["data"]
+        self.assertEqual(report["betweenness_method"], "cutoff")
+        self.assertEqual(report["betweenness_metadata"]["cutoff"], 6)
+
+    def test_betweenness_limit_truncates_served_rows(self):
+        self._small_graph()
+        section = self._betweenness_section()
+        section["ranking"] = [
+            {"node_id": f"src/m{i}.py::f{i}", "score": float(10 - i), "label": f"f{i}", "kind": "function"}
+            for i in range(5)
         ]
-        edges = []
-        self._write_graph(nodes, edges)
+        self._write_clusters(betweenness=section)
+        result = self.srv.wave_graph_report_response(
+            self.root, layer="project", limit=2, sections=["betweenness"]
+        )
+        self.assertEqual(len(result["data"]["betweenness"]), 2)
+
+    # AC-7: legacy clusters artifact (no betweenness section) → graceful message.
+    def test_legacy_clusters_artifact_without_section_is_graceful(self):
+        self._small_graph()
+        self._write_clusters(betweenness=None)
         result = self.srv.wave_graph_report_response(
             self.root, layer="project", limit=10, sections=["betweenness"]
         )
         report = result["data"]
         self.assertEqual(report["betweenness_computed"], False)
-        self.assertEqual(report["betweenness_skipped_reason"], "graph_too_large_for_betweenness")
-        # AC-2: empty list when skipped (normalized shape).
+        self.assertEqual(report["betweenness_skipped_reason"], "betweenness_not_in_artifact")
         self.assertEqual(report["betweenness"], [])
+        self.assertIn("rebuild", report["betweenness_note"].casefold())
+
+    def test_missing_clusters_artifact_is_graceful(self):
+        self._small_graph()
+        result = self.srv.wave_graph_report_response(
+            self.root, layer="project", limit=10, sections=["betweenness"]
+        )
+        report = result["data"]
+        self.assertEqual(report["betweenness_computed"], False)
+        self.assertEqual(report["betweenness_skipped_reason"], "betweenness_not_in_artifact")
+        self.assertEqual(report["betweenness"], [])
+
+    # AC-1 shape: >10k-node graph is SERVED, never capped — the old
+    # graph_too_large_for_betweenness diagnostic path is retired.
+    def test_large_graph_served_without_cap_diagnostic(self):
+        nodes = [
+            {"id": f"src/f{i}.py::node{i}", "label": f"node{i}", "kind": "function",
+             "source_file": f"src/f{i}.py", "source_location": "1:0"}
+            for i in range(10_005)
+        ]
+        self._write_graph(nodes, [])
+        self._write_clusters(betweenness=self._betweenness_section(node_count=10_005))
+        result = self.srv.wave_graph_report_response(
+            self.root, layer="project", limit=10, sections=["betweenness"]
+        )
+        report = result["data"]
+        self.assertEqual(report["betweenness_computed"], True)
+        self.assertEqual(report["betweenness_metadata"]["node_count"], 10_005)
+        self.assertNotIn("betweenness_skipped_reason", report)
+        import json
+        self.assertNotIn("graph_too_large_for_betweenness", json.dumps(report))
+
+    # AC-5: zero inline igraph computation at query time — an igraph whose
+    # Graph constructor explodes proves the report never touches it.
+    def test_report_performs_no_igraph_betweenness_at_query_time(self):
+        import types as _types
+        import unittest.mock
+
+        def _explode(*args, **kwargs):
+            raise AssertionError("query-time igraph use is retired (wave 1p9q3)")
+
+        fake_igraph = _types.SimpleNamespace(Graph=_explode)
+        self._small_graph()
+        self._write_clusters(betweenness=self._betweenness_section())
+        with unittest.mock.patch.dict(sys.modules, {"igraph": fake_igraph}):
+            result = self.srv.wave_graph_report_response(
+                self.root, layer="project", limit=10, sections=["betweenness"]
+            )
+        report = result["data"]
+        self.assertEqual(report["betweenness_computed"], True)
+        self.assertEqual(report["betweenness"][0]["node_id"], "src/b.py::bar")
 
 
 class TestStableCommunityIdentifier(unittest.TestCase):
@@ -20028,9 +20169,11 @@ class CodeRiskScoreWrapperTests(unittest.TestCase):
     def _call(self, scope, **kw):
         gqmod = self.srv._load_graph_query()
         idx = gqmod.GraphQueryIndex(dict(_RISK_WRAP_FIXTURE))
+        # Wave 1p9q3 (1p9pz): tools construct via the cached accessor now —
+        # patch get_query_index (the accessor seam), not from_root.
         with patch.object(
-            gqmod.GraphQueryIndex, "from_root",
-            classmethod(lambda cls, root, layer="project": idx),
+            gqmod, "get_query_index",
+            lambda root, layer="project": idx,
         ):
             return self.srv.code_risk_score_response(self.root, scope, **kw)
 
@@ -20100,9 +20243,11 @@ class CodeImpactErgonomicsTests(unittest.TestCase):
     def _call(self, **kw):
         gqmod = self.srv._load_graph_query()
         idx = gqmod.GraphQueryIndex(dict(_IMPACT_EDGES_FIXTURE))
+        # Wave 1p9q3 (1p9pz): tools construct via the cached accessor now —
+        # patch get_query_index (the accessor seam), not from_root.
         with patch.object(
-            gqmod.GraphQueryIndex, "from_root",
-            classmethod(lambda cls, root, layer="project": idx),
+            gqmod, "get_query_index",
+            lambda root, layer="project": idx,
         ):
             return self.srv.code_impact_response(self.root, symbol="hub", **kw)
 

@@ -32,6 +32,7 @@ scaffolding) can reuse the structured model:
 from __future__ import annotations
 
 import argparse
+import gzip
 import importlib.util
 import json
 import os
@@ -234,8 +235,13 @@ def _load_sibling(module_name: str):
 
 
 def _read_json(path: Path) -> Any:
+    # Wave 1p9q3 (1p9py): graph artifacts are gzip-compressed compact JSON;
+    # sniff the magic bytes with a legacy plain-JSON fallback.
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        raw = path.read_bytes()
+        if raw[:2] == b"\x1f\x8b":
+            raw = gzip.decompress(raw)
+        return json.loads(raw.decode("utf-8"))
     except Exception:
         return None
 

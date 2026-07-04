@@ -2,11 +2,13 @@
 """Shared readers and helpers for the local dashboard server."""
 from __future__ import annotations
 
+import gzip
 import json
 import os
 import re
 import sys
 import time
+import zlib
 import contextlib
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
@@ -81,8 +83,14 @@ def _read_json(path: Path, default: Any) -> Any:
     if not path.exists():
         return default
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+        raw = path.read_bytes()
+        # Wave 1p9q3 (1p9py): graph artifacts are gzip-compressed compact JSON;
+        # sniff the magic bytes so this shared reader handles both formats
+        # (plain JSON files — workflow-config, meta.json, … — are unaffected).
+        if raw[:2] == b"\x1f\x8b":
+            raw = gzip.decompress(raw)
+        return json.loads(raw.decode("utf-8"))
+    except (OSError, ValueError, EOFError, zlib.error):
         return default
 
 

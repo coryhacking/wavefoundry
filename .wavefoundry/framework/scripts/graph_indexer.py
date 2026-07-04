@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import ast
 import functools
+import gzip
 import importlib
 import hashlib
 import json
 import os
 import re
+import sqlite3
 import subprocess
 import sys
+import tempfile
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
@@ -32,8 +35,17 @@ except ImportError:  # pragma: no cover - exercised when tree-sitter is not inst
     _TSParser = None  # type: ignore[assignment]
 
 GRAPH_SCHEMA_VERSION = "1"
-GRAPH_BUILDER_VERSION = "35"  # Wave 1p7dh (reads_config Java/Spring file config): extended the config-key->reader `reads_config` edge to Java/Spring FILE config — `.properties`/`.yml`/`.yaml` now emit config-key NODES (`file::dotted.key`, kind "class") and Java artifacts capture `@Value("${key}")` placeholders + `getProperty`/`getRequiredProperty` calls into `config_read_candidates`; the language-agnostic finalize pass binds them on a unique config-file + distinctive-key match. Extraction-output change (new nodes + populated config_read_candidates → new edges) → bump so consumer caches re-extract. Previous bump (1p7de (graph-edge-trust)): coordinated bump for two extractor changes (1p7dg confidence promotion + 1p7dh string-literal binding) so consumers re-extract. (v34 supersedes the in-flight v33 test builds: the 1p7dh `instruments` capture was refined to read `namedOneOf(...)` multi-arg matchers + matchers nested in structural wrappers (`implementsInterface`/`hasSuperType`/`isSubTypeOf`) — an EXTRACTION-OUTPUT change, so it gets its own version increment per the builder-version discipline; without the bump an incremental-update consumer that skips unchanged files would not pick up the broadened `instruments` targets. Downstream-validated: javaagent 24/24 OTel TypeInstrumentation classes carry correct `instruments`; Swift solaris promotion realized EXTRACTED 52.7%→33.4%.) 1p7dg generalizes the v23 TS/JS confidence promotion to ALL languages: a call that binds a UNIQUE non-`external::` project node (same-file `symbol_lookup` match at the extraction site, or an exact-unique cross-file rewrite — exact simple name / exact qualified name / Go package-authoritative / import-edge-disambiguated) is promoted EXTRACTED→RECEIVER_RESOLVED. Target UNCHANGED — only the confidence label moves on an already-unique bind — so no new wrong-twin/zeroed-edge risk; the AC-2 type-guess fallback + same-dir/C# namespace heuristics deliberately stay EXTRACTED. Self-host lift: Python EXTRACTED 90.4%→31.9%, resolved 1,136→8,102. 1p7dh adds a new `reads_config` EDGE (a code site `.get("KEY")`/`cfg["KEY"]` → the config-key node `file.json::key` it reads, at `LITERAL_DERIVED` confidence; triple-gated — config-file basename + key-distinctiveness + unique match — so ubiquitous dict literals don't bind data-JSON keys) and a new `instruments` NODE PROPERTY on OTel `TypeInstrumentation` classes (their `typeMatcher()` ByteBuddy matcher target strings, descriptive metadata — NOT an edge, since instrumentation targets are ~100% third-party by design). Edge-confidence relabels + new relation + new node property → node/edge-set shape change → bump (consumer graph caches re-extract). Previous bump (1p66e, graph-edge-extraction-determinism): cross-file resolution made order-independent so identical input yields an identical resolved edge set across from-scratch rebuilds (a consumer observed 75068 vs 74890 edges on identical source). Three order-dependent sites fixed with explicit stable tie-breaks: (a) `per_file_simple` length-tie now breaks on the lexicographically smaller node_id (was first-seen by node_map iteration order); (b) `imports_by_file` final-segment collision now keeps the lexicographically smallest FQN (was "later import wins" by edge_map order); (c) cross-file edge rewrites are applied sorted by (new_key, old_key) so a `setdefault` collapse onto the same new_key keeps a stable survivor. Plus a persisted `input_fingerprint` (sha256 over the sorted node-set + sorted resolved edge-set) in the graph payload + state for downstream reproducibility verification. Edge-set shape stabilizes → bump so consumer caches re-extract. Faithfulness preserved: every resolution branch still requires a UNIQUE (`len==1`) match, so no `len==1` outcome changes and no wrong same-name twin is newly bound — only genuinely-ambiguous tie choices are made deterministic. Previous bump (1p61v, ts-symbol-kind-extraction-faithfulness): TS/JS type-shape members are no longer mislabeled `function`. A `type_alias_declaration` now extracts as kind="type" and an interface/object-type `property_signature` (a `: T` data member) as kind="property" (method *signatures* keep `function`) — previously both fell through to the default `function`, so `code_outline`-invisible `: string` fields and `export type` aliases rendered as `(function)` entry points in the codebase map (p60n field trace, Issue 1). Plus a registration-site faithfulness guard (`_ts_is_emittable_symbol_name`): a definition whose picked name is the reserved word `function` (anonymous `function (…){}` expressions) or a non-identifier route-path token (`/`) is no longer registered as a junk symbol (Issue 2). Node KIND-set + node-set shape change → bump (consumer graph caches re-extract). Conservative: contextual keywords that are legal identifiers (`type`, `async`, `fn`, …) are NOT rejected, so no real callable is dropped. Previous bump (1p5c4, guard-oversized-files-indexing): files over the tree-sitter parse cap (default 2 MB; override WAVEFOUNDRY_MAX_TS_PARSE_BYTES / `indexing.max_treesitter_parse_bytes`) now SKIP AST graph extraction, and files over the hard size cap are dropped from the walk entirely — so oversized files contribute no graph nodes. Bump forces re-extraction so any large file parsed under v29 has its stale nodes pruned. Wave 1p4up (member-access-constant-reads): a CONSTANT accessed via a qualified member expression (`Status.ACTIVE`, `AppConstants.Network.userAgent`, `Outer.Inner.TOKEN`, Ruby/PHP `A::B::C`) now produces a function→constant `reads` edge by EXACT qualified-name match (const-kind-gated; the qualifier disambiguates so a same-leaf param/import/bare-call can't match). Faithfulness guards: F1 full-qname (not `_simple_name` partial key), F2 reject `this`/`self`/`super`/`cls`, F4 qualifier-shadow (a member-access read whose head is a function param/local is dropped — `func_locals` from per-language binding nodes) + the property/trailing leaf of a member access is no longer also buffered as a bare read (member-path resolves it instead). New `reads` edges → node/edge-set shape change → bump (consumer graph caches re-extract). Wave 1p4q4 review (28) (D1/D2): namespace-scoped enum member nodes now carry the enclosing namespace prefix (`NSA.Inner.AAA` vs `NSB.Inner.AAA` — no cross-namespace collision/clobber), and constant nodes are EXEMPT from the ≤2-char short-symbol prune so short members (`Status.OK`/`Dir.Up`) resolve. Node-set shape change → bump (consumer graph caches re-extract). Wave 1p4q4 (27): TS `enum`/`const enum` members are now `kind="constant"` graph nodes (`Enum.Member`), child of the enum type node. Wave 1p4ls (26) (graph-constant-nodes-and-references): module-/type-level CONSTANT declarations are now graph nodes (kind="constant", carrying a simple-literal `value` where the RHS is a literal) across all core languages, plus a faithfulness-gated function→constant `reads` edge (same-scope + explicitly-imported only; never binds a coincidental same-name twin — symbol_lookup uniqueness + a const-kind gate + a local-shadow guard). Consumers surface them: code_definition resolves a constant name; code_references lists readers in a distinct `reads` bucket (NOT merged into callers); graph_neighbors includes constants when `reads` is requested. `reads` is OPT-IN for default 1-hop traversal (excluded when no explicit relations are passed, so a hot constant does not balloon neighbor sets / 1p4hu expansion) and stays OUT of the impact/call default relations; constant nodes + `reads` edges are excluded from clustering (CLUSTER_BUILDER_VERSION 8→9, no community-label shift). resolve_symbol is kind-aware (a constant sharing a simple name no longer shadows a callable lookup). Detection reuses the 1p4mf chunk-lane per-language predicates (one detector, two consumers — Req-7); the graph lane is BROADER where it lands naturally (class/type-level constants; Swift enum cases; Go grouped-const per member). NOTE: TS `enum`/`const enum` members ARE emitted as constant nodes (`Enum.Member`) — delivered in 1p4q4 (see the v27 line at the top). Kotlin bare top-level/object `val` (no `const`) stays `kind="variable"` (an immutable binding is not a compile-time constant — won't-do). Previous bump (1p4eq, cross-file-resolution-followups): one consolidated bump covering five graph-shaping changes: (1p4ef) fix a leaked `qualified` loop var that injected phantom qualified_index candidates for collapsed/basename-merged nodes (C#/Swift/Rust/Ruby) and silently suppressed unique cross-file resolution; (1p4er) same-package/same-directory disambiguation fallback for ambiguous receivers used WITHOUT an import (Java field miss, `JreCompat.canAccess`), GATED to Java/Kotlin/Go (same-dir ⇒ same-package visibility; Python/JS/TS/Rust/C# excluded); (1p4et) Go methods now keyed `Type.method` (was bare `method`) + package-qualified receiver inference (`var h foo.Helper` → `foo.Helper`, package PRESERVED and resolved by the candidate's package directory); (1p4eu) Rust `Type::assoc_fn()` resolution + struct-literal/`::new()` let-binding type inference; (1p4ev) C# namespace-membership disambiguation (own-namespace ∪ `using`), the namespace derived from each file's DECLARED namespace nodes by longest-prefix (nesting-proof), NOT by fixed-segment qname stripping. FAITHFULNESS FIXES (1p4eq adversarial verification): the 1p4et/1p4ev paths above already incorporate the over-resolution fixes the verification caught — dropping the Go package qualifier bound a co-located cross-package twin, and fixed-segment C# namespace stripping mis-derived a nested-class caller's namespace and bound a coincident sibling twin; both now stay external unless a unique package/namespace-faithful candidate matches. COVERAGE SCOPE — synthetic-fixture tests only, NOT yet validated against a real consumer project: same-package = Java; cross-file method/assoc-fn = Go + Rust; ambiguous-receiver namespace membership = C#. Each carries an adversarial "never binds the wrong twin / stays external" test. **Correction to the v24 line below:** v24 advertised its `imports`-edge disambiguation as "language-agnostic (Python + Java/Kotlin/C#/Go)" — that was over-stated; it fired ONLY for Python + Java (per-type imports), and was dead code for C#/Go/Rust (their import heads are namespaces/packages, not type names) until v25 supplied the per-language mechanisms above. Previous bump (1p47e 1p470): Python sibling-loader return-type inference + cross-file import disambiguation. v24 resolves the lazy-loader blast-radius hole — `gq = _load_graph_query()` (→ `_load_script("graph_query")`) and direct `v = _load_script("mod")` now bind `v.Class.method()` / `v.func()` to the loaded module's symbols (previously emitted NO edge because `v` had no known type; e.g. `GraphQueryIndex.from_root` was called from 14 sites with 0 incoming edges). Also adds import-edge-based disambiguation in the cross-file rewrite pass: an ambiguous `external::Type.method` (multiple same-simple-name candidates) is disambiguated via the source file's `imports` edge for `Type`, language-agnostically (Python + Java/Kotlin/C#/Go). Previous bump (1p2q3 / 1p2tz post-ship-5 1.3.16): TS/JS symbol-table promotion. Intra-file (and cross-file unique-simple-name) calls where `_ts_resolve_target` bound directly to a project node previously landed as `EXTRACTED` even though the binding required an exact match in `symbol_lookup`. Field validation on the v22 stable state showed `getRootToken` and similar intra-file arrow-const targets had only `EXTRACTED` incoming edges — invisible to the `receiver_resolved` attribution bucket — despite the symbol being correctly resolved at extraction time. v23 promotes these to `RECEIVER_RESOLVED` for TS/JS only: when `_ts_resolve_target` returns a non-`external::` project node (i.e. the call site bound to a locally-defined symbol or to the unique cross-file simple-name match) the edge is high-confidence by construction. Affects TS/JS only — other languages route through their per-language receiver resolvers + the cross-file rewrite pass and are out of scope for this round. Previous bump (1.3.12 v21→v22): TS/JS relative-import path resolution into import_targets. v21 emitted arrow-const function nodes but +9,379 of the new TS edges landed as EXTRACTED rather than RECEIVER_RESOLVED because intra-package callers using relative imports (`import { foo } from './events'`) had `import_targets[foo]` populated with the lossy `external::events` form. The cross-file rewrite pass then promoted the edge to the right project node but kept it at EXTRACTED confidence. v22 extracts the raw module specifier before `_ts_clean_name` strips the `./` prefix, resolves relative imports against the source file's directory, then runs the same barrel walk + import_targets binding as the aliased path. The +9,379 EXTRACTED edges observed in the field in v21 → v22 should migrate to RECEIVER_RESOLVED for any intra-package direct call to a relatively-imported arrow-const. Affects TS/JS only. Previous bump (1.3.11 v20→v21) was the arrow-const node-emission half — v22 completes the receiver-type attribution half. Modern TS code uses `export const foo = async (args) => { ... }` as the dominant function shape (field-confirmed: ALL backend functions on a 12k-node Nx monorepo are arrow-const, zero `function` declarations). Tree-sitter parses these as `lexical_declaration → variable_declarator → arrow_function`, not `function_declaration`, so the default name-from-descendants extractor returned empty and the symbol never registered. v21 detects arrow-const bindings explicitly and registers each as a function symbol; walks scope through the arrow body so calls FROM inside arrow-const-bound functions get attributed to the const name rather than the file. Expected impact on barrel-export-heavy + arrow-const-heavy codebases: TS resolved-share rises from 6% range into 30–60% (per field estimate). Affects TS/JS only — other languages unchanged. Previous bump (1.3.10 v19→v20) covered direct-function-call import_targets promotion + bundler-mode .js→.ts swap + community-label barrel deprioritization
+GRAPH_BUILDER_VERSION = "36"  # Wave 1p9q3 (1p9py, compact+gzip+atomic persistence): graph artifacts are now written as gzip-compressed COMPACT JSON (separators=(",", ":"), sort_keys retained) through a same-directory temp file + os.replace atomic write; readers sniff the gzip magic bytes (0x1f 0x8b) and transparently fall back to legacy plain JSON, and a corrupted/truncated gzip degrades to the caller default exactly like corrupted JSON. Serialization-only — node/edge content, counts, and `input_fingerprint` semantics are unchanged — but the on-disk artifact FORMAT changed, so bump per the standing artifact-shape rule (downstream caches and the version-staleness query path treat the transition as a rebuild boundary, rewriting pre-upgrade plain artifacts compressed). This single bump also covers the wave's sibling artifact-shape changes (1p9q1 build-time betweenness, 1p9q2 incremental merge state store) per the coordinated-single-bump serialization point. Previous bump (1p7dh, reads_config Java/Spring file config): extended the config-key->reader `reads_config` edge to Java/Spring FILE config — `.properties`/`.yml`/`.yaml` now emit config-key NODES (`file::dotted.key`, kind "class") and Java artifacts capture `@Value("${key}")` placeholders + `getProperty`/`getRequiredProperty` calls into `config_read_candidates`; the language-agnostic finalize pass binds them on a unique config-file + distinctive-key match. Extraction-output change (new nodes + populated config_read_candidates → new edges) → bump so consumer caches re-extract. Previous bump (1p7de (graph-edge-trust)): coordinated bump for two extractor changes (1p7dg confidence promotion + 1p7dh string-literal binding) so consumers re-extract. (v34 supersedes the in-flight v33 test builds: the 1p7dh `instruments` capture was refined to read `namedOneOf(...)` multi-arg matchers + matchers nested in structural wrappers (`implementsInterface`/`hasSuperType`/`isSubTypeOf`) — an EXTRACTION-OUTPUT change, so it gets its own version increment per the builder-version discipline; without the bump an incremental-update consumer that skips unchanged files would not pick up the broadened `instruments` targets. Downstream-validated: javaagent 24/24 OTel TypeInstrumentation classes carry correct `instruments`; Swift solaris promotion realized EXTRACTED 52.7%→33.4%.) 1p7dg generalizes the v23 TS/JS confidence promotion to ALL languages: a call that binds a UNIQUE non-`external::` project node (same-file `symbol_lookup` match at the extraction site, or an exact-unique cross-file rewrite — exact simple name / exact qualified name / Go package-authoritative / import-edge-disambiguated) is promoted EXTRACTED→RECEIVER_RESOLVED. Target UNCHANGED — only the confidence label moves on an already-unique bind — so no new wrong-twin/zeroed-edge risk; the AC-2 type-guess fallback + same-dir/C# namespace heuristics deliberately stay EXTRACTED. Self-host lift: Python EXTRACTED 90.4%→31.9%, resolved 1,136→8,102. 1p7dh adds a new `reads_config` EDGE (a code site `.get("KEY")`/`cfg["KEY"]` → the config-key node `file.json::key` it reads, at `LITERAL_DERIVED` confidence; triple-gated — config-file basename + key-distinctiveness + unique match — so ubiquitous dict literals don't bind data-JSON keys) and a new `instruments` NODE PROPERTY on OTel `TypeInstrumentation` classes (their `typeMatcher()` ByteBuddy matcher target strings, descriptive metadata — NOT an edge, since instrumentation targets are ~100% third-party by design). Edge-confidence relabels + new relation + new node property → node/edge-set shape change → bump (consumer graph caches re-extract). Previous bump (1p66e, graph-edge-extraction-determinism): cross-file resolution made order-independent so identical input yields an identical resolved edge set across from-scratch rebuilds (a consumer observed 75068 vs 74890 edges on identical source). Three order-dependent sites fixed with explicit stable tie-breaks: (a) `per_file_simple` length-tie now breaks on the lexicographically smaller node_id (was first-seen by node_map iteration order); (b) `imports_by_file` final-segment collision now keeps the lexicographically smallest FQN (was "later import wins" by edge_map order); (c) cross-file edge rewrites are applied sorted by (new_key, old_key) so a `setdefault` collapse onto the same new_key keeps a stable survivor. Plus a persisted `input_fingerprint` (sha256 over the sorted node-set + sorted resolved edge-set) in the graph payload + state for downstream reproducibility verification. Edge-set shape stabilizes → bump so consumer caches re-extract. Faithfulness preserved: every resolution branch still requires a UNIQUE (`len==1`) match, so no `len==1` outcome changes and no wrong same-name twin is newly bound — only genuinely-ambiguous tie choices are made deterministic. Previous bump (1p61v, ts-symbol-kind-extraction-faithfulness): TS/JS type-shape members are no longer mislabeled `function`. A `type_alias_declaration` now extracts as kind="type" and an interface/object-type `property_signature` (a `: T` data member) as kind="property" (method *signatures* keep `function`) — previously both fell through to the default `function`, so `code_outline`-invisible `: string` fields and `export type` aliases rendered as `(function)` entry points in the codebase map (p60n field trace, Issue 1). Plus a registration-site faithfulness guard (`_ts_is_emittable_symbol_name`): a definition whose picked name is the reserved word `function` (anonymous `function (…){}` expressions) or a non-identifier route-path token (`/`) is no longer registered as a junk symbol (Issue 2). Node KIND-set + node-set shape change → bump (consumer graph caches re-extract). Conservative: contextual keywords that are legal identifiers (`type`, `async`, `fn`, …) are NOT rejected, so no real callable is dropped. Previous bump (1p5c4, guard-oversized-files-indexing): files over the tree-sitter parse cap (default 2 MB; override WAVEFOUNDRY_MAX_TS_PARSE_BYTES / `indexing.max_treesitter_parse_bytes`) now SKIP AST graph extraction, and files over the hard size cap are dropped from the walk entirely — so oversized files contribute no graph nodes. Bump forces re-extraction so any large file parsed under v29 has its stale nodes pruned. Wave 1p4up (member-access-constant-reads): a CONSTANT accessed via a qualified member expression (`Status.ACTIVE`, `AppConstants.Network.userAgent`, `Outer.Inner.TOKEN`, Ruby/PHP `A::B::C`) now produces a function→constant `reads` edge by EXACT qualified-name match (const-kind-gated; the qualifier disambiguates so a same-leaf param/import/bare-call can't match). Faithfulness guards: F1 full-qname (not `_simple_name` partial key), F2 reject `this`/`self`/`super`/`cls`, F4 qualifier-shadow (a member-access read whose head is a function param/local is dropped — `func_locals` from per-language binding nodes) + the property/trailing leaf of a member access is no longer also buffered as a bare read (member-path resolves it instead). New `reads` edges → node/edge-set shape change → bump (consumer graph caches re-extract). Wave 1p4q4 review (28) (D1/D2): namespace-scoped enum member nodes now carry the enclosing namespace prefix (`NSA.Inner.AAA` vs `NSB.Inner.AAA` — no cross-namespace collision/clobber), and constant nodes are EXEMPT from the ≤2-char short-symbol prune so short members (`Status.OK`/`Dir.Up`) resolve. Node-set shape change → bump (consumer graph caches re-extract). Wave 1p4q4 (27): TS `enum`/`const enum` members are now `kind="constant"` graph nodes (`Enum.Member`), child of the enum type node. Wave 1p4ls (26) (graph-constant-nodes-and-references): module-/type-level CONSTANT declarations are now graph nodes (kind="constant", carrying a simple-literal `value` where the RHS is a literal) across all core languages, plus a faithfulness-gated function→constant `reads` edge (same-scope + explicitly-imported only; never binds a coincidental same-name twin — symbol_lookup uniqueness + a const-kind gate + a local-shadow guard). Consumers surface them: code_definition resolves a constant name; code_references lists readers in a distinct `reads` bucket (NOT merged into callers); graph_neighbors includes constants when `reads` is requested. `reads` is OPT-IN for default 1-hop traversal (excluded when no explicit relations are passed, so a hot constant does not balloon neighbor sets / 1p4hu expansion) and stays OUT of the impact/call default relations; constant nodes + `reads` edges are excluded from clustering (CLUSTER_BUILDER_VERSION 8→9, no community-label shift). resolve_symbol is kind-aware (a constant sharing a simple name no longer shadows a callable lookup). Detection reuses the 1p4mf chunk-lane per-language predicates (one detector, two consumers — Req-7); the graph lane is BROADER where it lands naturally (class/type-level constants; Swift enum cases; Go grouped-const per member). NOTE: TS `enum`/`const enum` members ARE emitted as constant nodes (`Enum.Member`) — delivered in 1p4q4 (see the v27 line at the top). Kotlin bare top-level/object `val` (no `const`) stays `kind="variable"` (an immutable binding is not a compile-time constant — won't-do). Previous bump (1p4eq, cross-file-resolution-followups): one consolidated bump covering five graph-shaping changes: (1p4ef) fix a leaked `qualified` loop var that injected phantom qualified_index candidates for collapsed/basename-merged nodes (C#/Swift/Rust/Ruby) and silently suppressed unique cross-file resolution; (1p4er) same-package/same-directory disambiguation fallback for ambiguous receivers used WITHOUT an import (Java field miss, `JreCompat.canAccess`), GATED to Java/Kotlin/Go (same-dir ⇒ same-package visibility; Python/JS/TS/Rust/C# excluded); (1p4et) Go methods now keyed `Type.method` (was bare `method`) + package-qualified receiver inference (`var h foo.Helper` → `foo.Helper`, package PRESERVED and resolved by the candidate's package directory); (1p4eu) Rust `Type::assoc_fn()` resolution + struct-literal/`::new()` let-binding type inference; (1p4ev) C# namespace-membership disambiguation (own-namespace ∪ `using`), the namespace derived from each file's DECLARED namespace nodes by longest-prefix (nesting-proof), NOT by fixed-segment qname stripping. FAITHFULNESS FIXES (1p4eq adversarial verification): the 1p4et/1p4ev paths above already incorporate the over-resolution fixes the verification caught — dropping the Go package qualifier bound a co-located cross-package twin, and fixed-segment C# namespace stripping mis-derived a nested-class caller's namespace and bound a coincident sibling twin; both now stay external unless a unique package/namespace-faithful candidate matches. COVERAGE SCOPE — synthetic-fixture tests only, NOT yet validated against a real consumer project: same-package = Java; cross-file method/assoc-fn = Go + Rust; ambiguous-receiver namespace membership = C#. Each carries an adversarial "never binds the wrong twin / stays external" test. **Correction to the v24 line below:** v24 advertised its `imports`-edge disambiguation as "language-agnostic (Python + Java/Kotlin/C#/Go)" — that was over-stated; it fired ONLY for Python + Java (per-type imports), and was dead code for C#/Go/Rust (their import heads are namespaces/packages, not type names) until v25 supplied the per-language mechanisms above. Previous bump (1p47e 1p470): Python sibling-loader return-type inference + cross-file import disambiguation. v24 resolves the lazy-loader blast-radius hole — `gq = _load_graph_query()` (→ `_load_script("graph_query")`) and direct `v = _load_script("mod")` now bind `v.Class.method()` / `v.func()` to the loaded module's symbols (previously emitted NO edge because `v` had no known type; e.g. `GraphQueryIndex.from_root` was called from 14 sites with 0 incoming edges). Also adds import-edge-based disambiguation in the cross-file rewrite pass: an ambiguous `external::Type.method` (multiple same-simple-name candidates) is disambiguated via the source file's `imports` edge for `Type`, language-agnostically (Python + Java/Kotlin/C#/Go). Previous bump (1p2q3 / 1p2tz post-ship-5 1.3.16): TS/JS symbol-table promotion. Intra-file (and cross-file unique-simple-name) calls where `_ts_resolve_target` bound directly to a project node previously landed as `EXTRACTED` even though the binding required an exact match in `symbol_lookup`. Field validation on the v22 stable state showed `getRootToken` and similar intra-file arrow-const targets had only `EXTRACTED` incoming edges — invisible to the `receiver_resolved` attribution bucket — despite the symbol being correctly resolved at extraction time. v23 promotes these to `RECEIVER_RESOLVED` for TS/JS only: when `_ts_resolve_target` returns a non-`external::` project node (i.e. the call site bound to a locally-defined symbol or to the unique cross-file simple-name match) the edge is high-confidence by construction. Affects TS/JS only — other languages route through their per-language receiver resolvers + the cross-file rewrite pass and are out of scope for this round. Previous bump (1.3.12 v21→v22): TS/JS relative-import path resolution into import_targets. v21 emitted arrow-const function nodes but +9,379 of the new TS edges landed as EXTRACTED rather than RECEIVER_RESOLVED because intra-package callers using relative imports (`import { foo } from './events'`) had `import_targets[foo]` populated with the lossy `external::events` form. The cross-file rewrite pass then promoted the edge to the right project node but kept it at EXTRACTED confidence. v22 extracts the raw module specifier before `_ts_clean_name` strips the `./` prefix, resolves relative imports against the source file's directory, then runs the same barrel walk + import_targets binding as the aliased path. The +9,379 EXTRACTED edges observed in the field in v21 → v22 should migrate to RECEIVER_RESOLVED for any intra-package direct call to a relatively-imported arrow-const. Affects TS/JS only. Previous bump (1.3.11 v20→v21) was the arrow-const node-emission half — v22 completes the receiver-type attribution half. Modern TS code uses `export const foo = async (args) => { ... }` as the dominant function shape (field-confirmed: ALL backend functions on a 12k-node Nx monorepo are arrow-const, zero `function` declarations). Tree-sitter parses these as `lexical_declaration → variable_declarator → arrow_function`, not `function_declaration`, so the default name-from-descendants extractor returned empty and the symbol never registered. v21 detects arrow-const bindings explicitly and registers each as a function symbol; walks scope through the arrow body so calls FROM inside arrow-const-bound functions get attributed to the const name rather than the file. Expected impact on barrel-export-heavy + arrow-const-heavy codebases: TS resolved-share rises from 6% range into 30–60% (per field estimate). Affects TS/JS only — other languages unchanged. Previous bump (1.3.10 v19→v20) covered direct-function-call import_targets promotion + bundler-mode .js→.ts swap + community-label barrel deprioritization
 GRAPH_DIRNAME = "graph"
+
+# Wave 1p9q3 (1p9py): graph artifacts persist as gzip-compressed COMPACT JSON.
+# Level 6 (the zlib default) is the write-speed balance point — within a few
+# percent of level 9's ratio on JSON text at a fraction of the CPU, keeping the
+# post-edit hook's graph refresh cheap. Readers sniff the gzip magic bytes and
+# fall back to legacy plain JSON, so pre-upgrade artifacts stay readable. The
+# `.json` filenames are intentionally kept: content is sniffed, not the extension.
+GRAPH_GZIP_LEVEL = 6
+_GZIP_MAGIC = b"\x1f\x8b"
 
 
 def _pick_shorter_node_id(existing: str | None, candidate: str) -> str:
@@ -59,6 +71,15 @@ GRAPH_FILENAMES = {
 GRAPH_STATE_FILENAMES = {
     "project": "project-graph-state.json",
 }
+# Wave 1p9q3 (1p9q2): the per-file state store superseded the monolithic JSON
+# state document. `GRAPH_STATE_FILENAMES` is retained ONLY as the legacy
+# filename (discarded one-time at store open; also the pre-upgrade fallback for
+# the version-staleness probe). A distinct `.sqlite` name is used so nothing
+# ever gzip-sniffs the database file.
+GRAPH_STORE_FILENAMES = {
+    "project": "project-graph-state.sqlite",
+}
+GRAPH_STORE_SCHEMA_VERSION = "1"
 
 _DOC_EXTENSIONS = {".md", ".markdown", ".txt"}
 _CODE_EXTENSIONS = {
@@ -945,10 +966,375 @@ def _edge(
 
 
 def _read_json(path: Path, default: Any) -> Any:
+    """Read a graph artifact — gzip-compressed compact JSON (current format) or
+    legacy plain JSON, sniffed via the gzip magic bytes (wave 1p9q3 / 1p9py).
+
+    Any failure — missing file, truncated/corrupted gzip stream, invalid JSON —
+    returns ``default``, preserving the pre-existing corrupted-artifact contract
+    (the version-staleness path then triggers re-extraction).
+    """
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        raw = path.read_bytes()
+        if raw[:2] == _GZIP_MAGIC:
+            raw = gzip.decompress(raw)
+        return json.loads(raw.decode("utf-8"))
     except Exception:
         return default
+
+
+# Public alias for consumers outside this module (graph_query version checks,
+# server_impl summaries, tests): every reader of a graph artifact path must go
+# through a sniffing reader — never `json.loads(path.read_text())` directly.
+read_json_artifact = _read_json
+
+
+# ---------------------------------------------------------------------------
+# Per-file graph state store (wave 1p9q3 / 1p9q2)
+# ---------------------------------------------------------------------------
+
+
+def _encode_state_record(payload: Any) -> bytes:
+    """Encode one state record as gzip-level-6 compact JSON bytes.
+
+    Same byte format `_write_json` produces for artifacts (wave 1p9py):
+    compact separators, sorted keys, ``mtime=0`` for byte-stable output.
+    Used for both per-file records and the merge-state blob in the store.
+    """
+    data = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    return gzip.compress(data, compresslevel=GRAPH_GZIP_LEVEL, mtime=0)
+
+
+def _decode_state_record(raw: bytes, default: Any = None) -> Any:
+    try:
+        if raw[:2] == _GZIP_MAGIC:
+            raw = gzip.decompress(raw)
+        return json.loads(raw.decode("utf-8"))
+    except Exception:
+        return default
+
+
+class GraphStateStore:
+    """SQLite-backed per-file graph state store (wave 1p9q3 / 1p9q2).
+
+    Replaces the monolithic ``project-graph-state.json`` document with per-file
+    write granularity: a one-file build reads/writes O(changed) records instead
+    of parsing and rewriting the whole state per build. Backend selected by the
+    AC-7 spike (stdlib ``sqlite3`` vs per-file gzip blobs + manifest): SQLite
+    won every per-build criterion on a 5k-file corpus — dominant 1-file update
+    cycle 0.71 ms vs 22.65 ms, ~4 KB written vs ~337 KB — because the blob
+    manifest is itself an O(repo-count) document. Per-file gzip blobs remain
+    the documented fallback behind this abstraction (see the change doc's
+    Decision Log for the full rationale and overturn conditions).
+
+    Layout:
+      - ``meta``  — key/value store metadata: store/schema/builder/walker/
+        chunker versions + layer (whole-store invalidation), and the payload
+        binding (``payload_fingerprint``/``payload_size``/``payload_mtime_ns``/
+        ``payload_stat_state``) used for crash-consistency detection.
+      - ``files`` — one row per source file: ``path`` (PK), ``source_hash``,
+        and ``record`` = gzip compact-JSON ``{"source_hash":…, "artifact":…}``
+        (the same record shape the monolithic state carried per file).
+      - ``blobs`` — named auxiliary records; carries the ``merge_state``
+        sidecar (persistent merged maps + per-file resolved fragments).
+
+    Durability: ``journal_mode=WAL`` + ``synchronous=NORMAL`` — atomic commit
+    and rollback on an app crash; an OS-level crash can at worst lose the last
+    commit (a lost build is re-buildable; never a torn store). ``busy_timeout``
+    covers concurrent hook-spawned builds. Version mismatch resets the whole
+    store (rows + blobs), preserving the historical ``_load_state``
+    whole-store invalidation semantics.
+
+    Error posture (intentionally asymmetric): read-side probes used for
+    staleness/decision-making (``meta_all``, ``paths_with_hashes``,
+    ``get_blob``) swallow ``sqlite3.Error`` and degrade to empty — the caller
+    then takes the full-re-extract path. Mutating/build-critical operations
+    (``get_record``, ``iter_records``, ``apply_build``, ``set_meta``)
+    propagate — a mid-build store failure crashes the build loudly rather
+    than committing partial state. Both directions end at "loud crash or
+    full rebuild", never a silently wrong graph; corruption at open time is
+    handled by ``__init__``'s reset-and-recreate.
+    """
+
+    _VERSION_KEYS = (
+        "store_schema_version",
+        "schema_version",
+        "builder_version",
+        "walker_version",
+        "chunker_version",
+        "layer",
+    )
+
+    def __init__(
+        self,
+        path: Path,
+        *,
+        layer: str,
+        walker_version: str,
+        chunker_version: str,
+    ) -> None:
+        self.path = Path(path)
+        self.layer = layer
+        self.walker_version = walker_version
+        self.chunker_version = chunker_version
+        # AC-1 instrumentation: per-build state-I/O counters (record granularity).
+        self.record_reads = 0
+        self.record_writes = 0
+        self.record_deletes = 0
+        # Blob (merge_state sidecar) I/O is tracked separately — it is
+        # O(graph) per changed build, not O(changed), and hiding it in the
+        # row counters would under-report exactly the dominant byte term
+        # (delivery-review finding).
+        self.blob_reads = 0
+        self.blob_writes = 0
+        self.blob_bytes_written = 0
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            self._conn = self._open()
+        except sqlite3.Error:
+            # Corrupted/unreadable database file: loudly delete and recreate.
+            # The empty store then forces a full re-extract (never a silently
+            # wrong graph).
+            print(
+                f"build_index: graph state store unreadable at {self.path} — "
+                "resetting store (a full re-extract follows)",
+                file=sys.stderr,
+                flush=True,
+            )
+            self._delete_store_files()
+            self._conn = self._open()
+
+    def _open(self) -> "sqlite3.Connection":
+        conn = sqlite3.connect(str(self.path), timeout=10.0)
+        # WAL can be silently refused (e.g. some network filesystems fall
+        # back to a rollback journal, where multi-process locking is
+        # unreliable) — check the pragma's RESULT and warn loudly so a field
+        # report of store contention has a diagnostic to point at.
+        journal_mode = str(
+            (conn.execute("PRAGMA journal_mode=WAL").fetchone() or [""])[0]
+        )
+        if journal_mode.lower() != "wal":
+            print(
+                f"[graph-state-store] WARNING: journal_mode=WAL refused "
+                f"(got {journal_mode!r}); store at {self.path} may be on a "
+                f"filesystem with unreliable locking",
+                file=sys.stderr,
+            )
+        conn.execute("PRAGMA synchronous=NORMAL")
+        conn.execute("PRAGMA busy_timeout=10000")
+        with conn:
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
+            )
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS files ("
+                "path TEXT PRIMARY KEY, source_hash TEXT NOT NULL, record BLOB NOT NULL)"
+            )
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS blobs (key TEXT PRIMARY KEY, value BLOB NOT NULL)"
+            )
+        return conn
+
+    def _delete_store_files(self) -> None:
+        for suffix in ("", "-wal", "-shm"):
+            try:
+                os.unlink(f"{self.path}{suffix}")
+            except OSError:
+                pass
+
+    def _expected_versions(self) -> dict[str, str]:
+        return {
+            "store_schema_version": GRAPH_STORE_SCHEMA_VERSION,
+            "schema_version": GRAPH_SCHEMA_VERSION,
+            "builder_version": GRAPH_BUILDER_VERSION,
+            "walker_version": self.walker_version,
+            "chunker_version": self.chunker_version,
+            "layer": self.layer,
+        }
+
+    def meta_all(self) -> dict[str, str]:
+        try:
+            rows = self._conn.execute("SELECT key, value FROM meta").fetchall()
+        except sqlite3.Error:
+            return {}
+        return {str(k): str(v) for k, v in rows}
+
+    def versions_current(self) -> bool:
+        meta = self.meta_all()
+        expected = self._expected_versions()
+        return all(meta.get(key) == expected[key] for key in self._VERSION_KEYS)
+
+    def ensure_current(self) -> bool:
+        """Reset the whole store when any version key mismatches.
+
+        Preserves the historical `_load_state` semantics: a builder/walker/
+        chunker/schema mismatch invalidates everything and forces a full
+        re-extraction (the caller sees an empty ``files`` table). Returns
+        True when the store was already current.
+        """
+        if self.versions_current():
+            return True
+        self.reset()
+        return False
+
+    def reset(self) -> None:
+        expected = self._expected_versions()
+        with self._conn:
+            self._conn.execute("DELETE FROM files")
+            self._conn.execute("DELETE FROM blobs")
+            self._conn.execute("DELETE FROM meta")
+            self._conn.executemany(
+                "INSERT INTO meta (key, value) VALUES (?, ?)",
+                sorted(expected.items()),
+            )
+
+    def paths_with_hashes(self) -> dict[str, str]:
+        """Cheap manifest read: every known path with its source hash.
+
+        Reads two small columns only — never decodes record blobs — so the
+        per-build removed-path detection stays O(paths), not O(bytes).
+        """
+        try:
+            rows = self._conn.execute("SELECT path, source_hash FROM files").fetchall()
+        except sqlite3.Error:
+            return {}
+        return {str(p): str(h) for p, h in rows}
+
+    def get_record(self, rel_path: str) -> dict[str, Any] | None:
+        row = self._conn.execute(
+            "SELECT record FROM files WHERE path = ?", (rel_path,)
+        ).fetchone()
+        if row is None:
+            return None
+        self.record_reads += 1
+        record = _decode_state_record(row[0])
+        return record if isinstance(record, dict) else None
+
+    def iter_records(self):
+        """Yield ``(path, record_dict)`` for every stored file record.
+
+        Full-scan decode — the full-(re)merge path only; incremental builds
+        must not call this (AC-1: state I/O touches only changed files).
+        """
+        cursor = self._conn.execute("SELECT path, record FROM files ORDER BY path")
+        for path, raw in cursor:
+            record = _decode_state_record(raw)
+            if isinstance(record, dict):
+                self.record_reads += 1
+                yield str(path), record
+
+    def get_blob(self, key: str) -> Any:
+        try:
+            row = self._conn.execute(
+                "SELECT value FROM blobs WHERE key = ?", (key,)
+            ).fetchone()
+        except sqlite3.Error:
+            return None
+        if row is None:
+            return None
+        self.blob_reads += 1
+        return _decode_state_record(row[0])
+
+    def apply_build(
+        self,
+        *,
+        puts: dict[str, dict[str, Any]],
+        deletes: list[str],
+        blobs: dict[str, Any],
+        meta: dict[str, str],
+    ) -> None:
+        """Apply one build's state mutations in a single transaction.
+
+        Crash consistency (AC-5): everything commits atomically or not at all;
+        an interrupted build rolls back to the previous consistent state and
+        the payload-binding meta keys detect the payload/store windows (see
+        finalize's persist step for the crash-window analysis).
+        """
+        with self._conn:
+            if deletes:
+                self._conn.executemany(
+                    "DELETE FROM files WHERE path = ?", [(p,) for p in deletes]
+                )
+            for rel, record in puts.items():
+                self._conn.execute(
+                    "INSERT INTO files (path, source_hash, record) VALUES (?, ?, ?) "
+                    "ON CONFLICT(path) DO UPDATE SET source_hash=excluded.source_hash, "
+                    "record=excluded.record",
+                    (rel, str(record.get("source_hash") or ""), _encode_state_record(record)),
+                )
+            for key, value in blobs.items():
+                encoded = _encode_state_record(value)
+                self._conn.execute(
+                    "INSERT INTO blobs (key, value) VALUES (?, ?) "
+                    "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                    (key, encoded),
+                )
+                self.blob_writes += 1
+                self.blob_bytes_written += len(encoded)
+            for key, value in meta.items():
+                self._conn.execute(
+                    "INSERT INTO meta (key, value) VALUES (?, ?) "
+                    "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                    (key, value),
+                )
+        self.record_writes += len(puts)
+        self.record_deletes += len(deletes)
+
+    def set_meta(self, updates: dict[str, str]) -> None:
+        with self._conn:
+            for key, value in updates.items():
+                self._conn.execute(
+                    "INSERT INTO meta (key, value) VALUES (?, ?) "
+                    "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                    (key, value),
+                )
+
+    def close(self) -> None:
+        try:
+            self._conn.close()
+        except sqlite3.Error:
+            pass
+
+    def __del__(self):  # pragma: no cover - GC timing dependent
+        try:
+            self._conn.close()
+        except Exception:
+            pass
+
+
+def read_state_builder_version(index_dir: Path, layer: str = "project") -> str:
+    """Cheap builder-version probe for the version-staleness check.
+
+    Wave 1p9q3 (1p9q2): the graph state lives in the SQLite store; read its
+    ``meta`` table via a read-only URI open (no file creation, ~sub-ms) and
+    fall back to the legacy monolithic JSON state for pre-upgrade repos.
+    Returns ``""`` when the version cannot be determined — callers treat that
+    exactly like the historical missing/corrupted-state contract.
+    """
+    if layer not in GRAPH_STORE_FILENAMES:
+        return ""
+    store_path = index_dir / GRAPH_DIRNAME / GRAPH_STORE_FILENAMES[layer]
+    if store_path.exists():
+        try:
+            conn = sqlite3.connect(
+                f"file:{store_path.as_posix()}?mode=ro", uri=True, timeout=2.0
+            )
+            try:
+                row = conn.execute(
+                    "SELECT value FROM meta WHERE key = 'builder_version'"
+                ).fetchone()
+            finally:
+                conn.close()
+            if row and row[0]:
+                return str(row[0])
+        except sqlite3.Error:
+            return ""
+        return ""
+    legacy_path = index_dir / GRAPH_DIRNAME / GRAPH_STATE_FILENAMES[layer]
+    if legacy_path.exists():
+        state = _read_json(legacy_path, None)
+        if isinstance(state, dict):
+            return str(state.get("builder_version") or "")
+    return ""
 
 
 _DI_SIGNALS_MOD = None
@@ -971,8 +1357,29 @@ def _load_di_signals_module():
 
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
+    """Write a graph artifact as gzip-compressed compact JSON, atomically.
+
+    Wave 1p9q3 (1p9py): compact separators drop the indentation whitespace that
+    dominated the pretty-printed artifacts; ``sort_keys=True`` is retained for
+    deterministic output (the ``input_fingerprint`` reproducibility contract).
+    ``mtime=0`` keeps the gzip header byte-stable for identical payloads. The
+    bytes land in a same-directory temp file promoted via ``os.replace`` so a
+    concurrently-reading process (the MCP server reads while hook-spawned builds
+    write) can never observe a torn artifact.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    data = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    fd, tmp_name = tempfile.mkstemp(dir=str(path.parent), prefix=path.name + ".", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(gzip.compress(data, compresslevel=GRAPH_GZIP_LEVEL, mtime=0))
+        os.replace(tmp_name, path)
+    except BaseException:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
 
 
 def _normalize_symbol_name(name: str) -> str:
@@ -5481,6 +5888,420 @@ def _ts_resolve_target(candidate: str, symbol_lookup: dict[str, str], import_ali
     return f"external::{clean}"
 
 
+# ---------------------------------------------------------------------------
+# Cross-file resolution helpers (wave 1p9q3 / 1p9q2)
+#
+# The per-edge resolution logic below is EXTRACTED MECHANICALLY from the former
+# in-place rewrite loop in `finalize()` — semantics unchanged (the wrong-twin
+# faithfulness contract lives here; every branch still requires a UNIQUE
+# match). Extraction lets the unified merge pipeline run the exact same code
+# for a full merge and for symbol-scoped incremental re-resolution.
+# ---------------------------------------------------------------------------
+
+# Merge-state sidecar format version (bump when the sidecar shape changes so an
+# older sidecar degrades to a loud full re-merge instead of misparsing).
+_MERGE_STATE_FORMAT = "1"
+
+# Fragment-edge provenance keys (wave 1p9q2). A stored resolved fragment edge
+# carries enough provenance to recover its raw (extraction-time) form so a
+# later symbol-delta can re-run resolution — promotion AND demotion:
+#   _x — original `external::<bare>` name of a rewritten target
+#   _c — original confidence when exact-unique promotion changed it
+#   _d — tombstone: unresolved external `reads` edge (dropped from output,
+#        retained so a later unique candidate can re-promote it)
+_PROV_EXT = "_x"
+_PROV_CONF = "_c"
+_PROV_DROP = "_d"
+
+# Analytics flags are recomputed fresh every build from the merged maps; they
+# are stripped wherever nodes enter the merge so per-file state stays pristine.
+_ANALYTICS_NODE_FLAGS = ("is_entry_point", "dead_code_risk", "is_chokepoint")
+
+
+def _build_candidate_indexes(
+    node_map: dict[str, dict[str, Any]],
+) -> tuple[dict[str, list[str]], dict[str, list[str]], dict[str, set[str]]]:
+    """Build (simple_name_index, qualified_index, cs_file_ns) from a node map.
+
+    Extracted verbatim from finalize (waves 130ol/1312l/1316l/1p4ef/1p4ev/
+    1p66e — see the inline comments retained below). Pure function of the node
+    mapping; also runs on per-file node subsets to compute the symbol-delta
+    keys for scoped re-resolution (the per-(file, simple) winner logic is
+    per-file, so a whole-file subset yields exactly that file's contributions).
+    """
+    simple_name_index: dict[str, list[str]] = {}
+    qualified_index: dict[str, list[str]] = {}
+    per_file_simple: dict[tuple[str, str], str] = {}
+    # Wave 1p4eq (1p4ev faithfulness fix): each C# file's DECLARED namespaces,
+    # harvested from its namespace nodes (`file.cs::Namespace`, kind="module").
+    cs_file_ns: dict[str, set[str]] = {}
+    for node_id, node in node_map.items():
+        if node_id.startswith("external::"):
+            continue  # external endpoint nodes are not project candidates
+        if "::" in node_id and node.get("kind") == "module":
+            _ns_file = node_id.split("::", 1)[0]
+            if _ns_file.endswith(".cs"):
+                cs_file_ns.setdefault(_ns_file, set()).add(node_id.split("::", 1)[1])
+        # Wave 13129 (1316l): merged Swift class/module nodes (collapsed_pair=True)
+        # live at the file id and carry the class label.
+        is_collapsed_pair = bool(node.get("collapsed_pair"))
+        if "::" not in node_id and not is_collapsed_pair:
+            continue
+        if is_collapsed_pair:
+            file_part = node_id
+            qualified = str(node.get("label") or "")
+        else:
+            file_part, qualified = node_id.split("::", 1)
+        label = str(node.get("label") or "")
+        simple = label or qualified.rsplit(".", 1)[-1]
+        if not simple:
+            continue
+        key = (file_part, simple)
+        # Keep the shortest qualified name (the outer/real definition), with a
+        # lexicographic tie-break so the choice is order-independent (1p66e).
+        per_file_simple[key] = _pick_shorter_node_id(per_file_simple.get(key), node_id)
+    for (file_part, simple), node_id in per_file_simple.items():
+        simple_name_index.setdefault(simple, []).append(node_id)
+        if "::" in node_id:
+            _, qualified = node_id.split("::", 1)
+            if qualified and qualified != simple:
+                qualified_index.setdefault(qualified, []).append(node_id)
+        else:
+            # Wave 1p4ef: collapsed / basename-merged node (no "::" in id) —
+            # its qualified name IS its label (== simple).
+            qualified = simple
+        # Index a module-path-derived dotted form so per-file extractors that
+        # emit dotted external targets can resolve to project nodes.
+        dotted_module = re.sub(r"\.[A-Za-z0-9]+$", "", file_part).replace("/", ".")
+        dotted_module = dotted_module.lstrip(".")
+        if dotted_module:
+            dotted_full = f"{dotted_module}.{qualified}"
+            qualified_index.setdefault(dotted_full, []).append(node_id)
+            parts = dotted_full.split(".")
+            for i in range(1, len(parts)):
+                suffix = ".".join(parts[i:])
+                if "." in suffix:
+                    qualified_index.setdefault(suffix, []).append(node_id)
+    # Wave 13129 (1312l): dedupe entries — suffix-indexing can re-add the same
+    # node under its direct qualified key; without dedupe `len(candidates)==1`
+    # fails for legit single-candidate matches. Order preserved (stable).
+    for _k in list(qualified_index.keys()):
+        qualified_index[_k] = list(dict.fromkeys(qualified_index[_k]))
+    for _k in list(simple_name_index.keys()):
+        simple_name_index[_k] = list(dict.fromkeys(simple_name_index[_k]))
+    return simple_name_index, qualified_index, cs_file_ns
+
+
+def _candidate_delta_keys(nodes: list[dict[str, Any]]) -> set[str]:
+    """Lookup keys contributed to the candidate indexes by these nodes.
+
+    The symbol-delta unit for scoped re-resolution (wave 1p9q2): any candidate-
+    index key with an old or new candidate in a changed/removed file may have a
+    changed candidate SET, so every edge consulting that key must re-resolve.
+    Computed by running the exact index builder on the subset — zero drift
+    from the real index by construction.
+    """
+    subset: dict[str, dict[str, Any]] = {}
+    for node in nodes:
+        if isinstance(node, dict):
+            node_id = str(node.get("id") or "")
+            if node_id:
+                subset.setdefault(node_id, node)
+    simple_idx, qualified_idx, _ = _build_candidate_indexes(subset)
+    return set(simple_idx) | set(qualified_idx)
+
+
+def _build_imports_by_file(raw_edge_keys) -> dict[str, dict[str, str]]:
+    """Per-source-file import map for ambiguous-receiver disambiguation.
+
+    Extracted verbatim from finalize (waves 1p47e/1p66e): file -> { imported
+    simple name -> import FQN }; on a final-segment collision keep the
+    lexicographically smallest FQN (stable, order-independent).
+    """
+    imports_by_file: dict[str, dict[str, str]] = {}
+    for (e_src, e_tgt, e_rel, _e_conf) in raw_edge_keys:
+        if e_rel == "imports" and e_tgt.startswith("external::"):
+            fqn = e_tgt[len("external::"):]
+            if not fqn:
+                continue
+            _seg = fqn.rsplit(".", 1)[-1]
+            _bucket = imports_by_file.setdefault(e_src, {})
+            _prev = _bucket.get(_seg)
+            if _prev is None or fqn < _prev:
+                _bucket[_seg] = fqn
+    return imports_by_file
+
+
+def _resolve_external_call_target(
+    src: str,
+    bare: str,
+    conf: str,
+    *,
+    simple_name_index: dict[str, list[str]],
+    qualified_index: dict[str, list[str]],
+    imports_by_file: dict[str, dict[str, str]],
+    cs_file_ns: dict[str, set[str]],
+) -> tuple[str | None, bool]:
+    """Resolve one `external::<bare>` calls-edge target to a project node.
+
+    Extracted verbatim from finalize's cross-file rewrite loop (waves 130ol/
+    1312l/1319s/1p47e/1p4eq/1p4er/1p4et/1p4ev/1p2q3/1p7dg — inline comments
+    retained). Returns ``(resolved_node_id_or_None, rewrote_exact)`` where
+    ``rewrote_exact`` marks the exact-unique branches eligible for confidence
+    promotion. Every branch still requires a UNIQUE (len==1) match — the
+    never-bind-the-wrong-twin contract is unchanged.
+    """
+    if not bare or bare in _TS_GLOBAL_DENYLIST:
+        return None, False
+    # Wave 13129 (1312l): for edges emitted by receiver-type resolution
+    # (confidence=RECEIVER_RESOLVED), trust the qualified match but BLOCK the
+    # simple-name fallback. Wave 131bt (1319s): CONSTRUCTION_RESOLVED is a peer.
+    _receiver_resolved = conf in ("RECEIVER_RESOLVED", "CONSTRUCTION_RESOLVED")
+    resolved: str | None = None
+    # Wave 1p2q3 / 1p7dg: track whether `resolved` was set by an EXACT-unique
+    # branch — exact simple name (AC-1), exact qualified name, Go package-
+    # authoritative match, or import-edge disambiguation. Those binds are
+    # promoted EXTRACTED->RECEIVER_RESOLVED. The AC-2 simple-name fallback and
+    # the same-dir / C# namespace HEURISTICS are NOT exact: they bind the
+    # target but KEEP EXTRACTED confidence.
+    rewrote_exact = False
+    candidates: list[str] = []
+    if "." in bare:
+        # AC-2: qualified target — require an exact qualified-name match to a
+        # project node's post-`::` portion. The final segment must also pass
+        # the denylist (so `external::pathlib.Path` stays external even if
+        # some project file defines `Path`).
+        final_seg = bare.rsplit(".", 1)[-1]
+        if final_seg in _TS_GLOBAL_DENYLIST:
+            return None, False
+        candidates = qualified_index.get(bare, [])
+        if len(candidates) == 1:
+            resolved = candidates[0]
+            rewrote_exact = True  # exact qualified-name match
+        elif not candidates and not _receiver_resolved:
+            # Fallback: try the last segment in simple_name_index (with
+            # ambiguity safety + denylist already checked). Skipped for
+            # RECEIVER_RESOLVED edges: the resolver already determined the
+            # target class — simple-name fallback would mis-rewrite to a
+            # phantom project node.
+            simple_candidates = simple_name_index.get(final_seg, [])
+            if len(simple_candidates) == 1:
+                resolved = simple_candidates[0]
+    else:
+        # AC-1: bare simple name match.
+        candidates = simple_name_index.get(bare, [])
+        if len(candidates) == 1:
+            resolved = candidates[0]
+            rewrote_exact = True  # exact simple-name match (AC-1)
+    # Wave 1p4eq (1p4et faithfulness fix): Go package-qualified receiver — the
+    # qualifier is AUTHORITATIVE: resolve only to a candidate whose package
+    # (the Go-convention directory basename) matches. Stays external when no
+    # project package matches (genuinely external, or a name collision).
+    if (
+        resolved is None
+        and not candidates
+        and bare.count(".") == 2
+        and (src.split("::", 1)[0] if "::" in src else src).endswith(".go")
+    ):
+        pkg_head, inner_key = bare.split(".", 1)
+        pkg_matches = []
+        for cand in qualified_index.get(inner_key, []):
+            cfile = cand.split("::", 1)[0]
+            cdir = cfile.rsplit("/", 1)[0] if "/" in cfile else ""
+            cpkg = cdir.rsplit("/", 1)[-1] if cdir else ""
+            if cpkg == pkg_head:
+                pkg_matches.append(cand)
+        if len(pkg_matches) == 1:
+            resolved = pkg_matches[0]
+            rewrote_exact = True  # Go package-authoritative match
+    # Wave 1p47e (1p470): import-edge disambiguation. When the simple/qualified
+    # match above was ambiguous, use the SOURCE FILE's `imports` edge for the
+    # receiver's head segment to pick the candidate whose defining module
+    # matches what the file imported. Requires the filter to leave exactly ONE
+    # candidate — a genuinely external receiver stays external.
+    if resolved is None and len(candidates) > 1:
+        src_file = src.split("::", 1)[0] if "::" in src else src
+        head = bare.split(".", 1)[0]
+        imp_fqn = imports_by_file.get(src_file, {}).get(head)
+        if imp_fqn:
+            accept = {imp_fqn}
+            if "." in imp_fqn:
+                accept.add(imp_fqn.rsplit(".", 1)[0])
+            matches = []
+            for cand in candidates:
+                cfile = cand.split("::", 1)[0]
+                cmod = re.sub(r"\.[A-Za-z0-9]+$", "", cfile).replace("/", ".").lstrip(".")
+                if cmod in accept:
+                    matches.append(cand)
+            if len(matches) == 1:
+                resolved = matches[0]
+                rewrote_exact = True  # import-edge-disambiguated unique match
+        # Wave 1p4er: same-package / same-directory fallback, GATED to
+        # languages where same-directory ⇒ same-package visibility (Java/
+        # Kotlin/Go). Runs ONLY after the import path left it unresolved:
+        # resolve iff exactly one candidate is co-located.
+        if resolved is None and src_file.endswith((".java", ".kt", ".kts", ".go")):
+            src_dir = src_file.rsplit("/", 1)[0] if "/" in src_file else ""
+            same_dir = []
+            for cand in candidates:
+                cfile = cand.split("::", 1)[0]
+                cdir = cfile.rsplit("/", 1)[0] if "/" in cfile else ""
+                if cdir == src_dir:
+                    same_dir.append(cand)
+            if len(same_dir) == 1:
+                resolved = same_dir[0]
+        # Wave 1p4ev: C# namespace membership — keep candidates whose namespace
+        # is the source's OWN namespace or a `using`-imported one, deriving a
+        # node's namespace from its file's DECLARED namespaces by longest
+        # prefix (nesting-proof). Resolve iff exactly one survives.
+        if resolved is None and src_file.endswith(".cs"):
+            def _cs_ns(nid: str) -> str:
+                f = nid.split("::", 1)[0]
+                qn = nid.split("::", 1)[1] if "::" in nid else ""
+                best = ""
+                for ns in cs_file_ns.get(f, ()):
+                    if (qn == ns or qn.startswith(ns + ".")) and len(ns) > len(best):
+                        best = ns
+                return best
+            accept_ns = {_cs_ns(src)} | set(imports_by_file.get(src_file, {}).values())
+            accept_ns.discard("")
+            ns_matches = [c for c in candidates if _cs_ns(c) in accept_ns]
+            if len(ns_matches) == 1:
+                resolved = ns_matches[0]
+    return resolved, rewrote_exact
+
+
+def _resolve_external_read_target(
+    src: str,
+    bare: str,
+    *,
+    qualified_index: dict[str, list[str]],
+    node_map: dict[str, dict[str, Any]],
+) -> str | None:
+    """Resolve one `external::<bare>` reads-edge target, or None to DROP.
+
+    Extracted verbatim from finalize (wave 1p4ls, delivery review B2): bind an
+    imported read ONLY to a UNIQUE constant matched by the import's QUALIFIED
+    name — never guessed from a bare simple name. A read that cannot resolve
+    to a unique qualified project constant is DROPPED, never wrong-bound.
+    """
+    if not bare:
+        return None
+    cands = [
+        c
+        for c in qualified_index.get(bare, [])
+        if (node_map.get(c) or {}).get("kind") == GRAPH_CONST_KIND
+    ]
+    if len(cands) == 1 and cands[0] != src:
+        return cands[0]
+    return None
+
+
+def _raw_fragment_edge(edge: dict[str, Any]) -> dict[str, Any]:
+    """Recover the raw (extraction-time) edge from a stored fragment edge."""
+    if _PROV_DROP in edge:
+        return {k: v for k, v in edge.items() if k != _PROV_DROP}
+    if _PROV_EXT in edge:
+        raw = {k: v for k, v in edge.items() if k not in (_PROV_EXT, _PROV_CONF)}
+        raw["target"] = "external::" + str(edge[_PROV_EXT])
+        if _PROV_CONF in edge:
+            raw["confidence"] = edge[_PROV_CONF]
+        return raw
+    return edge
+
+
+def _output_fragment_edge(edge: dict[str, Any]) -> dict[str, Any] | None:
+    """Fragment edge → payload edge (strip provenance); None for tombstones."""
+    if _PROV_DROP in edge:
+        return None
+    if _PROV_EXT in edge:
+        return {k: v for k, v in edge.items() if k not in (_PROV_EXT, _PROV_CONF)}
+    return edge
+
+
+def _edge_lookup_keys(raw_edge: dict[str, Any]) -> set[str]:
+    """Candidate-index keys this raw edge's resolution consults.
+
+    Mirrors the resolver's lookup surface exactly: `bare` (qualified or
+    simple), the final segment (the AC-2 fallback), and the Go inner key for
+    package-qualified Go receivers. Used to select scope-(b) edges — any edge
+    whose keys intersect the symbol delta must re-resolve.
+    """
+    tgt = str(raw_edge.get("target") or "")
+    if not tgt.startswith("external::"):
+        return set()
+    rel = str(raw_edge.get("relation") or "")
+    bare = tgt[len("external::"):]
+    if not bare:
+        return set()
+    if rel == "reads":
+        return {bare}
+    if rel != "calls":
+        return set()
+    keys = {bare}
+    if "." in bare:
+        keys.add(bare.rsplit(".", 1)[-1])
+        if bare.count(".") == 2:
+            src = str(raw_edge.get("source") or "")
+            src_file = src.split("::", 1)[0] if "::" in src else src
+            if src_file.endswith(".go"):
+                keys.add(bare.split(".", 1)[1])
+    return keys
+
+
+def _resolve_fragment_edge(raw_edge: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
+    """Resolve ONE raw edge into its stored fragment form.
+
+    Applies the exact per-edge logic of the former in-place rewrite loop:
+    `calls` edges with `external::` targets rewrite-or-stay-external (with the
+    wave-1p7dg exact-unique confidence promotion); `reads` edges bind to a
+    unique constant or become tombstones. Provenance keys keep the raw edge
+    recoverable so a later symbol-delta re-runs resolution (promotion AND
+    demotion). All other edges pass through unchanged.
+    """
+    # Degenerate-corpus guard: the former rewrite loop ran only when at least
+    # one candidate index was non-empty; replicate so a docs-only corpus keeps
+    # its external reads edges exactly as before.
+    if not (ctx["simple_name_index"] or ctx["qualified_index"]):
+        return raw_edge
+    tgt = str(raw_edge.get("target") or "")
+    rel = str(raw_edge.get("relation") or "")
+    if not tgt.startswith("external::") or rel not in ("calls", "reads"):
+        return raw_edge
+    src = str(raw_edge.get("source") or "")
+    bare = tgt[len("external::"):]
+    if rel == "reads":
+        target = _resolve_external_read_target(
+            src,
+            bare,
+            qualified_index=ctx["qualified_index"],
+            node_map=ctx["node_map"],
+        )
+        if target is None:
+            return {**raw_edge, _PROV_DROP: True}
+        return {**raw_edge, "target": target, _PROV_EXT: bare}
+    conf = str(raw_edge.get("confidence") or "")
+    resolved, rewrote_exact = _resolve_external_call_target(
+        src,
+        bare,
+        conf,
+        simple_name_index=ctx["simple_name_index"],
+        qualified_index=ctx["qualified_index"],
+        imports_by_file=ctx["imports_by_file"],
+        cs_file_ns=ctx["cs_file_ns"],
+    )
+    if not resolved or resolved == src:
+        return raw_edge
+    # Wave 1p2q3 / 1p7dg: exact-unique cross-file rebinds are high-confidence
+    # by construction — promote EXTRACTED->RECEIVER_RESOLVED. Heuristic binds
+    # (AC-2 fallback, same-dir, C# namespace) correctly stay EXTRACTED.
+    out = {**raw_edge, "target": resolved, _PROV_EXT: bare}
+    if conf == "EXTRACTED" and rewrote_exact:
+        out["confidence"] = "RECEIVER_RESOLVED"
+        out[_PROV_CONF] = conf
+    return out
+
+
 class GraphIndexSession:
     """Incremental graph cache for a single index layer."""
 
@@ -5507,7 +6328,12 @@ class GraphIndexSession:
         self.verbose = verbose
         self.walker_version = walker_version
         self.chunker_version = chunker_version
+        # Wave 1p9q3 (1p9q2): `state_path` is the LEGACY monolithic JSON state
+        # (discarded one-time when the store opens); the live state is the
+        # per-file SQLite store at `store_path`.
         self.state_path = index_dir / GRAPH_DIRNAME / GRAPH_STATE_FILENAMES[layer]
+        self.store_path = index_dir / GRAPH_DIRNAME / GRAPH_STORE_FILENAMES[layer]
+        self._store: GraphStateStore | None = None
         self.graph_path = index_dir / GRAPH_DIRNAME / GRAPH_FILENAMES[layer]
         self.pending_code: dict[str, dict[str, Any]] = {}
         self.pending_doc_text: dict[str, str] = {}
@@ -5549,51 +6375,76 @@ class GraphIndexSession:
             if ignored:
                 self._current_paths -= ignored
 
-    def _load_state(self) -> dict[str, Any]:
-        state = _read_json(self.state_path, {})
-        if not isinstance(state, dict):
-            return self._fresh_state()
-        if str(state.get("schema_version") or "") != GRAPH_SCHEMA_VERSION:
-            return self._fresh_state()
-        if str(state.get("builder_version") or "") != GRAPH_BUILDER_VERSION:
-            return self._fresh_state()
-        if str(state.get("walker_version") or "") != self.walker_version:
-            return self._fresh_state()
-        if str(state.get("chunker_version") or "") != self.chunker_version:
-            return self._fresh_state()
-        if str(state.get("layer") or "") != self.layer:
-            return self._fresh_state()
-        files = state.get("files")
-        if not isinstance(files, dict):
-            return self._fresh_state()
-        return state
+    def _ensure_store(self) -> GraphStateStore:
+        """Open (once) the per-file SQLite state store for this session.
 
-    def _fresh_state(self) -> dict[str, Any]:
+        Wave 1p9q3 (1p9q2). Side effects on first open:
+        - One-time legacy discard: a monolithic ``project-graph-state.json``
+          is DELETED (decision: discard, not migrate — the version-mismatch
+          path already forces a full re-extract on upgrade, so a one-time
+          re-extract is the established upgrade cost and migration code would
+          be single-use complexity). Idempotent: the file is simply gone on
+          subsequent opens.
+        - Whole-store version check: any schema/builder/walker/chunker/layer
+          mismatch resets the store (rows + merge sidecar), preserving the
+          historical ``_load_state`` invalidation semantics.
+        """
+        if self._store is None:
+            if self.state_path.exists():
+                try:
+                    self.state_path.unlink()
+                    print(
+                        "build_index: legacy monolithic graph state discarded "
+                        f"({self.state_path.name}) — the per-file state store "
+                        "supersedes it; a one-time full re-extract follows",
+                        file=sys.stderr,
+                        flush=True,
+                    )
+                except OSError:
+                    pass
+            self._store = GraphStateStore(
+                self.store_path,
+                layer=self.layer,
+                walker_version=self.walker_version,
+                chunker_version=self.chunker_version,
+            )
+            self._store.ensure_current()
+        return self._store
+
+    def close_store(self) -> None:
+        """Close the state-store connection.
+
+        Hook-spawned builds are short-lived processes, but tests (and the
+        in-process auto-rebuild path) construct many sessions — an explicit
+        close avoids fd/WAL-handle buildup. A later store access transparently
+        reopens.
+        """
+        if self._store is not None:
+            self._store.close()
+            self._store = None
+
+    def _load_state(self) -> dict[str, Any]:
+        """Load the lightweight session state view from the per-file store.
+
+        Wave 1p9q3 (1p9q2): the returned dict keeps the historical shape
+        (version keys + ``files``) but ``files`` entries carry ``source_hash``
+        only — artifacts stay in the store and are read per file. Version
+        mismatch resets the store inside ``_ensure_store`` so the returned
+        ``files`` is empty exactly when a full re-extract must follow
+        (`update_graph_index` keys its corpus expansion off that).
+        """
+        store = self._ensure_store()
         return {
             "schema_version": GRAPH_SCHEMA_VERSION,
             "builder_version": GRAPH_BUILDER_VERSION,
             "layer": self.layer,
             "walker_version": self.walker_version,
             "chunker_version": self.chunker_version,
-            "files": {},
+            "files": {
+                rel: {"source_hash": source_hash}
+                for rel, source_hash in store.paths_with_hashes().items()
+            },
         }
-
-    def _file_meta_hash(self, rel_path: str) -> str:
-        meta = self.current_file_meta.get(rel_path) or {}
-        return str(meta.get("hash") or "")
-
-    def _current_artifact_for(self, rel_path: str) -> dict[str, Any] | None:
-        entry = self._state.get("files", {}).get(rel_path)
-        if not isinstance(entry, dict):
-            return None
-        artifact = entry.get("artifact")
-        return artifact if isinstance(artifact, dict) else None
-
-    def _current_hash_for(self, rel_path: str) -> str:
-        entry = self._state.get("files", {}).get(rel_path)
-        if not isinstance(entry, dict):
-            return ""
-        return str(entry.get("source_hash") or "")
 
     def _source_location(self, text: str, line: int) -> str:
         if line <= 0:
@@ -7367,69 +8218,249 @@ class GraphIndexSession:
             )
         return simple_lower, complex_pattern, complex_lower
 
-    def _changed_symbol_ids(
-        self,
-        old_artifact: dict[str, Any] | None,
-        new_artifact: dict[str, Any] | None,
-    ) -> set[str]:
-        old_defs = set(old_artifact.get("defined_symbols") or []) if old_artifact else set()
-        new_defs = set(new_artifact.get("defined_symbols") or []) if new_artifact else set()
-        return old_defs.symmetric_difference(new_defs)
+    def _payload_binding_ok(self, store: GraphStateStore) -> str:
+        """Return the bound payload fingerprint when the on-disk payload file
+        matches the store's recorded binding (size + mtime_ns + bound marker),
+        else ``""``.
+
+        Wave 1p9q3 (1p9q2) crash-consistency probe: the payload artifact and
+        the SQLite store cannot commit atomically *together*, so the store
+        records which payload it vouches for. Any mismatch (torn window,
+        manual deletion, out-of-band rewrite) degrades to a loud full re-merge
+        — never a silently inconsistent graph.
+        """
+        meta = store.meta_all()
+        if meta.get("payload_stat_state") != "bound":
+            return ""
+        fingerprint = str(meta.get("payload_fingerprint") or "")
+        if not fingerprint:
+            return ""
+        try:
+            st = self.graph_path.stat()
+        except OSError:
+            return ""
+        if str(st.st_size) != meta.get("payload_size"):
+            return ""
+        if str(st.st_mtime_ns) != meta.get("payload_mtime_ns"):
+            return ""
+        return fingerprint
 
     def finalize(self) -> dict[str, Any]:
-        state_files: dict[str, dict[str, Any]] = dict(self._state.get("files") or {})
+        """Merge per-file artifacts into the graph payload.
+
+        Wave 1p9q3 (1p9q2) rewrite: one unified pipeline serves both the full
+        merge and the incremental delta merge over a persistent merge state
+        (the ``merge_state`` blob in the per-file store):
+
+        - **Zero-change fast path** — nothing pending, nothing removed, and the
+          store vouches for the on-disk payload: return the existing payload
+          without any merge work or artifact rewrite.
+        - **Incremental** — per-file fragments for changed files are recomputed
+          from their fresh artifacts; untouched files' stored fragments are
+          reused, EXCEPT edges whose resolution consults a candidate-index key
+          in the symbol delta (names whose candidate set may have changed —
+          computed from the old+new nodes of changed/removed files plus the
+          DI-synth node delta). Those re-resolve against the fresh indexes, so
+          promotion (external → bound) and demotion (bound → external) both
+          propagate into untouched files. Fragment edges carry provenance
+          (`_x`/`_c`/`_d`) so their raw form is recoverable without re-reading
+          any unchanged file's record — state I/O touches only changed rows.
+        - **Full merge** — missing/inconsistent merge state (or a fresh/reset
+          store) loads every stored record and recomputes all fragments; the
+          same code path, with everything treated as changed. This is the
+          differential oracle path and the loud degrade target.
+
+        Equivalence invariant: an incremental build produces the same node
+        set, edge-key set (incl. confidences), and ``input_fingerprint`` as a
+        from-scratch build of the same tree (enforced by the randomized
+        differential harness in the test suite).
+
+        Persist order + crash windows (AC-5): store commit (rows + sidecar +
+        binding meta with ``payload_stat_state='pending'``) → payload write →
+        binding stat commit. A crash in any window leaves the binding either
+        stale or pending; the next build detects the mismatch and performs a
+        loud full re-merge from the (newer-or-equal) committed rows — a lost
+        build is re-buildable, a torn one is detectable, and a wrong graph is
+        never served silently.
+        """
+        import time as _time
+
+        merge_started = _time.monotonic()
+        store = self._ensure_store()
+        reads_before = store.record_reads
+        writes_before = store.record_writes
+        blob_reads_before = store.blob_reads
+        blob_writes_before = store.blob_writes
+        blob_bytes_before = store.blob_bytes_written
+        stats: dict[str, Any] = {
+            "mode": "incremental",
+            "files_changed": len(self.pending_code) + len(self.pending_doc_text),
+            "files_removed": 0,
+            "symbols_invalidated": 0,
+            "edges_reresolved": 0,
+        }
+
         current_paths = set(self._current_paths)
+        known_paths = store.paths_with_hashes()
 
-        # Files that existed in the prior graph state but are gone now (deleted or
-        # renamed away). Edges from surviving files into these paths are stale and
-        # must be pruned even when the referring file itself did not change.
-        removed_paths = set(state_files.keys()) - current_paths
-
-        # Remove vanished files from the persistent state first.
-        for rel in list(state_files.keys()):
-            if rel not in current_paths:
-                state_files.pop(rel, None)
-
+        # Files that existed in the prior graph state but are gone now (deleted
+        # or renamed away). Edges from surviving files into these paths are
+        # stale and must be pruned even when the referring file did not change.
+        removed_paths = set(known_paths) - current_paths
         # Purge any doc artifacts cached from paths that are now excluded.
-        for rel in list(state_files.keys()):
-            if _kind_for_path(rel) in {"doc", "seed"} and self._is_doc_scan_excluded(rel):
-                state_files.pop(rel, None)
+        excluded_docs = {
+            rel
+            for rel in known_paths
+            if rel not in removed_paths
+            and _kind_for_path(rel) in {"doc", "seed"}
+            and self._is_doc_scan_excluded(rel)
+        }
+        drop_paths = removed_paths | excluded_docs
+        stats["files_removed"] = len(removed_paths)
 
-        artifacts: dict[str, dict[str, Any]] = {}
+        # --- Zero-change fast path (Req-1): no merge work, no artifact rewrite.
+        if not self.pending_code and not self.pending_doc_text and not drop_paths:
+            bound_fp = self._payload_binding_ok(store)
+            if (
+                bound_fp
+                and store.meta_all().get("merge_state_format") == _MERGE_STATE_FORMAT
+            ):
+                payload = _read_json(self.graph_path, None)
+                if (
+                    isinstance(payload, dict)
+                    and str(payload.get("input_fingerprint") or "") == bound_fp
+                ):
+                    stats["mode"] = "zero-change"
+                    stats["merge_ms"] = int((_time.monotonic() - merge_started) * 1000)
+                    stats["state_reads"] = store.record_reads - reads_before
+                    stats["state_writes"] = store.record_writes - writes_before
+                    stats["blob_reads"] = store.blob_reads - blob_reads_before
+                    stats["blob_writes"] = store.blob_writes - blob_writes_before
+                    stats["blob_bytes"] = store.blob_bytes_written - blob_bytes_before
+                    payload["merge_stats"] = stats
+                    return payload
+            # Fall through: the binding is inconsistent — re-merge loudly below
+            # rather than serve a payload the store cannot vouch for.
+
+        # --- Acquire the persistent merge state. ---
+        merge_files: dict[str, dict[str, Any]] = {}
+        prev_di_synth_nodes: list[dict[str, Any]] = []
+        incremental = False
+        merge_state = store.get_blob("merge_state")
+        if (
+            isinstance(merge_state, dict)
+            and str(merge_state.get("format") or "") == _MERGE_STATE_FORMAT
+            and not merge_state.get("locality_violation")
+            and isinstance(merge_state.get("files"), dict)
+            and str(merge_state.get("payload_fingerprint") or "")
+            and self._payload_binding_ok(store)
+            == str(merge_state.get("payload_fingerprint") or "")
+        ):
+            merge_files = merge_state["files"]
+            prev_di = merge_state.get("di_synth_nodes")
+            prev_di_synth_nodes = prev_di if isinstance(prev_di, list) else []
+            incremental = True
+        else:
+            stats["mode"] = "full-merge"
+
+        # Artifacts whose fragments must be (re)computed this build.
+        recompute_artifacts: dict[str, dict[str, Any]] = {}
+        if not incremental:
+            pending_all = set(self.pending_code) | set(self.pending_doc_text)
+            stored_only = 0
+            for rel, record in store.iter_records():
+                if rel in drop_paths:
+                    continue
+                artifact = record.get("artifact")
+                if isinstance(artifact, dict):
+                    recompute_artifacts[rel] = artifact
+                    if rel not in pending_all:
+                        stored_only += 1
+            if stored_only:
+                # Loud degrade (AC-5/Req-6): a usable store without a usable
+                # merge state means an interrupted or pre-upgrade build; the
+                # full re-merge below reconstructs everything from the rows.
+                print(
+                    f"build_index: graph merge state missing or inconsistent for "
+                    f"{self.layer} layer — performing a full re-merge of "
+                    f"{stored_only} stored file record(s)",
+                    file=sys.stderr,
+                    flush=True,
+                )
+
+        # --- Per-file delta bookkeeping (symbol-scoped invalidation inputs). ---
         changed_code_symbols: set[str] = set()
-        # Symbol IDs that existed before but no longer do (renamed/removed within a
-        # surviving file). Edges pointing at these are stale and must be pruned.
+        # Symbol IDs that existed before but no longer do (renamed/removed
+        # within a surviving file). Edges pointing at these are stale.
         removed_symbols: set[str] = set()
+        # Old + new nodes of changed/removed files: the candidate-index keys
+        # they contribute form the symbol delta for scoped re-resolution.
+        # Kept PER-SIDE: _build_candidate_indexes keeps one winner per
+        # (file, simple name), so a merged old+new subset drops the loser
+        # node's qualified keys from the delta even though each node is a
+        # winner in its own epoch's real index — a same-file depth swap
+        # (top-level CONST -> Class.CONST) would then escape scope (b) for
+        # `reads` edges in untouched files (adversarial faithfulness finding).
+        delta_nodes_old: list[dict[str, Any]] = []
+        delta_nodes_new: list[dict[str, Any]] = []
 
-        # Start with cached artifacts for surviving files.
-        for rel, entry in state_files.items():
-            artifact = entry.get("artifact")
-            if isinstance(artifact, dict):
-                artifacts[rel] = artifact
+        if incremental:
+            for rel in set(self.pending_code) | drop_paths:
+                old_entry = merge_files.get(rel)
+                if isinstance(old_entry, dict):
+                    delta_nodes_old.extend(
+                        n for n in old_entry.get("nodes", []) if isinstance(n, dict)
+                    )
 
-        # Apply changed code artifacts immediately.
-        for rel, payload in self.pending_code.items():
-            new_artifact = payload["artifact"]
-            old_artifact = artifacts.get(rel)
-            changed_code_symbols.update(self._changed_symbol_ids(old_artifact, new_artifact))
-            old_defs = set(old_artifact.get("defined_symbols") or []) if old_artifact else set()
+        # Remove vanished/excluded files from the merge state first.
+        for rel in drop_paths:
+            merge_files.pop(rel, None)
+
+        # Track per-file row writes for the single store transaction.
+        row_puts: dict[str, dict[str, Any]] = {}
+
+        # Apply changed code artifacts immediately (same order as the former
+        # pipeline: code first, docs against the refreshed symbol terms).
+        for rel, payload_entry in self.pending_code.items():
+            new_artifact = payload_entry["artifact"]
+            if incremental:
+                old_defs = set(
+                    (merge_files.get(rel) or {}).get("defined_symbols") or []
+                )
+            else:
+                old_defs = set(
+                    (recompute_artifacts.get(rel) or {}).get("defined_symbols") or []
+                )
             new_defs = set(new_artifact.get("defined_symbols") or [])
+            changed_code_symbols.update(old_defs.symmetric_difference(new_defs))
             removed_symbols.update(old_defs - new_defs)
-            artifacts[rel] = new_artifact
-            state_files[rel] = {
-                "source_hash": payload["source_hash"],
+            recompute_artifacts[rel] = new_artifact
+            if incremental:
+                delta_nodes_new.extend(
+                    n for n in new_artifact.get("nodes", []) if isinstance(n, dict)
+                )
+            row_puts[rel] = {
+                "source_hash": payload_entry["source_hash"],
                 "artifact": new_artifact,
             }
 
-        # Rebuild symbol terms from the current code artifact set before scanning docs.
-        symbol_terms = self._build_symbol_terms(artifacts)
+        def _artifacts_view() -> dict[str, dict[str, Any]]:
+            # Accessor-compatible mapping over the merge inputs: stored entries
+            # for untouched files, fresh artifacts for recomputed ones (both
+            # carry `kind`/`nodes`/`mentioned_symbols`/... keys).
+            view: dict[str, dict[str, Any]] = dict(merge_files)
+            view.update(recompute_artifacts)
+            return view
+
+        # Rebuild symbol terms from the current code node set before docs.
+        symbol_terms = self._build_symbol_terms(_artifacts_view())
         matcher = self._compile_doc_matcher(symbol_terms)
 
         # Changed docs are rescanned directly from their current text.
         for rel, source_text in self.pending_doc_text.items():
             artifact = self._extract_doc_artifact(rel, source_text, symbol_terms, matcher)
-            artifacts[rel] = artifact
-            state_files[rel] = {
+            recompute_artifacts[rel] = artifact
+            row_puts[rel] = {
                 "source_hash": artifact["source_hash"],
                 "artifact": artifact,
             }
@@ -7437,38 +8468,39 @@ class GraphIndexSession:
         # Any unchanged doc that mentioned a changed symbol is now stale.
         impacted_docs: list[str] = []
         if changed_code_symbols:
-            for rel, artifact in artifacts.items():
-                if artifact.get("kind") not in {"doc", "seed"}:
+            for rel, entry in _artifacts_view().items():
+                if entry.get("kind") not in {"doc", "seed"}:
                     continue
-                mentioned = set(artifact.get("mentioned_symbols") or [])
+                mentioned = set(entry.get("mentioned_symbols") or [])
                 if mentioned.intersection(changed_code_symbols):
                     impacted_docs.append(rel)
 
         for rel in impacted_docs:
             path = self.root / rel
             if not path.exists():
-                artifacts.pop(rel, None)
-                state_files.pop(rel, None)
+                merge_files.pop(rel, None)
+                recompute_artifacts.pop(rel, None)
+                row_puts.pop(rel, None)
                 continue
             try:
                 text = path.read_text(encoding="utf-8", errors="replace")
             except OSError:
                 continue
             artifact = self._extract_doc_artifact(rel, text, symbol_terms, matcher)
-            artifacts[rel] = artifact
-            state_files[rel] = {
+            recompute_artifacts[rel] = artifact
+            row_puts[rel] = {
                 "source_hash": artifact["source_hash"],
                 "artifact": artifact,
             }
 
-        # The updated doc scans may have consumed new symbols; if any docs were refreshed,
-        # rebuild the symbol term map once more and rescan those docs for stable output.
+        # The updated doc scans may have consumed new symbols; if any docs were
+        # refreshed, rebuild the symbol term map once more and rescan those
+        # docs for stable output.
         if impacted_docs:
-            symbol_terms = self._build_symbol_terms(artifacts)
+            symbol_terms = self._build_symbol_terms(_artifacts_view())
             matcher = self._compile_doc_matcher(symbol_terms)
             for rel in impacted_docs:
-                artifact = artifacts.get(rel)
-                if not artifact:
+                if rel not in recompute_artifacts and rel not in merge_files:
                     continue
                 path = self.root / rel
                 try:
@@ -7476,44 +8508,85 @@ class GraphIndexSession:
                 except OSError:
                     continue
                 new_artifact = self._extract_doc_artifact(rel, text, symbol_terms, matcher)
-                artifacts[rel] = new_artifact
-                state_files[rel] = {
+                recompute_artifacts[rel] = new_artifact
+                row_puts[rel] = {
                     "source_hash": new_artifact["source_hash"],
                     "artifact": new_artifact,
                 }
 
-        # Keep only current files in the graph state.
-        for rel in list(state_files.keys()):
+        # Keep only current files in the merge state.
+        for rel in list(merge_files.keys()):
             if rel not in current_paths:
-                state_files.pop(rel, None)
+                merge_files.pop(rel, None)
 
-        # Build final graph node/edge sets.
+        # --- Build merge entries for every recomputed file. ---
+        locality_violation = False
+        for rel, artifact in recompute_artifacts.items():
+            if rel not in current_paths:
+                row_puts.pop(rel, None)
+                continue
+            entry: dict[str, Any] = {
+                "kind": str(artifact.get("kind") or ""),
+                "nodes": [n for n in artifact.get("nodes", []) if isinstance(n, dict)],
+                # Raw edges for now; resolved into fragment form below.
+                "edges": [e for e in artifact.get("edges", []) if isinstance(e, dict)],
+            }
+            for summary_key in (
+                "defined_symbols",
+                "mentioned_symbols",
+                "config_read_candidates",
+                "di_signals",
+            ):
+                value = artifact.get(summary_key)
+                if value:
+                    entry[summary_key] = value
+            for node in entry["nodes"]:
+                node_id = str(node.get("id") or "")
+                if node_id.startswith("external::"):
+                    # Shared import-endpoint nodes: many files legitimately
+                    # emit the same `external::<module>` node. Safe for the
+                    # delta merge because the node map is re-unioned from all
+                    # files' node lists every build (first-wins in sorted-file
+                    # order, exactly like the full merge) — removing one
+                    # file's copy never removes another contributor's.
+                    continue
+                file_part = node_id.split("::", 1)[0] if "::" in node_id else node_id
+                if file_part != rel:
+                    # Per-file removability invariant violated: this node could
+                    # not be cleanly retracted when its file changes. Flag the
+                    # merge state so every subsequent build takes the full
+                    # re-merge path (correct, just not incremental) until the
+                    # extractor is fixed.
+                    locality_violation = True
+            merge_files[rel] = entry
+
+        # --- Assemble the merged node map (sorted-file, first-id-wins). ---
         node_map: dict[str, dict[str, Any]] = {}
-        edge_map: dict[tuple[str, str, str, str], dict[str, Any]] = {}
-        for rel in sorted(artifacts.keys()):
-            artifact = artifacts[rel]
-            for node in artifact.get("nodes", []):
+        for rel in sorted(merge_files.keys()):
+            for node in merge_files[rel].get("nodes", []):
                 if not isinstance(node, dict):
                     continue
                 node_id = str(node.get("id") or "")
                 if node_id and node_id not in node_map:
-                    node_map[node_id] = node
-            for edge in artifact.get("edges", []):
-                if not isinstance(edge, dict):
-                    continue
-                key = (
-                    str(edge.get("source") or ""),
-                    str(edge.get("target") or ""),
-                    str(edge.get("relation") or ""),
-                    str(edge.get("confidence") or ""),
-                )
-                if not all(key):
-                    continue
-                edge_map.setdefault(key, edge)
+                    # Copy so downstream analytics flags never contaminate the
+                    # persisted per-file state (flags are recomputed fresh each
+                    # build; stripping keeps incremental == from-scratch).
+                    fresh = dict(node)
+                    for flag in _ANALYTICS_NODE_FLAGS:
+                        fresh.pop(flag, None)
+                    node_map[node_id] = fresh
 
+        # --- DI signal resolution (may synthesize type nodes). ---
+        di_edge_items: list[tuple[tuple[str, str, str, str], dict[str, Any]]] = []
+        di_synth_nodes: list[dict[str, Any]] = []
         try:
             di_mod = _load_di_signals_module()
-            for edge in di_mod.resolve_di_edges(artifacts, node_map):
+            pre_di_ids = set(node_map)
+            # Deterministic input order (wave 1p9q2): the DI pass's node picks
+            # are candidate-list-order sensitive; feed artifacts sorted so full
+            # and incremental builds agree on synthesized node ids.
+            di_view = {rel: merge_files[rel] for rel in sorted(merge_files.keys())}
+            for edge in di_mod.resolve_di_edges(di_view, node_map):
                 if not isinstance(edge, dict):
                     continue
                 key = (
@@ -7524,7 +8597,7 @@ class GraphIndexSession:
                 )
                 if not all(key):
                     continue
-                edge_map.setdefault(key, edge)
+                di_edge_items.append((key, edge))
                 for endpoint in (key[0], key[1]):
                     if endpoint and endpoint not in node_map:
                         file_part = endpoint.split("::")[0] if "::" in endpoint else endpoint
@@ -7537,8 +8610,125 @@ class GraphIndexSession:
                             "1:0",
                             layer=self.layer,
                         )
+            di_synth_nodes = [
+                node_map[nid] for nid in sorted(set(node_map) - pre_di_ids)
+            ]
         except Exception:
             pass
+
+        # --- Cross-file resolution context (candidate indexes; wave 130ol+). ---
+        simple_name_index, qualified_index, cs_file_ns = _build_candidate_indexes(node_map)
+
+        # Raw edge views per file (fragment provenance makes untouched files'
+        # raw edges recoverable without touching their store rows).
+        raw_edges_by_file: dict[str, list[dict[str, Any]]] = {}
+        for rel, entry in merge_files.items():
+            if rel in recompute_artifacts:
+                raw_edges_by_file[rel] = entry.get("edges", [])
+            else:
+                raw_edges_by_file[rel] = [
+                    _raw_fragment_edge(e) for e in entry.get("edges", [])
+                ]
+
+        imports_by_file = _build_imports_by_file(
+            (
+                str(e.get("source") or ""),
+                str(e.get("target") or ""),
+                str(e.get("relation") or ""),
+                str(e.get("confidence") or ""),
+            )
+            for edges in raw_edges_by_file.values()
+            for e in edges
+        )
+        ctx = {
+            "node_map": node_map,
+            "simple_name_index": simple_name_index,
+            "qualified_index": qualified_index,
+            "imports_by_file": imports_by_file,
+            "cs_file_ns": cs_file_ns,
+        }
+
+        # --- Symbol delta (Req-2): candidate-index keys whose candidate set
+        # may have changed. Any edge consulting one of these keys re-resolves.
+        delta_keys: set[str] = set()
+        if incremental:
+            # Per-side unions (never one merged subset) — see delta_nodes_*
+            # comment above for why the winner-picking collapse matters.
+            if delta_nodes_old:
+                delta_keys |= _candidate_delta_keys(delta_nodes_old)
+            if delta_nodes_new:
+                delta_keys |= _candidate_delta_keys(delta_nodes_new)
+            prev_by_id = {
+                str(n.get("id") or ""): n
+                for n in prev_di_synth_nodes
+                if isinstance(n, dict)
+            }
+            new_by_id = {str(n.get("id") or ""): n for n in di_synth_nodes}
+            di_prev_only = [prev_by_id[i] for i in set(prev_by_id) - set(new_by_id)]
+            di_new_only = [new_by_id[i] for i in set(new_by_id) - set(prev_by_id)]
+            if di_prev_only:
+                delta_keys |= _candidate_delta_keys(di_prev_only)
+            if di_new_only:
+                delta_keys |= _candidate_delta_keys(di_new_only)
+        stats["symbols_invalidated"] = len(delta_keys)
+
+        # --- Fragment resolution: full for recomputed files; symbol-scoped for
+        # untouched files (scope (a) + scope (b) of Req-2). ---
+        reresolved = 0
+        for rel in sorted(merge_files.keys()):
+            entry = merge_files[rel]
+            if rel in recompute_artifacts:
+                entry["edges"] = [
+                    _resolve_fragment_edge(e, ctx) for e in raw_edges_by_file[rel]
+                ]
+                reresolved += len(entry["edges"])
+                continue
+            if not delta_keys:
+                continue
+            raw_edges = raw_edges_by_file[rel]
+            new_edges: list[dict[str, Any]] | None = None
+            stored_edges = entry.get("edges", [])
+            for idx, raw_edge in enumerate(raw_edges):
+                keys = _edge_lookup_keys(raw_edge)
+                if not keys or keys.isdisjoint(delta_keys):
+                    continue
+                resolved = _resolve_fragment_edge(raw_edge, ctx)
+                if new_edges is None:
+                    new_edges = list(stored_edges)
+                new_edges[idx] = resolved
+                reresolved += 1
+            if new_edges is not None:
+                entry["edges"] = new_edges
+        stats["edges_reresolved"] = reresolved
+        if self.verbose and reresolved:
+            print(
+                f"build_index: graph cross-file resolution ran for {reresolved} "
+                f"edges ({stats['mode']})",
+                flush=True,
+            )
+
+        # --- Assemble the final edge map (sorted-file union of fragments,
+        # first-key-wins collapse — identical key set to the former in-place
+        # rewrite by construction). ---
+        edge_map: dict[tuple[str, str, str, str], dict[str, Any]] = {}
+        for rel in sorted(merge_files.keys()):
+            for fragment_edge in merge_files[rel].get("edges", []):
+                if not isinstance(fragment_edge, dict):
+                    continue
+                edge = _output_fragment_edge(fragment_edge)
+                if edge is None:
+                    continue
+                key = (
+                    str(edge.get("source") or ""),
+                    str(edge.get("target") or ""),
+                    str(edge.get("relation") or ""),
+                    str(edge.get("confidence") or ""),
+                )
+                if not all(key):
+                    continue
+                edge_map.setdefault(key, edge)
+        for key, edge in di_edge_items:
+            edge_map.setdefault(key, edge)
 
         # Wave 1p7dh: config-key -> reader edges. Match each captured config-read
         # literal (from `.get("KEY")` / `cfg["KEY"]`) against the config-key nodes
@@ -7565,8 +8755,8 @@ class GraphIndexSession:
                 config_leaf_index.setdefault(leaf, []).append(node_id)
         if config_key_index:
             seen_cfg: set[tuple[str, str]] = set()
-            for rel in sorted(artifacts.keys()):
-                for cand in artifacts[rel].get("config_read_candidates", []) or []:
+            for rel in sorted(merge_files.keys()):
+                for cand in merge_files[rel].get("config_read_candidates", []) or []:
                     if not (isinstance(cand, (list, tuple)) and len(cand) == 2):
                         continue
                     reader, literal = cand
@@ -7591,12 +8781,20 @@ class GraphIndexSession:
                     )
 
         # Reverse invalidation: drop edges left dangling by deletions/renames in
-        # surviving (unchanged) referrer files. A cached referrer artifact can still
-        # carry an edge into a symbol or file that no longer exists; without this
-        # pass those edges point at nodes absent from node_map. We only prune edges
-        # whose endpoint is *known* to have been removed (a removed path, or a symbol
-        # that vanished from a re-extracted file), so legitimate edges to external
-        # imports or unresolved targets are preserved.
+        # surviving (unchanged) referrer files. A cached referrer fragment can
+        # still carry an edge into a symbol or file that no longer exists. We
+        # only prune edges whose endpoint is *known* to have been removed (a
+        # removed path, or a symbol that vanished from a re-extracted file), so
+        # legitimate edges to external imports or unresolved targets are
+        # preserved.
+        # NOTE (defense-in-depth, adversarial review): this prune repairs the
+        # PAYLOAD only — the persisted per-file fragments keep whatever they
+        # carried. That is correct as long as scope-(b) re-resolution catches
+        # every affected fragment edge (it updates fragments); but any future
+        # scope-(b) miss class would be MASKED here for exactly one build and
+        # then resurface as a dangling payload edge on the next unrelated
+        # edit. If a dangling edge is ever observed post-prune, suspect the
+        # symbol delta, not this block.
         if removed_paths or removed_symbols:
             def _file_of(node_id: str) -> str:
                 return node_id.split("::")[0] if "::" in node_id else node_id
@@ -7610,435 +8808,6 @@ class GraphIndexSession:
                 or _file_of(k[1]) in removed_paths
             ]:
                 edge_map.pop(key, None)
-
-        # Cross-file symbol resolution pass (wave 130ol — AC-1, AC-1a, AC-2).
-        #
-        # The per-file extractors build a local `symbol_lookup` from just THIS
-        # file's defined symbols, so any call to a function defined in another
-        # file resolves to `external::<name>` even when the target is a real
-        # project-internal symbol. Here, after per-file artifacts are merged
-        # into node_map/edge_map, we rewrite `external::<bare-name>` edge
-        # targets to project-internal node ids when:
-        #   (a) the simple name is unambiguous across all project nodes, AND
-        #   (b) the name is not in the per-language builtin denylist (so
-        #       `external::pathlib.Path`, `external::len`, `external::String`
-        #       etc. stay external even if a project file happens to define a
-        #       same-named symbol).
-        # Dotted targets (`external::a.b.c`) are handled via a qualified-suffix
-        # match against project node qualified names. The pass runs on the
-        # FULL merged edge set every build (incremental and full) — cached
-        # referrer artifacts may still carry `external::*` edges into newly-
-        # defined cross-file symbols and the rewrite must catch them.
-        #
-        # Performance: pre-built indexes give O(edges + nodes); each edge is
-        # an O(1) dict lookup. Negligible at typical graph scales (~100K edges).
-        # Build per-(file, simple_name) dedupe map FIRST so we don't double-count
-        # phantom inner-grammar duplicates (e.g. C++ function_declarator nested
-        # inside function_definition both registered as `helper_process` — they're
-        # the same logical symbol). Keep the entry with the shortest qualified
-        # name (the outer/real definition); ambiguity then reflects only the
-        # cross-file case the resolver actually cares about (wave 130ol).
-        simple_name_index: dict[str, list[str]] = {}
-        qualified_index: dict[str, list[str]] = {}
-        per_file_simple: dict[tuple[str, str], str] = {}
-        # Wave 1p4eq (1p4ev faithfulness fix): each C# file's DECLARED namespaces,
-        # harvested from its namespace nodes (`file.cs::Namespace`, kind="module").
-        # The cross-file C# membership disambiguation derives a node's namespace by
-        # longest-declared-prefix against this map instead of string-stripping a
-        # FIXED two qname segments — which mis-derived the namespace for a caller in
-        # a NESTED class (`Acme.Web.Outer.App.Run` → wrongly `Acme.Web.Outer`) and
-        # bound the wrong same-name twin (over-resolution caught by verification).
-        cs_file_ns: dict[str, set[str]] = {}
-        for node_id, node in node_map.items():
-            if node_id.startswith("external::"):
-                continue  # external endpoint nodes are not project candidates
-            if "::" in node_id and node.get("kind") == "module":
-                _ns_file = node_id.split("::", 1)[0]
-                if _ns_file.endswith(".cs"):
-                    cs_file_ns.setdefault(_ns_file, set()).add(node_id.split("::", 1)[1])
-            # Wave 13129 (1316l): merged Swift class/module nodes (collapsed_pair=True)
-            # live at the file id and carry the class label. Include them in the
-            # simple_name_index so cross-file external::Foo rewrites resolve to the
-            # merged file node. Other module-level nodes (no class merge) are
-            # excluded — they don't represent a queryable symbol.
-            is_collapsed_pair = bool(node.get("collapsed_pair"))
-            if "::" not in node_id and not is_collapsed_pair:
-                continue
-            if is_collapsed_pair:
-                # Module-level merged node: file_part is the node_id itself,
-                # qualified is the class label.
-                file_part = node_id
-                qualified = str(node.get("label") or "")
-            else:
-                file_part, qualified = node_id.split("::", 1)
-            label = str(node.get("label") or "")
-            simple = label or qualified.rsplit(".", 1)[-1]
-            if not simple:
-                continue
-            key = (file_part, simple)
-            # Keep the shortest qualified name (the outer/real definition), with a
-            # lexicographic tie-break so the choice is order-independent (1p66e —
-            # an order-sensitive pick here can flip a downstream `len(candidates)
-            # == 1` resolution and change the edge set between identical rebuilds).
-            per_file_simple[key] = _pick_shorter_node_id(per_file_simple.get(key), node_id)
-        for (file_part, simple), node_id in per_file_simple.items():
-            simple_name_index.setdefault(simple, []).append(node_id)
-            # Wave 13129 (1316l): merged Swift class/module nodes have no "::";
-            # their qualified is the class label (== simple), so skip the
-            # qualified_index addition (which dedupes against simple anyway).
-            if "::" in node_id:
-                _, qualified = node_id.split("::", 1)
-                if qualified and qualified != simple:
-                    qualified_index.setdefault(qualified, []).append(node_id)
-            else:
-                # Wave 1p4ef: collapsed / basename-merged node (no "::" in id —
-                # C#/Swift/Rust/Ruby emit one per class file). Its qualified name
-                # IS its label (== simple). Without this bind, `qualified` retains
-                # the PREVIOUS iteration's value and the dotted-form index below
-                # injects a phantom candidate (`{this_module}.{prior_qualified}`)
-                # under a key this node has nothing to do with — inflating a
-                # genuinely-unique match to len(candidates) > 1 and silently
-                # suppressing cross-file resolution.
-                qualified = simple
-            # Also index a module-path-derived dotted form so per-file extractors
-            # that emit dotted external targets (e.g. Python `from src.a import
-            # foo` produces `external::src.a.foo`) can resolve to project nodes.
-            # Strip the file extension and convert path separators to dots.
-            dotted_module = re.sub(r"\.[A-Za-z0-9]+$", "", file_part).replace("/", ".")
-            # Strip a leading "." from hidden directories so
-            # ".wavefoundry/framework/scripts/..." becomes the actual Python
-            # module path (e.g. `wave_lint_lib...`).
-            dotted_module = dotted_module.lstrip(".")
-            if dotted_module:
-                dotted_full = f"{dotted_module}.{qualified}"
-                qualified_index.setdefault(dotted_full, []).append(node_id)
-                # Index every dotted-path suffix so cross-module imports that
-                # strip leading directory segments still resolve (e.g.
-                # `from wave_lint_lib.foo import bar` when the file is at
-                # `.wavefoundry/framework/scripts/wave_lint_lib/foo.py`).
-                parts = dotted_full.split(".")
-                for i in range(1, len(parts)):
-                    suffix = ".".join(parts[i:])
-                    if "." in suffix:
-                        qualified_index.setdefault(suffix, []).append(node_id)
-
-        # Wave 13129 (1312l): dedupe qualified_index entries — the suffix-indexing
-        # path can re-add the same node_id under its dotted suffix when that
-        # suffix equals the direct qualified key (e.g., file "A.java" with class
-        # `Helper.process` produces dotted_full "A.Helper.process" whose suffix
-        # "Helper.process" matches the direct qualified, double-adding the node).
-        # Without dedupe, `len(candidates) == 1` rewrite check fails for legit
-        # single-candidate matches once the qualified-form external edges 1312l
-        # emits hit the lookup path. Preserve order via dict.fromkeys (stable).
-        for _k in list(qualified_index.keys()):
-            qualified_index[_k] = list(dict.fromkeys(qualified_index[_k]))
-        for _k in list(simple_name_index.keys()):
-            simple_name_index[_k] = list(dict.fromkeys(simple_name_index[_k]))
-        # Wave 1p47e (1p470): per-source-file import map for ambiguous-receiver
-        # disambiguation. file -> { imported simple name -> import FQN }. Built
-        # from the merged `imports` edges so a call whose receiver type is
-        # ambiguous by simple name (multiple same-named project candidates) can
-        # be disambiguated by which one the SOURCE FILE actually imported.
-        # Language-agnostic: any extractor that emits `imports` edges with FQN
-        # targets participates (Python from-imports, Java/Kotlin/C#/Go package
-        # imports). Wave 1p66e: on a collision (a file importing two names with the
-        # same final segment) keep the lexicographically smallest FQN — a stable,
-        # order-independent winner. The previous "later import wins" depended on
-        # `edge_map` iteration order, so the chosen FQN (hence which candidate the
-        # import-disambiguation picks) could vary between identical-input rebuilds.
-        # Still acceptable because the disambiguation requires a UNIQUE downstream
-        # qualified_index match regardless of which FQN is kept.
-        imports_by_file: dict[str, dict[str, str]] = {}
-        for (e_src, e_tgt, e_rel, _e_conf) in edge_map.keys():
-            if e_rel == "imports" and e_tgt.startswith("external::"):
-                fqn = e_tgt[len("external::"):]
-                if not fqn:
-                    continue
-                _seg = fqn.rsplit(".", 1)[-1]
-                _bucket = imports_by_file.setdefault(e_src, {})
-                _prev = _bucket.get(_seg)
-                if _prev is None or fqn < _prev:
-                    _bucket[_seg] = fqn
-        if simple_name_index or qualified_index:
-            # Wave 1p2q3 (1p2wd post-ship 1.3.31 perf): rewrite in place
-            # rather than building a separate `new_edge_map` and reassigning.
-            # On large-scale graphs (~77K edges) the old approach allocated a
-            # full duplicate dict on every build — net visible in profiling
-            # as a measurable share of finalize() wall time. In-place updates
-            # collect (old_key, new_key, new_edge) tuples then apply them at
-            # the end, so we don't mutate `edge_map` while iterating.
-            edge_replacements: list[tuple[tuple, tuple, dict[str, Any]]] = []
-            rewrite_count = 0
-            for key, edge in edge_map.items():
-                src, tgt, rel, conf = key
-                if rel != "calls" or not tgt.startswith("external::"):
-                    continue
-                bare = tgt[len("external::"):]
-                if not bare or bare in _TS_GLOBAL_DENYLIST:
-                    continue
-                # Wave 13129 (1312l): for edges emitted by Java receiver-type
-                # resolution (confidence=RECEIVER_RESOLVED), trust the qualified
-                # match (rebind to project node if the qualified name matches a
-                # project symbol) but BLOCK the simple-name fallback. The
-                # receiver-type resolver determined the call's target class
-                # explicitly; falling back to simple-name match would re-introduce
-                # the phantom (e.g. external::ObjectOutputStream.writeObject
-                # would mis-rewrite to project JSON.writeObject via the unique
-                # simple-name "writeObject").
-                # Wave 131bt (1319s): CONSTRUCTION_RESOLVED is a peer to
-                # RECEIVER_RESOLVED — both mean the indexer determined the call's
-                # target deterministically at graph-build time, so the simple-name
-                # fallback must be blocked to prevent phantom rewrites.
-                _receiver_resolved = conf in ("RECEIVER_RESOLVED", "CONSTRUCTION_RESOLVED")
-                resolved: str | None = None
-                # Wave 1p2q3 / 1p7dg: track whether `resolved` was set by an
-                # EXACT-unique branch — exact simple name (AC-1), exact qualified
-                # name, Go package-authoritative match, or import-edge
-                # disambiguation — all len==1 and exact-by-name. Those binds are
-                # high-confidence by construction and are promoted
-                # EXTRACTED->RECEIVER_RESOLVED (language-agnostic, wave 1p7dg).
-                # The AC-2 simple-name fallback (qualified `obj.method()` with no
-                # qualified match — a guess about `obj`'s type) and the same-dir /
-                # C# namespace HEURISTICS are NOT exact: they bind the target but
-                # KEEP EXTRACTED confidence.
-                rewrote_exact = False
-                if "." in bare:
-                    # AC-2: qualified target — require an exact qualified-name
-                    # match to a project node's post-`::` portion. The final
-                    # segment must also pass the denylist (so
-                    # `external::pathlib.Path` stays external even if some
-                    # project file defines `Path`).
-                    final_seg = bare.rsplit(".", 1)[-1]
-                    if final_seg in _TS_GLOBAL_DENYLIST:
-                        continue
-                    candidates = qualified_index.get(bare, [])
-                    if len(candidates) == 1:
-                        resolved = candidates[0]
-                        rewrote_exact = True  # exact qualified-name match
-                    elif not candidates and not _receiver_resolved:
-                        # Fallback: try the last segment in simple_name_index
-                        # (with ambiguity safety + denylist already checked).
-                        # Covers cases like C# `h.Process()` where `h` is a
-                        # local variable of unknown type and the call should
-                        # resolve to the unique project `Process` method.
-                        # Skipped for RECEIVER_RESOLVED edges: the resolver
-                        # already determined the target class — simple-name
-                        # fallback would mis-rewrite to a phantom project node.
-                        simple_candidates = simple_name_index.get(final_seg, [])
-                        if len(simple_candidates) == 1:
-                            resolved = simple_candidates[0]
-                else:
-                    # AC-1: bare simple name match.
-                    candidates = simple_name_index.get(bare, [])
-                    if len(candidates) == 1:
-                        resolved = candidates[0]
-                        rewrote_exact = True  # exact simple-name match (AC-1)
-                # Wave 1p4eq (1p4et faithfulness fix): Go package-qualified
-                # receiver. `var h foo.Helper; h.Process()` now keys as
-                # `foo.Helper.Process` (the package qualifier is preserved by
-                # `_go_simple_type_name`). The qualifier is AUTHORITATIVE: resolve
-                # only to a candidate whose package — the Go-convention directory
-                # basename — matches `foo`. This recovers the cross-package
-                # resolution the bare-name form had, AND prevents the 1p4er
-                # same-directory fallback from binding a co-located same-name twin
-                # in a DIFFERENT package (the wrong RECEIVER_RESOLVED edge the
-                # verification caught). Stays external when no project package
-                # matches `foo` (a genuinely external package, or a name collision).
-                if (
-                    resolved is None
-                    and not candidates
-                    and bare.count(".") == 2
-                    and (src.split("::", 1)[0] if "::" in src else src).endswith(".go")
-                ):
-                    pkg_head, inner_key = bare.split(".", 1)
-                    pkg_matches = []
-                    for cand in qualified_index.get(inner_key, []):
-                        cfile = cand.split("::", 1)[0]
-                        cdir = cfile.rsplit("/", 1)[0] if "/" in cfile else ""
-                        cpkg = cdir.rsplit("/", 1)[-1] if cdir else ""
-                        if cpkg == pkg_head:
-                            pkg_matches.append(cand)
-                    if len(pkg_matches) == 1:
-                        resolved = pkg_matches[0]
-                        rewrote_exact = True  # Go package-authoritative match
-                # Wave 1p47e (1p470): import-edge disambiguation. When the
-                # simple/qualified match above was ambiguous (the receiver's
-                # name maps to MULTIPLE same-named project candidates), use the
-                # SOURCE FILE's `imports` edge for the receiver's head segment to
-                # pick the candidate whose defining module matches what the file
-                # imported. Filtering the candidate POOL (rather than re-looking-
-                # up a constructed FQN) is language-agnostic: it handles both
-                # Python (`from src.a import Foo` → file-module `src.a`, FQN
-                # `src.a.Foo`) and Java (`import com.foo.Helper` → file-module
-                # `com.foo.Helper`, same FQN) by accepting either the FQN itself
-                # or its parent module. Only fires when otherwise unresolved, and
-                # requires the filter to leave exactly ONE candidate — a
-                # genuinely external receiver has no project candidate to match,
-                # so it stays external. The `bare`/`final_seg` denylist above
-                # still applies (we never reach here for a denied name).
-                if resolved is None and len(candidates) > 1:
-                    src_file = src.split("::", 1)[0] if "::" in src else src
-                    head = bare.split(".", 1)[0]
-                    imp_fqn = imports_by_file.get(src_file, {}).get(head)
-                    if imp_fqn:
-                        accept = {imp_fqn}
-                        if "." in imp_fqn:
-                            accept.add(imp_fqn.rsplit(".", 1)[0])
-                        matches = []
-                        for cand in candidates:
-                            cfile = cand.split("::", 1)[0]
-                            cmod = re.sub(r"\.[A-Za-z0-9]+$", "", cfile).replace("/", ".").lstrip(".")
-                            if cmod in accept:
-                                matches.append(cand)
-                        if len(matches) == 1:
-                            resolved = matches[0]
-                            rewrote_exact = True  # import-edge-disambiguated unique match
-                    # Wave 1p4er: same-package / same-directory fallback. Java/
-                    # Kotlin/Go make same-package types visible WITHOUT an import,
-                    # so `imports_by_file` has no entry for them and the import path
-                    # above cannot fire (the `JreCompat.canAccess` field
-                    # miss). Resolution order is explicit-import > same-package, so
-                    # this runs ONLY after the import path left it unresolved: keep
-                    # the ambiguous candidate(s) whose defining file is in the
-                    # SOURCE file's own directory; resolve iff exactly one is
-                    # co-located (two same-dir twins, or none → stays external).
-                    #
-                    # Wave 1p4eq (regression fix): GATED to languages where
-                    # same-directory ⇒ same-package visibility — Java/Kotlin/Go.
-                    # Python/JS/TS/Rust require an EXPLICIT import for a sibling
-                    # symbol to be visible, so same-directory co-location confers
-                    # nothing there and must not silently resolve (the verification's
-                    # regression seat). C# is also excluded: a C# namespace is not
-                    # tied to the directory — its membership is handled by the
-                    # `.cs`-gated namespace block below (a same-dir C# file can be a
-                    # DIFFERENT namespace). For Go, only the UNQUALIFIED receiver
-                    # (`Type.method`) reaches here; the package-qualified form is
-                    # resolved authoritatively by the Go block above.
-                    if resolved is None and src_file.endswith((".java", ".kt", ".kts", ".go")):
-                        src_dir = src_file.rsplit("/", 1)[0] if "/" in src_file else ""
-                        same_dir = []
-                        for cand in candidates:
-                            cfile = cand.split("::", 1)[0]
-                            cdir = cfile.rsplit("/", 1)[0] if "/" in cfile else ""
-                            if cdir == src_dir:
-                                same_dir.append(cand)
-                        if len(same_dir) == 1:
-                            resolved = same_dir[0]
-                    # Wave 1p4ev: C# namespace membership. A C# namespace can span
-                    # directories (so the same-dir fallback misses it), and cross-
-                    # namespace types are brought in by `using`. Keep candidates
-                    # whose namespace is the source's OWN namespace or a `using`-
-                    # imported one (the `using` FQNs are the values of
-                    # imports_by_file; junk heads like `using` never match a real
-                    # candidate namespace). Resolve iff exactly one survives —
-                    # never the wrong twin (faithfulness).
-                    #
-                    # Wave 1p4eq (1p4ev faithfulness fix): derive a node's namespace
-                    # from its file's DECLARED namespaces (`cs_file_ns`, harvested
-                    # from the `file.cs::Namespace` module nodes) by longest-prefix,
-                    # NOT by string-stripping a fixed two qname segments. The old
-                    # strip mis-derived the namespace for a caller in a NESTED class
-                    # — `app/App.cs::Acme.Web.Outer.App.Run` stripped to
-                    # `Acme.Web.Outer` instead of the file's real `Acme.Web` — and
-                    # bound a sibling twin whose namespace coincided with that
-                    # stripped path (a wrong RECEIVER_RESOLVED edge). The declared-
-                    # namespace lookup is nesting-proof: `app/App.cs` declares only
-                    # `Acme.Web`, so `Run`'s namespace resolves to `Acme.Web`.
-                    if resolved is None and src_file.endswith(".cs"):
-                        def _cs_ns(nid: str) -> str:
-                            f = nid.split("::", 1)[0]
-                            qn = nid.split("::", 1)[1] if "::" in nid else ""
-                            best = ""
-                            for ns in cs_file_ns.get(f, ()):
-                                if (qn == ns or qn.startswith(ns + ".")) and len(ns) > len(best):
-                                    best = ns
-                            return best
-                        accept_ns = {_cs_ns(src)} | set(imports_by_file.get(src_file, {}).values())
-                        accept_ns.discard("")
-                        ns_matches = [c for c in candidates if _cs_ns(c) in accept_ns]
-                        if len(ns_matches) == 1:
-                            resolved = ns_matches[0]
-                if resolved and resolved != src:
-                    # Wave 1p2q3 / 1p7dg: confidence promotion for an exact-unique
-                    # cross-file rebind. When `resolved` was set by an exact branch
-                    # (`rewrote_exact`: exact simple name (AC-1), exact qualified
-                    # name, Go package-authoritative, or import-edge-disambiguated —
-                    # every one a len==1 exact-by-name match), the bound edge is
-                    # high-confidence by construction, so promote
-                    # EXTRACTED->RECEIVER_RESOLVED. Language-agnostic (wave 1p7dg):
-                    # the AC-1 spike showed every language carries this under-tagged
-                    # cross-file bucket (Py 552 / Java 315 / Swift 680 / TS 713 /
-                    # JS 44). The target is UNCHANGED — only the confidence label —
-                    # so no new wrong-twin risk: any mis-bind already exists at
-                    # EXTRACTED today. The AC-2 type-guess fallback and the
-                    # same-dir / C# namespace heuristics do NOT set `rewrote_exact`,
-                    # so they bind the target but correctly stay EXTRACTED.
-                    promoted_conf = conf
-                    if conf == "EXTRACTED" and rewrote_exact:
-                        promoted_conf = "RECEIVER_RESOLVED"
-                    new_key = (src, resolved, rel, promoted_conf)
-                    new_edge = dict(edge)
-                    new_edge["target"] = resolved
-                    if promoted_conf != conf:
-                        new_edge["confidence"] = promoted_conf
-                    edge_replacements.append((key, new_key, new_edge))
-                    rewrite_count += 1
-            # Apply rewrites: pop old keys, insert new ones (collapsing on
-            # duplicates — `setdefault` preserves the first-seen edge for the
-            # collapsed key). Wave 1p66e: apply in a deterministic order
-            # (by new_key, then old_key) so that when two rewrites collapse onto
-            # the SAME new_key, the surviving edge is stable across identical-input
-            # rebuilds instead of depending on `edge_map` iteration order.
-            for old_key, new_key, new_edge in sorted(
-                edge_replacements, key=lambda r: (r[1], r[0])
-            ):
-                edge_map.pop(old_key, None)
-                edge_map.setdefault(new_key, new_edge)
-            if self.verbose and rewrite_count:
-                print(
-                    f"build_index: graph cross-file resolution rewrote {rewrite_count} external::* edges to project-internal nodes",
-                    flush=True,
-                )
-
-            # Wave 1p4ls: resolve cross-module IMPORTED constant reads. An `external::` reads edge
-            # (a function reading a constant imported from another module) binds ONLY to a UNIQUE
-            # constant node — qualified name first, then the final simple-name segment — kind-checked
-            # so it never binds a non-constant or a coincidental twin; otherwise the edge is DROPPED
-            # (most imports are functions/classes → dropped, never wrong-bound). Faithfulness mirrors
-            # the call rewrite's "unique-or-stay-external" discipline, but reads DROP rather than
-            # persist an unresolved external:: target (a read of a stdlib/3rd-party value is not a
-            # project graph fact).
-            reads_replacements: list[tuple[tuple, tuple | None, dict[str, Any] | None]] = []
-            for key, edge in edge_map.items():
-                src, tgt, rel, conf = key
-                if rel != "reads" or not tgt.startswith("external::"):
-                    continue
-                bare = tgt[len("external::"):]
-                target = None
-                if bare:
-                    # Wave 1p4ls (delivery review B2): bind an imported read ONLY to a UNIQUE
-                    # constant matched by the import's QUALIFIED name (the dotted module path and
-                    # its suffixes — robust for relative + package imports; see the qualified_index
-                    # construction above). The previous simple-name fallback bound a coincidental
-                    # same-name constant in an UNRELATED module whenever the qualified import target
-                    # was a non-constant project symbol (an imported FUNCTION whose const-kind
-                    # filter emptied the qualified match) OR a genuinely 3rd-party module — exactly
-                    # the wrong-twin bind the wave's unique-or-DROP faithfulness forbids. A read we
-                    # cannot resolve to a UNIQUE qualified project constant is DROPPED, never
-                    # guessed from a bare simple name (which is why the legitimate imported-constant
-                    # case below still resolves: its dotted module form is a qualified_index key).
-                    cands = [c for c in qualified_index.get(bare, [])
-                             if (node_map.get(c) or {}).get("kind") == GRAPH_CONST_KIND]
-                    if len(cands) == 1 and cands[0] != src:
-                        target = cands[0]
-                if target is not None:
-                    reads_replacements.append((key, (src, target, "reads", conf), {**edge, "target": target}))
-                else:
-                    reads_replacements.append((key, None, None))  # drop unresolved external read
-            for old_key, new_key, new_edge in reads_replacements:
-                edge_map.pop(old_key, None)
-                if new_key is not None and new_edge is not None:
-                    edge_map.setdefault(new_key, new_edge)
 
         # Prune short internal symbols: drop code symbol nodes with labels ≤
         # _SHORT_SYMBOL_MAX_LEN chars unless some other file imports or calls them.
@@ -8166,9 +8935,9 @@ class GraphIndexSession:
         # Wave 1p66e: input-graph fingerprint — a content hash over the sorted
         # node-set and the sorted resolved edge-set (NOT the volatile generated_at
         # timestamp). Two identical-input rebuilds produce the same fingerprint
-        # once extraction + cross-file resolution are deterministic; a differing
-        # fingerprint localizes residual nondeterminism to graph extraction (vs.
-        # downstream clustering, which is separately seeded). Verifiable downstream.
+        # once extraction + cross-file resolution are deterministic. Wave 1p9q2:
+        # also the equivalence surface for incremental-vs-full merge and the
+        # payload/store crash-consistency binding.
         import hashlib as _hashlib
 
         _fp = _hashlib.sha256()
@@ -8188,7 +8957,7 @@ class GraphIndexSession:
             "generated_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
             "input_fingerprint": input_fingerprint,
             "counts": {
-                "files": len(artifacts),
+                "files": len(merge_files),
                 "nodes": len(node_map),
                 "edges": len(edge_map),
                 "entry_points": sum(1 for n in node_map.values() if n.get("is_entry_point")),
@@ -8203,7 +8972,56 @@ class GraphIndexSession:
             )),
         }
 
+        # --- Persist: store commit first, then payload, then binding stat. ---
+        merge_state_out: dict[str, Any] = {
+            "format": _MERGE_STATE_FORMAT,
+            "payload_fingerprint": input_fingerprint,
+            "files": merge_files,
+            "di_synth_nodes": di_synth_nodes,
+        }
+        if locality_violation:
+            merge_state_out["locality_violation"] = True
+            print(
+                "build_index: graph merge encountered a node outside its own "
+                "file's id space — incremental merge disabled for this layer "
+                "until the next full re-merge (graph remains correct)",
+                file=sys.stderr,
+                flush=True,
+            )
+        deletes = sorted(set(known_paths) - set(merge_files))
+        store.apply_build(
+            puts=row_puts,
+            deletes=deletes,
+            blobs={"merge_state": merge_state_out},
+            meta={
+                "merge_state_format": _MERGE_STATE_FORMAT,
+                "payload_fingerprint": input_fingerprint,
+                "payload_stat_state": "pending",
+            },
+        )
         _write_json(self.graph_path, graph_payload)
+        try:
+            st = self.graph_path.stat()
+            store.set_meta(
+                {
+                    "payload_size": str(st.st_size),
+                    "payload_mtime_ns": str(st.st_mtime_ns),
+                    "payload_stat_state": "bound",
+                }
+            )
+        except OSError:
+            # Binding stays "pending": the next build detects it and degrades
+            # to a loud full re-merge (never a silently inconsistent graph).
+            pass
+
+        # Lightweight session state view (historical shape, hash-only entries).
+        state_files_light: dict[str, dict[str, str]] = {}
+        for rel in merge_files:
+            put = row_puts.get(rel)
+            if put is not None:
+                state_files_light[rel] = {"source_hash": str(put.get("source_hash") or "")}
+            else:
+                state_files_light[rel] = {"source_hash": known_paths.get(rel, "")}
         self._state = {
             "schema_version": GRAPH_SCHEMA_VERSION,
             "builder_version": GRAPH_BUILDER_VERSION,
@@ -8211,9 +9029,19 @@ class GraphIndexSession:
             "input_fingerprint": input_fingerprint,
             "walker_version": self.walker_version,
             "chunker_version": self.chunker_version,
-            "files": state_files,
+            "files": state_files_light,
         }
-        _write_json(self.state_path, self._state)
+
+        # Attach transient per-build merge stats AFTER the payload write so
+        # they are returned to the caller (build-log instrumentation, Req-9)
+        # but never persisted into the artifact.
+        stats["merge_ms"] = int((_time.monotonic() - merge_started) * 1000)
+        stats["state_reads"] = store.record_reads - reads_before
+        stats["state_writes"] = store.record_writes - writes_before
+        stats["blob_reads"] = store.blob_reads - blob_reads_before
+        stats["blob_writes"] = store.blob_writes - blob_writes_before
+        stats["blob_bytes"] = store.blob_bytes_written - blob_bytes_before
+        graph_payload["merge_stats"] = stats
         return graph_payload
 
 
@@ -8810,7 +9638,12 @@ def update_graph_index(
     for rel, text in doc_work_items:
         session.record_file(rel, text)
 
-    payload = session.finalize()
+    try:
+        payload = session.finalize()
+    finally:
+        # Close on every path — a fault mid-finalize must not leak the store
+        # connection (the SQLite transaction rolls back on close).
+        session.close_store()
     if verbose:
         counts = payload.get("counts") or {}
         print(

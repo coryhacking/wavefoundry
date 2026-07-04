@@ -2791,6 +2791,10 @@ def _build_graph_artifacts(
             flush=True,
         )
         print(f"build_index: graph clustering starting ({layer} layer)", flush=True)
+    # Wave 1p9q3 (1p9q2): transient per-build merge stats attached by finalize
+    # AFTER the payload write (returned to the caller, never persisted). Pop
+    # before the cluster pass so downstream consumers see the pure payload.
+    merge_stats = graph_payload.pop("merge_stats", None) if isinstance(graph_payload, dict) else None
     cluster_payload = graph_cluster.update_graph_clusters(
         root=root,
         index_dir=index_dir,
@@ -2812,9 +2816,27 @@ def _build_graph_artifacts(
     # query after a builder-version bump, where sys.stdout IS the MCP JSON-RPC channel. stdout would
     # corrupt the protocol frame; stderr (fd 2) is left alone by the server's stdout isolation and
     # still reaches the terminal during a CLI build.
+    # Wave 1p9q3 (1p9q2): merge-phase timing + delta sizes so field reports can
+    # distinguish extraction cost from merge cost (Req-9).
+    merge_suffix = ""
+    if isinstance(merge_stats, dict):
+        merge_suffix = (
+            f" | merge[{merge_stats.get('mode', 'unknown')}]: "
+            f"{(merge_stats.get('merge_ms') or 0) / 1000:.1f}s"
+            f" | delta: files={merge_stats.get('files_changed', 0)}"
+            f" removed={merge_stats.get('files_removed', 0)}"
+            f" symbols={merge_stats.get('symbols_invalidated', 0)}"
+            f" edges_reresolved={merge_stats.get('edges_reresolved', 0)}"
+            f" | state io: reads={merge_stats.get('state_reads', 0)}"
+            f" writes={merge_stats.get('state_writes', 0)}"
+            f" | sidecar: reads={merge_stats.get('blob_reads', 0)}"
+            f" writes={merge_stats.get('blob_writes', 0)}"
+            f" bytes={merge_stats.get('blob_bytes', 0)}"
+        )
     print(
         f"build_index: finished graph: {len(changed)} changed, {len(removed)} removed"
         f" | nodes: {counts.get('nodes', 0)} | edges: {counts.get('edges', 0)}"
+        f"{merge_suffix}"
         f" in {elapsed:.1f}s",
         file=sys.stderr,
         flush=True,

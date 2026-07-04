@@ -1239,7 +1239,7 @@ class WaveIndex:
             return []
         try:
             gq = _load_graph_query()
-            index = gq.GraphQueryIndex.from_root(self.root, layer="project")
+            index = gq.get_query_index(self.root, layer="project")
             if not getattr(index, "present", False):
                 return []
         except Exception:
@@ -3300,8 +3300,9 @@ def _graph_health_summary(root: Path) -> dict[str, Any]:
             last_built = None
         node_count = edge_count = None
         try:
-            import json
-            payload = json.loads(graph_path.read_text(encoding="utf-8"))
+            # Wave 1p9q3 (1p9py): graph artifacts are gzip-compressed compact
+            # JSON — read through the sniffing reader (legacy plain-JSON safe).
+            payload = _load_script("graph_cluster").read_json_artifact(graph_path, {})
             nodes = payload.get("nodes") or []
             edges = payload.get("edges") or []
             node_count = len(nodes) if isinstance(nodes, list) else None
@@ -12544,7 +12545,7 @@ def _graph_definition_candidate_files(root: Path, symbol: str) -> frozenset[str]
     """
     try:
         gq = _load_graph_query()
-        index = gq.GraphQueryIndex.from_root(root, layer="project")
+        index = gq.get_query_index(root, layer="project")
     except Exception:
         return None
     if not index.present:
@@ -12594,6 +12595,12 @@ def code_definition_response(root: Path, symbol_or_path_position: str) -> dict[s
         try:
             wave_index_build_response(root, content="graph", mode="update")
             refresh_attempted = True
+            # Known rewrite: drop the cached index so the re-read reloads even
+            # on a same-(mtime_ns, size) rewrite (coarse-mtime filesystems).
+            try:
+                _load_graph_query().invalidate_query_index_cache(root)
+            except Exception:
+                pass
             refreshed = _graph_definition_candidate_files(root, symbol)
             if refreshed:
                 candidate_files = refreshed
@@ -12613,7 +12620,7 @@ def code_definition_response(root: Path, symbol_or_path_position: str) -> dict[s
         attribution_counts: dict[str, dict[str, int]] = {}
         try:
             gq = _load_graph_query()
-            sugg_index = gq.GraphQueryIndex.from_root(root, layer="project")
+            sugg_index = gq.get_query_index(root, layer="project")
             if sugg_index.present:
                 suggestions = _suggest_near_symbols(sugg_index, symbol)
                 # Wave 1p2q3 (1p2q9 B): when the graph spoke (definitive-not-found),
@@ -12753,7 +12760,7 @@ def _graph_constant_reader_refs(root: Path, symbol: str) -> list[dict[str, Any]]
     same-name twin). Empty unless the symbol resolves to a ``kind="constant"`` node."""
     try:
         gq = _load_graph_query()
-        index = gq.GraphQueryIndex.from_root(root, layer="project")
+        index = gq.get_query_index(root, layer="project")
         if not index.present:
             return []
         node_id = index.resolve_symbol(symbol)
@@ -13175,7 +13182,7 @@ def code_callhierarchy_response(
 
     gq = _load_graph_query()
     try:
-        index = gq.GraphQueryIndex.from_root(root, layer="project")
+        index = gq.get_query_index(root, layer="project")
     except Exception as exc:
         return _response(
             "error", {"symbol": symbol},
@@ -14167,7 +14174,7 @@ def _graph_references_candidate_files(root: Path, symbol: str) -> frozenset[str]
     """Return files the graph says reference symbol, or None if graph unavailable/empty."""
     try:
         gq = _load_graph_query()
-        index = gq.GraphQueryIndex.from_root(root, layer="project")
+        index = gq.get_query_index(root, layer="project")
         if not index.present:
             return None
         node_id = index.resolve_symbol(symbol)
@@ -14404,7 +14411,7 @@ def _maybe_append_graph_neighbors(
         return response
     try:
         gq = _load_graph_query()
-        index = gq.GraphQueryIndex.from_root(root, layer=_graph_layer_value(layer))
+        index = gq.get_query_index(root, layer=_graph_layer_value(layer))
         if not index.present:
             return response
         neighbors = index.one_hop_neighbors(unique_ids)
@@ -14508,6 +14515,13 @@ def _graph_refresh_then_recheck(
     except Exception as exc:
         _wf_log(f"[wavefoundry] graph refresh failed during recheck: {exc!r}")
         return None
+    # Wave 1p9q3 (1p9pz): the refresh may have rewritten the graph payload —
+    # explicitly drop the cached constructed index so the recheck reloads even
+    # if the rewrite landed with identical (mtime_ns, size).
+    try:
+        _load_graph_query().invalidate_query_index_cache(root)
+    except Exception:
+        pass
     try:
         return recheck_fn()
     except Exception as exc:
@@ -14540,7 +14554,13 @@ def _graph_refresh_and_resolve(
         return None, None
     try:
         gq = _load_graph_query()
-        new_index = gq.GraphQueryIndex.from_root(root, layer=layer)
+        # Known rewrite: drop the cached index so the re-read reloads even on
+        # a same-(mtime_ns, size) rewrite (coarse-mtime filesystems).
+        try:
+            gq.invalidate_query_index_cache(root)
+        except Exception:
+            pass
+        new_index = gq.get_query_index(root, layer=layer)
     except Exception as exc:
         _wf_log(f"[wavefoundry] graph index reload failed after refresh: {exc!r}")
         return None, None
@@ -14608,7 +14628,7 @@ def _code_impact_graph_response(
             next_tools=["wave_help"],
             usage="code_impact(symbol='path::symbol', layer='project')",
         )
-    index = gq.GraphQueryIndex.from_root(root, layer=layer_value)
+    index = gq.get_query_index(root, layer=layer_value)
     if not index.present:
         return _response(
             "error",
@@ -14755,7 +14775,7 @@ def code_risk_score_response(
             next_tools=["wave_help"],
             usage="code_risk_score(scope='src/', layer='project')",
         )
-    index = gq.GraphQueryIndex.from_root(root, layer=layer_value)
+    index = gq.get_query_index(root, layer=layer_value)
     if not index.present:
         return _response(
             "error",
@@ -14825,7 +14845,7 @@ def code_callgraph_response(
             next_tools=["code_callgraph"],
             usage="code_callgraph(symbol='path::symbol', direction='both')",
         )
-    index = gq.GraphQueryIndex.from_root(root, layer=layer_value)
+    index = gq.get_query_index(root, layer=layer_value)
     if not index.present:
         return _response(
             "error",
@@ -14958,11 +14978,11 @@ def wave_graph_report_response(
             next_tools=["wave_help"],
             usage="wave_graph_report(layer='project')",
         )
-    index = gq.GraphQueryIndex.from_root(root, layer=layer_value)
+    index = gq.get_query_index(root, layer=layer_value)
     if not index.present:
         # Wave 1304x / 1304r: refresh-then-recheck on absent graph
         def _recheck_present():
-            new_index = gq.GraphQueryIndex.from_root(root, layer=layer_value)
+            new_index = gq.get_query_index(root, layer=layer_value)
             return new_index if new_index.present else None
         refreshed_index = _graph_refresh_then_recheck(root, _recheck_present)
         if refreshed_index is not None:
@@ -15074,6 +15094,58 @@ def wave_graph_report_response(
         except Exception:
             report.setdefault("communities", [])
 
+    # Wave 1p9q3 (1p9q1): the betweenness section is SERVED from the persisted
+    # build-time ranking in the clusters artifact (graph_cluster.compute_betweenness_ranking:
+    # size-tiered exact / igraph-cutoff / degree_fallback, top-200 with method
+    # metadata) — never computed at query time. The old inline igraph computation
+    # and its 10k-node cap diagnostic are retired; `betweenness_method` +
+    # `betweenness_metadata` surface how the persisted ranking was produced.
+    if "betweenness" in wanted:
+        bw_rows_served: list[dict[str, Any]] = []
+        bw_computed = False
+        try:
+            gc_bw = _load_script("graph_cluster")
+            bw_payload = gc_bw.read_cluster_payload(root, layer_value)
+            bw_section = bw_payload.get("betweenness") if bw_payload.get("present") else None
+            if isinstance(bw_section, dict) and isinstance(bw_section.get("ranking"), list):
+                bw_rows_served = [
+                    dict(row)
+                    for row in bw_section["ranking"][: max(1, min(limit, 100))]
+                    if isinstance(row, dict)
+                ]
+                bw_metadata: dict[str, Any] = {
+                    "node_count": int(bw_section.get("node_count") or 0),
+                    "edge_count": int(bw_section.get("edge_count") or 0),
+                    "top_n": int(bw_section.get("top_n") or 0),
+                    "elapsed_ms": int(bw_section.get("elapsed_ms") or 0),
+                }
+                if bw_section.get("cutoff") is not None:
+                    bw_metadata["cutoff"] = int(bw_section["cutoff"])
+                # Assign report fields only after every cast above succeeded,
+                # so a corrupted section can never leave a half-populated
+                # response (method set alongside a skipped_reason).
+                report["betweenness_method"] = str(bw_section.get("method") or "")
+                report["betweenness_metadata"] = bw_metadata
+                bw_computed = True
+        except Exception:
+            bw_rows_served = []
+            bw_computed = False
+            report.pop("betweenness_method", None)
+            report.pop("betweenness_metadata", None)
+        report["betweenness"] = bw_rows_served
+        report["betweenness_computed"] = bw_computed
+        if not bw_computed:
+            # Legacy clusters artifact (pre-build-time-betweenness, no section)
+            # or no clusters artifact yet — graceful absent-section response,
+            # not a crash; the next graph rebuild persists the section.
+            report["betweenness_skipped_reason"] = "betweenness_not_in_artifact"
+            report["betweenness_note"] = (
+                "Betweenness is computed at build time and persisted in the graph "
+                "clusters artifact; this artifact predates the build-time pass. "
+                "Rebuild the graph index (wave_index_build(content='graph', "
+                "mode='rebuild')) to populate it."
+            )
+
     # Wave 130rj — field feedback §6.4 + §6.2: filter generated nodes out of
     # fan_in/fan_out/chokepoints when exclude_generated=True; emit a
     # `betweenness_dominated_by_generated` warning when >50% of top-N
@@ -15097,18 +15169,10 @@ def wave_graph_report_response(
                 row for row in bw
                 if isinstance(row, dict) and not _node_is_generated(str(row.get("node_id") or ""))
             ]
-    # Wave 130rj (130tw): normalize betweenness shape and surface
-    # betweenness_computed / betweenness_skipped_reason so callers can
-    # distinguish "section empty because no node ranked" from "section
-    # skipped because graph above the size threshold".
-    if "betweenness" in report:
-        bw_value = report["betweenness"]
-        if isinstance(bw_value, list):
-            report["betweenness_computed"] = True
-        elif isinstance(bw_value, dict):
-            report["betweenness_computed"] = False
-            report["betweenness_skipped_reason"] = str(bw_value.get("diagnostic") or "skipped")
-            report["betweenness"] = []
+    # Wave 130rj (130tw) normalization note: `betweenness_computed` /
+    # `betweenness_skipped_reason` are now set directly by the artifact-serving
+    # block above (wave 1p9q3 / 1p9q1) — the dict-shaped inline diagnostics that
+    # this block used to normalize no longer exist.
 
     # Compute the dominated warning over the (possibly post-filter) betweenness rows.
     bw_rows = report.get("betweenness") if isinstance(report.get("betweenness"), list) else None
@@ -15539,7 +15603,7 @@ def code_graph_path_response(
             next_tools=["wave_help"],
             usage="code_graph_path(from_symbol='...', to_symbol='...')",
         )
-    index = gq.GraphQueryIndex.from_root(root, layer=layer_value)
+    index = gq.get_query_index(root, layer=layer_value)
     if not index.present:
         return _response(
             "error",
@@ -15557,7 +15621,7 @@ def code_graph_path_response(
     # the freshly loaded index even though the OTHER symbol might now resolve.
     if from_id is None or to_id is None:
         def _recheck_both_paths():
-            new_index = gq.GraphQueryIndex.from_root(root, layer=layer_value)
+            new_index = gq.get_query_index(root, layer=layer_value)
             return (new_index, new_index.resolve_symbol(from_symbol), new_index.resolve_symbol(to_symbol))
         refreshed = _graph_refresh_then_recheck(root, _recheck_both_paths)
         if refreshed is not None:
@@ -15775,7 +15839,7 @@ def code_graph_community_response(
             usage="wave_graph_report(layer='project')",
         )
     # Load graph to get degree information
-    index = gq.GraphQueryIndex.from_root(root, layer=layer_value)
+    index = gq.get_query_index(root, layer=layer_value)
     node_ids = target.get("node_ids") or []
     nodes: list[dict[str, Any]] = []
     for nid in node_ids:
@@ -17071,7 +17135,12 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
           see ``file_hubs`` for the parallel file-level view.
         - orphan_docs: doc/seed nodes with no ``doc_references_code`` edges — disconnected documentation
         - betweenness: ranked list of {node_id, label, kind, score} — nodes with high betweenness centrality
-          (bridge nodes on shortest paths); requires igraph; skipped with diagnostic when graph > 10,000 nodes
+          (bridge nodes on shortest paths). Served from the ranking persisted at BUILD time in the clusters
+          artifact (wave 1p9q3: size-tiered — exact igraph betweenness on small/medium graphs, bounded
+          `cutoff` approximation on large ones, deterministic degree/fan-out fallback on very large graphs
+          or when igraph is absent); no per-query computation and NO graph-size cap. `betweenness_method`
+          ("exact" | "cutoff" | "degree_fallback") and `betweenness_metadata` (node_count, edge_count,
+          top_n, elapsed_ms, cutoff when applicable) report how the ranking was produced.
         - communities: top communities by node_count with `community_id`, `label`, `hub_node_id`, `hub_label`,
           `generated_node_fraction`; entries with `generated_node_fraction > 0.4` carry `community_type: "generated-dominated"`
         - betweenness_dominated_by_generated: true when >50% of top-N betweenness results are tagged generated
@@ -17101,7 +17170,9 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         - ``orphan_docs_candidates_total`` — docs node pool considered before the
           ``doc_references_code`` filter.
         - ``betweenness_computed`` (bool, from wave 130rj) + ``betweenness_skipped_reason``
-          (when False) — graph-size or igraph-availability skip diagnostic.
+          (when False) — since wave 1p9q3 the only skip reason is ``betweenness_not_in_artifact``
+          (legacy clusters artifact predating the build-time pass, or no clusters artifact yet;
+          rebuild the graph index to populate it — ``betweenness_note`` carries the recovery hint).
 
         When a section is ``[]`` AND ``<section>_candidates_total: 0``, the graph genuinely
         has nothing matching. When ``[]`` AND ``_candidates_total > 0``, the threshold filter
@@ -18959,7 +19030,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             )
         try:
             gq = _load_graph_query()
-            index = gq.GraphQueryIndex.from_root(_root, layer="project")
+            index = gq.get_query_index(_root, layer="project")
         except Exception:
             index = None
         communities = payload.get("communities") or []

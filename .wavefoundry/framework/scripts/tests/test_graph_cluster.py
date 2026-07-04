@@ -740,8 +740,9 @@ class ConstantClusterExclusionTests(unittest.TestCase):
 
     def test_cluster_builder_version_bumped(self):
         # 1p4ls bumped 8→9 (constant/reads exclusion); 1p65m bumped 9→10 (Leiden RNG
-        # seeding for reproducibility + cross-directory grab-bag split).
-        self.assertEqual(self.mod.CLUSTER_BUILDER_VERSION, "10")
+        # seeding for reproducibility + cross-directory grab-bag split); 1p9q1
+        # bumped 10→11 (build-time betweenness section in the clusters artifact).
+        self.assertEqual(self.mod.CLUSTER_BUILDER_VERSION, "11")
 
     def test_reads_and_constants_excluded_from_projection(self):
         payload = {
@@ -822,6 +823,192 @@ class ClusteringCohesionDeterminismTests(unittest.TestCase):
         r1 = self.mod._run_clustering(adj, nodes)
         r2 = self.mod._run_clustering(adj, nodes)
         self.assertEqual(sig(r1), sig(r2))
+
+
+def _igraph_available() -> bool:
+    try:
+        import igraph  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+class BuildTimeBetweennessTests(unittest.TestCase):
+    """Wave 1p9q3 (1p9q1): size-tiered build-time betweenness in the cluster pass."""
+
+    def setUp(self):
+        self.mod = load_graph_cluster()
+
+    def _payload(self) -> dict:
+        # Directed calls graph with a clear bridge: a1,a2 -> hub -> b1,b2.
+        # Exact betweenness of hub = 4 (all a*->b* shortest paths pass through it).
+        node_ids = ["src/x.py::a1", "src/x.py::a2", "src/x.py::hub", "src/x.py::b1", "src/x.py::b2"]
+        nodes = [
+            {"id": nid, "label": nid.rsplit("::", 1)[-1], "kind": "function",
+             "source_file": "src/x.py", "source_location": "1:0", "layer": "project"}
+            for nid in node_ids
+        ]
+        edges = [
+            {"source": "src/x.py::a1", "target": "src/x.py::hub", "relation": "calls", "confidence": "EXTRACTED"},
+            {"source": "src/x.py::a2", "target": "src/x.py::hub", "relation": "calls", "confidence": "EXTRACTED"},
+            {"source": "src/x.py::hub", "target": "src/x.py::b1", "relation": "calls", "confidence": "EXTRACTED"},
+            {"source": "src/x.py::hub", "target": "src/x.py::b2", "relation": "calls", "confidence": "EXTRACTED"},
+            # Non-calls edge: must be ignored by the betweenness projection.
+            {"source": "src/x.py::a1", "target": "src/x.py::b1", "relation": "imports", "confidence": "EXTRACTED"},
+        ]
+        return {
+            "schema_version": "1", "builder_version": "1", "layer": "project",
+            "graph_mtime": 100, "nodes": nodes, "edges": edges,
+            "counts": {"files": 1, "nodes": len(nodes), "edges": len(edges)},
+        }
+
+    def _override(self, **overrides):
+        # Pin module-level tier constants for a single test; restore after.
+        originals = {name: getattr(self.mod, name) for name in overrides}
+        for name, value in overrides.items():
+            setattr(self.mod, name, value)
+        self.addCleanup(lambda: [setattr(self.mod, n, v) for n, v in originals.items()])
+
+    # --- AC-2: tier-selection matrix ---
+
+    @unittest.skipUnless(_igraph_available(), "igraph unavailable")
+    def test_tier_exact_below_exact_threshold(self):
+        section = self.mod.compute_betweenness_ranking(self._payload())
+        self.assertEqual(section["method"], "exact")
+        self.assertEqual(section["node_count"], 5)
+        self.assertEqual(section["edge_count"], 4)  # imports edge excluded
+        self.assertNotIn("cutoff", section)
+        top = section["ranking"][0]
+        self.assertEqual(top["node_id"], "src/x.py::hub")
+        self.assertEqual(top["score"], 4.0)
+        self.assertEqual(top["label"], "hub")
+        self.assertEqual(top["kind"], "function")
+
+    @unittest.skipUnless(_igraph_available(), "igraph unavailable")
+    def test_tier_cutoff_between_exact_and_hard_thresholds(self):
+        self._override(BETWEENNESS_EXACT_MAX_NODES=1)
+        section = self.mod.compute_betweenness_ranking(self._payload())
+        self.assertEqual(section["method"], "cutoff")
+        self.assertEqual(section["cutoff"], self.mod.BETWEENNESS_CUTOFF)
+        # Paths here are shorter than any sane cutoff — hub still ranks first.
+        self.assertEqual(section["ranking"][0]["node_id"], "src/x.py::hub")
+
+    def test_tier_degree_fallback_above_hard_threshold(self):
+        # Above the hard tier igraph must not be consulted at all, so this
+        # holds with or without igraph installed.
+        self._override(BETWEENNESS_CUTOFF_MAX_NODES=1)
+        section = self.mod.compute_betweenness_ranking(self._payload())
+        self.assertEqual(section["method"], "degree_fallback")
+        self.assertNotIn("cutoff", section)
+        # Fan-out ranking: hub has 2 outgoing calls; a1/a2 have 1 each.
+        self.assertEqual(section["ranking"][0]["node_id"], "src/x.py::hub")
+        self.assertEqual(section["ranking"][0]["score"], 2.0)
+
+    # --- AC-4: igraph-absent fallback with honest metadata ---
+
+    def test_igraph_absent_falls_back_to_degree_with_honest_method(self):
+        import unittest.mock
+        with unittest.mock.patch.dict(sys.modules, {"igraph": None}):
+            section = self.mod.compute_betweenness_ranking(self._payload())
+        self.assertEqual(section["method"], "degree_fallback")
+        self.assertTrue(section["ranking"])  # persisted, not silently absent
+        self.assertEqual(section["node_count"], 5)
+
+    # --- AC-3: determinism per tier ---
+
+    def _stable_signature(self, section: dict) -> tuple:
+        return (
+            section["method"],
+            section.get("cutoff"),
+            section["node_count"],
+            section["edge_count"],
+            tuple((r["node_id"], r["score"]) for r in section["ranking"]),
+        )
+
+    @unittest.skipUnless(_igraph_available(), "igraph unavailable")
+    def test_determinism_exact_tier(self):
+        first = self.mod.compute_betweenness_ranking(self._payload())
+        second = self.mod.compute_betweenness_ranking(self._payload())
+        self.assertEqual(self._stable_signature(first), self._stable_signature(second))
+        self.assertEqual(first["method"], "exact")
+
+    @unittest.skipUnless(_igraph_available(), "igraph unavailable")
+    def test_determinism_cutoff_tier(self):
+        self._override(BETWEENNESS_EXACT_MAX_NODES=1)
+        first = self.mod.compute_betweenness_ranking(self._payload())
+        second = self.mod.compute_betweenness_ranking(self._payload())
+        self.assertEqual(self._stable_signature(first), self._stable_signature(second))
+        self.assertEqual(first["method"], "cutoff")
+
+    def test_determinism_degree_fallback_stable_node_id_tiebreak(self):
+        self._override(BETWEENNESS_CUTOFF_MAX_NODES=1)
+        payload = self._payload()
+        # a1 and a2 both have fan-out 1 — equal scores must order by node id.
+        first = self.mod.compute_betweenness_ranking(payload)
+        second = self.mod.compute_betweenness_ranking(payload)
+        self.assertEqual(self._stable_signature(first), self._stable_signature(second))
+        tied = [r["node_id"] for r in first["ranking"] if r["score"] == 1.0]
+        self.assertEqual(tied, sorted(tied))
+        self.assertEqual(tied, ["src/x.py::a1", "src/x.py::a2"])
+
+    # --- Top-N truncation + env-overridable constants ---
+
+    def test_top_n_truncation(self):
+        self._override(BETWEENNESS_TOP_N=1, BETWEENNESS_CUTOFF_MAX_NODES=1)
+        section = self.mod.compute_betweenness_ranking(self._payload())
+        self.assertEqual(len(section["ranking"]), 1)
+        self.assertEqual(section["top_n"], 1)
+        self.assertEqual(section["ranking"][0]["node_id"], "src/x.py::hub")
+
+    def test_tier_constants_env_overridable(self):
+        import os
+        import unittest.mock
+        env = {
+            "WAVEFOUNDRY_GRAPH_BETWEENNESS_TOP_N": "7",
+            "WAVEFOUNDRY_GRAPH_BETWEENNESS_EXACT_MAX_NODES": "11",
+            "WAVEFOUNDRY_GRAPH_BETWEENNESS_CUTOFF_MAX_NODES": "22",
+            "WAVEFOUNDRY_GRAPH_BETWEENNESS_CUTOFF": "3",
+        }
+        with unittest.mock.patch.dict(os.environ, env):
+            mod = load_graph_cluster()
+        self.assertEqual(mod.BETWEENNESS_TOP_N, 7)
+        self.assertEqual(mod.BETWEENNESS_EXACT_MAX_NODES, 11)
+        self.assertEqual(mod.BETWEENNESS_CUTOFF_MAX_NODES, 22)
+        self.assertEqual(mod.BETWEENNESS_CUTOFF, 3)
+
+    # --- AC-1/AC-7 build path: persistence in the clusters artifact ---
+
+    def test_update_graph_clusters_persists_betweenness_section(self):
+        from contextlib import redirect_stderr
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        (root / ".wavefoundry" / "index").mkdir(parents=True, exist_ok=True)
+        graph_payload = self._payload()
+        stderr = io.StringIO()
+        with redirect_stderr(stderr):
+            result = self.mod.update_graph_clusters(
+                root=root,
+                index_dir=root / ".wavefoundry" / "index",
+                layer="project",
+                graph_payload=graph_payload,
+                verbose=False,
+            )
+        self.assertTrue(result["present"])
+        section = result.get("betweenness")
+        self.assertIsInstance(section, dict)
+        self.assertIn(section["method"], {"exact", "cutoff", "degree_fallback"})
+        self.assertEqual(section["node_count"], 5)
+        self.assertIsInstance(section["elapsed_ms"], int)
+        self.assertTrue(section["ranking"])
+        self.assertEqual(section["ranking"][0]["node_id"], "src/x.py::hub")
+        # AC-6: the pass is timed in build output (stderr instrumentation line).
+        self.assertIn("betweenness pass", stderr.getvalue())
+        # AC-7: artifact-shape change carries the cluster builder version bump.
+        self.assertEqual(result["cluster_builder_version"], self.mod.CLUSTER_BUILDER_VERSION)
+        # Round-trip: the persisted artifact serves the section via the sniffing reader.
+        reread = self.mod.read_cluster_payload(root, "project")
+        self.assertEqual(reread["betweenness"]["ranking"], section["ranking"])
 
 
 if __name__ == "__main__":

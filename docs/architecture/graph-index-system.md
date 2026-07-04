@@ -2,11 +2,11 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-02
+Last verified: 2026-07-04
 
 Architecture reference for Wavefoundry's code and documentation graph index: how it is generated, stored, traversed, clustered, and surfaced through MCP tools.
 
-> **Line citations** reference `GRAPH_BUILDER_VERSION="29"` (wave 1p4up — member-access qualified constant `reads`; 1p4q4 review (28) namespace-prefixed enum members + short-symbol-prune exemption; 1p4q4 (27) TS enum member constant nodes; 1p4ls (26) constant nodes + the `reads` edge). Line numbers shift on builder version bumps — use function names as stable anchors when citing across versions.
+> **Line citations** in older sections reference the `GRAPH_BUILDER_VERSION="29"`-era source (waves 1p4ls/1p4q4/1p4up); the current constant is `"36"` (wave `1p9q3`). Line numbers shift on builder version bumps — use function names as stable anchors when citing across versions.
 
 ---
 
@@ -36,7 +36,7 @@ Architecture reference for Wavefoundry's code and documentation graph index: how
 
 ## Overview
 
-The graph index is a persisted directed graph of nodes (files, symbols, and docs) and typed edges (calls, imports, defines, doc references, DI wiring). It is built separately from the semantic embedding index and stored as JSON artifacts on disk. The graph enables structural queries — call hierarchies, upstream impact analysis, cross-layer traversal, community detection — that semantic similarity search cannot answer.
+The graph index is a persisted directed graph of nodes (files, symbols, and docs) and typed edges (calls, imports, defines, doc references, DI wiring). It is built separately from the semantic embedding index and stored as gzip-compressed compact JSON artifacts on disk (readers sniff the gzip magic bytes and transparently fall back to legacy plain JSON). The graph enables structural queries — call hierarchies, upstream impact analysis, cross-layer traversal, community detection — that semantic similarity search cannot answer.
 
 The graph is **not** used for semantic search. It is used exclusively by graph-backed MCP tools and by `code_references` as a candidate-file restrictor to avoid full repository walks.
 
@@ -113,12 +113,12 @@ Four constants gate incremental reuse (`graph_indexer.py:27-37`):
 
 ```
 GRAPH_SCHEMA_VERSION  = "1"
-GRAPH_BUILDER_VERSION = "29"   # 1p4ls (26): constant nodes + `reads` edge; 1p4q4 (27): TS enum member nodes; 1p4q4 review (28): namespace-prefixed members + short-symbol-prune exemption; 1p4up (29): member-access qualified constant reads
+GRAPH_BUILDER_VERSION = "36"   # 36: 1p9q3 compact+gzip+atomic persistence, build-time betweenness, incremental merge state store (see the constant's in-code changelog for the full 26-35 history)
 ```
 
-The community-clustering layer (`graph_cluster.py`) carries its own `CLUSTER_BUILDER_VERSION = "9"` (bumped at 1p4ls — constant nodes + `reads` edges are excluded from the clustered projection so community labels do not shift).
+The community-clustering layer (`graph_cluster.py`) carries its own `CLUSTER_BUILDER_VERSION = "11"` (10: seeded-RNG determinism + grab-bag split; 11: build-time betweenness section + `input_fingerprint` key, wave `1p9q3`).
 
-A full re-extraction is forced whenever any of `schema_version`, `builder_version`, `walker_version`, or `chunker_version` changes — detected by `_load_state()` at `graph_indexer.py:5079-5096`.
+A full re-extraction is forced whenever any of `schema_version`, `builder_version`, `walker_version`, or `chunker_version` changes — detected when the session opens the per-file state store (`GraphStateStore.ensure_current()`, wave `1p9q2`): any version-key mismatch resets the whole store (file records + merge sidecar), `_load_state()` then reports an empty `files` set, and `update_graph_index()` expands the changed set to the full corpus.
 
 ### Entry Point
 
@@ -160,12 +160,14 @@ Markdown links and backtick file paths to known files produce `doc_references_do
 
 ### Disk Artifacts
 
-Written by `_write_json()` as pretty-printed JSON with sorted keys (`graph_indexer.py:554-556`):
+Written by `_write_json()` as gzip-compressed compact JSON with sorted keys (wave 1p9q3 / `1p9py`): compact separators, gzip level 6 (`GRAPH_GZIP_LEVEL`), and an atomic same-directory temp file + `os.replace` so concurrent readers never observe a torn artifact. Readers (`_read_json()` / the public `read_json_artifact`) sniff the gzip magic bytes (`0x1f 0x8b`) and transparently read legacy plain-JSON artifacts from pre-upgrade indexes; the next build rewrites them compressed. Filenames keep their `.json` names — content is sniffed, not the extension:
 
 | Artifact | Path |
 |---|---|
 | Project graph | `.wavefoundry/index/graph/project-graph.json` |
-| Project state | `.wavefoundry/index/graph/project-graph-state.json` |
+| Project state store | `.wavefoundry/index/graph/project-graph-state.sqlite` |
+
+**Per-file state store (wave `1p9q2`).** The state is a stdlib-`sqlite3` database (`GraphStateStore`), not a JSON artifact: a `files` table holds one row per source file (`path`, `source_hash`, and a gzip compact-JSON record `{"source_hash":…, "artifact":…}` — the same record shape and byte format the artifacts use), a `meta` table carries the store/schema/builder/walker/chunker/layer versions plus the payload crash-consistency binding, and a `blobs` table carries the `merge_state` sidecar (the persistent merged maps: per-file raw node lists + resolved edge fragments with provenance). `journal_mode=WAL`, `synchronous=NORMAL`, `busy_timeout` for concurrent hook-spawned builds; all per-build mutations commit in one transaction. A one-file build reads and writes O(changed) rows instead of parsing and rewriting a monolithic state document. The legacy monolithic `project-graph-state.json` is **discarded** one-time when the store first opens (a full re-extract follows, matching the established version-bump upgrade cost); it also remains the pre-upgrade fallback for the version-staleness probe (`read_state_builder_version()`, used by `graph_query`'s auto-rebuild check).
 
 ### Determinism and the input fingerprint (wave 1p66e)
 
@@ -261,8 +263,11 @@ Iterates `self.edges` once, counting only `relation == "calls"` edges, then comp
 | `chokepoints` | Nodes with `fan_out >= chokepoint_threshold` (default `_CHOKEPOINT_FAN_OUT = 20`) |
 
 > Wave `1p4ww` removed the `cross_layer` section (project×framework boundary edges) and the
-> `load_union()` merge along with the framework graph layer. There is one project graph;
-> `GraphQueryIndex.from_root()` always loads it.
+> `load_union()` merge along with the framework graph layer. There is one project graph.
+
+### Server-process query cache (wave `1p9q3`)
+
+Inside the long-lived MCP server, graph tools obtain the constructed index through `graph_query.get_query_index(root, layer="project")` rather than a fresh `GraphQueryIndex.from_root()` per call. The accessor holds a single-entry, module-level cache per `(resolved root, layer)`, validated on every access against the payload file's `(st_mtime_ns, st_size)`; construction and replacement run under `_QUERY_INDEX_CACHE_LOCK` (single-flight — concurrent tool calls never observe a half-built index); the in-query version-rebuild path and `server_impl`'s inline graph refresh invalidate explicitly (covering same-stat rewrites in-process); per-call diagnostics ride an O(1) slot-copy view so the shared cached index is never mutated. `WAVEFOUNDRY_DISABLE_GRAPH_QUERY_CACHE=1` restores load-per-call. Stat-keying is safe because all artifact writes are atomic (temp + `os.replace`, wave `1p9q3`). CLI/offline consumers (dashboard, `gen_codebase_map.py`) still construct per run — the cache is server-process-internal.
 
 ---
 
@@ -272,7 +277,7 @@ Iterates `self.edges` once, counting only `relation == "calls"` edges, then comp
 
 ```
 CLUSTER_SCHEMA_VERSION  = "1"
-CLUSTER_BUILDER_VERSION = "9"
+CLUSTER_BUILDER_VERSION = "11"   # 10: 1p65m seeded-RNG determinism + grab-bag split; 11: 1p9q3 build-time betweenness section + input_fingerprint key
 ```
 
 ### Input Projection (`graph_cluster.py:319-348`)
@@ -319,6 +324,8 @@ Four passes run after the algorithm (`graph_cluster.py:504-758`):
 
 ### Cluster Artifacts
 
+The cluster artifact shares the graph artifact persistence contract (gzip-compressed compact JSON, atomic write, sniffing reader with legacy plain-JSON fallback — `graph_cluster.py` mirrors the `graph_indexer.py` helpers):
+
 | Artifact | Path |
 |---|---|
 | Project clusters | `.wavefoundry/index/graph/project-graph-clusters.json` |
@@ -337,7 +344,7 @@ When `restrict_files` is non-`None`, all three reference searchers (`_python_ref
 
 ### `code_callhierarchy_response()` (`server_impl.py:8896-9047`)
 
-1. Loads `GraphQueryIndex.from_root(root, layer="project")`.
+1. Obtains the index via `graph_query.get_query_index(root, layer="project")` (the server-process cache above; `GraphQueryIndex.from_root` under the kill switch or outside the server).
 2. Resolves the symbol, optionally qualifying with the `file` param by trying `file::symbol` first (`server_impl.py:8938-8943`).
 3. **Outgoing** (callees): `index.traverse(node_id, relations=["calls"], max_hops=1, direction="callees")`. Collects all non-external callee names, calls `_scan_all_call_sites_in_file()` once on `definition_file`, uses `_first_call_site_at_or_after()` to pick the first call site at or after the caller's `source_location` line.
 4. **Incoming** (callers): `index.traverse(node_id, relations=["calls"], max_hops=1, direction="callers")`. Groups callers by source file. Calls `_scan_call_sites_in_file()` once per unique source file for the target symbol. Attributes call sites to callers in ascending-definition-line order using a `used_lines` set to prevent double-attribution.
@@ -409,7 +416,7 @@ Loads the cluster artifact via `_load_cluster_lookup()` / `graph_cluster.read_cl
 
 ### `wave_graph_report_response()`
 
-Loads `GraphQueryIndex.from_root(root, layer=layer_value)`, calls `index.report(limit=max(1, min(limit, 100)), sections=sections)`. Limit is clamped to `[1, 100]`. Defaults to all five standard sections when `sections=None`. The `betweenness` section (opt-in via `sections=["betweenness"]`) computes igraph betweenness centrality over the calls-only subgraph; returns `diagnostic: "graph_too_large_for_betweenness"` when node count exceeds `_BETWEENNESS_NODE_LIMIT` (10,000) or `diagnostic: "igraph_unavailable"` when igraph is not installed.
+Obtains the index via `get_query_index(root, layer=layer_value)` (cached; see the query-cache section), calls `index.report(limit=max(1, min(limit, 100)), sections=sections)`. Limit is clamped to `[1, 100]`. Defaults to all five standard sections when `sections=None`. The `betweenness` section (opt-in via `sections=["betweenness"]`) is **served from the ranking persisted at build time** in the clusters artifact (`graph_cluster.compute_betweenness_ranking()`, wave `1p9q3`): a size-tiered computation over the directed calls-only subgraph — exact igraph betweenness below `BETWEENNESS_EXACT_MAX_NODES` (default 25,000), bounded-path `cutoff` approximation below `BETWEENNESS_CUTOFF_MAX_NODES` (default 100,000), and a deterministic degree/fan-out fallback above that or when igraph is unavailable (all thresholds env-overridable via `WAVEFOUNDRY_GRAPH_BETWEENNESS_*`). The response surfaces `betweenness_method` and `betweenness_metadata` (node_count, edge_count, top_n, elapsed_ms, cutoff when applicable). There is no per-query computation and no graph-size cap; a clusters artifact predating the build-time pass returns `betweenness_skipped_reason: "betweenness_not_in_artifact"` with a rebuild hint until the next graph rebuild.
 
 ### `_scan_all_call_sites_in_file()` (`server_impl.py:9373-9426`)
 
@@ -440,14 +447,20 @@ Semantic embedding (LanceDB) is skipped entirely in graph mode (`indexer.py:1938
 
 ### Incremental vs. Full Rebuild
 
-The graph build is **incremental by default**. `update_graph_index()` receives `changed` and `removed` file sets and only calls `session.record_file()` for files in `changed`. Unchanged files reuse their cached artifact from the state file. Files in the `removed` set have their cached artifacts excluded from the merged output during `session.finalize()` — removed-file nodes and edges do not persist into the next build's payload.
+The graph build is **incremental at extraction AND at merge** (wave `1p9q2`). `update_graph_index()` receives `changed` and `removed` file sets and only calls `session.record_file()` for files in `changed`; unchanged files reuse their cached artifact rows in the per-file state store. `session.finalize()` then runs one unified merge pipeline in one of three modes:
+
+- **Zero-change fast path** — nothing pending, nothing removed, and the store's payload binding matches the on-disk payload: the existing payload is returned with no merge work and no artifact rewrite.
+- **Incremental delta merge** — the persistent `merge_state` sidecar (per-file raw node lists + resolved edge fragments) is loaded; changed/removed files' fragments are retracted and changed files' fragments recomputed from their fresh artifacts. **Symbol-scoped cross-file invalidation** then re-runs resolution for exactly (a) all edges of changed files and (b) any untouched file's edges whose resolution consults a candidate-index key in the *symbol delta* — the keys contributed by the old+new nodes of changed/removed files (plus the DI-synthesized-node delta). Fragment edges carry provenance (`_x` original external name, `_c` original confidence, `_d` dropped-read tombstone) so their raw form is recoverable without reading any unchanged row — promotion (external → bound) AND demotion (bound → external) both propagate into untouched files. State I/O per build is O(changed) rows plus the sidecar. Candidate indexes are rebuilt from the assembled node map each build (measured ~43 ms at 11k nodes — cheaper than incrementally persisting them).
+- **Full re-merge** — a missing/inconsistent sidecar (crash window, pre-upgrade store) loads every stored row and recomputes all fragments through the same code path, loudly (stderr). This is also the differential oracle: the **equivalence invariant** — an incremental build produces the same node set, edge-key set, and `input_fingerprint` as a from-scratch build of the same tree — is enforced by a randomized differential harness in `test_graph_incremental_merge.py`.
+
+Crash consistency: the store commits rows + sidecar + a `payload_stat_state='pending'` binding in one transaction, then the payload is written atomically, then the binding stat is committed. A crash in any window leaves a detectable mismatch and the next build degrades to a loud full re-merge — never a silently inconsistent graph. Downstream, `update_graph_clusters()` skips the clusters/betweenness recompute AND artifact rewrite when the merged `input_fingerprint` (recorded in the clusters artifact) is unchanged under the same cluster/graph builder versions.
 
 A full re-extraction is forced when:
-1. The state file is absent or empty (first build).
-2. Any version constant changes (`schema_version`, `builder_version`, `walker_version`, `chunker_version`) — detected by `_load_state()` at `graph_indexer.py:5079-5096`.
-3. The state's `"files"` dict is empty after loading — `update_graph_index()` expands `changed_set` to all files (`graph_indexer.py:2191-2202`).
+1. The state store is absent or empty (first build, or post-legacy-discard).
+2. Any version constant changes (`schema_version`, `builder_version`, `walker_version`, `chunker_version`) — the store resets itself on open (`GraphStateStore.ensure_current()`).
+3. The store's file listing is empty after loading — `update_graph_index()` expands `changed_set` to all files.
 
-Additionally, when code files change, doc artifacts that referenced changed symbols are automatically re-scanned via the `impacted_docs` pass at `graph_indexer.py:1886-1931`.
+Additionally, when code files change, doc artifacts whose cached `mentioned_symbols` intersect the changed symbol ids are automatically re-scanned via the `impacted_docs` pass inside `finalize()`.
 
 ### Staleness Check
 

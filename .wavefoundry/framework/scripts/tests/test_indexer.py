@@ -1601,7 +1601,9 @@ class IncrementalBuildTests(unittest.TestCase):
             )
         graph_path = self.root / ".wavefoundry" / "index" / "graph" / "project-graph.json"
         self.assertTrue(graph_path.exists())
-        graph = json.loads(graph_path.read_text(encoding="utf-8"))
+        # 1p9py: graph artifacts are gzip-compressed compact JSON — sniffing read.
+        import gzip as _gzip
+        graph = json.loads(_gzip.decompress(graph_path.read_bytes()).decode("utf-8"))
         node_ids = {n["id"] for n in graph.get("nodes", [])}
         self.assertIn(".wavefoundry/framework/scripts/tools.py::helper", node_ids)
 

@@ -477,12 +477,18 @@ class GraphIndexerTests(unittest.TestCase):
         node_ids = {node["id"] for node in payload["nodes"]}
         self.assertIn("docs/workflow-config.json", node_ids)
         self.assertIn("docs/workflow-config.json::factor_review_policy", node_ids)
-        state_path = self.root / ".wavefoundry" / "index" / "graph" / "project-graph-state.json"
-        state = json.loads(state_path.read_text(encoding="utf-8"))
-        self.assertEqual(
-            state["files"]["docs/workflow-config.json"]["artifact"]["kind"],
-            "code",
+        # Wave 1p9q2: per-file records live in the SQLite state store.
+        store = self.mod.GraphStateStore(
+            self.root / ".wavefoundry" / "index" / "graph" / "project-graph-state.sqlite",
+            layer="project",
+            walker_version="1",
+            chunker_version="1",
         )
+        try:
+            record = store.get_record("docs/workflow-config.json")
+        finally:
+            store.close()
+        self.assertEqual(record["artifact"]["kind"], "code")
 
     def test_doc_references_workflow_config_key_by_full_name(self):
         payload = self._run(
@@ -5556,7 +5562,7 @@ class GraphBuilderVersionTests(unittest.TestCase):
     """Wave 1p4ls AC-3: the node/edge shape changed (constant nodes + reads edge) so the builder
     version is bumped, forcing a full re-extract against any older cache."""
 
-    def test_graph_builder_version_is_35(self):
+    def test_graph_builder_version_is_36(self):
         # 1p4ls bumped 25→26 (constant nodes + reads edge); 1p4q4 bumped 26→27 (TS enum member nodes);
         # 1p4q4 review bumped 27→28 (namespace-prefixed enum members + short-symbol-prune exemption);
         # 1p4up bumped 28→29 (member-access constant reads — new function→constant `reads` edges);
@@ -5573,7 +5579,10 @@ class GraphBuilderVersionTests(unittest.TestCase):
         # 1p7dh bumped 34→35 (reads_config extended to Java/Spring FILE config: `.properties`/`.yml`/`.yaml`
         # config-key nodes + Java `@Value`/`getProperty` capture into config_read_candidates — new nodes
         # + populated candidates → new reads_config edges, an extraction-output change).
-        self.assertEqual(load_graph_indexer().GRAPH_BUILDER_VERSION, "35")
+        # 1p9py (wave 1p9q3) bumped 35→36 (compact+gzip+atomic artifact persistence — on-disk FORMAT
+        # change; serialization-only, content unchanged; single bump also covers the wave's sibling
+        # artifact-shape changes 1p9q1/1p9q2 per the coordinated-single-bump serialization point).
+        self.assertEqual(load_graph_indexer().GRAPH_BUILDER_VERSION, "36")
 
 
 class OversizedTreeSitterGuardTests(unittest.TestCase):
@@ -5689,3 +5698,240 @@ class EdgeExtractionDeterminismTests(unittest.TestCase):
                 e["target"] for e in calls if e.get("source", "").endswith("::caller")
             ]
             self.assertIn("src/a.py::foo", targets)
+
+
+class GraphArtifactPersistenceTests(unittest.TestCase):
+    """Wave 1p9q3 (1p9py): compact, gzip-compressed, atomic graph artifact persistence.
+
+    Writers emit gzip-compressed compact JSON via same-directory temp + os.replace;
+    readers sniff the gzip magic bytes with a transparent legacy plain-JSON fallback,
+    and any corrupted/truncated artifact degrades to the caller-supplied default.
+    """
+
+    SAMPLE = {
+        "schema_version": "1",
+        "builder_version": "36",
+        "layer": "project",
+        "counts": {"files": 1, "nodes": 2, "edges": 1},
+        "nodes": [
+            {"id": "src/app.py", "kind": "file"},
+            {"id": "src/app.py::run", "kind": "function", "label": "run"},
+        ],
+        "edges": [
+            {"source": "src/app.py", "target": "src/app.py::run", "relation": "defines", "confidence": "EXTRACTED"},
+        ],
+        "input_fingerprint": "abc123",
+    }
+
+    def setUp(self):
+        self.mod = load_graph_indexer()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.path = self.root / "graph" / "project-graph.json"
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    # -- write format -------------------------------------------------------
+
+    def test_write_json_emits_gzip_compact_sorted(self):
+        import gzip
+        self.mod._write_json(self.path, self.SAMPLE)
+        raw = self.path.read_bytes()
+        self.assertEqual(raw[:2], b"\x1f\x8b", "artifact must start with the gzip magic bytes")
+        decoded = gzip.decompress(raw).decode("utf-8")
+        # Compact separators: no indentation whitespace, no space after ':'.
+        self.assertNotIn("\n", decoded)
+        self.assertNotIn(": ", decoded)
+        self.assertEqual(json.loads(decoded), self.SAMPLE)
+        # sort_keys retained: deterministic byte output for identical payloads.
+        self.mod._write_json(self.path, dict(reversed(list(self.SAMPLE.items()))))
+        self.assertEqual(self.path.read_bytes(), raw)
+
+    def test_write_json_leaves_no_temp_files(self):
+        self.mod._write_json(self.path, self.SAMPLE)
+        leftovers = [p for p in self.path.parent.iterdir() if p.name != self.path.name]
+        self.assertEqual(leftovers, [])
+
+    # -- dual-format read (AC-2) ---------------------------------------------
+
+    def test_read_json_reads_gzip_artifact(self):
+        self.mod._write_json(self.path, self.SAMPLE)
+        self.assertEqual(self.mod._read_json(self.path, {}), self.SAMPLE)
+
+    def test_read_json_reads_legacy_plain_artifact(self):
+        # Pre-upgrade artifact: pretty-printed plain JSON written in place.
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.write_text(json.dumps(self.SAMPLE, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        self.assertEqual(self.mod._read_json(self.path, {}), self.SAMPLE)
+
+    def test_public_alias_is_the_sniffing_reader(self):
+        self.assertIs(self.mod.read_json_artifact, self.mod._read_json)
+
+    # -- logical round-trip equivalence (AC-3) --------------------------------
+
+    def test_legacy_roundtrip_yields_identical_payload(self):
+        legacy = self.root / "legacy.json"
+        legacy.write_text(json.dumps(self.SAMPLE, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        decoded = self.mod._read_json(legacy, None)
+        self.mod._write_json(self.path, decoded)
+        rewritten = self.mod._read_json(self.path, None)
+        self.assertEqual(rewritten, self.SAMPLE)
+
+    # -- corruption contract (AC-4) -------------------------------------------
+
+    def test_truncated_gzip_returns_default(self):
+        self.mod._write_json(self.path, self.SAMPLE)
+        raw = self.path.read_bytes()
+        self.path.write_bytes(raw[: len(raw) // 2])
+        sentinel = {"corrupted": True}
+        self.assertIs(self.mod._read_json(self.path, sentinel), sentinel)
+
+    def test_corrupted_gzip_body_returns_default(self):
+        self.mod._write_json(self.path, self.SAMPLE)
+        raw = bytearray(self.path.read_bytes())
+        for i in range(12, min(len(raw), 40)):
+            raw[i] ^= 0xFF  # scramble the deflate stream, keep the magic bytes
+        self.path.write_bytes(bytes(raw))
+        self.assertEqual(self.mod._read_json(self.path, {"d": 1}), {"d": 1})
+
+    def test_corrupted_plain_json_returns_default(self):
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.write_text("{not json", encoding="utf-8")
+        self.assertEqual(self.mod._read_json(self.path, None), None)
+
+    def test_missing_file_returns_default(self):
+        self.assertEqual(self.mod._read_json(self.path, 42), 42)
+
+    # -- atomicity (AC-8) ------------------------------------------------------
+
+    def test_failed_write_preserves_existing_artifact_and_cleans_temp(self):
+        from unittest.mock import patch
+        self.mod._write_json(self.path, self.SAMPLE)
+        before = self.path.read_bytes()
+
+        with patch.object(self.mod.gzip, "compress", side_effect=RuntimeError("simulated fault")):
+            with self.assertRaises(RuntimeError):
+                self.mod._write_json(self.path, {"other": 1})
+        self.assertEqual(self.path.read_bytes(), before, "a failed write must not touch the artifact")
+        leftovers = [p for p in self.path.parent.iterdir() if p.name != self.path.name]
+        self.assertEqual(leftovers, [], "a failed write must clean up its temp file")
+
+    def test_reader_never_observes_partial_file_during_slow_writes(self):
+        """A reader polling the artifact while slow writes are in flight must only
+        ever see a complete old or complete new payload — never a torn one. The
+        write path is slowed by chunking + sleeping inside the temp-file write so
+        the window between first byte and os.replace is wide."""
+        import threading
+        import time as _time
+        import os as _os
+
+        payload_a = dict(self.SAMPLE, generation="A")
+        payload_b = dict(self.SAMPLE, generation="B" * 2048)  # large enough to chunk
+        self.mod._write_json(self.path, payload_a)
+
+        real_fdopen = _os.fdopen
+
+        class _SlowHandle:
+            def __init__(self, handle):
+                self._handle = handle
+
+            def write(self, data):
+                for i in range(0, len(data), 64):
+                    self._handle.write(data[i : i + 64])
+                    _time.sleep(0.0005)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return self._handle.__exit__(*exc)
+
+        def slow_fdopen(fd, mode="r", *args, **kwargs):
+            handle = real_fdopen(fd, mode, *args, **kwargs)
+            if "b" in mode and "w" in mode:
+                return _SlowHandle(handle)
+            return handle
+
+        sentinel = object()
+        torn: list[Any] = []
+        stop = threading.Event()
+
+        def poll():
+            while not stop.is_set():
+                got = self.mod._read_json(self.path, sentinel)
+                if got is sentinel:
+                    torn.append("unreadable")
+                    return
+                if got.get("generation") not in ("A", "B" * 2048):
+                    torn.append(got)
+                    return
+
+        reader = threading.Thread(target=poll)
+        reader.start()
+        try:
+            from unittest.mock import patch
+            with patch.object(self.mod.os, "fdopen", slow_fdopen):
+                for _ in range(5):
+                    self.mod._write_json(self.path, payload_b)
+                    self.mod._write_json(self.path, payload_a)
+        finally:
+            stop.set()
+            reader.join(timeout=10)
+        self.assertEqual(torn, [], "reader observed a torn/partial artifact during writes")
+
+    # -- grep gate (AC-8): no in-place write_text remains on the writer paths --
+
+    def test_no_in_place_write_text_in_artifact_writers(self):
+        import inspect
+        gi_src = inspect.getsource(self.mod._write_json)
+        self.assertNotIn("write_text", gi_src)
+        self.assertIn("os.replace", gi_src)
+        gc_path = SCRIPTS_ROOT / "graph_cluster.py"
+        spec = importlib.util.spec_from_file_location("graph_cluster_for_persistence_gate", gc_path)
+        gc_mod = importlib.util.module_from_spec(spec)
+        sys.modules["graph_cluster_for_persistence_gate"] = gc_mod
+        spec.loader.exec_module(gc_mod)
+        gc_src = inspect.getsource(gc_mod._write_json)
+        self.assertNotIn("write_text", gc_src)
+        self.assertIn("os.replace", gc_src)
+
+    # -- reader-copy parity gate (delivery review): the gzip sniff is mirrored
+    # in four modules; a future format change must not drift a reader silently.
+
+    def test_all_sniffing_reader_copies_handle_gzip_magic(self):
+        reader_sites = {
+            "graph_indexer.py": "def _read_json",
+            "graph_cluster.py": "def _read_json",
+            "dashboard_lib.py": "def _read_json",
+            "gen_codebase_map.py": "def _read_json",
+        }
+        for filename, marker in reader_sites.items():
+            src = (SCRIPTS_ROOT / filename).read_text(encoding="utf-8")
+            self.assertIn(marker, src, f"{filename}: sniffing reader missing")
+            start = src.index(marker)
+            body = src[start : start + 2000]
+            self.assertTrue(
+                "\\x1f" in body or "0x1f" in body or "_GZIP_MAGIC" in body,
+                f"{filename}: _read_json no longer sniffs the gzip magic bytes "
+                "(format drift across the mirrored reader copies)",
+            )
+
+    # -- cluster artifact parity ----------------------------------------------
+
+    def test_cluster_writer_reader_share_the_format(self):
+        import gzip
+        gc_path = SCRIPTS_ROOT / "graph_cluster.py"
+        spec = importlib.util.spec_from_file_location("graph_cluster_for_persistence", gc_path)
+        gc_mod = importlib.util.module_from_spec(spec)
+        sys.modules["graph_cluster_for_persistence"] = gc_mod
+        spec.loader.exec_module(gc_mod)
+        path = self.root / "graph" / "project-graph-clusters.json"
+        payload = {"cluster_schema_version": "1", "communities": [], "community_count": 0}
+        gc_mod._write_json(path, payload)
+        self.assertEqual(path.read_bytes()[:2], b"\x1f\x8b")
+        self.assertEqual(json.loads(gzip.decompress(path.read_bytes()).decode("utf-8")), payload)
+        self.assertEqual(gc_mod._read_json(path, {}), payload)
+        # Legacy plain cluster artifact still reads.
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        self.assertEqual(gc_mod._read_json(path, {}), payload)

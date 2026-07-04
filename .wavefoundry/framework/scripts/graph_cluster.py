@@ -2,15 +2,21 @@
 """Topology-based community clustering for Wavefoundry graph indexes."""
 from __future__ import annotations
 
+import gzip
 import importlib
 import json
+import math
+import os
+import sys
+import tempfile
+import time
 from collections import defaultdict
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 CLUSTER_SCHEMA_VERSION = "1"
-CLUSTER_BUILDER_VERSION = "10"  # Wave 1p65m (clustering cohesion + determinism): (1) seed igraph's global RNG before Leiden partitioning so clustering is reproducible across rebuilds even on a leidenalg lacking the `seed=` kwarg (the old unseeded fallback caused identical-input area-count churn, a consumer's 221/224); (2) a conservative, deterministic post-cluster split of cross-directory GRAB-BAG communities — a community scattered across >= GRABBAG_MIN_DIRS distinct module-dirs with NO dominant home (incidental weak/util edges) is split per module-dir, with an anti-over-split dominant-share guard so a cohesive module with a few strays is left intact. Community-shape change → consumer caches re-cluster. Previous: 1p4ls (exclude constant nodes + `reads` edges from clustering).
+CLUSTER_BUILDER_VERSION = "11"  # Wave 1p9q3 (1p9q1, build-time betweenness): the clusters artifact gains a top-level `betweenness` section — top-N node ranking (node_id/score/label/kind) with computation metadata (`method`: exact|cutoff|degree_fallback, `node_count`, `edge_count`, `elapsed_ms`, `cutoff` when applicable, `top_n`) computed at build time over the directed `calls` graph with a size-tiered strategy (exact below BETWEENNESS_EXACT_MAX_NODES; igraph bounded-path `cutoff` approximation below BETWEENNESS_CUTOFF_MAX_NODES; deterministic degree/fan-out fallback above that or when igraph is unavailable). `wave_graph_report` now READS this section instead of computing betweenness per query (the 10k-node query cap is retired). Artifact-shape change → bump per the standing rule. Previous: 10 (wave 1p65m, clustering cohesion + determinism): (1) seed igraph's global RNG before Leiden partitioning so clustering is reproducible across rebuilds even on a leidenalg lacking the `seed=` kwarg (the old unseeded fallback caused identical-input area-count churn, a consumer's 221/224); (2) a conservative, deterministic post-cluster split of cross-directory GRAB-BAG communities — a community scattered across >= GRABBAG_MIN_DIRS distinct module-dirs with NO dominant home (incidental weak/util edges) is split per module-dir, with an anti-over-split dominant-share guard so a cohesive module with a few strays is left intact. Community-shape change → consumer caches re-cluster. Previous: 1p4ls (exclude constant nodes + `reads` edges from clustering).
 # Wave 1p65m (#2): cross-directory grab-bag split thresholds (conservative — only
 # egregious grab-bags; field-validated tuning may adjust). A community is a grab-bag
 # when its members span at least this many distinct module-dirs (first 2 path
@@ -68,6 +74,28 @@ _RELATION_WEIGHTS = {
     "doc_references_code": 1,
 }
 
+# Wave 1p9q3 (1p9q1): build-time tiered betweenness centrality. Betweenness moved
+# from per-query computation in `wave_graph_report` (which capped out at 10k nodes
+# and returned a diagnostic on exactly the repos where centrality is most useful)
+# to this build/cluster pass, persisted in the clusters artifact. Tier selection by
+# node count of the directed `calls` graph:
+#   - node_count <= BETWEENNESS_EXACT_MAX_NODES      → exact igraph betweenness(directed=True)
+#   - node_count <= BETWEENNESS_CUTOFF_MAX_NODES     → igraph bounded-path approximation
+#     (`cutoff=BETWEENNESS_CUTOFF`: only shortest paths up to that length count —
+#     deterministic, no sampling RNG)
+#   - above the hard tier, or igraph unavailable      → deterministic degree/fan-out
+#     fallback (`method: "degree_fallback"`, stable tiebreak on node id)
+# Never an unbounded computation in any build path. Thresholds are env-overridable
+# (same convention as WAVEFOUNDRY_GRAPH_PARALLEL_THRESHOLD); the exact tier default
+# is calibrated by measurement — the self-hosted repo (11,023 nodes, 10,033 calls
+# edges) computes exact betweenness in 14ms (igraph's C core is fast on sparse
+# call graphs), so 25k nodes covers the 10-15k target band with an order of
+# magnitude of headroom; the cutoff tier bounds cost on denser 25k-100k graphs.
+BETWEENNESS_TOP_N = int(os.environ.get("WAVEFOUNDRY_GRAPH_BETWEENNESS_TOP_N", "200"))
+BETWEENNESS_EXACT_MAX_NODES = int(os.environ.get("WAVEFOUNDRY_GRAPH_BETWEENNESS_EXACT_MAX_NODES", "25000"))
+BETWEENNESS_CUTOFF_MAX_NODES = int(os.environ.get("WAVEFOUNDRY_GRAPH_BETWEENNESS_CUTOFF_MAX_NODES", "100000"))
+BETWEENNESS_CUTOFF = int(os.environ.get("WAVEFOUNDRY_GRAPH_BETWEENNESS_CUTOFF", "6"))
+
 
 def _graph_index_dir(root: Path, layer: str = "project") -> Path:
     if layer not in GRAPH_FILENAMES:
@@ -83,16 +111,48 @@ def cluster_path(root: Path, layer: str) -> Path:
     return _graph_index_dir(root, layer) / GRAPH_DIRNAME / CLUSTER_FILENAMES[layer]
 
 
+# Wave 1p9q3 (1p9py): graph artifacts persist as gzip-compressed COMPACT JSON
+# behind sniffing readers (mirrors graph_indexer's helpers — this module stays
+# import-independent of the heavy graph_indexer by convention). Level 6 is the
+# write-speed balance point; see graph_indexer.GRAPH_GZIP_LEVEL.
+GRAPH_GZIP_LEVEL = 6
+_GZIP_MAGIC = b"\x1f\x8b"
+
+
 def _read_json(path: Path, default: Any) -> Any:
+    """Read a graph artifact — gzip-compressed compact JSON or legacy plain
+    JSON, sniffed via the gzip magic bytes. Any failure returns ``default``."""
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        raw = path.read_bytes()
+        if raw[:2] == _GZIP_MAGIC:
+            raw = gzip.decompress(raw)
+        return json.loads(raw.decode("utf-8"))
     except Exception:
         return default
 
 
+# Public alias: external consumers of cluster/graph artifact paths must use a
+# sniffing reader — never `json.loads(path.read_text())` directly.
+read_json_artifact = _read_json
+
+
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
+    """Write a graph artifact as gzip-compressed compact JSON via a
+    same-directory temp file + ``os.replace`` (atomic; readers never see a
+    torn artifact). Mirrors graph_indexer._write_json."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    data = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    fd, tmp_name = tempfile.mkstemp(dir=str(path.parent), prefix=path.name + ".", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(gzip.compress(data, compresslevel=GRAPH_GZIP_LEVEL, mtime=0))
+        os.replace(tmp_name, path)
+    except BaseException:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
 
 
 def _normalize_node_id(node_id: str) -> str:
@@ -856,6 +916,121 @@ def _disambiguate_labels(communities: list[dict[str, Any]], nodes_by_id: dict[st
                 c["label"] = f"{lbl} {n}"
 
 
+def _betweenness_projection(graph_payload: dict[str, Any]) -> tuple[dict[str, dict[str, Any]], list[tuple[str, str]]]:
+    """Directed `calls`-edge projection over ALL payload nodes (external and
+    constant nodes included), mirroring the retired query-time computation in
+    `wave_graph_report` so build-time rankings stay comparable with historical
+    per-query results. Distinct from `_project_undirected_projection`, which
+    exists for community discovery and excludes constants/`reads` edges."""
+    nodes_by_id: dict[str, dict[str, Any]] = {}
+    for raw_node in graph_payload.get("nodes", []) or []:
+        if not isinstance(raw_node, dict):
+            continue
+        node_id = _normalize_node_id(str(raw_node.get("id") or ""))
+        if not node_id:
+            continue
+        nodes_by_id[node_id] = raw_node
+    call_edges: list[tuple[str, str]] = []
+    for raw_edge in graph_payload.get("edges", []) or []:
+        if not isinstance(raw_edge, dict):
+            continue
+        if str(raw_edge.get("relation") or "") != "calls":
+            continue
+        source = _normalize_node_id(str(raw_edge.get("source") or ""))
+        target = _normalize_node_id(str(raw_edge.get("target") or ""))
+        if source in nodes_by_id and target in nodes_by_id:
+            call_edges.append((source, target))
+    return nodes_by_id, call_edges
+
+
+def compute_betweenness_ranking(graph_payload: dict[str, Any]) -> dict[str, Any]:
+    """Wave 1p9q3 (1p9q1): size-tiered betweenness centrality over the directed
+    `calls` graph, computed at build time and persisted in the clusters artifact.
+
+    Returns the artifact section: ``{method, node_count, edge_count, top_n,
+    elapsed_ms, ranking, [cutoff]}`` where ``ranking`` is the top-N nodes by
+    score (positive, finite scores only) with a stable ``(-score, node_id)``
+    order. Deterministic for a given graph in every tier: igraph's exact and
+    ``cutoff`` betweenness carry no sampling RNG, and the degree fallback is a
+    deterministic sort with a node-id tiebreak. Never unbounded: above
+    ``BETWEENNESS_CUTOFF_MAX_NODES`` igraph is not consulted at all.
+    """
+    started = time.monotonic()
+    nodes_by_id, call_edges = _betweenness_projection(graph_payload)
+    node_count = len(nodes_by_id)
+    ordered_nodes = sorted(nodes_by_id)
+    method: str | None = None
+    cutoff_value: int | None = None
+    scores_by_id: dict[str, float] = {}
+    backend = None
+    if node_count <= BETWEENNESS_CUTOFF_MAX_NODES:
+        try:
+            backend = importlib.import_module("igraph")
+        except Exception:
+            backend = None
+        if backend is not None and not hasattr(backend, "Graph"):
+            backend = None
+    if backend is not None and node_count:
+        index_by_id = {node_id: index for index, node_id in enumerate(ordered_nodes)}
+        edge_pairs = [(index_by_id[source], index_by_id[target]) for source, target in call_edges]
+        try:
+            graph = backend.Graph(n=node_count, edges=edge_pairs, directed=True)
+            if node_count <= BETWEENNESS_EXACT_MAX_NODES:
+                raw_scores = graph.betweenness(directed=True)
+                method = "exact"
+            else:
+                cutoff_value = BETWEENNESS_CUTOFF
+                raw_scores = graph.betweenness(directed=True, cutoff=cutoff_value)
+                method = "cutoff"
+            scores_by_id = {
+                node_id: float(score)
+                for node_id, score in zip(ordered_nodes, raw_scores)
+            }
+        except Exception:
+            # Any igraph failure degrades to the deterministic fallback below —
+            # a build must never lose its clusters artifact to a centrality pass.
+            method = None
+            cutoff_value = None
+            scores_by_id = {}
+    if method is None:
+        # Cheap deterministic fan-out ranking (mirrors the report's chokepoint
+        # signal): outgoing `calls` degree per node, node-id tiebreak.
+        method = "degree_fallback"
+        fan_out: dict[str, int] = defaultdict(int)
+        for source, _target in call_edges:
+            fan_out[source] += 1
+        scores_by_id = {node_id: float(count) for node_id, count in fan_out.items()}
+    ranked = sorted(
+        (
+            (node_id, score)
+            for node_id, score in scores_by_id.items()
+            if score > 0 and math.isfinite(score)
+        ),
+        key=lambda item: (-item[1], item[0]),
+    )[:BETWEENNESS_TOP_N]
+    ranking = [
+        {
+            "node_id": node_id,
+            "score": round(score, 4),
+            "label": nodes_by_id.get(node_id, {}).get("label", node_id),
+            "kind": nodes_by_id.get(node_id, {}).get("kind"),
+        }
+        for node_id, score in ranked
+    ]
+    elapsed_ms = int((time.monotonic() - started) * 1000)
+    section: dict[str, Any] = {
+        "method": method,
+        "node_count": node_count,
+        "edge_count": len(call_edges),
+        "top_n": BETWEENNESS_TOP_N,
+        "elapsed_ms": elapsed_ms,
+        "ranking": ranking,
+    }
+    if cutoff_value is not None:
+        section["cutoff"] = cutoff_value
+    return section
+
+
 def update_graph_clusters(
     *,
     root: Path,
@@ -876,6 +1051,33 @@ def update_graph_clusters(
         except OSError:
             pass
         return read_cluster_payload(root, layer)
+
+    # Wave 1p9q3 (1p9q2): fingerprint-gated analysis skip. When the merged
+    # graph's `input_fingerprint` matches the one the existing clusters
+    # artifact was computed from (same cluster builder + same graph builder),
+    # the clusters and betweenness sections are pure functions of an unchanged
+    # input — skip the recompute AND the artifact rewrite. The dominant
+    # hook-fire case (an edit that leaves the graph unchanged) then costs one
+    # small artifact read. Any version bump or fingerprint change falls
+    # through to the full recompute exactly as before.
+    graph_fingerprint = str(graph.get("input_fingerprint") or "")
+    if graph_fingerprint:
+        existing = _read_json(cluster_path(root, layer), None)
+        if (
+            isinstance(existing, dict)
+            and str(existing.get("input_fingerprint") or "") == graph_fingerprint
+            and str(existing.get("cluster_builder_version") or "") == CLUSTER_BUILDER_VERSION
+            and str(existing.get("graph_builder_version") or "")
+            == str(graph.get("builder_version") or GRAPH_BUILDER_VERSION)
+            and str(existing.get("layer") or "") == layer
+        ):
+            print(
+                f"build_index: graph unchanged ({layer} layer, fingerprint match) — "
+                "clusters/betweenness artifact reused, no recompute",
+                file=sys.stderr,
+                flush=True,
+            )
+            return read_cluster_payload(root, layer)
 
     if verbose:
         print(f"build_index: graph clustering inputs ready for {layer} layer", flush=True)
@@ -914,6 +1116,23 @@ def update_graph_clusters(
     for c in remapped:
         if c.pop("_fixed", None):
             c["kind"] = "fixed"
+    # Wave 1p9q3 (1p9q1): build-time tiered betweenness — computed alongside the
+    # clustering pass (igraph + the merged payload are already loaded here) and
+    # persisted so `wave_graph_report` serves a read, never a per-query O(V*E)
+    # computation. Timed per the build-instrumentation pattern; the summary line
+    # goes to stderr (mirrors indexer.py's unconditional progress line — this
+    # pass can run IN-PROCESS from the MCP server where stdout is the JSON-RPC
+    # channel; stderr is left alone by the server's stdout isolation).
+    betweenness_section = compute_betweenness_ranking(graph)
+    print(
+        f"build_index: betweenness pass ({layer} layer) — "
+        f"method={betweenness_section['method']}"
+        f" | nodes: {betweenness_section['node_count']}"
+        f" | calls edges: {betweenness_section['edge_count']}"
+        f" in {betweenness_section['elapsed_ms'] / 1000:.1f}s",
+        file=sys.stderr,
+        flush=True,
+    )
     payload = {
         "cluster_schema_version": CLUSTER_SCHEMA_VERSION,
         "cluster_builder_version": CLUSTER_BUILDER_VERSION,
@@ -921,6 +1140,9 @@ def update_graph_clusters(
         "layer": layer,
         "graph_schema_version": str(graph.get("schema_version") or GRAPH_SCHEMA_VERSION),
         "graph_builder_version": str(graph.get("builder_version") or GRAPH_BUILDER_VERSION),
+        # Wave 1p9q3 (1p9q2): the merged-graph fingerprint this artifact was
+        # computed from — the key for the fingerprint-gated recompute skip.
+        "input_fingerprint": str(graph.get("input_fingerprint") or ""),
         "graph_path": str(graph_path(root, layer).relative_to(root)).replace("\\", "/"),
         "graph_mtime": int(graph.get("graph_mtime") or 0),
         "projection": "derived-undirected",
@@ -932,6 +1154,7 @@ def update_graph_clusters(
         "generated_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         "community_count": len(remapped),
         "communities": remapped,
+        "betweenness": betweenness_section,
     }
     _write_json(cluster_path(root, layer), payload)
     if verbose:

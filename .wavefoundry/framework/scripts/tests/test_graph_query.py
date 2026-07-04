@@ -7,8 +7,13 @@ import importlib.util
 import io
 import json
 import math
+import os
+import re
 import sys
 import tempfile
+import threading
+import time
+import types
 import unittest
 from pathlib import Path
 
@@ -16,6 +21,11 @@ SCRIPTS = Path(__file__).resolve().parents[1]
 
 
 def load_graph_query():
+    # graph_query.py does `import cli_stdio` (a sibling module) at load time;
+    # make the scripts root importable regardless of which test file ran
+    # first instead of depending on suite ordering.
+    if str(SCRIPTS) not in sys.path:
+        sys.path.insert(0, str(SCRIPTS))
     sys.modules.pop("graph_query", None)
     spec = importlib.util.spec_from_file_location("graph_query", SCRIPTS / "graph_query.py")
     mod = importlib.util.module_from_spec(spec)
@@ -576,38 +586,56 @@ class GraphQueryShortestPathDirectionValidationTests(unittest.TestCase):
         self.assertEqual(result_default, result_forward)
 
 
-class GraphQueryBetweennessTests(unittest.TestCase):
-    """12zxl AC-3: GraphQueryIndex.report(sections=['betweenness'])."""
+class GraphQueryBetweennessRetirementTests(unittest.TestCase):
+    """Wave 1p9q3 (1p9q1): the per-query betweenness computation is retired.
+
+    Betweenness is computed at build time (graph_cluster.compute_betweenness_ranking)
+    and persisted in the clusters artifact; GraphQueryIndex.report never computes
+    it and the 10k-node cap constant no longer exists anywhere.
+    """
 
     def setUp(self):
         self.mod = load_graph_query()
         self.index = self.mod.GraphQueryIndex(FIXTURE_GRAPH | {"present": True})
 
-    def test_betweenness_node_count_guard(self):
-        original = self.mod._BETWEENNESS_NODE_LIMIT
-        self.mod._BETWEENNESS_NODE_LIMIT = 2  # fixture has 5 nodes → triggers guard
-        try:
-            result = self.index.report(sections=["betweenness"])
-            self.assertIn("betweenness", result)
-            self.assertEqual(result["betweenness"]["diagnostic"], "graph_too_large_for_betweenness")
-        finally:
-            self.mod._BETWEENNESS_NODE_LIMIT = original
-
-    def test_betweenness_igraph_unavailable(self):
-        import unittest.mock
-        with unittest.mock.patch.dict(sys.modules, {"igraph": None}):
-            result = self.index.report(sections=["betweenness"])
-            self.assertIn("betweenness", result)
-            self.assertEqual(result["betweenness"]["diagnostic"], "igraph_unavailable")
-
-    def test_betweenness_returns_list_when_igraph_available(self):
-        try:
-            import igraph  # noqa: F401
-        except ImportError:
-            self.skipTest("igraph unavailable")
+    def test_report_does_not_serve_betweenness_section(self):
+        # AC-5: requesting the old section name from the query index yields no
+        # betweenness key — the section is served from the persisted artifact by
+        # wave_graph_report, never computed here.
         result = self.index.report(sections=["betweenness"])
-        self.assertIn("betweenness", result)
-        self.assertIsInstance(result["betweenness"], list)
+        self.assertNotIn("betweenness", result)
+
+    def test_report_never_calls_igraph_betweenness(self):
+        # AC-5 instrumentation: even with an igraph module visible, report()
+        # must not construct a graph or call betweenness at query time.
+        import unittest.mock
+
+        class _ExplodingGraph:
+            def __init__(self, *args, **kwargs):
+                raise AssertionError("query-time igraph.Graph construction is retired")
+
+        fake_igraph = types.SimpleNamespace(Graph=_ExplodingGraph)
+        with unittest.mock.patch.dict(sys.modules, {"igraph": fake_igraph}):
+            result = self.index.report(
+                sections=["fan_in", "fan_out", "orphan_docs", "chokepoints", "file_hubs", "betweenness"]
+            )
+        self.assertNotIn("betweenness", result)
+        self.assertIn("fan_in", result)
+
+    def test_cap_constant_retired_module_attr(self):
+        # The retired cap constant must not resurface on the module.
+        self.assertFalse(hasattr(self.mod, "_BETWEENNESS_NODE_LIMIT"))
+
+    def test_cap_constant_retired_grep_gate(self):
+        # AC-5 grep gate: `_BETWEENNESS_NODE_LIMIT` no longer exists anywhere in
+        # framework scripts (this test file is the only allowed mention).
+        offenders: list[str] = []
+        for path in SCRIPTS.rglob("*.py"):
+            if path == Path(__file__).resolve():
+                continue
+            if "_BETWEENNESS_NODE_LIMIT" in path.read_text(encoding="utf-8", errors="replace"):
+                offenders.append(str(path))
+        self.assertEqual(offenders, [], f"retired constant still referenced: {offenders}")
 
 
 class GraphAugmentationExplicitOptOutTests(unittest.TestCase):
@@ -1005,6 +1033,295 @@ class ConstantQueryMustFixTests(unittest.TestCase):
         """Guard AC (locks the deferral): `reads` never pollutes impact/blast-radius or call graphs."""
         self.assertNotIn("reads", self.mod._DEFAULT_IMPACT_RELATIONS)
         self.assertNotIn("reads", self.mod._DEFAULT_CALL_RELATIONS)
+
+
+class GraphQueryIndexCacheTests(unittest.TestCase):
+    """Wave 1p9q3 (1p9pz): process-level cache of the constructed GraphQueryIndex.
+
+    Covers AC-1 (hit/reuse via loader call-count), AC-2 (invalidation matrix:
+    stat change, rebuild-triggered explicit invalidation, same-stat pathological
+    rewrite), AC-3 (cached vs kill-switch output equivalence per tool family),
+    AC-4 (concurrency: no half-constructed index, no double-build), and the
+    AC-5 repeated-query immutability guard on one cached instance.
+    """
+
+    KILL_SWITCH = "WAVEFOUNDRY_DISABLE_GRAPH_QUERY_CACHE"
+
+    def setUp(self):
+        self.mod = load_graph_query()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.indexer = self.mod._get_graph_indexer()
+        # Version-current fixture: the accessor never PINS a payload whose
+        # builder_version differs from the runtime constant (old-code-window
+        # hardening), so cache-mechanics tests must serve a current payload.
+        self.fixture = json.loads(json.dumps(FIXTURE_GRAPH))
+        self.fixture["builder_version"] = str(self.indexer.GRAPH_BUILDER_VERSION)
+        _write_graph(self.root, "project", self.fixture)
+        # Instrument the loader: count every full payload parse (both the
+        # cached accessor's miss path and the kill-switch/from_root path go
+        # through read_graph_payload on the lazily-loaded indexer module).
+        self.load_calls: list[tuple[str, str]] = []
+        real_read = self.indexer.read_graph_payload
+
+        def counting_read(root, layer="project"):
+            self.load_calls.append((str(root), layer))
+            return real_read(root, layer)
+
+        self.indexer.read_graph_payload = counting_read
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _graph_path(self) -> Path:
+        return self.root / ".wavefoundry" / "index" / "graph" / "project-graph.json"
+
+    def _seed_state(self, builder_version: str) -> None:
+        state_path = self._graph_path().with_name("project-graph-state.json")
+        state_path.write_text(json.dumps({"builder_version": builder_version}), encoding="utf-8")
+
+    # ---- AC-1: hit/reuse ----
+
+    def test_cache_hit_parses_payload_once_and_reuses_index(self):
+        i1 = self.mod.get_query_index(self.root)
+        i2 = self.mod.get_query_index(self.root)
+        self.assertEqual(len(self.load_calls), 1)
+        self.assertIs(i1, i2)
+        self.assertEqual(len(i1._node_by_id), 5)
+
+    def test_kill_switch_restores_load_per_call(self):
+        from unittest.mock import patch
+        with patch.dict(os.environ, {self.KILL_SWITCH: "1"}):
+            i1 = self.mod.get_query_index(self.root)
+            i2 = self.mod.get_query_index(self.root)
+        self.assertEqual(len(self.load_calls), 2)
+        self.assertIsNot(i1, i2)
+
+    def test_stale_builder_version_payload_is_never_pinned(self):
+        # Old-code-window hardening: a stale pre-upgrade process can rewrite
+        # the payload with an older builder_version while the store meta the
+        # version check probes still reads current. Such a payload is served
+        # (graceful) but never cached — every access reloads until a build
+        # heals it.
+        stale = json.loads(json.dumps(self.fixture))
+        stale["builder_version"] = "1"  # != runtime GRAPH_BUILDER_VERSION
+        _write_graph(self.root, "project", stale)
+        i1 = self.mod.get_query_index(self.root)
+        i2 = self.mod.get_query_index(self.root)
+        self.assertEqual(len(self.load_calls), 2, "stale-version payload must not be pinned")
+        self.assertIsNot(i1, i2)
+        # A current payload re-enables pinning.
+        _write_graph(self.root, "project", self.fixture)
+        i3 = self.mod.get_query_index(self.root)
+        i4 = self.mod.get_query_index(self.root)
+        self.assertIs(i3, i4)
+
+    def test_rejects_non_project_layer(self):
+        with self.assertRaises(ValueError):
+            self.mod.get_query_index(self.root, layer="framework")
+
+    # ---- AC-2: invalidation matrix ----
+
+    def test_stat_change_reloads_and_reflects_new_graph(self):
+        self.mod.get_query_index(self.root)
+        new_graph = json.loads(json.dumps(self.fixture))
+        new_graph["nodes"].append(
+            {"id": "src/c.py::baz", "label": "baz", "kind": "function", "source_file": "src/c.py", "layer": "project"})
+        _write_graph(self.root, "project", new_graph)  # different size → different stat
+        idx = self.mod.get_query_index(self.root)
+        self.assertEqual(len(self.load_calls), 2)
+        self.assertIsNotNone(idx.get_node("src/c.py::baz"))
+
+    def test_same_stat_rewrite_requires_explicit_invalidation(self):
+        i1 = self.mod.get_query_index(self.root)
+        # Pathological rewrite: same byte length, forced-identical mtime_ns.
+        graph_path = self._graph_path()
+        st = graph_path.stat()
+        same_size = json.loads(json.dumps(self.fixture))
+        same_size["nodes"][3]["label"] = "baz"  # "bar" → "baz": same length
+        data = json.dumps(same_size)
+        self.assertEqual(len(data.encode("utf-8")), st.st_size)
+        graph_path.write_text(data, encoding="utf-8")
+        os.utime(graph_path, ns=(st.st_atime_ns, st.st_mtime_ns))
+        # Stat validation alone cannot see this rewrite — cache still serves old.
+        i2 = self.mod.get_query_index(self.root)
+        self.assertIs(i1, i2)
+        # The explicit hook (called by every known-rebuild path) forces reload.
+        self.mod.invalidate_query_index_cache(self.root)
+        i3 = self.mod.get_query_index(self.root)
+        self.assertIsNot(i1, i3)
+        self.assertEqual((i3.get_node("src/b.py::bar") or {}).get("label"), "baz")
+        # Loads: initial construction + post-invalidation reload (the same-stat
+        # hit in between served the cache without loading).
+        self.assertEqual(len(self.load_calls), 2)
+
+    def _with_fake_rebuild(self):
+        """Patch the auto-rebuild indexer load with a no-op build (mirrors
+        GraphQueryAutoRebuildCallbackTests._with_fake_rebuild)."""
+        from unittest.mock import patch
+        real_spec = importlib.util.spec_from_file_location
+        real_module = importlib.util.module_from_spec
+
+        class _FakeLoader:
+            def exec_module(self, module):
+                module.build_index = lambda *a, **k: {"ok": True}
+
+        class _FakeSpec:
+            name = "indexer_for_graph_query_rebuild"
+            loader = _FakeLoader()
+
+        def _fake_spec(name, path):
+            if name == "indexer_for_graph_query_rebuild":
+                return _FakeSpec()
+            return real_spec(name, path)
+
+        def _fake_module(spec):
+            if getattr(spec, "name", "") == "indexer_for_graph_query_rebuild":
+                import types
+                return types.ModuleType("fake_indexer_for_rebuild")
+            return real_module(spec)
+
+        return patch("importlib.util.spec_from_file_location", _fake_spec), \
+               patch("importlib.util.module_from_spec", _fake_module)
+
+    def test_rebuild_triggered_invalidation_reloads_despite_equal_stats(self):
+        runtime = str(getattr(self.indexer, "GRAPH_BUILDER_VERSION", "") or "")
+        self._seed_state(runtime)
+        i1 = self.mod.get_query_index(self.root)
+        self.assertEqual(len(self.load_calls), 1)
+        # Simulate a builder-version bump observed at query time: stale state
+        # on disk, fresh runtime (version-check cache cleared as a process
+        # restart would). Payload stats are UNCHANGED — only the explicit
+        # in-process invalidation (plus the rebuild-ran bypass) can reload.
+        self._seed_state("0")
+        with self.mod._VERSION_CHECK_LOCK:
+            self.mod._VERSION_CHECK_CACHE.clear()
+        p1, p2 = self._with_fake_rebuild()
+        with p1, p2:
+            i2 = self.mod.get_query_index(self.root)
+        self.assertEqual((i2.auto_rebuild_diagnostic or {}).get("code"), "graph_auto_rebuilt")
+        self.assertEqual(len(self.load_calls), 2)
+        self.assertIsNot(i1, i2)
+        # Next call: version verified, stats stable → hit, no diagnostic replay.
+        i3 = self.mod.get_query_index(self.root)
+        self.assertIsNone(i3.auto_rebuild_diagnostic)
+        self.assertEqual(len(self.load_calls), 2)
+
+    # ---- AC-3: cached vs kill-switch equivalence per tool family ----
+
+    def test_cached_and_uncached_results_identical_per_tool_family(self):
+        from unittest.mock import patch
+        cached = self.mod.get_query_index(self.root)
+        with patch.dict(os.environ, {self.KILL_SWITCH: "1"}):
+            fresh = self.mod.get_query_index(self.root)
+        self.assertIsNot(cached, fresh)
+
+        def _families(idx):
+            return {
+                # path family (code_graph_path)
+                "path": idx.shortest_path("foo", "bar"),
+                # impact family (code_impact / code_risk_score)
+                "impact": idx.graph_impact("bar"),
+                "risk": idx.risk_score("src/"),
+                # callgraph/hierarchy family (code_callgraph / code_callhierarchy)
+                "callgraph": idx.callgraph("foo", depth=2, direction="both"),
+                # dependencies/references family (1-hop in/out adjacency)
+                "one_hop": idx.one_hop_neighbors(["src/a.py::foo", "src/b.py"]),
+                "in_degrees": {n: len(idx._in.get(n, [])) for n in sorted(idx._node_by_id)},
+                "out_degrees": {n: len(idx._out.get(n, [])) for n in sorted(idx._node_by_id)},
+                # community family reads nodes + degrees (code_graph_community)
+                "node": idx.get_node("src/a.py::foo"),
+                # report family (wave_graph_report)
+                "report": idx.report(limit=10),
+            }
+
+        first = _families(cached)
+        self.assertEqual(first, _families(fresh))
+        # Repeated queries against the SAME cached instance stay identical —
+        # locks the immutability contract the cache depends on (AC-5 guard).
+        self.assertEqual(first, _families(cached))
+
+    def test_queries_do_not_mutate_cached_structures(self):
+        idx = self.mod.get_query_index(self.root)
+        snapshot = lambda: (  # noqa: E731
+            json.dumps(idx.nodes, sort_keys=True),
+            json.dumps(idx.edges, sort_keys=True),
+            {k: len(v) for k, v in idx._out.items()},
+            {k: len(v) for k, v in idx._in.items()},
+            sorted(idx._node_by_id),
+        )
+        before = snapshot()
+        idx.resolve_symbol("bar")
+        idx.traverse("src/a.py::foo", max_hops=3, direction="both")
+        idx.one_hop_neighbors(["src/a.py::foo"])
+        idx.shortest_path("foo", "bar", direction="either")
+        idx.graph_impact("bar")
+        idx.risk_score("src/")
+        idx.callgraph("foo", depth=2, direction="both")
+        idx.report(limit=10)
+        self.assertEqual(before, snapshot())
+
+    # ---- AC-4: concurrency ----
+
+    def test_concurrent_access_during_construction_is_safe(self):
+        entered = threading.Event()
+        release = threading.Event()
+        real_read = self.indexer.read_graph_payload
+
+        def slow_read(root, layer="project"):
+            entered.set()
+            release.wait(timeout=10)
+            return real_read(root, layer)
+
+        self.indexer.read_graph_payload = slow_read
+        results: dict[str, object] = {}
+        errors: list[BaseException] = []
+
+        def worker(key):
+            try:
+                results[key] = self.mod.get_query_index(self.root)
+            except BaseException as exc:  # pragma: no cover - failure surface
+                errors.append(exc)
+
+        t1 = threading.Thread(target=worker, args=("a",))
+        t2 = threading.Thread(target=worker, args=("b",))
+        t1.start()
+        self.assertTrue(entered.wait(timeout=10))  # t1 is inside construction
+        t2.start()                                  # t2 blocks on the cache lock
+        time.sleep(0.05)                            # let t2 reach the lock
+        release.set()
+        t1.join(timeout=10)
+        t2.join(timeout=10)
+        self.assertEqual(errors, [])
+        self.assertEqual(len(results), 2)
+        # Both threads got a FULLY constructed index — never a partial read.
+        for idx in results.values():
+            self.assertEqual(len(idx._node_by_id), 5)
+            self.assertEqual(len(idx.edges), 3)
+        # Construction ran once; the second thread reused the fresh entry.
+        self.assertIs(results["a"], results["b"])
+
+
+class ServerImplGraphAccessorGateTests(unittest.TestCase):
+    """Wave 1p9q3 (1p9pz) AC-6 grep gate: every GraphQueryIndex construction in
+    server_impl.py routes through the cached accessor; no direct fresh-parse
+    site remains outside graph_query's accessor/kill-switch path."""
+
+    def test_no_direct_from_root_sites_in_server_impl(self):
+        src = (SCRIPTS / "server_impl.py").read_text(encoding="utf-8")
+        self.assertNotIn("GraphQueryIndex.from_root", src)
+        self.assertIn("get_query_index(", src)
+
+    def test_direct_constructions_are_transform_payloads_only(self):
+        # Direct GraphQueryIndex(...) calls are allowed ONLY over locally
+        # transformed in-memory payloads (collapse views) — never a fresh
+        # parse of the on-disk artifact.
+        src = (SCRIPTS / "server_impl.py").read_text(encoding="utf-8")
+        direct = re.findall(r"GraphQueryIndex\((\w+)", src)
+        self.assertEqual(
+            sorted(set(direct)),
+            ["collapsed_payload", "directory_payload", "merged_payload"],
+        )
 
 
 if __name__ == "__main__":
