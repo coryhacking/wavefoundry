@@ -4,14 +4,14 @@ Change ID: `1p9pk-enh prepare-council-verification-rigor`
 Change Status: `planned`
 Owner: Engineering
 Status: planned
-Last verified: 2026-07-03
+Last verified: 2026-07-04
 Wave: TBD
 
 ## Rationale
 
 Wave `1p9pe`'s own recorded prepare-council review is the motivating evidence: it passed technical validation and recorded a `prepare-council: PASS`, yet an independent adversarial readiness review of the same four admitted plans immediately found a NOT-READY mechanism defect (a plan whose `os.environ` approach is a verified no-op because Hugging Face reads the timeout into a module constant at import), a wrong causal story, two factual errors (a cited helper `_lint_changed` that does not exist — the real name is `_run_incremental_checks`; a "five callers" census that is actually six), and four AC vacuity/coverage gaps. None were caught at readiness. Three failure modes in the prepare-council machinery let that happen, each independently fixable:
 
-1. **The verdict template hands over a copy-pasteable seat roster that can be internally inconsistent.** `server_impl.py:8864` `_prepare_council_verdict_template` builds `seat_list = ["red-team", "architecture-reviewer", "security-reviewer", "qa-reviewer", "reality-checker"]` then unconditionally appends the rotating seat (`:8867-8868`). When the rotating seat is itself a fixed seat (e.g. `security-reviewer`, selected for trust-boundary waves), the template emits `security-reviewer` **twice** — exactly the roster recorded verbatim in `1p9pe`'s wave record. The concrete, duplication-carrying seat list invites agents to paste it as the *actual* roster rather than record the seats they truly ran.
+1. **The verdict template hands over a copy-pasteable seat roster that can be internally inconsistent.** `server_impl.py:8879` (post-1p9q3) `_prepare_council_verdict_template` builds `seat_list = ["red-team", "architecture-reviewer", "security-reviewer", "qa-reviewer", "reality-checker"]` then unconditionally appends the rotating seat (`:8882-8883`). When the rotating seat is itself a fixed seat (e.g. `security-reviewer`, selected for trust-boundary waves), the template emits `security-reviewer` **twice** — exactly the roster recorded verbatim in `1p9pe`'s wave record. The concrete, duplication-carrying seat list invites agents to paste it as the *actual* roster rather than record the seats they truly ran.
 
 2. **No validator checks that the recorded roster matches the recorded evidence.** `wave_validators.py:1431` only asserts a `prepare-council` verdict line *exists* in `## Review Checkpoints` for active/implementing waves; `wave_prepare` reports `council_verdict_valid: true` on structural completeness alone. In `1p9pe` the prepare-council line names *red-team, architecture-reviewer, qa-reviewer, reality-checker* (plus the duplicated security-reviewer), while the `## Prepare Review Evidence` section records *code-reviewer, security-reviewer, performance-reviewer* — a near-total mismatch between claimed and evidenced seats that nothing flagged.
 
@@ -34,9 +34,9 @@ Fixing all three converts the prepare-council from a structurally-checkable form
 
 **In scope:**
 
-- De-duplicate the rotating seat in `_prepare_council_verdict_template` (`server_impl.py:8864-8868`) and adjust the template wording so the seat list reads as "replace with seats actually run." (Note: the collision fires for **both** `security-reviewer` and `architecture-reviewer` rotating picks — both are in the hardcoded fixed-seat list `:8866`; `_select_prepare_council_rotating_seat` can return either.)
+- De-duplicate the rotating seat in `_prepare_council_verdict_template` (`server_impl.py:8879-8884`) and adjust the template wording so the seat list reads as "replace with seats actually run." (Note: the collision fires for **both** `security-reviewer` and `architecture-reviewer` rotating picks — both are in the hardcoded fixed-seat list `:8881`; `_select_prepare_council_rotating_seat` can return either.)
 - Add a validator in `.wavefoundry/framework/scripts/wave_lint_lib/wave_validators.py` (near the existing `check_prepare_council_verdict` at `:1430`, whose current check is a bare `"prepare-council" in checkpoints.casefold()` substring test) for roster⇄evidence consistency, with the fail-safe/tolerance behavior in Requirements 2–3.
-- Tighten the brief `instructions` string in `_build_prepare_council_brief` (`server_impl.py:8877`) and the review seed to require code-grounded verification (mirror the delivery review's Pass-3 verification expectation). **Primary seed target: `.wavefoundry/framework/seeds/237-council-review.prompt.md`** — its per-seat "must:" contract (`:45-48`) is where the requirement belongs; `215-wave-council.prompt.md` is moderator orchestration and gets a cross-reference only. Also audit `007-review-system-overview.md` (the review-system hub, which carries the most prepare-council references) for a consistency pointer.
+- Tighten the brief `instructions` string in `_build_prepare_council_brief` (`server_impl.py:8892`) and the review seed to require code-grounded verification (mirror the delivery review's Pass-3 verification expectation). **Primary seed target: `.wavefoundry/framework/seeds/237-council-review.prompt.md`** — its per-seat "must:" contract (`:45-48`) is where the requirement belongs; `215-wave-council.prompt.md` is moderator orchestration and gets a cross-reference only. Also audit `007-review-system-overview.md` (the review-system hub, which carries the most prepare-council references) for a consistency pointer.
 - Tests: template de-dup for a fixed-seat rotating pick; validator flags a roster/evidence mismatch and passes a consistent one and tolerates synthesis-only conventions; brief instructions carry the verification requirement.
 
 **Out of scope:**
@@ -58,9 +58,9 @@ Fixing all three converts the prepare-council from a structurally-checkable form
 
 ## Tasks
 
-- [ ] De-dup the rotating seat in `_prepare_council_verdict_template` (`server_impl.py:8864-8868`) and reword the emitted seat list as a replace-me placeholder.
+- [ ] De-dup the rotating seat in `_prepare_council_verdict_template` (`server_impl.py:8879-8884`) and reword the emitted seat list as a replace-me placeholder.
 - [ ] Add a roster⇄evidence consistency validator in `wave_lint_lib/wave_validators.py` near `check_prepare_council_verdict` (`:1430`); fail-safe and tolerant of synthesis conventions; message names mismatched seats.
-- [ ] Open `wave_gate_open(gate="seed_edit_allowed")`; tighten the brief `instructions` in `_build_prepare_council_brief` (`server_impl.py:8877`) to require code-grounded verification; land the per-seat requirement in `237-council-review.prompt.md` (`:45-48`), cross-reference from `215-wave-council.prompt.md`, audit `007-review-system-overview.md` for a consistency pointer; close `wave_gate_close(gate="seed_edit_allowed")` immediately after.
+- [ ] Open `wave_gate_open(gate="seed_edit_allowed")`; tighten the brief `instructions` in `_build_prepare_council_brief` (`server_impl.py:8892`) to require code-grounded verification; land the per-seat requirement in `237-council-review.prompt.md` (`:45-48`), cross-reference from `215-wave-council.prompt.md`, audit `007-review-system-overview.md` for a consistency pointer; close `wave_gate_close(gate="seed_edit_allowed")` immediately after.
 - [ ] Add unit tests: template de-dup (both `security-reviewer` AND `architecture-reviewer` colliding picks + a non-colliding pick); validator against a **frozen pre-corrective `1p9pe`-shaped fixture** (mismatch → names architecture/qa/reality-checker), a consistent fixture, and each tolerance case (`red-team`, `wave-council`, prose-in-other-bullet); brief-instructions verification requirement.
 - [ ] Run `python3 .wavefoundry/framework/scripts/run_tests.py` and `wave_validate`; clean any `__pycache__`.
 

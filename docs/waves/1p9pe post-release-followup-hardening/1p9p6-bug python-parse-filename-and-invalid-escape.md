@@ -4,7 +4,7 @@ Change ID: `1p9p6-bug python-parse-filename-and-invalid-escape`
 Change Status: `planned`
 Owner: Engineering
 Status: planned
-Last verified: 2026-07-03
+Last verified: 2026-07-04
 Wave: TBD
 
 ## Rationale
@@ -26,7 +26,7 @@ Fixing (1) removes the current noise and the latent forward-compat `SyntaxError`
 ## Requirements
 
 1. The invalid escape sequence at `.wavefoundry/framework/scripts/tests/test_wf_cli.py:293` must be eliminated so the file compiles with zero `SyntaxWarning` under `python -W error::SyntaxWarning`, while the docstring's rendered intent (illustrating that a bare prose mention of `` `docs_lint.py` `` is allowed) is preserved.
-2. The Python `ast.parse` calls on the **indexing path** must pass `filename=` naming the file being parsed, so a `SyntaxWarning`/`SyntaxError` from indexed Python (this repo or a target repo) names the real path and line instead of `<unknown>`. The three current indexing-path sites are `chunker.py:497` (`chunk_python`, `path` in scope), `chunker.py:5179` (`_extract_python_module_docstring`, no path in scope — thread one in), and `graph_indexer.py:5667` (`_extract_python_artifact`, `rel_path` in scope).
+2. The Python `ast.parse` calls on the **indexing path** must pass `filename=` naming the file being parsed, so a `SyntaxWarning`/`SyntaxError` from indexed Python (this repo or a target repo) names the real path and line instead of `<unknown>`. The three current indexing-path sites are `chunker.py:497` (`chunk_python`, `path` in scope), `chunker.py:5179` (`_extract_python_module_docstring`, no path in scope — thread one in), and `graph_indexer.py` `_extract_python_artifact` (~:6518 post-1p9q3; the file is under active edit by a sibling wave — anchor by symbol, `rel_path` in scope).
 3. Passing `filename=` must not change any chunking, symbol-extraction, or graph-extraction output — it is a diagnostic-only argument. The existing `except SyntaxError:` fallbacks at each site must remain unchanged in behavior (a genuinely unparseable file still degrades gracefully; it does not start raising).
 4. A regression guard must fail if any tracked, non-vendored `.py` file (re)introduces an invalid-escape `SyntaxWarning`, so this defect class cannot silently return.
 5. No behavioral change to `wf_cli` itself: the edit to `test_wf_cli.py` is confined to the offending docstring; the test's assertions and the coverage contract it documents are untouched.
@@ -38,7 +38,7 @@ Fixing (1) removes the current noise and the latent forward-compat `SyntaxError`
 **In scope:**
 
 - Fix the invalid escape at `tests/test_wf_cli.py:293` (raw-string the docstring, or otherwise make `` `docs_lint.py` `` render without an invalid escape).
-- Add `filename=` to the three indexing-path `ast.parse` sites (`chunker.py:497`, `chunker.py:5179`, `graph_indexer.py:5667`), threading an optional `filename`/path parameter into `_extract_python_module_docstring` (and its caller at `chunker.py:5225`) where no path is currently in scope, defaulting to `"<unknown>"` to preserve call compatibility.
+- Add `filename=` to the three indexing-path `ast.parse` sites (`chunker.py:497`, `chunker.py:5179`, `graph_indexer.py` `_extract_python_artifact` ~:6518), threading an optional `filename`/path parameter into `_extract_python_module_docstring` (and its caller at `chunker.py:5225`) where no path is currently in scope, defaulting to `"<unknown>"` to preserve call compatibility.
 - A regression test (in the framework test suite) that sweeps tracked non-vendored `.py` files and asserts none emits an invalid-escape `SyntaxWarning`.
 
 **Out of scope:**
@@ -51,7 +51,7 @@ Fixing (1) removes the current noise and the latent forward-compat `SyntaxError`
 ## Acceptance Criteria
 
 - [ ] AC-1: `.wavefoundry/framework/scripts/tests/test_wf_cli.py` compiles with **zero** `SyntaxWarning` under `python -W error::SyntaxWarning -c "import ast; ast.parse(open(path).read())"`; the docstring still communicates that a bare prose mention of a script name is allowed. Verified by the AC-4 sweep passing and by reading the docstring.
-- [ ] AC-2: `chunker.chunk_python`, `chunker._extract_python_module_docstring`, and `graph_indexer._extract_python_artifact` each call `ast.parse(..., filename=<real path>)`; a unit test parsing a source string containing an invalid escape through one of these paths asserts the emitted `SyntaxWarning`'s `filename` is the supplied path, not `"<unknown>"`.
+- [ ] AC-2: `chunker.chunk_python`, `chunker._extract_python_module_docstring`, and `graph_indexer._extract_python_artifact` each call `ast.parse(..., filename=<real path>)`; a unit test parsing a source string containing an invalid escape through one of these paths asserts the emitted `SyntaxWarning`'s `filename` is the supplied path, not `"<unknown>"`. **Effectiveness clause (corrective pass, applied 2026-07-04):** additionally, an integration-shaped check runs a real index build over a fixture tree containing an invalid-escape Python source and asserts the logged warning names the fixture path — the causal multi-pass story in the Rationale is explicitly not load-bearing; this check is.
 - [ ] AC-3: Chunk / symbol / graph output for a representative Python source is byte-for-byte unchanged by the `filename=` addition (the existing chunker/graph tests stay green), and a source that raises `SyntaxError` still degrades via the existing fallback (returns line-window chunks / empty artifact) rather than propagating.
 - [ ] AC-4: A regression test sweeps every tracked, non-vendored `.py` file and fails if any emits an invalid-escape `SyntaxWarning`; it passes on the fixed tree and fails when the `test_wf_cli.py:293` fix is reverted.
 - [ ] AC-5: `python3 .wavefoundry/framework/scripts/run_tests.py` passes; `wave_validate` (docs-lint) is clean.
@@ -61,7 +61,7 @@ Fixing (1) removes the current noise and the latent forward-compat `SyntaxError`
 - [ ] Fix `tests/test_wf_cli.py:293` — make the offending docstring a raw string (`r"""`) or escape the backticks so `` `docs_lint.py` `` renders with no invalid escape; confirm the surrounding assertions are untouched.
 - [ ] Add `filename=path` to `ast.parse` in `chunker.chunk_python` (`chunker.py:497`).
 - [ ] Add an optional `filename` parameter to `_extract_python_module_docstring` (`chunker.py:5179`), default `"<unknown>"`, pass it through from the caller at `chunker.py:5225`, and forward it into `ast.parse`.
-- [ ] Add `filename=rel_path` to `ast.parse` in `graph_indexer._extract_python_artifact` (`graph_indexer.py:5667`).
+- [ ] Add `filename=rel_path` to `ast.parse` in `graph_indexer._extract_python_artifact` (anchor by symbol; ~:6518 post-1p9q3).
 - [ ] Add a unit test asserting an invalid-escape source parsed through an indexing-path helper reports the supplied filename in the `SyntaxWarning`.
 - [ ] Add the tree-wide invalid-escape sweep regression test to the framework suite.
 - [ ] Run `python3 .wavefoundry/framework/scripts/run_tests.py` and `wave_validate`; fix any failures; clean any `__pycache__`.
@@ -104,7 +104,8 @@ N/A — the change adds a diagnostic-only `ast.parse` argument at three existing
 
 | Date | Update | Evidence |
 | ---- | ------ | -------- |
-| 2026-07-03 | Scoped from a live full index rebuild that logged `<unknown>:293: SyntaxWarning: invalid escape sequence '\`'` (×2) mid-build. Root-caused to (1) an invalid escape in `tests/test_wf_cli.py:293` and (2) indexing-path `ast.parse` calls omitting `filename=`. Tree-wide `-W error::SyntaxWarning` sweep confirms `test_wf_cli.py` is the ONLY file with a genuine invalid-escape warning; verified the three indexing-path parse sites and that `server_impl.py` already uses the `filename=str(p)` pattern at some of its own sites. | Build log `project-index-build.log`; `chunker.py:497,5179,5225`; `graph_indexer.py:5667`; `server_impl.py:11889,11923,14320`; tree sweep output. |
+| 2026-07-04 | Freshness re-verification before implementation (waves 1p9q3/1roqn landed on the cited files): defect still reproduces — TODAY's full graph rebuild again logged `<unknown>:293` and the `-W error::SyntaxWarning` repro confirms `test_wf_cli.py:293`; chunker anchors exact; `_extract_python_artifact` moved :5667→~:6518 (anchors updated to symbol form — the file is under live edit by wave 1p9qh); `indexer.py:1013/1175` exclusion citations still exact. Corrective-note items applied in place: the Rationale's multi-pass causal story is NOT load-bearing (which pass emits the live warning remains unsettled — the fix does not depend on it), and AC-2 gains the rebuild-level effectiveness clause the corrective pass required. | Freshness lane 2026-07-04; live rebuild log; `-W error::SyntaxWarning` repro. |
+| 2026-07-03 | Scoped from a live full index rebuild that logged `<unknown>:293: SyntaxWarning: invalid escape sequence '\`'` (×2) mid-build. Root-caused to (1) an invalid escape in `tests/test_wf_cli.py:293` and (2) indexing-path `ast.parse` calls omitting `filename=`. Tree-wide `-W error::SyntaxWarning` sweep confirms `test_wf_cli.py` is the ONLY file with a genuine invalid-escape warning; verified the three indexing-path parse sites and that `server_impl.py` already uses the `filename=str(p)` pattern at some of its own sites. | Build log `project-index-build.log`; `chunker.py:497,5179,5225`; `graph_indexer.py` `_extract_python_artifact`; `server_impl.py:11904,11938,14341` (post-1p9q3); tree sweep output. |
 
 
 ## Decision Log

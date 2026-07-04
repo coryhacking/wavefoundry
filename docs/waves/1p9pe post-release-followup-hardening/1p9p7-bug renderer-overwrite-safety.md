@@ -4,7 +4,7 @@ Change ID: `1p9p7-bug renderer-overwrite-safety`
 Change Status: `planned`
 Owner: Engineering
 Status: planned
-Last verified: 2026-07-03
+Last verified: 2026-07-04
 Wave: TBD
 
 ## Rationale
@@ -32,7 +32,7 @@ Both are "renderer destroys committed state on a normal invocation" defects. Thi
 
 **In scope:**
 
-- Make the `.codex/config.toml` write in `render_agent_surfaces.py` (`:329-330`) preserve operator content: introduce a TOML `#`-marker framework-managed region (mirroring `upsert_marked_region` / the `MARKER_BEGIN`/`MARKER_END` pattern at `:10-11`, `:162`) or a structured TOML merge that upserts only `[mcp_servers.wavefoundry]` command/args and leaves everything else intact.
+- Make the `.codex/config.toml` write in `render_agent_surfaces.py` (`:329-331`) preserve operator content: introduce a TOML `#`-marker framework-managed region (mirroring `upsert_marked_region` / the `MARKER_BEGIN`/`MARKER_END` pattern at `:10-11`, `:162`) or a structured TOML merge that upserts only `[mcp_servers.wavefoundry]` command/args and leaves everything else intact.
 - Gate `remove_copilot_artifacts` in `render_platform_surfaces.py` (`:1724`) on `detect_platforms(repo_root)` (does the repo have copilot surfaces?) rather than on the invocation's `platforms` set.
 - Tests: a re-render preserves an operator-added `[mcp_servers.wavefoundry.tools.wave_close]` block; a fresh repo gets the file created; an explicit `--platform claude` render on a repo with `.github/copilot-instructions.md` leaves `.github/hooks/*` intact; a repo with no copilot surfaces still has stale copilot artifacts removed.
 
@@ -51,11 +51,13 @@ Both are "renderer destroys committed state on a normal invocation" defects. Thi
 - [ ] AC-4: `render_platform_surfaces --platform claude` on a repo containing `.github/copilot-instructions.md` (and `.github/hooks/*`) does NOT delete `.github/hooks/*`. Verified by a unit test that seeds copilot surfaces, renders with an explicit non-copilot platform, and asserts the hooks remain.
 - [ ] AC-5: On a repo with no copilot surfaces, a render still removes stray `.github/hooks/*` copilot artifacts (no regression to the cleanup behavior). Verified by a unit test.
 - [ ] AC-6: `python3 .wavefoundry/framework/scripts/run_tests.py` passes; `wave_validate` is clean; re-rendering this repo's own surfaces produces no unexpected diff (rendered-surface fidelity; the `.codex/config.toml` guardrail block is preserved).
+- [ ] AC-7 (readiness corrective pass, applied 2026-07-04): **migration absorption + TOML validity** — on a repo whose existing `.codex/config.toml` carries an UNMARKED pre-existing `[mcp_servers.wavefoundry]` table (this repo's exact on-disk state: unmarked framework table at lines 1-3 + the restored operator `wave_close` block at lines 5-6), the first marked render ABSORBS the unmarked framework table into the managed region (never duplicates it), and the resulting file parses as valid TOML (`tomllib.loads` round-trip asserted). A duplicate `[mcp_servers.wavefoundry]` table is the named migration hazard — the test seeds precisely the current on-disk shape.
+- [ ] AC-8 (readiness corrective pass, applied 2026-07-04): **copilot-in-scope still renders** — a render on a repo WITH copilot surfaces in scope still produces/refreshes the copilot artifacts (the removal-guard fix must not suppress legitimate rendering). Unit-tested.
 
 ## Tasks
 
 - [ ] Design the `.codex/config.toml` framework-managed region: choose TOML `#`-marker region (mirror `upsert_marked_region`, adapting the marker to a TOML comment) vs a `tomllib`-parse structured merge; record the choice in the Decision Log.
-- [ ] Implement the non-destructive codex-config write in `render_agent_surfaces.py` (`:329-330`): read existing content, upsert the framework region, preserve everything else; create-if-missing when absent.
+- [ ] Implement the non-destructive codex-config write in `render_agent_surfaces.py` (`:329-331`): read existing content, upsert the framework region, preserve everything else; create-if-missing when absent.
 - [ ] Change the copilot-removal guard in `render_platform_surfaces.py` (`:1724`) to key off `detect_platforms(repo_root)` (repo has copilot surfaces?) instead of the invocation's `platforms` set.
 - [ ] Add tests: operator-block preservation, idempotent double-render, create-if-missing, explicit-non-copilot-render-preserves-hooks, no-copilot-repo-still-cleans-up.
 - [ ] Re-render this repo's surfaces and confirm no unexpected diff (the committed `.codex/config.toml` guardrail block stays).
@@ -92,6 +94,8 @@ N/A — the change is confined to two renderer functions' write/removal safety; 
 | AC-4 | required | Not deleting `.github/hooks/*` on an explicit non-copilot render is the core of defect (b); it caused the DF-2 rework. |
 | AC-5 | required | The cleanup behavior for genuine non-copilot repos must not regress. |
 | AC-6 | required | Suite + docs-lint + clean self-render are the standing merge gates; the self-render also proves the guardrail block survives. |
+| AC-7 | required | Corrective-pass mandate: the migration hazard (duplicate TOML table on this very repo) would break the Codex host on first self-render; absorption + round-trip validity is the guard. |
+| AC-8 | required | Corrective-pass mandate: the removal-guard fix must not flip into suppressing legitimate copilot rendering. |
 
 
 ## Progress Log
@@ -99,7 +103,7 @@ N/A — the change is confined to two renderer functions' write/removal safety; 
 
 | Date | Update | Evidence |
 | ---- | ------ | -------- |
-| 2026-07-03 | Scoped from wave `1p9j0` DF-2. Verified (a) `render_agent_surfaces.py:329-330` unconditionally overwrites `.codex/config.toml` from `CODEX_MCP_CONFIG_TOML` (`:149`, which lacks the operator `wave_close` block); (b) `render_platform_surfaces.py:1723-1725` gates `remove_copilot_artifacts` on the invocation's `platforms` set, so `--platform claude` deletes `.github/hooks/*` even when `detect_platforms` (`:50-55`) would add copilot from `.github/copilot-instructions.md`. Existing marker-region precedent for markdown: `upsert_marked_region` / `MARKER_BEGIN`/`MARKER_END` (`render_agent_surfaces.py:10-11,162`). | `render_agent_surfaces.py:149,329-330,162`; `render_platform_surfaces.py:50-55,89,1723-1725`; `1p9j0` reality-checker finding + hand-restore of `.codex/config.toml`. |
+| 2026-07-03 | Scoped from wave `1p9j0` DF-2. Verified (a) `render_agent_surfaces.py:329-331` unconditionally overwrites `.codex/config.toml` from `CODEX_MCP_CONFIG_TOML` (`:149`, which lacks the operator `wave_close` block); (b) `render_platform_surfaces.py:1723-1725` gates `remove_copilot_artifacts` on the invocation's `platforms` set, so `--platform claude` deletes `.github/hooks/*` even when `detect_platforms` (`:50-55`) would add copilot from `.github/copilot-instructions.md`. Existing marker-region precedent for markdown: `upsert_marked_region` / `MARKER_BEGIN`/`MARKER_END` (`render_agent_surfaces.py:10-11,162`). | `render_agent_surfaces.py:149,329-330,162`; `render_platform_surfaces.py:50-55,89,1723-1725`; `1p9j0` reality-checker finding + hand-restore of `.codex/config.toml`. |
 
 
 ## Decision Log
