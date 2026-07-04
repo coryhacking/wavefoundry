@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-03
+Last verified: 2026-07-04
 
 ## Repository Summary
 
@@ -33,7 +33,32 @@ between the markers is machine-maintained; the surrounding narrative is not.
 <!-- waveframework:repo-index-modules begin -->
 <!-- Generated from the codebase map (.wavefoundry/framework/scripts/gen_codebase_map.py). The narrative outside these markers is human/agent-authored and never touched. -->
 
-_No structural areas available yet (build the index)._
+| Area | Path | Kind | Size (nodes) |
+| ---- | ---- | ---- | ------------ |
+| tests | `.wavefoundry/framework/scripts/tests` | code | 6748 |
+| server_impl | `.wavefoundry/framework/scripts` | code | 672 |
+| graph | `.wavefoundry/framework/scripts` | code | 249 |
+| dashboard | `.wavefoundry/framework/dashboard` | code | 216 |
+| subprocess_util | `.wavefoundry/framework/scripts` | code | 196 |
+| wave_lint_lib | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 177 |
+| chunker | `.wavefoundry/framework/scripts` | code | 161 |
+| scripts/dashboard_lib | `.wavefoundry/framework/scripts` | code | 120 |
+| indexer | `.wavefoundry/framework/scripts` | code | 110 |
+| scripts/subprocess_util | `.wavefoundry/framework/scripts` | code | 86 |
+| render_platform_surfaces | `.wavefoundry/framework/scripts` | code | 63 |
+| gen_codebase_map | `.wavefoundry/framework/scripts` | code | 56 |
+| graph_cluster | `.wavefoundry/framework/scripts` | code | 38 |
+| scripts/workflow-config | `.wavefoundry/framework/scripts` | code | 26 |
+| design_token_build | `.wavefoundry/framework/scripts` | code | 25 |
+| upgrade_extensions | `.wavefoundry/framework/scripts` | code | 21 |
+| docs_gardener | `.wavefoundry/framework/scripts` | code | 17 |
+| server | `.wavefoundry/framework/scripts` | code | 13 |
+| tokens | `docs/design-system/tokens` | config | 320 |
+| docs | `docs` | config | 227 |
+| modes | `docs/design-system/tokens/modes` | config | 150 |
+| json | `docs/design-system/exports/json` | config | 86 |
+| nav-sidebar | `docs/design-system/components/nav-sidebar` | config | 32 |
+| badge | `docs/design-system/components/badge` | config | 31 |
 <!-- waveframework:repo-index-modules end -->
 
 No shipped product implementation sources exist yet. The MCP Python package (`src/wavefoundry/`) is planned but not scaffolded.

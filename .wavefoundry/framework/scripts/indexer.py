@@ -1893,13 +1893,15 @@ def _detect_lance_drift(
     db_path: Path,
     file_meta: dict[str, dict],
     *,
+    chunk_eligible_rel_paths: set[str],
     tables: tuple[str, ...] = ("docs", "code"),
     verbose: bool = False,
 ) -> set[str]:
-    """Wave 1p3b9 (1p399) + 1p3iv (1p3iw): return the set of paths in
+    """Wave 1p3b9 (1p399) + 1p3iv (1p3iw) + 1rmaf: return the set of paths in
     ``file_meta`` that have ZERO rows in any of the configured Lance tables,
     EXCLUDING paths the indexer previously recorded as legitimately emitting
-    zero chunks.
+    zero chunks AND paths that are not chunk-eligible under the current
+    build's content filters.
 
     These paths are "drifted" — ``meta.json`` claims they're indexed at a
     known hash, but the Lance chunks table has no rows for them. The
@@ -1908,6 +1910,32 @@ def _detect_lance_drift(
     change. This helper surfaces drifted paths so the caller can force
     them through the re-chunk + re-embed path.
 
+    Chunk-eligibility precondition (1rmaf): drift candidacy only makes sense
+    for paths the current build can actually re-chunk. ``meta.json`` tracks
+    the full walked set (``files_for_meta``), but the repair path can only
+    reach files that pass the content filters (``files_for_content``), so a
+    meta-tracked path outside ``chunk_eligible_rel_paths`` must never be
+    flagged: flagging it forces it into ``changed``, chunking skips it, the
+    ``chunks_emitted`` field never updates, and the next build re-flags it —
+    a non-converging repair loop. The parameter is required keyword-only so
+    no caller can silently fall back to unscoped candidacy, and it is named
+    distinctly from ``_reap_stranded_lance_rows``'s ``eligible_paths``,
+    which deliberately carries the WIDER meta union (unifying them would
+    make a docs-only run reap every code-table row). Callers derive the set
+    per build from ``files_for_content`` with the standard normalization
+    (``str(f.relative_to(root)).replace("\\\\", "/")``) — never persisted, so
+    include-flag transitions re-evaluate eligibility every build. Per-branch
+    semantics at the build call site: in the walk branch, ``files_for_content``
+    is content-scoped because the include-prefix reassignment of ``files``
+    precedes ``files_for_content = files`` (docs runs exclude non-allowlisted
+    ``.wavefoundry/`` paths, code runs additionally pass ``_filter_code_files``);
+    in the explicit ``files=`` branch no content-scoped reassignment occurs,
+    so eligibility there is the normalized passed-in list (plus the code-run
+    filter). A build that writes no semantic rows at all (``content="graph"``,
+    ``build_docs`` and ``build_code`` both False) must skip drift detection
+    outright at the call site rather than pass the unfiltered walk —
+    "chunk-eligible" means "row-writable this build".
+
     Empty-file exclusion (1p3iw): entries with explicit ``chunks_emitted == 0``
     are skipped — the prior indexing run recorded that this file legitimately
     produces no chunks (empty file, all-whitespace, marker-region-dominated
@@ -1915,9 +1943,14 @@ def _detect_lance_drift(
     incremental update would flag it again — silent thrash. Entries with
     ``chunks_emitted`` absent (legacy ``meta.json`` from before this field
     existed, or a fresh stat-mismatch entry built in ``_detect_changes``)
-    fall through to the drift check unchanged — one repair learns the true
-    count and populates the field; subsequent updates skip silently if it
-    landed at zero.
+    fall through to the drift check unchanged — for chunk-eligible paths,
+    one repair learns the true count and populates the field; subsequent
+    updates skip silently if it landed at zero. That self-healing narrative
+    holds ONLY under the eligibility precondition above: a chunk-ineligible
+    path never reaches the chunk-write path, so its field can never update —
+    eligibility, not the recorded count, is the primary gate (a stale
+    positive count recorded under earlier include flags is likewise not
+    flagged while the path is ineligible).
 
     Implementation: pulls just the ``path`` column from each Lance table
     (cheap on large tables — single column read, no vector data fetched),
@@ -1932,12 +1965,24 @@ def _detect_lance_drift(
     """
     if not file_meta:
         return set()
+    # 1rmaf: drift candidacy is gated on current-build chunk eligibility —
+    # a path the current build would never chunk can never be "drifted"
+    # (the repair path could not reach it, so flagging it loops forever).
+    if verbose:
+        ineligible_count = sum(1 for path in file_meta if path not in chunk_eligible_rel_paths)
+        if ineligible_count:
+            print(
+                f"build_index: drift-detect skipped {ineligible_count} path(s) as chunk-ineligible "
+                "(outside this build's content filters)",
+                flush=True,
+            )
     # Wave 1p3iw: exclude paths previously recorded as legitimately empty.
     # Missing ``chunks_emitted`` (legacy entries / fresh stat-mismatch entries)
     # falls through to the drift check unchanged.
     file_meta_paths = {
         path for path, entry in file_meta.items()
-        if not (isinstance(entry, dict) and entry.get("chunks_emitted") == 0)
+        if path in chunk_eligible_rel_paths
+        and not (isinstance(entry, dict) and entry.get("chunks_emitted") == 0)
     }
     if not file_meta_paths:
         return set()
@@ -3195,9 +3240,38 @@ def _build_index_locked(
         # incremental loop's skip-on-hash-match optimization perpetuated the
         # missing-rows state forever. This check makes incremental update
         # self-repairing for ANY future drift source.
-        drifted = _detect_lance_drift(
-            index_dir, current_file_meta, verbose=verbose,
-        )
+        #
+        # 1rmaf: drift candidacy is scoped to the paths this build can
+        # actually re-chunk (`files_for_content` — the same set the chunk
+        # loop below consumes, one source of truth), and skipped outright
+        # when the build writes no semantic rows (`content="graph"`:
+        # `build_docs` and `build_code` both False). Gate on the BOOLEANS,
+        # not the content string: in graph-only mode `files_for_content` is
+        # the UNFILTERED code walk (`_filter_code_files` is skipped when
+        # `build_code` is False) while nothing is ever written, so an
+        # eligibility intersection would be a no-op and the repair loop
+        # would survive in that mode. The set is computed per build and
+        # never persisted, so include-flag transitions stay sound. Named
+        # distinctly from the idle reap's `eligible_paths` (the wider meta
+        # union) — see _detect_lance_drift's docstring.
+        if build_docs or build_code:
+            chunk_eligible_rel_paths = {
+                str(f.relative_to(root)).replace("\\", "/") for f in files_for_content
+            }
+            drifted = _detect_lance_drift(
+                index_dir,
+                current_file_meta,
+                chunk_eligible_rel_paths=chunk_eligible_rel_paths,
+                verbose=verbose,
+            )
+        else:
+            drifted = set()
+            if verbose:
+                print(
+                    "build_index: drift-detect skipped — no semantic writes this build "
+                    "(graph-only)",
+                    flush=True,
+                )
         if drifted:
             # Show the first few paths inline; cap at 5 in the diagnostic to
             # keep it scannable when drift is widespread.

@@ -4,9 +4,15 @@ Owner: Engineering
 Status: active
 Last verified: 2026-07-04
 
-## Current State (2026-07-04 — 1p9q3 CLOSED; opening 1roqn for the drift fix)
+## Current State (2026-07-04 — 1roqn CLOSED + committed; no wave open)
 
-**Wave `1p9q3 graph-index-efficiency` CLOSED 2026-07-04 (operator-approved: "close 1p9q3 and continue")** — delivery review PASS, all ACs met, `Completed At` stamped. Next in the approved sequence: commit the diff, open readied wave `1roqn lance-drift-eligibility`, implement the drift fix, review it.
+**Wave `1roqn lance-drift-eligibility` CLOSED 2026-07-04 (operator-approved: "close and commit")** — delivery review PASS unanimous, all ACs met. No wave currently open; readied waves `1p9q8`/`1p9qh`/`1p9qi` await `Implement wave`.
+
+The drift fix is live-proven: the previously permanent loop (`repairing 1 drifted file(s)` + ~1 s merge + ~1.35 MB per hook fire) now takes `merge[zero-change]` with 0 bytes; suite 4,358 OK (12 new tests); eligibility gated per-build on `files_for_content` with the graph-mode write-capability skip; reaper firewall intact. Key close-time watchpoint: `docs/workflow-config.json` is a LIVE per-kind-residual instance shielded only by 20 all-mode-setup rows in code.lance — any code-layer table recreation re-triggers the loop via the residual (named trigger + follow-up instrument recorded in wave.md watchpoints).
+
+Suggested commit subject: `Land wave 1roqn: gate lance drift detection on chunk eligibility`.
+
+Earlier this session: **`1p9q3 graph-index-efficiency` CLOSED + committed (`38c52ccd`)**; `1roqn` planning committed (`5f214be5`).
 
 ### Delivered (headline numbers, all independently reproduced by the performance lane)
 

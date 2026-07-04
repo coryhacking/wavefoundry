@@ -2318,12 +2318,19 @@ class LanceDriftDetectionTests(unittest.TestCase):
         return {p: {"chunks_emitted": chunks_emitted} for p in paths}
 
     def test_returns_empty_when_file_meta_empty(self):
-        result = self.bi._detect_lance_drift(self.root, {}, verbose=False)
+        result = self.bi._detect_lance_drift(
+            self.root, {}, chunk_eligible_rel_paths={"docs/a.md"}, verbose=False,
+        )
         self.assertEqual(result, set())
 
     def test_returns_empty_when_no_lance_tables_present(self):
         # No `.lance` dirs at index_dir → fresh layer, no drift
-        result = self.bi._detect_lance_drift(self.root, self._as_meta({"docs/a.md"}), verbose=False)
+        result = self.bi._detect_lance_drift(
+            self.root,
+            self._as_meta({"docs/a.md"}),
+            chunk_eligible_rel_paths={"docs/a.md"},
+            verbose=False,
+        )
         self.assertEqual(result, set())
 
     def test_detects_drift_when_path_missing_from_lance(self):
@@ -2336,6 +2343,7 @@ class LanceDriftDetectionTests(unittest.TestCase):
             result = self.bi._detect_lance_drift(
                 index_dir,
                 self._as_meta({"docs/present.md", "docs/drifted.md"}),
+                chunk_eligible_rel_paths={"docs/present.md", "docs/drifted.md"},
                 verbose=False,
             )
         self.assertEqual(result, {"docs/drifted.md"})
@@ -2354,6 +2362,7 @@ class LanceDriftDetectionTests(unittest.TestCase):
             result = self.bi._detect_lance_drift(
                 index_dir,
                 self._as_meta({"docs/a.md", "docs/b.md", "src/foo.py"}),
+                chunk_eligible_rel_paths={"docs/a.md", "docs/b.md", "src/foo.py"},
                 verbose=False,
             )
         self.assertEqual(result, set())
@@ -2372,6 +2381,7 @@ class LanceDriftDetectionTests(unittest.TestCase):
             result = self.bi._detect_lance_drift(
                 index_dir,
                 self._as_meta({"docs/a.md", "src/foo.py", "docs/missing.md"}),
+                chunk_eligible_rel_paths={"docs/a.md", "src/foo.py", "docs/missing.md"},
                 verbose=False,
             )
         self.assertEqual(result, {"docs/missing.md"})
@@ -2384,7 +2394,10 @@ class LanceDriftDetectionTests(unittest.TestCase):
         index_dir = self._index_dir_with_tables({"docs"})
         with patch.object(self.bi, "_get_lance_db", side_effect=RuntimeError("simulated")):
             result = self.bi._detect_lance_drift(
-                index_dir, self._as_meta({"docs/a.md"}), verbose=False,
+                index_dir,
+                self._as_meta({"docs/a.md"}),
+                chunk_eligible_rel_paths={"docs/a.md"},
+                verbose=False,
             )
         self.assertEqual(result, set())
 
@@ -2403,14 +2416,19 @@ class LanceDriftDetectionTests(unittest.TestCase):
             "docs/empty.md": {"chunks_emitted": 0},
         }
         with patch.object(self.bi, "_get_lance_db", return_value=db):
-            result = self.bi._detect_lance_drift(index_dir, file_meta, verbose=False)
+            result = self.bi._detect_lance_drift(
+                index_dir, file_meta,
+                chunk_eligible_rel_paths=set(file_meta), verbose=False,
+            )
         self.assertEqual(result, set())
 
     def test_includes_path_with_chunks_emitted_field_absent(self):
         """AC-3 (1p3iw): a path with no ``chunks_emitted`` field (legacy
         meta.json, or fresh stat-mismatch entry from `_detect_changes`) falls
         through to the drift check unchanged — one repair attempt learns the
-        true count."""
+        true count. (1rmaf narrowing guard: the eligibility set INCLUDES the
+        zero-row path, so the flag here is attributable to the field logic —
+        an over-broad eligibility exclusion would turn this test red.)"""
         from unittest.mock import patch
         index_dir = self._index_dir_with_tables({"docs"})
         db = self._make_db_with_paths({"docs": {"docs/present.md"}})
@@ -2419,14 +2437,19 @@ class LanceDriftDetectionTests(unittest.TestCase):
             "docs/legacy-missing.md": {},  # No chunks_emitted field
         }
         with patch.object(self.bi, "_get_lance_db", return_value=db):
-            result = self.bi._detect_lance_drift(index_dir, file_meta, verbose=False)
+            result = self.bi._detect_lance_drift(
+                index_dir, file_meta,
+                chunk_eligible_rel_paths=set(file_meta), verbose=False,
+            )
         self.assertEqual(result, {"docs/legacy-missing.md"})
 
     def test_includes_path_with_chunks_emitted_positive_but_lance_missing(self):
         """AC-4 (1p3iw): a path with ``chunks_emitted > 0`` recorded but
         absent from Lance is real drift — the indexer believed it emitted N
         chunks last time, Lance has 0 rows for it now. Must converge by
-        re-chunk + re-embed."""
+        re-chunk + re-embed. (1rmaf narrowing guard: the zero-row path is in
+        the eligibility set, so positive-field drift on ELIGIBLE paths must
+        keep repairing — the 1p3b9 contract narrows only by eligibility.)"""
         from unittest.mock import patch
         index_dir = self._index_dir_with_tables({"docs"})
         db = self._make_db_with_paths({"docs": {"docs/present.md"}})
@@ -2435,7 +2458,10 @@ class LanceDriftDetectionTests(unittest.TestCase):
             "docs/real-drift.md": {"chunks_emitted": 5},
         }
         with patch.object(self.bi, "_get_lance_db", return_value=db):
-            result = self.bi._detect_lance_drift(index_dir, file_meta, verbose=False)
+            result = self.bi._detect_lance_drift(
+                index_dir, file_meta,
+                chunk_eligible_rel_paths=set(file_meta), verbose=False,
+            )
         self.assertEqual(result, {"docs/real-drift.md"})
 
     def test_thrash_regression_zero_chunk_file_skipped_on_subsequent_updates(self):
@@ -2448,10 +2474,14 @@ class LanceDriftDetectionTests(unittest.TestCase):
         index_dir = self._index_dir_with_tables({"docs"})
         db = self._make_db_with_paths({"docs": set()})  # Lance has zero rows
         file_meta = {"docs/legitimately-empty.md": {"chunks_emitted": 0}}
+        eligible = set(file_meta)
         with patch.object(self.bi, "_get_lance_db", return_value=db):
-            r1 = self.bi._detect_lance_drift(index_dir, file_meta, verbose=False)
-            r2 = self.bi._detect_lance_drift(index_dir, file_meta, verbose=False)
-            r3 = self.bi._detect_lance_drift(index_dir, file_meta, verbose=False)
+            r1 = self.bi._detect_lance_drift(
+                index_dir, file_meta, chunk_eligible_rel_paths=eligible, verbose=False)
+            r2 = self.bi._detect_lance_drift(
+                index_dir, file_meta, chunk_eligible_rel_paths=eligible, verbose=False)
+            r3 = self.bi._detect_lance_drift(
+                index_dir, file_meta, chunk_eligible_rel_paths=eligible, verbose=False)
         self.assertEqual(r1, set())
         self.assertEqual(r2, set())
         self.assertEqual(r3, set())
@@ -2482,6 +2512,106 @@ class LanceDriftDetectionTests(unittest.TestCase):
             "# Title\n\nThis is a test paragraph with enough content to chunk.\n",
         )
         self.assertGreaterEqual(len(dc) + len(cc), 1)
+
+    # --- 1rmaf: chunk-eligibility gate (drift candidacy scoped to files_for_content) ---
+
+    def test_excludes_chunk_ineligible_path_field_absent(self):
+        """1rmaf AC-1 (helper level): a meta-tracked, zero-row path with NO
+        ``chunks_emitted`` field is NOT flagged when it lies outside the
+        current build's chunk-eligible set — the repair path could never
+        reach it, so flagging it would loop forever (the live defect)."""
+        from unittest.mock import patch
+        index_dir = self._index_dir_with_tables({"docs"})
+        db = self._make_db_with_paths({"docs": {"docs/present.md"}})
+        file_meta = {
+            "docs/present.md": {},
+            ".wavefoundry/framework/scripts/tests/test_x.py": {},  # excluded upstream
+        }
+        with patch.object(self.bi, "_get_lance_db", return_value=db):
+            result = self.bi._detect_lance_drift(
+                index_dir, file_meta,
+                chunk_eligible_rel_paths={"docs/present.md"}, verbose=False,
+            )
+        self.assertEqual(result, set())
+
+    def test_excludes_chunk_ineligible_path_stale_positive_field(self):
+        """1rmaf Req-2: an ineligible zero-row path carrying a STALE POSITIVE
+        ``chunks_emitted`` (recorded under earlier include flags) is likewise
+        not flagged — eligibility, not the recorded count, is the primary
+        gate."""
+        from unittest.mock import patch
+        index_dir = self._index_dir_with_tables({"docs", "code"})
+        db = self._make_db_with_paths({"docs": {"docs/present.md"}, "code": set()})
+        file_meta = {
+            "docs/present.md": {},
+            "tests/test_helper.py": {"chunks_emitted": 99},  # stale positive, now excluded
+        }
+        with patch.object(self.bi, "_get_lance_db", return_value=db):
+            result = self.bi._detect_lance_drift(
+                index_dir, file_meta,
+                chunk_eligible_rel_paths={"docs/present.md"}, verbose=False,
+            )
+        self.assertEqual(result, set())
+
+    def test_eligible_zero_row_path_still_flagged_alongside_ineligible_skip(self):
+        """1rmaf AC-2 guard: the eligibility gate must narrow, not weaken —
+        an ELIGIBLE zero-row path is still flagged in the same call that
+        skips an ineligible one."""
+        from unittest.mock import patch
+        index_dir = self._index_dir_with_tables({"docs"})
+        db = self._make_db_with_paths({"docs": {"docs/present.md"}})
+        file_meta = {
+            "docs/present.md": {},
+            "docs/drifted.md": {},
+            ".wavefoundry/framework/scripts/tests/test_x.py": {},
+        }
+        with patch.object(self.bi, "_get_lance_db", return_value=db):
+            result = self.bi._detect_lance_drift(
+                index_dir, file_meta,
+                chunk_eligible_rel_paths={"docs/present.md", "docs/drifted.md"},
+                verbose=False,
+            )
+        self.assertEqual(result, {"docs/drifted.md"})
+
+    def test_verbose_logs_ineligible_skip_count_with_reason(self):
+        """1rmaf AC-5 (log shape): when verbose, the ineligible-skip count is
+        logged WITH the reason, distinguishable from genuine drift repairs."""
+        from unittest.mock import patch
+        index_dir = self._index_dir_with_tables({"docs"})
+        db = self._make_db_with_paths({"docs": {"docs/present.md"}})
+        file_meta = {
+            "docs/present.md": {},
+            ".wavefoundry/framework/scripts/tests/test_x.py": {},
+        }
+        out = io.StringIO()
+        with patch.object(self.bi, "_get_lance_db", return_value=db), \
+                contextlib.redirect_stdout(out):
+            result = self.bi._detect_lance_drift(
+                index_dir, file_meta,
+                chunk_eligible_rel_paths={"docs/present.md"}, verbose=True,
+            )
+        self.assertEqual(result, set())
+        self.assertIn(
+            "drift-detect skipped 1 path(s) as chunk-ineligible "
+            "(outside this build's content filters)",
+            out.getvalue(),
+        )
+
+    def test_verbose_no_ineligible_line_when_all_paths_eligible(self):
+        """1rmaf AC-5 (log shape, contrapositive): no ineligible-skip line
+        when every meta path is chunk-eligible — quiet logs stay quiet."""
+        from unittest.mock import patch
+        index_dir = self._index_dir_with_tables({"docs"})
+        db = self._make_db_with_paths({"docs": {"docs/present.md"}})
+        file_meta = {"docs/present.md": {}}
+        out = io.StringIO()
+        with patch.object(self.bi, "_get_lance_db", return_value=db), \
+                contextlib.redirect_stdout(out):
+            self.bi._detect_lance_drift(
+                index_dir, file_meta,
+                chunk_eligible_rel_paths={"docs/present.md"}, verbose=True,
+            )
+        self.assertNotIn("chunk-ineligible", out.getvalue())
 
 
 class LanceDriftDetectionScaleTests(unittest.TestCase):
@@ -2544,7 +2674,10 @@ class LanceDriftDetectionScaleTests(unittest.TestCase):
 
         with patch.object(self.bi, "_get_lance_db", return_value=db):
             t0 = time.perf_counter()
-            result = self.bi._detect_lance_drift(index_dir, file_meta, verbose=False)
+            result = self.bi._detect_lance_drift(
+                index_dir, file_meta,
+                chunk_eligible_rel_paths=set(file_meta), verbose=False,
+            )
             elapsed = time.perf_counter() - t0
         self.assertEqual(len(result), n_drifted)
         return elapsed
@@ -2561,6 +2694,237 @@ class LanceDriftDetectionScaleTests(unittest.TestCase):
         elapsed = self._run_with_n_rows(100_000)
         self.assertLess(elapsed, 0.2,
             f"100K-row drift detection took {elapsed:.3f}s (expected < 0.2s)")
+
+
+class LanceDriftEligibilityBuildTests(unittest.TestCase):
+    """1rmaf: end-to-end drift-eligibility behavior through ``build_index``.
+
+    The live defect: ``meta.json`` tracks the full walked set but
+    ``chunks_emitted`` is only ever recorded for files that pass the content
+    filters, so a meta-tracked, chunking-excluded, zero-row file was drift-
+    flagged on EVERY incremental build — a non-converging repair loop that
+    nullified the zero-change fast path. Fixtures mirror the live shape:
+    a ``.wavefoundry/framework/scripts`` file made meta-trackable via the
+    workflow-config code prefix but chunk-INELIGIBLE in docs mode (the
+    post-edit hook's default content mode, where the live loop manifested).
+    """
+
+    def setUp(self):
+        self.bi = load_build_index()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _make_docs_mode_repo(self) -> str:
+        """Repo where a framework-script file is meta-tracked (docs+code
+        graph surface) but outside the docs content walk (under the
+        ``.wavefoundry/`` blanket exclusion, not in the docs include set).
+        Returns the excluded file's rel path."""
+        (self.root / "docs").mkdir(parents=True, exist_ok=True)
+        (self.root / "docs" / "workflow-config.json").write_text(
+            json.dumps({
+                "lifecycle_id_policy": {"epoch_utc": "2020-02-02T02:02:00Z", "hour_offset": 0},
+                "indexing": {
+                    "project_include_prefixes": {
+                        "docs": [],
+                        "code": [".wavefoundry/framework/scripts"],
+                    },
+                },
+            }),
+            encoding="utf-8",
+        )
+        (self.root / "docs" / "guide.md").write_text(
+            "## Intro\n\nEnough real content to emit at least one docs chunk.\n",
+            encoding="utf-8",
+        )
+        util = self.root / ".wavefoundry" / "framework" / "scripts" / "util.py"
+        util.parent.mkdir(parents=True, exist_ok=True)
+        util.write_text("def util():\n    return 1\n", encoding="utf-8")
+        return ".wavefoundry/framework/scripts/util.py"
+
+    def _build(self, *, full=False, content="docs", include_tests=False, verbose=False):
+        """Run build_index with a mocked embedder; returns (result, stderr, stdout)."""
+        err, out = io.StringIO(), io.StringIO()
+        with patch.object(self.bi, "_get_embedder", return_value=_make_embedder_mock(dim=4)), \
+                redirect_stderr(err), contextlib.redirect_stdout(out):
+            result = self.bi.build_index(
+                self.root, full=full, content=content,
+                include_tests=include_tests, verbose=verbose,
+            )
+        return result, err.getvalue(), out.getvalue()
+
+    def _meta(self) -> dict:
+        return json.loads(
+            (self.root / ".wavefoundry" / "index" / "meta.json").read_text(encoding="utf-8")
+        )
+
+    def _neutralize_per_kind_residual(self) -> None:
+        """Pin ``docs/workflow-config.json``'s ``chunks_emitted`` to 0 after a
+        docs-only full build. The file emits only code-KIND chunks, so a
+        docs-only build records a positive count while writing zero rows —
+        the per-kind residual the change doc names as deferred out-of-scope
+        (it would otherwise be drift-flagged here and drown the assertions).
+        On the live repo the equivalent files have code-table rows from
+        all-mode setup; pinning the field keeps these fixtures focused on
+        the ELIGIBILITY defect under test."""
+        index_dir = self.root / ".wavefoundry" / "index"
+        meta = self._meta()
+        entry = meta["file_meta"].get("docs/workflow-config.json")
+        if entry is not None:
+            entry["chunks_emitted"] = 0
+            (index_dir / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+
+    def test_ac1_docs_mode_excluded_zero_row_file_field_absent_never_flagged(self):
+        """AC-1 (field absent): meta-tracked + chunking-excluded + zero rows →
+        zero drift flags across two consecutive incremental docs builds."""
+        rel = self._make_docs_mode_repo()
+        self._build(full=True, content="docs")
+        file_meta = self._meta().get("file_meta", {})
+        # Fixture validity: meta-tracked, never chunked (field absent) — the
+        # exact live-loop state. A self-healing fixture would prove nothing.
+        self.assertIn(rel, file_meta)
+        self.assertNotIn("chunks_emitted", file_meta[rel])
+        self._neutralize_per_kind_residual()
+        for i in (1, 2):
+            result, err, _ = self._build(full=False, content="docs")
+            self.assertNotIn("repairing", err,
+                f"incremental build {i} drift-flagged the chunk-ineligible file:\n{err}")
+            self.assertTrue(result.get("up_to_date"),
+                f"incremental build {i} should be a no-op")
+
+    def test_ac1_docs_mode_excluded_zero_row_file_stale_positive_never_flagged(self):
+        """AC-1 (stale positive): the same excluded file carrying a stale
+        positive ``chunks_emitted`` (recorded under earlier include flags) is
+        likewise never flagged — eligibility is the primary gate."""
+        rel = self._make_docs_mode_repo()
+        self._build(full=True, content="docs")
+        self._neutralize_per_kind_residual()
+        index_dir = self.root / ".wavefoundry" / "index"
+        meta = self._meta()
+        meta["file_meta"][rel]["chunks_emitted"] = 7  # stale positive
+        (index_dir / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+        for i in (1, 2):
+            result, err, _ = self._build(full=False, content="docs")
+            self.assertNotIn("repairing", err,
+                f"incremental build {i} drift-flagged the stale-positive excluded file:\n{err}")
+            self.assertTrue(result.get("up_to_date"))
+
+    def test_ac2_eligible_zero_row_file_still_repaired_then_quiet(self):
+        """AC-2 guard: a chunk-ELIGIBLE file with zero Lance rows is still
+        drift-flagged and repaired; the repair records ``chunks_emitted`` and
+        the next build is quiet."""
+        self._make_docs_mode_repo()
+        self._build(full=True, content="docs")
+        self._neutralize_per_kind_residual()
+        index_dir = self.root / ".wavefoundry" / "index"
+        # Simulate real drift: rows vanish for an eligible docs file.
+        import lancedb
+        db = lancedb.connect(str(index_dir))
+        db.open_table("docs").delete("path = 'docs/guide.md'")
+        result, err, _ = self._build(full=False, content="docs")
+        self.assertIn("repairing 1 drifted file(s)", err)
+        self.assertIn("docs/guide.md", err)
+        rows = _read_index_chunks(index_dir, "docs")
+        self.assertIn("docs/guide.md", {r.get("path") for r in rows},
+            "repair must restore the eligible file's rows")
+        self.assertGreater(
+            self._meta()["file_meta"]["docs/guide.md"].get("chunks_emitted", 0), 0)
+        result2, err2, _ = self._build(full=False, content="docs")
+        self.assertNotIn("repairing", err2, "repaired file must converge")
+        self.assertTrue(result2.get("up_to_date"))
+
+    def test_ac3_include_tests_flip_makes_excluded_file_eligible_flagged_repaired(self):
+        """AC-3 (code mode, ``_is_test_code_path`` class): with the flag off
+        the test file is never flagged; flipping ``--include-tests`` on makes
+        it eligible → flagged → repaired; the next build is quiet. Eligibility
+        is computed per build from the current filters, never persisted."""
+        _make_repo(self.root, {
+            "src/foo.py": "def foo():\n    return 1\n",
+            "tests/test_helper.py": "def test_helper():\n    assert 1 + 1 == 2\n",
+        })
+        rel = "tests/test_helper.py"
+        self._build(full=True, content="code", include_tests=False)
+        file_meta = self._meta().get("file_meta", {})
+        # Fixture validity: meta-tracked, excluded by the flag-sensitive
+        # layer (NOT the unconditional framework-test carve-out), zero rows.
+        self.assertIn(rel, file_meta)
+        self.assertNotIn("chunks_emitted", file_meta[rel])
+        result, err, _ = self._build(full=False, content="code", include_tests=False)
+        self.assertNotIn("repairing", err,
+            f"flag off: excluded test file must not be drift-flagged:\n{err}")
+        result, err, _ = self._build(full=False, content="code", include_tests=True)
+        self.assertIn("repairing 1 drifted file(s)", err,
+            f"flag on: newly eligible zero-row file must be flagged:\n{err}")
+        self.assertIn(rel, err)
+        meta_after = self._meta()["file_meta"][rel]
+        self.assertGreater(meta_after.get("chunks_emitted", 0), 0,
+            "repair must record the true chunk count")
+        rows = _read_index_chunks(self.root / ".wavefoundry" / "index", "code")
+        self.assertIn(rel, {r.get("path") for r in rows})
+        result, err, _ = self._build(full=False, content="code", include_tests=True)
+        self.assertNotIn("repairing", err, "repaired file must converge")
+        self.assertTrue(result.get("up_to_date"))
+
+    def test_ac6_graph_only_incremental_performs_no_drift_detection(self):
+        """AC-6 (write-capability guard, Req-7): a ``content="graph"``
+        incremental build never calls ``_detect_lance_drift`` — in that mode
+        ``files_for_content`` is the UNFILTERED code walk while zero semantic
+        rows are writable, so any eligibility intersection would be a no-op
+        and the loop would survive."""
+        self._make_docs_mode_repo()
+        self._build(full=True, content="docs")
+        calls: list = []
+        def spy(*args, **kwargs):
+            calls.append((args, kwargs))
+            return set()
+        err = io.StringIO()
+        with patch.object(self.bi, "_detect_lance_drift", side_effect=spy), \
+                redirect_stderr(err):
+            self.bi.build_index(self.root, full=False, content="graph", verbose=False)
+        self.assertEqual(calls, [], "graph-only build must skip drift detection outright")
+        self.assertNotIn("repairing", err.getvalue())
+
+    def test_ac6_graph_only_incremental_no_repair_log_and_verbose_reason(self):
+        """AC-6 (unpatched) + AC-5: the real graph-only incremental flags
+        nothing — the "repairing N drifted file(s)" stderr line is ABSENT
+        even with a meta-tracked zero-row file present — and the verbose skip
+        line states the REASON so quiet builds are distinguishable from
+        no-drift builds in field logs."""
+        rel = self._make_docs_mode_repo()
+        self._build(full=True, content="docs")
+        self.assertNotIn("chunks_emitted", self._meta()["file_meta"][rel])
+        err, out = io.StringIO(), io.StringIO()
+        with redirect_stderr(err), contextlib.redirect_stdout(out):
+            self.bi.build_index(self.root, full=False, content="graph", verbose=True)
+        self.assertNotIn("repairing", err.getvalue())
+        self.assertIn("no semantic writes this build", out.getvalue())
+
+    def test_idle_reap_still_receives_wide_meta_union(self):
+        """1rmaf security tripwire (Req-8): the idle-path
+        ``_reap_stranded_lance_rows`` call still receives the WIDE meta union
+        — including chunk-INELIGIBLE paths — never the narrow eligibility
+        set. The zero-change fast path is the common path post-fix; a set
+        mix-up here would be high-frequency destructive (a docs-only run
+        would reap every code-table row)."""
+        rel = self._make_docs_mode_repo()
+        self._build(full=True, content="docs")
+        self._neutralize_per_kind_residual()
+        captured: dict = {}
+        def fake_reap(db_path, eligible_paths, **kwargs):
+            captured["eligible_paths"] = set(eligible_paths)
+            return {"total": 0}
+        err = io.StringIO()
+        with patch.object(self.bi, "_reap_stranded_lance_rows", side_effect=fake_reap), \
+                patch.object(self.bi, "_get_embedder", return_value=_make_embedder_mock(dim=4)), \
+                redirect_stderr(err):
+            result = self.bi.build_index(self.root, full=False, content="docs", verbose=False)
+        self.assertTrue(result.get("up_to_date"))
+        self.assertIn("eligible_paths", captured, "idle reap must run on the fast path")
+        self.assertEqual(captured["eligible_paths"], set(self._meta()["file_meta"].keys()))
+        self.assertIn(rel, captured["eligible_paths"],
+            "the chunk-INELIGIBLE path must stay in the reaper's wide union")
 
 
 class OversizedFileGuardTests(unittest.TestCase):
