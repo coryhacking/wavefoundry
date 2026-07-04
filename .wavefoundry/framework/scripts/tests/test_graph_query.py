@@ -1324,5 +1324,142 @@ class ServerImplGraphAccessorGateTests(unittest.TestCase):
         )
 
 
+def _inh_node(nid: str, kind: str, label: str | None = None, **extra) -> dict:
+    return {
+        "id": nid,
+        "label": label or nid.rsplit(".", 1)[-1],
+        "kind": kind,
+        "source_file": nid.split("::")[0],
+        "layer": "project",
+        **extra,
+    }
+
+
+# Wave 1p9qh (1p9qa): interface + implementation + caller fixture for
+# dispatch-aware impact and path cost-tier tests.
+_INHERITANCE_FIXTURE = {
+    "present": True,
+    "layer": "project",
+    "nodes": [
+        _inh_node("i.java::IUserService", "class", "IUserService", declared_kind="interface"),
+        _inh_node("i.java::IUserService.find", "function", "find"),
+        _inh_node("impl.java::UserServiceImpl", "class", "UserServiceImpl"),
+        _inh_node("impl.java::UserServiceImpl.find", "function", "find"),
+        _inh_node("mid.java::MidService", "class", "MidService"),
+        _inh_node("mid.java::MidService.find", "function", "find"),
+        _inh_node("c.java::Controller", "class", "Controller"),
+        _inh_node("c.java::Controller.handle", "function", "handle"),
+    ],
+    "edges": [
+        {"source": "impl.java::UserServiceImpl", "target": "i.java::IUserService", "relation": "implements", "confidence": "RECEIVER_RESOLVED"},
+        {"source": "mid.java::MidService", "target": "impl.java::UserServiceImpl", "relation": "extends", "confidence": "RECEIVER_RESOLVED"},
+        {"source": "c.java::Controller.handle", "target": "i.java::IUserService.find", "relation": "calls", "confidence": "RECEIVER_RESOLVED"},
+    ],
+}
+
+
+class DispatchAwareImpactTests(unittest.TestCase):
+    """Wave 1p9qh (1p9qa) AC-4: `code_impact` traverses `implements`/`extends`
+    at the documented down-weight and expands a supertype METHOD seed to its
+    subtype implementations."""
+
+    def setUp(self):
+        self.mod = load_graph_query()
+        self.index = self.mod.GraphQueryIndex(
+            {k: (list(v) if isinstance(v, list) else v) for k, v in _INHERITANCE_FIXTURE.items()}
+        )
+
+    def test_default_impact_relations_include_inheritance(self):
+        self.assertIn("implements", self.mod._DEFAULT_IMPACT_RELATIONS)
+        self.assertIn("extends", self.mod._DEFAULT_IMPACT_RELATIONS)
+
+    def test_interface_method_impact_includes_implementations_down_weighted(self):
+        impact = self.index.graph_impact("i.java::IUserService.find", max_hops=3)
+        by_id = {a["node_id"]: a for a in impact["affected"]}
+        # Direct implementation joins at hop 1 with the dispatch down-weight.
+        self.assertIn("impl.java::UserServiceImpl.find", by_id)
+        entry = by_id["impl.java::UserServiceImpl.find"]
+        self.assertEqual(entry["hop"], 1)
+        self.assertEqual(entry["confidence_weight"], self.mod._DISPATCH_EDGE_WEIGHT)
+        # Transitive subtype override (MidService extends UserServiceImpl).
+        self.assertIn("mid.java::MidService.find", by_id)
+        self.assertEqual(
+            by_id["mid.java::MidService.find"]["confidence_weight"],
+            self.mod._DISPATCH_EDGE_WEIGHT,
+        )
+        # Real caller keeps full weight.
+        self.assertEqual(by_id["c.java::Controller.handle"]["confidence_weight"], 1.0)
+        # The synthetic edges are marked so they can't be mistaken for
+        # persisted graph edges.
+        dispatch_edges = [e for e in impact["edges"] if e.get("derived") == "dispatch"]
+        self.assertTrue(dispatch_edges)
+        for edge in dispatch_edges:
+            self.assertIn(edge.get("relation"), ("implements", "extends"))
+
+    def test_interface_class_impact_includes_subtypes_down_weighted(self):
+        impact = self.index.graph_impact("i.java::IUserService", max_hops=3)
+        by_id = {a["node_id"]: a for a in impact["affected"]}
+        self.assertIn("impl.java::UserServiceImpl", by_id)
+        self.assertEqual(
+            by_id["impl.java::UserServiceImpl"]["confidence_weight"],
+            self.mod._DISPATCH_EDGE_WEIGHT,
+        )
+
+    def test_relations_opt_out_excludes_dispatch(self):
+        impact = self.index.graph_impact("i.java::IUserService.find", relations=("calls",))
+        ids = {a["node_id"] for a in impact["affected"]}
+        self.assertNotIn("impl.java::UserServiceImpl.find", ids)
+        self.assertIn("c.java::Controller.handle", ids)
+        self.assertFalse([e for e in impact["edges"] if e.get("derived") == "dispatch"])
+
+    def test_dispatch_weight_is_extracted_tier(self):
+        """The doc'd contract: dispatch is down-weighted LIKE EXTRACTED."""
+        self.assertEqual(self.mod._DISPATCH_EDGE_WEIGHT, self.mod._EXTRACTED_EDGE_WEIGHT)
+        weight = self.mod._edge_confidence_weight(
+            {"relation": "implements", "confidence": "RECEIVER_RESOLVED"}
+        )
+        self.assertEqual(weight, self.mod._DISPATCH_EDGE_WEIGHT)
+
+
+class InheritancePathCostTierTests(unittest.TestCase):
+    """Wave 1p9qh (1p9qa) AC-4: `code_graph_path` treats inheritance edges as
+    structural — a real call chain beats an inheritance shortcut."""
+
+    def setUp(self):
+        self.mod = load_graph_query()
+        nodes = [
+            _inh_node("a.java::Alpha", "class", "Alpha"),
+            _inh_node("a.java::Alpha.entry", "function", "entry"),
+            _inh_node("b.java::Beta", "class", "Beta"),
+            _inh_node("b.java::Beta.step", "function", "step"),
+            _inh_node("z.java::Zeta", "class", "Zeta"),
+        ]
+        edges = [
+            # Inheritance shortcut: Alpha.entry's class chain reaches Zeta in 1 hop.
+            {"source": "a.java::Alpha.entry", "target": "z.java::Zeta", "relation": "extends", "confidence": "RECEIVER_RESOLVED"},
+            # Real call chain: entry -> step -> Zeta (2 hops of calls).
+            {"source": "a.java::Alpha.entry", "target": "b.java::Beta.step", "relation": "calls", "confidence": "EXTRACTED"},
+            {"source": "b.java::Beta.step", "target": "z.java::Zeta", "relation": "calls", "confidence": "EXTRACTED"},
+        ]
+        self.index = self.mod.GraphQueryIndex({"present": True, "layer": "project", "nodes": nodes, "edges": edges})
+
+    def test_call_chain_beats_inheritance_shortcut(self):
+        result = self.index.shortest_path("a.java::Alpha.entry", "z.java::Zeta")
+        self.assertTrue(result["found"])
+        relations = [e["relation"] for e in result["path_edges"]]
+        self.assertEqual(relations, ["calls", "calls"],
+                         f"the 2-hop call chain must beat the 1-hop extends shortcut; got {relations}")
+
+    def test_inheritance_edge_costs_structural_tier(self):
+        self.assertEqual(
+            self.mod._path_edge_cost({"relation": "extends", "confidence": "RECEIVER_RESOLVED"}),
+            self.mod._PATH_COST_STRUCTURAL,
+        )
+        self.assertEqual(
+            self.mod._path_edge_cost({"relation": "implements", "confidence": "EXTRACTED"}),
+            self.mod._PATH_COST_STRUCTURAL,
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

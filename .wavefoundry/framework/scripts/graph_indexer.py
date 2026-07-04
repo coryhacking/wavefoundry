@@ -35,7 +35,7 @@ except ImportError:  # pragma: no cover - exercised when tree-sitter is not inst
     _TSParser = None  # type: ignore[assignment]
 
 GRAPH_SCHEMA_VERSION = "1"
-GRAPH_BUILDER_VERSION = "36"  # Wave 1p9q3 (1p9py, compact+gzip+atomic persistence): graph artifacts are now written as gzip-compressed COMPACT JSON (separators=(",", ":"), sort_keys retained) through a same-directory temp file + os.replace atomic write; readers sniff the gzip magic bytes (0x1f 0x8b) and transparently fall back to legacy plain JSON, and a corrupted/truncated gzip degrades to the caller default exactly like corrupted JSON. Serialization-only — node/edge content, counts, and `input_fingerprint` semantics are unchanged — but the on-disk artifact FORMAT changed, so bump per the standing artifact-shape rule (downstream caches and the version-staleness query path treat the transition as a rebuild boundary, rewriting pre-upgrade plain artifacts compressed). This single bump also covers the wave's sibling artifact-shape changes (1p9q1 build-time betweenness, 1p9q2 incremental merge state store) per the coordinated-single-bump serialization point. Previous bump (1p7dh, reads_config Java/Spring file config): extended the config-key->reader `reads_config` edge to Java/Spring FILE config — `.properties`/`.yml`/`.yaml` now emit config-key NODES (`file::dotted.key`, kind "class") and Java artifacts capture `@Value("${key}")` placeholders + `getProperty`/`getRequiredProperty` calls into `config_read_candidates`; the language-agnostic finalize pass binds them on a unique config-file + distinctive-key match. Extraction-output change (new nodes + populated config_read_candidates → new edges) → bump so consumer caches re-extract. Previous bump (1p7de (graph-edge-trust)): coordinated bump for two extractor changes (1p7dg confidence promotion + 1p7dh string-literal binding) so consumers re-extract. (v34 supersedes the in-flight v33 test builds: the 1p7dh `instruments` capture was refined to read `namedOneOf(...)` multi-arg matchers + matchers nested in structural wrappers (`implementsInterface`/`hasSuperType`/`isSubTypeOf`) — an EXTRACTION-OUTPUT change, so it gets its own version increment per the builder-version discipline; without the bump an incremental-update consumer that skips unchanged files would not pick up the broadened `instruments` targets. Downstream-validated: javaagent 24/24 OTel TypeInstrumentation classes carry correct `instruments`; Swift solaris promotion realized EXTRACTED 52.7%→33.4%.) 1p7dg generalizes the v23 TS/JS confidence promotion to ALL languages: a call that binds a UNIQUE non-`external::` project node (same-file `symbol_lookup` match at the extraction site, or an exact-unique cross-file rewrite — exact simple name / exact qualified name / Go package-authoritative / import-edge-disambiguated) is promoted EXTRACTED→RECEIVER_RESOLVED. Target UNCHANGED — only the confidence label moves on an already-unique bind — so no new wrong-twin/zeroed-edge risk; the AC-2 type-guess fallback + same-dir/C# namespace heuristics deliberately stay EXTRACTED. Self-host lift: Python EXTRACTED 90.4%→31.9%, resolved 1,136→8,102. 1p7dh adds a new `reads_config` EDGE (a code site `.get("KEY")`/`cfg["KEY"]` → the config-key node `file.json::key` it reads, at `LITERAL_DERIVED` confidence; triple-gated — config-file basename + key-distinctiveness + unique match — so ubiquitous dict literals don't bind data-JSON keys) and a new `instruments` NODE PROPERTY on OTel `TypeInstrumentation` classes (their `typeMatcher()` ByteBuddy matcher target strings, descriptive metadata — NOT an edge, since instrumentation targets are ~100% third-party by design). Edge-confidence relabels + new relation + new node property → node/edge-set shape change → bump (consumer graph caches re-extract). Previous bump (1p66e, graph-edge-extraction-determinism): cross-file resolution made order-independent so identical input yields an identical resolved edge set across from-scratch rebuilds (a consumer observed 75068 vs 74890 edges on identical source). Three order-dependent sites fixed with explicit stable tie-breaks: (a) `per_file_simple` length-tie now breaks on the lexicographically smaller node_id (was first-seen by node_map iteration order); (b) `imports_by_file` final-segment collision now keeps the lexicographically smallest FQN (was "later import wins" by edge_map order); (c) cross-file edge rewrites are applied sorted by (new_key, old_key) so a `setdefault` collapse onto the same new_key keeps a stable survivor. Plus a persisted `input_fingerprint` (sha256 over the sorted node-set + sorted resolved edge-set) in the graph payload + state for downstream reproducibility verification. Edge-set shape stabilizes → bump so consumer caches re-extract. Faithfulness preserved: every resolution branch still requires a UNIQUE (`len==1`) match, so no `len==1` outcome changes and no wrong same-name twin is newly bound — only genuinely-ambiguous tie choices are made deterministic. Previous bump (1p61v, ts-symbol-kind-extraction-faithfulness): TS/JS type-shape members are no longer mislabeled `function`. A `type_alias_declaration` now extracts as kind="type" and an interface/object-type `property_signature` (a `: T` data member) as kind="property" (method *signatures* keep `function`) — previously both fell through to the default `function`, so `code_outline`-invisible `: string` fields and `export type` aliases rendered as `(function)` entry points in the codebase map (p60n field trace, Issue 1). Plus a registration-site faithfulness guard (`_ts_is_emittable_symbol_name`): a definition whose picked name is the reserved word `function` (anonymous `function (…){}` expressions) or a non-identifier route-path token (`/`) is no longer registered as a junk symbol (Issue 2). Node KIND-set + node-set shape change → bump (consumer graph caches re-extract). Conservative: contextual keywords that are legal identifiers (`type`, `async`, `fn`, …) are NOT rejected, so no real callable is dropped. Previous bump (1p5c4, guard-oversized-files-indexing): files over the tree-sitter parse cap (default 2 MB; override WAVEFOUNDRY_MAX_TS_PARSE_BYTES / `indexing.max_treesitter_parse_bytes`) now SKIP AST graph extraction, and files over the hard size cap are dropped from the walk entirely — so oversized files contribute no graph nodes. Bump forces re-extraction so any large file parsed under v29 has its stale nodes pruned. Wave 1p4up (member-access-constant-reads): a CONSTANT accessed via a qualified member expression (`Status.ACTIVE`, `AppConstants.Network.userAgent`, `Outer.Inner.TOKEN`, Ruby/PHP `A::B::C`) now produces a function→constant `reads` edge by EXACT qualified-name match (const-kind-gated; the qualifier disambiguates so a same-leaf param/import/bare-call can't match). Faithfulness guards: F1 full-qname (not `_simple_name` partial key), F2 reject `this`/`self`/`super`/`cls`, F4 qualifier-shadow (a member-access read whose head is a function param/local is dropped — `func_locals` from per-language binding nodes) + the property/trailing leaf of a member access is no longer also buffered as a bare read (member-path resolves it instead). New `reads` edges → node/edge-set shape change → bump (consumer graph caches re-extract). Wave 1p4q4 review (28) (D1/D2): namespace-scoped enum member nodes now carry the enclosing namespace prefix (`NSA.Inner.AAA` vs `NSB.Inner.AAA` — no cross-namespace collision/clobber), and constant nodes are EXEMPT from the ≤2-char short-symbol prune so short members (`Status.OK`/`Dir.Up`) resolve. Node-set shape change → bump (consumer graph caches re-extract). Wave 1p4q4 (27): TS `enum`/`const enum` members are now `kind="constant"` graph nodes (`Enum.Member`), child of the enum type node. Wave 1p4ls (26) (graph-constant-nodes-and-references): module-/type-level CONSTANT declarations are now graph nodes (kind="constant", carrying a simple-literal `value` where the RHS is a literal) across all core languages, plus a faithfulness-gated function→constant `reads` edge (same-scope + explicitly-imported only; never binds a coincidental same-name twin — symbol_lookup uniqueness + a const-kind gate + a local-shadow guard). Consumers surface them: code_definition resolves a constant name; code_references lists readers in a distinct `reads` bucket (NOT merged into callers); graph_neighbors includes constants when `reads` is requested. `reads` is OPT-IN for default 1-hop traversal (excluded when no explicit relations are passed, so a hot constant does not balloon neighbor sets / 1p4hu expansion) and stays OUT of the impact/call default relations; constant nodes + `reads` edges are excluded from clustering (CLUSTER_BUILDER_VERSION 8→9, no community-label shift). resolve_symbol is kind-aware (a constant sharing a simple name no longer shadows a callable lookup). Detection reuses the 1p4mf chunk-lane per-language predicates (one detector, two consumers — Req-7); the graph lane is BROADER where it lands naturally (class/type-level constants; Swift enum cases; Go grouped-const per member). NOTE: TS `enum`/`const enum` members ARE emitted as constant nodes (`Enum.Member`) — delivered in 1p4q4 (see the v27 line at the top). Kotlin bare top-level/object `val` (no `const`) stays `kind="variable"` (an immutable binding is not a compile-time constant — won't-do). Previous bump (1p4eq, cross-file-resolution-followups): one consolidated bump covering five graph-shaping changes: (1p4ef) fix a leaked `qualified` loop var that injected phantom qualified_index candidates for collapsed/basename-merged nodes (C#/Swift/Rust/Ruby) and silently suppressed unique cross-file resolution; (1p4er) same-package/same-directory disambiguation fallback for ambiguous receivers used WITHOUT an import (Java field miss, `JreCompat.canAccess`), GATED to Java/Kotlin/Go (same-dir ⇒ same-package visibility; Python/JS/TS/Rust/C# excluded); (1p4et) Go methods now keyed `Type.method` (was bare `method`) + package-qualified receiver inference (`var h foo.Helper` → `foo.Helper`, package PRESERVED and resolved by the candidate's package directory); (1p4eu) Rust `Type::assoc_fn()` resolution + struct-literal/`::new()` let-binding type inference; (1p4ev) C# namespace-membership disambiguation (own-namespace ∪ `using`), the namespace derived from each file's DECLARED namespace nodes by longest-prefix (nesting-proof), NOT by fixed-segment qname stripping. FAITHFULNESS FIXES (1p4eq adversarial verification): the 1p4et/1p4ev paths above already incorporate the over-resolution fixes the verification caught — dropping the Go package qualifier bound a co-located cross-package twin, and fixed-segment C# namespace stripping mis-derived a nested-class caller's namespace and bound a coincident sibling twin; both now stay external unless a unique package/namespace-faithful candidate matches. COVERAGE SCOPE — synthetic-fixture tests only, NOT yet validated against a real consumer project: same-package = Java; cross-file method/assoc-fn = Go + Rust; ambiguous-receiver namespace membership = C#. Each carries an adversarial "never binds the wrong twin / stays external" test. **Correction to the v24 line below:** v24 advertised its `imports`-edge disambiguation as "language-agnostic (Python + Java/Kotlin/C#/Go)" — that was over-stated; it fired ONLY for Python + Java (per-type imports), and was dead code for C#/Go/Rust (their import heads are namespaces/packages, not type names) until v25 supplied the per-language mechanisms above. Previous bump (1p47e 1p470): Python sibling-loader return-type inference + cross-file import disambiguation. v24 resolves the lazy-loader blast-radius hole — `gq = _load_graph_query()` (→ `_load_script("graph_query")`) and direct `v = _load_script("mod")` now bind `v.Class.method()` / `v.func()` to the loaded module's symbols (previously emitted NO edge because `v` had no known type; e.g. `GraphQueryIndex.from_root` was called from 14 sites with 0 incoming edges). Also adds import-edge-based disambiguation in the cross-file rewrite pass: an ambiguous `external::Type.method` (multiple same-simple-name candidates) is disambiguated via the source file's `imports` edge for `Type`, language-agnostically (Python + Java/Kotlin/C#/Go). Previous bump (1p2q3 / 1p2tz post-ship-5 1.3.16): TS/JS symbol-table promotion. Intra-file (and cross-file unique-simple-name) calls where `_ts_resolve_target` bound directly to a project node previously landed as `EXTRACTED` even though the binding required an exact match in `symbol_lookup`. Field validation on the v22 stable state showed `getRootToken` and similar intra-file arrow-const targets had only `EXTRACTED` incoming edges — invisible to the `receiver_resolved` attribution bucket — despite the symbol being correctly resolved at extraction time. v23 promotes these to `RECEIVER_RESOLVED` for TS/JS only: when `_ts_resolve_target` returns a non-`external::` project node (i.e. the call site bound to a locally-defined symbol or to the unique cross-file simple-name match) the edge is high-confidence by construction. Affects TS/JS only — other languages route through their per-language receiver resolvers + the cross-file rewrite pass and are out of scope for this round. Previous bump (1.3.12 v21→v22): TS/JS relative-import path resolution into import_targets. v21 emitted arrow-const function nodes but +9,379 of the new TS edges landed as EXTRACTED rather than RECEIVER_RESOLVED because intra-package callers using relative imports (`import { foo } from './events'`) had `import_targets[foo]` populated with the lossy `external::events` form. The cross-file rewrite pass then promoted the edge to the right project node but kept it at EXTRACTED confidence. v22 extracts the raw module specifier before `_ts_clean_name` strips the `./` prefix, resolves relative imports against the source file's directory, then runs the same barrel walk + import_targets binding as the aliased path. The +9,379 EXTRACTED edges observed in the field in v21 → v22 should migrate to RECEIVER_RESOLVED for any intra-package direct call to a relatively-imported arrow-const. Affects TS/JS only. Previous bump (1.3.11 v20→v21) was the arrow-const node-emission half — v22 completes the receiver-type attribution half. Modern TS code uses `export const foo = async (args) => { ... }` as the dominant function shape (field-confirmed: ALL backend functions on a 12k-node Nx monorepo are arrow-const, zero `function` declarations). Tree-sitter parses these as `lexical_declaration → variable_declarator → arrow_function`, not `function_declaration`, so the default name-from-descendants extractor returned empty and the symbol never registered. v21 detects arrow-const bindings explicitly and registers each as a function symbol; walks scope through the arrow body so calls FROM inside arrow-const-bound functions get attributed to the const name rather than the file. Expected impact on barrel-export-heavy + arrow-const-heavy codebases: TS resolved-share rises from 6% range into 30–60% (per field estimate). Affects TS/JS only — other languages unchanged. Previous bump (1.3.10 v19→v20) covered direct-function-call import_targets promotion + bundler-mode .js→.ts swap + community-label barrel deprioritization
+GRAPH_BUILDER_VERSION = "37"  # Wave 1p9qh (java-csharp-enterprise-accuracy) — coordinated SINGLE bump covering the whole wave (later lanes do not re-bump). (1p9q9) Structured Java import parsing: Java `import_declaration` nodes are parsed structurally (explicit / wildcard / static member / static wildcard) instead of falling to the shared regex fallback, which truncated `import com.foo.*;` into a useless `com.foo.` candidate and emitted a spurious `external::static` edge for every static import. Wildcard imports now emit a package-prefix `imports` edge (`external::com.foo.*`) that participates in ambiguous-receiver disambiguation with the same unique-survivor rule as an explicit import (two matching wildcards → stay external; a same-package twin counts as an implicit match so Java package shadowing is honored); statically-imported members resolve bare calls (`import static com.foo.Bar.baz;` + `baz()` → project `Bar.baz` when it exists, else qualified `external::Bar.baz` — never bare; static wildcard analogous for otherwise-unresolved bare calls); `external::static` never appears. Non-Java candidate extraction is untouched (the shared regex is unchanged; regression-pinned). (1p9qa) Inheritance edges (`extends`/`implements`) + inherited-method resolution for Java/C#. (1p9qb) `this.field` receiver resolution, annotation-type kind fix, and package-declaration-keyed disambiguation. Extraction-output + edge-set shape change → bump so consumer caches re-extract. Previous bump (1p9q3 (1p9py, compact+gzip+atomic persistence)): graph artifacts are now written as gzip-compressed COMPACT JSON (separators=(",", ":"), sort_keys retained) through a same-directory temp file + os.replace atomic write; readers sniff the gzip magic bytes (0x1f 0x8b) and transparently fall back to legacy plain JSON, and a corrupted/truncated gzip degrades to the caller default exactly like corrupted JSON. Serialization-only — node/edge content, counts, and `input_fingerprint` semantics are unchanged — but the on-disk artifact FORMAT changed, so bump per the standing artifact-shape rule (downstream caches and the version-staleness query path treat the transition as a rebuild boundary, rewriting pre-upgrade plain artifacts compressed). This single bump also covers the wave's sibling artifact-shape changes (1p9q1 build-time betweenness, 1p9q2 incremental merge state store) per the coordinated-single-bump serialization point. Previous bump (1p7dh, reads_config Java/Spring file config): extended the config-key->reader `reads_config` edge to Java/Spring FILE config — `.properties`/`.yml`/`.yaml` now emit config-key NODES (`file::dotted.key`, kind "class") and Java artifacts capture `@Value("${key}")` placeholders + `getProperty`/`getRequiredProperty` calls into `config_read_candidates`; the language-agnostic finalize pass binds them on a unique config-file + distinctive-key match. Extraction-output change (new nodes + populated config_read_candidates → new edges) → bump so consumer caches re-extract. Previous bump (1p7de (graph-edge-trust)): coordinated bump for two extractor changes (1p7dg confidence promotion + 1p7dh string-literal binding) so consumers re-extract. (v34 supersedes the in-flight v33 test builds: the 1p7dh `instruments` capture was refined to read `namedOneOf(...)` multi-arg matchers + matchers nested in structural wrappers (`implementsInterface`/`hasSuperType`/`isSubTypeOf`) — an EXTRACTION-OUTPUT change, so it gets its own version increment per the builder-version discipline; without the bump an incremental-update consumer that skips unchanged files would not pick up the broadened `instruments` targets. Downstream-validated: javaagent 24/24 OTel TypeInstrumentation classes carry correct `instruments`; Swift solaris promotion realized EXTRACTED 52.7%→33.4%.) 1p7dg generalizes the v23 TS/JS confidence promotion to ALL languages: a call that binds a UNIQUE non-`external::` project node (same-file `symbol_lookup` match at the extraction site, or an exact-unique cross-file rewrite — exact simple name / exact qualified name / Go package-authoritative / import-edge-disambiguated) is promoted EXTRACTED→RECEIVER_RESOLVED. Target UNCHANGED — only the confidence label moves on an already-unique bind — so no new wrong-twin/zeroed-edge risk; the AC-2 type-guess fallback + same-dir/C# namespace heuristics deliberately stay EXTRACTED. Self-host lift: Python EXTRACTED 90.4%→31.9%, resolved 1,136→8,102. 1p7dh adds a new `reads_config` EDGE (a code site `.get("KEY")`/`cfg["KEY"]` → the config-key node `file.json::key` it reads, at `LITERAL_DERIVED` confidence; triple-gated — config-file basename + key-distinctiveness + unique match — so ubiquitous dict literals don't bind data-JSON keys) and a new `instruments` NODE PROPERTY on OTel `TypeInstrumentation` classes (their `typeMatcher()` ByteBuddy matcher target strings, descriptive metadata — NOT an edge, since instrumentation targets are ~100% third-party by design). Edge-confidence relabels + new relation + new node property → node/edge-set shape change → bump (consumer graph caches re-extract). Previous bump (1p66e, graph-edge-extraction-determinism): cross-file resolution made order-independent so identical input yields an identical resolved edge set across from-scratch rebuilds (a consumer observed 75068 vs 74890 edges on identical source). Three order-dependent sites fixed with explicit stable tie-breaks: (a) `per_file_simple` length-tie now breaks on the lexicographically smaller node_id (was first-seen by node_map iteration order); (b) `imports_by_file` final-segment collision now keeps the lexicographically smallest FQN (was "later import wins" by edge_map order); (c) cross-file edge rewrites are applied sorted by (new_key, old_key) so a `setdefault` collapse onto the same new_key keeps a stable survivor. Plus a persisted `input_fingerprint` (sha256 over the sorted node-set + sorted resolved edge-set) in the graph payload + state for downstream reproducibility verification. Edge-set shape stabilizes → bump so consumer caches re-extract. Faithfulness preserved: every resolution branch still requires a UNIQUE (`len==1`) match, so no `len==1` outcome changes and no wrong same-name twin is newly bound — only genuinely-ambiguous tie choices are made deterministic. Previous bump (1p61v, ts-symbol-kind-extraction-faithfulness): TS/JS type-shape members are no longer mislabeled `function`. A `type_alias_declaration` now extracts as kind="type" and an interface/object-type `property_signature` (a `: T` data member) as kind="property" (method *signatures* keep `function`) — previously both fell through to the default `function`, so `code_outline`-invisible `: string` fields and `export type` aliases rendered as `(function)` entry points in the codebase map (p60n field trace, Issue 1). Plus a registration-site faithfulness guard (`_ts_is_emittable_symbol_name`): a definition whose picked name is the reserved word `function` (anonymous `function (…){}` expressions) or a non-identifier route-path token (`/`) is no longer registered as a junk symbol (Issue 2). Node KIND-set + node-set shape change → bump (consumer graph caches re-extract). Conservative: contextual keywords that are legal identifiers (`type`, `async`, `fn`, …) are NOT rejected, so no real callable is dropped. Previous bump (1p5c4, guard-oversized-files-indexing): files over the tree-sitter parse cap (default 2 MB; override WAVEFOUNDRY_MAX_TS_PARSE_BYTES / `indexing.max_treesitter_parse_bytes`) now SKIP AST graph extraction, and files over the hard size cap are dropped from the walk entirely — so oversized files contribute no graph nodes. Bump forces re-extraction so any large file parsed under v29 has its stale nodes pruned. Wave 1p4up (member-access-constant-reads): a CONSTANT accessed via a qualified member expression (`Status.ACTIVE`, `AppConstants.Network.userAgent`, `Outer.Inner.TOKEN`, Ruby/PHP `A::B::C`) now produces a function→constant `reads` edge by EXACT qualified-name match (const-kind-gated; the qualifier disambiguates so a same-leaf param/import/bare-call can't match). Faithfulness guards: F1 full-qname (not `_simple_name` partial key), F2 reject `this`/`self`/`super`/`cls`, F4 qualifier-shadow (a member-access read whose head is a function param/local is dropped — `func_locals` from per-language binding nodes) + the property/trailing leaf of a member access is no longer also buffered as a bare read (member-path resolves it instead). New `reads` edges → node/edge-set shape change → bump (consumer graph caches re-extract). Wave 1p4q4 review (28) (D1/D2): namespace-scoped enum member nodes now carry the enclosing namespace prefix (`NSA.Inner.AAA` vs `NSB.Inner.AAA` — no cross-namespace collision/clobber), and constant nodes are EXEMPT from the ≤2-char short-symbol prune so short members (`Status.OK`/`Dir.Up`) resolve. Node-set shape change → bump (consumer graph caches re-extract). Wave 1p4q4 (27): TS `enum`/`const enum` members are now `kind="constant"` graph nodes (`Enum.Member`), child of the enum type node. Wave 1p4ls (26) (graph-constant-nodes-and-references): module-/type-level CONSTANT declarations are now graph nodes (kind="constant", carrying a simple-literal `value` where the RHS is a literal) across all core languages, plus a faithfulness-gated function→constant `reads` edge (same-scope + explicitly-imported only; never binds a coincidental same-name twin — symbol_lookup uniqueness + a const-kind gate + a local-shadow guard). Consumers surface them: code_definition resolves a constant name; code_references lists readers in a distinct `reads` bucket (NOT merged into callers); graph_neighbors includes constants when `reads` is requested. `reads` is OPT-IN for default 1-hop traversal (excluded when no explicit relations are passed, so a hot constant does not balloon neighbor sets / 1p4hu expansion) and stays OUT of the impact/call default relations; constant nodes + `reads` edges are excluded from clustering (CLUSTER_BUILDER_VERSION 8→9, no community-label shift). resolve_symbol is kind-aware (a constant sharing a simple name no longer shadows a callable lookup). Detection reuses the 1p4mf chunk-lane per-language predicates (one detector, two consumers — Req-7); the graph lane is BROADER where it lands naturally (class/type-level constants; Swift enum cases; Go grouped-const per member). NOTE: TS `enum`/`const enum` members ARE emitted as constant nodes (`Enum.Member`) — delivered in 1p4q4 (see the v27 line at the top). Kotlin bare top-level/object `val` (no `const`) stays `kind="variable"` (an immutable binding is not a compile-time constant — won't-do). Previous bump (1p4eq, cross-file-resolution-followups): one consolidated bump covering five graph-shaping changes: (1p4ef) fix a leaked `qualified` loop var that injected phantom qualified_index candidates for collapsed/basename-merged nodes (C#/Swift/Rust/Ruby) and silently suppressed unique cross-file resolution; (1p4er) same-package/same-directory disambiguation fallback for ambiguous receivers used WITHOUT an import (Java field miss, `JreCompat.canAccess`), GATED to Java/Kotlin/Go (same-dir ⇒ same-package visibility; Python/JS/TS/Rust/C# excluded); (1p4et) Go methods now keyed `Type.method` (was bare `method`) + package-qualified receiver inference (`var h foo.Helper` → `foo.Helper`, package PRESERVED and resolved by the candidate's package directory); (1p4eu) Rust `Type::assoc_fn()` resolution + struct-literal/`::new()` let-binding type inference; (1p4ev) C# namespace-membership disambiguation (own-namespace ∪ `using`), the namespace derived from each file's DECLARED namespace nodes by longest-prefix (nesting-proof), NOT by fixed-segment qname stripping. FAITHFULNESS FIXES (1p4eq adversarial verification): the 1p4et/1p4ev paths above already incorporate the over-resolution fixes the verification caught — dropping the Go package qualifier bound a co-located cross-package twin, and fixed-segment C# namespace stripping mis-derived a nested-class caller's namespace and bound a coincident sibling twin; both now stay external unless a unique package/namespace-faithful candidate matches. COVERAGE SCOPE — synthetic-fixture tests only, NOT yet validated against a real consumer project: same-package = Java; cross-file method/assoc-fn = Go + Rust; ambiguous-receiver namespace membership = C#. Each carries an adversarial "never binds the wrong twin / stays external" test. **Correction to the v24 line below:** v24 advertised its `imports`-edge disambiguation as "language-agnostic (Python + Java/Kotlin/C#/Go)" — that was over-stated; it fired ONLY for Python + Java (per-type imports), and was dead code for C#/Go/Rust (their import heads are namespaces/packages, not type names) until v25 supplied the per-language mechanisms above. Previous bump (1p47e 1p470): Python sibling-loader return-type inference + cross-file import disambiguation. v24 resolves the lazy-loader blast-radius hole — `gq = _load_graph_query()` (→ `_load_script("graph_query")`) and direct `v = _load_script("mod")` now bind `v.Class.method()` / `v.func()` to the loaded module's symbols (previously emitted NO edge because `v` had no known type; e.g. `GraphQueryIndex.from_root` was called from 14 sites with 0 incoming edges). Also adds import-edge-based disambiguation in the cross-file rewrite pass: an ambiguous `external::Type.method` (multiple same-simple-name candidates) is disambiguated via the source file's `imports` edge for `Type`, language-agnostically (Python + Java/Kotlin/C#/Go). Previous bump (1p2q3 / 1p2tz post-ship-5 1.3.16): TS/JS symbol-table promotion. Intra-file (and cross-file unique-simple-name) calls where `_ts_resolve_target` bound directly to a project node previously landed as `EXTRACTED` even though the binding required an exact match in `symbol_lookup`. Field validation on the v22 stable state showed `getRootToken` and similar intra-file arrow-const targets had only `EXTRACTED` incoming edges — invisible to the `receiver_resolved` attribution bucket — despite the symbol being correctly resolved at extraction time. v23 promotes these to `RECEIVER_RESOLVED` for TS/JS only: when `_ts_resolve_target` returns a non-`external::` project node (i.e. the call site bound to a locally-defined symbol or to the unique cross-file simple-name match) the edge is high-confidence by construction. Affects TS/JS only — other languages route through their per-language receiver resolvers + the cross-file rewrite pass and are out of scope for this round. Previous bump (1.3.12 v21→v22): TS/JS relative-import path resolution into import_targets. v21 emitted arrow-const function nodes but +9,379 of the new TS edges landed as EXTRACTED rather than RECEIVER_RESOLVED because intra-package callers using relative imports (`import { foo } from './events'`) had `import_targets[foo]` populated with the lossy `external::events` form. The cross-file rewrite pass then promoted the edge to the right project node but kept it at EXTRACTED confidence. v22 extracts the raw module specifier before `_ts_clean_name` strips the `./` prefix, resolves relative imports against the source file's directory, then runs the same barrel walk + import_targets binding as the aliased path. The +9,379 EXTRACTED edges observed in the field in v21 → v22 should migrate to RECEIVER_RESOLVED for any intra-package direct call to a relatively-imported arrow-const. Affects TS/JS only. Previous bump (1.3.11 v20→v21) was the arrow-const node-emission half — v22 completes the receiver-type attribution half. Modern TS code uses `export const foo = async (args) => { ... }` as the dominant function shape (field-confirmed: ALL backend functions on a 12k-node Nx monorepo are arrow-const, zero `function` declarations). Tree-sitter parses these as `lexical_declaration → variable_declarator → arrow_function`, not `function_declaration`, so the default name-from-descendants extractor returned empty and the symbol never registered. v21 detects arrow-const bindings explicitly and registers each as a function symbol; walks scope through the arrow body so calls FROM inside arrow-const-bound functions get attributed to the const name rather than the file. Expected impact on barrel-export-heavy + arrow-const-heavy codebases: TS resolved-share rises from 6% range into 30–60% (per field estimate). Affects TS/JS only — other languages unchanged. Previous bump (1.3.10 v19→v20) covered direct-function-call import_targets promotion + bundler-mode .js→.ts swap + community-label barrel deprioritization
 GRAPH_DIRNAME = "graph"
 
 # Wave 1p9q3 (1p9py): graph artifacts persist as gzip-compressed COMPACT JSON.
@@ -2411,6 +2411,15 @@ def _ts_kind_for_definition(node_type: str, current_scope_kind: str | None, mode
         return "type"
     if lower == "property_signature":
         return "property"
+    # Wave 1p9qh (1p9qb): Java `@interface` (annotation_type_declaration) is a
+    # TYPE declaration — classify as "class", consistent with how interface/
+    # enum/record declarations normalize (their tokens hit the class branch
+    # below; "annotation_type" matches none of them, so it previously fell
+    # through to the default "function"). EXACT match on purpose: the body's
+    # `annotation_type_element_declaration` members (`String value();`) are
+    # method-shaped and must KEEP the "function" fallthrough.
+    if lower == "annotation_type_declaration":
+        return "class"
     if any(token in lower for token in ("method", "constructor", "member")):
         return "function"
     if any(token in lower for token in ("class", "interface", "struct", "enum", "trait", "record")):
@@ -3009,16 +3018,41 @@ def _extract_simple_java_type_name(type_node, source_bytes: bytes) -> str | None
     return None
 
 
-def _find_enclosing_java_class_name(node, source_bytes: bytes) -> str | None:
-    """Walk up the AST to the enclosing class_declaration's name."""
+# Wave 1p9qh (1p9qb): declared-package extraction for Java/Kotlin files.
+# Mirrors the package-collapse mechanism's patterns in
+# `graph_query._DIRECTORY_AGG_LANGUAGES` (Java requires the trailing `;`,
+# Kotlin's is optional) — keep the two sites in sync. The parsed declaration
+# is stored as `declared_package` on the file's module node so the
+# same-package disambiguation tier keys on the LANGUAGE FACT (the declared
+# package) rather than directory layout, consistent with the C#
+# declared-namespace stance.
+_JAVA_PKG_DECL_RE = re.compile(r"^\s*package\s+([A-Za-z_][\w.]*)\s*;", re.MULTILINE)
+_KOTLIN_PKG_DECL_RE = re.compile(r"^\s*package\s+([A-Za-z_][\w.]*)", re.MULTILINE)
+
+
+def _find_enclosing_java_class_node(node):
+    """Walk up the AST to the nearest enclosing ``class_declaration`` node.
+
+    Wave 1p9qh (1p9qb): node-returning sibling of
+    ``_find_enclosing_java_class_name`` — the ``this.<field>`` receiver branch
+    needs the class NODE to run a field-declaration-only search against its
+    body.
+    """
     cur = getattr(node, "parent", None)
     while cur is not None:
         if getattr(cur, "type", "") == "class_declaration":
-            name_node = cur.child_by_field_name("name")
-            if name_node is not None:
-                return source_bytes[name_node.start_byte:name_node.end_byte].decode("utf-8", errors="replace")
-            return None
+            return cur
         cur = getattr(cur, "parent", None)
+    return None
+
+
+def _find_enclosing_java_class_name(node, source_bytes: bytes) -> str | None:
+    """Walk up the AST to the enclosing class_declaration's name."""
+    cur = _find_enclosing_java_class_node(node)
+    if cur is not None:
+        name_node = cur.child_by_field_name("name")
+        if name_node is not None:
+            return source_bytes[name_node.start_byte:name_node.end_byte].decode("utf-8", errors="replace")
     return None
 
 
@@ -3048,6 +3082,35 @@ def _search_java_declarations_in_scope(scope_node, name: str, source_bytes: byte
         if n_type in ("method_declaration", "constructor_declaration", "class_declaration") and n is not scope_node:
             continue
         stack.extend(reversed(getattr(n, "children", []) or []))
+    return None
+
+
+def _search_java_field_declarations(class_node, name: str, source_bytes: bytes) -> str | None:
+    """Declared type of field ``name`` among ``class_node``'s DIRECT field declarations.
+
+    Wave 1p9qh (1p9qb): the lookup for ``this.<field>`` receivers. Consults
+    ``field_declaration`` members of the class body ONLY — never locals or
+    parameters — mirroring Java semantics: ``this.f`` always denotes the
+    field, explicitly bypassing any local/parameter shadow. Direct class-body
+    members only (no descent), so a local inside an instance-initializer
+    block can never divert the lookup either. Returns None when the field is
+    not declared here (e.g. inherited) — the receiver stays uncertain per the
+    false-positive bias.
+    """
+    body = class_node.child_by_field_name("body") if class_node is not None else None
+    for member in (getattr(body, "named_children", []) or []):
+        if getattr(member, "type", "") != "field_declaration":
+            continue
+        type_node = member.child_by_field_name("type")
+        if type_node is None:
+            continue
+        for child in (getattr(member, "children", []) or []):
+            if getattr(child, "type", "") == "variable_declarator":
+                name_node = child.child_by_field_name("name")
+                if name_node is not None:
+                    var_name = source_bytes[name_node.start_byte:name_node.end_byte].decode("utf-8", errors="replace")
+                    if var_name == name:
+                        return _extract_simple_java_type_name(type_node, source_bytes)
     return None
 
 
@@ -3094,8 +3157,215 @@ def _resolve_java_receiver_type(invocation_node, source_bytes: bytes) -> str | N
     if obj_type == "identifier":
         ident_text = source_bytes[obj.start_byte:obj.end_byte].decode("utf-8", errors="replace")
         return _resolve_java_identifier_type(ident_text, invocation_node, source_bytes)
-    # field_access, cast_expression, method_invocation chains, lambdas → uncertain.
+    if obj_type == "field_access":
+        # Wave 1p9qh (1p9qb): single-segment field receivers — `this.repo.save()`
+        # and `Enclosing.STATIC_FIELD.m()` (static field via the enclosing class
+        # name). The field's DECLARED type is an explicit in-file fact, exactly
+        # the guarantee the bare-identifier path rides on, so the bind carries
+        # identical confidence. Lookup is field-declaration-ONLY (`this.`
+        # bypasses local/param shadows by Java semantics — see
+        # `_search_java_field_declarations`). Deeper chains (`this.a.b.m()`)
+        # and non-`this` objects require intermediate-type inference — a
+        # different risk class — and stay uncertain (documented give-up).
+        inner_obj = obj.child_by_field_name("object")
+        field_node = obj.child_by_field_name("field")
+        if inner_obj is not None and getattr(field_node, "type", "") == "identifier":
+            inner_type = getattr(inner_obj, "type", "")
+            qualifies = inner_type == "this"
+            if not qualifies and inner_type == "identifier":
+                ident_text = source_bytes[inner_obj.start_byte:inner_obj.end_byte].decode("utf-8", errors="replace")
+                qualifies = bool(ident_text) and ident_text == _find_enclosing_java_class_name(invocation_node, source_bytes)
+            if qualifies:
+                cls_node = _find_enclosing_java_class_node(invocation_node)
+                if cls_node is not None:
+                    field_name = source_bytes[field_node.start_byte:field_node.end_byte].decode("utf-8", errors="replace")
+                    return _search_java_field_declarations(cls_node, field_name, source_bytes)
+        return None
+    # cast_expression, method_invocation chains, lambdas → uncertain.
     return None
+
+
+def _java_import_facts(import_node, source_bytes: bytes) -> tuple[str, bool, bool] | None:
+    """Wave 1p9qh (1p9q9): structured parse of a Java ``import_declaration``.
+
+    Returns ``(fqn, is_static, is_wildcard)`` or None when the node carries no
+    name (defensive). The tree-sitter Java grammar fully structures the node:
+    the ``static`` modifier is an anonymous ``static`` token child, the trailing
+    ``.*`` is a NAMED ``asterisk`` child, and the dotted name is the first
+    ``scoped_identifier``/``identifier`` named child (verified 2026-07-04):
+
+      import com.foo.Bar;           -> ("com.foo.Bar", False, False)
+      import com.foo.*;             -> ("com.foo", False, True)
+      import static com.foo.Bar.baz;-> ("com.foo.Bar.baz", True, False)
+      import static com.foo.Bar.*;  -> ("com.foo.Bar", True, True)
+
+    Replaces the generic regex fallback for Java imports, which truncated the
+    wildcard form at the asterisk (`com.foo.` — a useless trailing-dot token)
+    and emitted the bare `static` keyword as a spurious import candidate.
+    """
+    is_static = any(
+        getattr(c, "type", "") == "static"
+        for c in (getattr(import_node, "children", []) or [])
+    )
+    is_wildcard = False
+    name_node = None
+    for child in (getattr(import_node, "named_children", []) or []):
+        c_type = getattr(child, "type", "")
+        if c_type == "asterisk":
+            is_wildcard = True
+        elif name_node is None and c_type in ("scoped_identifier", "identifier"):
+            name_node = child
+    if name_node is None:
+        return None
+    fqn = source_bytes[name_node.start_byte:name_node.end_byte].decode("utf-8", errors="replace")
+    fqn = re.sub(r"\s+", "", fqn)  # normalize `com . foo . Bar` formatting oddities
+    if not fqn:
+        return None
+    return fqn, is_static, is_wildcard
+
+
+# =============================================================================
+# Inheritance extraction (wave 1p9qh / 1p9qa) — Java + C# `extends`/`implements`.
+#
+# Declaration-derived supertype facts join the relation vocabulary as
+# `extends` (class → superclass; interface → extended interfaces) and
+# `implements` (class/enum/record/struct → interface). Targets resolve through
+# the SAME import/unique-candidate machinery as calls edges (including the
+# 1p9q9 wildcard-import facts); an unresolved supertype stays
+# `external::<Name>` qualified exactly as declared — never dropped, never
+# guessed. Inherited-method and `super.`/`base.` call binding runs as a
+# finalize OUTPUT pass (see `_apply_inheritance_output_passes`).
+# =============================================================================
+
+# Relations forming the inheritance sub-graph. Language-neutral by design —
+# only Java and C# emit them today (Kotlin deferred: its supertype syntax
+# deserves its own calibration).
+_INHERITANCE_RELATIONS = ("extends", "implements")
+
+# Bounded BFS depth (supertype hops from the receiver class) for
+# inherited-method resolution. Deep enterprise hierarchies rarely exceed
+# 3-4 project-local levels; the cap bounds worst-case walk cost and any
+# pathological cycle interaction (visited-set already handles diamonds).
+_INHERITANCE_WALK_MAX_DEPTH = 5
+
+# Synthetic external-name prefix marking a Java `super.foo()` / C# `base.Foo()`
+# call: `external::super.<EnclosingClass>.<method>`. C# reuses the SAME marker
+# (its own reserved word is `base`) so the finalize pass has one handler.
+# NOTE (1p9qh red-team F4): the prefix is NOT globally unmintable — Rust
+# `use super::…` imports already mint `external::super.*` ids (as `imports`
+# edges). The actual safety contract, pinned by test
+# (`SuperMarkerCallsInvariantTests`): (a) the finalize inheritance pass
+# examines only `calls`-relation edges, so import-minted ids are never
+# touched; and (b) every language's CALLS extraction independently refuses
+# `super` receivers (Java/C# emit this marker; Kotlin/Scala/Swift/TS/JS
+# return None), so the only `calls` targets carrying the prefix are these
+# markers. Phase-1 cross-file resolution passes them through untouched —
+# only the finalize inheritance pass may bind them.
+_SUPER_CALL_PREFIX = "super."
+
+# Wave 1p9qh adversarial fix (F1). Synthetic external-name prefix marking a
+# Java bare call that a static-import fact would bind while the enclosing
+# class ALSO has a supertype clause:
+#
+#   external::staticorinherited#<EnclosingClass>.<method>#<Class.member>
+#
+# (the segment after the LAST `#` is the deferred static-import claim).
+# JLS 6.4.1: members in class scope INCLUDING INHERITED ones shadow
+# single-static and static-on-demand imports — but whether a supertype
+# defines the member is a cross-file fact unavailable at extraction time,
+# so the claim is deferred and the finalize inheritance pass arbitrates
+# (`_arbitrate_static_or_inherited`: inherited definer wins; multi-definer
+# refuses; no definer → the static claim stands).
+#
+# RESERVED / UNMINTABLE INVARIANT: the `#` separator cannot appear in an
+# identifier of any indexed language, and every other emitter builds `calls`
+# targets from identifier/AST text — so no source construct in any language
+# can mint a target matching this prefix. (A Java class literally named
+# `staticorinherited` yields `external::staticorinherited.<m>`, which does
+# NOT match the `#`-terminated prefix.) The invariant is pinned by test.
+#
+# Phase-1 cross-file resolution passes these through untouched — and unlike
+# the `super.` marker, the finalize pass rewrites every emitter-mintable
+# marker (bind inherited / refuse / claim stands), so none appears in an
+# output payload; malformed lookalikes pass through untouched (unmintable,
+# invariant-tested).
+_STATIC_OR_INHERITED_PREFIX = "staticorinherited#"
+_STATIC_OR_INHERITED_SEP = "#"
+
+
+def _java_supertype_name(type_node, source_bytes: bytes) -> str | None:
+    """Raw supertype name from a Java type node in a supertype clause.
+
+    Dotted paths are PRESERVED (`extends com.foo.Base` emits the qualified
+    name as declared); generic arguments are stripped to the raw type
+    (`extends Base<Foo>` → `Base`). Returns None for shapes that are not
+    plain named types (never guessed).
+    """
+    n_type = getattr(type_node, "type", "")
+    if n_type == "type_identifier":
+        return source_bytes[type_node.start_byte:type_node.end_byte].decode("utf-8", errors="replace") or None
+    if n_type == "scoped_type_identifier":
+        text = source_bytes[type_node.start_byte:type_node.end_byte].decode("utf-8", errors="replace")
+        return re.sub(r"\s+", "", text) or None
+    if n_type == "generic_type":
+        for child in (getattr(type_node, "named_children", []) or []):
+            if getattr(child, "type", "") in ("type_identifier", "scoped_type_identifier"):
+                return _java_supertype_name(child, source_bytes)
+    return None
+
+
+def _java_supertype_facts(decl_node, source_bytes: bytes) -> list[tuple[str, str]]:
+    """(supertype_name, relation) facts from a Java type declaration node.
+
+    Grammar shapes (probed against tree-sitter-java, 2026-07-04):
+
+      class_declaration     → `superclass` ("extends" _type)          → extends
+                              `super_interfaces` ("implements" type_list) → implements
+      interface_declaration → `extends_interfaces` ("extends" type_list)  → extends
+      enum_declaration      → `super_interfaces`                       → implements
+      record_declaration    → `super_interfaces`                       → implements
+    """
+    facts: list[tuple[str, str]] = []
+    for child in (getattr(decl_node, "named_children", []) or []):
+        c_type = getattr(child, "type", "")
+        if c_type == "superclass":
+            relation = "extends"
+            type_nodes = list(getattr(child, "named_children", []) or [])
+        elif c_type in ("super_interfaces", "extends_interfaces"):
+            relation = "extends" if c_type == "extends_interfaces" else "implements"
+            type_nodes = []
+            for tl in (getattr(child, "named_children", []) or []):
+                if getattr(tl, "type", "") == "type_list":
+                    type_nodes = list(getattr(tl, "named_children", []) or [])
+                    break
+        else:
+            continue
+        for t in type_nodes:
+            name = _java_supertype_name(t, source_bytes)
+            if name:
+                facts.append((name, relation))
+    return facts
+
+
+def _java_enclosing_has_supertype_clause(node) -> bool:
+    """True when the nearest enclosing ``class_declaration`` carries any
+    supertype clause (``superclass`` / ``super_interfaces``).
+
+    Wave 1p9qh adversarial fix (F1): gates the static-or-inherited deferred
+    marker. A class with no supertype clause cannot have inherited members
+    shadowing a static import (JLS 6.4.1), so extraction-time static binds
+    stay direct for it — no marker, no behavior change. Scoped to
+    ``class_declaration`` exactly like ``_find_enclosing_java_class_name``
+    (which supplies the marker's enclosing-class segment): declarations that
+    helper cannot name never reach the marker path in the first place.
+    """
+    cls_node = _find_enclosing_java_class_node(node)
+    if cls_node is None:
+        return False
+    for child in (getattr(cls_node, "named_children", []) or []):
+        if getattr(child, "type", "") in ("superclass", "super_interfaces"):
+            return True
+    return False
 
 
 # =============================================================================
@@ -3455,6 +3725,21 @@ def _resolve_csharp_call_target(
             if getattr(child, "type", "") == "identifier":
                 method_name = source_bytes[child.start_byte:child.end_byte].decode("utf-8", errors="replace")
                 break
+        # Wave 1p9qh (1p9qa): `base.Foo()` — C#'s super-call form. The
+        # receiver node type is the anonymous `base` keyword token (probed
+        # 2026-07-04; it is NOT an identifier, so the identifier branch in
+        # `_resolve_csharp_receiver_type` never sees it). Emit the shared
+        # reserved-prefix marker so the finalize inheritance pass resolves it
+        # via the enclosing class's single project-resolved `extends` target.
+        if (
+            method_name
+            and ma_children
+            and getattr(ma_children[0], "type", "") == "base"
+        ):
+            enclosing = _find_enclosing_csharp_class_name(invocation_node, source_bytes)
+            if enclosing:
+                return f"external::{_SUPER_CALL_PREFIX}{enclosing}.{method_name}"
+            return None
     if not method_name:
         return None
     receiver_type = _resolve_csharp_receiver_type(invocation_node, source_bytes)
@@ -3464,6 +3749,68 @@ def _resolve_csharp_call_target(
     if qualified in symbol_lookup:
         return symbol_lookup[qualified]
     return f"external::{receiver_type}.{method_name}"
+
+
+def _csharp_supertype_name(type_node, source_bytes: bytes) -> str | None:
+    """Raw base name from a C# `base_list` entry.
+
+    `qualified_name` is preserved dotted (emit qualified as declared); a
+    `generic_name` strips to the raw identifier; `predefined_type` is
+    rejected — an enum's underlying-type clause (`enum E : byte`) is a
+    storage declaration, not inheritance.
+    """
+    n_type = getattr(type_node, "type", "")
+    if n_type == "identifier":
+        return source_bytes[type_node.start_byte:type_node.end_byte].decode("utf-8", errors="replace") or None
+    if n_type == "qualified_name":
+        text = source_bytes[type_node.start_byte:type_node.end_byte].decode("utf-8", errors="replace")
+        text = re.sub(r"\s+", "", text)
+        if "<" in text:  # generic tail on a qualified name (`Foo.Bar<T>`)
+            text = text.split("<", 1)[0].rstrip(".")
+        return text or None
+    if n_type == "generic_name":
+        for child in (getattr(type_node, "named_children", []) or []):
+            if getattr(child, "type", "") == "identifier":
+                return source_bytes[child.start_byte:child.end_byte].decode("utf-8", errors="replace") or None
+    return None
+
+
+def _csharp_supertype_facts(decl_node, node_type: str, source_bytes: bytes) -> list[tuple[str, str]]:
+    """(base_name, relation) facts from a C# type declaration's `base_list`.
+
+    The C# grammar does NOT structurally distinguish the base class from the
+    implemented interfaces — `base_list` is a flat type list. Relation
+    assignment uses the language rules that ARE deterministic:
+
+    - interface declarer: bases can only be interfaces → all `extends`
+      (interface inheritance).
+    - struct declarer: bases can only be interfaces → all `implements`.
+    - class/record declarer: C# permits AT MOST ONE base class and requires
+      it to be listed FIRST (language rule), so the FIRST base is emitted
+      `extends` and the rest `implements`. This positional labeling is the
+      convention for UNRESOLVED (`external::`) bases only: a project-resolved
+      base gets its true kind-based relation in the finalize output pass
+      (a first base resolving to a project interface flips to `implements`),
+      and the two relations traverse identically in impact/path, so the
+      convention mislabel on a genuinely-external first interface is inert.
+    """
+    base_list = None
+    for child in (getattr(decl_node, "named_children", []) or []):
+        if getattr(child, "type", "") == "base_list":
+            base_list = child
+            break
+    if base_list is None:
+        return []
+    names: list[str] = []
+    for t in (getattr(base_list, "named_children", []) or []):
+        name = _csharp_supertype_name(t, source_bytes)
+        if name:
+            names.append(name)
+    if node_type == "interface_declaration":
+        return [(n, "extends") for n in names]
+    if node_type == "struct_declaration":
+        return [(n, "implements") for n in names]
+    return [(n, "extends" if i == 0 else "implements") for i, n in enumerate(names)]
 
 
 # =============================================================================
@@ -5471,7 +5818,9 @@ def _java_config_getter_key(invocation_node, source_bytes: bytes) -> str | None:
 
 
 def _resolve_java_call_target(
-    invocation_node, source_bytes: bytes, symbol_lookup: dict[str, str]
+    invocation_node, source_bytes: bytes, symbol_lookup: dict[str, str],
+    static_import_members: dict[str, str | None] | None = None,
+    static_wildcard_imports: list[str] | None = None,
 ) -> str | None:
     """Resolve a Java method_invocation to a graph node id.
 
@@ -5480,6 +5829,19 @@ def _resolve_java_call_target(
 
     - Receiver type resolves to a project class (qname found in symbol_lookup)
       → return the project node id.
+    - Bare call (no receiver) not defined by the enclosing class, with a
+      matching static import (wave 1p9qh / 1p9q9) → return the statically-
+      imported ``Class.member`` target (project node when the class is in this
+      file, else the QUALIFIED ``external::Class.member`` — never bare; the
+      cross-file pass binds a unique project ``Class.member`` or it stays
+      external). A single static WILDCARD import (`import static X.*;`)
+      resolves otherwise-unresolved bare calls the same way; two static
+      wildcards refuse (unique-survivor) and keep enclosing-class attribution.
+      Adversarial fix (F1): when the enclosing class ALSO has a supertype
+      clause, the static claim is DEFERRED via the reserved
+      ``external::staticorinherited#…`` marker — JLS 6.4.1 puts inherited
+      members ahead of static imports, and only the finalize pass can see
+      cross-file supertype definers (see ``_arbitrate_static_or_inherited``).
     - Receiver type resolves to a non-project type → return the qualified
       external node id (``external::<ResolvedType>.<method>``).
     - Receiver type is uncertain (None) → return None; caller falls through
@@ -5489,6 +5851,10 @@ def _resolve_java_call_target(
         invocation_node: Java AST ``method_invocation`` node.
         source_bytes: Source file bytes for text extraction.
         symbol_lookup: Mapping of qname → node_id for project symbols.
+        static_import_members: Bare member name → ``Class.member`` from this
+            file's explicit static imports (a None value marks a name imported
+            from conflicting classes — refused, never guessed).
+        static_wildcard_imports: FQNs of static-wildcard-imported classes.
     """
     if invocation_node is None or getattr(invocation_node, "type", "") != "method_invocation":
         return None
@@ -5498,13 +5864,61 @@ def _resolve_java_call_target(
     method_name = source_bytes[method_name_node.start_byte:method_name_node.end_byte].decode("utf-8", errors="replace")
     if not method_name:
         return None
+    # Wave 1p9qh (1p9qa): `super.foo()` — the true receiver is the enclosing
+    # class's superclass, a cross-file fact unavailable at extraction time.
+    # Emit the reserved-prefix marker `external::super.<Enclosing>.<method>`
+    # (`super` is a Java reserved word — never a real package/class head);
+    # phase-1 cross-file resolution passes it through untouched and the
+    # finalize inheritance pass binds it via the enclosing class's single
+    # project-resolved `extends` target, or refuses. Deliberately NOT bound to
+    # `<Enclosing>.<method>`: that would wrong-bind the subclass's own
+    # override, the exact method `super.` explicitly skips.
+    _obj_node = invocation_node.child_by_field_name("object")
+    if getattr(_obj_node, "type", "") == "super":
+        enclosing = _find_enclosing_java_class_name(invocation_node, source_bytes)
+        if enclosing:
+            return f"external::{_SUPER_CALL_PREFIX}{enclosing}.{method_name}"
+        return None
     receiver_type = _resolve_java_receiver_type(invocation_node, source_bytes)
+    # Same-file precedence (existing scope-first order, unchanged): a method
+    # defined by the resolved receiver (for a bare call: the enclosing class)
+    # in THIS file wins over any static import.
+    if receiver_type is not None:
+        qualified = f"{receiver_type}.{method_name}"
+        if qualified in symbol_lookup:
+            return symbol_lookup[qualified]
+    # Wave 1p9qh (1p9q9): static-import member resolution for BARE calls only
+    # (an explicit receiver is never a static-import bind).
+    if invocation_node.child_by_field_name("object") is None:
+        static_claim: str | None = (static_import_members or {}).get(method_name)
+        if static_claim is None and method_name not in (static_import_members or {}):
+            wilds = list(dict.fromkeys(static_wildcard_imports or []))
+            if len(wilds) == 1:
+                wild_cls = wilds[0].rsplit(".", 1)[-1]
+                if wild_cls:
+                    static_claim = f"{wild_cls}.{method_name}"
+        if static_claim:
+            # Wave 1p9qh adversarial fix (F1): JLS 6.4.1 — members in class
+            # scope INCLUDING INHERITED ones shadow single-static and
+            # static-on-demand imports. Same-file members already won above;
+            # whether a SUPERTYPE defines the member is a cross-file fact,
+            # so when the enclosing class has any supertype clause the
+            # static claim is DEFERRED via the reserved marker and the
+            # finalize inheritance pass arbitrates (inherited definer →
+            # bind inherited; multiple definers → refuse; no definer → the
+            # claim stands). No supertype clause — or no identifiable
+            # enclosing class scope to arbitrate (`receiver_type` is the
+            # enclosing class name for a bare call) — keeps today's direct
+            # extraction-time static bind.
+            if receiver_type is not None and _java_enclosing_has_supertype_clause(invocation_node):
+                return (
+                    f"external::{_STATIC_OR_INHERITED_PREFIX}"
+                    f"{receiver_type}.{method_name}"
+                    f"{_STATIC_OR_INHERITED_SEP}{static_claim}"
+                )
+            return symbol_lookup.get(static_claim) or f"external::{static_claim}"
     if receiver_type is None:
         return None  # Uncertain — fall through to existing attribution.
-    # Project lookup: try the qualified name.
-    qualified = f"{receiver_type}.{method_name}"
-    if qualified in symbol_lookup:
-        return symbol_lookup[qualified]
     # External attribution: qualified external node id.
     return f"external::{receiver_type}.{method_name}"
 
@@ -5920,14 +6334,20 @@ _ANALYTICS_NODE_FLAGS = ("is_entry_point", "dead_code_risk", "is_chokepoint")
 
 def _build_candidate_indexes(
     node_map: dict[str, dict[str, Any]],
-) -> tuple[dict[str, list[str]], dict[str, list[str]], dict[str, set[str]]]:
-    """Build (simple_name_index, qualified_index, cs_file_ns) from a node map.
+) -> tuple[dict[str, list[str]], dict[str, list[str]], dict[str, set[str]], dict[str, str]]:
+    """Build (simple_name_index, qualified_index, cs_file_ns, pkg_by_file) from a node map.
 
     Extracted verbatim from finalize (waves 130ol/1312l/1316l/1p4ef/1p4ev/
     1p66e — see the inline comments retained below). Pure function of the node
     mapping; also runs on per-file node subsets to compute the symbol-delta
     keys for scoped re-resolution (the per-(file, simple) winner logic is
     per-file, so a whole-file subset yields exactly that file's contributions).
+
+    Wave 1p9qh (1p9qb): ``pkg_by_file`` maps a Java/Kotlin file to its
+    DECLARED package, harvested from the ``declared_package`` property the
+    extractor stores on the file's module node. Node-derived like
+    ``cs_file_ns``, so incremental merges rebuild it from per-file fragments
+    with no extra state.
     """
     simple_name_index: dict[str, list[str]] = {}
     qualified_index: dict[str, list[str]] = {}
@@ -5935,9 +6355,15 @@ def _build_candidate_indexes(
     # Wave 1p4eq (1p4ev faithfulness fix): each C# file's DECLARED namespaces,
     # harvested from its namespace nodes (`file.cs::Namespace`, kind="module").
     cs_file_ns: dict[str, set[str]] = {}
+    # Wave 1p9qh (1p9qb): each Java/Kotlin file's DECLARED package.
+    pkg_by_file: dict[str, str] = {}
     for node_id, node in node_map.items():
         if node_id.startswith("external::"):
             continue  # external endpoint nodes are not project candidates
+        if "::" not in node_id:
+            _pkg = node.get("declared_package")
+            if _pkg:
+                pkg_by_file[node_id] = str(_pkg)
         if "::" in node_id and node.get("kind") == "module":
             _ns_file = node_id.split("::", 1)[0]
             if _ns_file.endswith(".cs"):
@@ -5989,7 +6415,7 @@ def _build_candidate_indexes(
         qualified_index[_k] = list(dict.fromkeys(qualified_index[_k]))
     for _k in list(simple_name_index.keys()):
         simple_name_index[_k] = list(dict.fromkeys(simple_name_index[_k]))
-    return simple_name_index, qualified_index, cs_file_ns
+    return simple_name_index, qualified_index, cs_file_ns, pkg_by_file
 
 
 def _candidate_delta_keys(nodes: list[dict[str, Any]]) -> set[str]:
@@ -6007,29 +6433,46 @@ def _candidate_delta_keys(nodes: list[dict[str, Any]]) -> set[str]:
             node_id = str(node.get("id") or "")
             if node_id:
                 subset.setdefault(node_id, node)
-    simple_idx, qualified_idx, _ = _build_candidate_indexes(subset)
+    simple_idx, qualified_idx, _, _ = _build_candidate_indexes(subset)
     return set(simple_idx) | set(qualified_idx)
 
 
-def _build_imports_by_file(raw_edge_keys) -> dict[str, dict[str, str]]:
-    """Per-source-file import map for ambiguous-receiver disambiguation.
+def _build_imports_by_file(raw_edge_keys) -> tuple[dict[str, dict[str, str]], dict[str, list[str]]]:
+    """Per-source-file import maps for ambiguous-receiver disambiguation.
 
     Extracted verbatim from finalize (waves 1p47e/1p66e): file -> { imported
     simple name -> import FQN }; on a final-segment collision keep the
     lexicographically smallest FQN (stable, order-independent).
+
+    Wave 1p9qh (1p9q9): an import target ending in ``.*`` (the structured Java
+    wildcard-import edge, ``external::com.foo.*``) is a PACKAGE-PREFIX fact,
+    not a simple-name binding — it goes into the second returned map
+    (file -> sorted list of wildcard-imported package prefixes) and is kept out
+    of the simple-name buckets (its final segment ``*`` is never a receiver
+    head). The wildcard map feeds the wildcard-participation pass in
+    ``_resolve_external_call_target``.
     """
     imports_by_file: dict[str, dict[str, str]] = {}
+    wildcard_imports_by_file: dict[str, set[str]] = {}
     for (e_src, e_tgt, e_rel, _e_conf) in raw_edge_keys:
         if e_rel == "imports" and e_tgt.startswith("external::"):
             fqn = e_tgt[len("external::"):]
             if not fqn:
+                continue
+            if fqn.endswith(".*"):
+                _pkg = fqn[:-2]
+                if _pkg:
+                    wildcard_imports_by_file.setdefault(e_src, set()).add(_pkg)
                 continue
             _seg = fqn.rsplit(".", 1)[-1]
             _bucket = imports_by_file.setdefault(e_src, {})
             _prev = _bucket.get(_seg)
             if _prev is None or fqn < _prev:
                 _bucket[_seg] = fqn
-    return imports_by_file
+    # Sorted lists for order-independence (1p66e determinism discipline).
+    return imports_by_file, {
+        f: sorted(pkgs) for f, pkgs in wildcard_imports_by_file.items()
+    }
 
 
 def _resolve_external_call_target(
@@ -6041,6 +6484,8 @@ def _resolve_external_call_target(
     qualified_index: dict[str, list[str]],
     imports_by_file: dict[str, dict[str, str]],
     cs_file_ns: dict[str, set[str]],
+    wildcard_imports_by_file: dict[str, list[str]] | None = None,
+    java_pkg_by_file: dict[str, str] | None = None,
 ) -> tuple[str | None, bool]:
     """Resolve one `external::<bare>` calls-edge target to a project node.
 
@@ -6122,6 +6567,23 @@ def _resolve_external_call_target(
     if resolved is None and len(candidates) > 1:
         src_file = src.split("::", 1)[0] if "::" in src else src
         head = bare.split(".", 1)[0]
+
+        # Wave 1p9qh (1p9qb; adversarial fix F2): Java/Kotlin package identity
+        # keys on the parsed `package` DECLARATION (`declared_package` on the
+        # file's module node), with the directory as fallback for
+        # declaration-less files. The `pkg:`/`dir:` prefixes keep the two key
+        # spaces disjoint. Shared by the wildcard own-package-shadow guard AND
+        # the same-package fallback tier below — the two MUST agree, or a
+        # source whose declared package lives outside its mirroring directory
+        # is shadow-guarded and package-bound under different identities.
+        _pkg_map = java_pkg_by_file or {}
+
+        def _pkg_key(f: str) -> str:
+            _pkg = _pkg_map.get(f)
+            if _pkg:
+                return f"pkg:{_pkg}"
+            return "dir:" + (f.rsplit("/", 1)[0] if "/" in f else "")
+
         imp_fqn = imports_by_file.get(src_file, {}).get(head)
         if imp_fqn:
             accept = {imp_fqn}
@@ -6136,11 +6598,64 @@ def _resolve_external_call_target(
             if len(matches) == 1:
                 resolved = matches[0]
                 rewrote_exact = True  # import-edge-disambiguated unique match
-        # Wave 1p4er: same-package / same-directory fallback, GATED to
-        # languages where same-directory ⇒ same-package visibility (Java/
-        # Kotlin/Go). Runs ONLY after the import path left it unresolved:
-        # resolve iff exactly one candidate is co-located.
-        if resolved is None and src_file.endswith((".java", ".kt", ".kts", ".go")):
+        # Wave 1p9qh (1p9q9): wildcard-import participation. A wildcard import
+        # (`import com.foo.*;` → package prefix "com.foo") is genuine
+        # visibility evidence — an ambiguous candidate whose defining module
+        # matches a wildcard-imported package is preferred EXACTLY like an
+        # explicit import of `<pkg>.<head>` would be, with the same
+        # unique-survivor rule: two candidates matching wildcard imports →
+        # stay external, never guess. Runs only after the explicit-import
+        # check above left the receiver unresolved (explicit precedence).
+        # Java package shadowing guard: the source file's OWN package is an
+        # implicit on-demand import that SHADOWS wildcard imports in Java, so
+        # an own-package twin counts as a match for refusal purposes — the
+        # same-package tier below (declared-package keyed, 1p9qb) then binds
+        # it Java-faithfully.
+        if resolved is None:
+            _wild_pkgs = (wildcard_imports_by_file or {}).get(src_file, ())
+            if _wild_pkgs:
+                _accept_wild: set[str] = set()
+                for _pkg in _wild_pkgs:
+                    _accept_wild.add(f"{_pkg}.{head}")
+                    _accept_wild.add(_pkg)
+                # Own-package identity = the DECLARED package (directory
+                # fallback) via `_pkg_key`, matching the 1p9qb same-package
+                # tier's keying exactly — never the directory alone.
+                # Adversarial fix (F2): keying this guard on the directory
+                # let a source whose declared package lives outside its
+                # mirroring directory bind a wildcard twin that Java
+                # shadowing forbids — and, on an `extends` target, mint
+                # wrong inherited call binds in untouched callers.
+                _src_pkg_key = _pkg_key(src_file)
+                _wild_matches: list[str] = []
+                _own_matches: list[str] = []
+                for cand in candidates:
+                    _cfile = cand.split("::", 1)[0]
+                    _cmod = re.sub(r"\.[A-Za-z0-9]+$", "", _cfile).replace("/", ".").lstrip(".")
+                    if _cmod in _accept_wild:
+                        _wild_matches.append(cand)
+                    if _pkg_key(_cfile) == _src_pkg_key:
+                        _own_matches.append(cand)
+                if len(_wild_matches) == 1 and all(m in _wild_matches for m in _own_matches):
+                    resolved = _wild_matches[0]
+                    rewrote_exact = True  # wildcard-import-disambiguated unique match
+        # Wave 1p4er: same-package fallback, GATED to languages with
+        # package-level visibility without an import (Java/Kotlin/Go). Runs
+        # ONLY after the import path left it unresolved: resolve iff exactly
+        # one candidate shares the source's package.
+        #
+        # Wave 1p9qh (1p9qb): Java/Kotlin key on the parsed `package`
+        # DECLARATION (the language fact the indexer already extracts —
+        # `declared_package` on the file's module node), with the directory
+        # as fallback for declaration-less files (default package ⇒ directory
+        # locality, preserving pre-1p9qb behavior for package-less fixtures).
+        # The `pkg:`/`dir:` prefixes keep the two key spaces disjoint so a
+        # declared package can never coincide with a directory string. Both
+        # flip directions are deliberate: split-directory same-package files
+        # now disambiguate; same-directory different-package files now
+        # refuse. Go keeps pure directory keying — a Go package IS its
+        # directory, so directory keying is its declared semantics.
+        if resolved is None and src_file.endswith(".go"):
             src_dir = src_file.rsplit("/", 1)[0] if "/" in src_file else ""
             same_dir = []
             for cand in candidates:
@@ -6150,6 +6665,15 @@ def _resolve_external_call_target(
                     same_dir.append(cand)
             if len(same_dir) == 1:
                 resolved = same_dir[0]
+        elif resolved is None and src_file.endswith((".java", ".kt", ".kts")):
+            src_key = _pkg_key(src_file)
+            same_pkg = []
+            for cand in candidates:
+                cfile = cand.split("::", 1)[0]
+                if _pkg_key(cfile) == src_key:
+                    same_pkg.append(cand)
+            if len(same_pkg) == 1:
+                resolved = same_pkg[0]
         # Wave 1p4ev: C# namespace membership — keep candidates whose namespace
         # is the source's OWN namespace or a `using`-imported one, deriving a
         # node's namespace from its file's DECLARED namespaces by longest
@@ -6225,7 +6749,14 @@ def _edge_lookup_keys(raw_edge: dict[str, Any]) -> set[str]:
     Mirrors the resolver's lookup surface exactly: `bare` (qualified or
     simple), the final segment (the AC-2 fallback), and the Go inner key for
     package-qualified Go receivers. Used to select scope-(b) edges — any edge
-    whose keys intersect the symbol delta must re-resolve.
+    whose keys intersect the symbol delta must re-resolve. Wave 1p9qh (1p9qa):
+    `extends`/`implements` supertype edges consult the same `bare` +
+    final-segment keys as calls (they resolve through the same machinery).
+    The `super.` and `staticorinherited#` markers need NO dedicated lookup
+    shape: phase-1 re-resolution passes them through untouched, and their
+    real binding happens in the finalize OUTPUT pass, which is recomputed
+    fresh from the full merged maps on every build (so supertype/definer/
+    claim symbol deltas are picked up without any per-edge invalidation).
     """
     tgt = str(raw_edge.get("target") or "")
     if not tgt.startswith("external::"):
@@ -6236,6 +6767,11 @@ def _edge_lookup_keys(raw_edge: dict[str, Any]) -> set[str]:
         return set()
     if rel == "reads":
         return {bare}
+    if rel in _INHERITANCE_RELATIONS:
+        keys = {bare}
+        if "." in bare:
+            keys.add(bare.rsplit(".", 1)[-1])
+        return keys
     if rel != "calls":
         return set()
     keys = {bare}
@@ -6266,10 +6802,21 @@ def _resolve_fragment_edge(raw_edge: dict[str, Any], ctx: dict[str, Any]) -> dic
         return raw_edge
     tgt = str(raw_edge.get("target") or "")
     rel = str(raw_edge.get("relation") or "")
-    if not tgt.startswith("external::") or rel not in ("calls", "reads"):
+    if not tgt.startswith("external::") or rel not in ("calls", "reads", *_INHERITANCE_RELATIONS):
         return raw_edge
     src = str(raw_edge.get("source") or "")
     bare = tgt[len("external::"):]
+    # Wave 1p9qh (1p9qa): `super.`/`base.` call markers are owned by the
+    # finalize inheritance pass. Never resolved here — the AC-2 final-segment
+    # fallback could wrong-bind the marker to an unrelated same-named symbol
+    # (or to the subclass's own override, the exact method `super.` skips).
+    # The static-or-inherited marker (adversarial fix F1) is likewise owned
+    # by the finalize pass — it passes through phase 1 untouched.
+    if rel == "calls" and (
+        bare.startswith(_SUPER_CALL_PREFIX)
+        or bare.startswith(_STATIC_OR_INHERITED_PREFIX)
+    ):
+        return raw_edge
     if rel == "reads":
         target = _resolve_external_read_target(
             src,
@@ -6289,8 +6836,15 @@ def _resolve_fragment_edge(raw_edge: dict[str, Any], ctx: dict[str, Any]) -> dic
         qualified_index=ctx["qualified_index"],
         imports_by_file=ctx["imports_by_file"],
         cs_file_ns=ctx["cs_file_ns"],
+        wildcard_imports_by_file=ctx.get("wildcard_imports_by_file"),
+        java_pkg_by_file=ctx.get("java_pkg_by_file"),
     )
     if not resolved or resolved == src:
+        return raw_edge
+    # Wave 1p9qh (1p9qa): a supertype must resolve to a TYPE node — a
+    # same-named function/constant twin is never a supertype. Refuse (stay
+    # external) rather than bind a non-class candidate.
+    if rel in _INHERITANCE_RELATIONS and (ctx["node_map"].get(resolved) or {}).get("kind") != "class":
         return raw_edge
     # Wave 1p2q3 / 1p7dg: exact-unique cross-file rebinds are high-confidence
     # by construction — promote EXTRACTED->RECEIVER_RESOLVED. Heuristic binds
@@ -6300,6 +6854,336 @@ def _resolve_fragment_edge(raw_edge: dict[str, Any], ctx: dict[str, Any]) -> dic
         out["confidence"] = "RECEIVER_RESOLVED"
         out[_PROV_CONF] = conf
     return out
+
+
+def _class_member_node_id(class_node_id: str, member: str, node_map: dict[str, dict[str, Any]]) -> str | None:
+    """Node id of ``<class>.<member>`` when the class defines it, else None.
+
+    Wave 1p9qh (1p9qa). Handles both qualified class nodes
+    (``f.java::Outer.Inner`` → ``f.java::Outer.Inner.m``) and collapsed
+    dominant-class file nodes (``Foo.java`` → ``Foo.java::Foo.m`` — a merged
+    class's members are qualified under its label, 1316l).
+    """
+    node = node_map.get(class_node_id) or {}
+    if "::" in class_node_id:
+        cand = f"{class_node_id}.{member}"
+    else:
+        label = str(node.get("label") or "")
+        if not label:
+            return None
+        cand = f"{class_node_id}::{label}.{member}"
+    return cand if cand in node_map else None
+
+
+def _enclosing_class_node_id(source_id: str, node_map: dict[str, dict[str, Any]]) -> str | None:
+    """The class node lexically enclosing a method node id, or None.
+
+    Wave 1p9qh (1p9qa): derived from the source id's OWN qualified name
+    (never a name lookup, so a same-named twin class in another file can
+    never capture a `super.` call). Falls back to the collapsed dominant-
+    class file node when the parent qname matches the merged label.
+    """
+    if "::" not in source_id:
+        return None
+    file_part, qname = source_id.split("::", 1)
+    if "." not in qname:
+        return None
+    parent_q = qname.rsplit(".", 1)[0]
+    cand = f"{file_part}::{parent_q}"
+    if (node_map.get(cand) or {}).get("kind") == "class":
+        return cand
+    mod = node_map.get(file_part) or {}
+    if (
+        mod.get("collapsed_pair")
+        and mod.get("kind") == "class"
+        and str(mod.get("label") or "") == parent_q
+    ):
+        return file_part
+    return None
+
+
+def _walk_supertype_definers(
+    start_classes: list[str],
+    method: str,
+    super_adj: dict[str, list[tuple[str, str]]],
+    node_map: dict[str, dict[str, Any]],
+) -> list[tuple[str, list[str]]]:
+    """Bounded BFS over PROJECT-RESOLVED supertype edges collecting every
+    supertype in the walk that defines ``method``.
+
+    Wave 1p9qh (1p9qa). ``start_classes`` are the depth-1 frontier (the
+    receiver's direct supertypes — themselves definer candidates); the walk
+    expands over both `extends` and `implements` edges up to
+    ``_INHERITANCE_WALK_MAX_DEPTH`` hops. It can never pass through an
+    `external::` supertype — the adjacency only contains project-resolved
+    targets by construction — and a diamond is visited once (visited set).
+    Returns ``[(member_node_id, hop_chain)]`` sorted by definer class id;
+    the caller binds ONLY on exactly one definer (never picks an override
+    winner). ``hop_chain`` is the class-id path from the first supertype hop
+    to the definer inclusive — the bind's audit provenance.
+    """
+    definers: dict[str, tuple[str, list[str]]] = {}
+    visited: set[str] = set(start_classes)
+    queue: list[tuple[str, list[str]]] = [(c, [c]) for c in start_classes]
+    while queue:
+        cls, chain = queue.pop(0)
+        member = _class_member_node_id(cls, method, node_map)
+        if member is not None:
+            definers[cls] = (member, chain)
+        if len(chain) >= _INHERITANCE_WALK_MAX_DEPTH:
+            continue
+        for sup, _rel in super_adj.get(cls, ()):
+            if sup not in visited:
+                visited.add(sup)
+                queue.append((sup, chain + [sup]))
+    return [definers[cls] for cls in sorted(definers)]
+
+
+def _arbitrate_static_or_inherited(
+    key: tuple[str, str, str, str],
+    edge_map: dict[tuple[str, str, str, str], dict[str, Any]],
+    node_map: dict[str, dict[str, Any]],
+    super_adj: dict[str, list[tuple[str, str]]],
+    resolve_ctx: dict[str, Any],
+) -> None:
+    """Arbitrate ONE static-or-inherited marker edge, JLS-6.4.1-faithfully.
+
+    Wave 1p9qh adversarial fix (F1). The marker
+    ``external::staticorinherited#<Enclosing>.<method>#<claim>`` records a
+    bare call that a static-import fact would bind while the enclosing class
+    also has a supertype clause. Arbitration order (JLS 6.4.1 — members in
+    class scope, INCLUDING INHERITED members, shadow single-static and
+    static-on-demand imports):
+
+    1. The enclosing class defines the member itself → bind it (class scope;
+       defensive — extraction's same-file precedence normally catches this).
+    2. Exactly ONE supertype in the bounded project-resolved walk defines
+       the member → bind inherited, with ``via_supertype`` provenance.
+    3. MULTIPLE definers in the walk → refuse
+       (``external::<Enclosing>.<method>``). Inherited members exist, so the
+       static import stays shadowed — "falling back" to it would invert the
+       JLS shadow — and picking an override winner is the guess the
+       single-definer rule forbids.
+    4. NO definer in the walk → the static-import claim stands: resolve
+       ``<claim>`` exactly as the phase-1 cross-file pass resolves
+       ``external::<claim>`` (unique project bind, else stays qualified
+       external — never bare).
+
+    The enclosing class is derived from the SOURCE id (never a name lookup,
+    mirroring the `super.` marker) — an unidentifiable or mismatched
+    enclosing class refuses like case 3: without an arbitrable class scope
+    the static claim is never trusted blindly.
+
+    Every marker the emitter can mint is rewritten (bind inherited / refuse
+    / claim stands) — none appears in an output payload. A malformed
+    lookalike (wrong separator shape) passes through untouched rather than
+    being guessed at; the emitter cannot produce one and no language can
+    mint the `#`-separated form from source (pinned by the invariant test).
+    """
+    src, tgt, _rel, conf = key
+    rest = tgt[len("external::") + len(_STATIC_OR_INHERITED_PREFIX):]
+    if _STATIC_OR_INHERITED_SEP not in rest:
+        return  # unmintable from the emitter; never guess on a malformed marker
+    left, claim = rest.rsplit(_STATIC_OR_INHERITED_SEP, 1)
+    if "." not in left or not claim:
+        return
+    recv_simple, method = left.rsplit(".", 1)
+    edge = edge_map.pop(key)
+
+    def _emit(target: str, via: list[str] | None = None) -> None:
+        new_edge = {k: v for k, v in edge.items() if k != "via_supertype"}
+        new_edge["target"] = target
+        new_edge["confidence"] = conf
+        if via is not None:
+            new_edge["via_supertype"] = list(via)
+        edge_map.setdefault((src, target, "calls", conf), new_edge)
+
+    refusal = f"external::{recv_simple}.{method}"
+    enclosing = _enclosing_class_node_id(src, node_map)
+    if (
+        enclosing is None
+        or str((node_map.get(enclosing) or {}).get("label") or "") != recv_simple
+    ):
+        _emit(refusal)
+        return
+    own = _class_member_node_id(enclosing, method, node_map)
+    if own is not None:
+        _emit(own)
+        return
+    supers = sorted({t for t, _r in super_adj.get(enclosing, ())})
+    definers = (
+        _walk_supertype_definers(supers, method, super_adj, node_map)
+        if supers
+        else []
+    )
+    if len(definers) == 1:
+        member_id, chain = definers[0]
+        _emit(member_id, via=chain)
+        return
+    if len(definers) > 1:
+        _emit(refusal)
+        return
+    # Case 4: no inherited definer in the project-resolved walk — the
+    # static-import claim stands, resolved exactly as phase 1 would have.
+    resolved, _rewrote = _resolve_external_call_target(
+        src,
+        claim,
+        conf,
+        simple_name_index=resolve_ctx["simple_name_index"],
+        qualified_index=resolve_ctx["qualified_index"],
+        imports_by_file=resolve_ctx.get("imports_by_file") or {},
+        cs_file_ns=resolve_ctx.get("cs_file_ns") or {},
+        wildcard_imports_by_file=resolve_ctx.get("wildcard_imports_by_file"),
+        java_pkg_by_file=resolve_ctx.get("java_pkg_by_file"),
+    )
+    if resolved and resolved != src:
+        _emit(resolved)
+    else:
+        _emit(f"external::{claim}")
+
+
+def _apply_inheritance_output_passes(
+    edge_map: dict[tuple[str, str, str, str], dict[str, Any]],
+    node_map: dict[str, dict[str, Any]],
+    simple_name_index: dict[str, list[str]],
+    qualified_index: dict[str, list[str]],
+    resolve_ctx: dict[str, Any] | None = None,
+) -> None:
+    """Wave 1p9qh (1p9qa): inheritance-aware OUTPUT passes, in place.
+
+    Runs fresh on the assembled edge map every build — like the analytics
+    node flags — so persisted per-file fragments stay pristine and
+    incremental == full merge by construction (a deterministic function of
+    the merged maps; the differential harness enforces it).
+
+    Pass 1 — C# base-relation kind correction: the extraction-time
+    first-base-is-`extends` positional convention is replaced by the TRUE
+    kind for PROJECT-RESOLVED bases (target `declared_kind == "interface"` →
+    `implements`, else `extends`). `.cs` sources only — Java relations are
+    syntax-derived and never flipped — and never for interface declarers
+    (interface : I, J is interface inheritance, always `extends`).
+
+    Pass 2 — inherited-method + `super.`/`base.` call binding: a still-
+    external `calls` edge `external::<Recv>.<m>` whose receiver type resolves
+    to a UNIQUE project class binds to `<Supertype>.<m>` when exactly ONE
+    supertype in the bounded walk defines it (multiple definers → refusal —
+    never guess an override winner); the `super.` marker binds via the
+    enclosing class's single project-resolved `extends` target. Every
+    inherited bind carries ``via_supertype`` (the supertype hop chain) —
+    council-mandated audit provenance: a wrong supertype edge amplifies into
+    many wrong call binds, and the property is what makes that failure mode
+    visible in calibration and adversarial review.
+
+    Adversarial fix (F1): pass 2 also arbitrates the ``staticorinherited#``
+    deferred markers (`_arbitrate_static_or_inherited` — JLS 6.4.1: inherited
+    definer wins over the static-import claim; multi-definer refuses; no
+    definer lets the claim stand). ``resolve_ctx`` carries the phase-1
+    resolution context for the claim-stands case; when None a minimal
+    context is built from the provided indexes.
+    """
+    if resolve_ctx is None:
+        resolve_ctx = {
+            "simple_name_index": simple_name_index,
+            "qualified_index": qualified_index,
+        }
+    # --- Pass 1: C# base-relation kind correction (project targets only). ---
+    for key in sorted(k for k in edge_map if k[2] in _INHERITANCE_RELATIONS):
+        src, tgt, rel, conf = key
+        if tgt.startswith("external::"):
+            continue  # positional convention stays for unresolved bases (inert: both relations traverse identically)
+        src_file = src.split("::", 1)[0]
+        if not src_file.endswith(".cs"):
+            continue
+        if (node_map.get(src) or {}).get("declared_kind") == "interface":
+            continue
+        true_rel = (
+            "implements"
+            if (node_map.get(tgt) or {}).get("declared_kind") == "interface"
+            else "extends"
+        )
+        if true_rel == rel:
+            continue
+        edge = edge_map.pop(key)
+        edge_map.setdefault((src, tgt, true_rel, conf), {**edge, "relation": true_rel})
+
+    # --- Project-resolved supertype adjacency (post-correction). ---
+    super_adj: dict[str, list[tuple[str, str]]] = {}
+    for src, tgt, rel, _conf in edge_map:
+        if rel in _INHERITANCE_RELATIONS and not tgt.startswith("external::"):
+            super_adj.setdefault(src, []).append((tgt, rel))
+    # Adversarial fix (F1): the static-or-inherited markers must ALWAYS be
+    # arbitrated (they may never leak into an output payload), even when no
+    # project-resolved supertype edge exists anywhere — an empty adjacency
+    # simply means the walk finds no definer and the static claim stands.
+    _static_marker_head = "external::" + _STATIC_OR_INHERITED_PREFIX
+    if not super_adj and not any(
+        k[2] == "calls" and k[1].startswith(_static_marker_head) for k in edge_map
+    ):
+        return
+    for lst in super_adj.values():
+        lst.sort()
+
+    # --- Pass 2: inherited-method + super-call binding. ---
+    for key in sorted(
+        k for k in edge_map if k[2] == "calls" and k[1].startswith("external::")
+    ):
+        src, tgt, _rel, _conf = key
+        bare = tgt[len("external::"):]
+        if bare.startswith(_STATIC_OR_INHERITED_PREFIX):
+            _arbitrate_static_or_inherited(
+                key, edge_map, node_map, super_adj, resolve_ctx
+            )
+            continue
+        if bare.startswith(_SUPER_CALL_PREFIX):
+            rest = bare[len(_SUPER_CALL_PREFIX):]
+            if "." not in rest:
+                continue
+            recv_simple, method = rest.rsplit(".", 1)
+            enclosing = _enclosing_class_node_id(src, node_map)
+            if (
+                enclosing is None
+                or str((node_map.get(enclosing) or {}).get("label") or "") != recv_simple
+            ):
+                continue  # refuse on any enclosing-class mismatch
+            parents = [t for t, r in super_adj.get(enclosing, ()) if r == "extends"]
+            if len(parents) != 1:
+                continue  # zero or ambiguous project-resolved parents → refuse
+            definers = _walk_supertype_definers(parents, method, super_adj, node_map)
+        else:
+            if "." not in bare:
+                continue
+            recv, method = bare.rsplit(".", 1)
+            if not recv or not method:
+                continue
+            cands = qualified_index.get(recv, []) if "." in recv else simple_name_index.get(recv, [])
+            cands = [c for c in cands if (node_map.get(c) or {}).get("kind") == "class"]
+            if len(cands) != 1:
+                continue  # receiver type not uniquely a project class → refuse
+            recv_cls = cands[0]
+            supers = sorted({t for t, _r in super_adj.get(recv_cls, ())})
+            if not supers:
+                continue
+            if _class_member_node_id(recv_cls, method, node_map) is not None:
+                # The receiver class defines the method itself; the edge is
+                # external only because phase-1 candidate lookup refused
+                # (ambiguity). An inherited bind here would be a guess.
+                continue
+            definers = _walk_supertype_definers(supers, method, super_adj, node_map)
+        if len(definers) != 1:
+            continue  # zero definers, or the multi-definer refusal
+        member_id, chain = definers[0]
+        if member_id == src:
+            continue
+        edge = edge_map.pop(key)
+        edge_map.setdefault(
+            (src, member_id, "calls", "RECEIVER_RESOLVED"),
+            {
+                **edge,
+                "target": member_id,
+                "confidence": "RECEIVER_RESOLVED",
+                "via_supertype": list(chain),
+            },
+        )
 
 
 class GraphIndexSession:
@@ -7261,6 +8145,15 @@ class GraphIndexSession:
         node_map: dict[str, dict[str, Any]] = {
             module_id: _node(module_id, _path_term(rel_path), "module", rel_path, "1:0", layer=self.layer)
         }
+        # Wave 1p9qh (1p9qb): record the DECLARED package on the file's module
+        # node so the same-package disambiguation tier keys on the language
+        # fact rather than directory layout (patterns mirror the
+        # package-collapse mechanism in `graph_query._DIRECTORY_AGG_LANGUAGES`).
+        # Node-borne so incremental merges recover it from per-file fragments.
+        if lang_key in ("java", "kotlin"):
+            _pkg_match = (_JAVA_PKG_DECL_RE if lang_key == "java" else _KOTLIN_PKG_DECL_RE).search(source_text)
+            if _pkg_match:
+                node_map[module_id]["declared_package"] = _pkg_match.group(1)
         edge_map: dict[tuple[str, str, str, str], dict[str, Any]] = {}
         defined_symbols: list[str] = []
         simple_names: dict[str, list[str]] = defaultdict(list)
@@ -7300,6 +8193,18 @@ class GraphIndexSession:
         # receiver-type resolver so aliased cross-package types bind to the
         # resolved project node.
         import_targets: dict[str, str] = {}
+        # Wave 1p9qh (1p9q9): this file's Java static imports, consumed by
+        # `_resolve_java_call_target` when draining buffered calls (imports are
+        # walked before the drain, so both maps are complete by then).
+        #   java_static_members: bare member name -> "Class.member" from
+        #     `import static com.foo.Bar.baz;` (None marks the same member
+        #     name statically imported from two different classes — illegal
+        #     Java, refused rather than guessed).
+        #   java_static_wildcards: class FQNs from `import static com.foo.Bar.*;`
+        #     (deduped, order-preserving; >1 distinct FQN → unique-survivor
+        #     refusal at resolution time).
+        java_static_members: dict[str, str | None] = {}
+        java_static_wildcards: list[str] = []
 
         # Wave 13129 (1316l + 13190): class/module merge — when a file
         # `Foo.<ext>` contains a top-level type declaration named `Foo`
@@ -7311,7 +8216,13 @@ class GraphIndexSession:
         # Per-language merge-eligible kinds (13190/13196/1319i/1319k multi-language extension):
         _CLASS_MODULE_MERGE_KINDS_BY_LANG: dict[str, frozenset[str]] = {
             "swift":      frozenset({"class", "struct", "actor", "enum", "protocol"}),
-            "java":       frozenset({"class", "interface", "enum", "record", "annotation_type"}),
+            # Wave 1p9qh (1p9qb): the former `"annotation_type"` entry was DEAD
+            # — no kind string `"annotation_type"` is ever produced.
+            # `annotation_type_declaration` now classifies as kind "class"
+            # (see `_ts_kind_for_definition`), so `@interface Foo` in
+            # `Foo.java` merges through the "class" entry like every other
+            # Java type declaration.
+            "java":       frozenset({"class", "interface", "enum", "record"}),
             "kotlin":     frozenset({"class", "interface", "object", "enum_class"}),
             "csharp":     frozenset({"class", "interface", "struct", "record", "enum"}),
             # Wave 13196: JS/TS/Scala/PHP
@@ -7528,6 +8439,10 @@ class GraphIndexSession:
         # the duplicate AST descent.
         buffered_calls: list[tuple[str, Any, str, list[str]]] = []  # (source_symbol, call_node, node_type, scope_signatures_snapshot)
         buffered_reads: list[tuple[str, str]] = []  # Wave 1p4ls: (reader_symbol, identifier_text)
+        # Wave 1p9qh (1p9qa): Java/C# (class_node_id, supertype_name, relation)
+        # facts — drained post-walk when symbol_lookup is complete, so a
+        # same-file supertype binds directly.
+        buffered_supertypes: list[tuple[str, str, str]] = []
         config_read_candidates: list[tuple[str, str]] = []  # Wave 1p7dh: Java (reader_symbol, config_key)
         func_locals: dict[str, set[str]] = {}  # reader_symbol -> {param/local binding names} (member-access F4 shadow guard)
 
@@ -7580,6 +8495,45 @@ class GraphIndexSession:
                         add_edge(source_symbol, f"external::{_imp_target}", "imports", confidence="EXTRACTED")
                         if _imp_head and _imp_head != _imp_target.rsplit(".", 1)[-1]:
                             import_aliases[_imp_head] = _imp_target
+                    return
+                # Wave 1p9qh (1p9q9): Java `import_declaration` — structured
+                # parse (explicit / wildcard / static / static-wildcard),
+                # replacing the regex fallback FOR JAVA ONLY. Fixes two
+                # defects: `import com.foo.*;` no longer truncates to the
+                # useless `com.foo.` candidate (it emits a package-prefix
+                # `external::com.foo.*` edge that participates in import-edge
+                # disambiguation), and `import static …;` no longer emits a
+                # spurious `external::static` edge (the modifier is structural,
+                # never a candidate). Static-import member facts are captured
+                # for bare-call resolution at the buffered-call drain.
+                if lang_key == "java" and node_type == "import_declaration":
+                    _jfacts = _java_import_facts(node, source_bytes)
+                    if _jfacts is not None:
+                        _jfqn, _jstatic, _jwild = _jfacts
+                        if _jwild:
+                            # Package-prefix fact (plain wildcard) or static
+                            # container class (static wildcard). The `.*`
+                            # suffix keeps it out of `imports_by_file`'s
+                            # simple-name buckets by construction.
+                            add_edge(source_symbol, f"external::{_jfqn}.*", "imports", confidence="EXTRACTED")
+                            if _jstatic and _jfqn not in java_static_wildcards:
+                                java_static_wildcards.append(_jfqn)
+                        else:
+                            add_edge(
+                                source_symbol,
+                                _ts_resolve_target(_jfqn, {}, import_aliases),
+                                "imports",
+                                confidence="EXTRACTED",
+                            )
+                            if _jstatic and "." in _jfqn:
+                                _jcls_path, _jmember = _jfqn.rsplit(".", 1)
+                                _jcls = _jcls_path.rsplit(".", 1)[-1]
+                                if _jcls and _jmember:
+                                    _jtarget = f"{_jcls}.{_jmember}"
+                                    if _jmember in java_static_members and java_static_members[_jmember] != _jtarget:
+                                        java_static_members[_jmember] = None  # conflicting classes → refuse
+                                    else:
+                                        java_static_members[_jmember] = _jtarget
                     return
                 # Wave 1p2q3 (1p2tf): extract imported names BEFORE resolving so
                 # we can register each name → resolved-target binding for the
@@ -7702,6 +8656,30 @@ class GraphIndexSession:
                     qname = ".".join([*scope_names, name]) if scope_names else name
                     parent_symbol = scope_symbols[-1] if scope_symbols else module_id
                     node_id = register_symbol(qname, kind, node, parent_symbol)
+                    # Wave 1p9qh (1p9qa): Java/C# inheritance facts, buffered
+                    # for the post-walk drain. Interface declarers additionally
+                    # carry `declared_kind: "interface"` — `_ts_kind_for_definition`
+                    # normalizes interfaces to kind "class", and downstream
+                    # passes (the C# base-relation kind correction) need the
+                    # class-vs-interface distinction cross-file. Set via the
+                    # returned node id so the collapsed dominant-class merge
+                    # (1316l — node_id == module_id) is covered too.
+                    if lang_key == "java" and node_type in (
+                        "class_declaration", "interface_declaration",
+                        "enum_declaration", "record_declaration",
+                    ):
+                        if node_type == "interface_declaration":
+                            node_map[node_id]["declared_kind"] = "interface"
+                        for _sup_name, _sup_rel in _java_supertype_facts(node, source_bytes):
+                            buffered_supertypes.append((node_id, _sup_name, _sup_rel))
+                    elif lang_key == "csharp" and node_type in (
+                        "class_declaration", "interface_declaration",
+                        "struct_declaration", "record_declaration",
+                    ):
+                        if node_type == "interface_declaration":
+                            node_map[node_id]["declared_kind"] = "interface"
+                        for _sup_name, _sup_rel in _csharp_supertype_facts(node, node_type, source_bytes):
+                            buffered_supertypes.append((node_id, _sup_name, _sup_rel))
                     # Wave 1p4q4: TS `enum` / `const enum` — each member is a constant NODE
                     # (`Enum.Member`), child of the enum type node (which stays a class node above).
                     # Members are how TS expresses named constants.
@@ -7873,7 +8851,11 @@ class GraphIndexSession:
             # Wave 13129 (1312l + 13194): per-language receiver-type resolution.
             java_resolved_target: str | None = None
             if lang_key == "java" and node_type == "method_invocation":
-                java_resolved_target = _resolve_java_call_target(node, source_bytes, symbol_lookup)
+                java_resolved_target = _resolve_java_call_target(
+                    node, source_bytes, symbol_lookup,
+                    static_import_members=java_static_members,
+                    static_wildcard_imports=java_static_wildcards,
+                )
             elif lang_key == "kotlin" and node_type == "call_expression":
                 java_resolved_target = _resolve_kotlin_call_target(node, source_bytes, symbol_lookup)
             elif lang_key == "csharp" and node_type == "invocation_expression":
@@ -7952,6 +8934,24 @@ class GraphIndexSession:
                         confidence=confidence_for_edge, self_edge_kind=self_kind,
                     )
 
+        # Wave 1p9qh (1p9qa): drain buffered supertype facts → `extends` /
+        # `implements` edges. A same-file supertype binds directly at
+        # RECEIVER_RESOLVED (declaration-derived; kind-gated so a same-named
+        # same-file function can never capture it). Everything else emits the
+        # qualified-as-declared `external::<Name>` target at EXTRACTED — the
+        # cross-file pass binds a unique project candidate through the
+        # import/wildcard/unique-candidate machinery (with the standard
+        # exact-unique promotion) or refuses and stays external.
+        for _sup_src, _sup_name, _sup_rel in buffered_supertypes:
+            _sup_target = symbol_lookup.get(_sup_name)
+            if (
+                _sup_target
+                and _sup_target != _sup_src
+                and (node_map.get(_sup_target) or {}).get("kind") == "class"
+            ):
+                add_edge(_sup_src, _sup_target, _sup_rel, confidence="RECEIVER_RESOLVED")
+            else:
+                add_edge(_sup_src, f"external::{_sup_name}", _sup_rel, confidence="EXTRACTED")
 
         # Wave 1p2q3 (1p2td): surface per-overload param_signatures on the
         # merged node so consumers can inspect the full overload set directly
@@ -8617,7 +9617,7 @@ class GraphIndexSession:
             pass
 
         # --- Cross-file resolution context (candidate indexes; wave 130ol+). ---
-        simple_name_index, qualified_index, cs_file_ns = _build_candidate_indexes(node_map)
+        simple_name_index, qualified_index, cs_file_ns, java_pkg_by_file = _build_candidate_indexes(node_map)
 
         # Raw edge views per file (fragment provenance makes untouched files'
         # raw edges recoverable without touching their store rows).
@@ -8630,7 +9630,7 @@ class GraphIndexSession:
                     _raw_fragment_edge(e) for e in entry.get("edges", [])
                 ]
 
-        imports_by_file = _build_imports_by_file(
+        imports_by_file, wildcard_imports_by_file = _build_imports_by_file(
             (
                 str(e.get("source") or ""),
                 str(e.get("target") or ""),
@@ -8645,7 +9645,9 @@ class GraphIndexSession:
             "simple_name_index": simple_name_index,
             "qualified_index": qualified_index,
             "imports_by_file": imports_by_file,
+            "wildcard_imports_by_file": wildcard_imports_by_file,
             "cs_file_ns": cs_file_ns,
+            "java_pkg_by_file": java_pkg_by_file,
         }
 
         # --- Symbol delta (Req-2): candidate-index keys whose candidate set
@@ -8729,6 +9731,16 @@ class GraphIndexSession:
                 edge_map.setdefault(key, edge)
         for key, edge in di_edge_items:
             edge_map.setdefault(key, edge)
+
+        # Wave 1p9qh (1p9qa): inheritance-aware output passes — C# base-
+        # relation kind correction + bounded single-definer inherited-method /
+        # `super.` call binding. Applied to the assembled OUTPUT edge map on
+        # every build (per-file fragments untouched, like the analytics node
+        # flags), so incremental == full merge by construction.
+        _apply_inheritance_output_passes(
+            edge_map, node_map, simple_name_index, qualified_index,
+            resolve_ctx=ctx,
+        )
 
         # Wave 1p7dh: config-key -> reader edges. Match each captured config-read
         # literal (from `.get("KEY")` / `cfg["KEY"]`) against the config-key nodes

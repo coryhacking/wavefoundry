@@ -1011,5 +1011,78 @@ class BuildTimeBetweennessTests(unittest.TestCase):
         self.assertEqual(reread["betweenness"]["ranking"], section["ranking"])
 
 
+class InheritanceRelationIngestionTests(unittest.TestCase):
+    """Wave 1p9qh (1p9qa) AC-5: the cluster/community passes ingest payloads
+    carrying the new `extends`/`implements` relations without special-casing
+    — the derived-undirected projection is relation-agnostic by design
+    (unknown relations weight 1), verified here rather than assumed."""
+
+    def setUp(self):
+        self.mod = load_graph_cluster()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        (self.root / ".wavefoundry" / "index").mkdir(parents=True, exist_ok=True)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _payload(self) -> dict[str, object]:
+        def node(nid, kind, label, **extra):
+            return {"id": nid, "label": label, "kind": kind,
+                    "source_file": nid.split("::")[0], "source_location": "1:0",
+                    "layer": "project", **extra}
+        names = [f"fn{i}" for i in range(12)]
+        nodes = [
+            node("src/svc.java", "module", "svc"),
+            *[node(f"src/svc.java::{n}", "function", n) for n in names],
+            node("src/IUserService.java", "class", "IUserService", collapsed_pair=True, declared_kind="interface"),
+            node("src/UserServiceImpl.java", "class", "UserServiceImpl", collapsed_pair=True),
+            node("src/UserServiceImpl.java::UserServiceImpl.find", "function", "find"),
+        ]
+        edges = [
+            *[{"source": "src/svc.java", "target": f"src/svc.java::{n}", "relation": "defines", "confidence": "EXTRACTED"} for n in names],
+            *[{"source": f"src/svc.java::{names[i]}", "target": f"src/svc.java::{names[i+1]}", "relation": "calls", "confidence": "EXTRACTED"} for i in range(len(names) - 1)],
+            {"source": "src/UserServiceImpl.java", "target": "src/IUserService.java", "relation": "implements", "confidence": "RECEIVER_RESOLVED"},
+            {"source": "src/UserServiceImpl.java", "target": "external::SomeBase", "relation": "extends", "confidence": "EXTRACTED"},
+            {"source": "src/svc.java::fn0", "target": "src/UserServiceImpl.java::UserServiceImpl.find", "relation": "calls",
+             "confidence": "RECEIVER_RESOLVED", "via_supertype": ["src/UserServiceImpl.java"]},
+        ]
+        return {
+            "schema_version": "1",
+            "builder_version": "1",
+            "layer": "project",
+            "graph_mtime": 100,
+            "nodes": nodes,
+            "edges": edges,
+            "counts": {"files": 3, "nodes": len(nodes), "edges": len(edges)},
+            "present": True,
+        }
+
+    def test_projection_includes_inheritance_edges(self):
+        adjacency, nodes_by_id, _degrees = self.mod._project_undirected_projection(self._payload())
+        self.assertIn("src/IUserService.java", nodes_by_id)
+        self.assertIn(
+            "src/IUserService.java", adjacency.get("src/UserServiceImpl.java", {}),
+            "an `implements` edge must contribute projection adjacency without special-casing")
+
+    def test_update_graph_clusters_ingests_payload(self):
+        payload = self.mod.update_graph_clusters(
+            root=self.root,
+            index_dir=self.root / ".wavefoundry" / "index",
+            layer="project",
+            graph_payload=self._payload(),
+            verbose=False,
+        )
+        self.assertTrue(payload["present"])
+        self.assertGreaterEqual(payload["community_count"], 1)
+        clustered = set()
+        for community in payload["communities"]:
+            clustered.update(community.get("node_ids") or [])
+        # The inheritance-linked class nodes participate in clustering — the
+        # `implements` edge connected them into a community, no special-casing.
+        self.assertIn("src/UserServiceImpl.java", clustered)
+        self.assertIn("src/IUserService.java", clustered)
+
+
 if __name__ == "__main__":
     unittest.main()

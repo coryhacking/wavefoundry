@@ -19569,6 +19569,30 @@ class GraphSignalTests(unittest.TestCase):
         self.assertNotIn("excerpt", by_sym["caller_a"], "the cited match drops its duplicate excerpt")
         self.assertIn("excerpt", by_sym["caller_b"], "a non-cited match keeps its excerpt")
 
+    def test_graph_related_inheritance_relations_and_buckets(self):
+        """Wave 1p9qh review follow-up: `extends`/`implements` join the structural signal. Pins the
+        traversal tuple, the direction-aware labels (incoming = the seed's implementors/subtypes;
+        outgoing = its supertypes), and the bucket grouping in `_build_graph_related`."""
+        self.assertEqual(self.srv._GRAPH_SIGNAL_RELATIONS,
+                         ("calls", "imports", "reads", "extends", "implements"))
+        self.assertEqual(self.srv._GRAPH_REL_LABEL[("extends", True)], "subtype")
+        self.assertEqual(self.srv._GRAPH_REL_LABEL[("extends", False)], "supertype")
+        self.assertEqual(self.srv._GRAPH_REL_LABEL[("implements", True)], "implementor")
+        self.assertEqual(self.srv._GRAPH_REL_LABEL[("implements", False)], "supertype")
+        idx = self._idx()
+        cands = [
+            {"path": "a.java", "lines": [3, 9], "text": "a > ServiceImpl\n\nbody", "kind": "code",
+             "_relationship": "implementor", "_seed": "IService", "_symbol": "ServiceImpl", "_graph_kind": "class"},
+            {"path": "b.java", "lines": [1, 9], "text": "b > SubPanel\n\nbody", "kind": "code",
+             "_relationship": "subtype", "_seed": "Panel", "_symbol": "SubPanel", "_graph_kind": "class"},
+            {"path": "c.java", "lines": [1, 9], "text": "c > BasePanel\n\nbody", "kind": "code",
+             "_relationship": "supertype", "_seed": "Panel", "_symbol": "BasePanel", "_graph_kind": "class"},
+        ]
+        section = idx._build_graph_related(cands)
+        self.assertEqual([e["symbol"] for e in section.get("implementors", [])], ["ServiceImpl"])
+        self.assertEqual([e["symbol"] for e in section.get("subtypes", [])], ["SubPanel"])
+        self.assertEqual([e["symbol"] for e in section.get("supertypes", [])], ["BasePanel"])
+
 
 if __name__ == "__main__":
     unittest.main()

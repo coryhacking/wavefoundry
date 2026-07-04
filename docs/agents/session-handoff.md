@@ -4,9 +4,13 @@ Owner: Engineering
 Status: active
 Last verified: 2026-07-04
 
-## Current State (2026-07-04 — 1roqn CLOSED + committed; no wave open)
+## Current State (2026-07-04 — 1p9qh CLOSED + committed; no wave open)
 
-**Wave `1roqn lance-drift-eligibility` CLOSED 2026-07-04 (operator-approved: "close and commit")** — delivery review PASS unanimous, all ACs met. No wave currently open; readied waves `1p9q8`/`1p9qh`/`1p9qi` await `Implement wave`.
+**Wave `1p9qh java-csharp-enterprise-accuracy` CLOSED 2026-07-04 (operator-approved: "close and commit")** — delivery review PASS unanimous; upgrade path (v36→v37 heal) and the new Java surface live-verified post-close (dispatch impact, implementor navigation, provenance honesty on real Tomcat data). No wave currently open.
+
+Delivered: structured Java imports (wildcard/static — truncation + `external::static` pollution + member resolution fixed); `extends`/`implements` edges Java+C# with single-definer inherited-method resolution (`via_supertype` provenance) and dispatch-aware `code_impact`; `this.field` receivers, annotation-kind fix, package-declaration keying. `GRAPH_BUILDER_VERSION` 37 (single wave bump). The review's adversarial lane found TWO blocking wrong-bind classes (JLS 6.4.1 static-import inversion incl. the JUnit-idiom steal; the wildcard guard's directory-vs-declared keying) — both fixed in-session with probe-verified flips + 12 regression tests; the red-team primer forced a Tomcat-scale census (36/36 hand-verified binds → precision >92%; post-fix recount identical). Suite ~4,438 OK. Suggested commit subject: `Land wave 1p9qh: Java/C# enterprise accuracy (imports, inheritance edges, receivers)`.
+
+Wave `1roqn` closed + committed earlier (`d430494c`); `1p9q3` closed + committed (`38c52ccd`); `1p9qm` closed + committed (`6fb035da`). **Wave `1p9pe` is READIED** (freshness-verified 2026-07-04 with corrective-pass ACs applied) — next in queue with `1p9qi` and `1p9q8`.
 
 The drift fix is live-proven: the previously permanent loop (`repairing 1 drifted file(s)` + ~1 s merge + ~1.35 MB per hook fire) now takes `merge[zero-change]` with 0 bytes; suite 4,358 OK (12 new tests); eligibility gated per-build on `files_for_content` with the graph-mode write-capability skip; reaper firewall intact. Key close-time watchpoint: `docs/workflow-config.json` is a LIVE per-kind-residual instance shielded only by 20 all-mode-setup rows in code.lance — any code-layer table recreation re-triggers the loop via the residual (named trigger + follow-up instrument recorded in wave.md watchpoints).
 

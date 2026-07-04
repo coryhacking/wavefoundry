@@ -248,7 +248,7 @@ AGENT_GRAPH_SIGNAL_CAP = 3         # max structural matches in the graph_related
 AGENT_GRAPH_DEF_WINDOW = 24        # source lines read per graph neighbor to form its candidate text
 AGENT_GRAPH_CITATION_CAP = 2       # wave 1p66t: max cross-file graph neighbors merged INTO citations (additive, floor-gated, reranked) so a cross-file chain reaches the answer surface, not only graph_related
 AGENT_ENUMERATION_BUDGET_MULT = 2.0  # wave 1p66t: text-budget multiplier for enumeration ("which/all X") queries — lets more of the full set through the selection cutoff instead of a reranked top-k that silently truncates
-_GRAPH_SIGNAL_RELATIONS = ("calls", "imports", "reads")  # 1-hop edge types followed for the structural signal
+_GRAPH_SIGNAL_RELATIONS = ("calls", "imports", "reads", "extends", "implements")  # 1-hop edge types followed for the structural signal (wave 1p9qh review: inheritance edges join it — "what uses X" includes X's implementors/subtypes)
 _GRAPH_SIGNAL_SEED_KINDS = frozenset({"function", "method", "class", "constant", "module"})
 # Kinds a graph NEIGHBOR may be SURFACED as a candidate. Excludes "module" — a whole-file module
 # node ("stem > stem") is a poor structural answer (delivery follow-up: it showed up as noise for
@@ -261,11 +261,16 @@ _GRAPH_REL_LABEL = {
     ("calls", True): "caller", ("calls", False): "callee",
     ("reads", True): "reader", ("reads", False): "reads",
     ("imports", True): "importer", ("imports", False): "imports",
+    # Wave 1p9qh (1p9qa inheritance edges): incoming = the neighbor extends/implements the seed
+    # (its subtypes/implementors); outgoing = the seed's own supertypes (both relations).
+    ("extends", True): "subtype", ("extends", False): "supertype",
+    ("implements", True): "implementor", ("implements", False): "supertype",
 }
 # relationship → response bucket key (pluralized).
 _GRAPH_REL_BUCKET = {
     "caller": "callers", "callee": "callees", "reader": "readers",
     "reads": "reads", "importer": "importers", "imports": "imports", "related": "related",
+    "subtype": "subtypes", "implementor": "implementors", "supertype": "supertypes",
 }
 _GRAPH_QUERY_IDENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]{3,}")  # identifier-like query tokens to resolve as seeds
 # Wave 1p4hu delivery follow-up — graph-signal seed scoping + direction.
@@ -16533,7 +16538,7 @@ def code_ask_response(index: "WaveIndex", root: Path, question: str, rerank: str
     # Wave 1p4hu: structural matches grouped by relationship to the query symbol (callers / readers /
     # importers / related), separate from the textual citations. Present only in agent mode when the
     # graph signal resolved a symbol and found neighbors.
-    if graph_related and any(graph_related.get(k) for k in ("callers", "readers", "importers", "callees", "reads", "imports", "related")):
+    if graph_related and any(graph_related.get(k) for k in ("callers", "readers", "importers", "callees", "reads", "imports", "subtypes", "implementors", "supertypes", "related")):
         data["graph_related"] = graph_related
 
     if question_type == "explanatory" and citations and citations[0].get("kind") in ("doc", "doc-summary"):
@@ -16924,7 +16929,12 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
 
         Prefer when: assessing blast radius before editing or deleting a module. Use ``path=`` for
         classic reverse-import analysis (``method: heuristic``). Use ``symbol=`` for graph-backed
-        upstream impact via ``imports``/``calls`` edges (``method: graph``).
+        upstream impact via ``imports``/``calls``/``implements``/``extends`` edges
+        (``method: graph``). Dispatch-aware (wave 1p9qh/1p9qa): inheritance hops are
+        down-weighted (potential dispatch, not proven flow), and a supertype/interface
+        METHOD seed also pulls subtype implementations of the same-named method into the
+        blast radius via synthetic ``derived: "dispatch"`` edges. Pass
+        ``relations=["calls","imports"]`` to opt out of dispatch traversal.
 
         Response fields (graph mode — symbol=):
         - symbol: the queried symbol name

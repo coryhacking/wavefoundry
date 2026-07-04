@@ -102,6 +102,12 @@ Every edge is a dict produced by `_edge()` at `graph_indexer.py:509-525`:
 | `doc_references_doc` | `graph_indexer.py:1735` | Doc node links or path-references another doc |
 | `binds` | `graph_di_signals.py:285-293` | DI interface bound to an implementation |
 | `injects` | `graph_di_signals.py:329-337` | DI consumer depends on an injected type |
+| `extends` | `graph_indexer.py` (`_java_supertype_facts` / `_csharp_supertype_facts` → the `buffered_supertypes` drain) | Subtype → superclass (class extends class; interface extends interfaces). Wave `1p9qh` (`1p9qa`), Java + C# (Kotlin deferred). Targets resolve through the same import/unique-candidate machinery as calls (incl. wildcard-import facts); an unresolved supertype stays `external::<Name>` qualified as declared — never dropped. Interface declarers carry `declared_kind: "interface"` on their node so consumers can tell class from interface (both normalize to kind `class`). |
+| `implements` | same extraction path as `extends` | Class/enum/record/struct → implemented interface. C#'s flat `base_list` uses the language rule (at most one base class, listed first): first base `extends`, rest `implements` — corrected to the TRUE kind for project-resolved bases by the finalize output pass (`_apply_inheritance_output_passes`); the positional label persists only for `external::` bases, where both relations traverse identically. |
+
+**Decision note — inheritance model (wave `1p9qh` / `1p9qa`).** The graph models inheritance as class-level `extends`/`implements` edges plus a **single-definer** inherited-method resolution: a call `receiver.m()` whose method lives only on a supertype binds via a bounded BFS over PROJECT-RESOLVED inheritance edges (`_INHERITANCE_WALK_MAX_DEPTH` hops, never through `external::`) **only when exactly one supertype in the walk defines `m`**; multiple definers refuse (`external::Receiver.m`) — the model deliberately does not answer override-winner/virtual-dispatch questions (unsound without whole-program analysis). `super.foo()` / `base.Foo()` emit the reserved marker `external::super.<Class>.<method>` and bind via the enclosing class's single project-resolved `extends` target. Every inherited bind carries `via_supertype` (the supertype-hop chain) as audit provenance — a wrong supertype edge amplifies into many wrong call binds, and the property makes that failure mode visible in calibration and adversarial review. Note that the receiver's identity is NOT recoverable from `via_supertype` alone — the chain starts at the first supertype hop, so the provenance is the hop chain, not full call provenance (census observation). Inherited binds are recomputed fresh each build from the merged output maps (fragments stay pristine; incremental == full by construction).
+
+**Decision note — Java receiver forms and package keying (wave `1p9qh` / `1p9qb`).** Java receiver-type resolution covers, beyond bare identifiers: single-segment `field_access` receivers — `this.repo.save()` and `Enclosing.STATIC_FIELD.m()` (static field via the enclosing class name) — resolved through a field-declaration-ONLY lookup (`_search_java_field_declarations`) so a local/parameter shadow never diverts `this.<field>` (Java semantics: `this.f` always denotes the field). Deeper chains (`this.a.b.m()`), non-`this` field paths, casts, and lambdas stay uncertain (documented give-ups). Java `@interface` declarations classify as kind `class` (type declarations, like interface/enum/record), which makes the basename merge apply to annotation-type files. The Java/Kotlin same-package disambiguation tier keys on the **parsed `package` declaration** (`declared_package` on the file's module node, patterns mirroring `graph_query`'s package-collapse mechanism) with directory fallback for declaration-less files — the language fact, not directory layout, consistent with the C# declared-namespace stance; Go keeps directory keying because a Go package IS its directory.
 
 ---
 
@@ -113,7 +119,7 @@ Four constants gate incremental reuse (`graph_indexer.py:27-37`):
 
 ```
 GRAPH_SCHEMA_VERSION  = "1"
-GRAPH_BUILDER_VERSION = "36"   # 36: 1p9q3 compact+gzip+atomic persistence, build-time betweenness, incremental merge state store (see the constant's in-code changelog for the full 26-35 history)
+GRAPH_BUILDER_VERSION = "37"   # 37: 1p9qh coordinated single bump — structured Java imports (1p9q9), extends/implements inheritance edges + inherited-method resolution (1p9qa), this.field receivers + annotation-type kind + package-declaration keying (1p9qb); 36: 1p9q3 compact+gzip+atomic persistence, build-time betweenness, incremental merge state store (see the constant's in-code changelog for the full history)
 ```
 
 The community-clustering layer (`graph_cluster.py`) carries its own `CLUSTER_BUILDER_VERSION = "11"` (10: seeded-RNG determinism + grab-bag split; 11: build-time betweenness section + `input_fingerprint` key, wave `1p9q3`).
@@ -290,6 +296,7 @@ CLUSTER_BUILDER_VERSION = "11"   # 10: 1p65m seeded-RNG determinism + grab-bag s
 | `imports` | 2 |
 | `defines` | 1 |
 | `doc_references_code` | 1 |
+| any other relation (incl. `extends`/`implements`, wave `1p9qh`) | 1 (dict default — the projection is relation-agnostic by design) |
 
 ### Fixed Communities (`graph_cluster.py:228-293`)
 

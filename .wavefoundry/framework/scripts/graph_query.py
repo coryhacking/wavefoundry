@@ -24,7 +24,12 @@ Direction = Literal["callers", "callees", "both"]
 # persisted ranking. The per-query computation and its 10k-node cap are retired.
 ReportSection = Literal["fan_in", "fan_out", "orphan_docs", "chokepoints", "file_hubs"]
 
-_DEFAULT_IMPACT_RELATIONS = ("imports", "calls")
+# Wave 1p9qh (1p9qa): `implements`/`extends` join the default impact traversal
+# — a change to a supertype/interface potentially lands on every subtype via
+# dynamic dispatch, so subtypes belong in the blast radius. Dispatch is
+# potential, not proven: these hops are down-weighted to
+# `_DISPATCH_EDGE_WEIGHT` (see `_edge_confidence_weight`), never full weight.
+_DEFAULT_IMPACT_RELATIONS = ("imports", "calls", "implements", "extends")
 _DEFAULT_CALL_RELATIONS = ("calls",)
 # Wave 1p4ls: relations OPT-IN for default 1-hop traversal — excluded when a caller passes no
 # explicit `relations` so a hot constant (read by hundreds of functions) does not balloon every
@@ -991,7 +996,13 @@ _PATH_COST_STRUCTURAL = 100
 
 
 def _path_edge_cost(edge: dict[str, Any]) -> int:
-    """Return the path-search cost of an edge based on relation + confidence."""
+    """Return the path-search cost of an edge based on relation + confidence.
+
+    Wave 1p9qh (1p9qa): inheritance edges (`implements`/`extends`) fall into
+    the STRUCTURAL tier deliberately — subtype/supertype structure must never
+    out-compete a real call chain in `code_graph_path`, exactly like
+    `imports`/`defines` (dispatch potential is impact's concern, not path's).
+    """
     relation = str(edge.get("relation") or "")
     confidence = str(edge.get("confidence") or "")
     if relation == "calls":
@@ -1012,14 +1023,33 @@ def _path_edge_cost(edge: dict[str, Any]) -> int:
 # full weight.
 _EXTRACTED_EDGE_WEIGHT = 0.25
 
+# Wave 1p9qh (1p9qa): dispatch-aware impact. `implements`/`extends` hops carry
+# POTENTIAL dispatch (an interface change lands on implementations only when
+# dynamic dispatch actually routes there), so they are down-weighted like
+# EXTRACTED regardless of their attribution confidence — a distinct constant
+# kept in lockstep with `_EXTRACTED_EDGE_WEIGHT` (the "heuristic tier") by
+# design; split the values only with fresh calibration evidence.
+_DISPATCH_RELATIONS = frozenset({"implements", "extends"})
+_DISPATCH_EDGE_WEIGHT = _EXTRACTED_EDGE_WEIGHT
+# Bounded subtype-walk depth for the dispatch seed expansion — keep aligned
+# with graph_indexer._INHERITANCE_WALK_MAX_DEPTH (the builder's supertype
+# walk bound; same rationale: hierarchies rarely exceed a few project-local
+# levels and the cap bounds worst-case cost).
+_DISPATCH_WALK_MAX_DEPTH = 5
+
 
 def _edge_confidence_weight(edge: dict[str, Any]) -> float:
     """Return the blast-radius weight of an edge by its attribution confidence.
 
     RECEIVER_RESOLVED / CONSTRUCTION_RESOLVED (type-resolved at the graph
     builder) count in full; EXTRACTED (and any unknown confidence) is
-    down-weighted to ``_EXTRACTED_EDGE_WEIGHT``.
+    down-weighted to ``_EXTRACTED_EDGE_WEIGHT``. Inheritance edges
+    (`implements`/`extends`) are ALWAYS down-weighted to
+    ``_DISPATCH_EDGE_WEIGHT`` — dispatch is potential, not proven, even when
+    the edge itself is declaration-derived (wave 1p9qh / 1p9qa).
     """
+    if str(edge.get("relation") or "") in _DISPATCH_RELATIONS:
+        return _DISPATCH_EDGE_WEIGHT
     confidence = str(edge.get("confidence") or "")
     if confidence in ("RECEIVER_RESOLVED", "CONSTRUCTION_RESOLVED"):
         return 1.0
@@ -1405,6 +1435,90 @@ class GraphQueryIndex:
 
         return empty
 
+    def _class_method_node(self, class_node_id: str, method: str) -> str | None:
+        """Node id of ``<class>.<method>`` when the class defines it, else None.
+
+        Wave 1p9qh (1p9qa). Mirrors graph_indexer's member-id shapes: a
+        qualified class node (``f.java::Outer.Inner``) qualifies members under
+        its qname; a collapsed dominant-class FILE node qualifies them under
+        its label (``Foo.java`` → ``Foo.java::Foo.m``).
+        """
+        if "::" in class_node_id:
+            cand = f"{class_node_id}.{method}"
+        else:
+            label = str((self._node_by_id.get(class_node_id) or {}).get("label") or "")
+            if not label:
+                return None
+            cand = f"{class_node_id}::{label}.{method}"
+        return cand if cand in self._node_by_id else None
+
+    def _dispatch_implementation_seeds(self, node_id: str) -> list[tuple[str, dict[str, Any]]]:
+        """Subtype implementations of a supertype METHOD node (wave 1p9qh/1p9qa).
+
+        Resolves the method's owning class, walks INCOMING project
+        `implements`/`extends` edges (subtypes) breadth-first to
+        ``_DISPATCH_WALK_MAX_DEPTH``, and returns
+        ``[(impl_method_node_id, synthetic_edge)]`` for every subtype that
+        defines a same-named method. The synthetic edge records the subtype's
+        real inheritance relation plus ``derived: "dispatch"`` so consumers
+        can tell it from a persisted graph edge. Empty when the seed is not a
+        method of a class-kind node — class-level impact already flows
+        through the persisted inheritance edges.
+        """
+        if "::" not in node_id:
+            return []
+        file_part, qname = node_id.split("::", 1)
+        if "." not in qname:
+            return []
+        owner_q, method = qname.rsplit(".", 1)
+        owner = f"{file_part}::{owner_q}"
+        owner_node = self._node_by_id.get(owner)
+        if owner_node is None:
+            # Collapsed dominant-class file node (`Foo.java::Foo.m` with the
+            # class merged into `Foo.java`).
+            mod_node = self._node_by_id.get(file_part)
+            if (
+                mod_node is not None
+                and mod_node.get("collapsed_pair")
+                and str(mod_node.get("label") or "") == owner_q
+            ):
+                owner = file_part
+                owner_node = mod_node
+            else:
+                return []
+        if str(owner_node.get("kind") or "") != "class":
+            return []
+        results: list[tuple[str, dict[str, Any]]] = []
+        visited: set[str] = {owner}
+        frontier: deque[tuple[str, int]] = deque([(owner, 0)])
+        while frontier:
+            cls, depth = frontier.popleft()
+            if depth >= _DISPATCH_WALK_MAX_DEPTH:
+                continue
+            for edge in self._in.get(cls, []):
+                rel = str(edge.get("relation") or "")
+                if rel not in _DISPATCH_RELATIONS:
+                    continue
+                sub = str(edge.get("source") or "")
+                if not sub or sub in visited:
+                    continue
+                visited.add(sub)
+                frontier.append((sub, depth + 1))
+                impl = self._class_method_node(sub, method)
+                if impl and impl != node_id:
+                    results.append((
+                        impl,
+                        {
+                            "source": impl,
+                            "target": node_id,
+                            "relation": rel,
+                            "confidence": str(edge.get("confidence") or ""),
+                            "derived": "dispatch",
+                        },
+                    ))
+        results.sort(key=lambda item: item[0])
+        return results
+
     def graph_impact(
         self,
         symbol: str,
@@ -1427,6 +1541,24 @@ class GraphQueryIndex:
         seen_edges: set[tuple[str, str, str]] = set()
         has_cycles = False
         queue: deque[tuple[str, int]] = deque([(node_id, 0)])
+        # Wave 1p9qh (1p9qa): dispatch-aware seed expansion. A change to a
+        # supertype/interface METHOD potentially lands on every subtype
+        # implementation of that method (dynamic dispatch), but the class-
+        # level `implements`/`extends` edges never connect METHOD nodes — so
+        # the implementations join the blast radius here explicitly, at hop 1,
+        # via a synthetic `derived: "dispatch"` edge whose relation is the
+        # subtype's real inheritance hop (down-weighted by relation in
+        # `_edge_confidence_weight`). Applied only when the traversal includes
+        # the inheritance relations, so `relations=("calls",)` opts out.
+        if rel_set & _DISPATCH_RELATIONS:
+            for impl_id, synthetic_edge in self._dispatch_implementation_seeds(node_id):
+                edge_key = (impl_id, node_id, str(synthetic_edge.get("relation") or ""))
+                if edge_key in seen_edges or impl_id in node_depth:
+                    continue
+                seen_edges.add(edge_key)
+                node_depth[impl_id] = 1
+                queue.append((impl_id, 1))
+                traversed.append(synthetic_edge)
         while queue:
             current, depth = queue.popleft()
             if depth >= max_hops:

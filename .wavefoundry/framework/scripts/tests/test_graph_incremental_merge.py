@@ -990,5 +990,296 @@ class BuildLogInstrumentationTests(unittest.TestCase):
         )
 
 
+class InheritanceEdgeIncrementalTests(_IncrementalMergeBase):
+    """Wave 1p9qh (1p9qa): incremental soundness for the new `extends`/
+    `implements` relations and the inherited-method output pass.
+
+    The supertype edges add new `_edge_lookup_keys` shapes (bare + final
+    segment for the inheritance relations), so the differential oracle is
+    extended with Java inheritance scenarios: supertype twin add/remove must
+    demote/promote the extends edge in UNTOUCHED files, and the inherited-
+    method bind (an output-pass recomputation) must follow supertype-chain
+    edits in files the caller never touched.
+    """
+
+    _BASE = "package com.app;\npublic class AbstractRepo {\n    public void persist() {}\n}\n"
+    _CHILD = "package com.app;\npublic class UserRepo extends AbstractRepo {\n    public void other() {}\n}\n"
+    _SVC = (
+        "package com.app;\npublic class Service {\n"
+        "    void process() {\n        UserRepo repo = new UserRepo();\n        repo.persist();\n    }\n}\n"
+    )
+
+    def setUp(self):
+        super().setUp()
+        try:
+            import tree_sitter_java  # noqa: F401
+        except ImportError:
+            self.skipTest("tree_sitter_java not available in test env")
+
+    def test_supertype_twin_add_demotes_untouched_extends_edge(self):
+        self.driver.write("com/app/AbstractRepo.java", self._BASE)
+        self.driver.write("com/app/UserRepo.java", self._CHILD)
+        payload = self.driver.build_incremental(set(self.driver.files))
+        bound = _find_edges(
+            payload, source_prefix="com/app/UserRepo.java",
+            target="com/app/AbstractRepo.java", relation="extends",
+        )
+        self.assertTrue(bound, "unique supertype must bind cross-file")
+        self.assertEqual(bound[0]["confidence"], "RECEIVER_RESOLVED")
+
+        # A same-name twin in a DIFFERENT package makes the candidate set
+        # ambiguous; UserRepo.java is untouched. The extends edge must
+        # re-resolve (scope-(b) coverage for the new inheritance lookup keys)
+        # — and Java-faithfully it REBINDS to the same-package twin via the
+        # declared-package tier (1p9qb: keyed on the parsed `package`
+        # declaration; same package shadows the outsider), demoted to
+        # heuristic EXTRACTED confidence.
+        self.driver.write(
+            "com/other/AbstractRepo.java",
+            "package com.other;\npublic class AbstractRepo {\n    public void persist() {}\n}\n",
+        )
+        payload = self.driver.build_incremental({"com/other/AbstractRepo.java"})
+        rebound = _find_edges(
+            payload, source_prefix="com/app/UserRepo.java",
+            target="com/app/AbstractRepo.java", relation="extends",
+        )
+        self.assertTrue(rebound, "same-package supertype must shadow the cross-package twin")
+        self.assertEqual(
+            rebound[0]["confidence"], "EXTRACTED",
+            "heuristic same-dir rebind must demote the untouched file's edge from RECEIVER_RESOLVED",
+        )
+        self.assert_equivalent(payload, self.driver.build_oracle(), "after supertype twin add")
+
+        # Deleting the twin re-promotes the untouched file's edge.
+        self.driver.delete("com/other/AbstractRepo.java")
+        payload = self.driver.build_incremental(set(), removed={"com/other/AbstractRepo.java"})
+        bound = _find_edges(
+            payload, source_prefix="com/app/UserRepo.java",
+            target="com/app/AbstractRepo.java", relation="extends",
+        )
+        self.assertTrue(bound, "now-unique supertype must PROMOTE in the untouched file")
+        self.assertEqual(bound[0]["confidence"], "RECEIVER_RESOLVED")
+        self.assert_equivalent(payload, self.driver.build_oracle(), "after supertype twin delete")
+
+    def test_cross_package_supertype_twins_demote_to_external(self):
+        """Two twins, NEITHER in the subclass's own package and no import —
+        the extends edge in the untouched file demotes to external:: refusal."""
+        self.driver.write(
+            "com/x/AbstractRepo.java",
+            "package com.x;\npublic class AbstractRepo {\n    public void persist() {}\n}\n",
+        )
+        self.driver.write("lib/app/UserRepo.java", self._CHILD)
+        payload = self.driver.build_incremental(set(self.driver.files))
+        self.assertTrue(
+            _find_edges(payload, source_prefix="lib/app/UserRepo.java",
+                        target="com/x/AbstractRepo.java", relation="extends"),
+            "unique cross-package supertype binds",
+        )
+
+        self.driver.write(
+            "com/y/AbstractRepo.java",
+            "package com.y;\npublic class AbstractRepo {\n    public void persist() {}\n}\n",
+        )
+        payload = self.driver.build_incremental({"com/y/AbstractRepo.java"})
+        self.assertFalse(
+            _find_edges(payload, source_prefix="lib/app/UserRepo.java",
+                        target="com/x/AbstractRepo.java", relation="extends"),
+            "ambiguous supertype must DEMOTE the previously-bound extends edge in the untouched file",
+        )
+        external = _find_edges(
+            payload, source_prefix="lib/app/UserRepo.java",
+            target="external::AbstractRepo", relation="extends",
+        )
+        self.assertTrue(external, "demoted supertype returns to external::AbstractRepo (refusal)")
+        self.assertEqual(external[0]["confidence"], "EXTRACTED")
+        self.assert_equivalent(payload, self.driver.build_oracle(), "after second cross-package twin")
+
+    def test_inherited_bind_follows_supertype_edit_in_untouched_caller(self):
+        """The inherited-method bind is an OUTPUT-pass product recomputed each
+        build, so editing the supertype chain updates binds in files that were
+        never re-extracted."""
+        self.driver.write("com/app/AbstractRepo.java", self._BASE)
+        self.driver.write("com/app/UserRepo.java", self._CHILD)
+        self.driver.write("com/app/Service.java", self._SVC)
+        payload = self.driver.build_incremental(set(self.driver.files))
+        bound = _find_edges(
+            payload, source_prefix="com/app/Service.java",
+            target="com/app/AbstractRepo.java::AbstractRepo.persist", relation="calls",
+        )
+        self.assertTrue(bound, "inherited method must bind through the extends edge")
+        self.assertEqual(bound[0].get("via_supertype"), ["com/app/AbstractRepo.java"])
+
+        # Remove persist() from the supertype; Service.java untouched.
+        self.driver.write(
+            "com/app/AbstractRepo.java",
+            "package com.app;\npublic class AbstractRepo {\n    public void other() {}\n}\n",
+        )
+        payload = self.driver.build_incremental({"com/app/AbstractRepo.java"})
+        self.assertFalse(
+            _find_edges(payload, source_prefix="com/app/Service.java",
+                        target="com/app/AbstractRepo.java::AbstractRepo.persist"),
+            "removing the definer must release the inherited bind in the untouched caller",
+        )
+        self.assertTrue(
+            _find_edges(payload, source_prefix="com/app/Service.java",
+                        target="external::UserRepo.persist", relation="calls"),
+            "released inherited bind returns to the external receiver form",
+        )
+        self.assert_equivalent(payload, self.driver.build_oracle(), "after definer removal")
+
+        # Restore the definer: the bind comes back without touching the caller.
+        self.driver.write("com/app/AbstractRepo.java", self._BASE)
+        payload = self.driver.build_incremental({"com/app/AbstractRepo.java"})
+        self.assertTrue(
+            _find_edges(payload, source_prefix="com/app/Service.java",
+                        target="com/app/AbstractRepo.java::AbstractRepo.persist", relation="calls"),
+            "restoring the definer must re-bind the untouched caller",
+        )
+        self.assert_equivalent(payload, self.driver.build_oracle(), "after definer restore")
+
+    def test_super_call_marker_differential_equivalence(self):
+        self.driver.write("com/app/AbstractRepo.java", self._BASE)
+        self.driver.write(
+            "com/app/UserRepo.java",
+            "package com.app;\npublic class UserRepo extends AbstractRepo {\n"
+            "    public void persist() { super.persist(); }\n}\n",
+        )
+        payload = self.driver.build_incremental(set(self.driver.files))
+        self.assertTrue(
+            _find_edges(payload, source_prefix="com/app/UserRepo.java",
+                        target="com/app/AbstractRepo.java::AbstractRepo.persist", relation="calls"),
+            "super call binds via the single extends target",
+        )
+        self.assert_equivalent(payload, self.driver.build_oracle(), "initial super-call build")
+
+        # Retarget the parent: UserRepo now extends an external base; the
+        # super call must return to its refusal marker, incrementally equal
+        # to the oracle.
+        self.driver.write(
+            "com/app/UserRepo.java",
+            "package com.app;\npublic class UserRepo extends ExternalBase {\n"
+            "    public void persist() { super.persist(); }\n}\n",
+        )
+        payload = self.driver.build_incremental({"com/app/UserRepo.java"})
+        self.assertTrue(
+            _find_edges(payload, source_prefix="com/app/UserRepo.java",
+                        target="external::super.UserRepo.persist", relation="calls"),
+            "unresolvable super call keeps the explicit marker",
+        )
+        self.assert_equivalent(payload, self.driver.build_oracle(), "after parent retarget")
+
+    def test_static_import_supertype_definer_flip_differential(self):
+        """Wave 1p9qh adversarial fix (F1): the static-or-inherited marker is
+        arbitrated in the OUTPUT pass recomputed each build, so adding or
+        removing a supertype definer in a SEPARATE file must flip the bind
+        of an untouched static-importing caller — JLS 6.4.1 faithfully
+        (inherited definer shadows the static import) and incrementally
+        equal to the full-rebuild oracle at every step."""
+        maths = "package com.util;\npublic class Maths {\n    public static void helper() {}\n}\n"
+        base_plain = "package com.app;\npublic class Base {\n    public void other() {}\n}\n"
+        base_definer = (
+            "package com.app;\npublic class Base {\n"
+            "    public void other() {}\n    public void helper() {}\n}\n"
+        )
+        child = (
+            "package com.app;\nimport static com.util.Maths.helper;\n"
+            "public class Child extends Base {\n    public void run() {\n        helper();\n    }\n}\n"
+        )
+        self.driver.write("com/util/Maths.java", maths)
+        self.driver.write("com/app/Base.java", base_plain)
+        self.driver.write("com/app/Child.java", child)
+        payload = self.driver.build_incremental(set(self.driver.files))
+        self.assertTrue(
+            _find_edges(payload, source_prefix="com/app/Child.java",
+                        target="com/util/Maths.java::Maths.helper", relation="calls"),
+            "no supertype definer -> the static-import claim stands (project bind)",
+        )
+        self.assert_equivalent(payload, self.driver.build_oracle(), "initial static-claim build")
+
+        # Add helper() to the supertype in a SEPARATE file; Child.java untouched.
+        # Inherited member now shadows the static import (JLS 6.4.1).
+        self.driver.write("com/app/Base.java", base_definer)
+        payload = self.driver.build_incremental({"com/app/Base.java"})
+        bound = _find_edges(payload, source_prefix="com/app/Child.java",
+                            target="com/app/Base.java::Base.helper", relation="calls")
+        self.assertTrue(bound, "added supertype definer must shadow the static import in the untouched caller")
+        self.assertEqual(bound[0].get("via_supertype"), ["com/app/Base.java"])
+        self.assertFalse(
+            _find_edges(payload, source_prefix="com/app/Child.java",
+                        target="com/util/Maths.java::Maths.helper", relation="calls"),
+            "the shadowed static bind must be released",
+        )
+        self.assert_equivalent(payload, self.driver.build_oracle(), "after definer add")
+
+        # Remove the definer again: the static claim stands once more.
+        self.driver.write("com/app/Base.java", base_plain)
+        payload = self.driver.build_incremental({"com/app/Base.java"})
+        self.assertTrue(
+            _find_edges(payload, source_prefix="com/app/Child.java",
+                        target="com/util/Maths.java::Maths.helper", relation="calls"),
+            "removing the definer must restore the standing static claim in the untouched caller",
+        )
+        self.assertFalse(
+            _find_edges(payload, source_prefix="com/app/Child.java",
+                        target="com/app/Base.java::Base.helper", relation="calls"),
+            "the released inherited bind must not linger",
+        )
+        self.assert_equivalent(payload, self.driver.build_oracle(), "after definer removal")
+
+
+class JavaPackageKeyingIncrementalTests(_IncrementalMergeBase):
+    """Wave 1p9qh (1p9qb): the declared-package keying fact is node-borne
+    (`declared_package` on the file's module node), so a package-declaration
+    flip in a CANDIDATE file must re-key the same-package disambiguation tier
+    for untouched callers — incrementally equal to the full-rebuild oracle.
+
+    Extends the 1p9q2 differential harness with the new keying shape: the
+    twin-flip here is driven purely by a `package` statement edit (no symbol
+    rename, no file add/delete), the exact delta the directory-keyed tier was
+    blind to."""
+
+    _CALLER = "package com.x;\npublic class Foo { Bar b; void run() { b.go(); } }\n"
+
+    def setUp(self):
+        super().setUp()
+        try:
+            import tree_sitter_java  # noqa: F401
+        except ImportError:
+            self.skipTest("tree_sitter_java not available in test env")
+
+    def test_candidate_package_flip_rekeys_untouched_caller(self):
+        self.driver.write("a/Foo.java", self._CALLER)
+        self.driver.write("b/Bar.java", "package com.x;\npublic class Bar { public void go() {} }\n")
+        self.driver.write("c/Bar.java", "package com.y;\npublic class Bar { public void go() {} }\n")
+        payload = self.driver.build_incremental(set(self.driver.files))
+        self.assertTrue(
+            _find_edges(payload, source_prefix="a/Foo.java", target="b/Bar.java::Bar.go", relation="calls"),
+            "unique same-declared-package twin must bind across directories",
+        )
+
+        # Flip ONLY c/Bar.java's package declaration into com.x: two same-
+        # package twins now exist, so the untouched caller's bind must demote.
+        self.driver.write("c/Bar.java", "package com.x;\npublic class Bar { public void go() {} }\n")
+        payload = self.driver.build_incremental({"c/Bar.java"})
+        self.assertFalse(
+            _find_edges(payload, source_prefix="a/Foo.java", target="b/Bar.java::Bar.go"),
+            "a second same-package twin must DEMOTE the untouched caller's bind",
+        )
+        self.assertTrue(
+            _find_edges(payload, source_prefix="a/Foo.java", target="external::Bar.go", relation="calls"),
+            "demoted edge returns to external::Bar.go",
+        )
+        self.assert_equivalent(payload, self.driver.build_oracle(), "after package flip in")
+
+        # Flip it back out: the untouched caller's bind must return.
+        self.driver.write("c/Bar.java", "package com.y;\npublic class Bar { public void go() {} }\n")
+        payload = self.driver.build_incremental({"c/Bar.java"})
+        self.assertTrue(
+            _find_edges(payload, source_prefix="a/Foo.java", target="b/Bar.java::Bar.go", relation="calls"),
+            "removing the twin's same-package status must REBIND the untouched caller",
+        )
+        self.assert_equivalent(payload, self.driver.build_oracle(), "after package flip back out")
+
+
 if __name__ == "__main__":
     unittest.main()

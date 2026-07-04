@@ -5562,7 +5562,7 @@ class GraphBuilderVersionTests(unittest.TestCase):
     """Wave 1p4ls AC-3: the node/edge shape changed (constant nodes + reads edge) so the builder
     version is bumped, forcing a full re-extract against any older cache."""
 
-    def test_graph_builder_version_is_36(self):
+    def test_graph_builder_version_is_37(self):
         # 1p4ls bumped 25→26 (constant nodes + reads edge); 1p4q4 bumped 26→27 (TS enum member nodes);
         # 1p4q4 review bumped 27→28 (namespace-prefixed enum members + short-symbol-prune exemption);
         # 1p4up bumped 28→29 (member-access constant reads — new function→constant `reads` edges);
@@ -5582,7 +5582,12 @@ class GraphBuilderVersionTests(unittest.TestCase):
         # 1p9py (wave 1p9q3) bumped 35→36 (compact+gzip+atomic artifact persistence — on-disk FORMAT
         # change; serialization-only, content unchanged; single bump also covers the wave's sibling
         # artifact-shape changes 1p9q1/1p9q2 per the coordinated-single-bump serialization point).
-        self.assertEqual(load_graph_indexer().GRAPH_BUILDER_VERSION, "36")
+        # 1p9q9 (wave 1p9qh) bumped 36→37 (structured Java import parsing: wildcard package-prefix
+        # import edges participate in disambiguation, no spurious external::static, static-import
+        # bare-call resolution — extraction-output change; the SINGLE bump also covers the wave's
+        # sibling changes 1p9qa inheritance edges + 1p9qb receiver/annotation/package fixes per the
+        # coordinated-single-bump serialization point — later lanes do NOT re-bump).
+        self.assertEqual(load_graph_indexer().GRAPH_BUILDER_VERSION, "37")
 
 
 class OversizedTreeSitterGuardTests(unittest.TestCase):
@@ -5935,3 +5940,1465 @@ class GraphArtifactPersistenceTests(unittest.TestCase):
         # Legacy plain cluster artifact still reads.
         path.write_text(json.dumps(payload), encoding="utf-8")
         self.assertEqual(gc_mod._read_json(path, {}), payload)
+
+
+class JavaImportWildcardStaticTests(unittest.TestCase):
+    """Wave 1p9qh (1p9q9): structured Java import parsing — wildcard imports
+    participate in disambiguation, static imports emit no spurious
+    `external::static` edge and resolve bare member calls."""
+
+    def setUp(self):
+        try:
+            import tree_sitter_java  # noqa: F401
+        except ImportError:
+            self.skipTest("tree_sitter_java not available in test env")
+        self.mod = load_graph_indexer()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        (self.root / "docs").mkdir(parents=True, exist_ok=True)
+        (self.root / "docs" / "workflow-config.json").write_text("{}", encoding="utf-8")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _build(self, files: dict[str, str]) -> dict:
+        paths = []
+        meta = {}
+        for rel, content in files.items():
+            path = self.root / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+            paths.append(path)
+            meta[rel.replace("\\", "/")] = {"hash": content}
+        return self.mod.update_graph_index(
+            root=self.root,
+            index_dir=self.root / ".wavefoundry" / "index",
+            layer="project",
+            files=paths,
+            current_file_meta=meta,
+            changed=set(meta.keys()),
+            removed=set(),
+            walker_version="1",
+            chunker_version="1",
+            verbose=False,
+        )
+
+    def _run_call_targets(self, payload: dict, member: str = "") -> list[str]:
+        return [
+            e["target"] for e in payload["edges"]
+            if e.get("relation") == "calls"
+            and "App.run" in str(e.get("source", ""))
+            and (not member or member in str(e.get("target", "")))
+        ]
+
+    _TWIN_FOO = "package com.foo;\npublic class Helper {\n    public void process() {}\n}\n"
+    _TWIN_BAR = "package com.bar;\npublic class Helper {\n    public void process() {}\n}\n"
+
+    # -- AC-1: wildcard participation in import-edge disambiguation ---------
+
+    def test_wildcard_import_disambiguates_ambiguous_receiver(self):
+        """`import com.foo.*;` prefers the com.foo twin of an ambiguous
+        simple-name receiver, exactly like an explicit import would."""
+        payload = self._build({
+            "com/foo/Helper.java": self._TWIN_FOO,
+            "com/bar/Helper.java": self._TWIN_BAR,
+            "com/app/App.java": (
+                "package com.app;\nimport com.foo.*;\npublic class App {\n"
+                "    void run() {\n        Helper h = new Helper();\n        h.process();\n    }\n}\n"
+            ),
+        })
+        targets = self._run_call_targets(payload, "process")
+        self.assertIn("com/foo/Helper.java::Helper.process", targets,
+                      f"wildcard import must disambiguate to com.foo; got {targets}")
+        self.assertNotIn("com/bar/Helper.java::Helper.process", targets,
+                         "must NOT resolve to the non-imported com.bar twin")
+
+    def test_two_wildcard_imports_both_matching_stay_external(self):
+        """Unique-survivor refusal: two wildcard imports both matching the
+        ambiguous receiver's twins → never guess, stay external."""
+        payload = self._build({
+            "com/foo/Helper.java": self._TWIN_FOO,
+            "com/bar/Helper.java": self._TWIN_BAR,
+            "com/app/App.java": (
+                "package com.app;\nimport com.foo.*;\nimport com.bar.*;\npublic class App {\n"
+                "    void run() {\n        Helper h = new Helper();\n        h.process();\n    }\n}\n"
+            ),
+        })
+        targets = self._run_call_targets(payload, "process")
+        self.assertNotIn("com/foo/Helper.java::Helper.process", targets)
+        self.assertNotIn("com/bar/Helper.java::Helper.process", targets)
+        self.assertIn("external::Helper.process", targets,
+                      f"two matching wildcards must refuse (stay external); got {targets}")
+
+    def test_explicit_import_keeps_precedence_over_wildcard(self):
+        """Risk guard: an explicit import shadows a wildcard import — the
+        explicit com.bar twin wins even though com.foo.* also matches."""
+        payload = self._build({
+            "com/foo/Helper.java": self._TWIN_FOO,
+            "com/bar/Helper.java": self._TWIN_BAR,
+            "com/app/App.java": (
+                "package com.app;\nimport com.bar.Helper;\nimport com.foo.*;\npublic class App {\n"
+                "    void run() {\n        Helper h = new Helper();\n        h.process();\n    }\n}\n"
+            ),
+        })
+        targets = self._run_call_targets(payload, "process")
+        self.assertIn("com/bar/Helper.java::Helper.process", targets,
+                      f"explicit import must keep precedence over wildcard; got {targets}")
+        self.assertNotIn("com/foo/Helper.java::Helper.process", targets)
+
+    def test_own_package_twin_shadows_wildcard_import(self):
+        """Java shadowing faithfulness: a same-package (same-directory) twin
+        shadows an on-demand (wildcard) import — the wildcard pass counts the
+        own-package twin as a match (→ ambiguous, refuse) and the same-dir
+        fallback then binds the own-package twin, never the wildcard one."""
+        payload = self._build({
+            "com/foo/Helper.java": self._TWIN_FOO,
+            "com/app/Helper.java": "package com.app;\npublic class Helper {\n    public void process() {}\n}\n",
+            "com/app/App.java": (
+                "package com.app;\nimport com.foo.*;\npublic class App {\n"
+                "    void run() {\n        Helper h = new Helper();\n        h.process();\n    }\n}\n"
+            ),
+        })
+        targets = self._run_call_targets(payload, "process")
+        self.assertIn("com/app/Helper.java::Helper.process", targets,
+                      f"same-package twin must shadow the wildcard import; got {targets}")
+        self.assertNotIn("com/foo/Helper.java::Helper.process", targets)
+
+    def test_wildcard_import_edge_is_package_prefix_not_truncated(self):
+        """The defect shape: `import com.foo.*;` used to emit the truncated
+        `external::com.foo.` (trailing dot) candidate. Now it is the explicit
+        package-prefix form `external::com.foo.*`."""
+        payload = self._build({
+            "com/app/App.java": "package com.app;\nimport com.foo.*;\npublic class App { void run() {} }\n",
+        })
+        import_targets = sorted(
+            e["target"] for e in payload["edges"] if e.get("relation") == "imports"
+        )
+        self.assertEqual(import_targets, ["external::com.foo.*"])
+
+    # -- AC-2: no spurious external::static, asserted over the whole payload -
+
+    def test_static_import_produces_no_external_static_anywhere(self):
+        payload = self._build({
+            "com/foo/Bar.java": "package com.foo;\npublic class Bar {\n    public static int baz() { return 1; }\n}\n",
+            "com/app/App.java": (
+                "package com.app;\nimport static com.foo.Bar.baz;\nimport static com.foo.Bar.*;\n"
+                "public class App {\n    int run() {\n        return baz();\n    }\n}\n"
+            ),
+        })
+        offenders = [
+            (e.get("source"), e.get("target"), e.get("relation"))
+            for e in payload["edges"]
+            if e.get("source") == "external::static" or e.get("target") == "external::static"
+        ]
+        self.assertEqual(offenders, [],
+                         f"static imports must never emit external::static edges; got {offenders}")
+        self.assertNotIn("external::static", {n.get("id") for n in payload["nodes"]},
+                         "static imports must never materialize an external::static node")
+
+    # -- AC-3: static-import member resolution --------------------------------
+
+    def test_static_member_bare_call_binds_project_symbol(self):
+        """`import static com.foo.Bar.baz;` + bare `baz()` binds the project
+        `Bar.baz` at receiver-resolved confidence."""
+        payload = self._build({
+            "com/foo/Bar.java": "package com.foo;\npublic class Bar {\n    public static int baz() { return 1; }\n}\n",
+            "com/app/App.java": (
+                "package com.app;\nimport static com.foo.Bar.baz;\npublic class App {\n"
+                "    int run() {\n        return baz();\n    }\n}\n"
+            ),
+        })
+        edges = [
+            (e["target"], e.get("confidence")) for e in payload["edges"]
+            if e.get("relation") == "calls" and "App.run" in str(e.get("source", ""))
+        ]
+        self.assertIn(("com/foo/Bar.java::Bar.baz", "RECEIVER_RESOLVED"), edges,
+                      f"static-imported bare call must bind project Bar.baz; got {edges}")
+
+    def test_static_member_bare_call_external_stays_qualified(self):
+        """When the statically-imported class is not a project symbol the bare
+        call lands as QUALIFIED `external::Bar.baz` — never bare, never the
+        enclosing-class misattribution `external::App.baz`."""
+        payload = self._build({
+            "com/app/App.java": (
+                "package com.app;\nimport static com.foo.Bar.baz;\npublic class App {\n"
+                "    int run() {\n        return baz();\n    }\n}\n"
+            ),
+        })
+        targets = self._run_call_targets(payload)
+        self.assertIn("external::Bar.baz", targets,
+                      f"external static member must stay qualified; got {targets}")
+        self.assertNotIn("external::baz", targets, "never a bare external member")
+        self.assertNotIn("external::App.baz", targets,
+                         "static import must beat the enclosing-class misattribution")
+
+    def test_static_wildcard_resolves_unresolved_bare_call(self):
+        """`import static com.foo.Bar.*;` resolves an otherwise-unresolved bare
+        call through the wildcard container class."""
+        payload = self._build({
+            "com/foo/Bar.java": "package com.foo;\npublic class Bar {\n    public static int frob() { return 1; }\n}\n",
+            "com/app/App.java": (
+                "package com.app;\nimport static com.foo.Bar.*;\npublic class App {\n"
+                "    int run() {\n        return frob();\n    }\n}\n"
+            ),
+        })
+        targets = self._run_call_targets(payload)
+        self.assertIn("com/foo/Bar.java::Bar.frob", targets,
+                      f"static wildcard must resolve the bare call; got {targets}")
+
+    def test_two_static_wildcards_refuse(self):
+        """Unique-survivor: two static wildcard imports never guess — the bare
+        call keeps its existing enclosing-class attribution."""
+        payload = self._build({
+            "com/foo/Bar.java": "package com.foo;\npublic class Bar {\n    public static int frob() { return 1; }\n}\n",
+            "com/qux/Zed.java": "package com.qux;\npublic class Zed {\n    public static int frob() { return 2; }\n}\n",
+            "com/app/App.java": (
+                "package com.app;\nimport static com.foo.Bar.*;\nimport static com.qux.Zed.*;\n"
+                "public class App {\n    int run() {\n        return frob();\n    }\n}\n"
+            ),
+        })
+        targets = self._run_call_targets(payload)
+        self.assertNotIn("com/foo/Bar.java::Bar.frob", targets)
+        self.assertNotIn("com/qux/Zed.java::Zed.frob", targets)
+        self.assertIn("external::App.frob", targets,
+                      f"two static wildcards must refuse (keep enclosing attribution); got {targets}")
+
+    def test_same_file_definition_takes_precedence_over_static_import(self):
+        """Same-file scope-first order is unchanged: a `baz` defined by the
+        enclosing class wins over the static import."""
+        payload = self._build({
+            "com/foo/Bar.java": "package com.foo;\npublic class Bar {\n    public static int baz() { return 1; }\n}\n",
+            "com/app/App.java": (
+                "package com.app;\nimport static com.foo.Bar.baz;\npublic class App {\n"
+                "    int baz() { return 2; }\n    int run() {\n        return baz();\n    }\n}\n"
+            ),
+        })
+        targets = self._run_call_targets(payload)
+        self.assertIn("com/app/App.java::App.baz", targets,
+                      f"same-file definition must win over the static import; got {targets}")
+        self.assertNotIn("com/foo/Bar.java::Bar.baz", targets)
+
+    # -- Adversarial fix F2: own-package shadow guard keys on the DECLARED
+    # -- package, never the directory (wave 1p9qh review finding).
+
+    def test_own_package_shadow_keys_on_declared_package_not_directory(self):
+        """A9 reproducer: the source declares `com.app` but lives OUTSIDE the
+        package-mirroring directory; the own-package twin also lives in a
+        non-mirroring directory. Java shadowing: the own-package twin shadows
+        the wildcard import — the wildcard twin must never bind, and the
+        declared-package tier binds the own-package twin."""
+        payload = self._build({
+            "src/App.java": (
+                "package com.app;\nimport com.foo.*;\npublic class App {\n"
+                "    void run(Helper h) {\n        h.process();\n    }\n}\n"
+            ),
+            "com/foo/Helper.java": self._TWIN_FOO,
+            "app2/Helper.java": "package com.app;\npublic class Helper {\n    public void process() {}\n}\n",
+        })
+        targets = self._run_call_targets(payload, "process")
+        self.assertNotIn("com/foo/Helper.java::Helper.process", targets,
+                         f"wildcard twin must be shadowed by the declared-package twin; got {targets}")
+        self.assertIn("app2/Helper.java::Helper.process", targets,
+                      f"declared-package tier must bind the own-package twin; got {targets}")
+
+    def test_wildcard_shadow_guard_on_extends_target_uses_declared_package(self):
+        """F2-AMP reproducer: the same keying defect on an `extends` target
+        amplified into wrong inherited call binds in untouched files. The
+        supertype must resolve to the own-package (declared) twin, and the
+        inherited-method bind must follow it — never the wildcard twin."""
+        payload = self._build({
+            "src/Child.java": (
+                "package com.app;\nimport com.lib.*;\n"
+                "public class Child extends Base {\n    public void other() {}\n}\n"
+            ),
+            "com/lib/Base.java": "package com.lib;\npublic class Base {\n    public void persist() {}\n}\n",
+            "app2/Base.java": "package com.app;\npublic class Base {\n    public void persist() {}\n}\n",
+            "src2/Caller.java": (
+                "package com.app;\npublic class Caller {\n"
+                "    public void run(Child c) {\n        c.persist();\n    }\n}\n"
+            ),
+        })
+        extends = [
+            (e["source"], e["target"]) for e in payload["edges"]
+            if e.get("relation") == "extends" and str(e.get("source", "")).startswith("src/Child.java")
+        ]
+        self.assertEqual([t for _s, t in extends], ["app2/Base.java"],
+                         f"extends must bind the declared-package twin, never the wildcard twin; got {extends}")
+        calls = [
+            (e["target"], e.get("via_supertype")) for e in payload["edges"]
+            if e.get("relation") == "calls" and "Caller.run" in str(e.get("source", ""))
+        ]
+        self.assertIn(("app2/Base.java::Base.persist", ["app2/Base.java"]), calls,
+                      f"inherited bind must flow through the Java-true parent; got {calls}")
+        self.assertNotIn("com/lib/Base.java::Base.persist", [t for t, _v in calls],
+                         "the wildcard twin's member must never be inherited-bound")
+
+
+class JavaStaticImportInheritedShadowTests(unittest.TestCase):
+    """Wave 1p9qh adversarial fix (F1): JLS 6.4.1 — members in class scope
+    INCLUDING INHERITED ones shadow single-static and static-on-demand
+    imports. A bare call that a static-import fact would bind, in a class
+    with a supertype clause, is deferred via the reserved
+    ``external::staticorinherited#…`` marker and arbitrated in the finalize
+    pass: inherited definer wins; multiple definers refuse; no definer lets
+    the static claim stand. The marker is unmintable from source and never
+    appears in an output payload."""
+
+    _BASE_HELPER = "package com.app;\npublic class Base {\n    public void helper() {}\n}\n"
+    _BASE_PLAIN = "package com.app;\npublic class Base {\n    public void other() {}\n}\n"
+    _MATHS_HELPER = "package com.util;\npublic class Maths {\n    public static void helper() {}\n}\n"
+
+    def setUp(self):
+        try:
+            import tree_sitter_java  # noqa: F401
+        except ImportError:
+            self.skipTest("tree_sitter_java not available in test env")
+        self.mod = load_graph_indexer()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        (self.root / "docs").mkdir(parents=True, exist_ok=True)
+        (self.root / "docs" / "workflow-config.json").write_text("{}", encoding="utf-8")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _build(self, files: dict[str, str]) -> dict:
+        paths = []
+        meta = {}
+        for rel, content in files.items():
+            path = self.root / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+            paths.append(path)
+            meta[rel.replace("\\", "/")] = {"hash": content}
+        return self.mod.update_graph_index(
+            root=self.root,
+            index_dir=self.root / ".wavefoundry" / "index",
+            layer="project",
+            files=paths,
+            current_file_meta=meta,
+            changed=set(meta.keys()),
+            removed=set(),
+            walker_version="1",
+            chunker_version="1",
+            verbose=False,
+        )
+
+    def _child_calls(self, payload: dict) -> list[tuple[str, list | None]]:
+        return [
+            (e["target"], e.get("via_supertype")) for e in payload["edges"]
+            if e.get("relation") == "calls" and "Child.run" in str(e.get("source", ""))
+        ]
+
+    def _child(self, imports: str) -> str:
+        return (
+            f"package com.app;\n{imports}\n"
+            "public class Child extends Base {\n    public void run() {\n        helper();\n    }\n}\n"
+        )
+
+    def test_inherited_definer_wins_over_explicit_static_import(self):
+        """A8b reproducer: class member scope (inherited Base.helper) shadows
+        the single-static-import of Maths.helper (JLS 6.4.1)."""
+        payload = self._build({
+            "com/app/Base.java": self._BASE_HELPER,
+            "com/util/Maths.java": self._MATHS_HELPER,
+            "com/app/Child.java": self._child("import static com.util.Maths.helper;"),
+        })
+        calls = self._child_calls(payload)
+        self.assertIn(("com/app/Base.java::Base.helper", ["com/app/Base.java"]), calls,
+                      f"inherited definer must win with via_supertype provenance; got {calls}")
+        self.assertNotIn("com/util/Maths.java::Maths.helper", [t for t, _v in calls],
+                         "the explicit static import must stay shadowed")
+
+    def test_inherited_definer_wins_over_static_wildcard_import(self):
+        """A8 reproducer: static-import-on-demand is likewise shadowed."""
+        payload = self._build({
+            "com/app/Base.java": self._BASE_HELPER,
+            "com/util/Maths.java": self._MATHS_HELPER,
+            "com/app/Child.java": self._child("import static com.util.Maths.*;"),
+        })
+        calls = self._child_calls(payload)
+        self.assertIn(("com/app/Base.java::Base.helper", ["com/app/Base.java"]), calls,
+                      f"inherited definer must win over the static wildcard; got {calls}")
+        self.assertNotIn("com/util/Maths.java::Maths.helper", [t for t, _v in calls])
+
+    def test_junit_idiom_static_wildcard_never_steals_inherited_bind(self):
+        """A8-EXT direction 1: a plain `import static org.junit.Assert.*;`
+        (no project twin for the container class) must not steal a call that
+        an inherited member defines."""
+        payload = self._build({
+            "com/app/Base.java": self._BASE_HELPER,
+            "com/app/Child.java": self._child("import static org.junit.Assert.*;"),
+        })
+        calls = self._child_calls(payload)
+        self.assertIn(("com/app/Base.java::Base.helper", ["com/app/Base.java"]), calls,
+                      f"inherited bind must survive the JUnit-idiom wildcard; got {calls}")
+        self.assertNotIn("external::Assert.helper", [t for t, _v in calls])
+
+    def test_static_claim_stands_when_walk_finds_no_definer_external(self):
+        """A8-EXT direction 2: the supertype walk finds NO definer — the
+        static claim stands, qualified external as today."""
+        payload = self._build({
+            "com/app/Base.java": self._BASE_PLAIN,
+            "com/app/Child.java": self._child("import static org.junit.Assert.*;"),
+        })
+        targets = [t for t, _v in self._child_calls(payload)]
+        self.assertIn("external::Assert.helper", targets,
+                      f"no-definer walk must let the static claim stand (qualified); got {targets}")
+        self.assertNotIn("external::helper", targets, "never a bare external member")
+        self.assertNotIn("external::Child.helper", targets,
+                         "the claim stands — not the enclosing-class refusal")
+
+    def test_static_claim_stands_when_walk_finds_no_definer_project(self):
+        """No-definer walk with a PROJECT container class: the deferred claim
+        binds the project `Maths.helper` exactly as the direct static bind
+        would have."""
+        payload = self._build({
+            "com/app/Base.java": self._BASE_PLAIN,
+            "com/util/Maths.java": self._MATHS_HELPER,
+            "com/app/Child.java": self._child("import static com.util.Maths.helper;"),
+        })
+        edges = [
+            (e["target"], e.get("confidence")) for e in payload["edges"]
+            if e.get("relation") == "calls" and "Child.run" in str(e.get("source", ""))
+        ]
+        self.assertIn(("com/util/Maths.java::Maths.helper", "RECEIVER_RESOLVED"), edges,
+                      f"standing claim must bind the project symbol at receiver confidence; got {edges}")
+
+    def test_no_supertype_clause_keeps_direct_static_bind(self):
+        """A class with NO supertype clause has no inherited members to
+        arbitrate — the extraction-time static bind is unchanged and no
+        marker is ever emitted."""
+        payload = self._build({
+            "com/util/Maths.java": self._MATHS_HELPER,
+            "com/app/App.java": (
+                "package com.app;\nimport static com.util.Maths.helper;\n"
+                "public class App {\n    public void run() {\n        helper();\n    }\n}\n"
+            ),
+        })
+        targets = [
+            e["target"] for e in payload["edges"]
+            if e.get("relation") == "calls" and "App.run" in str(e.get("source", ""))
+        ]
+        self.assertIn("com/util/Maths.java::Maths.helper", targets,
+                      f"no-supertype class keeps the direct static bind; got {targets}")
+        self._assert_no_marker_anywhere(payload)
+
+    def test_multi_definer_with_static_import_refuses(self):
+        """Walk refuses on MULTIPLE definers — and because inherited members
+        exist, the static import stays shadowed (JLS 6.4.1): the arbitration
+        must never 'fall back' to the static claim on ambiguity. Refusal is
+        the enclosing-class external form."""
+        payload = self._build({
+            "com/app/Base.java": self._BASE_HELPER,
+            "com/app/IAudit.java": (
+                "package com.app;\npublic interface IAudit {\n    default void helper() {}\n}\n"
+            ),
+            "com/util/Maths.java": self._MATHS_HELPER,
+            "com/app/Child.java": (
+                "package com.app;\nimport static com.util.Maths.helper;\n"
+                "public class Child extends Base implements IAudit {\n"
+                "    public void run() {\n        helper();\n    }\n}\n"
+            ),
+        })
+        targets = [t for t, _v in self._child_calls(payload)]
+        self.assertIn("external::Child.helper", targets,
+                      f"multi-definer + static import must refuse; got {targets}")
+        for wrong in (
+            "com/util/Maths.java::Maths.helper",
+            "com/app/Base.java::Base.helper",
+            "com/app/IAudit.java::IAudit.helper",
+        ):
+            self.assertNotIn(wrong, targets,
+                             f"never bind {wrong} on a multi-definer refusal")
+
+    def _assert_no_marker_anywhere(self, payload: dict) -> None:
+        prefix = self.mod._STATIC_OR_INHERITED_PREFIX
+        offenders = [
+            (e.get("source"), e.get("target")) for e in payload["edges"]
+            if prefix in str(e.get("target", "")) or prefix in str(e.get("source", ""))
+        ]
+        self.assertEqual(offenders, [], f"marker leaked into payload edges: {offenders}")
+        node_offenders = [n.get("id") for n in payload["nodes"] if prefix in str(n.get("id", ""))]
+        self.assertEqual(node_offenders, [], f"marker leaked into payload nodes: {node_offenders}")
+
+    def test_marker_never_appears_in_output_payload(self):
+        """Every marker is arbitrated by the finalize pass — bind, refusal,
+        or standing claim — so no output payload ever contains it."""
+        payload = self._build({
+            "com/app/Base.java": self._BASE_HELPER,
+            "com/util/Maths.java": self._MATHS_HELPER,
+            "com/app/Child.java": self._child("import static com.util.Maths.*;"),
+        })
+        self._assert_no_marker_anywhere(payload)
+
+    def test_marker_prefix_unmintable_from_source_identifiers(self):
+        """Reserved-marker invariant (red-team): no source construct in any
+        language can mint the `staticorinherited#` marker — the `#` separator
+        cannot appear in an identifier, and every other emitter builds calls
+        targets from identifier/AST text. A Java class literally named
+        `staticorinherited` yields the DOT form `external::staticorinherited.…`,
+        which does not match the `#`-terminated prefix and flows through the
+        normal resolution machinery untouched."""
+        payload = self._build({
+            # Ambiguous twins keep the dot-form target external through
+            # phase 1 AND the finalize walk (non-unique receiver class).
+            "com/a/staticorinherited.java": (
+                "package com.a;\npublic class staticorinherited {\n    public void save() {}\n}\n"
+            ),
+            "com/b/staticorinherited.java": (
+                "package com.b;\npublic class staticorinherited {\n    public void save() {}\n}\n"
+            ),
+            "com/app/Caller.java": (
+                "package com.app;\npublic class Caller {\n"
+                "    public void run(staticorinherited x) {\n        x.save();\n    }\n}\n"
+            ),
+            # C# shares the finalize pass; its emitter is identifier-derived too.
+            "App/staticorinherited.cs": (
+                "namespace App {\n    public class staticorinherited {\n        public void Save() {}\n    }\n}\n"
+            ),
+        })
+        caller_targets = [
+            e["target"] for e in payload["edges"]
+            if e.get("relation") == "calls" and "Caller.run" in str(e.get("source", ""))
+        ]
+        self.assertIn("external::staticorinherited.save", caller_targets,
+                      f"the dot-form pseudo-collision must pass through as a normal external; got {caller_targets}")
+        self._assert_no_marker_anywhere(payload)
+
+
+class NonJavaImportCandidateRegressionTests(unittest.TestCase):
+    """Wave 1p9qh (1p9q9) AC-4: the Java fix is a Java-scoped structured path —
+    non-Java import candidate extraction through the SHARED regex fallback is
+    pinned byte-identical to the pre-change behavior (baseline captured on the
+    pre-change tree, 2026-07-04). If any pinned list changes, the shared
+    `_ts_relation_candidates` path drifted for a non-Java language."""
+
+    # (node_type, candidates) per import-classified node, in walk order.
+    _BASELINE = {
+        "kotlin": [
+            ("import", ["com.foo.Bar"]),
+            ("import", []),
+            ("import", ["com.foo."]),  # Kotlin wildcard truncation: out of scope here, pinned as-is
+            ("import", []),
+            ("import", ["com.foo.Bar", "W"]),
+            ("import", []),
+        ],
+        "csharp": [
+            ("using_directive", ["System.Text"]),
+            ("using", []),
+            ("using_directive", ["static", "System.Math"]),  # C# `using static`: out of scope, pinned as-is
+            ("using", []),
+            ("using_directive", ["W"]),
+            ("using", []),
+        ],
+        "go": [
+            ("package_clause", ["app"]),
+            ("import_declaration", ["fmt"]),
+            ("import", []),
+            ("import_spec", ["fmt"]),
+            ("import_declaration", ["strings", "alias", "net/http"]),
+            ("import", []),
+            ("import_spec_list", ["strings", "alias", "net/http"]),
+            ("import_spec", ["strings"]),
+            ("import_spec", ["net/http", "alias"]),
+        ],
+        "typescript": [
+            ("import_statement", ["y"]),
+            ("import", []),
+            ("import_clause", ["x"]),
+            ("named_imports", ["x"]),
+            ("import_specifier", ["x"]),
+            ("import_statement", ["pkg"]),
+            ("import", []),
+            ("import_clause", ["ns"]),
+            ("namespace_import", ["ns"]),
+        ],
+    }
+    _FIXTURES = {
+        "kotlin": "import com.foo.Bar\nimport com.foo.*\nimport com.foo.Bar as W\nclass App\n",
+        "csharp": "using System.Text;\nusing static System.Math;\nusing W = System.Wide;\nclass App {}\n",
+        "go": 'package app\nimport "fmt"\nimport (\n  "strings"\n  alias "net/http"\n)\n',
+        "typescript": "import { x } from './y';\nimport * as ns from 'pkg';\n",
+    }
+    _GRAMMAR_MODULES = {
+        "kotlin": "tree_sitter_kotlin",
+        "csharp": "tree_sitter_c_sharp",
+        "go": "tree_sitter_go",
+        "typescript": "tree_sitter_typescript",
+    }
+
+    def setUp(self):
+        self.mod = load_graph_indexer()
+
+    def _import_candidates(self, lang: str) -> list[tuple[str, list[str]]]:
+        source_text = self._FIXTURES[lang]
+        profile = self.mod._TS_LANGUAGE_PROFILES.get(lang)
+        self.assertIsNotNone(profile, f"no language profile for {lang}")
+        tree = self.mod._ts_parse(lang, source_text)
+        self.assertIsNotNone(tree, f"tree-sitter parse unavailable for {lang}")
+        source_bytes = source_text.encode("utf-8")
+        mode = profile.mode
+        out: list[tuple[str, list[str]]] = []
+
+        def walk(node):
+            if self.mod._ts_is_import_node(node.type, mode):
+                out.append((node.type, self.mod._ts_relation_candidates(node, source_bytes, "import", mode)))
+            for child in node.children:
+                walk(child)
+
+        walk(tree.root_node)
+        return out
+
+    def _assert_language_pinned(self, lang: str):
+        import importlib
+        try:
+            importlib.import_module(self._GRAMMAR_MODULES[lang])
+        except ImportError:
+            self.skipTest(f"{self._GRAMMAR_MODULES[lang]} not available in test env")
+        self.assertEqual(
+            self._import_candidates(lang), self._BASELINE[lang],
+            f"{lang}: shared import-candidate extraction drifted from the pre-1p9q9 baseline",
+        )
+
+    def test_kotlin_import_candidates_unchanged(self):
+        self._assert_language_pinned("kotlin")
+
+    def test_csharp_import_candidates_unchanged(self):
+        self._assert_language_pinned("csharp")
+
+    def test_go_import_candidates_unchanged(self):
+        self._assert_language_pinned("go")
+
+    def test_typescript_import_candidates_unchanged(self):
+        self._assert_language_pinned("typescript")
+
+
+class JavaCSharpInheritanceTests(unittest.TestCase):
+    """Wave 1p9qh (1p9qa): `extends`/`implements` inheritance edges for Java
+    and C#, inherited-method + `super.`/`base.` resolution, and the
+    single-definer refusal discipline."""
+
+    def setUp(self):
+        try:
+            import tree_sitter_java  # noqa: F401
+        except ImportError:
+            self.skipTest("tree_sitter_java not available in test env")
+        self.mod = load_graph_indexer()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        (self.root / "docs").mkdir(parents=True, exist_ok=True)
+        (self.root / "docs" / "workflow-config.json").write_text("{}", encoding="utf-8")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _require_csharp(self):
+        try:
+            import tree_sitter_c_sharp  # noqa: F401
+        except ImportError:
+            self.skipTest("tree_sitter_c_sharp not available in test env")
+
+    def _build(self, files: dict[str, str]) -> dict:
+        paths = []
+        meta = {}
+        for rel, content in files.items():
+            path = self.root / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+            paths.append(path)
+            meta[rel.replace("\\", "/")] = {"hash": content}
+        return self.mod.update_graph_index(
+            root=self.root,
+            index_dir=self.root / ".wavefoundry" / "index",
+            layer="project",
+            files=paths,
+            current_file_meta=meta,
+            changed=set(meta.keys()),
+            removed=set(),
+            walker_version="1",
+            chunker_version="1",
+            verbose=False,
+        )
+
+    def _rel_edges(self, payload: dict, *relations: str) -> list[tuple[str, str, str, str]]:
+        return sorted(
+            (e["source"], e["target"], e["relation"], e.get("confidence", ""))
+            for e in payload["edges"]
+            if e.get("relation") in relations
+        )
+
+    def _calls_to(self, payload: dict, needle: str) -> list[dict]:
+        return [
+            e for e in payload["edges"]
+            if e.get("relation") == "calls" and needle in str(e.get("target", ""))
+        ]
+
+    # ---- AC-1: Java declaration forms -------------------------------------
+
+    def test_java_class_extends_project_class_and_implements_external(self):
+        payload = self._build({
+            "com/app/AbstractRepo.java": "package com.app;\npublic abstract class AbstractRepo {\n    public void persist() {}\n}\n",
+            "com/app/UserRepo.java": "package com.app;\npublic class UserRepo extends AbstractRepo implements Runnable {\n    public void run() {}\n}\n",
+        })
+        edges = self._rel_edges(payload, "extends", "implements")
+        self.assertIn(
+            ("com/app/UserRepo.java", "com/app/AbstractRepo.java", "extends", "RECEIVER_RESOLVED"),
+            edges, f"project-resolved superclass must bind; got {edges}")
+        self.assertIn(
+            ("com/app/UserRepo.java", "external::Runnable", "implements", "EXTRACTED"),
+            edges, f"unresolvable interface must stay external, never dropped; got {edges}")
+
+    def test_java_generic_supertype_strips_to_raw_name(self):
+        payload = self._build({
+            "com/app/Base.java": "package com.app;\npublic class Base<T> {\n    public void persist() {}\n}\n",
+            "com/app/Child.java": "package com.app;\npublic class Child extends Base<String> {\n    public void other() {}\n}\n",
+        })
+        edges = self._rel_edges(payload, "extends")
+        self.assertEqual(
+            [("com/app/Child.java", "com/app/Base.java", "extends", "RECEIVER_RESOLVED")],
+            edges, f"`extends Base<String>` must strip to `Base` and bind; got {edges}")
+
+    def test_java_interface_extends_interfaces(self):
+        payload = self._build({
+            "com/app/Alpha.java": "package com.app;\npublic interface Alpha {\n    void alpha();\n}\n",
+            "com/app/Sub.java": "package com.app;\npublic interface Sub extends Alpha, Comparable {\n    void subMethod();\n}\n",
+        })
+        edges = self._rel_edges(payload, "extends")
+        self.assertIn(("com/app/Sub.java", "com/app/Alpha.java", "extends", "RECEIVER_RESOLVED"), edges)
+        self.assertIn(("com/app/Sub.java", "external::Comparable", "extends", "EXTRACTED"), edges)
+        self.assertEqual(self._rel_edges(payload, "implements"), [],
+                         "interface extends-clause must emit extends, never implements")
+
+    def test_java_enum_and_record_implement_interfaces(self):
+        payload = self._build({
+            "com/app/Marker.java": "package com.app;\npublic interface Marker {\n    void mark();\n}\n",
+            "com/app/Color.java": "package com.app;\npublic enum Color implements Marker {\n    RED;\n    public void mark() {}\n}\n",
+            "com/app/Point.java": "package com.app;\npublic record Point(int x) implements Marker {\n    public void mark() {}\n}\n",
+        })
+        edges = self._rel_edges(payload, "implements")
+        self.assertIn(("com/app/Color.java", "com/app/Marker.java", "implements", "RECEIVER_RESOLVED"), edges)
+        self.assertIn(("com/app/Point.java", "com/app/Marker.java", "implements", "RECEIVER_RESOLVED"), edges)
+
+    def test_java_ambiguous_supertype_stays_external(self):
+        payload = self._build({
+            "com/foo/Base.java": "package com.foo;\npublic class Base {\n    public void persist() {}\n}\n",
+            "com/bar/Base.java": "package com.bar;\npublic class Base {\n    public void persist() {}\n}\n",
+            "com/app/Child.java": "package com.app;\npublic class Child extends Base {\n    public void other() {}\n}\n",
+        })
+        edges = self._rel_edges(payload, "extends")
+        self.assertEqual(
+            [("com/app/Child.java", "external::Base", "extends", "EXTRACTED")],
+            edges, f"two twin candidates must refuse (stay external); got {edges}")
+
+    def test_java_import_disambiguates_supertype(self):
+        payload = self._build({
+            "com/foo/Base.java": "package com.foo;\npublic class Base {\n    public void persist() {}\n}\n",
+            "com/bar/Base.java": "package com.bar;\npublic class Base {\n    public void persist() {}\n}\n",
+            "com/app/Child.java": "package com.app;\nimport com.foo.Base;\npublic class Child extends Base {\n    public void other() {}\n}\n",
+        })
+        edges = self._rel_edges(payload, "extends")
+        self.assertEqual(
+            [("com/app/Child.java", "com/foo/Base.java", "extends", "RECEIVER_RESOLVED")],
+            edges, f"explicit import must disambiguate the supertype twin; got {edges}")
+
+    def test_java_scoped_supertype_emits_qualified_external(self):
+        payload = self._build({
+            "com/app/Child.java": "package com.app;\npublic class Child extends com.ext.Base {\n    public void other() {}\n}\n",
+        })
+        edges = self._rel_edges(payload, "extends")
+        self.assertEqual(
+            [("com/app/Child.java", "external::com.ext.Base", "extends", "EXTRACTED")],
+            edges, f"scoped supertype must stay qualified as declared; got {edges}")
+
+    def test_java_supertype_never_binds_non_class_twin(self):
+        """Kind gate: a unique same-named FUNCTION can never become a supertype."""
+        payload = self._build({
+            "util.py": "def Base():\n    return 1\n",
+            "com/app/Child.java": "package com.app;\npublic class Child extends Base {\n    public void other() {}\n}\n",
+        })
+        edges = self._rel_edges(payload, "extends")
+        self.assertEqual(
+            [("com/app/Child.java", "external::Base", "extends", "EXTRACTED")],
+            edges, f"a function twin must be refused as a supertype; got {edges}")
+
+    # ---- AC-2: C# base_list ------------------------------------------------
+
+    def test_csharp_base_list_kind_based_relations(self):
+        self._require_csharp()
+        payload = self._build({
+            "cs/BaseWorker.cs": "namespace App {\n  public class BaseWorker {\n    public void Persist() {}\n  }\n}\n",
+            "cs/IWorker.cs": "namespace App {\n  public interface IWorker { void Work(); }\n}\n",
+            "cs/RealWorker.cs": "namespace App {\n  public class RealWorker : BaseWorker, IWorker {\n    public void Work() {}\n  }\n}\n",
+        })
+        edges = self._rel_edges(payload, "extends", "implements")
+        self.assertIn(("cs/RealWorker.cs::App.RealWorker", "cs/BaseWorker.cs::App.BaseWorker", "extends", "RECEIVER_RESOLVED"), edges)
+        self.assertIn(("cs/RealWorker.cs::App.RealWorker", "cs/IWorker.cs::App.IWorker", "implements", "RECEIVER_RESOLVED"), edges)
+
+    def test_csharp_first_base_project_interface_flips_to_implements(self):
+        """The positional first-base-is-extends convention yields to the TRUE
+        kind when the base resolves to a project interface."""
+        self._require_csharp()
+        payload = self._build({
+            "cs/IWorker.cs": "namespace App {\n  public interface IWorker { void Work(); }\n}\n",
+            "cs/RealWorker.cs": "namespace App {\n  public class RealWorker : IWorker {\n    public void Work() {}\n  }\n}\n",
+        })
+        edges = self._rel_edges(payload, "extends", "implements")
+        self.assertEqual(
+            [("cs/RealWorker.cs::App.RealWorker", "cs/IWorker.cs::App.IWorker", "implements", "RECEIVER_RESOLVED")],
+            edges, f"project-resolved interface in first position must be implements; got {edges}")
+
+    def test_csharp_unresolved_bases_first_extends_rest_implements(self):
+        """C# convention case: at most one base class, listed first — so for
+        UNRESOLVED bases the first is labeled extends and the rest implements."""
+        self._require_csharp()
+        payload = self._build({
+            "cs/Worker.cs": "namespace App {\n  public class Worker : ExternalBase, IExternalThing {\n    public void Work() {}\n  }\n}\n",
+        })
+        edges = self._rel_edges(payload, "extends", "implements")
+        self.assertEqual([
+            ("cs/Worker.cs::App.Worker", "external::ExternalBase", "extends", "EXTRACTED"),
+            ("cs/Worker.cs::App.Worker", "external::IExternalThing", "implements", "EXTRACTED"),
+        ], edges, f"unresolved bases: first=extends, rest=implements; got {edges}")
+
+    def test_csharp_interface_and_struct_declarers(self):
+        self._require_csharp()
+        payload = self._build({
+            "cs/Decls.cs": (
+                "namespace App {\n"
+                "  public interface ISub : IExternalA, IExternalB { void SubWork(); }\n"
+                "  public struct SVec : IExternalMarker {\n    public void VecWork() {}\n  }\n"
+                "}\n"
+            ),
+        })
+        edges = self._rel_edges(payload, "extends", "implements")
+        self.assertIn(("cs/Decls.cs::App.ISub", "external::IExternalA", "extends", "EXTRACTED"), edges)
+        self.assertIn(("cs/Decls.cs::App.ISub", "external::IExternalB", "extends", "EXTRACTED"), edges)
+        self.assertIn(("cs/Decls.cs::App.SVec", "external::IExternalMarker", "implements", "EXTRACTED"), edges)
+
+    def test_csharp_qualified_base_and_enum_underlying_type(self):
+        self._require_csharp()
+        payload = self._build({
+            "cs/Decls.cs": (
+                "namespace App {\n"
+                "  public class Worker : Legacy.Models.BaseThing {\n    public void Work() {}\n  }\n"
+                "  public enum Level : byte { Low }\n"
+                "}\n"
+            ),
+        })
+        edges = self._rel_edges(payload, "extends", "implements")
+        self.assertEqual(
+            [("cs/Decls.cs::App.Worker", "external::Legacy.Models.BaseThing", "extends", "EXTRACTED")],
+            edges,
+            f"qualified base stays dotted; enum underlying type is never inheritance; got {edges}")
+
+    # ---- AC-3: inherited-method + super/base resolution --------------------
+
+    def test_java_inherited_method_binds_single_definer_with_provenance(self):
+        payload = self._build({
+            "com/app/AbstractRepo.java": "package com.app;\npublic abstract class AbstractRepo {\n    public void persist() {}\n}\n",
+            "com/app/UserRepo.java": "package com.app;\npublic class UserRepo extends AbstractRepo {\n    public void other() {}\n}\n",
+            "com/app/Service.java": "package com.app;\npublic class Service {\n    void process() {\n        UserRepo repo = new UserRepo();\n        repo.persist();\n    }\n}\n",
+        })
+        binds = self._calls_to(payload, "AbstractRepo.java::AbstractRepo.persist")
+        binds = [e for e in binds if "Service.process" in e["source"]]
+        self.assertEqual(len(binds), 1, f"inherited method must bind to the single definer; got {self._calls_to(payload, 'persist')}")
+        edge = binds[0]
+        self.assertEqual(edge.get("confidence"), "RECEIVER_RESOLVED")
+        self.assertEqual(
+            edge.get("via_supertype"), ["com/app/AbstractRepo.java"],
+            "every inherited bind must carry the supertype-hop provenance (council finding)")
+
+    def test_java_inherited_method_multi_definer_refuses(self):
+        payload = self._build({
+            "com/app/BaseA.java": "package com.app;\npublic class BaseA {\n    public void persist() {}\n}\n",
+            "com/app/FaceB.java": "package com.app;\npublic interface FaceB {\n    default void persist() {}\n}\n",
+            "com/app/Child.java": "package com.app;\npublic class Child extends BaseA implements FaceB {\n    public void other() {}\n}\n",
+            "com/app/Service.java": "package com.app;\npublic class Service {\n    void process() {\n        Child c = new Child();\n        c.persist();\n    }\n}\n",
+        })
+        targets = [e["target"] for e in self._calls_to(payload, "persist") if "Service.process" in e["source"]]
+        self.assertEqual(
+            targets, ["external::Child.persist"],
+            f"two definers in the walk must refuse (never guess an override winner); got {targets}")
+
+    def test_java_super_call_binds_via_single_extends_target(self):
+        payload = self._build({
+            "com/app/AbstractRepo.java": "package com.app;\npublic abstract class AbstractRepo {\n    public void persist() {}\n}\n",
+            "com/app/UserRepo.java": "package com.app;\npublic class UserRepo extends AbstractRepo {\n    public void persist() { super.persist(); }\n}\n",
+        })
+        binds = [
+            e for e in self._calls_to(payload, "AbstractRepo.java::AbstractRepo.persist")
+            if "UserRepo.persist" in e["source"]
+        ]
+        self.assertEqual(len(binds), 1, f"super.persist() must bind the extends target's method; got {self._calls_to(payload, 'persist')}")
+        self.assertEqual(binds[0].get("via_supertype"), ["com/app/AbstractRepo.java"])
+        self.assertEqual(binds[0].get("confidence"), "RECEIVER_RESOLVED")
+
+    def test_java_super_call_without_project_parent_stays_external_marker(self):
+        payload = self._build({
+            "com/app/UserRepo.java": "package com.app;\npublic class UserRepo extends ExternalBase {\n    public void persist() { super.persist(); }\n}\n",
+        })
+        targets = [e["target"] for e in self._calls_to(payload, "persist") if "UserRepo.persist" in e["source"]]
+        self.assertEqual(
+            targets, ["external::super.UserRepo.persist"],
+            f"an unbound super call must keep the explicit super marker (refusal, not a guess); got {targets}")
+
+    def test_csharp_base_call_binds_via_extends_target(self):
+        self._require_csharp()
+        payload = self._build({
+            "cs/BaseWorker.cs": "namespace App {\n  public class BaseWorker {\n    public void Persist() {}\n  }\n}\n",
+            "cs/RealWorker.cs": "namespace App {\n  public class RealWorker : BaseWorker {\n    public void Work() { base.Persist(); }\n  }\n}\n",
+        })
+        binds = [
+            e for e in self._calls_to(payload, "BaseWorker.cs::App.BaseWorker.Persist")
+            if "RealWorker.Work" in e["source"]
+        ]
+        self.assertEqual(len(binds), 1, f"base.Persist() must bind; got {self._calls_to(payload, 'Persist')}")
+        self.assertEqual(binds[0].get("via_supertype"), ["cs/BaseWorker.cs::App.BaseWorker"])
+
+    def test_inherited_walk_depth_cap(self):
+        """The bounded walk binds at exactly the cap and refuses beyond it."""
+        depth_cap = self.mod._INHERITANCE_WALK_MAX_DEPTH
+        deep = depth_cap + 1
+
+        def chain_files(levels: int) -> dict[str, str]:
+            files = {
+                f"com/app/C{levels + 1}.java": (
+                    f"package com.app;\npublic class C{levels + 1} {{\n    public void persist() {{}}\n}}\n"
+                ),
+                "com/app/Service.java": (
+                    "package com.app;\npublic class Service {\n"
+                    "    void process() {\n        C1 c = new C1();\n        c.persist();\n    }\n}\n"
+                ),
+            }
+            for i in range(1, levels + 1):
+                files[f"com/app/C{i}.java"] = (
+                    f"package com.app;\npublic class C{i} extends C{i + 1} {{\n    public void other{i}() {{}}\n}}\n"
+                )
+            return files
+
+        # chain_files(levels) puts the definer at `levels` supertype hops from
+        # the receiver C1 (C1 extends C2 ... C{levels} extends C{levels+1},
+        # persist defined on C{levels+1}).
+        payload = self._build(chain_files(depth_cap))  # definer at exactly the cap
+        bound = [e for e in self._calls_to(payload, "persist") if "Service.process" in e["source"]]
+        self.assertEqual(len(bound), 1)
+        self.assertTrue(bound[0]["target"].startswith(f"com/app/C{depth_cap + 1}.java"),
+                        f"definer at the cap must bind; got {bound[0]['target']}")
+        self.assertEqual(len(bound[0].get("via_supertype") or []), depth_cap)
+
+        self.setUp()  # fresh temp repo for the over-cap variant
+        payload = self._build(chain_files(deep))  # definer one past the cap
+        targets = [e["target"] for e in self._calls_to(payload, "persist") if "Service.process" in e["source"]]
+        self.assertEqual(targets, ["external::C1.persist"],
+                         f"definer beyond the depth cap must refuse; got {targets}")
+
+    def test_inherited_walk_never_through_external_supertype(self):
+        """A project class whose only supertype is external:: gets NO walk —
+        even when some unrelated project class defines a same-named method."""
+        payload = self._build({
+            "com/app/Child.java": "package com.app;\npublic class Child extends ExternalBase {\n    public void other() {}\n}\n",
+            "com/app/Unrelated.java": "package com.app;\npublic class Unrelated {\n    public void persist() {}\n}\n",
+            "com/app/Service.java": "package com.app;\npublic class Service {\n    void process() {\n        Child c = new Child();\n        c.persist();\n    }\n}\n",
+        })
+        targets = [e["target"] for e in self._calls_to(payload, "persist") if "Service.process" in e["source"]]
+        self.assertEqual(
+            targets, ["external::Child.persist"],
+            f"the walk must never pass through an external supertype; got {targets}")
+
+    # ---- AC-5: payload consistency + consumer ingestion ---------------------
+
+    def test_payload_counts_consistent_with_inheritance_edges(self):
+        payload = self._build({
+            "com/app/AbstractRepo.java": "package com.app;\npublic abstract class AbstractRepo {\n    public void persist() {}\n}\n",
+            "com/app/UserRepo.java": "package com.app;\npublic class UserRepo extends AbstractRepo implements Runnable {\n    public void run() { super.persist(); }\n}\n",
+        })
+        self.assertEqual(payload["counts"]["nodes"], len(payload["nodes"]))
+        self.assertEqual(payload["counts"]["edges"], len(payload["edges"]))
+        relations = {e["relation"] for e in payload["edges"]}
+        self.assertIn("extends", relations)
+        self.assertIn("implements", relations)
+
+
+class JavaFieldReceiverResolutionTests(unittest.TestCase):
+    """Wave 1p9qh (1p9qb): single-segment `field_access` receivers.
+
+    `this.repo.save()` (and `Enclosing.STATIC_FIELD.m()`) resolve the field
+    through a field-declaration-ONLY lookup — identical target + confidence to
+    the bare form. Deeper chains and non-`this` objects keep refusing, and a
+    local/parameter shadow never diverts `this.<field>` (Java semantics:
+    `this.f` always denotes the field).
+    """
+
+    _SVC_BODY = (
+        "package com.app;\n"
+        "public class OrderService {\n"
+        "    private OrderRepo repo;\n"
+        "    private static OrderRepo SHARED;\n"
+        "    public void run() {\n"
+        "        %s\n"
+        "    }\n"
+        "}\n"
+    )
+    _REPO = "package com.app;\npublic class OrderRepo {\n    public void save() {}\n}\n"
+
+    def setUp(self):
+        try:
+            import tree_sitter_java  # noqa: F401
+        except ImportError:
+            self.skipTest("tree_sitter_java not available in test env")
+        self.mod = load_graph_indexer()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        (self.root / "docs").mkdir(parents=True, exist_ok=True)
+        (self.root / "docs" / "workflow-config.json").write_text("{}", encoding="utf-8")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _build(self, files: dict[str, str]) -> dict:
+        paths, meta = [], {}
+        for rel, content in files.items():
+            path = self.root / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+            paths.append(path)
+            meta[rel.replace("\\", "/")] = {"hash": content}
+        return self.mod.update_graph_index(
+            root=self.root, index_dir=self.root / ".wavefoundry" / "index",
+            layer="project", files=paths, current_file_meta=meta,
+            changed=set(meta.keys()), removed=set(),
+            walker_version="1", chunker_version="1", verbose=False,
+        )
+
+    def _save_edges(self, payload: dict) -> list[dict]:
+        return [
+            e for e in payload["edges"]
+            if e.get("relation") == "calls"
+            and "OrderService.run" in str(e.get("source", ""))
+            and "save" in str(e.get("target", ""))
+        ]
+
+    def _resolve_receiver(self, java_source: str, invocation_text: str):
+        """Direct `_resolve_java_receiver_type` probe for the invocation whose
+        source text starts with ``invocation_text``."""
+        tree = self.mod._ts_parse("java", java_source)
+        sb = java_source.encode("utf-8")
+        found = []
+
+        def walk(n):
+            if getattr(n, "type", "") == "method_invocation":
+                text = sb[n.start_byte:n.end_byte].decode("utf-8", errors="replace")
+                if text.startswith(invocation_text):
+                    found.append(n)
+            for c in (getattr(n, "children", []) or []):
+                walk(c)
+
+        walk(tree.root_node)
+        self.assertTrue(found, f"no method_invocation starting with {invocation_text!r}")
+        return self.mod._resolve_java_receiver_type(found[0], sb)
+
+    # -- AC-1: this.<field> binds identically to the bare form ---------------
+
+    def test_this_field_receiver_binds_identically_to_bare_form(self):
+        this_form = self._build({
+            "com/app/OrderRepo.java": self._REPO,
+            "com/app/OrderService.java": self._SVC_BODY % "this.repo.save();",
+        })
+        this_edges = self._save_edges(this_form)
+        self.assertEqual(
+            [e["target"] for e in this_edges],
+            ["com/app/OrderRepo.java::OrderRepo.save"],
+            f"this.repo.save() must bind the field's declared type; got "
+            f"{[(e.get('source'), e.get('target')) for e in this_edges]}",
+        )
+        self.setUp()  # fresh temp repo for the bare-form twin fixture
+        bare_form = self._build({
+            "com/app/OrderRepo.java": self._REPO,
+            "com/app/OrderService.java": self._SVC_BODY % "repo.save();",
+        })
+        bare_edges = self._save_edges(bare_form)
+        self.assertEqual(
+            [e["target"] for e in bare_edges],
+            ["com/app/OrderRepo.java::OrderRepo.save"],
+        )
+        # Identical confidence — the field's declared type carries the same
+        # explicit-declaration guarantee as the bare scope walk.
+        self.assertEqual(
+            [e["confidence"] for e in this_edges],
+            [e["confidence"] for e in bare_edges],
+            "this.<field> must carry the same confidence as the bare form",
+        )
+
+    def test_static_field_via_enclosing_class_name_binds(self):
+        payload = self._build({
+            "com/app/OrderRepo.java": self._REPO,
+            "com/app/OrderService.java": self._SVC_BODY % "OrderService.SHARED.save();",
+        })
+        targets = [e["target"] for e in self._save_edges(payload)]
+        self.assertEqual(
+            targets, ["com/app/OrderRepo.java::OrderRepo.save"],
+            f"Enclosing.STATIC_FIELD.m() must bind the field's declared type; got {targets}",
+        )
+
+    def test_deeper_chain_still_refuses(self):
+        src = self._SVC_BODY % "this.repo.inner.save();"
+        self.assertIsNone(
+            self._resolve_receiver(src, "this.repo.inner.save"),
+            "a two-segment field path must stay uncertain (documented give-up)",
+        )
+
+    def test_non_this_object_field_path_still_refuses(self):
+        src = self._SVC_BODY % "other.repo.save();"
+        self.assertIsNone(
+            self._resolve_receiver(src, "other.repo.save"),
+            "a non-this/non-enclosing-class field path must stay uncertain",
+        )
+
+    # -- Adversarial: shadowing (the Risks-table case) ------------------------
+
+    def test_local_shadow_never_diverts_this_field(self):
+        """A local `String repo` shadows the field for the BARE form only:
+        `this.repo` explicitly bypasses the shadow (Java semantics), so the
+        two forms resolve to DIFFERENT types here — and should."""
+        src = self._SVC_BODY % 'String repo = "shadow";\n        this.repo.save();\n        repo.save();'
+        self.assertEqual(
+            self._resolve_receiver(src, "this.repo.save"), "OrderRepo",
+            "this.repo must consult FIELD declarations only, bypassing the local shadow",
+        )
+        self.assertEqual(
+            self._resolve_receiver(src, "repo.save"), "String",
+            "the bare form must still see the local shadow (scope-walk order unchanged)",
+        )
+
+    def test_parameter_shadow_never_diverts_this_field(self):
+        src = (
+            "package com.app;\n"
+            "public class OrderService {\n"
+            "    private OrderRepo repo;\n"
+            "    public void run(String repo) {\n"
+            "        this.repo.save();\n"
+            "    }\n"
+            "}\n"
+        )
+        self.assertEqual(
+            self._resolve_receiver(src, "this.repo.save"), "OrderRepo",
+            "a parameter shadow must not divert this.<field>",
+        )
+
+    def test_undeclared_this_field_refuses(self):
+        """`this.ghost` with no such field declaration (e.g. inherited field)
+        stays uncertain — never guessed."""
+        src = self._SVC_BODY % "this.ghost.save();"
+        self.assertIsNone(self._resolve_receiver(src, "this.ghost.save"))
+
+
+class JavaAnnotationTypeKindTests(unittest.TestCase):
+    """Wave 1p9qh (1p9qb): `@interface` classifies as kind "class" (it is a
+    TYPE declaration), reviving the previously-dead basename-merge path; no
+    other language's kind classification moves."""
+
+    def setUp(self):
+        self.mod = load_graph_indexer()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        (self.root / "docs").mkdir(parents=True, exist_ok=True)
+        (self.root / "docs" / "workflow-config.json").write_text("{}", encoding="utf-8")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _build(self, files: dict[str, str]) -> dict:
+        paths, meta = [], {}
+        for rel, content in files.items():
+            path = self.root / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+            paths.append(path)
+            meta[rel.replace("\\", "/")] = {"hash": content}
+        return self.mod.update_graph_index(
+            root=self.root, index_dir=self.root / ".wavefoundry" / "index",
+            layer="project", files=paths, current_file_meta=meta,
+            changed=set(meta.keys()), removed=set(),
+            walker_version="1", chunker_version="1", verbose=False,
+        )
+
+    def test_annotation_type_declaration_classifies_as_class(self):
+        try:
+            import tree_sitter_java  # noqa: F401
+        except ImportError:
+            self.skipTest("tree_sitter_java not available in test env")
+        payload = self._build({
+            "com/app/Anno.java": "package com.app;\npublic @interface Cacheable { String value(); }\n",
+        })
+        anno = [n for n in payload["nodes"] if n["id"] == "com/app/Anno.java::Cacheable"]
+        self.assertTrue(anno, f"annotation type node missing; got {[n['id'] for n in payload['nodes']]}")
+        self.assertEqual(anno[0]["kind"], "class",
+                         "@interface must classify as a type (kind 'class'), not 'function'")
+
+    def test_annotation_basename_match_merges_via_revived_path(self):
+        try:
+            import tree_sitter_java  # noqa: F401
+        except ImportError:
+            self.skipTest("tree_sitter_java not available in test env")
+        payload = self._build({
+            "Cacheable.java": "package com.app;\npublic @interface Cacheable { String value(); }\n",
+        })
+        node_ids = {n["id"] for n in payload["nodes"]}
+        self.assertIn("Cacheable.java", node_ids)
+        self.assertNotIn("Cacheable.java::Cacheable", node_ids,
+                         "basename-matching @interface must merge into the file node")
+        merged = next(n for n in payload["nodes"] if n["id"] == "Cacheable.java")
+        self.assertEqual(merged["label"], "Cacheable")
+        self.assertEqual(merged["kind"], "class")
+        self.assertTrue(merged.get("collapsed_pair"))
+
+    def test_kind_classification_regression_pins_other_languages(self):
+        """The annotation fix is an EXACT node-type match; every neighboring
+        classification is pinned so no other language's kind moves."""
+        kind = self.mod._ts_kind_for_definition
+        # Java: the annotation fix itself + its method-shaped body members.
+        self.assertEqual(kind("annotation_type_declaration", None, "code"), "class")
+        self.assertEqual(kind("annotation_type_element_declaration", None, "code"), "function",
+                         "@interface members (`String value();`) are method-shaped and stay 'function'")
+        # Java/C#/Kotlin type declarations (normalize to 'class', unchanged).
+        self.assertEqual(kind("class_declaration", None, "code"), "class")
+        self.assertEqual(kind("interface_declaration", None, "code"), "class")
+        self.assertEqual(kind("enum_declaration", None, "code"), "class")
+        self.assertEqual(kind("record_declaration", None, "code"), "class")
+        self.assertEqual(kind("method_declaration", None, "code"), "function")
+        self.assertEqual(kind("package_declaration", None, "code"), "module")
+        # Rust / Go / TS / JS pins.
+        self.assertEqual(kind("struct_item", None, "code"), "class")
+        self.assertEqual(kind("trait_item", None, "code"), "class")
+        self.assertEqual(kind("function_declaration", None, "code"), "function")
+        self.assertEqual(kind("type_alias_declaration", None, "code"), "type")
+        self.assertEqual(kind("property_signature", None, "code"), "property")
+        self.assertEqual(kind("lexical_declaration", None, "code"), "variable")
+        # Non-code modes untouched.
+        self.assertEqual(kind("create_table_statement", None, "sql"), "class")
+        self.assertEqual(kind("workflow_block", None, "config"), "function")
+        self.assertEqual(kind("element_node", None, "markup"), "class")
+
+
+class JavaPackageDeclarationKeyingTests(unittest.TestCase):
+    """Wave 1p9qh (1p9qb): the Java/Kotlin same-package disambiguation tier
+    keys on the parsed `package` declaration (directory fallback for
+    declaration-less files); Go keeps directory keying. Both flip directions
+    are deliberate correctness changes."""
+
+    def setUp(self):
+        self.mod = load_graph_indexer()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        (self.root / "docs").mkdir(parents=True, exist_ok=True)
+        (self.root / "docs" / "workflow-config.json").write_text("{}", encoding="utf-8")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _require_java(self):
+        try:
+            import tree_sitter_java  # noqa: F401
+        except ImportError:
+            self.skipTest("tree_sitter_java not available in test env")
+
+    def _build(self, files: dict[str, str]) -> dict:
+        paths, meta = [], {}
+        for rel, content in files.items():
+            path = self.root / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+            paths.append(path)
+            meta[rel.replace("\\", "/")] = {"hash": content}
+        return self.mod.update_graph_index(
+            root=self.root, index_dir=self.root / ".wavefoundry" / "index",
+            layer="project", files=paths, current_file_meta=meta,
+            changed=set(meta.keys()), removed=set(),
+            walker_version="1", chunker_version="1", verbose=False,
+        )
+
+    def _go_targets(self, payload: dict) -> list[str]:
+        return [
+            e["target"] for e in payload["edges"]
+            if e.get("relation") == "calls"
+            and "Foo.run" in str(e.get("source", ""))
+            and "go" in str(e.get("target", ""))
+        ]
+
+    # -- AC-3 flip 1: same declared package across directories now binds -----
+
+    def test_split_directory_same_declared_package_disambiguates(self):
+        self._require_java()
+        payload = self._build({
+            "a/Foo.java": "package com.x;\npublic class Foo { Bar b; void run() { b.go(); } }\n",
+            "b/Bar.java": "package com.x;\npublic class Bar { public void go() {} }\n",
+            "c/Bar.java": "package com.y;\npublic class Bar { public void go() {} }\n",
+        })
+        targets = self._go_targets(payload)
+        self.assertEqual(
+            targets, ["b/Bar.java::Bar.go"],
+            f"the same-DECLARED-package twin must bind even across directories; got {targets}",
+        )
+
+    # -- AC-3 flip 2: same directory, different declared packages now refuse --
+
+    def test_same_directory_different_declared_packages_refuse(self):
+        self._require_java()
+        payload = self._build({
+            "d/Foo.java": "package com.a;\npublic class Foo { Bar b; void run() { b.go(); } }\n",
+            "d/Bar.java": "package com.b;\npublic class Bar { public void go() {} }\n",
+            "e/Bar.java": "package com.c;\npublic class Bar { public void go() {} }\n",
+        })
+        targets = self._go_targets(payload)
+        self.assertEqual(
+            targets, ["external::Bar.go"],
+            f"a co-located but DIFFERENT-package twin must refuse; got {targets}",
+        )
+
+    # -- Declaration-less fallback preserves pre-1p9qb behavior ---------------
+
+    def test_declaration_less_files_fall_back_to_directory_keying(self):
+        self._require_java()
+        payload = self._build({
+            "d/Foo.java": "public class Foo { Bar b; void run() { b.go(); } }\n",
+            "d/Bar.java": "public class Bar { public void go() {} }\n",
+            "e/Bar.java": "public class Bar { public void go() {} }\n",
+        })
+        targets = self._go_targets(payload)
+        self.assertEqual(
+            targets, ["d/Bar.java::Bar.go"],
+            f"package-less files keep directory locality (default package); got {targets}",
+        )
+
+    # -- Kotlin parity: the rekeyed tier is Java/KOTLIN (red-team F3) ----------
+
+    def test_kotlin_split_directory_same_declared_package_disambiguates(self):
+        """`_KOTLIN_PKG_DECL_RE` shipped with zero `.kt` unit fixtures; this
+        mirrors the Java AC-3 positive flip in Kotlin syntax so the Kotlin half
+        of the package-keyed tier is pinned in the suite, not only empirically
+        (adversarial C6 probe)."""
+        try:
+            import tree_sitter_kotlin  # noqa: F401
+        except ImportError:
+            self.skipTest("tree_sitter_kotlin not available in test env")
+        payload = self._build({
+            "a/Foo.kt": "package com.x\nclass Foo {\n    val b: Bar = Bar()\n    fun run() { b.go() }\n}\n",
+            "b/Bar.kt": "package com.x\nclass Bar {\n    fun go() {}\n}\n",
+            "c/Bar.kt": "package com.y\nclass Bar {\n    fun go() {}\n}\n",
+        })
+        targets = self._go_targets(payload)
+        self.assertEqual(
+            targets, ["b/Bar.kt::Bar.go"],
+            f"the same-DECLARED-package Kotlin twin must bind even across directories; got {targets}",
+        )
+
+    # -- Unit-level adversarial pins on the pure resolver ---------------------
+
+    def _resolve(self, src: str, bare: str, *, simple: dict, pkg_map: dict):
+        resolved, _ = self.mod._resolve_external_call_target(
+            src, bare, "EXTRACTED",
+            simple_name_index=simple,
+            qualified_index={},
+            imports_by_file={},
+            cs_file_ns={},
+            wildcard_imports_by_file=None,
+            java_pkg_by_file=pkg_map,
+        )
+        return resolved
+
+    def test_unit_go_keying_ignores_declared_package_map(self):
+        """Go stays on directory keying even when a (nonsensical) package map
+        entry exists for its files — a Go package IS its directory."""
+        simple = {"helper": ["p/a.go::helper", "q/a.go::helper"]}
+        resolved = self._resolve(
+            "p/main.go::main", "helper",
+            simple=simple,
+            pkg_map={"p/a.go": "junkpkg", "q/a.go": "junkpkg", "p/main.go": "junkpkg"},
+        )
+        self.assertEqual(resolved, "p/a.go::helper",
+                         "Go same-dir keying must be unaffected by the Java package map")
+
+    def test_unit_declared_and_undeclared_keys_never_cross_match(self):
+        """A declared package can never equal a directory-fallback key (the
+        pkg:/dir: prefixes keep the key spaces disjoint): a caller declaring
+        `package d` does NOT match a declaration-less candidate in directory
+        `d/`."""
+        simple = {"go": ["d/Bar.java::Bar.go", "e/Bar.java::Bar.go"]}
+        resolved = self._resolve(
+            "d/Foo.java::Foo.run", "go",
+            simple=simple,
+            pkg_map={"d/Foo.java": "d"},  # candidates have NO declaration
+        )
+        self.assertIsNone(resolved,
+                          "declared-package key must never match a directory-fallback key")
+
+
+class SuperMarkerCallsInvariantTests(unittest.TestCase):
+    """Wave 1p9qh red-team F4: the `external::super.` prefix is NOT globally
+    unmintable — Rust `use super::…` imports mint `external::super.*` ids too.
+    The actual marker-safety contract: the finalize inheritance pass filters to
+    `calls`-relation edges, and every language's CALLS extraction independently
+    refuses `super` receivers, so in a mixed-language payload the ONLY
+    `external::super.`-prefixed `calls` targets are the Java/C# markers
+    (Rust's `super.*` ids ride the `imports` relation, which is allowed)."""
+
+    def setUp(self):
+        self.mod = load_graph_indexer()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        (self.root / "docs").mkdir(parents=True, exist_ok=True)
+        (self.root / "docs" / "workflow-config.json").write_text("{}", encoding="utf-8")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_only_java_csharp_markers_appear_on_calls_edges(self):
+        import importlib.util
+        for grammar in ("tree_sitter_java", "tree_sitter_c_sharp",
+                        "tree_sitter_kotlin", "tree_sitter_rust"):
+            if importlib.util.find_spec(grammar) is None:
+                self.skipTest(f"{grammar} not available in test env")
+        files = {
+            # Rust: `use super::…` mints external::super.* ids — imports relation, allowed.
+            "rustmod/b.rs": "use super::util::Reader;\npub fn caller() {}\n",
+            # Java: external supertype keeps the marker unresolved so it persists in the payload.
+            "j/Child.java": "public class Child extends LibraryBase {\n    void run() { super.persist(); }\n}\n",
+            # C#: same marker via `base.` with an external base.
+            "cs/Child2.cs": "public class Child2 : LibBase {\n    public void Run() { base.Validate(); }\n}\n",
+            # Kotlin: the call path refuses `super` receivers — no marker, no super.-target.
+            "k/KChild.kt": "package k\nclass KChild {\n    fun run() { super.toString() }\n}\n",
+        }
+        paths, meta = [], {}
+        for rel, content in files.items():
+            path = self.root / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+            paths.append(path)
+            meta[rel.replace("\\", "/")] = {"hash": content}
+        payload = self.mod.update_graph_index(
+            root=self.root, index_dir=self.root / ".wavefoundry" / "index",
+            layer="project", files=paths, current_file_meta=meta,
+            changed=set(meta.keys()), removed=set(),
+            walker_version="1", chunker_version="1", verbose=False,
+        )
+        super_calls = sorted({
+            str(e.get("target")) for e in payload["edges"]
+            if e.get("relation") == "calls"
+            and str(e.get("target", "")).startswith("external::super.")
+        })
+        self.assertEqual(
+            super_calls,
+            ["external::super.Child.persist", "external::super.Child2.Validate"],
+            f"only the Java/C# reserved markers may ride `calls`; got {super_calls}",
+        )
+        super_imports = [
+            str(e.get("target")) for e in payload["edges"]
+            if e.get("relation") == "imports"
+            and str(e.get("target", "")).startswith("external::super.")
+        ]
+        self.assertTrue(
+            super_imports,
+            "the Rust `use super::…` import must mint an external::super.* id "
+            "(the collision the reserved-word argument denied — it rides `imports`)",
+        )

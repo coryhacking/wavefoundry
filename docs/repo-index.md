@@ -35,30 +35,30 @@ between the markers is machine-maintained; the surrounding narrative is not.
 
 | Area | Path | Kind | Size (nodes) |
 | ---- | ---- | ---- | ------------ |
-| tests | `.wavefoundry/framework/scripts/tests` | code | 6748 |
-| server_impl | `.wavefoundry/framework/scripts` | code | 672 |
-| graph | `.wavefoundry/framework/scripts` | code | 249 |
+| tests | `.wavefoundry/framework/scripts/tests` | code | 6888 |
+| server_impl | `.wavefoundry/framework/scripts` | code | 687 |
+| graph | `.wavefoundry/framework/scripts` | code | 259 |
 | dashboard | `.wavefoundry/framework/dashboard` | code | 216 |
-| subprocess_util | `.wavefoundry/framework/scripts` | code | 196 |
-| wave_lint_lib | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 177 |
+| wave_lint_lib | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 179 |
 | chunker | `.wavefoundry/framework/scripts` | code | 161 |
-| scripts/dashboard_lib | `.wavefoundry/framework/scripts` | code | 120 |
-| indexer | `.wavefoundry/framework/scripts` | code | 110 |
-| scripts/subprocess_util | `.wavefoundry/framework/scripts` | code | 86 |
+| setup | `.wavefoundry/framework/scripts` | code | 155 |
+| upgrade_wavefoundry | `.wavefoundry/framework/scripts` | code | 127 |
+| indexer | `.wavefoundry/framework/scripts` | code | 112 |
 | render_platform_surfaces | `.wavefoundry/framework/scripts` | code | 63 |
+| docs/dashboard_lib | `.wavefoundry/framework/scripts` | code | 57 |
 | gen_codebase_map | `.wavefoundry/framework/scripts` | code | 56 |
 | graph_cluster | `.wavefoundry/framework/scripts` | code | 38 |
-| scripts/workflow-config | `.wavefoundry/framework/scripts` | code | 26 |
 | design_token_build | `.wavefoundry/framework/scripts` | code | 25 |
 | upgrade_extensions | `.wavefoundry/framework/scripts` | code | 21 |
 | docs_gardener | `.wavefoundry/framework/scripts` | code | 17 |
 | server | `.wavefoundry/framework/scripts` | code | 13 |
 | tokens | `docs/design-system/tokens` | config | 320 |
-| docs | `docs` | config | 227 |
+| docs | `docs` | config | 303 |
 | modes | `docs/design-system/tokens/modes` | config | 150 |
 | json | `docs/design-system/exports/json` | config | 86 |
 | nav-sidebar | `docs/design-system/components/nav-sidebar` | config | 32 |
 | badge | `docs/design-system/components/badge` | config | 31 |
+| dialog | `docs/design-system/components/dialog` | config | 31 |
 <!-- waveframework:repo-index-modules end -->
 
 No shipped product implementation sources exist yet. The MCP Python package (`src/wavefoundry/`) is planned but not scaffolded.
