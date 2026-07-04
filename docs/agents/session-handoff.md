@@ -2,50 +2,49 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-03
+Last verified: 2026-07-04
 
-## Current State (2026-07-03, post-close)
+## Current State (2026-07-04 — 1p9q3 CLOSED; opening 1roqn for the drift fix)
 
-**Wave `1p9qm subagent-mcp-retrieval-posture` is CLOSED (2026-07-03, operator-approved)** — review PASS, all ACs `[x]`, `Completed At` stamped. Next up per operator direction: **Implement wave `1p9q3 graph-index-efficiency`**.
+**Wave `1p9q3 graph-index-efficiency` CLOSED 2026-07-04 (operator-approved: "close 1p9q3 and continue")** — delivery review PASS, all ACs met, `Completed At` stamped. Next in the approved sequence: commit the diff, open readied wave `1roqn lance-drift-eligibility`, implement the drift fix, review it.
 
-Both changes are `implemented` with **all ACs `[x]`**:
+### Delivered (headline numbers, all independently reproduced by the performance lane)
 
-- `1p9qk-bug subagent-mcp-tool-access` — AC-2's final sliver (the council-mandated no-MCP spawn check) PASSED 2026-07-03: guru wrapper spawned cleanly in a fresh headless session with no wavefoundry MCP registered; unknown `mcp__wavefoundry__*` allowlist entries silently dropped (inert); render-time-conditional pivot NOT needed.
-- `1p9ql-enh subagent-retrieval-posture-guidance` — AC-5 captured from this wave's own Review-wave fan-out: 9/9 lanes/seats made their first `code_*` call before any content grep (baseline: Solaris round-1 = 0 MCP calls); attribution-scope + claim-backing-variant qualifications recorded in the AC.
+- `1p9py`: compact/gzip/atomic graph artifacts — 17.5× at its own boundary, **8.6× wave end-state** (payload 0.56 + SQLite store 3.5 + clusters 0.11 MB vs 36.0 MB); `GRAPH_BUILDER_VERSION` 36.
+- `1p9pz`: stat-validated in-process query cache — warm graph-tool calls 42.8 ms → 0.04 ms (~1,000×); 17 sites migrated; docs rider fixed stale layer/union/networkx claims.
+- `1p9q1`: build-time tiered betweenness — 10k query cap retired; exact tier 14-62 ms at 11k nodes; `CLUSTER_BUILDER_VERSION` 11.
+- `1p9q2`: incremental merge + symbol-scoped invalidation + SQLite state store — zero-change builds 0 bytes/0.3 s; rows + re-resolution O(delta); bytes O(graph) via the merge_state sidecar (honestly re-scoped + instrumented).
 
-**Review wave ran 2026-07-03:** four delivery lanes (code-reviewer, qa-reviewer, architecture-reviewer, docs-contract-reviewer) — all pass-with-findings — plus the full delivery council (red-team primer, four fixed seats, rotating docs-contract fifth seat). Synthesis verdict **PASS**; `wave-council-delivery` recorded in Review Evidence; full synthesis in wave.md Review Checkpoints. All severe findings were **fixed in-session at operator direction**:
+### Review outcome (2026-07-03/04)
 
-1. `.codex/config.toml` restored (the AC-4 re-render had silently deleted the operator's `wave_close approval_mode` block — the known unlanded `1p9p7` renderer-overwrite defect, second field occurrence after `1p9j0`).
-2. Carrier wiring (seed gate): seed-020 "Rendered carrier" bullet; seed-150 task 5 reconciles/backfills the `## Retrieval Posture (All Lanes)` section + review-and-evals pointer; seed-160 audit checklist names both (stale "six rules" count fixed); seed-050 requires the factor-wrapper body bullet (+ guru carve-out sentence).
-3. Test regex hardening (body⊆frontmatter check now catches `seed_get`/`wave_*`/`mcp__` forms); evidence-note corrections in both change docs.
+Five delivery lanes (code, qa, architecture, performance, **adversarial faithfulness**) + red-team primer + four fixed council seats + rotating docs-contract seat. **Synthesis PASS, seats unanimous.** The adversarial lane found a REAL equivalence bug (merged-epoch symbol-delta collapse → `reads` edges in untouched files escaping re-resolution; missing + dangling edges) — **fixed in-session** (per-side delta + `DepthSwapDeltaKeyTests`; reproducer green; AC-9 discharged faithful-with-residuals). Also fixed in-session: blob-aware sidecar counters + `sidecar:` log segment; two un-invalidated cache-refresh paths; never-pin-stale-builder cache guard (+ once-per-process stderr note); WAL pragma result check; reader-copy parity gate; dead-code removal; honest claims re-scope; stale seed-211/guru.md cap wording; architecture-doc updates.
 
-Gates: full suite **4,273 OK** after all fixes; docs-lint clean; no `__pycache__`; seed gate opened/closed per edit session.
+Gates: full suite **4,346 tests / 42 files OK** post-fix; docs-lint clean; `wave_review` green (`wave-council-delivery` recorded); `wave_close` dry-run clean; both edit gates closed; no `__pycache__`.
 
-**Close + commit executed 2026-07-03 at explicit operator direction** ("close and commit"); wave `1p9q3` implementation follows in the same session.
+### Approved sequence in flight (operator: "close 1p9q3 and continue", 2026-07-04)
 
-**⚠ Standing until `1p9p7 renderer-overwrite-safety` (wave `1p9pe`) lands:** every `render_agent_surfaces` run rewrites `.codex/config.toml` and deletes the operator's `wave_close approval_mode` block — restore it after ANY re-render (`git checkout -- .codex/config.toml`).
+Close DONE → commit → open `1roqn` → implement `1rmaf-bug` → review → operator close decision for `1roqn`.
 
-**Recommended follow-up change (from delivery council, not yet planned):** registry-derived allowlist test pin (compare `_REQUIRED_GRANTS` against `server_impl`'s `_READONLY_TOOL` set, both directions — also resolves the recorded `code_hover`/`code_risk_score` exclusion) + docs-lint `check_factor_surface` extension validating wrapper `tools:` lines (fleet-wide enforcement).
+### Follow-up candidates recorded in wave watchpoints (not admitted)
 
-## Other Session Work (all readied, none OPEN)
+- ~~URGENT: Lance drift-repair loop~~ — now planned + council-READIED as wave `1roqn lance-drift-eligibility` (`1rmaf-bug`); implementation next in this session.
+- Full-merge kill-switch env for the incremental machinery (rotating-seat rider; cheap field insurance).
+- Row-sharded fragment store — gated on real large-corpus measurement.
+- Doc-impact add-direction miss (proven pre-existing); seed-gardening pass for pre-existing internal wave refs in seeds 211/214.
+- **At ship time**: release notes must carry the "reconnect / `wave_mcp_reload` after upgrading" callout (stale sessions can't read gzip artifacts).
 
-Waves planned + council-readied earlier, awaiting `Implement wave` after 1p9qm closes:
-- `1p9q3 graph-index-efficiency` (4 changes)
-- `1p9q8 graph-index-accuracy` (4 changes)
-- `1p9qh java-csharp-enterprise-accuracy` (3 changes)
-- `1p9qi sql-graph-accuracy` (5 changes)
-Suggested implement order: 1p9q3 → 1p9qh → 1p9qi (1p9q8 slots anywhere).
+## Other Session Work
 
-Pre-existing planned waves untouched: `1p9pe post-release-followup-hardening` (now more urgent — see standing note above), `1p6lp cross-host-skills`.
+Wave `1p9qm subagent-mcp-retrieval-posture` closed + committed earlier (`6fb035da`); planning waves committed (`5f5e5db8`). Readied waves awaiting their turn after `1p9q3` closes: `1p9q8 graph-index-accuracy`, `1p9qh java-csharp-enterprise-accuracy`, `1p9qi sql-graph-accuracy` (suggested order: 1p9qh → 1p9qi; 1p9q8 anywhere). Pre-existing planned: `1p9pe post-release-followup-hardening`, `1p6lp cross-host-skills`. From 1p9qm: registry-derived wrapper-allowlist pin + docs-lint factor-wrapper `tools:` check remain follow-up candidates.
 
-**Uncommitted working tree** spans the readied-wave planning docs + the full 1p9qm implementation + review fixes (seeds 020/050/100/150/160/180 + 22 role seeds, renderer + tests, 5 wrappers, AGENTS.md, contributing docs, wave records). Commits are operator-owned.
+**⚠ Standing until `1p9p7 renderer-overwrite-safety` (wave `1p9pe`) lands:** every `render_agent_surfaces` run rewrites `.codex/config.toml` and deletes the operator's `wave_close approval_mode` block — restore after ANY re-render.
 
 ## Coordination Watchpoints
 
-- The AGENTS.md auto-Guru paragraph was edited by `1p9qm`; wave `1p9q3`'s `1p9pz` docs rider also touches that section — coordinate when `1p9q3` opens.
-- `docs/specs/mcp-tool-surface.md` has three readied waves wanting vocabulary edits (`1p9q3`, `1p9qh`, `1p9qi`) — one integration owner.
-- After downstream repos upgrade, ask the Solaris reporter to re-run their transcript count — the true field verification for the retrieval-posture surfaces (recorded in 1p9ql AC-5 and the wave watchpoints).
-- Host lessons from this wave (also in 1p9qk Progress Log): exact-name MCP grants in subagent `tools:` ARE honored; granted MCP tools arrive deferred (hence `ToolSearch` in allowlists); agent definitions reload on `/mcp` reconnect, not on file edit; MCP-less spawns silently drop unknown MCP allowlist entries; subagents report only `Read`+`Bash` of the granted built-ins in this host build.
+- `docs/specs/mcp-tool-surface.md`: waves `1p9qh`/`1p9qi` also want vocabulary edits — one integration owner.
+- Solaris reporter re-runs their transcript count after upgrading (1p9qm field verification).
+- MCP server old-code window: the running server executes pre-edit graph modules until reconnect/`wave_mcp_reload` — measurements via fresh venv subprocesses, not `wave_index_build`.
+- Operator decision recorded 2026-07-04: keep SQLite for the state store; do NOT move the graph payload into SQLite (assessed and declined — it would break the stat-validated cache design for no measured benefit; revisit only with large-repo parse-dominance evidence).
 
 ## Current Session
 
