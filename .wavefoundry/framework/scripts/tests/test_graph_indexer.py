@@ -330,6 +330,1050 @@ class GraphIndexerTests(unittest.TestCase):
         self.assertTrue(any("users" in node_id for node_id in sql_node_ids))
         self.assertIn("defines", {edge["relation"] for edge in sql_payload["edges"]})
 
+    # ------------------------------------------------------------------
+    # Wave 1p9qi (1p9qc): SQL keyword/column-token noise suppression.
+    # These exact-edge-set expectations are the CLEAN baseline the rest of
+    # the SQL wave (1p9qd structured extraction, 1p9qe recovery, 1p9qf/1p9qg
+    # binds) builds on — they deliberately encode NO keyword or column noise.
+    # ------------------------------------------------------------------
+
+    def _build_files(self, files: dict[str, str]):
+        paths = []
+        meta = {}
+        for rel_path, source in files.items():
+            file_path = self.root / rel_path
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+            file_path.write_text(source, encoding="utf-8")
+            paths.append(file_path)
+            meta[rel_path.replace("\\", "/")] = {"hash": f"hash-{rel_path}"}
+        return self.mod.update_graph_index(
+            root=self.root,
+            index_dir=self.root / ".wavefoundry" / "index",
+            layer="project",
+            files=paths,
+            current_file_meta=meta,
+            changed=set(meta),
+            removed=set(),
+            walker_version="1",
+            chunker_version="1",
+            verbose=False,
+        )
+
+    def _require_sql_parser(self):
+        if getattr(self.mod, "_ts_get_parser", lambda *_: None)("sql") is None:
+            self.skipTest("tree-sitter sql grammar unavailable")
+
+    def test_sql_keyword_and_column_noise_suppressed_exact_edge_set(self):
+        """1p9qc AC-1 + AC-2 baseline, restated on 1p9qd's clause-aware model.
+
+        Both flip directions: every genuine table reference is PRESENT — now
+        as direction-aware `reads`/`writes` edges (cross-file `users`/`orders`
+        binds still land at RECEIVER_RESOLVED) — and every keyword/column
+        token is ABSENT. 1p9qd upgrades over the 1p9qc baseline pinned here:
+        the schema-qualified reference is a single consolidated
+        `external::analytics.events` read (no `analytics`+`events` field-name
+        split), SQL emits no `imports`/`calls` edges at all, and write
+        statements (INSERT/UPDATE/DELETE) carry the `writes` relation.
+        """
+        self._require_sql_parser()
+        payload = self._build_files(
+            {
+                "db/schema.sql": (
+                    "CREATE TABLE users (\n"
+                    "    id INT PRIMARY KEY,\n"
+                    "    active INT\n"
+                    ");\n"
+                    "\n"
+                    "CREATE TABLE orders (\n"
+                    "    id INT PRIMARY KEY,\n"
+                    "    user_id INT\n"
+                    ");\n"
+                ),
+                "db/queries.sql": (
+                    "SELECT * FROM users JOIN orders ON users.id = orders.user_id"
+                    " WHERE users.active = 1;\n"
+                    "\n"
+                    "INSERT INTO audit_log (event) VALUES ('login');\n"
+                    "\n"
+                    "UPDATE users SET active = 0 WHERE users.id = 5;\n"
+                    "\n"
+                    "DELETE FROM orders WHERE orders.user_id = 5;\n"
+                    "\n"
+                    "SELECT * FROM analytics.events;\n"
+                ),
+            }
+        )
+        edges = {
+            (edge["relation"], edge["source"], edge["target"], edge.get("confidence"))
+            for edge in payload["edges"]
+        }
+        expected = {
+            ("defines", "db/schema.sql", "db/schema.sql::users", "EXTRACTED"),
+            ("defines", "db/schema.sql", "db/schema.sql::orders", "EXTRACTED"),
+            ("reads", "db/queries.sql", "db/schema.sql::users", "RECEIVER_RESOLVED"),
+            ("reads", "db/queries.sql", "db/schema.sql::orders", "RECEIVER_RESOLVED"),
+            ("reads", "db/queries.sql", "external::analytics.events", "EXTRACTED"),
+            ("writes", "db/queries.sql", "external::audit_log", "EXTRACTED"),
+            ("writes", "db/queries.sql", "db/schema.sql::users", "RECEIVER_RESOLVED"),
+            ("writes", "db/queries.sql", "db/schema.sql::orders", "RECEIVER_RESOLVED"),
+        }
+        self.assertEqual(edges, expected)
+        # Explicit absence sweeps (readable failures + fixture-drift guards).
+        target_labels = {edge["target"].split("::")[-1] for edge in payload["edges"]}
+        stoplisted = {
+            label for label in target_labels
+            if label.casefold() in self.mod._SQL_RELATION_KEYWORD_STOPLIST
+        }
+        self.assertEqual(stoplisted, set(), "SQL keyword tokens leaked into edge targets")
+        column_tokens = {"users.id", "orders.user_id", "users.active", "active", "event", "user_id", "id"}
+        self.assertEqual(target_labels & column_tokens, set(), "column tokens leaked into edge targets")
+        # 1p9qc finding (a) flip: string-literal contents (`'login'`) never
+        # become reference candidates in the clause-aware model.
+        self.assertNotIn("login", target_labels)
+
+    def test_sql_create_table_does_not_import_its_own_name(self):
+        """1p9qc origin: CREATE TABLE's own name node re-emitted as a
+        self-referential import. Under 1p9qd's clause-aware extraction SQL
+        emits no `imports` edges at all, and a definition's own name (incl.
+        a self-FK) never becomes a reads/writes self-loop."""
+        self._require_sql_parser()
+        payload = self._build_file(
+            "db/schema.sql",
+            "CREATE TABLE users (\n"
+            "    id INT PRIMARY KEY,\n"
+            "    manager_id INT REFERENCES users(id)\n"
+            ");\n",
+        )
+        import_edges = [edge for edge in payload["edges"] if edge["relation"] == "imports"]
+        self.assertEqual(import_edges, [])
+        self_loops = [e for e in payload["edges"] if e["source"] == e["target"]]
+        self.assertEqual(self_loops, [], "self-FK must not emit a self-loop edge")
+        # The definition itself is untouched.
+        self.assertIn(
+            ("defines", "db/schema.sql", "db/schema.sql::users"),
+            {(e["relation"], e["source"], e["target"]) for e in payload["edges"]},
+        )
+
+    def test_sql_stoplist_never_touches_non_sql_candidates(self):
+        """AC-3 flip direction: identifiers named like SQL keywords remain
+        first-class call candidates in host languages (the filter is SQL-gated).
+        The Kotlin/C#/Go/TS import-candidate baselines pinned in
+        SharedImportCandidateBaselineTests cover the import relation."""
+        if getattr(self.mod, "_ts_get_parser", lambda *_: None)("javascript") is None:
+            self.skipTest("tree-sitter javascript grammar unavailable")
+        payload = self._build_file(
+            "src/app.js",
+            "function select() { return 1; }\n"
+            "function update() { return 2; }\n"
+            "select();\n"
+            "update();\n"
+            "from();\n",
+        )
+        call_targets = {
+            (edge["target"], edge.get("confidence"))
+            for edge in payload["edges"]
+            if edge["relation"] == "calls"
+        }
+        self.assertIn(("src/app.js::select", "RECEIVER_RESOLVED"), call_targets)
+        self.assertIn(("src/app.js::update", "RECEIVER_RESOLVED"), call_targets)
+        self.assertIn(("external::from", "EXTRACTED"), call_targets)
+
+    # ------------------------------------------------------------------
+    # Wave 1p9qi (1p9qd): clause-aware SQL statement extraction.
+    # Exact-edge-set tests over the real grammar for every statement family;
+    # the statement-analysis unit contract (AC-5) is what 1p9qe/1p9qf consume.
+    # ------------------------------------------------------------------
+
+    def _load_graph_query(self):
+        path = SCRIPTS_ROOT / "graph_query.py"
+        spec = importlib.util.spec_from_file_location("graph_query_under_test", path)
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules["graph_query_under_test"] = mod
+        spec.loader.exec_module(mod)
+        return mod
+
+    def test_sql_merge_statement_directions_exact_edge_set(self):
+        """AC-1 (MERGE family): INTO target is a write, USING source is a read;
+        aliases (`u`, `e`) and WHEN-clause field qualifiers never mint nodes."""
+        self._require_sql_parser()
+        payload = self._build_files(
+            {
+                "db/schema.sql": "CREATE TABLE users (id INT PRIMARY KEY, active INT);\n",
+                "db/merge.sql": (
+                    "MERGE INTO users u USING analytics.events e ON u.id = e.user_id"
+                    " WHEN MATCHED THEN UPDATE SET u.active = 1;\n"
+                ),
+            }
+        )
+        edges = {
+            (edge["relation"], edge["source"], edge["target"], edge.get("confidence"))
+            for edge in payload["edges"]
+        }
+        expected = {
+            ("defines", "db/schema.sql", "db/schema.sql::users", "EXTRACTED"),
+            ("writes", "db/merge.sql", "db/schema.sql::users", "RECEIVER_RESOLVED"),
+            ("reads", "db/merge.sql", "external::analytics.events", "EXTRACTED"),
+        }
+        self.assertEqual(edges, expected)
+        node_ids = {n["id"] for n in payload["nodes"]}
+        self.assertNotIn("db/merge.sql::u", node_ids, "MERGE alias must not register a symbol")
+
+    def test_sql_qualified_name_resolution_three_tiers(self):
+        """AC-2: schema-qualified references resolve to the schema-qualified
+        object when defined; unqualified references fall back to a UNIQUE
+        bare-name match; ambiguity (two `users` tables in different schemas)
+        refuses and stays external."""
+        self._require_sql_parser()
+        payload = self._build_files(
+            {
+                "db/analytics.sql": "CREATE TABLE analytics.users (id INT);\n",
+                "db/sales.sql": (
+                    "CREATE TABLE sales.users (id INT);\n"
+                    "CREATE TABLE sales.orders (id INT);\n"
+                ),
+                "db/queries.sql": (
+                    "SELECT * FROM analytics.users;\n"   # qualified -> exact object
+                    "SELECT * FROM users;\n"             # unqualified + ambiguous -> refuse
+                    "SELECT * FROM orders;\n"            # unqualified + unique -> bind
+                ),
+            }
+        )
+        edges = {
+            (edge["relation"], edge["target"], edge.get("confidence"))
+            for edge in payload["edges"]
+            if edge["source"] == "db/queries.sql"
+        }
+        self.assertEqual(edges, {
+            ("reads", "db/analytics.sql::analytics.users", "RECEIVER_RESOLVED"),
+            ("reads", "external::users", "EXTRACTED"),
+            ("reads", "db/sales.sql::sales.orders", "RECEIVER_RESOLVED"),
+        })
+
+    def test_sql_view_lineage_chain_traversable_and_impact(self):
+        """AC-3: CREATE VIEW chains emit traversable `reads` lineage edges and
+        `code_impact` on a base table includes the dependent views (the
+        data-layer default-traversal exception in graph_query)."""
+        self._require_sql_parser()
+        payload = self._build_files(
+            {
+                "db/schema.sql": "CREATE TABLE users (id INT PRIMARY KEY, active INT);\n",
+                "db/views.sql": (
+                    "CREATE VIEW active_users AS SELECT id FROM users WHERE active = 1;\n"
+                    "CREATE VIEW recent_active AS SELECT id FROM active_users;\n"
+                ),
+            }
+        )
+        edges = {
+            (edge["relation"], edge["source"], edge["target"], edge.get("confidence"))
+            for edge in payload["edges"]
+            if edge["relation"] in ("reads", "writes")
+        }
+        self.assertEqual(edges, {
+            ("reads", "db/views.sql::active_users", "db/schema.sql::users", "RECEIVER_RESOLVED"),
+            ("reads", "db/views.sql::recent_active", "db/views.sql::active_users", "RECEIVER_RESOLVED"),
+        })
+        gq = self._load_graph_query()
+        idx = gq.GraphQueryIndex(payload)
+        impact = idx.graph_impact("users")
+        self.assertTrue(impact["resolved"])
+        affected = {row["node_id"] for row in impact["affected"]} if impact["affected"] and isinstance(impact["affected"][0], dict) else set(impact["affected"])
+        affected_ids = {str(a.get("node_id") if isinstance(a, dict) else a) for a in impact["affected"]}
+        self.assertIn("db/views.sql::active_users", affected_ids)
+        self.assertIn("db/views.sql::recent_active", affected_ids, "lineage must be transitive")
+        # Explicit relations opt OUT of the data-layer exception.
+        impact_calls_only = idx.graph_impact("users", relations=("calls",))
+        calls_ids = {str(a.get("node_id") if isinstance(a, dict) else a) for a in impact_calls_only["affected"]}
+        self.assertEqual(calls_ids & {"db/views.sql::active_users", "db/views.sql::recent_active"}, set())
+
+    def test_sql_kind_property_and_report_labels(self):
+        """AC-4: tables and views are distinguishable (`sql_kind` node
+        property; both keep kind "class" so existing consumers ingest without
+        error) and `wave_graph_report`'s ranked rows surface `sql_kind`."""
+        self._require_sql_parser()
+        payload = self._build_files(
+            {
+                "db/schema.sql": "CREATE TABLE users (id INT PRIMARY KEY);\n",
+                "db/views.sql": "CREATE VIEW v_users AS SELECT id FROM users;\n",
+                "db/q1.sql": "SELECT * FROM users;\n",
+                "db/q2.sql": "SELECT * FROM users JOIN v_users ON 1 = 1;\n",
+            }
+        )
+        by_id = {n["id"]: n for n in payload["nodes"]}
+        self.assertEqual(by_id["db/schema.sql::users"]["kind"], "class")
+        self.assertEqual(by_id["db/schema.sql::users"]["sql_kind"], "table")
+        self.assertEqual(by_id["db/views.sql::v_users"]["kind"], "class")
+        self.assertEqual(by_id["db/views.sql::v_users"]["sql_kind"], "view")
+        gq = self._load_graph_query()
+        idx = gq.GraphQueryIndex(payload)
+        report = idx.report()
+        fan_in = {row["node_id"]: row for row in report["fan_in"]}
+        self.assertIn("db/schema.sql::users", fan_in, "table references count toward fan_in")
+        self.assertEqual(fan_in["db/schema.sql::users"]["sql_kind"], "table")
+        self.assertEqual(fan_in["db/schema.sql::users"]["kind"], "class")
+        # Neighbor traversal ingests the new edges without error; `writes` is
+        # not opt-in, `reads` inherits the 1p4ls opt-in policy.
+        neighbors = idx.one_hop_neighbors(["db/schema.sql::users"], relations=["reads", "writes"])
+        self.assertTrue(any(n["id"] == "db/q1.sql" for n in neighbors["nodes"]))
+
+    def test_sql_statement_unit_parity_with_file_path(self):
+        """AC-5: the standalone statement-analysis unit returns the same
+        reference list the file extraction path derives its edges from — the
+        frozen 1p9qe/1p9qf contract (name, direction; exclusions applied)."""
+        self._require_sql_parser()
+        sql_text = (
+            "CREATE TABLE users (id INT PRIMARY KEY, org_id INT REFERENCES orgs(id));\n"
+            "CREATE VIEW v1 AS SELECT id FROM users;\n"
+            "WITH recent AS (SELECT * FROM orders) SELECT * FROM recent JOIN users u ON u.id = recent.uid;\n"
+            "INSERT INTO audit_log (event) SELECT id FROM users;\n"
+            "UPDATE users SET active = 0;\n"
+            "DELETE FROM orders;\n"
+            "CREATE TEMPORARY TABLE staging_x (id INT);\n"
+            "SELECT * FROM staging_x;\n"
+        )
+        unit = self.mod.sql_statement_references(sql_text)
+        self.assertIsNotNone(unit)
+        self.assertEqual(
+            [(d["name"], d["sql_kind"], d["temporary"]) for d in unit["definitions"]],
+            [("users", "table", False), ("v1", "view", False)],
+        )
+        unit_refs = {(r["owner"], r["name"], r["direction"]) for r in unit["references"]}
+        self.assertEqual(unit_refs, {
+            ("users", "orgs", "read"),        # FK REFERENCES
+            ("v1", "users", "read"),          # view lineage
+            (None, "orders", "read"),         # CTE body
+            (None, "users", "read"),          # outer JOIN (CTE name `recent` excluded)
+            (None, "audit_log", "write"),     # INSERT INTO
+            (None, "orders", "write"),        # DELETE FROM
+            (None, "users", "write"),         # UPDATE
+        })
+        # Parity: the file path emits exactly one edge per (source, name,
+        # direction) — same reference list, mapped through registration.
+        payload = self._build_file("db/all.sql", sql_text)
+        file_edges = {
+            (edge["source"], edge["target"].split("::")[-1], edge["relation"])
+            for edge in payload["edges"]
+            if edge["relation"] in ("reads", "writes")
+        }
+        expected_edges = set()
+        owner_to_source = {"users": "db/all.sql::users", "v1": "db/all.sql::v1", None: "db/all.sql"}
+        for owner, name, direction in unit_refs:
+            relation = "writes" if direction == "write" else "reads"
+            expected_edges.add((owner_to_source[owner], name, relation))
+        self.assertEqual(file_edges, expected_edges)
+
+    def test_sql_scalar_invocation_names_never_become_references(self):
+        """Wave 1p9qi integration: a scalar function invocation's name
+        (`invocation > object_reference` — `NOW()`, `UPPER(x)`, `IFNULL(a,b)`)
+        is a routine name, never a table reference; the generic walk minted
+        `reads external::NOW`-style noise (1p9qe Progress Log finding,
+        pre-existing from the 1p9qd walk; 4.4% of unit references on the
+        Fineract census corpus). Argument subtrees are still walked, so a
+        genuine table read inside a function-argument subquery is preserved.
+        Flip-verified: pre-fix the unit returned `NOW`/`UPPER` read refs."""
+        self._require_sql_parser()
+        cases = {
+            # (sql, expected {(name, direction)})
+            "SELECT * FROM users WHERE created < NOW();": {("users", "read")},
+            "SELECT COALESCE(name, 'x'), UPPER(email) FROM users;": {("users", "read")},
+            "UPDATE users SET updated_at = NOW() WHERE id = 1;": {("users", "write")},
+            "SELECT * FROM users WHERE id IN (SELECT user_id FROM bans WHERE ends > NOW());": {
+                ("users", "read"), ("bans", "read"),
+            },
+            # Genuine table read inside a scalar invocation's argument
+            # subquery is PRESERVED (only the function NAME is skipped).
+            "SELECT COALESCE((SELECT name FROM orgs WHERE id = 1), 'x') FROM users;": {
+                ("orgs", "read"), ("users", "read"),
+            },
+            # Nested invocations: neither name leaks, argument subquery reads survive.
+            "SELECT IFNULL(UPPER((SELECT code FROM refs_tbl LIMIT 1)), 'x') FROM users;": {
+                ("refs_tbl", "read"), ("users", "read"),
+            },
+            # Relation-position invocation (table-valued function): unchanged
+            # behavior — a routine call emits no table reference (recorded
+            # routine-invocation stance; a `call` clause is future work).
+            "SELECT * FROM generate_series(1, 10) g;": set(),
+            "SELECT * FROM users u JOIN generate_series(1, 5) s ON u.id = s.n;": {
+                ("users", "read"),
+            },
+        }
+        for sql, expected in cases.items():
+            unit = self.mod.sql_statement_references(sql)
+            self.assertIsNotNone(unit, sql)
+            got = {(r["name"], r["direction"]) for r in unit["references"]}
+            self.assertEqual(got, expected, sql)
+
+    def test_sql_routine_return_type_never_becomes_a_reference(self):
+        """1p9qi review fix (adversarial finding 3): `CREATE FUNCTION f()
+        RETURNS <type> AS ...` parses the return type as a SECOND top-level
+        `object_reference` sibling of the routine name (`handle_create_
+        routine` previously treated the routine name as the only exclusion,
+        so the return type fell to the generic walk and minted a
+        `reads external::void`-style reference — same class as the landed
+        NOW()/invocation-name fix above, but for a routine's declared return
+        type rather than a call expression). A named dollar-tag body
+        (`$tag$...$tag$`, distinct from the bare-`$$` case already covered
+        by the dialect-forms test) is the reproducing shape: the return type
+        must never appear as a reference regardless of body form."""
+        self._require_sql_parser()
+        unit = self.mod.sql_statement_references(
+            "CREATE FUNCTION f() RETURNS void AS $tag$\n"
+            "  SELECT 1;\n"
+            "$tag$ LANGUAGE plpgsql;\n"
+        )
+        ref_names = {r["name"] for r in unit["references"]}
+        self.assertNotIn("void", ref_names)
+        self.assertEqual(
+            [(d["name"], d["sql_kind"]) for d in unit["definitions"]],
+            [("f", "function")],
+        )
+        # A non-void return type on the trusted bare-`$$` path (already
+        # covered indirectly by the dialect-forms test) must also stay clean.
+        unit2 = self.mod.sql_statement_references(
+            "CREATE FUNCTION count_users() RETURNS integer AS $$\n"
+            "BEGIN\n  RETURN (SELECT count(*) FROM users);\nEND;\n$$ LANGUAGE plpgsql;\n"
+        )
+        ref_names2 = {r["name"] for r in unit2["references"]}
+        self.assertNotIn("integer", ref_names2)
+        self.assertEqual(ref_names2, {"users"})
+
+    def test_sql_in_body_routine_statements_get_correct_direction(self):
+        """1p9qi faithfulness fix: a natively-parsed PL/pgSQL routine body (the
+        TRUSTED `$$` path — ``error_regions: 0``, NOT the recovery tier) routes
+        each nested `statement` node through analyze_statement instead of
+        flattening the whole body through the generic read walk, which
+        hard-codes ``direction="read"`` at every object_reference. Before the
+        fix this was a systematic in-body write-direction loss: in-body
+        INSERT/UPDATE/DELETE were writes emitted as READS (direction inverted →
+        wrong writes/writers bucket), a nested CREATE TABLE minted a phantom
+        read, and a bare CREATE TEMP TABLE minted a phantom read that bypassed
+        the AC-6 temp exclusion. This test pins the flipped, exact reference
+        set over the real grammar; a genuine subquery read inside an
+        unparseable `IF (...)` (which lands in a nested ERROR region, no
+        enclosing `statement`) must still be preserved, and in-body creates
+        must never mint module-scope definitions (the recovery tier's stance
+        for recovered bodies, now matched on the native path)."""
+        self._require_sql_parser()
+        unit = self.mod.sql_statement_references(
+            "CREATE FUNCTION refresh_stats() RETURNS void AS $$\n"
+            "BEGIN\n"
+            "  CREATE TABLE ghost_in_body (id int);\n"           # nested create: no read, no def
+            "  CREATE TEMP TABLE staging (id int);\n"            # in-body temp: AC-6 exclusion, no read
+            "  INSERT INTO real_audit (id) VALUES (1);\n"        # write (was read)
+            "  INSERT INTO staging SELECT id FROM real_src;\n"   # staging write EXCLUDED (temp); real_src read
+            "  SELECT * FROM users WHERE created < NOW();\n"     # read (NOW() invocation-name skipped)
+            "  UPDATE accounts SET x = 1;\n"                     # write (was read)
+            "  DELETE FROM sessions;\n"                          # write (was read)
+            "  IF (SELECT count(*) FROM cond_tbl) > 0 THEN\n"    # genuine subquery read in ERROR region
+            "    UPDATE more SET y = 2;\n"                       # write
+            "  END IF;\n"
+            "END;\n"
+            "$$ LANGUAGE plpgsql;\n"
+        )
+        self.assertIsNotNone(unit)
+        # Trusted native parse: no ERROR-region recovery for the routine itself.
+        self.assertEqual(unit["error_regions"], 0)
+        # Only the routine is a definition — in-body CREATE TABLE / CREATE TEMP
+        # TABLE never mint module-scope definitions.
+        self.assertEqual(
+            [(d["name"], d["sql_kind"]) for d in unit["definitions"]],
+            [("refresh_stats", "function")],
+        )
+        # Exact reference set: each in-body statement's clause-derived direction
+        # owned by the routine. `staging` (temp) and `ghost_in_body`
+        # (nested-create name) never appear; NOW/count invocation names never
+        # appear.
+        got = {(r["owner"], r["name"], r["direction"]) for r in unit["references"]}
+        self.assertEqual(got, {
+            ("refresh_stats", "real_audit", "write"),   # INSERT INTO -> write (direction corrected)
+            ("refresh_stats", "real_src", "read"),      # INSERT ... SELECT source -> read
+            ("refresh_stats", "users", "read"),         # SELECT ... FROM -> read
+            ("refresh_stats", "accounts", "write"),     # UPDATE -> write (direction corrected)
+            ("refresh_stats", "sessions", "write"),     # DELETE FROM -> write (direction corrected)
+            ("refresh_stats", "cond_tbl", "read"),      # subquery read inside unparseable IF (ERROR region)
+            ("refresh_stats", "more", "write"),         # UPDATE inside IF -> write
+        })
+        # Belt-and-braces: the in-body temp object and the nested-create name
+        # are NOWHERE in the reference list (no phantom read of either).
+        ref_names = {r["name"] for r in unit["references"]}
+        self.assertNotIn("staging", ref_names)
+        self.assertNotIn("ghost_in_body", ref_names)
+        # Every in-body reference retains the trusted (unmarked) extraction —
+        # the native path is not the recovery tier.
+        self.assertTrue(all(r.get("extraction") is None for r in unit["references"]))
+
+    def test_sql_query_local_names_never_mint_nodes(self):
+        """AC-6: CTE names, table aliases, derived-table (subquery) aliases,
+        and temp-table/table-variable forms (`#t`, `##t`, `@t`, TEMPORARY/TEMP
+        TABLE) mint neither external nodes nor definitions. Adversarial
+        fixture; exact edge set."""
+        self._require_sql_parser()
+        payload = self._build_files(
+            {
+                "db/schema.sql": (
+                    "CREATE TABLE users (id INT PRIMARY KEY);\n"
+                    "CREATE TABLE orders (id INT, user_id INT);\n"
+                ),
+                "db/adversarial.sql": (
+                    "WITH recent AS (SELECT * FROM orders WHERE user_id > 5)\n"
+                    "SELECT * FROM recent JOIN users ON users.id = recent.user_id;\n"
+                    "SELECT x.id FROM (SELECT id FROM users) x;\n"
+                    "SELECT u.id FROM users u;\n"
+                    "CREATE TABLE #tmpstage (id INT);\n"
+                    "SELECT * FROM #tmpstage;\n"
+                    "INSERT INTO ##globalstage (id) VALUES (1);\n"
+                    "SELECT * FROM @tablevar;\n"
+                    "CREATE TEMPORARY TABLE staging_x (id INT);\n"
+                    "SELECT * FROM staging_x;\n"
+                    "DROP TABLE staging_x;\n"
+                ),
+            }
+        )
+        edges = {
+            (edge["relation"], edge["source"], edge["target"], edge.get("confidence"))
+            for edge in payload["edges"]
+        }
+        expected = {
+            ("defines", "db/schema.sql", "db/schema.sql::users", "EXTRACTED"),
+            ("defines", "db/schema.sql", "db/schema.sql::orders", "EXTRACTED"),
+            ("reads", "db/adversarial.sql", "db/schema.sql::orders", "RECEIVER_RESOLVED"),
+            ("reads", "db/adversarial.sql", "db/schema.sql::users", "RECEIVER_RESOLVED"),
+        }
+        self.assertEqual(edges, expected)
+        node_ids = {n["id"] for n in payload["nodes"]}
+        for phantom in (
+            "db/adversarial.sql::recent", "db/adversarial.sql::x",
+            "db/adversarial.sql::u", "db/adversarial.sql::tmpstage",
+            "db/adversarial.sql::globalstage", "db/adversarial.sql::staging_x",
+        ):
+            self.assertNotIn(phantom, node_ids, phantom)
+        self.assertFalse(
+            any(nid.startswith("external::") for nid in node_ids),
+            f"no external nodes expected: {sorted(nid for nid in node_ids if nid.startswith('external::'))}",
+        )
+
+    def test_sql_migration_directory_coherent_table_nodes(self):
+        """AC-7: a Flyway-style numbered migration directory yields ONE node
+        per table with create/alter/index/view/data references all bound."""
+        self._require_sql_parser()
+        payload = self._build_files(
+            {
+                "migrations/V1__create_users.sql": (
+                    "CREATE TABLE users (id INT PRIMARY KEY, email VARCHAR(100));\n"
+                ),
+                "migrations/V2__create_orders.sql": (
+                    "CREATE TABLE orders (id INT PRIMARY KEY, user_id INT REFERENCES users(id));\n"
+                ),
+                "migrations/V3__alter_users.sql": (
+                    "ALTER TABLE users ADD COLUMN active INT;\n"
+                    "CREATE INDEX idx_users_active ON users (active);\n"
+                ),
+                "migrations/V4__views_and_backfill.sql": (
+                    "CREATE VIEW active_users AS SELECT id FROM users WHERE active = 1;\n"
+                    "UPDATE users SET active = 1;\n"
+                    "INSERT INTO orders (id, user_id) SELECT id, id FROM users;\n"
+                ),
+            }
+        )
+        users_nodes = [n["id"] for n in payload["nodes"] if n["id"].endswith("::users")]
+        self.assertEqual(users_nodes, ["migrations/V1__create_users.sql::users"],
+                         "exactly one node per table across the migration set")
+        users_id = users_nodes[0]
+        incoming = {
+            (edge["relation"], edge["source"], edge.get("confidence"))
+            for edge in payload["edges"]
+            if edge["target"] == users_id
+        }
+        self.assertEqual(incoming, {
+            ("defines", "migrations/V1__create_users.sql", "EXTRACTED"),
+            ("reads", "migrations/V2__create_orders.sql::orders", "RECEIVER_RESOLVED"),  # FK
+            ("writes", "migrations/V3__alter_users.sql", "RECEIVER_RESOLVED"),           # ALTER
+            ("reads", "migrations/V3__alter_users.sql", "RECEIVER_RESOLVED"),            # CREATE INDEX ON
+            ("reads", "migrations/V4__views_and_backfill.sql::active_users", "RECEIVER_RESOLVED"),
+            ("writes", "migrations/V4__views_and_backfill.sql", "RECEIVER_RESOLVED"),    # UPDATE
+            ("reads", "migrations/V4__views_and_backfill.sql", "RECEIVER_RESOLVED"),     # INSERT..SELECT source
+        })
+        externals = {n["id"] for n in payload["nodes"] if n["id"].startswith("external::")}
+        self.assertEqual(externals, set(), "every migration reference binds — no externals")
+
+    def test_sql_reads_writes_fragment_resolution_routing(self):
+        """SQL table references route through the CALL machinery in cross-file
+        resolution: unresolved SQL reads STAY EXTERNAL (constant reads still
+        tombstone), binds require a `sql_kind` node (a same-name host-language
+        twin is refused), and exact-unique binds promote to RECEIVER_RESOLVED."""
+        node_map = {
+            "db/schema.sql::users": {"id": "db/schema.sql::users", "kind": "class", "sql_kind": "table", "label": "users"},
+            "app/users.py::users": {"id": "app/users.py::users", "kind": "class", "label": "users"},
+        }
+        simple_idx = {"users": ["db/schema.sql::users"], "phantom": ["app/users.py::users"]}
+        ctx = {
+            "node_map": node_map,
+            "simple_name_index": simple_idx,
+            "qualified_index": {},
+            "imports_by_file": {},
+            "wildcard_imports_by_file": {},
+            "cs_file_ns": {},
+            "java_pkg_by_file": {},
+        }
+        # (1) SQL read binds the unique sql_kind candidate + promotes.
+        edge = {"source": "db/q.sql", "target": "external::users", "relation": "reads", "confidence": "EXTRACTED"}
+        resolved = self.mod._resolve_fragment_edge(edge, ctx)
+        self.assertEqual(resolved["target"], "db/schema.sql::users")
+        self.assertEqual(resolved["confidence"], "RECEIVER_RESOLVED")
+        # (2) Unresolved SQL read stays external — never a tombstone.
+        edge = {"source": "db/q.sql", "target": "external::audit_log", "relation": "reads", "confidence": "EXTRACTED"}
+        resolved = self.mod._resolve_fragment_edge(edge, ctx)
+        self.assertEqual(resolved["target"], "external::audit_log")
+        self.assertNotIn(self.mod._PROV_DROP, resolved)
+        # (3) A non-SQL unique twin is refused (sql_kind gate).
+        edge = {"source": "db/q.sql", "target": "external::phantom", "relation": "reads", "confidence": "EXTRACTED"}
+        resolved = self.mod._resolve_fragment_edge(edge, ctx)
+        self.assertEqual(resolved["target"], "external::phantom")
+        # (4) Constant reads from non-SQL sources keep the 1p4ls contract:
+        # unresolved -> tombstone.
+        edge = {"source": "app/main.py::fn", "target": "external::MISSING_CONST", "relation": "reads", "confidence": "EXTRACTED"}
+        resolved = self.mod._resolve_fragment_edge(edge, ctx)
+        self.assertIn(self.mod._PROV_DROP, resolved)
+        # (5) `writes` routes like SQL reads regardless of source suffix.
+        edge = {"source": "db/q.sql", "target": "external::users", "relation": "writes", "confidence": "EXTRACTED"}
+        resolved = self.mod._resolve_fragment_edge(edge, ctx)
+        self.assertEqual(resolved["target"], "db/schema.sql::users")
+        # (6) Lookup keys mirror the routing (scope-(b) incremental re-resolution).
+        keys = self.mod._edge_lookup_keys(
+            {"source": "db/q.sql", "target": "external::analytics.events", "relation": "reads"}
+        )
+        self.assertEqual(keys, {"analytics.events", "events"})
+        keys = self.mod._edge_lookup_keys(
+            {"source": "app/main.py::fn", "target": "external::SOME_CONST", "relation": "reads"}
+        )
+        self.assertEqual(keys, {"SOME_CONST"})
+
+    def test_sql_error_regions_counted_on_module_node(self):
+        """Unparsable DDL (e.g. a CREATE PROCEDURE header the grammar cannot
+        parse) is counted loudly on the module node — 1p9qe's recovery hook —
+        while parsable statements in the same file still extract."""
+        self._require_sql_parser()
+        payload = self._build_files(
+            {
+                "db/schema.sql": "CREATE TABLE users (id INT PRIMARY KEY);\n",
+                "db/procs.sql": (
+                    "CREATE PROCEDURE do_thing AS BEGIN UPDATE users SET active = 0; END;\n"
+                    "SELECT * FROM users;\n"
+                ),
+            }
+        )
+        module_node = next(n for n in payload["nodes"] if n["id"] == "db/procs.sql")
+        self.assertGreaterEqual(int(module_node.get("sql_error_regions") or 0), 1)
+        edges = {
+            (edge["relation"], edge["target"])
+            for edge in payload["edges"]
+            if edge["source"] == "db/procs.sql"
+        }
+        self.assertIn(("reads", "db/schema.sql::users"), edges)
+
+    # ------------------------------------------------------------------
+    # 1p9qe: SQL ERROR-region DDL recovery tier. Pre-fix behavior was
+    # live-verified (raw tree dump, venv run 2026-07-04): the CREATE
+    # PROCEDURE header parses to a top-level ERROR node (no definition, no
+    # `defines` edge — the procedure vanished), and the body SELECT parsed
+    # as a dangling `block` whose reference emitted at MODULE scope.
+    # ------------------------------------------------------------------
+
+    def test_sql_recovery_procedure_definition_and_body_reattachment(self):
+        """AC-1 (the live-repro fixture): the unparsable procedure header
+        recovers as a definition node (kind function / sql_kind procedure /
+        `extraction: "sql_recovery"`) with a `defines` edge, and the body's
+        `users` reference attaches to the PROCEDURE node — not the module.
+        Exact edge set: no dangling module-level read remains."""
+        self._require_sql_parser()
+        payload = self._build_files(
+            {
+                "db/schema.sql": "CREATE TABLE users (id INT PRIMARY KEY);\n",
+                "db/procs.sql": (
+                    "CREATE PROCEDURE get_active_users()\n"
+                    "BEGIN\n"
+                    "  SELECT * FROM users;\n"
+                    "END;\n"
+                ),
+            }
+        )
+        by_id = {n["id"]: n for n in payload["nodes"]}
+        proc = by_id["db/procs.sql::get_active_users"]
+        self.assertEqual(proc["kind"], "function")
+        self.assertEqual(proc["sql_kind"], "procedure")
+        self.assertEqual(proc["extraction"], "sql_recovery")
+        module = by_id["db/procs.sql"]
+        self.assertEqual(int(module.get("sql_error_regions") or 0), 1)
+        self.assertEqual(int(module.get("sql_recovered_definitions") or 0), 1)
+        self.assertNotIn("sql_unrecovered_regions", module)
+        edges = {
+            (edge["relation"], edge["source"], edge["target"], edge.get("confidence"))
+            for edge in payload["edges"]
+        }
+        self.assertEqual(edges, {
+            ("defines", "db/schema.sql", "db/schema.sql::users", "EXTRACTED"),
+            ("defines", "db/procs.sql", "db/procs.sql::get_active_users", "EXTRACTED"),
+            ("reads", "db/procs.sql::get_active_users", "db/schema.sql::users", "RECEIVER_RESOLVED"),
+        })
+        # 1p9qi review fix: this fixture is the DANGLING-BLOCK re-attribution
+        # path specifically (the header is a lone ERROR node; BEGIN...END
+        # parses as a separate top-level `block` — unlike the trigger form
+        # in test_sql_recovery_dialect_forms_with_loud_degradation, where the
+        # body is swallowed INSIDE the same ERROR region and re-attaches via
+        # the region-tail re-parse). Confirm at the unit level that the
+        # dangling-block path stamps `extraction: "sql_recovery"` on both the
+        # recovered definition and the re-attributed reference, matching the
+        # region-tail re-parse path's marker (scan_top's owner-gated stamp,
+        # graph_indexer.py ~7915-7924).
+        unit = self.mod.sql_statement_references(
+            "CREATE PROCEDURE get_active_users()\nBEGIN\n  SELECT * FROM users;\nEND;\n"
+        )
+        self.assertEqual(
+            [(d["name"], d["sql_kind"], d["extraction"]) for d in unit["definitions"]],
+            [("get_active_users", "procedure", "sql_recovery")],
+        )
+        self.assertEqual(
+            {(r["owner"], r["name"], r["direction"], r["extraction"]) for r in unit["references"]},
+            {("get_active_users", "users", "read", "sql_recovery")},
+        )
+
+    def test_sql_recovery_dialect_forms_with_loud_degradation(self):
+        """AC-2: T-SQL, MySQL-delimiter, and trigger forms each recover their
+        definition through the ERROR-region scan; PL/pgSQL dollar-quoted
+        functions parse natively (recovery never touches them); forms outside
+        the vocabulary (GO / DELIMITER fragments) degrade to a counted
+        unrecovered region — never silence."""
+        self._require_sql_parser()
+        # T-SQL: schema-qualified name; trailing GO is outside the vocabulary.
+        unit = self.mod.sql_statement_references(
+            "CREATE PROCEDURE dbo.get_users\nAS\nBEGIN\n  SELECT * FROM users;\nEND;\nGO\n"
+        )
+        self.assertEqual(
+            [(d["name"], d["sql_kind"], d["extraction"]) for d in unit["definitions"]],
+            [("dbo.get_users", "procedure", "sql_recovery")],
+        )
+        self.assertEqual(
+            {(r["owner"], r["name"], r["direction"]) for r in unit["references"]},
+            {("dbo.get_users", "users", "read")},
+        )
+        self.assertEqual(unit["error_regions"], 2)
+        self.assertEqual(unit["recovery"], {"recovered_definitions": 1, "unrecovered_regions": 1, "partial_bodies": 0})
+        # MySQL delimiter style: CREATE sits mid-region after DELIMITER //.
+        unit = self.mod.sql_statement_references(
+            "DELIMITER //\nCREATE PROCEDURE audit_cleanup()\nBEGIN\n"
+            "  DELETE FROM audit_log WHERE age > 90;\nEND //\nDELIMITER ;\n"
+        )
+        self.assertEqual(
+            [(d["name"], d["sql_kind"], d["extraction"]) for d in unit["definitions"]],
+            [("audit_cleanup", "procedure", "sql_recovery")],
+        )
+        self.assertEqual(
+            {(r["owner"], r["name"], r["direction"]) for r in unit["references"]},
+            {("audit_cleanup", "audit_log", "write")},
+        )
+        self.assertEqual(unit["recovery"], {"recovered_definitions": 1, "unrecovered_regions": 1, "partial_bodies": 0})
+        # PL/pgSQL dollar-quoted body: parses natively — trusted path, no marker.
+        unit = self.mod.sql_statement_references(
+            "CREATE FUNCTION count_users() RETURNS integer AS $$\nBEGIN\n"
+            "  RETURN (SELECT count(*) FROM users);\nEND;\n$$ LANGUAGE plpgsql;\n"
+        )
+        self.assertEqual(
+            [(d["name"], d["sql_kind"], d["extraction"]) for d in unit["definitions"]],
+            [("count_users", "function", None)],
+        )
+        self.assertEqual(unit["error_regions"], 0)
+        self.assertEqual(unit["recovery"], {"recovered_definitions": 0, "unrecovered_regions": 0, "partial_bodies": 0})
+        # Trigger: the WHOLE statement (body included) is one ERROR region —
+        # the ON-table reference and the re-parsed body INSERT both attach to
+        # the recovered trigger, marked with their recovery provenance.
+        unit = self.mod.sql_statement_references(
+            "CREATE TRIGGER trg_users_audit AFTER INSERT ON users\nFOR EACH ROW\nBEGIN\n"
+            "  INSERT INTO audit_log (event) VALUES ('insert');\nEND;\n"
+        )
+        self.assertEqual(
+            [(d["name"], d["sql_kind"], d["extraction"]) for d in unit["definitions"]],
+            [("trg_users_audit", "trigger", "sql_recovery")],
+        )
+        self.assertEqual(
+            {(r["owner"], r["name"], r["direction"], r["extraction"]) for r in unit["references"]},
+            {
+                ("trg_users_audit", "users", "read", "sql_recovery"),
+                ("trg_users_audit", "audit_log", "write", "sql_recovery"),
+            },
+        )
+        self.assertEqual(unit["recovery"], {"recovered_definitions": 1, "unrecovered_regions": 0, "partial_bodies": 0})
+
+    def test_sql_recovery_commented_and_string_ddl_never_mints(self):
+        """AC-3 (adversarial): commented-out DDL (line + block comments,
+        inside AND outside ERROR regions) and DDL text inside string literals
+        (parsed statements and ERROR regions alike) emit nothing — recovering
+        a ghost schema object would be worse than the hole."""
+        self._require_sql_parser()
+        unit = self.mod.sql_statement_references(
+            "-- CREATE TABLE ghost1 (id INT);\n"
+            "/* CREATE PROCEDURE ghost2() BEGIN SELECT 1; END; */\n"
+            "CREATE PROCEDURE broken_proc(\n"
+            "  -- CREATE TABLE ghost_a (id INT);\n"
+            "  /* CREATE VIEW ghost_b AS SELECT 1; */\n"
+            ") LANGUAGE whatever;\n"
+            "CREATE PROCEDURE dyn_proc()\n"
+            "BEGIN\n"
+            "  EXECUTE 'CREATE TABLE ghost_c (id INT)';\n"
+            "END;\n"
+            "INSERT INTO t1 (sql_text) VALUES ('CREATE TABLE ghost_d (id INT)');\n"
+        )
+        self.assertEqual(
+            [(d["name"], d["sql_kind"]) for d in unit["definitions"]],
+            [("broken_proc", "procedure"), ("dyn_proc", "procedure")],
+        )
+        ref_names = {r["name"] for r in unit["references"]}
+        self.assertEqual(ref_names, {"t1"}, "only the parsed INSERT target may reference")
+        all_names = ref_names | {d["name"] for d in unit["definitions"]}
+        for ghost in ("ghost1", "ghost2", "ghost_a", "ghost_b", "ghost_c", "ghost_d"):
+            self.assertNotIn(ghost, all_names, ghost)
+        # File path: ghosts mint neither nodes nor externals.
+        payload = self._build_file(
+            "db/ghosts.sql",
+            "-- CREATE TABLE ghost1 (id INT);\n"
+            "CREATE PROCEDURE real_proc()\n"
+            "BEGIN\n"
+            "  SELECT * FROM users; -- CREATE TABLE ghost5 (id INT);\n"
+            "END;\n",
+        )
+        node_ids = {n["id"] for n in payload["nodes"]}
+        self.assertIn("db/ghosts.sql::real_proc", node_ids)
+        symbol_names = {nid.split("::", 1)[1] for nid in node_ids if "::" in nid}
+        self.assertEqual(symbol_names & {"ghost1", "ghost5"}, set())
+
+    def test_sql_recovery_masking_and_name_validation_units(self):
+        """AC-3 unit level: the mask preserves length/newlines and handles the
+        risk-table case both ways (real DDL after a same-line block comment
+        recovers; DDL inside the comment does not); name validation strips
+        identifier quoting, refuses garbage, and flags temp sigils."""
+        text = (
+            "CREATE TABLE real1 (id INT); -- CREATE TABLE ghost1\n"
+            "/* CREATE TABLE ghost2 */ CREATE TABLE real2 (id INT);\n"
+            "SELECT 'CREATE TABLE ghost3', \"CREATE TABLE ghost4\";\n"
+            "$$ CREATE TABLE ghost5 $$\n"
+            "SELECT 'it''s escaped' FROM t;\n"
+        )
+        masked = self.mod._sql_recovery_mask_noncode(text)
+        self.assertEqual(len(masked), len(text), "masking must preserve offsets")
+        self.assertEqual(
+            [len(a) for a in masked.splitlines()],
+            [len(a) for a in text.splitlines()],
+            "masking must preserve line structure",
+        )
+        self.assertIn("CREATE TABLE real1", masked)
+        self.assertIn("CREATE TABLE real2", masked)
+        self.assertIn("FROM t", masked, "the '' escape must not swallow trailing code")
+        for ghost in ("ghost1", "ghost2", "ghost3", "ghost4", "ghost5"):
+            self.assertNotIn(ghost, masked, ghost)
+        clean = self.mod._sql_recovery_clean_name
+        self.assertEqual(clean("[dbo].[Users]"), ("dbo.Users", False))
+        self.assertEqual(clean("`db`.`tbl`"), ("db.tbl", False))
+        self.assertEqual(clean("analytics.events;"), ("analytics.events", False))
+        self.assertEqual(clean("#tmp"), ("tmp", True))
+        self.assertEqual(clean("@tablevar"), ("tablevar", True))
+        self.assertEqual(clean("no//good"), (None, False))
+        self.assertEqual(clean(""), (None, False))
+        # Temp forms in ERROR regions stay excluded (recovery must not
+        # reintroduce the 1p9qc/1p9qd-eliminated temp-object noise class).
+        unit = self.mod.sql_statement_references(
+            "CREATE PROCEDURE p1()\nBEGIN\n  SELECT 1;\nEND;\n"
+        )
+        self.assertEqual([d["name"] for d in unit["definitions"]], ["p1"])
+        region = self.mod._sql_recover_error_region(
+            "CREATE TEMPORARY TABLE staging_x (id INT)\nCREATE TABLE #tmpstage (id INT)", 0
+        )
+        self.assertEqual(region["definitions"], [])
+        self.assertEqual(region["temp_names"], {"staging_x", "tmpstage"})
+
+    def test_sql_recovery_named_dollar_tag_masking(self):
+        """1p9qi review fix (adversarial finding 1): named dollar tags
+        ``$tag$ ... $tag$`` mask exactly like bare ``$$`` — DDL text inside a
+        ``$q$``-quoted dynamic-SQL string in an ERROR region can never mint a
+        phantom schema object."""
+        self._require_sql_parser()
+        mask = self.mod._sql_recovery_mask_noncode
+        text = "$q$ CREATE TABLE ghost_tag $q$ CREATE TABLE real_t (id INT);\n"
+        masked = mask(text)
+        self.assertEqual(len(masked), len(text), "masking must preserve offsets")
+        self.assertNotIn("ghost_tag", masked)
+        self.assertIn("CREATE TABLE real_t", masked)
+        # The close tag must MATCH the open tag: $a$ ... $b$ ... $a$ spans
+        # through the $b$ (PostgreSQL nested dollar-quoting semantics).
+        masked2 = mask("$a$ ghost_x $b$ still_ghost $a$ live_code")
+        self.assertNotIn("ghost_x", masked2)
+        self.assertNotIn("still_ghost", masked2)
+        self.assertIn("live_code", masked2)
+        # Unterminated named tag masks to end of text (parity with bare $$).
+        masked3 = mask(
+            "$q$ CREATE TABLE ghost_unterm (id INT);\nCREATE TABLE ghost2 (id INT);"
+        )
+        self.assertNotIn("ghost_unterm", masked3)
+        self.assertNotIn("ghost2", masked3)
+        self.assertEqual(masked3.count("\n"), 1, "newlines preserved through the mask")
+        # A lone $ that opens neither $$ nor a $tag$ is plain code text.
+        self.assertEqual(mask("SELECT a $ b FROM t"), "SELECT a $ b FROM t")
+        # End-to-end (the adversarial report's EXEC($q$ ... $q$) shape): the
+        # recovery tier recovers ONLY the routine header — no phantom table.
+        unit = self.mod.sql_statement_references(
+            "CREATE PROCEDURE dbo.rebuild AS\n"
+            "BEGIN\n"
+            "  EXEC($q$\n"
+            "CREATE TABLE ghost_tbl (id INT);\n"
+            "$q$);\n"
+            "END\n"
+            "GO\n"
+        )
+        self.assertEqual(
+            [(d["name"], d["sql_kind"], d["extraction"]) for d in unit["definitions"]],
+            [("dbo.rebuild", "procedure", "sql_recovery")],
+        )
+
+    def test_sql_recovery_parsed_extraction_untouched(self):
+        """AC-4: files with zero ERROR regions produce identical extraction —
+        the exact pre-1p9qe edge/node set (pinned), no recovery markers, no
+        recovery module properties; recovery never runs on parsed regions."""
+        self._require_sql_parser()
+        sql_text = (
+            "CREATE TABLE users (id INT PRIMARY KEY);\n"
+            "CREATE VIEW v1 AS SELECT id FROM users;\n"
+            "INSERT INTO audit_log (event) SELECT id FROM users;\n"
+        )
+        unit = self.mod.sql_statement_references(sql_text)
+        self.assertEqual(unit["error_regions"], 0)
+        self.assertEqual(unit["recovery"], {"recovered_definitions": 0, "unrecovered_regions": 0, "partial_bodies": 0})
+        self.assertTrue(all(d["extraction"] is None for d in unit["definitions"]))
+        self.assertTrue(all(r["extraction"] is None for r in unit["references"]))
+        payload = self._build_file("db/clean.sql", sql_text)
+        edges = {
+            (edge["relation"], edge["source"], edge["target"], edge.get("confidence"))
+            for edge in payload["edges"]
+        }
+        self.assertEqual(edges, {
+            ("defines", "db/clean.sql", "db/clean.sql::users", "EXTRACTED"),
+            ("defines", "db/clean.sql", "db/clean.sql::v1", "EXTRACTED"),
+            ("reads", "db/clean.sql::v1", "db/clean.sql::users", "RECEIVER_RESOLVED"),
+            ("writes", "db/clean.sql", "external::audit_log", "EXTRACTED"),
+            ("reads", "db/clean.sql", "db/clean.sql::users", "RECEIVER_RESOLVED"),
+        })
+        for node in payload["nodes"]:
+            self.assertNotIn("extraction", node, node["id"])
+            for prop in ("sql_error_regions", "sql_recovered_definitions", "sql_unrecovered_regions", "sql_partial_bodies"):
+                self.assertNotIn(prop, node, node["id"])
+
+    def test_sql_recovery_bounds_and_log_shape(self):
+        """AC-5: per-file recovered/unrecovered counts land on the module
+        node; the build-log line has a stable shape; byte/line ceilings
+        degrade pathological regions to counted unrecovered — loudly."""
+        self._require_sql_parser()
+        payload = self._build_files(
+            {
+                "db/mixed.sql": (
+                    "CREATE PROCEDURE dbo.get_users\nAS\nBEGIN\n"
+                    "  SELECT * FROM users;\nEND;\nGO\n"
+                ),
+            }
+        )
+        module = next(n for n in payload["nodes"] if n["id"] == "db/mixed.sql")
+        self.assertEqual(int(module.get("sql_error_regions") or 0), 2)
+        self.assertEqual(int(module.get("sql_recovered_definitions") or 0), 1)
+        self.assertEqual(int(module.get("sql_unrecovered_regions") or 0), 1)
+        self.assertEqual(
+            self.mod._sql_recovery_log_line("db/mixed.sql", 2, 1, 1),
+            "build_index: sql recovery db/mixed.sql — 2 parse-error "
+            "region(s): 1 definition(s) recovered, 1 region(s) unrecovered, "
+            "0 routine body(ies) partially parsed",
+        )
+        # Byte ceiling: an over-limit region degrades to truncated/unrecovered.
+        original = self.mod._SQL_RECOVERY_MAX_REGION_BYTES
+        self.mod._SQL_RECOVERY_MAX_REGION_BYTES = 16
+        try:
+            unit = self.mod.sql_statement_references(
+                "CREATE PROCEDURE get_active_users()\nBEGIN\n  SELECT * FROM users;\nEND;\n"
+            )
+            self.assertEqual(unit["definitions"], [])
+            self.assertEqual(
+                unit["recovery"], {"recovered_definitions": 0, "unrecovered_regions": 1, "partial_bodies": 0}
+            )
+        finally:
+            self.mod._SQL_RECOVERY_MAX_REGION_BYTES = original
+        region = self.mod._sql_recover_error_region(
+            "CREATE PROCEDURE " + ("x" * (self.mod._SQL_RECOVERY_MAX_LINE_CHARS + 10)) + "()", 0
+        )
+        self.assertEqual(region["definitions"], [], "over-length lines are skipped")
+
+    def test_sql_partial_body_loudness_for_loop_control_flow(self):
+        """1p9qi delivery council: a natively-parsed PL/pgSQL routine whose
+        BODY contains a loop / control-flow construct tree-sitter-sql cannot
+        parse mangles the loop into a NESTED ERROR under the function body.
+        The CREATE header parses at top level, so `error_regions` stays 0 and
+        scan_top never sees the nested ERROR — the in-loop DML is dropped
+        SILENTLY. This asserts the new `sql_partial_bodies` loudness signal
+        fires (module node + unit recovery dict + build-log line) so the
+        partial extraction is observable; a clean fully-parsed body does not
+        trip it. Actually recovering the dropped in-loop write needs plpgsql
+        control-flow parsing the grammar lacks (recorded follow-up)."""
+        self._require_sql_parser()
+        loop_fn = (
+            "CREATE FUNCTION process_all() RETURNS void AS $$\n"
+            "DECLARE r RECORD;\n"
+            "BEGIN\n"
+            "  FOR r IN SELECT id FROM source_tbl LOOP\n"
+            "    INSERT INTO loop_audit (id) VALUES (r.id);\n"
+            "  END LOOP;\n"
+            "END;\n"
+            "$$ LANGUAGE plpgsql;\n"
+        )
+        # Unit level: no top-level ERROR region (the silent-drop hazard), but
+        # partial_bodies flags the nested-in-body ERROR loudly. Distinct from
+        # unrecovered_regions (which stays 0 — this is NOT a top-level region).
+        unit = self.mod.sql_statement_references(loop_fn)
+        self.assertEqual(unit["error_regions"], 0)
+        self.assertEqual(
+            unit["recovery"],
+            {"recovered_definitions": 0, "unrecovered_regions": 0, "partial_bodies": 1},
+        )
+        # The routine header still extracts as a trusted (non-recovery) def.
+        self.assertEqual(
+            [(d["name"], d["sql_kind"], d["extraction"]) for d in unit["definitions"]],
+            [("process_all", "function", None)],
+        )
+        # The in-loop INSERT write is dropped (the recall gap the signal flags):
+        # only the pre-loop FOR-source read survives at the routine owner.
+        self.assertNotIn(
+            ("loop_audit", "write"),
+            {(r["name"], r["direction"]) for r in unit["references"]},
+            "in-loop DML is dropped; the signal exists precisely because we cannot recover it",
+        )
+        # File level: the module node carries the count so it survives worker
+        # extraction and reaches the verbose build log.
+        payload = self._build_file("db/loop.sql", loop_fn)
+        module = next(n for n in payload["nodes"] if n["id"] == "db/loop.sql")
+        self.assertEqual(int(module.get("sql_partial_bodies") or 0), 1)
+        self.assertNotIn("sql_error_regions", module, "no TOP-LEVEL error region")
+        # Build-log line renders the partial-body count.
+        self.assertEqual(
+            self.mod._sql_recovery_log_line("db/loop.sql", 0, 0, 0, 1),
+            "build_index: sql recovery db/loop.sql — 0 parse-error "
+            "region(s): 0 definition(s) recovered, 0 region(s) unrecovered, "
+            "1 routine body(ies) partially parsed",
+        )
+        # Negative: a clean fully-parsed body never trips the signal.
+        clean_fn = (
+            "CREATE FUNCTION count_users() RETURNS integer AS $$\n"
+            "BEGIN\n"
+            "  RETURN (SELECT count(*) FROM users);\n"
+            "END;\n"
+            "$$ LANGUAGE plpgsql;\n"
+        )
+        clean_unit = self.mod.sql_statement_references(clean_fn)
+        self.assertEqual(clean_unit["recovery"]["partial_bodies"], 0)
+        clean_payload = self._build_file("db/clean_fn.sql", clean_fn)
+        clean_module = next(n for n in clean_payload["nodes"] if n["id"] == "db/clean_fn.sql")
+        self.assertNotIn("sql_partial_bodies", clean_module)
+
     def test_doc_to_doc_link_produces_edge(self):
         wave = self.root / "docs" / "wave.md"
         change = self.root / "docs" / "change.md"
@@ -5587,7 +6631,14 @@ class GraphBuilderVersionTests(unittest.TestCase):
         # bare-call resolution — extraction-output change; the SINGLE bump also covers the wave's
         # sibling changes 1p9qa inheritance edges + 1p9qb receiver/annotation/package fixes per the
         # coordinated-single-bump serialization point — later lanes do NOT re-bump).
-        self.assertEqual(load_graph_indexer().GRAPH_BUILDER_VERSION, "37")
+        # Wave 1p9qi bumped 37→38 (coordinated SINGLE bump for the SQL wave: 1p9qc all-relation SQL
+        # keyword stoplist + column-token reduction; 1p9qd clause-aware statement-unit rewrite —
+        # SQL emits reads + NEW `writes` relation instead of calls/imports, `sql_kind` property;
+        # 1p9qe ERROR-region recovery tier — `sql_recovery` provenance + recovery count properties;
+        # 1p9qf embedded-SQL capture fragment keys + LITERAL_DERIVED code→table binds +
+        # `external::sql::` externals; 1p9qg NEW `maps_to` entity→table relation + orm_entity
+        # fragment keys — new relations + relation migration + new fragment keys → re-extract).
+        self.assertEqual(load_graph_indexer().GRAPH_BUILDER_VERSION, "38")
 
 
 class OversizedTreeSitterGuardTests(unittest.TestCase):
@@ -7402,3 +8453,1079 @@ class SuperMarkerCallsInvariantTests(unittest.TestCase):
             "the Rust `use super::…` import must mint an external::super.* id "
             "(the collision the reserved-word argument denied — it rides `imports`)",
         )
+
+
+class _EmbeddedSqlTestBase(unittest.TestCase):
+    """Shared harness for wave 1p9qi / 1p9qf embedded-SQL capture + bind tests."""
+
+    SCHEMA = (
+        "CREATE TABLE users (id INT PRIMARY KEY, name TEXT);\n"
+        "CREATE TABLE audit_log (id INT, age INT);\n"
+        "CREATE TABLE analytics.events (id INT);\n"
+    )
+
+    def setUp(self):
+        self.mod = load_graph_indexer()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        (self.root / "docs").mkdir(parents=True, exist_ok=True)
+        (self.root / "docs" / "workflow-config.json").write_text("{}", encoding="utf-8")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _require(self, *langs: str):
+        for lang in langs:
+            if getattr(self.mod, "_ts_get_parser", lambda *_: None)(lang) is None:
+                self.skipTest(f"tree-sitter {lang} grammar unavailable")
+
+    def _build(self, files: dict[str, str]):
+        paths, meta = [], {}
+        for rel, content in files.items():
+            path = self.root / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+            paths.append(path)
+            meta[rel.replace("\\", "/")] = {"hash": f"h-{rel}"}
+        return self.mod.update_graph_index(
+            root=self.root, index_dir=self.root / ".wavefoundry" / "index",
+            layer="project", files=paths, current_file_meta=meta,
+            changed=set(meta.keys()), removed=set(),
+            walker_version="1", chunker_version="1", verbose=False,
+        )
+
+    def _literal_sql_edges(self, payload) -> list[tuple[str, str, str]]:
+        """Exact (source, target, relation) set of reads/writes @ LITERAL_DERIVED."""
+        return sorted(
+            (str(e["source"]), str(e["target"]), str(e["relation"]))
+            for e in payload.get("edges", [])
+            if e.get("confidence") == "LITERAL_DERIVED"
+            and e.get("relation") in ("reads", "writes")
+        )
+
+    def _sql_stats(self, payload) -> dict:
+        return (payload.get("merge_stats") or {}).get("sql_capture") or {}
+
+
+class EmbeddedSqlJavaCaptureTests(_EmbeddedSqlTestBase):
+    """AC-1: Java sinks — MyBatis annotations, native @Query, JDBC prepare*,
+    JdbcTemplate methods — capture and bind method → table at LITERAL_DERIVED."""
+
+    def test_mybatis_select_annotation_binds_exact_edge_set(self):
+        self._require("java", "sql")
+        payload = self._build({
+            "db/schema.sql": self.SCHEMA,
+            "src/UserMapper.java": (
+                "public interface UserMapper {\n"
+                "  @Select(\"SELECT * FROM users WHERE id = #{id}\")\n"
+                "  Object findUser(int id);\n"
+                "  @Delete(\"DELETE FROM audit_log WHERE age > #{age}\")\n"
+                "  int prune(int age);\n"
+                "}\n"
+            ),
+        })
+        self.assertEqual(self._literal_sql_edges(payload), [
+            ("src/UserMapper.java::UserMapper.findUser", "db/schema.sql::users", "reads"),
+            ("src/UserMapper.java::UserMapper.prune", "db/schema.sql::audit_log", "writes"),
+        ])
+
+    def test_native_query_binds_and_jpql_captures_nothing(self):
+        self._require("java", "sql")
+        payload = self._build({
+            "db/schema.sql": self.SCHEMA,
+            "src/EventRepo.java": (
+                "public interface EventRepo {\n"
+                "  @Query(value = \"SELECT * FROM analytics.events\", nativeQuery = true)\n"
+                "  java.util.List<Object> events();\n"
+                "  @Query(\"SELECT u FROM User u\")\n"
+                "  java.util.List<Object> jpql();\n"
+                "}\n"
+            ),
+        })
+        self.assertEqual(self._literal_sql_edges(payload), [
+            ("src/EventRepo.java::EventRepo.events", "db/schema.sql::analytics.events", "reads"),
+        ])
+
+    def test_prepare_statement_and_jdbc_template_bind(self):
+        self._require("java", "sql")
+        payload = self._build({
+            "db/schema.sql": self.SCHEMA,
+            "src/Dao.java": (
+                "public class Dao {\n"
+                "  void run(java.sql.Connection conn, JdbcTemplate jdbc) {\n"
+                "    conn.prepareStatement(\"SELECT * FROM users WHERE id = ?\");\n"
+                "    jdbc.update(\"DELETE FROM audit_log WHERE age > ?\");\n"
+                "  }\n"
+                "}\n"
+            ),
+        })
+        self.assertEqual(self._literal_sql_edges(payload), [
+            ("src/Dao.java::Dao.run", "db/schema.sql::audit_log", "writes"),
+            ("src/Dao.java::Dao.run", "db/schema.sql::users", "reads"),
+        ])
+
+    def test_adjacent_literal_concatenation_binds(self):
+        self._require("java", "sql")
+        payload = self._build({
+            "db/schema.sql": self.SCHEMA,
+            "src/Dao.java": (
+                "public class Dao {\n"
+                "  void run(java.sql.Connection conn) {\n"
+                "    conn.prepareStatement(\"SELECT * \" + \"FROM users \" + \"WHERE id = ?\");\n"
+                "  }\n"
+                "}\n"
+            ),
+        })
+        self.assertEqual(self._literal_sql_edges(payload), [
+            ("src/Dao.java::Dao.run", "db/schema.sql::users", "reads"),
+        ])
+
+    def test_generic_template_method_requires_positive_receiver_origin(self):
+        # `update`/`query` are generic names: no capture without a receiver
+        # that RESOLVES to JdbcTemplate/NamedParameterJdbcTemplate.
+        self._require("java", "sql")
+        payload = self._build({
+            "db/schema.sql": self.SCHEMA,
+            "src/Dao.java": (
+                "public class Dao {\n"
+                "  void run(Object jdbc) {\n"
+                "    jdbc.update(\"DELETE FROM audit_log WHERE age > ?\");\n"
+                "    getTemplate().update(\"DELETE FROM audit_log WHERE age > ?\");\n"
+                "  }\n"
+                "}\n"
+            ),
+        })
+        self.assertEqual(self._literal_sql_edges(payload), [])
+
+
+class EmbeddedSqlCSharpCaptureTests(_EmbeddedSqlTestBase):
+    """AC-2: C# sinks — SqlCommand/CommandText, Dapper, EF raw — capture and bind."""
+
+    def test_sqlcommand_commandtext_dapper_and_ef_bind_exact_edge_set(self):
+        self._require("csharp", "sql")
+        payload = self._build({
+            "db/schema.sql": self.SCHEMA,
+            "cs/Repo.cs": (
+                "public class Repo {\n"
+                "  public void Run(IDbConnection conn, AppDbContext db) {\n"
+                "    var cmd = new SqlCommand(\"SELECT * FROM users\");\n"
+                "    cmd.CommandText = \"UPDATE users SET name = 'x'\";\n"
+                "    var rows = conn.Query<object>(\"SELECT * FROM audit_log\");\n"
+                "    db.Db.ExecuteSqlRaw(\"DELETE FROM analytics.events\");\n"
+                "  }\n"
+                "}\n"
+            ),
+        })
+        self.assertEqual(self._literal_sql_edges(payload), [
+            ("cs/Repo.cs::Repo.Run", "db/schema.sql::analytics.events", "writes"),
+            ("cs/Repo.cs::Repo.Run", "db/schema.sql::audit_log", "reads"),
+            ("cs/Repo.cs::Repo.Run", "db/schema.sql::users", "reads"),
+            ("cs/Repo.cs::Repo.Run", "db/schema.sql::users", "writes"),
+        ])
+
+    def test_interpolated_string_at_sink_is_dynamic_refusal(self):
+        self._require("csharp", "sql")
+        payload = self._build({
+            "db/schema.sql": self.SCHEMA,
+            "cs/Repo.cs": (
+                "public class Repo {\n"
+                "  public void Run(AppDbContext db, string t) {\n"
+                "    db.Db.ExecuteSqlRaw($\"DELETE FROM {t}\");\n"
+                "  }\n"
+                "}\n"
+            ),
+        })
+        self.assertEqual(self._literal_sql_edges(payload), [])
+        self.assertEqual(self._sql_stats(payload).get("dynamic_refused"), 1)
+
+
+class EmbeddedSqlMyBatisXmlTests(_EmbeddedSqlTestBase):
+    """AC-3: MyBatis mapper XML statements bind with the mapper
+    namespace/interface as source."""
+
+    def test_mapper_statement_binds_with_interface_source(self):
+        self._require("java", "xml", "sql")
+        payload = self._build({
+            "db/schema.sql": self.SCHEMA,
+            "com/example/OrderMapper.java": (
+                "public interface OrderMapper {\n"
+                "  java.util.List<Object> findAll();\n"
+                "}\n"
+            ),
+            "mappers/OrderMapper.xml": (
+                "<?xml version=\"1.0\"?>\n"
+                "<mapper namespace=\"com.example.OrderMapper\">\n"
+                "  <select id=\"findAll\">SELECT * FROM users</select>\n"
+                "</mapper>\n"
+            ),
+        })
+        edges = self._literal_sql_edges(payload)
+        self.assertEqual(len(edges), 1, edges)
+        source, target, relation = edges[0]
+        # The unique project interface (basename-collapsed to the file node)
+        # is the bind source — namespace → interface resolution.
+        self.assertEqual(source, "com/example/OrderMapper.java")
+        self.assertEqual(target, "db/schema.sql::users")
+        self.assertEqual(relation, "reads")
+
+    def test_dynamic_statement_tags_and_substitution_refused_and_counted(self):
+        self._require("xml", "sql")
+        payload = self._build({
+            "db/schema.sql": self.SCHEMA,
+            "mappers/OrderMapper.xml": (
+                "<?xml version=\"1.0\"?>\n"
+                "<mapper namespace=\"com.example.OrderMapper\">\n"
+                "  <select id=\"dyn1\">SELECT * FROM users <where><if test=\"x\">id = #{x}</if></where></select>\n"
+                "  <update id=\"dyn2\">UPDATE users SET n = ${col}</update>\n"
+                "</mapper>\n"
+            ),
+        })
+        self.assertEqual(self._literal_sql_edges(payload), [])
+        self.assertEqual(self._sql_stats(payload).get("dynamic_refused"), 2)
+
+    def test_non_mapper_xml_captures_nothing(self):
+        self._require("xml", "sql")
+        payload = self._build({
+            "db/schema.sql": self.SCHEMA,
+            "conf/beans.xml": (
+                "<beans>\n"
+                "  <select id=\"notMyBatis\">SELECT * FROM users</select>\n"
+                "</beans>\n"
+            ),
+        })
+        self.assertEqual(self._literal_sql_edges(payload), [])
+
+
+class EmbeddedSqlFaithfulnessTests(_EmbeddedSqlTestBase):
+    """AC-4: adversarial negatives — impostor sinks, non-SQL strings, strings
+    outside sinks, dynamic refusal, ambiguity drop, namespaced externals."""
+
+    def test_java_impostor_prepare_statement_refuses(self):
+        # A PROJECT type defining prepareStatement is never a JDBC sink.
+        self._require("java", "sql")
+        payload = self._build({
+            "db/schema.sql": self.SCHEMA,
+            "src/Impostor.java": (
+                "class QueryRunner {\n"
+                "  Object prepareStatement(String s) { return null; }\n"
+                "}\n"
+                "class Caller {\n"
+                "  void go() {\n"
+                "    QueryRunner qr = new QueryRunner();\n"
+                "    qr.prepareStatement(\"SELECT * FROM users\");\n"
+                "  }\n"
+                "}\n"
+            ),
+        })
+        self.assertEqual(self._literal_sql_edges(payload), [])
+
+    def test_csharp_impostor_dapper_receiver_refuses(self):
+        self._require("csharp", "sql")
+        payload = self._build({
+            "db/schema.sql": self.SCHEMA,
+            "cs/Impostor.cs": (
+                "public class MyRepo {\n"
+                "  public object Query(string s) { return null; }\n"
+                "}\n"
+                "public class Caller {\n"
+                "  public void Go() {\n"
+                "    MyRepo r = new MyRepo();\n"
+                "    r.Query(\"SELECT * FROM users\");\n"
+                "  }\n"
+                "}\n"
+            ),
+        })
+        self.assertEqual(self._literal_sql_edges(payload), [])
+
+    def test_sql_looking_strings_outside_sinks_never_capture(self):
+        self._require("java", "sql")
+        payload = self._build({
+            "db/schema.sql": self.SCHEMA,
+            "src/NotASink.java": (
+                "public class NotASink {\n"
+                "  static final String Q = \"SELECT * FROM users\";\n"
+                "  void go(Object log) {\n"
+                "    log.info(\"SELECT * FROM users\");\n"
+                "    helper(\"DELETE FROM audit_log\");\n"
+                "  }\n"
+                "  void helper(String s) {}\n"
+                "}\n"
+            ),
+        })
+        self.assertEqual(self._literal_sql_edges(payload), [])
+
+    def test_non_sql_string_at_sink_drops_silently(self):
+        self._require("java", "sql")
+        payload = self._build({
+            "db/schema.sql": self.SCHEMA,
+            "src/Dao.java": (
+                "public class Dao {\n"
+                "  void run(java.sql.Connection conn) {\n"
+                "    conn.prepareStatement(\"users-all-cache-key\");\n"
+                "  }\n"
+                "}\n"
+            ),
+        })
+        self.assertEqual(self._literal_sql_edges(payload), [])
+        # Silent drop: not SQL, so not a dynamic refusal either.
+        self.assertEqual(self._sql_stats(payload).get("dynamic_refused", 0), 0)
+
+    def test_dynamic_sql_refused_and_counted(self):
+        self._require("java", "sql")
+        payload = self._build({
+            "db/schema.sql": self.SCHEMA,
+            "src/Dao.java": (
+                "public class Dao {\n"
+                "  void run(java.sql.Connection conn, String tbl) {\n"
+                "    conn.prepareStatement(sqlFor(tbl));\n"
+                "    conn.prepareStatement(\"SELECT * FROM \" + tbl);\n"
+                "  }\n"
+                "  String sqlFor(String t) { return t; }\n"
+                "}\n"
+            ),
+        })
+        self.assertEqual(self._literal_sql_edges(payload), [])
+        self.assertEqual(self._sql_stats(payload).get("dynamic_refused"), 2)
+
+    def test_ambiguous_table_name_drops_edge(self):
+        # Two same-named tables (dev + prod DDL) → the reference binds NEITHER
+        # and does NOT go external — unique-match-or-drop.
+        self._require("java", "sql")
+        payload = self._build({
+            "db/dev.sql": "CREATE TABLE users (id INT);\n",
+            "db/prod.sql": "CREATE TABLE users (id INT);\n",
+            "src/Dao.java": (
+                "public class Dao {\n"
+                "  void run(java.sql.Connection conn) {\n"
+                "    conn.prepareStatement(\"SELECT * FROM users\");\n"
+                "  }\n"
+                "}\n"
+            ),
+        })
+        self.assertEqual(self._literal_sql_edges(payload), [])
+        self.assertEqual(self._sql_stats(payload).get("ambiguous_dropped"), 1)
+
+    def test_schema_qualified_match_beats_bare_leaf(self):
+        # `analytics.events` matches the schema-qualified node exactly even
+        # when a bare `events` table also exists.
+        self._require("java", "sql")
+        payload = self._build({
+            "db/a.sql": "CREATE TABLE analytics.events (id INT);\n",
+            "db/b.sql": "CREATE TABLE events (id INT);\n",
+            "src/Dao.java": (
+                "public class Dao {\n"
+                "  void run(java.sql.Connection conn) {\n"
+                "    conn.prepareStatement(\"SELECT * FROM analytics.events\");\n"
+                "  }\n"
+                "}\n"
+            ),
+        })
+        self.assertEqual(self._literal_sql_edges(payload), [
+            ("src/Dao.java::Dao.run", "db/a.sql::analytics.events", "reads"),
+        ])
+
+    def test_backtick_quoted_ddl_binds_bare_reference(self):
+        # Census finding (Apache Fineract): MySQL dump DDL declares
+        # `` `m_loan` `` (backticks preserved by the names-as-written unit
+        # contract) while embedded Java SQL references bare `m_loan` — the
+        # bind match normalizes identifier quotes on both sides.
+        self._require("java", "sql")
+        payload = self._build({
+            "db/dump.sql": (
+                "CREATE TABLE `m_loan` (\n"
+                "  `id` BIGINT NOT NULL AUTO_INCREMENT,\n"
+                "  PRIMARY KEY (`id`)\n"
+                ") ENGINE=InnoDB;\n"
+            ),
+            "src/Dao.java": (
+                "public class Dao {\n"
+                "  void run(java.sql.Connection conn) {\n"
+                "    conn.prepareStatement(\"SELECT * FROM m_loan WHERE id = ?\");\n"
+                "  }\n"
+                "}\n"
+            ),
+        })
+        self.assertEqual(self._literal_sql_edges(payload), [
+            ("src/Dao.java::Dao.run", "db/dump.sql::`m_loan`", "reads"),
+        ])
+
+    def test_unmatched_table_mints_namespaced_external_only(self):
+        self._require("java", "sql")
+        payload = self._build({
+            "src/Dao.java": (
+                "public class Dao {\n"
+                "  void run(java.sql.Connection conn) {\n"
+                "    conn.prepareStatement(\"SELECT * FROM missing_tbl\");\n"
+                "  }\n"
+                "}\n"
+            ),
+        })
+        self.assertEqual(self._literal_sql_edges(payload), [
+            ("src/Dao.java::Dao.run", "external::sql::missing_tbl", "reads"),
+        ])
+        bare_external = [
+            e for e in payload["edges"]
+            if str(e.get("target")) == "external::missing_tbl"
+        ]
+        self.assertEqual(bare_external, [], "unmatched tables must use the sql:: namespace")
+
+
+class ExternalSqlNamespaceInvariantTests(_EmbeddedSqlTestBase):
+    """Wave 1p9qi (1p9qf) freshness finding: `external::sql::` is not globally
+    unmintable, so the safety contract is RELATION-SCOPED (mirrors the
+    `super.`/`staticorinherited#` reserved-marker treatment): only the finalize
+    bind passes mint `external::sql::` targets, only on reads/writes/maps_to
+    (1p9qg extends the contract to the ORM mapping pass) at LITERAL_DERIVED,
+    and only into the OUTPUT edge map — never into fragments.
+    A Rust `use sql::…` import mints the DOTTED `external::sql.…` form on
+    `imports` (disjoint by form AND relation)."""
+
+    def test_rust_use_sql_does_not_collide_with_namespace(self):
+        self._require("java", "rust", "sql")
+        payload = self._build({
+            "rustmod/lib.rs": "use sql::users;\npub fn caller() {}\n",
+            "src/Dao.java": (
+                "public class Dao {\n"
+                "  void run(java.sql.Connection conn) {\n"
+                "    conn.prepareStatement(\"SELECT * FROM users\");\n"
+                "  }\n"
+                "}\n"
+            ),
+        })
+        rust_imports = [
+            str(e.get("target")) for e in payload["edges"]
+            if str(e.get("source", "")).startswith("rustmod/") and e.get("relation") == "imports"
+        ]
+        self.assertIn("external::sql.users", rust_imports,
+                      "Rust `use sql::users` must mint the DOTTED import form")
+        # The relation-scoped invariant: every `external::sql::`-prefixed
+        # target in the payload rides reads/writes/maps_to at LITERAL_DERIVED
+        # — nothing else may carry the namespace.
+        for e in payload["edges"]:
+            if str(e.get("target", "")).startswith("external::sql::"):
+                self.assertIn(e.get("relation"), ("reads", "writes", "maps_to"), e)
+                self.assertEqual(e.get("confidence"), "LITERAL_DERIVED", e)
+        # And the bind pass never binds THROUGH a source-minted lookalike:
+        # `users` has no sql_kind node here, so the capture goes external
+        # under the namespace instead of touching the Rust import target.
+        self.assertEqual(self._literal_sql_edges(payload), [
+            ("src/Dao.java::Dao.run", "external::sql::users", "reads"),
+        ])
+
+    def test_bind_edges_are_finalize_only_never_in_fragments(self):
+        self._require("java", "sql")
+        self._build({
+            "db/schema.sql": self.SCHEMA,
+            "src/Dao.java": (
+                "public class Dao {\n"
+                "  void run(java.sql.Connection conn) {\n"
+                "    conn.prepareStatement(\"SELECT * FROM users\");\n"
+                "    conn.prepareStatement(\"SELECT * FROM missing_tbl\");\n"
+                "  }\n"
+                "}\n"
+            ),
+        })
+        store = self.mod.GraphStateStore(
+            self.root / ".wavefoundry" / "index" / "graph" / "project-graph-state.sqlite",
+            layer="project", walker_version="1", chunker_version="1",
+        )
+        try:
+            merge_state = store.get_blob("merge_state") or {}
+            files = merge_state.get("files") or {}
+            self.assertIn("src/Dao.java", files)
+            entry = files["src/Dao.java"]
+            # The capture candidates ride the fragment…
+            cands = entry.get("sql_capture_candidates") or []
+            self.assertEqual(len(cands), 2, cands)
+            # …but the minted edges do NOT: no fragment edge (any file) may
+            # carry an external::sql:: target or a LITERAL_DERIVED reads/writes.
+            for rel, fentry in files.items():
+                for edge in fentry.get("edges", []) or []:
+                    self.assertFalse(
+                        str(edge.get("target", "")).startswith("external::sql::"),
+                        f"fragment edge in {rel} carries a bind-pass target: {edge}",
+                    )
+                    if edge.get("relation") in ("reads", "writes", "maps_to"):
+                        self.assertNotEqual(edge.get("confidence"), "LITERAL_DERIVED", edge)
+        finally:
+            store.close()
+
+
+class EmbeddedSqlConsumerParityTests(_EmbeddedSqlTestBase):
+    """AC-5: bound edges carry LITERAL_DERIVED and are down-weighted in
+    impact/path exactly like the existing literal-derived edge family."""
+
+    def _load_graph_query(self):
+        path = SCRIPTS_ROOT / "graph_query.py"
+        spec = importlib.util.spec_from_file_location("graph_query_parity_test", path)
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules["graph_query_parity_test"] = mod
+        spec.loader.exec_module(mod)
+        return mod
+
+    def test_literal_derived_weight_and_path_cost_parity(self):
+        gq = self._load_graph_query()
+        sql_edge = {"source": "a.java::A.m", "target": "db/s.sql::users",
+                    "relation": "reads", "confidence": "LITERAL_DERIVED"}
+        sql_write = {"source": "a.java::A.m", "target": "db/s.sql::users",
+                     "relation": "writes", "confidence": "LITERAL_DERIVED"}
+        config_edge = {"source": "a.java::A.m", "target": "app.yml::k",
+                       "relation": "reads_config", "confidence": "LITERAL_DERIVED"}
+        # Blast-radius weight: identical to the existing literal family
+        # (down-weighted, never full).
+        self.assertEqual(
+            gq._edge_confidence_weight(sql_edge),
+            gq._edge_confidence_weight(config_edge),
+        )
+        self.assertEqual(gq._edge_confidence_weight(sql_edge), gq._EXTRACTED_EDGE_WEIGHT)
+        self.assertEqual(gq._edge_confidence_weight(sql_write), gq._EXTRACTED_EDGE_WEIGHT)
+        # Path cost: structural tier — a literal-derived table hop must never
+        # out-compete a call chain.
+        self.assertEqual(gq._path_edge_cost(sql_edge), gq._PATH_COST_STRUCTURAL)
+        self.assertEqual(gq._path_edge_cost(sql_write), gq._PATH_COST_STRUCTURAL)
+
+
+class AnnotationArgumentSeamTests(_EmbeddedSqlTestBase):
+    """The shared annotation/attribute-argument seam (built by 1p9qf,
+    extended by 1p9qg): structured {name, args, pairs} records with AST-node
+    values on both languages."""
+
+    def _first_node_of_type(self, root, node_type: str):
+        stack = [root]
+        while stack:
+            node = stack.pop(0)
+            if str(getattr(node, "type", "") or "") == node_type:
+                return node
+            stack.extend(getattr(node, "named_children", []) or [])
+        return None
+
+    def test_java_annotation_records_shape(self):
+        self._require("java")
+        source = (
+            "public interface R {\n"
+            "  @Query(value = \"SELECT 1\", nativeQuery = true)\n"
+            "  @Deprecated\n"
+            "  Object q();\n"
+            "}\n"
+        )
+        tree = self.mod._ts_parse("java", source)
+        method = self._first_node_of_type(tree.root_node, "method_declaration")
+        records = self.mod._ts_java_annotation_records(method, source.encode("utf-8"))
+        by_name = {r["name"]: r for r in records}
+        self.assertIn("Query", by_name)
+        self.assertIn("Deprecated", by_name)
+        query = by_name["Query"]
+        self.assertEqual(sorted(query["pairs"]), ["nativeQuery", "value"])
+        sb = source.encode("utf-8")
+        self.assertEqual(
+            self.mod._java_literal_string_expr(query["pairs"]["value"], sb), "SELECT 1")
+        self.assertEqual(
+            self.mod._ts_node_text(query["pairs"]["nativeQuery"], sb).strip(), "true")
+        self.assertEqual(by_name["Deprecated"]["args"], [])
+        self.assertEqual(by_name["Deprecated"]["pairs"], {})
+
+    def test_csharp_attribute_records_shape(self):
+        self._require("csharp")
+        source = (
+            "[Table(\"users\")]\n"
+            "public class E {\n"
+            "  [Column(Order = 2, Name = \"col\")]\n"
+            "  public void M() {}\n"
+            "}\n"
+        )
+        tree = self.mod._ts_parse("csharp", source)
+        sb = source.encode("utf-8")
+        cls = self._first_node_of_type(tree.root_node, "class_declaration")
+        cls_records = self.mod._ts_csharp_attribute_records(cls, sb)
+        self.assertEqual(len(cls_records), 1)
+        self.assertEqual(cls_records[0]["name"], "Table")
+        self.assertEqual(
+            self.mod._csharp_literal_string_expr(cls_records[0]["args"][0], sb), "users")
+        method = self._first_node_of_type(tree.root_node, "method_declaration")
+        m_records = self.mod._ts_csharp_attribute_records(method, sb)
+        self.assertEqual(len(m_records), 1)
+        column = m_records[0]
+        self.assertEqual(column["name"], "Column")
+        self.assertEqual(sorted(column["pairs"]), ["Name", "Order"])
+        self.assertEqual(
+            self.mod._csharp_literal_string_expr(column["pairs"]["Name"], sb), "col")
+
+
+class _OrmEntityMappingTestBase(_EmbeddedSqlTestBase):
+    """Shared harness for wave 1p9qi / 1p9qg ORM entity→table mapping tests."""
+
+    def _maps_to_edges(self, payload) -> list[tuple[str, str, str]]:
+        """Exact (source, target, confidence) set of `maps_to` edges."""
+        return sorted(
+            (str(e["source"]), str(e["target"]), str(e.get("confidence")))
+            for e in payload.get("edges", [])
+            if e.get("relation") == "maps_to"
+        )
+
+    def _orm_stats(self, payload) -> dict:
+        return (payload.get("merge_stats") or {}).get("entity_mapping") or {}
+
+
+class OrmEntityMappingJavaTests(_OrmEntityMappingTestBase):
+    """AC-1: JPA — `@Entity` + `@Table(name = "…")` (and schema-qualified /
+    `@Entity(name = "…")` forms) bind class → table on `maps_to` at
+    LITERAL_DERIVED; a bare `@Entity` binds NOTHING and increments the
+    convention counter (declared names only — standing wave decision)."""
+
+    def test_table_name_binds_collapsed_and_nested_exact_edge_set(self):
+        # The file-dominant entity (User.java defining class User) collapses
+        # into the module node — the mapping must ride the collapsed id; a
+        # nested (non-dominant) entity keeps its class node id.
+        self._require("java", "sql")
+        payload = self._build({
+            "db/schema.sql": self.SCHEMA,
+            "src/User.java": (
+                "@Entity\n"
+                "@Table(name = \"users\")\n"
+                "public class User { private long id; }\n"
+            ),
+            "src/Models.java": (
+                "public class Models {}\n"
+                "@Entity\n"
+                "@Table(name = \"events\", schema = \"analytics\")\n"
+                "class EventRecord { }\n"
+            ),
+        })
+        self.assertEqual(self._maps_to_edges(payload), [
+            ("src/Models.java::EventRecord", "db/schema.sql::analytics.events", "LITERAL_DERIVED"),
+            ("src/User.java", "db/schema.sql::users", "LITERAL_DERIVED"),
+        ])
+        stats = self._orm_stats(payload)
+        self.assertEqual(stats.get("bound"), 2, stats)
+        self.assertEqual(stats.get("convention_refused"), 0, stats)
+        self.assertEqual(stats.get("dynamic_refused"), 0, stats)
+
+    def test_entity_name_element_binds_without_table_annotation(self):
+        # @Entity(name = "…") is the JPA-spec EXPLICIT entity name (the table
+        # name defaults to it verbatim) — a declared string, not a derived
+        # convention, so it binds when @Table declares no name.
+        self._require("java", "sql")
+        payload = self._build({
+            "db/schema.sql": self.SCHEMA,
+            "src/AuditEntry.java": (
+                "@Entity(name = \"audit_log\")\n"
+                "public class AuditEntry { }\n"
+            ),
+        })
+        self.assertEqual(self._maps_to_edges(payload), [
+            ("src/AuditEntry.java", "db/schema.sql::audit_log", "LITERAL_DERIVED"),
+        ])
+
+    def test_bare_entity_refuses_convention_temptation(self):
+        # Class `User` + existing table `users`: the snake_case/pluralize
+        # guess the standing decision forbids. NO edge; counted refusal.
+        self._require("java", "sql")
+        payload = self._build({
+            "db/schema.sql": self.SCHEMA,
+            "src/User.java": "@Entity\npublic class User { }\n",
+        })
+        self.assertEqual(self._maps_to_edges(payload), [])
+        stats = self._orm_stats(payload)
+        self.assertEqual(stats.get("convention_refused"), 1, stats)
+        self.assertEqual(stats.get("bound"), 0, stats)
+
+    def test_constant_reference_table_name_refuses_dynamic(self):
+        # Only string literals bind: @Table(name = TABLE_NAME) refuses as a
+        # counted dynamic case — never resolved, never guessed (AC-3).
+        self._require("java", "sql")
+        payload = self._build({
+            "db/schema.sql": self.SCHEMA,
+            "src/User.java": (
+                "@Entity\n"
+                "@Table(name = User.TABLE_NAME)\n"
+                "public class User { static final String TABLE_NAME = \"users\"; }\n"
+            ),
+        })
+        self.assertEqual(self._maps_to_edges(payload), [])
+        stats = self._orm_stats(payload)
+        self.assertEqual(stats.get("dynamic_refused"), 1, stats)
+        self.assertEqual(stats.get("bound"), 0, stats)
+
+    def test_table_without_entity_never_fires(self):
+        # A bare @Table without @Entity is some other framework's annotation
+        # — the @Entity presence is the Java origin gate. No edge, no counter.
+        self._require("java", "sql")
+        payload = self._build({
+            "db/schema.sql": self.SCHEMA,
+            "src/NotAnEntity.java": (
+                "@Table(name = \"users\")\n"
+                "public class NotAnEntity { }\n"
+            ),
+        })
+        self.assertEqual(self._maps_to_edges(payload), [])
+        self.assertEqual(self._orm_stats(payload), {})
+
+    def test_jpql_query_untouched_alongside_mapping(self):
+        # The mapping layer must not disturb the 1p9qf JPQL exclusion: a JPQL
+        # @Query on the entity's repository captures nothing while the
+        # entity's declared mapping still binds.
+        self._require("java", "sql")
+        payload = self._build({
+            "db/schema.sql": self.SCHEMA,
+            "src/User.java": (
+                "@Entity\n"
+                "@Table(name = \"users\")\n"
+                "public class User { }\n"
+            ),
+            "src/UserRepo.java": (
+                "public interface UserRepo {\n"
+                "  @Query(\"SELECT u FROM User u WHERE u.id = :id\")\n"
+                "  Object byId(long id);\n"
+                "}\n"
+            ),
+        })
+        self.assertEqual(self._maps_to_edges(payload), [
+            ("src/User.java", "db/schema.sql::users", "LITERAL_DERIVED"),
+        ])
+        jpql_edges = [
+            e for e in payload["edges"]
+            if str(e.get("source", "")).startswith("src/UserRepo.java")
+            and e.get("relation") in ("reads", "writes", "maps_to")
+        ]
+        self.assertEqual(jpql_edges, [], "JPQL must stay unbound (1p9qg is table-level only)")
+
+
+class OrmEntityMappingCSharpTests(_OrmEntityMappingTestBase):
+    """AC-2: EF — `[Table("…")]` (with optional Schema) and origin-checked
+    fluent `ToTable("…")` bind analogously; an impostor `ToTable` on a
+    non-EF receiver refuses."""
+
+    def test_table_attribute_binds_exact_edge_set(self):
+        self._require("csharp", "sql")
+        payload = self._build({
+            "db/schema.sql": self.SCHEMA,
+            "cs/Person.cs": (
+                "[Table(\"users\")]\n"
+                "public class Person { public long Id { get; set; } }\n"
+            ),
+            "cs/Models.cs": (
+                "public class Models { }\n"
+                "[Table(\"events\", Schema = \"analytics\")]\n"
+                "public class EventRecord { }\n"
+            ),
+        })
+        self.assertEqual(self._maps_to_edges(payload), [
+            ("cs/Models.cs::EventRecord", "db/schema.sql::analytics.events", "LITERAL_DERIVED"),
+            ("cs/Person.cs", "db/schema.sql::users", "LITERAL_DERIVED"),
+        ])
+
+    def test_totable_entity_chain_and_builder_param_bind(self):
+        # Both EF fluent shapes: the `.Entity<T>()` receiver chain and the
+        # `IEntityTypeConfiguration<T>.Configure(EntityTypeBuilder<T>)` param
+        # form — the entity type resolves to the unique project class.
+        self._require("csharp", "sql")
+        payload = self._build({
+            "db/schema.sql": self.SCHEMA,
+            "cs/Widget.cs": "public class Widget { }\n",
+            "cs/Gadget.cs": "public class Gadget { }\n",
+            "cs/Config.cs": (
+                "public class AppDbContext {\n"
+                "  protected void OnModelCreating(ModelBuilder modelBuilder) {\n"
+                "    modelBuilder.Entity<Widget>().ToTable(\"audit_log\");\n"
+                "  }\n"
+                "}\n"
+                "public class GadgetConfig {\n"
+                "  public void Configure(EntityTypeBuilder<Gadget> builder) {\n"
+                "    builder.ToTable(\"events\", \"analytics\");\n"
+                "  }\n"
+                "}\n"
+            ),
+        })
+        self.assertEqual(self._maps_to_edges(payload), [
+            ("cs/Gadget.cs", "db/schema.sql::analytics.events", "LITERAL_DERIVED"),
+            ("cs/Widget.cs", "db/schema.sql::audit_log", "LITERAL_DERIVED"),
+        ])
+
+    def test_impostor_totable_on_non_ef_receiver_refuses(self):
+        # Neither an `.Entity<T>()` chain nor an EntityTypeBuilder<T>
+        # parameter: the origin is not established, so the sink never fires
+        # (no edge, no counter — it is not a sink at all).
+        self._require("csharp", "sql")
+        payload = self._build({
+            "db/schema.sql": self.SCHEMA,
+            "cs/Report.cs": "public class Report { public void ToTable(string n) { } }\n",
+            "cs/Impostor.cs": (
+                "public class Impostor {\n"
+                "  public void Run(Report report) { report.ToTable(\"users\"); }\n"
+                "}\n"
+            ),
+        })
+        self.assertEqual(self._maps_to_edges(payload), [])
+        self.assertEqual(self._orm_stats(payload), {})
+
+    def test_totable_variable_name_is_dynamic_refusal(self):
+        self._require("csharp", "sql")
+        payload = self._build({
+            "db/schema.sql": self.SCHEMA,
+            "cs/Gadget.cs": "public class Gadget { }\n",
+            "cs/Config.cs": (
+                "public class GadgetConfig {\n"
+                "  public void Configure(EntityTypeBuilder<Gadget> builder, string name) {\n"
+                "    builder.ToTable(name);\n"
+                "  }\n"
+                "}\n"
+            ),
+        })
+        self.assertEqual(self._maps_to_edges(payload), [])
+        stats = self._orm_stats(payload)
+        self.assertEqual(stats.get("dynamic_refused"), 1, stats)
+
+    def test_nameof_table_attribute_is_dynamic_refusal(self):
+        # nameof(User) is compile-time-constant to the compiler but a
+        # COMPUTED name to this capture: only string literals bind (AC-3).
+        self._require("csharp", "sql")
+        payload = self._build({
+            "db/schema.sql": self.SCHEMA,
+            "cs/Person.cs": (
+                "[Table(nameof(Person))]\n"
+                "public class Person { }\n"
+            ),
+        })
+        self.assertEqual(self._maps_to_edges(payload), [])
+        stats = self._orm_stats(payload)
+        self.assertEqual(stats.get("dynamic_refused"), 1, stats)
+
+
+class OrmEntityMappingRefusalTests(_OrmEntityMappingTestBase):
+    """AC-3: unique-match-or-drop — ambiguous table names drop; unmatched
+    names mint namespaced `external::sql::` targets only; ambiguous entity
+    types (ToTable) drop."""
+
+    def test_ambiguous_table_match_drops(self):
+        # Two `users` tables (dev + prod DDL): binding either would be a
+        # guess. The edge drops and the drop is counted.
+        self._require("java", "sql")
+        payload = self._build({
+            "db/dev.sql": "CREATE TABLE users (id INT);\n",
+            "db/prod.sql": "CREATE TABLE users (id INT, created_at TEXT);\n",
+            "src/User.java": (
+                "@Entity\n"
+                "@Table(name = \"users\")\n"
+                "public class User { }\n"
+            ),
+        })
+        self.assertEqual(self._maps_to_edges(payload), [])
+        stats = self._orm_stats(payload)
+        self.assertEqual(stats.get("ambiguous_dropped"), 1, stats)
+        self.assertEqual(stats.get("bound"), 0, stats)
+
+    def test_schema_qualified_declaration_beats_bare_twin(self):
+        # A schema-qualified declaration resolves to the exact qualified
+        # object even when a bare same-leaf twin exists.
+        self._require("java", "sql")
+        payload = self._build({
+            "db/a.sql": "CREATE TABLE analytics.events (id INT);\n",
+            "db/b.sql": "CREATE TABLE events (id INT);\n",
+            "src/EventRecord.java": (
+                "@Entity\n"
+                "@Table(name = \"events\", schema = \"analytics\")\n"
+                "public class EventRecord { }\n"
+            ),
+        })
+        self.assertEqual(self._maps_to_edges(payload), [
+            ("src/EventRecord.java", "db/a.sql::analytics.events", "LITERAL_DERIVED"),
+        ])
+
+    def test_unmatched_name_mints_namespaced_external_only(self):
+        self._require("java", "sql")
+        payload = self._build({
+            "db/schema.sql": self.SCHEMA,
+            "src/Ghost.java": (
+                "@Entity\n"
+                "@Table(name = \"missing_tbl\")\n"
+                "public class Ghost { }\n"
+            ),
+        })
+        self.assertEqual(self._maps_to_edges(payload), [
+            ("src/Ghost.java", "external::sql::missing_tbl", "LITERAL_DERIVED"),
+        ])
+        stats = self._orm_stats(payload)
+        self.assertEqual(stats.get("external"), 1, stats)
+        bare_external = [
+            e for e in payload["edges"]
+            if str(e.get("target")) == "external::missing_tbl"
+        ]
+        self.assertEqual(bare_external, [], "unmatched mappings must use the sql:: namespace")
+
+    def test_ambiguous_entity_type_drops_totable_candidate(self):
+        # Two project classes named Widget: resolving `.Entity<Widget>()`
+        # to either would be a guess — the candidate drops, counted.
+        self._require("csharp", "sql")
+        payload = self._build({
+            "db/schema.sql": self.SCHEMA,
+            "cs/a/Widget.cs": "public class Widget { }\n",
+            "cs/b/Widget.cs": "public class Widget { }\n",
+            "cs/Config.cs": (
+                "public class AppDbContext {\n"
+                "  protected void OnModelCreating(ModelBuilder modelBuilder) {\n"
+                "    modelBuilder.Entity<Widget>().ToTable(\"users\");\n"
+                "  }\n"
+                "}\n"
+            ),
+        })
+        self.assertEqual(self._maps_to_edges(payload), [])
+        stats = self._orm_stats(payload)
+        self.assertEqual(stats.get("entity_unresolved"), 1, stats)
+
+
+class OrmEntityMappingImpactTests(_OrmEntityMappingTestBase):
+    """AC-4: `code_impact` on a table reaches its mapped entities (hop 1 via
+    `maps_to` — the data-layer default-traversal exception) and their
+    existing callers (hop 2 via `calls`); explicit `relations` opts out; the
+    edge weights/costs match the literal-derived family exactly."""
+
+    def _load_graph_query(self):
+        path = SCRIPTS_ROOT / "graph_query.py"
+        spec = importlib.util.spec_from_file_location("graph_query_orm_impact_test", path)
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules["graph_query_orm_impact_test"] = mod
+        spec.loader.exec_module(mod)
+        return mod
+
+    def test_impact_on_table_reaches_entity_and_its_callers(self):
+        self._require("java", "sql")
+        payload = self._build({
+            "db/schema.sql": "CREATE TABLE users (id INT PRIMARY KEY);\n",
+            "src/Entities.java": (
+                "public class Entities {}\n"
+                "@Entity\n"
+                "@Table(name = \"users\")\n"
+                "class User { }\n"
+            ),
+            "src/UserService.java": (
+                "public class UserService {\n"
+                "  void save() { User u = new User(); }\n"
+                "}\n"
+            ),
+        })
+        self.assertEqual(self._maps_to_edges(payload), [
+            ("src/Entities.java::User", "db/schema.sql::users", "LITERAL_DERIVED"),
+        ])
+        gq = self._load_graph_query()
+        idx = gq.GraphQueryIndex(payload)
+        impact = idx.graph_impact("users")
+        self.assertTrue(impact["resolved"])
+        affected_ids = {str(a.get("node_id") if isinstance(a, dict) else a) for a in impact["affected"]}
+        self.assertIn("src/Entities.java::User", affected_ids,
+                      "the mapped entity must join the table's blast radius")
+        self.assertIn("src/UserService.java::UserService.save", affected_ids,
+                      "the entity's existing callers must join transitively")
+        # Explicit relations opt OUT of the data-layer exception.
+        impact_calls = idx.graph_impact("users", relations=("calls",))
+        calls_ids = {str(a.get("node_id") if isinstance(a, dict) else a) for a in impact_calls["affected"]}
+        self.assertEqual(
+            calls_ids & {"src/Entities.java::User", "src/UserService.java::UserService.save"},
+            set(),
+        )
+
+    def test_maps_to_weight_cost_and_consumer_registration_parity(self):
+        gq = self._load_graph_query()
+        map_edge = {"source": "a.java::User", "target": "db/s.sql::users",
+                    "relation": "maps_to", "confidence": "LITERAL_DERIVED"}
+        config_edge = {"source": "a.java::A.m", "target": "app.yml::k",
+                       "relation": "reads_config", "confidence": "LITERAL_DERIVED"}
+        # Blast-radius weight: down-weighted exactly like the literal family.
+        self.assertEqual(
+            gq._edge_confidence_weight(map_edge),
+            gq._edge_confidence_weight(config_edge),
+        )
+        self.assertEqual(gq._edge_confidence_weight(map_edge), gq._EXTRACTED_EDGE_WEIGHT)
+        # Path cost: structural tier — a mapping hop never out-competes calls.
+        self.assertEqual(gq._path_edge_cost(map_edge), gq._PATH_COST_STRUCTURAL)
+        # The data-layer relation set carries the mapping relation (the
+        # impact exception + report fan counting both key off it).
+        self.assertIn("maps_to", gq._SQL_DATA_LAYER_RELATIONS)
+
+    def test_report_fan_in_counts_mapping_edges(self):
+        self._require("java", "sql")
+        payload = self._build({
+            "db/schema.sql": "CREATE TABLE users (id INT PRIMARY KEY);\n",
+            "src/User.java": (
+                "@Entity\n"
+                "@Table(name = \"users\")\n"
+                "public class User { }\n"
+            ),
+        })
+        gq = self._load_graph_query()
+        idx = gq.GraphQueryIndex(payload)
+        report = idx.report()
+        fan_in = {row["node_id"]: row for row in report["fan_in"]}
+        self.assertIn("db/schema.sql::users", fan_in,
+                      "entity mappings count toward the table's fan_in")
+        self.assertEqual(fan_in["db/schema.sql::users"]["sql_kind"], "table")
+
+
+class OrmEntityMappingSeamAndFragmentTests(_OrmEntityMappingTestBase):
+    """AC-5 support: the mapping rides the SHARED annotation/attribute seam
+    (both 1p9qf sink captures and 1p9qg mappings green on one build) and its
+    edges are finalize-only (never in fragments — the `external::sql::`
+    invariant contract extended to `maps_to`)."""
+
+    def test_shared_seam_serves_both_changes_on_one_build(self):
+        # One build where the SAME annotation machinery feeds 1p9qf (native
+        # @Query SQL capture) and 1p9qg (@Table mapping) — both bind.
+        self._require("java", "sql")
+        payload = self._build({
+            "db/schema.sql": self.SCHEMA,
+            "src/User.java": (
+                "@Entity\n"
+                "@Table(name = \"users\")\n"
+                "public class User { }\n"
+            ),
+            "src/UserRepo.java": (
+                "public interface UserRepo {\n"
+                "  @Query(value = \"SELECT * FROM audit_log\", nativeQuery = true)\n"
+                "  java.util.List<Object> audits();\n"
+                "}\n"
+            ),
+        })
+        self.assertEqual(self._maps_to_edges(payload), [
+            ("src/User.java", "db/schema.sql::users", "LITERAL_DERIVED"),
+        ])
+        self.assertEqual(self._literal_sql_edges(payload), [
+            ("src/UserRepo.java::UserRepo.audits", "db/schema.sql::audit_log", "reads"),
+        ])
+
+    def test_mapping_edges_are_finalize_only_never_in_fragments(self):
+        self._require("java", "sql")
+        self._build({
+            "db/schema.sql": self.SCHEMA,
+            "src/User.java": (
+                "@Entity\n"
+                "@Table(name = \"users\")\n"
+                "public class User { }\n"
+            ),
+            "src/Ghost.java": (
+                "@Entity\n"
+                "@Table(name = \"missing_tbl\")\n"
+                "public class Ghost { }\n"
+            ),
+        })
+        store = self.mod.GraphStateStore(
+            self.root / ".wavefoundry" / "index" / "graph" / "project-graph-state.sqlite",
+            layer="project", walker_version="1", chunker_version="1",
+        )
+        try:
+            merge_state = store.get_blob("merge_state") or {}
+            files = merge_state.get("files") or {}
+            self.assertIn("src/User.java", files)
+            # The mapping candidates ride the fragment…
+            cands = files["src/User.java"].get("orm_entity_candidates") or []
+            self.assertEqual(len(cands), 1, cands)
+            # …but the minted edges do NOT: no fragment edge (any file) may
+            # carry a maps_to relation or an external::sql:: target.
+            for rel, fentry in files.items():
+                for edge in fentry.get("edges", []) or []:
+                    self.assertNotEqual(edge.get("relation"), "maps_to",
+                                        f"fragment edge in {rel} carries a bind-pass relation: {edge}")
+                    self.assertFalse(
+                        str(edge.get("target", "")).startswith("external::sql::"),
+                        f"fragment edge in {rel} carries a bind-pass target: {edge}",
+                    )
+        finally:
+            store.close()

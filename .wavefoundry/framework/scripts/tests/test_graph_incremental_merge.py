@@ -1281,5 +1281,186 @@ class JavaPackageKeyingIncrementalTests(_IncrementalMergeBase):
         self.assert_equivalent(payload, self.driver.build_oracle(), "after package flip back out")
 
 
+class EmbeddedSqlCaptureIncrementalTests(_IncrementalMergeBase):
+    """Wave 1p9qi (1p9qf): `sql_capture_candidates` / `sql_capture_dynamic`
+    must ride the per-file fragment passthrough — a cached (untouched) file's
+    captures survive an incremental merge, so the finalize bind pass keeps
+    re-minting its edges. Without the passthrough the bind edge silently
+    vanishes on the first unrelated edit (the `config_read_candidates`
+    failure class)."""
+
+    _SCHEMA = "CREATE TABLE users (id INT PRIMARY KEY);\n"
+    _DAO = (
+        "public class Dao {\n"
+        "  void run(java.sql.Connection conn, String t) {\n"
+        "    conn.prepareStatement(\"SELECT * FROM users\");\n"
+        "    conn.prepareStatement(\"SELECT * FROM \" + t);\n"
+        "  }\n"
+        "}\n"
+    )
+
+    def _require(self, *langs: str):
+        for lang in langs:
+            if getattr(self.mod, "_ts_get_parser", lambda *_: None)(lang) is None:
+                self.skipTest(f"tree-sitter {lang} grammar unavailable")
+
+    def _bind_edges(self, payload):
+        return [
+            e for e in payload.get("edges", [])
+            if e.get("confidence") == "LITERAL_DERIVED"
+            and e.get("relation") in ("reads", "writes")
+        ]
+
+    def test_captures_survive_cached_fragment_merge(self):
+        self._require("java", "sql")
+        self.driver.write("db/schema.sql", self._SCHEMA)
+        self.driver.write("src/Dao.java", self._DAO)
+        self.driver.write("unrelated.py", "def alpha():\n    return 1\n")
+        payload = self.driver.build_incremental(set(self.driver.files))
+        self.assertTrue(
+            _find_edges(payload, source_prefix="src/Dao.java",
+                        target="db/schema.sql::users", relation="reads"),
+            "full build must mint the embedded-SQL bind edge",
+        )
+        self.assertEqual(
+            (payload.get("merge_stats") or {}).get("sql_capture", {}).get("dynamic_refused"), 1)
+
+        # Edit ONLY the unrelated file: Dao.java's fragment is served from
+        # cache — its captures must survive the merge passthrough.
+        self.driver.write("unrelated.py", "def alpha():\n    return 2\n")
+        payload = self.driver.build_incremental({"unrelated.py"})
+        bound = _find_edges(payload, source_prefix="src/Dao.java",
+                            target="db/schema.sql::users", relation="reads")
+        self.assertTrue(
+            bound,
+            "bind edge vanished under incremental merge — sql_capture_candidates "
+            "dropped from the cached fragment (passthrough regression)",
+        )
+        self.assertEqual(bound[0].get("confidence"), "LITERAL_DERIVED")
+        # The dynamic-refusal count must survive the cached fragment too.
+        self.assertEqual(
+            (payload.get("merge_stats") or {}).get("sql_capture", {}).get("dynamic_refused"), 1)
+        self.assert_equivalent(payload, self.driver.build_oracle(), "after unrelated edit")
+
+    def test_schema_twin_flip_drops_and_restores_bind_in_untouched_file(self):
+        # Symbol-delta faithfulness for the RECOMPUTED-each-build bind pass:
+        # adding a same-name table in another schema file makes the reference
+        # ambiguous (edge drops); deleting it restores the unique bind — with
+        # Dao.java untouched throughout.
+        self._require("java", "sql")
+        self.driver.write("db/schema.sql", self._SCHEMA)
+        self.driver.write("src/Dao.java", self._DAO)
+        payload = self.driver.build_incremental(set(self.driver.files))
+        self.assertTrue(_find_edges(payload, source_prefix="src/Dao.java",
+                                    target="db/schema.sql::users", relation="reads"))
+
+        self.driver.write("db/schema2.sql", "CREATE TABLE users (id INT);\n")
+        payload = self.driver.build_incremental({"db/schema2.sql"})
+        self.assertFalse(
+            self._bind_edges(payload),
+            "ambiguous table name must DROP the bind edge in the untouched file",
+        )
+        self.assert_equivalent(payload, self.driver.build_oracle(), "after twin add")
+
+        self.driver.delete("db/schema2.sql")
+        payload = self.driver.build_incremental(set(), removed={"db/schema2.sql"})
+        self.assertTrue(
+            _find_edges(payload, source_prefix="src/Dao.java",
+                        target="db/schema.sql::users", relation="reads"),
+            "unique table must REBIND after the twin is deleted",
+        )
+        self.assert_equivalent(payload, self.driver.build_oracle(), "after twin delete")
+
+
+class OrmEntityMappingIncrementalTests(_IncrementalMergeBase):
+    """Wave 1p9qi (1p9qg): `orm_entity_candidates` / `orm_entity_convention` /
+    `orm_entity_dynamic` must ride the per-file fragment passthrough — a
+    cached (untouched) entity file's declared mapping survives an incremental
+    merge, so the finalize bind pass keeps re-minting its `maps_to` edge; and
+    the recomputed-each-build pass reacts to schema twins appearing/vanishing
+    in OTHER files (unique-match-or-drop stays faithful under deltas)."""
+
+    _SCHEMA = "CREATE TABLE users (id INT PRIMARY KEY);\n"
+    _ENTITY = (
+        "@Entity\n"
+        "@Table(name = \"users\")\n"
+        "public class User { }\n"
+    )
+    _MIXED = (
+        "public class Models {}\n"
+        "@Entity\n"
+        "class ConventionOnly { }\n"
+        "@Entity\n"
+        "@Table(name = Models.T)\n"
+        "class DynamicOne { }\n"
+    )
+
+    def _require(self, *langs: str):
+        for lang in langs:
+            if getattr(self.mod, "_ts_get_parser", lambda *_: None)(lang) is None:
+                self.skipTest(f"tree-sitter {lang} grammar unavailable")
+
+    def _maps_to(self, payload):
+        return [e for e in payload.get("edges", []) if e.get("relation") == "maps_to"]
+
+    def test_mapping_and_counters_survive_cached_fragment_merge(self):
+        self._require("java", "sql")
+        self.driver.write("db/schema.sql", self._SCHEMA)
+        self.driver.write("src/User.java", self._ENTITY)
+        self.driver.write("src/Models.java", self._MIXED)
+        self.driver.write("unrelated.py", "def alpha():\n    return 1\n")
+        payload = self.driver.build_incremental(set(self.driver.files))
+        self.assertTrue(
+            _find_edges(payload, source_prefix="src/User.java",
+                        target="db/schema.sql::users", relation="maps_to"),
+            "full build must mint the entity mapping edge",
+        )
+        stats = (payload.get("merge_stats") or {}).get("entity_mapping", {})
+        self.assertEqual(stats.get("convention_refused"), 1, stats)
+        self.assertEqual(stats.get("dynamic_refused"), 1, stats)
+
+        # Edit ONLY the unrelated file: the entity fragments are served from
+        # cache — mapping candidates AND refusal counters must survive.
+        self.driver.write("unrelated.py", "def alpha():\n    return 2\n")
+        payload = self.driver.build_incremental({"unrelated.py"})
+        bound = _find_edges(payload, source_prefix="src/User.java",
+                            target="db/schema.sql::users", relation="maps_to")
+        self.assertTrue(
+            bound,
+            "mapping edge vanished under incremental merge — orm_entity_candidates "
+            "dropped from the cached fragment (passthrough regression)",
+        )
+        self.assertEqual(bound[0].get("confidence"), "LITERAL_DERIVED")
+        stats = (payload.get("merge_stats") or {}).get("entity_mapping", {})
+        self.assertEqual(stats.get("convention_refused"), 1, stats)
+        self.assertEqual(stats.get("dynamic_refused"), 1, stats)
+        self.assert_equivalent(payload, self.driver.build_oracle(), "after unrelated edit")
+
+    def test_schema_twin_flip_drops_and_restores_mapping_in_untouched_file(self):
+        self._require("java", "sql")
+        self.driver.write("db/schema.sql", self._SCHEMA)
+        self.driver.write("src/User.java", self._ENTITY)
+        payload = self.driver.build_incremental(set(self.driver.files))
+        self.assertTrue(_find_edges(payload, source_prefix="src/User.java",
+                                    target="db/schema.sql::users", relation="maps_to"))
+
+        self.driver.write("db/schema2.sql", "CREATE TABLE users (id INT);\n")
+        payload = self.driver.build_incremental({"db/schema2.sql"})
+        self.assertFalse(
+            self._maps_to(payload),
+            "ambiguous table name must DROP the mapping edge in the untouched file",
+        )
+        self.assert_equivalent(payload, self.driver.build_oracle(), "after twin add")
+
+        self.driver.delete("db/schema2.sql")
+        payload = self.driver.build_incremental(set(), removed={"db/schema2.sql"})
+        self.assertTrue(
+            _find_edges(payload, source_prefix="src/User.java",
+                        target="db/schema.sql::users", relation="maps_to"),
+            "unique table must REBIND the mapping after the twin is deleted",
+        )
+        self.assert_equivalent(payload, self.driver.build_oracle(), "after twin delete")
+
+
 if __name__ == "__main__":
     unittest.main()

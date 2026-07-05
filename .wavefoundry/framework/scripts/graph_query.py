@@ -36,7 +36,23 @@ _DEFAULT_CALL_RELATIONS = ("calls",)
 # default neighbor query (incl. 1p4hu's graph-signal expansion). A caller that WANTS constant
 # reads passes them explicitly (e.g. relations=("reads",)). Deliberately NOT in the impact/call
 # defaults above either, so constant reads never pollute blast-radius or call-graph analysis.
+# Wave 1p9qi (1p9qd): SQL table references reuse `reads` (read direction) and
+# so INHERIT this opt-in policy for default 1-hop traversal — a deliberate
+# inheritance (the graph-signal path passes `reads` explicitly, so code_ask
+# grouping is unaffected). `writes` is deliberately NOT opt-in: write edges
+# are sparse (one per writing statement family) and high-value. Default
+# IMPACT traversal gets a narrow data-layer exception instead — see
+# `_sql_data_layer_edge` in `graph_impact` — so "what breaks if I change
+# table X" includes dependent views/writers WITHOUT letting constant reads
+# into blast radius.
 _NEIGHBOR_OPT_IN_RELATIONS = frozenset({"reads"})
+# Wave 1p9qi (1p9qg): `maps_to` (ORM entity→table mapping, LITERAL_DERIVED)
+# joins the data-layer set — impact on a table must reach its mapped entities
+# (and through their existing `calls` in-edges, the code above them), and the
+# report's fan rankings must count mappings like other table references. Like
+# `writes` it is sparse and deliberately NOT neighbor-opt-in; path cost stays
+# structural tier (non-`calls` default in `_path_edge_cost`).
+_SQL_DATA_LAYER_RELATIONS = frozenset({"reads", "writes", "maps_to"})
 _DOC_KINDS = frozenset({"doc", "seed"})
 _CHOKEPOINT_FAN_OUT = 20
 
@@ -1002,6 +1018,10 @@ def _path_edge_cost(edge: dict[str, Any]) -> int:
     the STRUCTURAL tier deliberately — subtype/supertype structure must never
     out-compete a real call chain in `code_graph_path`, exactly like
     `imports`/`defines` (dispatch potential is impact's concern, not path's).
+
+    Wave 1p9qi (1p9qd): SQL data-layer edges (`reads`/`writes` table
+    references, view lineage) likewise stay in the structural tier — a path
+    through a shared table must never out-compete a real call chain.
     """
     relation = str(edge.get("relation") or "")
     confidence = str(edge.get("confidence") or "")
@@ -1536,6 +1556,25 @@ class GraphQueryIndex:
         # Edges are deduplicated by (source, target, relation) for parity
         # with traverse().
         rel_set = set(rels)
+
+        # Wave 1p9qi (1p9qd): data-layer exception for DEFAULT traversals only
+        # (an explicit `relations` list opts out, mirroring the dispatch-seed
+        # precedent). A `reads`/`writes` edge touching a SQL schema object
+        # (`sql_kind`-carrying node: table/view) joins the blast radius —
+        # "what breaks if I change table X" must include dependent views and
+        # writers — while constant reads stay excluded from impact per the
+        # standing 1p4ls policy (only SQL-object endpoints qualify).
+        _data_layer_default = relations is None
+
+        def _sql_data_layer_edge(edge: dict[str, Any]) -> bool:
+            if not _data_layer_default:
+                return False
+            if str(edge.get("relation") or "") not in _SQL_DATA_LAYER_RELATIONS:
+                return False
+            return any(
+                "sql_kind" in (self._node_by_id.get(str(edge.get(end) or "")) or {})
+                for end in ("source", "target")
+            )
         node_depth: dict[str, int] = {node_id: 0}
         traversed: list[dict[str, Any]] = []
         seen_edges: set[tuple[str, str, str]] = set()
@@ -1565,7 +1604,7 @@ class GraphQueryIndex:
                 continue
             for edge in self._in.get(current, []):
                 rel = edge.get("relation")
-                if rel not in rel_set:
+                if rel not in rel_set and not _sql_data_layer_edge(edge):
                     continue
                 src = edge.get("source")
                 if not isinstance(src, str):
@@ -1844,8 +1883,20 @@ class GraphQueryIndex:
         fan_in_counts: dict[str, int] = {}
         fan_out_counts: dict[str, int] = {}
         for edge in self.edges:
-            if edge.get("relation") != "calls":
-                continue
+            rel = edge.get("relation")
+            if rel != "calls":
+                # Wave 1p9qi (1p9qd): SQL table references moved from `calls`
+                # to direction-aware `reads`/`writes`; count the data-layer
+                # ones (an endpoint carries `sql_kind`) so tables/views stay
+                # visible in fan rankings. Constant reads remain excluded
+                # (no SQL endpoint), preserving the 1p4ls report shape.
+                if rel not in _SQL_DATA_LAYER_RELATIONS:
+                    continue
+                if not any(
+                    "sql_kind" in (self._node_by_id.get(str(edge.get(end) or "")) or {})
+                    for end in ("source", "target")
+                ):
+                    continue
             src = edge.get("source")
             tgt = edge.get("target")
             if isinstance(tgt, str):
@@ -1855,15 +1906,21 @@ class GraphQueryIndex:
 
         def _ranked(counts: dict[str, int]) -> list[dict[str, Any]]:
             rows = sorted(counts.items(), key=lambda item: (-item[1], item[0]))[:limit]
-            return [
-                {
+            ranked_rows: list[dict[str, Any]] = []
+            for nid, count in rows:
+                node = self._node_by_id.get(nid) or {}
+                row = {
                     "node_id": nid,
                     "count": count,
-                    "label": (self._node_by_id.get(nid) or {}).get("label", nid),
-                    "kind": (self._node_by_id.get(nid) or {}).get("kind"),
+                    "label": node.get("label", nid),
+                    "kind": node.get("kind"),
                 }
-                for nid, count in rows
-            ]
+                # Wave 1p9qi (1p9qd): distinguish SQL tables from views in
+                # report labels (AC-4) — both normalize to kind "class".
+                if node.get("sql_kind"):
+                    row["sql_kind"] = node["sql_kind"]
+                ranked_rows.append(row)
+            return ranked_rows
 
         result: dict[str, Any] = {"layer": self.layer, "present": self.present}
         if "fan_in" in wanted:

@@ -248,7 +248,7 @@ AGENT_GRAPH_SIGNAL_CAP = 3         # max structural matches in the graph_related
 AGENT_GRAPH_DEF_WINDOW = 24        # source lines read per graph neighbor to form its candidate text
 AGENT_GRAPH_CITATION_CAP = 2       # wave 1p66t: max cross-file graph neighbors merged INTO citations (additive, floor-gated, reranked) so a cross-file chain reaches the answer surface, not only graph_related
 AGENT_ENUMERATION_BUDGET_MULT = 2.0  # wave 1p66t: text-budget multiplier for enumeration ("which/all X") queries — lets more of the full set through the selection cutoff instead of a reranked top-k that silently truncates
-_GRAPH_SIGNAL_RELATIONS = ("calls", "imports", "reads", "extends", "implements")  # 1-hop edge types followed for the structural signal (wave 1p9qh review: inheritance edges join it — "what uses X" includes X's implementors/subtypes)
+_GRAPH_SIGNAL_RELATIONS = ("calls", "imports", "reads", "extends", "implements", "writes", "maps_to")  # 1-hop edge types followed for the structural signal (wave 1p9qh review: inheritance edges join it — "what uses X" includes X's implementors/subtypes; wave 1p9qi/1p9qd: `writes` = SQL write-direction table references — "what uses table X" includes its writers; wave 1p9qi/1p9qg: `maps_to` = ORM entity→table mappings — "what uses table X" includes the entities riding it)
 _GRAPH_SIGNAL_SEED_KINDS = frozenset({"function", "method", "class", "constant", "module"})
 # Kinds a graph NEIGHBOR may be SURFACED as a candidate. Excludes "module" — a whole-file module
 # node ("stem > stem") is a poor structural answer (delivery follow-up: it showed up as noise for
@@ -265,13 +265,27 @@ _GRAPH_REL_LABEL = {
     # (its subtypes/implementors); outgoing = the seed's own supertypes (both relations).
     ("extends", True): "subtype", ("extends", False): "supertype",
     ("implements", True): "implementor", ("implements", False): "supertype",
+    # Wave 1p9qi (1p9qd SQL table references): incoming = the neighbor WRITES the seed
+    # (a table's writers — "what modifies table X"); outgoing = the tables the seed writes.
+    ("writes", True): "writer", ("writes", False): "writes",
+    # Wave 1p9qi (1p9qg ORM entity mapping): incoming = the neighbor is an entity MAPPED
+    # onto the seed table; outgoing = the table(s) the seed entity maps to.
+    ("maps_to", True): "mapped_entity", ("maps_to", False): "maps_to",
 }
 # relationship → response bucket key (pluralized).
 _GRAPH_REL_BUCKET = {
     "caller": "callers", "callee": "callees", "reader": "readers",
     "reads": "reads", "importer": "importers", "imports": "imports", "related": "related",
     "subtype": "subtypes", "implementor": "implementors", "supertype": "supertypes",
+    "writer": "writers", "writes": "writes",
+    "mapped_entity": "mapped_entities", "maps_to": "maps_to",
 }
+# Wave 1p9qi review fix (architecture F1): the code_ask response gate that decides whether the
+# assembled graph_related section carries signal is DERIVED from the bucket vocabulary above
+# (plus the "related" fallback bucket), not enumerated by hand — a hand-maintained tuple silently
+# dropped writers-only / mapped-entities-only signal twice (1p9qh, 1p9qi). "seed" is intentionally
+# not a signal key: it is always present in an assembled section, neighbors or not.
+_GRAPH_RELATED_SIGNAL_KEYS = frozenset(_GRAPH_REL_BUCKET.values()) | {"related"}
 _GRAPH_QUERY_IDENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]{3,}")  # identifier-like query tokens to resolve as seeds
 # Wave 1p4hu delivery follow-up — graph-signal seed scoping + direction.
 # Generic words that resolve to a coincidental symbol (server.py::main, a `root`/`index` class)
@@ -16736,7 +16750,7 @@ def code_ask_response(index: "WaveIndex", root: Path, question: str, rerank: str
     # Wave 1p4hu: structural matches grouped by relationship to the query symbol (callers / readers /
     # importers / related), separate from the textual citations. Present only in agent mode when the
     # graph signal resolved a symbol and found neighbors.
-    if graph_related and any(graph_related.get(k) for k in ("callers", "readers", "importers", "callees", "reads", "imports", "subtypes", "implementors", "supertypes", "related")):
+    if graph_related and any(graph_related.get(k) for k in _GRAPH_RELATED_SIGNAL_KEYS):
         data["graph_related"] = graph_related
 
     if question_type == "explanatory" and citations and citations[0].get("kind") in ("doc", "doc-summary"):

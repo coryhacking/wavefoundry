@@ -14,7 +14,7 @@ This is a generated, read-only orientation map of this project's own codebase, b
 - **Drill in** by passing an area's `hub_node_id` (a stable cross-rebuild anchor) to `code_graph_community`, or open its key files with `code_outline`. Use `hub_node_id`, never a `community_id` (those renumber on re-cluster).
 - The map is regenerated with the index build; it tracks index freshness rather than per-commit parity.
 
-_Grouping: graph communities collapsed to packages/directories. Areas shown: 24 of 39. Cluster builder version: `11`. Files in scope: 164; symbols: 10871._
+_Grouping: graph communities collapsed to packages/directories. Areas shown: 24 of 41. Cluster builder version: `11`. Files in scope: 164; symbols: 11034._
 
 ## Areas
 
@@ -23,7 +23,7 @@ _Grouping: graph communities collapsed to packages/directories. Areas shown: 24 
 - Path: `.wavefoundry/framework/scripts/tests`
 - Area id: `tests` (MCP: `wavefoundry://area/tests`)
 - Responsibility: tests
-- Size: 7048 graph nodes
+- Size: 7156 graph nodes
 - Key entry points (by cross-file fan-in): `walk` (function), `map` (function), `fileno` (function), `load_server` (function), `copy_fixture` (function)
 - Key files: `.wavefoundry/framework/scripts/tests/test_server_tools.py`, `.wavefoundry/framework/scripts/tests/test_graph_indexer.py`, `.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py`, `.wavefoundry/framework/scripts/tests/test_chunker.py`, `.wavefoundry/framework/scripts/tests/test_indexer.py`, `.wavefoundry/framework/scripts/tests/test_secrets_validators.py`
 - Drill in: `code_graph_community(hub_node_id=".wavefoundry/framework/scripts/tests/test_server_tools.py")` or `code_outline` on the key files above.
@@ -33,9 +33,9 @@ _Grouping: graph communities collapsed to packages/directories. Areas shown: 24 
 - Path: `.wavefoundry/framework/scripts`
 - Area id: `server-impl` (MCP: `wavefoundry://area/server-impl`)
 - Responsibility: server_impl
-- Size: 682 graph nodes
+- Size: 641 graph nodes
 - Key entry points (by cross-file fan-in): `parse_log` (function), `isolated_stdout_fd` (function), `checked_rows_missing_artifact` (function), `is_unparseable` (function), `read_install_log` (function)
-- Key files: `.wavefoundry/framework/scripts/server_impl.py`, `.wavefoundry/framework/scripts/graph_query.py`, `.wavefoundry/framework/scripts/install_log_lib.py`, `.wavefoundry/framework/scripts/wave_gate.py`, `.wavefoundry/framework/scripts/graph_di_signals.py`, `.wavefoundry/framework/scripts/wave_lint_lib/constants.py`
+- Key files: `.wavefoundry/framework/scripts/server_impl.py`, `.wavefoundry/framework/scripts/install_log_lib.py`, `.wavefoundry/framework/scripts/graph_query.py`, `.wavefoundry/framework/scripts/wave_gate.py`, `.wavefoundry/framework/scripts/graph_di_signals.py`, `.wavefoundry/framework/scripts/wave_lint_lib/constants.py`
 - Drill in: `code_graph_community(hub_node_id=".wavefoundry/framework/scripts/server_impl.py")` or `code_outline` on the key files above.
 
 ### graph
@@ -43,8 +43,8 @@ _Grouping: graph communities collapsed to packages/directories. Areas shown: 24 
 - Path: `.wavefoundry/framework/scripts`
 - Area id: `graph` (MCP: `wavefoundry://area/graph`)
 - Responsibility: graph
-- Size: 259 graph nodes
-- Key entry points (by cross-file fan-in): `finalize` (function), `walk_definitions` (function), `update_graph_index` (function), `collect_calls` (function), `record_file` (function)
+- Size: 320 graph nodes
+- Key entry points (by cross-file fan-in): `finalize` (function), `walk_definitions` (function), `update_graph_index` (function), `collect_calls` (function), `register_symbol` (function)
 - Key files: `.wavefoundry/framework/scripts/graph_indexer.py`
 - Drill in: `code_graph_community(hub_node_id=".wavefoundry/framework/scripts/graph_indexer.py")` or `code_outline` on the key files above.
 
@@ -63,10 +63,20 @@ _Grouping: graph communities collapsed to packages/directories. Areas shown: 24 
 - Path: `.wavefoundry/framework/scripts/wave_lint_lib`
 - Area id: `wave-lint-lib` (MCP: `wavefoundry://area/wave-lint-lib`)
 - Responsibility: wave_lint_lib
-- Size: 182 graph nodes
+- Size: 180 graph nodes
 - Key entry points (by cross-file fan-in): `relative_to_root` (function), `check_hardcoded_secrets` (function), `read_text` (function), `check_design_system` (function), `load_json` (function)
 - Key files: `.wavefoundry/framework/scripts/wave_lint_lib/wave_validators.py`, `.wavefoundry/framework/scripts/wave_lint_lib/secrets_validators.py`, `.wavefoundry/framework/scripts/wave_lint_lib/cel_filter.py`, `.wavefoundry/framework/scripts/wave_lint_lib/cli.py`, `.wavefoundry/framework/scripts/wave_lint_lib/design_system_surface_validators.py`, `.wavefoundry/framework/scripts/wave_lint_lib/design_system_validators.py`
 - Drill in: `code_graph_community(hub_node_id=".wavefoundry/framework/scripts/wave_lint_lib/wave_validators.py")` or `code_outline` on the key files above.
+
+### subprocess_util
+
+- Path: `.wavefoundry/framework/scripts`
+- Area id: `subprocess-util` (MCP: `wavefoundry://area/subprocess-util`)
+- Responsibility: subprocess_util
+- Size: 173 graph nodes
+- Key entry points (by cross-file fan-in): `isolated_run` (function), `windowless_pythonw` (function), `tool_venv_python` (function), `isolated_popen` (function), `utf8_child_env` (function)
+- Key files: `.wavefoundry/framework/scripts/setup_index.py`, `.wavefoundry/framework/scripts/provider_policy.py`, `.wavefoundry/framework/scripts/subprocess_util.py`, `.wavefoundry/framework/scripts/run_tests.py`, `.wavefoundry/framework/scripts/run_secrets_scan.py`, `.wavefoundry/framework/scripts/setup_wavefoundry.py`
+- Drill in: `code_graph_community(hub_node_id=".wavefoundry/framework/scripts/setup_index.py")` or `code_outline` on the key files above.
 
 ### chunker
 
@@ -78,45 +88,35 @@ _Grouping: graph communities collapsed to packages/directories. Areas shown: 24 
 - Key files: `.wavefoundry/framework/scripts/chunker.py`
 - Drill in: `code_graph_community(hub_node_id=".wavefoundry/framework/scripts/chunker.py")` or `code_outline` on the key files above.
 
-### setup
+### scripts/dashboard_lib
 
 - Path: `.wavefoundry/framework/scripts`
-- Area id: `setup` (MCP: `wavefoundry://area/setup`)
-- Responsibility: setup
-- Size: 157 graph nodes
-- Key entry points (by cross-file fan-in): `windowless_pythonw` (function), `tool_venv_python` (function), `utf8_child_env` (function), `diagnostic_report` (function), `activate_tool_venv` (function)
-- Key files: `.wavefoundry/framework/scripts/setup_index.py`, `.wavefoundry/framework/scripts/accel_embedder.py`, `.wavefoundry/framework/scripts/provider_policy.py`, `.wavefoundry/framework/scripts/run_tests.py`, `.wavefoundry/framework/scripts/venv_bootstrap.py`, `.wavefoundry/framework/scripts/wf_cli.py`
-- Drill in: `code_graph_community(hub_node_id=".wavefoundry/framework/scripts/setup_index.py")` or `code_outline` on the key files above.
-
-### upgrade_wavefoundry
-
-- Path: `.wavefoundry/framework/scripts`
-- Area id: `upgrade-wavefoundry` (MCP: `wavefoundry://area/upgrade-wavefoundry`)
-- Responsibility: upgrade_wavefoundry
-- Size: 127 graph nodes
-- Key entry points (by cross-file fan-in): `isolated_run` (function), `isolated_popen` (function), `no_window_creationflags` (function), `compare_versions` (function), `_read_installed_revision` (function)
-- Key files: `.wavefoundry/framework/scripts/upgrade_wavefoundry.py`, `.wavefoundry/framework/scripts/subprocess_util.py`, `.wavefoundry/framework/scripts/run_secrets_scan.py`, `.wavefoundry/framework/scripts/setup_wavefoundry.py`, `.wavefoundry/framework/scripts/check_version.py`, `.wavefoundry/framework/scripts/upgrade_lib.py`
-- Drill in: `code_graph_community(hub_node_id=".wavefoundry/framework/scripts/upgrade_wavefoundry.py")` or `code_outline` on the key files above.
+- Area id: `scripts-dashboard-lib` (MCP: `wavefoundry://area/scripts-dashboard-lib`)
+- Responsibility: scripts/dashboard_lib
+- Size: 124 graph nodes
+- Key entry points (by cross-file fan-in): `read_dashboard_metadata` (function), `dashboard_server_lock` (function), `dashboard_browser_open_enabled` (function), `dashboard_lock_path` (function), `collect_dashboard_snapshot` (function)
+- Key files: `.wavefoundry/framework/scripts/dashboard_lib.py`, `.wavefoundry/framework/scripts/dashboard_server.py`, `.wavefoundry/framework/scripts/server_impl.py`
+- Drill in: `code_graph_community(hub_node_id=".wavefoundry/framework/scripts/dashboard_lib.py")` or `code_outline` on the key files above.
 
 ### indexer
 
 - Path: `.wavefoundry/framework/scripts`
 - Area id: `indexer` (MCP: `wavefoundry://area/indexer`)
 - Responsibility: indexer
-- Size: 119 graph nodes
-- Key entry points (by cross-file fan-in): `project_index_inputs_stale` (function), `read_index_build_lock_metadata` (function), `optimize_index_tables` (function), `reindex_pending_age` (function), `walk_repo` (function)
-- Key files: `.wavefoundry/framework/scripts/indexer.py`, `.wavefoundry/framework/scripts/server_impl.py`
+- Size: 110 graph nodes
+- Key entry points (by cross-file fan-in): `project_index_inputs_stale` (function), `read_index_build_lock_metadata` (function), `optimize_index_tables` (function), `walk_repo` (function), `build_index` (function)
+- Key files: `.wavefoundry/framework/scripts/indexer.py`
 - Drill in: `code_graph_community(hub_node_id=".wavefoundry/framework/scripts/indexer.py")` or `code_outline` on the key files above.
 
-### dashboard_lib
+### upgrade_wavefoundry
 
 - Path: `.wavefoundry/framework/scripts`
-- Area id: `dashboard-lib` (MCP: `wavefoundry://area/dashboard-lib`)
-- Responsibility: dashboard_lib
-- Size: 115 graph nodes
-- Key entry points (by cross-file fan-in): `read_dashboard_metadata` (function), `dashboard_server_lock` (function), `dashboard_lock_path` (function), `collect_dashboard_snapshot` (function), `read_dashboard_config` (function)
-- Key files: `.wavefoundry/framework/scripts/dashboard_lib.py`, `.wavefoundry/framework/scripts/dashboard_server.py`, `.wavefoundry/framework/scripts/server_impl.py`
-- Drill in: `code_graph_community(hub_node_id=".wavefoundry/framework/scripts/dashboard_lib.py")` or `code_outline` on the key files above.
+- Area id: `upgrade-wavefoundry` (MCP: `wavefoundry://area/upgrade-wavefoundry`)
+- Responsibility: upgrade_wavefoundry
+- Size: 90 graph nodes
+- Key entry points (by cross-file fan-in): `compare_versions` (function), `_read_installed_revision` (function), `ensure_python_resolves` (function), `materialize_lifecycle_policy` (function), `read_upgrade_lock` (function)
+- Key files: `.wavefoundry/framework/scripts/upgrade_wavefoundry.py`, `.wavefoundry/framework/scripts/check_version.py`, `.wavefoundry/framework/scripts/upgrade_lib.py`, `.wavefoundry/framework/scripts/venv_bootstrap.py`
+- Drill in: `code_graph_community(hub_node_id=".wavefoundry/framework/scripts/upgrade_wavefoundry.py")` or `code_outline` on the key files above.
 
 ### render_platform_surfaces
 
@@ -138,6 +138,16 @@ _Grouping: graph communities collapsed to packages/directories. Areas shown: 24 
 - Key files: `.wavefoundry/framework/scripts/gen_codebase_map.py`, `.wavefoundry/framework/scripts/cli_stdio.py`, `.wavefoundry/framework/scripts/server_impl.py`
 - Drill in: `code_graph_community(hub_node_id=".wavefoundry/framework/scripts/gen_codebase_map.py")` or `code_outline` on the key files above.
 
+### docs/dashboard_lib
+
+- Path: `.wavefoundry/framework/scripts`
+- Area id: `docs-dashboard-lib` (MCP: `wavefoundry://area/docs-dashboard-lib`)
+- Responsibility: docs/dashboard_lib
+- Size: 57 graph nodes
+- Key entry points (by cross-file fan-in): `build_prefix` (function), `should_exclude` (function), `encode_base36` (function), `build_zip` (function), `main` (function)
+- Key files: `.wavefoundry/framework/scripts/build_pack.py`, `.wavefoundry/framework/scripts/lifecycle_id.py`, `.wavefoundry/framework/scripts/server_impl.py`
+- Drill in: `code_graph_community(hub_node_id=".wavefoundry/framework/scripts/build_pack.py")` or `code_outline` on the key files above.
+
 ### graph_cluster
 
 - Path: `.wavefoundry/framework/scripts`
@@ -148,15 +158,15 @@ _Grouping: graph communities collapsed to packages/directories. Areas shown: 24 
 - Key files: `.wavefoundry/framework/scripts/graph_cluster.py`
 - Drill in: `code_graph_community(hub_node_id=".wavefoundry/framework/scripts/graph_cluster.py")` or `code_outline` on the key files above.
 
-### build_pack
+### accel_embedder
 
 - Path: `.wavefoundry/framework/scripts`
-- Area id: `build-pack` (MCP: `wavefoundry://area/build-pack`)
-- Responsibility: build_pack
+- Area id: `accel-embedder` (MCP: `wavefoundry://area/accel-embedder`)
+- Responsibility: accel_embedder
 - Size: 26 graph nodes
-- Key entry points (by cross-file fan-in): `should_exclude` (function), `build_zip` (function), `main` (function), `compute_build_suffix` (function), `check_docs_gate` (function)
-- Key files: `.wavefoundry/framework/scripts/build_pack.py`
-- Drill in: `code_graph_community(hub_node_id=".wavefoundry/framework/scripts/build_pack.py")` or `code_outline` on the key files above.
+- Key entry points (by cross-file fan-in): `build_static_onnx` (function), `rerank` (function), `offloads_to_gpu` (function), `make_embedder` (function), `make_reranker` (function)
+- Key files: `.wavefoundry/framework/scripts/accel_embedder.py`
+- Drill in: `code_graph_community(hub_node_id=".wavefoundry/framework/scripts/accel_embedder.py")` or `code_outline` on the key files above.
 
 ### design_token_build
 
@@ -167,6 +177,16 @@ _Grouping: graph communities collapsed to packages/directories. Areas shown: 24 
 - Key entry points (by cross-file fan-in): `build` (function), `exports_stale` (function), `render_tailwind` (function), `update_manifest_parity` (function), `TokenBuildError` (class)
 - Key files: `.wavefoundry/framework/scripts/design_token_build.py`
 - Drill in: `code_graph_community(hub_node_id=".wavefoundry/framework/scripts/design_token_build.py")` or `code_outline` on the key files above.
+
+### graph_query
+
+- Path: `.wavefoundry/framework/scripts`
+- Area id: `graph-query` (MCP: `wavefoundry://area/graph-query`)
+- Responsibility: graph_query
+- Size: 22 graph nodes
+- Key entry points (by cross-file fan-in): `collapse_generated_view` (function), `graph_impact` (function), `risk_score` (function), `resolve_symbol` (function), `shortest_path` (function)
+- Key files: `.wavefoundry/framework/scripts/graph_query.py`
+- Drill in: `code_graph_community(hub_node_id=".wavefoundry/framework/scripts/graph_query.py")` or `code_outline` on the key files above.
 
 ### upgrade_extensions
 
@@ -214,7 +234,7 @@ _Grouping: graph communities collapsed to packages/directories. Areas shown: 24 
 - Path: `docs`
 - Area id: `docs` (MCP: `wavefoundry://area/docs`)
 - Responsibility: configuration / manifest files
-- Size: 220 graph nodes
+- Size: 197 graph nodes
 - Kind: configuration/data (no code entry points; this area is config/manifest files).
 - Key files: `docs/workflow-config.json`, `docs/repo-profile.json`
 - Drill in: `code_graph_community(hub_node_id="docs/workflow-config.json")` or `code_outline` on the key files above.
@@ -241,28 +261,6 @@ _Grouping: graph communities collapsed to packages/directories. Areas shown: 24 
 - Area context: [docs/design-system/AGENTS.md](../design-system/AGENTS.md) — conventions/gotchas; consult before working in this area.
 - Drill in: `code_graph_community(hub_node_id="docs/design-system/exports/json/tokens.json")` or `code_outline` on the key files above.
 
-### nav-sidebar (config)
-
-- Path: `docs/design-system/components/nav-sidebar`
-- Area id: `nav-sidebar` (MCP: `wavefoundry://area/nav-sidebar`)
-- Responsibility: configuration / manifest files
-- Size: 32 graph nodes
-- Kind: configuration/data (no code entry points; this area is config/manifest files).
-- Key files: `docs/design-system/components/nav-sidebar/spec.json`
-- Area context: [docs/design-system/AGENTS.md](../design-system/AGENTS.md) — conventions/gotchas; consult before working in this area.
-- Drill in: `code_graph_community(hub_node_id="docs/design-system/components/nav-sidebar/spec.json")` or `code_outline` on the key files above.
-
-### badge (config)
-
-- Path: `docs/design-system/components/badge`
-- Area id: `badge` (MCP: `wavefoundry://area/badge`)
-- Responsibility: configuration / manifest files
-- Size: 31 graph nodes
-- Kind: configuration/data (no code entry points; this area is config/manifest files).
-- Key files: `docs/design-system/components/badge/spec.json`
-- Area context: [docs/design-system/AGENTS.md](../design-system/AGENTS.md) — conventions/gotchas; consult before working in this area.
-- Drill in: `code_graph_community(hub_node_id="docs/design-system/components/badge/spec.json")` or `code_outline` on the key files above.
-
 ## More areas
 
-15 additional smaller area(s) are not shown here to keep the top tier readable. Enumerate the full community structure with `code_graph_report(sections=["communities"], limit=100)` and drill in with `code_graph_community`.
+17 additional smaller area(s) are not shown here to keep the top tier readable. Enumerate the full community structure with `code_graph_report(sections=["communities"], limit=100)` and drill in with `code_graph_community`.

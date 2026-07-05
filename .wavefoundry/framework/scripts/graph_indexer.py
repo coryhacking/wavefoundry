@@ -35,7 +35,7 @@ except ImportError:  # pragma: no cover - exercised when tree-sitter is not inst
     _TSParser = None  # type: ignore[assignment]
 
 GRAPH_SCHEMA_VERSION = "1"
-GRAPH_BUILDER_VERSION = "37"  # Wave 1p9qh (java-csharp-enterprise-accuracy) — coordinated SINGLE bump covering the whole wave (later lanes do not re-bump). (1p9q9) Structured Java import parsing: Java `import_declaration` nodes are parsed structurally (explicit / wildcard / static member / static wildcard) instead of falling to the shared regex fallback, which truncated `import com.foo.*;` into a useless `com.foo.` candidate and emitted a spurious `external::static` edge for every static import. Wildcard imports now emit a package-prefix `imports` edge (`external::com.foo.*`) that participates in ambiguous-receiver disambiguation with the same unique-survivor rule as an explicit import (two matching wildcards → stay external; a same-package twin counts as an implicit match so Java package shadowing is honored); statically-imported members resolve bare calls (`import static com.foo.Bar.baz;` + `baz()` → project `Bar.baz` when it exists, else qualified `external::Bar.baz` — never bare; static wildcard analogous for otherwise-unresolved bare calls); `external::static` never appears. Non-Java candidate extraction is untouched (the shared regex is unchanged; regression-pinned). (1p9qa) Inheritance edges (`extends`/`implements`) + inherited-method resolution for Java/C#. (1p9qb) `this.field` receiver resolution, annotation-type kind fix, and package-declaration-keyed disambiguation. Extraction-output + edge-set shape change → bump so consumer caches re-extract. Previous bump (1p9q3 (1p9py, compact+gzip+atomic persistence)): graph artifacts are now written as gzip-compressed COMPACT JSON (separators=(",", ":"), sort_keys retained) through a same-directory temp file + os.replace atomic write; readers sniff the gzip magic bytes (0x1f 0x8b) and transparently fall back to legacy plain JSON, and a corrupted/truncated gzip degrades to the caller default exactly like corrupted JSON. Serialization-only — node/edge content, counts, and `input_fingerprint` semantics are unchanged — but the on-disk artifact FORMAT changed, so bump per the standing artifact-shape rule (downstream caches and the version-staleness query path treat the transition as a rebuild boundary, rewriting pre-upgrade plain artifacts compressed). This single bump also covers the wave's sibling artifact-shape changes (1p9q1 build-time betweenness, 1p9q2 incremental merge state store) per the coordinated-single-bump serialization point. Previous bump (1p7dh, reads_config Java/Spring file config): extended the config-key->reader `reads_config` edge to Java/Spring FILE config — `.properties`/`.yml`/`.yaml` now emit config-key NODES (`file::dotted.key`, kind "class") and Java artifacts capture `@Value("${key}")` placeholders + `getProperty`/`getRequiredProperty` calls into `config_read_candidates`; the language-agnostic finalize pass binds them on a unique config-file + distinctive-key match. Extraction-output change (new nodes + populated config_read_candidates → new edges) → bump so consumer caches re-extract. Previous bump (1p7de (graph-edge-trust)): coordinated bump for two extractor changes (1p7dg confidence promotion + 1p7dh string-literal binding) so consumers re-extract. (v34 supersedes the in-flight v33 test builds: the 1p7dh `instruments` capture was refined to read `namedOneOf(...)` multi-arg matchers + matchers nested in structural wrappers (`implementsInterface`/`hasSuperType`/`isSubTypeOf`) — an EXTRACTION-OUTPUT change, so it gets its own version increment per the builder-version discipline; without the bump an incremental-update consumer that skips unchanged files would not pick up the broadened `instruments` targets. Downstream-validated: javaagent 24/24 OTel TypeInstrumentation classes carry correct `instruments`; Swift solaris promotion realized EXTRACTED 52.7%→33.4%.) 1p7dg generalizes the v23 TS/JS confidence promotion to ALL languages: a call that binds a UNIQUE non-`external::` project node (same-file `symbol_lookup` match at the extraction site, or an exact-unique cross-file rewrite — exact simple name / exact qualified name / Go package-authoritative / import-edge-disambiguated) is promoted EXTRACTED→RECEIVER_RESOLVED. Target UNCHANGED — only the confidence label moves on an already-unique bind — so no new wrong-twin/zeroed-edge risk; the AC-2 type-guess fallback + same-dir/C# namespace heuristics deliberately stay EXTRACTED. Self-host lift: Python EXTRACTED 90.4%→31.9%, resolved 1,136→8,102. 1p7dh adds a new `reads_config` EDGE (a code site `.get("KEY")`/`cfg["KEY"]` → the config-key node `file.json::key` it reads, at `LITERAL_DERIVED` confidence; triple-gated — config-file basename + key-distinctiveness + unique match — so ubiquitous dict literals don't bind data-JSON keys) and a new `instruments` NODE PROPERTY on OTel `TypeInstrumentation` classes (their `typeMatcher()` ByteBuddy matcher target strings, descriptive metadata — NOT an edge, since instrumentation targets are ~100% third-party by design). Edge-confidence relabels + new relation + new node property → node/edge-set shape change → bump (consumer graph caches re-extract). Previous bump (1p66e, graph-edge-extraction-determinism): cross-file resolution made order-independent so identical input yields an identical resolved edge set across from-scratch rebuilds (a consumer observed 75068 vs 74890 edges on identical source). Three order-dependent sites fixed with explicit stable tie-breaks: (a) `per_file_simple` length-tie now breaks on the lexicographically smaller node_id (was first-seen by node_map iteration order); (b) `imports_by_file` final-segment collision now keeps the lexicographically smallest FQN (was "later import wins" by edge_map order); (c) cross-file edge rewrites are applied sorted by (new_key, old_key) so a `setdefault` collapse onto the same new_key keeps a stable survivor. Plus a persisted `input_fingerprint` (sha256 over the sorted node-set + sorted resolved edge-set) in the graph payload + state for downstream reproducibility verification. Edge-set shape stabilizes → bump so consumer caches re-extract. Faithfulness preserved: every resolution branch still requires a UNIQUE (`len==1`) match, so no `len==1` outcome changes and no wrong same-name twin is newly bound — only genuinely-ambiguous tie choices are made deterministic. Previous bump (1p61v, ts-symbol-kind-extraction-faithfulness): TS/JS type-shape members are no longer mislabeled `function`. A `type_alias_declaration` now extracts as kind="type" and an interface/object-type `property_signature` (a `: T` data member) as kind="property" (method *signatures* keep `function`) — previously both fell through to the default `function`, so `code_outline`-invisible `: string` fields and `export type` aliases rendered as `(function)` entry points in the codebase map (p60n field trace, Issue 1). Plus a registration-site faithfulness guard (`_ts_is_emittable_symbol_name`): a definition whose picked name is the reserved word `function` (anonymous `function (…){}` expressions) or a non-identifier route-path token (`/`) is no longer registered as a junk symbol (Issue 2). Node KIND-set + node-set shape change → bump (consumer graph caches re-extract). Conservative: contextual keywords that are legal identifiers (`type`, `async`, `fn`, …) are NOT rejected, so no real callable is dropped. Previous bump (1p5c4, guard-oversized-files-indexing): files over the tree-sitter parse cap (default 2 MB; override WAVEFOUNDRY_MAX_TS_PARSE_BYTES / `indexing.max_treesitter_parse_bytes`) now SKIP AST graph extraction, and files over the hard size cap are dropped from the walk entirely — so oversized files contribute no graph nodes. Bump forces re-extraction so any large file parsed under v29 has its stale nodes pruned. Wave 1p4up (member-access-constant-reads): a CONSTANT accessed via a qualified member expression (`Status.ACTIVE`, `AppConstants.Network.userAgent`, `Outer.Inner.TOKEN`, Ruby/PHP `A::B::C`) now produces a function→constant `reads` edge by EXACT qualified-name match (const-kind-gated; the qualifier disambiguates so a same-leaf param/import/bare-call can't match). Faithfulness guards: F1 full-qname (not `_simple_name` partial key), F2 reject `this`/`self`/`super`/`cls`, F4 qualifier-shadow (a member-access read whose head is a function param/local is dropped — `func_locals` from per-language binding nodes) + the property/trailing leaf of a member access is no longer also buffered as a bare read (member-path resolves it instead). New `reads` edges → node/edge-set shape change → bump (consumer graph caches re-extract). Wave 1p4q4 review (28) (D1/D2): namespace-scoped enum member nodes now carry the enclosing namespace prefix (`NSA.Inner.AAA` vs `NSB.Inner.AAA` — no cross-namespace collision/clobber), and constant nodes are EXEMPT from the ≤2-char short-symbol prune so short members (`Status.OK`/`Dir.Up`) resolve. Node-set shape change → bump (consumer graph caches re-extract). Wave 1p4q4 (27): TS `enum`/`const enum` members are now `kind="constant"` graph nodes (`Enum.Member`), child of the enum type node. Wave 1p4ls (26) (graph-constant-nodes-and-references): module-/type-level CONSTANT declarations are now graph nodes (kind="constant", carrying a simple-literal `value` where the RHS is a literal) across all core languages, plus a faithfulness-gated function→constant `reads` edge (same-scope + explicitly-imported only; never binds a coincidental same-name twin — symbol_lookup uniqueness + a const-kind gate + a local-shadow guard). Consumers surface them: code_definition resolves a constant name; code_references lists readers in a distinct `reads` bucket (NOT merged into callers); graph_neighbors includes constants when `reads` is requested. `reads` is OPT-IN for default 1-hop traversal (excluded when no explicit relations are passed, so a hot constant does not balloon neighbor sets / 1p4hu expansion) and stays OUT of the impact/call default relations; constant nodes + `reads` edges are excluded from clustering (CLUSTER_BUILDER_VERSION 8→9, no community-label shift). resolve_symbol is kind-aware (a constant sharing a simple name no longer shadows a callable lookup). Detection reuses the 1p4mf chunk-lane per-language predicates (one detector, two consumers — Req-7); the graph lane is BROADER where it lands naturally (class/type-level constants; Swift enum cases; Go grouped-const per member). NOTE: TS `enum`/`const enum` members ARE emitted as constant nodes (`Enum.Member`) — delivered in 1p4q4 (see the v27 line at the top). Kotlin bare top-level/object `val` (no `const`) stays `kind="variable"` (an immutable binding is not a compile-time constant — won't-do). Previous bump (1p4eq, cross-file-resolution-followups): one consolidated bump covering five graph-shaping changes: (1p4ef) fix a leaked `qualified` loop var that injected phantom qualified_index candidates for collapsed/basename-merged nodes (C#/Swift/Rust/Ruby) and silently suppressed unique cross-file resolution; (1p4er) same-package/same-directory disambiguation fallback for ambiguous receivers used WITHOUT an import (Java field miss, `JreCompat.canAccess`), GATED to Java/Kotlin/Go (same-dir ⇒ same-package visibility; Python/JS/TS/Rust/C# excluded); (1p4et) Go methods now keyed `Type.method` (was bare `method`) + package-qualified receiver inference (`var h foo.Helper` → `foo.Helper`, package PRESERVED and resolved by the candidate's package directory); (1p4eu) Rust `Type::assoc_fn()` resolution + struct-literal/`::new()` let-binding type inference; (1p4ev) C# namespace-membership disambiguation (own-namespace ∪ `using`), the namespace derived from each file's DECLARED namespace nodes by longest-prefix (nesting-proof), NOT by fixed-segment qname stripping. FAITHFULNESS FIXES (1p4eq adversarial verification): the 1p4et/1p4ev paths above already incorporate the over-resolution fixes the verification caught — dropping the Go package qualifier bound a co-located cross-package twin, and fixed-segment C# namespace stripping mis-derived a nested-class caller's namespace and bound a coincident sibling twin; both now stay external unless a unique package/namespace-faithful candidate matches. COVERAGE SCOPE — synthetic-fixture tests only, NOT yet validated against a real consumer project: same-package = Java; cross-file method/assoc-fn = Go + Rust; ambiguous-receiver namespace membership = C#. Each carries an adversarial "never binds the wrong twin / stays external" test. **Correction to the v24 line below:** v24 advertised its `imports`-edge disambiguation as "language-agnostic (Python + Java/Kotlin/C#/Go)" — that was over-stated; it fired ONLY for Python + Java (per-type imports), and was dead code for C#/Go/Rust (their import heads are namespaces/packages, not type names) until v25 supplied the per-language mechanisms above. Previous bump (1p47e 1p470): Python sibling-loader return-type inference + cross-file import disambiguation. v24 resolves the lazy-loader blast-radius hole — `gq = _load_graph_query()` (→ `_load_script("graph_query")`) and direct `v = _load_script("mod")` now bind `v.Class.method()` / `v.func()` to the loaded module's symbols (previously emitted NO edge because `v` had no known type; e.g. `GraphQueryIndex.from_root` was called from 14 sites with 0 incoming edges). Also adds import-edge-based disambiguation in the cross-file rewrite pass: an ambiguous `external::Type.method` (multiple same-simple-name candidates) is disambiguated via the source file's `imports` edge for `Type`, language-agnostically (Python + Java/Kotlin/C#/Go). Previous bump (1p2q3 / 1p2tz post-ship-5 1.3.16): TS/JS symbol-table promotion. Intra-file (and cross-file unique-simple-name) calls where `_ts_resolve_target` bound directly to a project node previously landed as `EXTRACTED` even though the binding required an exact match in `symbol_lookup`. Field validation on the v22 stable state showed `getRootToken` and similar intra-file arrow-const targets had only `EXTRACTED` incoming edges — invisible to the `receiver_resolved` attribution bucket — despite the symbol being correctly resolved at extraction time. v23 promotes these to `RECEIVER_RESOLVED` for TS/JS only: when `_ts_resolve_target` returns a non-`external::` project node (i.e. the call site bound to a locally-defined symbol or to the unique cross-file simple-name match) the edge is high-confidence by construction. Affects TS/JS only — other languages route through their per-language receiver resolvers + the cross-file rewrite pass and are out of scope for this round. Previous bump (1.3.12 v21→v22): TS/JS relative-import path resolution into import_targets. v21 emitted arrow-const function nodes but +9,379 of the new TS edges landed as EXTRACTED rather than RECEIVER_RESOLVED because intra-package callers using relative imports (`import { foo } from './events'`) had `import_targets[foo]` populated with the lossy `external::events` form. The cross-file rewrite pass then promoted the edge to the right project node but kept it at EXTRACTED confidence. v22 extracts the raw module specifier before `_ts_clean_name` strips the `./` prefix, resolves relative imports against the source file's directory, then runs the same barrel walk + import_targets binding as the aliased path. The +9,379 EXTRACTED edges observed in the field in v21 → v22 should migrate to RECEIVER_RESOLVED for any intra-package direct call to a relatively-imported arrow-const. Affects TS/JS only. Previous bump (1.3.11 v20→v21) was the arrow-const node-emission half — v22 completes the receiver-type attribution half. Modern TS code uses `export const foo = async (args) => { ... }` as the dominant function shape (field-confirmed: ALL backend functions on a 12k-node Nx monorepo are arrow-const, zero `function` declarations). Tree-sitter parses these as `lexical_declaration → variable_declarator → arrow_function`, not `function_declaration`, so the default name-from-descendants extractor returned empty and the symbol never registered. v21 detects arrow-const bindings explicitly and registers each as a function symbol; walks scope through the arrow body so calls FROM inside arrow-const-bound functions get attributed to the const name rather than the file. Expected impact on barrel-export-heavy + arrow-const-heavy codebases: TS resolved-share rises from 6% range into 30–60% (per field estimate). Affects TS/JS only — other languages unchanged. Previous bump (1.3.10 v19→v20) covered direct-function-call import_targets promotion + bundler-mode .js→.ts swap + community-label barrel deprioritization
+GRAPH_BUILDER_VERSION = "38"  # Wave 1p9qi (sql-graph-accuracy) — coordinated SINGLE bump covering the whole wave (later lanes do not re-bump). (1p9qc) SQL keyword-noise suppression: all-relation, case-insensitive SQL keyword stoplist (`_SQL_RELATION_KEYWORD_STOPLIST` + `_sql_relation_candidate_filter`, SQL mode only) + dotted/bare column-token reduction (structural `field`/`object_reference` disambiguation) + the self-referential CREATE-import skip — previously every SQL file minted fake `external::FROM/JOIN/ON/SELECT/WHERE` nodes and `external::users.id`-style column externals on both `calls` and `imports`. (1p9qd) Clause-aware SQL statement-unit extraction rewrite: the generic substring/regex candidate path is RETIRED for SQL mode (`_sql_apply_file_extraction` + the frozen public unit `sql_statement_references(sql_text)`); references come only from `object_reference` clause positions with statement-derived direction, so SQL emits `reads` and NEW `writes` relation edges instead of `calls`/`imports` (writes = INSERT INTO/UPDATE/DELETE FROM/MERGE INTO/ALTER/DROP/TRUNCATE targets); view/FK/index lineage as reads; new `sql_kind` node property (table/view/procedure/function/trigger; node kind stays class/function); qualified-name (schema.table) resolution; phantom alias/CTE/temp/derived-table definitions no longer minted — relation-set + node-set + property shape change. (1p9qe) ERROR-region DDL recovery tier: top-level ERROR regions route to a bounded, comment/string-masked line-anchored scan recovering CREATE {PROCEDURE|FUNCTION|TRIGGER|TABLE|VIEW|INDEX} definitions with `extraction: "sql_recovery"` provenance, plus module-node `sql_error_regions`/`sql_recovered_definitions`/`sql_unrecovered_regions` count properties; recovered routine bodies re-parse through the statement unit and their references RE-ATTACH to the recovered routine node (previously procedures vanished and body references dangled at module scope). (1p9qf) Embedded-SQL capture at known Java/C#/MyBatis-XML sinks: NEW fragment keys `sql_capture_candidates`/`sql_capture_dynamic` (joined the incremental-merge passthrough list); finalize bind via the statement unit → method→table `reads`/`writes` at LITERAL_DERIVED, unique-match-or-drop with identifier-quote normalization, unmatched tables mint relation-scoped `external::sql::<name>` externals (invariant-tested namespace). (1p9qg) ORM entity→table mapping: NEW `maps_to` relation (JPA `@Entity`+`@Table(name=…)`/`@Entity(name=…)`, EF `[Table("…")]`/`ToTable("…")` positive-origin sinks → table node at LITERAL_DERIVED, declared names only — conventions refused and counted); NEW fragment keys `orm_entity_candidates`/`orm_entity_dynamic`/`orm_entity_convention` (passthrough list). Two new relations + SQL relation migration (calls/imports → reads/writes) + new node properties + new fragment keys + node-set change → bump so consumer caches re-extract (a cached fragment from v37 would silently lack the new keys and the SQL edge model). Previous bump (1p9qh, java-csharp-enterprise-accuracy — coordinated SINGLE bump covering the whole wave; later lanes do not re-bump): (1p9q9) Structured Java import parsing: Java `import_declaration` nodes are parsed structurally (explicit / wildcard / static member / static wildcard) instead of falling to the shared regex fallback, which truncated `import com.foo.*;` into a useless `com.foo.` candidate and emitted a spurious `external::static` edge for every static import. Wildcard imports now emit a package-prefix `imports` edge (`external::com.foo.*`) that participates in ambiguous-receiver disambiguation with the same unique-survivor rule as an explicit import (two matching wildcards → stay external; a same-package twin counts as an implicit match so Java package shadowing is honored); statically-imported members resolve bare calls (`import static com.foo.Bar.baz;` + `baz()` → project `Bar.baz` when it exists, else qualified `external::Bar.baz` — never bare; static wildcard analogous for otherwise-unresolved bare calls); `external::static` never appears. Non-Java candidate extraction is untouched (the shared regex is unchanged; regression-pinned). (1p9qa) Inheritance edges (`extends`/`implements`) + inherited-method resolution for Java/C#. (1p9qb) `this.field` receiver resolution, annotation-type kind fix, and package-declaration-keyed disambiguation. Extraction-output + edge-set shape change → bump so consumer caches re-extract. Previous bump (1p9q3 (1p9py, compact+gzip+atomic persistence)): graph artifacts are now written as gzip-compressed COMPACT JSON (separators=(",", ":"), sort_keys retained) through a same-directory temp file + os.replace atomic write; readers sniff the gzip magic bytes (0x1f 0x8b) and transparently fall back to legacy plain JSON, and a corrupted/truncated gzip degrades to the caller default exactly like corrupted JSON. Serialization-only — node/edge content, counts, and `input_fingerprint` semantics are unchanged — but the on-disk artifact FORMAT changed, so bump per the standing artifact-shape rule (downstream caches and the version-staleness query path treat the transition as a rebuild boundary, rewriting pre-upgrade plain artifacts compressed). This single bump also covers the wave's sibling artifact-shape changes (1p9q1 build-time betweenness, 1p9q2 incremental merge state store) per the coordinated-single-bump serialization point. Previous bump (1p7dh, reads_config Java/Spring file config): extended the config-key->reader `reads_config` edge to Java/Spring FILE config — `.properties`/`.yml`/`.yaml` now emit config-key NODES (`file::dotted.key`, kind "class") and Java artifacts capture `@Value("${key}")` placeholders + `getProperty`/`getRequiredProperty` calls into `config_read_candidates`; the language-agnostic finalize pass binds them on a unique config-file + distinctive-key match. Extraction-output change (new nodes + populated config_read_candidates → new edges) → bump so consumer caches re-extract. Previous bump (1p7de (graph-edge-trust)): coordinated bump for two extractor changes (1p7dg confidence promotion + 1p7dh string-literal binding) so consumers re-extract. (v34 supersedes the in-flight v33 test builds: the 1p7dh `instruments` capture was refined to read `namedOneOf(...)` multi-arg matchers + matchers nested in structural wrappers (`implementsInterface`/`hasSuperType`/`isSubTypeOf`) — an EXTRACTION-OUTPUT change, so it gets its own version increment per the builder-version discipline; without the bump an incremental-update consumer that skips unchanged files would not pick up the broadened `instruments` targets. Downstream-validated: javaagent 24/24 OTel TypeInstrumentation classes carry correct `instruments`; Swift solaris promotion realized EXTRACTED 52.7%→33.4%.) 1p7dg generalizes the v23 TS/JS confidence promotion to ALL languages: a call that binds a UNIQUE non-`external::` project node (same-file `symbol_lookup` match at the extraction site, or an exact-unique cross-file rewrite — exact simple name / exact qualified name / Go package-authoritative / import-edge-disambiguated) is promoted EXTRACTED→RECEIVER_RESOLVED. Target UNCHANGED — only the confidence label moves on an already-unique bind — so no new wrong-twin/zeroed-edge risk; the AC-2 type-guess fallback + same-dir/C# namespace heuristics deliberately stay EXTRACTED. Self-host lift: Python EXTRACTED 90.4%→31.9%, resolved 1,136→8,102. 1p7dh adds a new `reads_config` EDGE (a code site `.get("KEY")`/`cfg["KEY"]` → the config-key node `file.json::key` it reads, at `LITERAL_DERIVED` confidence; triple-gated — config-file basename + key-distinctiveness + unique match — so ubiquitous dict literals don't bind data-JSON keys) and a new `instruments` NODE PROPERTY on OTel `TypeInstrumentation` classes (their `typeMatcher()` ByteBuddy matcher target strings, descriptive metadata — NOT an edge, since instrumentation targets are ~100% third-party by design). Edge-confidence relabels + new relation + new node property → node/edge-set shape change → bump (consumer graph caches re-extract). Previous bump (1p66e, graph-edge-extraction-determinism): cross-file resolution made order-independent so identical input yields an identical resolved edge set across from-scratch rebuilds (a consumer observed 75068 vs 74890 edges on identical source). Three order-dependent sites fixed with explicit stable tie-breaks: (a) `per_file_simple` length-tie now breaks on the lexicographically smaller node_id (was first-seen by node_map iteration order); (b) `imports_by_file` final-segment collision now keeps the lexicographically smallest FQN (was "later import wins" by edge_map order); (c) cross-file edge rewrites are applied sorted by (new_key, old_key) so a `setdefault` collapse onto the same new_key keeps a stable survivor. Plus a persisted `input_fingerprint` (sha256 over the sorted node-set + sorted resolved edge-set) in the graph payload + state for downstream reproducibility verification. Edge-set shape stabilizes → bump so consumer caches re-extract. Faithfulness preserved: every resolution branch still requires a UNIQUE (`len==1`) match, so no `len==1` outcome changes and no wrong same-name twin is newly bound — only genuinely-ambiguous tie choices are made deterministic. Previous bump (1p61v, ts-symbol-kind-extraction-faithfulness): TS/JS type-shape members are no longer mislabeled `function`. A `type_alias_declaration` now extracts as kind="type" and an interface/object-type `property_signature` (a `: T` data member) as kind="property" (method *signatures* keep `function`) — previously both fell through to the default `function`, so `code_outline`-invisible `: string` fields and `export type` aliases rendered as `(function)` entry points in the codebase map (p60n field trace, Issue 1). Plus a registration-site faithfulness guard (`_ts_is_emittable_symbol_name`): a definition whose picked name is the reserved word `function` (anonymous `function (…){}` expressions) or a non-identifier route-path token (`/`) is no longer registered as a junk symbol (Issue 2). Node KIND-set + node-set shape change → bump (consumer graph caches re-extract). Conservative: contextual keywords that are legal identifiers (`type`, `async`, `fn`, …) are NOT rejected, so no real callable is dropped. Previous bump (1p5c4, guard-oversized-files-indexing): files over the tree-sitter parse cap (default 2 MB; override WAVEFOUNDRY_MAX_TS_PARSE_BYTES / `indexing.max_treesitter_parse_bytes`) now SKIP AST graph extraction, and files over the hard size cap are dropped from the walk entirely — so oversized files contribute no graph nodes. Bump forces re-extraction so any large file parsed under v29 has its stale nodes pruned. Wave 1p4up (member-access-constant-reads): a CONSTANT accessed via a qualified member expression (`Status.ACTIVE`, `AppConstants.Network.userAgent`, `Outer.Inner.TOKEN`, Ruby/PHP `A::B::C`) now produces a function→constant `reads` edge by EXACT qualified-name match (const-kind-gated; the qualifier disambiguates so a same-leaf param/import/bare-call can't match). Faithfulness guards: F1 full-qname (not `_simple_name` partial key), F2 reject `this`/`self`/`super`/`cls`, F4 qualifier-shadow (a member-access read whose head is a function param/local is dropped — `func_locals` from per-language binding nodes) + the property/trailing leaf of a member access is no longer also buffered as a bare read (member-path resolves it instead). New `reads` edges → node/edge-set shape change → bump (consumer graph caches re-extract). Wave 1p4q4 review (28) (D1/D2): namespace-scoped enum member nodes now carry the enclosing namespace prefix (`NSA.Inner.AAA` vs `NSB.Inner.AAA` — no cross-namespace collision/clobber), and constant nodes are EXEMPT from the ≤2-char short-symbol prune so short members (`Status.OK`/`Dir.Up`) resolve. Node-set shape change → bump (consumer graph caches re-extract). Wave 1p4q4 (27): TS `enum`/`const enum` members are now `kind="constant"` graph nodes (`Enum.Member`), child of the enum type node. Wave 1p4ls (26) (graph-constant-nodes-and-references): module-/type-level CONSTANT declarations are now graph nodes (kind="constant", carrying a simple-literal `value` where the RHS is a literal) across all core languages, plus a faithfulness-gated function→constant `reads` edge (same-scope + explicitly-imported only; never binds a coincidental same-name twin — symbol_lookup uniqueness + a const-kind gate + a local-shadow guard). Consumers surface them: code_definition resolves a constant name; code_references lists readers in a distinct `reads` bucket (NOT merged into callers); graph_neighbors includes constants when `reads` is requested. `reads` is OPT-IN for default 1-hop traversal (excluded when no explicit relations are passed, so a hot constant does not balloon neighbor sets / 1p4hu expansion) and stays OUT of the impact/call default relations; constant nodes + `reads` edges are excluded from clustering (CLUSTER_BUILDER_VERSION 8→9, no community-label shift). resolve_symbol is kind-aware (a constant sharing a simple name no longer shadows a callable lookup). Detection reuses the 1p4mf chunk-lane per-language predicates (one detector, two consumers — Req-7); the graph lane is BROADER where it lands naturally (class/type-level constants; Swift enum cases; Go grouped-const per member). NOTE: TS `enum`/`const enum` members ARE emitted as constant nodes (`Enum.Member`) — delivered in 1p4q4 (see the v27 line at the top). Kotlin bare top-level/object `val` (no `const`) stays `kind="variable"` (an immutable binding is not a compile-time constant — won't-do). Previous bump (1p4eq, cross-file-resolution-followups): one consolidated bump covering five graph-shaping changes: (1p4ef) fix a leaked `qualified` loop var that injected phantom qualified_index candidates for collapsed/basename-merged nodes (C#/Swift/Rust/Ruby) and silently suppressed unique cross-file resolution; (1p4er) same-package/same-directory disambiguation fallback for ambiguous receivers used WITHOUT an import (Java field miss, `JreCompat.canAccess`), GATED to Java/Kotlin/Go (same-dir ⇒ same-package visibility; Python/JS/TS/Rust/C# excluded); (1p4et) Go methods now keyed `Type.method` (was bare `method`) + package-qualified receiver inference (`var h foo.Helper` → `foo.Helper`, package PRESERVED and resolved by the candidate's package directory); (1p4eu) Rust `Type::assoc_fn()` resolution + struct-literal/`::new()` let-binding type inference; (1p4ev) C# namespace-membership disambiguation (own-namespace ∪ `using`), the namespace derived from each file's DECLARED namespace nodes by longest-prefix (nesting-proof), NOT by fixed-segment qname stripping. FAITHFULNESS FIXES (1p4eq adversarial verification): the 1p4et/1p4ev paths above already incorporate the over-resolution fixes the verification caught — dropping the Go package qualifier bound a co-located cross-package twin, and fixed-segment C# namespace stripping mis-derived a nested-class caller's namespace and bound a coincident sibling twin; both now stay external unless a unique package/namespace-faithful candidate matches. COVERAGE SCOPE — synthetic-fixture tests only, NOT yet validated against a real consumer project: same-package = Java; cross-file method/assoc-fn = Go + Rust; ambiguous-receiver namespace membership = C#. Each carries an adversarial "never binds the wrong twin / stays external" test. **Correction to the v24 line below:** v24 advertised its `imports`-edge disambiguation as "language-agnostic (Python + Java/Kotlin/C#/Go)" — that was over-stated; it fired ONLY for Python + Java (per-type imports), and was dead code for C#/Go/Rust (their import heads are namespaces/packages, not type names) until v25 supplied the per-language mechanisms above. Previous bump (1p47e 1p470): Python sibling-loader return-type inference + cross-file import disambiguation. v24 resolves the lazy-loader blast-radius hole — `gq = _load_graph_query()` (→ `_load_script("graph_query")`) and direct `v = _load_script("mod")` now bind `v.Class.method()` / `v.func()` to the loaded module's symbols (previously emitted NO edge because `v` had no known type; e.g. `GraphQueryIndex.from_root` was called from 14 sites with 0 incoming edges). Also adds import-edge-based disambiguation in the cross-file rewrite pass: an ambiguous `external::Type.method` (multiple same-simple-name candidates) is disambiguated via the source file's `imports` edge for `Type`, language-agnostically (Python + Java/Kotlin/C#/Go). Previous bump (1p2q3 / 1p2tz post-ship-5 1.3.16): TS/JS symbol-table promotion. Intra-file (and cross-file unique-simple-name) calls where `_ts_resolve_target` bound directly to a project node previously landed as `EXTRACTED` even though the binding required an exact match in `symbol_lookup`. Field validation on the v22 stable state showed `getRootToken` and similar intra-file arrow-const targets had only `EXTRACTED` incoming edges — invisible to the `receiver_resolved` attribution bucket — despite the symbol being correctly resolved at extraction time. v23 promotes these to `RECEIVER_RESOLVED` for TS/JS only: when `_ts_resolve_target` returns a non-`external::` project node (i.e. the call site bound to a locally-defined symbol or to the unique cross-file simple-name match) the edge is high-confidence by construction. Affects TS/JS only — other languages route through their per-language receiver resolvers + the cross-file rewrite pass and are out of scope for this round. Previous bump (1.3.12 v21→v22): TS/JS relative-import path resolution into import_targets. v21 emitted arrow-const function nodes but +9,379 of the new TS edges landed as EXTRACTED rather than RECEIVER_RESOLVED because intra-package callers using relative imports (`import { foo } from './events'`) had `import_targets[foo]` populated with the lossy `external::events` form. The cross-file rewrite pass then promoted the edge to the right project node but kept it at EXTRACTED confidence. v22 extracts the raw module specifier before `_ts_clean_name` strips the `./` prefix, resolves relative imports against the source file's directory, then runs the same barrel walk + import_targets binding as the aliased path. The +9,379 EXTRACTED edges observed in the field in v21 → v22 should migrate to RECEIVER_RESOLVED for any intra-package direct call to a relatively-imported arrow-const. Affects TS/JS only. Previous bump (1.3.11 v20→v21) was the arrow-const node-emission half — v22 completes the receiver-type attribution half. Modern TS code uses `export const foo = async (args) => { ... }` as the dominant function shape (field-confirmed: ALL backend functions on a 12k-node Nx monorepo are arrow-const, zero `function` declarations). Tree-sitter parses these as `lexical_declaration → variable_declarator → arrow_function`, not `function_declaration`, so the default name-from-descendants extractor returned empty and the symbol never registered. v21 detects arrow-const bindings explicitly and registers each as a function symbol; walks scope through the arrow body so calls FROM inside arrow-const-bound functions get attributed to the const name rather than the file. Expected impact on barrel-export-heavy + arrow-const-heavy codebases: TS resolved-share rises from 6% range into 30–60% (per field estimate). Affects TS/JS only — other languages unchanged. Previous bump (1.3.10 v19→v20) covered direct-function-call import_targets promotion + bundler-mode .js→.ts swap + community-label barrel deprioritization
 GRAPH_DIRNAME = "graph"
 
 # Wave 1p9q3 (1p9py): graph artifacts persist as gzip-compressed COMPACT JSON.
@@ -305,6 +305,56 @@ _TS_CALL_KEYWORDS = ("call", "invoke", "invocation", "command", "expression", "q
 _RELATION_KEYWORD_NOISE = frozenset({
     "import", "use", "using", "package", "as", "from", "pub", "fn", "fun",
     "mod", "export", "include", "require",
+})
+# Wave 1p9qi (1p9qc): SQL keyword stoplist — originally the relation-candidate
+# noise filter for the generic regex-fallback path (statement keywords leaked
+# into BOTH call and import candidates and minted fake `external::FROM`-style
+# nodes from every SQL file; `_RELATION_KEYWORD_NOISE` above is import-only AND
+# case-sensitive, so uppercase `FROM` slipped past it even there). That
+# transitional filter (`_sql_relation_candidate_filter`) was removed at the
+# 1p9qi review once 1p9qd's clause-aware statement unit made SQL bypass the
+# generic candidate path entirely; the stoplist's LIVE consumer is now the
+# statement unit's `make_ref` refusal (a grammar mis-parse that lands a keyword
+# token in an `object_reference` position must still never mint a reference).
+# Membership is checked case-insensitively via `.casefold()` — SQL keywords are
+# case-insensitive. STRICTLY SQL-GATED: `select`/`update`/`delete`/`values`/…
+# are legitimate identifier names in host languages, so this stoplist must
+# never touch non-SQL candidate streams.
+# A sane common ANSI + mainstream-dialect superset, deliberately extensible;
+# a rare dialect straggler leaking is strictly better than systematic noise.
+# Known limitation (accepted in the change doc): an unquoted table literally
+# named like a keyword (e.g. `values`) is suppressed as a bare reference; it
+# still survives schema-qualified (`schema.values`).
+_SQL_RELATION_KEYWORD_STOPLIST = frozenset({
+    # core DML/query
+    "select", "from", "join", "on", "where", "group", "order", "by", "having",
+    "insert", "into", "update", "delete", "set", "values", "as", "distinct",
+    "limit", "offset", "top", "fetch", "merge", "matched", "output", "returning",
+    # operators / predicates
+    "and", "or", "not", "null", "is", "in", "like", "between", "exists", "any",
+    "all", "some", "case", "when", "then", "else", "end", "escape", "collate",
+    "asc", "desc", "true", "false", "unknown",
+    # joins / set ops
+    "left", "right", "inner", "outer", "full", "cross", "natural", "union",
+    "intersect", "except", "with", "using",
+    # DDL
+    "create", "table", "view", "index", "primary", "key", "foreign",
+    "references", "constraint", "unique", "default", "check", "drop", "alter",
+    "add", "column", "rename", "truncate", "replace", "temp", "temporary",
+    "if", "cascade", "restrict", "comment",
+    # procedural / transactional
+    "begin", "commit", "rollback", "transaction", "declare", "cursor", "open",
+    "close", "while", "loop", "for", "to", "return", "returns", "procedure",
+    "function", "trigger", "call", "execute", "exec", "grant", "revoke",
+    # windowing / misc functions that read as bare identifiers in clause text
+    "over", "partition", "row", "rows", "range", "window", "current",
+    "cast", "convert", "coalesce", "nullif", "count", "sum", "min", "max", "avg",
+    # common column type keywords (leak from DDL/CAST spans)
+    "int", "integer", "smallint", "bigint", "tinyint", "decimal", "numeric",
+    "float", "real", "double", "precision", "char", "character", "varchar",
+    "nvarchar", "text", "date", "time", "timestamp", "datetime", "interval",
+    "boolean", "bool", "blob", "clob", "binary", "varbinary", "serial", "uuid",
+    "json", "jsonb", "array",
 })
 _TS_NAME_FIELD_PRIORITY = (
     "name", "identifier", "declarator", "target", "module", "path", "label",
@@ -810,6 +860,37 @@ def _kind_for_path(rel_path: str) -> str:
 # Wave 1p4ls: constant graph nodes + the `reads` edge.
 GRAPH_CONST_KIND = "constant"
 GRAPH_READS_RELATION = "reads"
+
+# Wave 1p9qi (1p9qd): SQL clause-aware statement extraction.
+# `writes` is the WRITE-direction table-reference relation: a statement (or the
+# object owning it) INSERTs/UPDATEs/DELETEs/MERGEs-into/ALTERs/DROPs/TRUNCATEs
+# the target table. Chosen as a distinct RELATION (not a `mode` property on
+# `reads`) so relation-filtering consumers (impact, path, graph-signal
+# grouping, report queries) can distinguish read from write without
+# per-edge property inspection — the same reasoning that made
+# `extends`/`implements` relations rather than properties (wave 1p9qh).
+# Read-direction table references (FROM/JOIN sources, MERGE USING, view
+# lineage, FK REFERENCES) reuse GRAPH_READS_RELATION; their SQL origin is
+# recognized by source-file suffix (see `_sql_table_reference_edge`) because the
+# 1p4ls constant-read resolution (unique-constant-or-DROP) must not apply to
+# table references — a table reference resolves through the same
+# unique-candidate machinery as calls and STAYS EXTERNAL when unresolved
+# (an `external::audit_log` reference is real evidence, not a tombstone).
+GRAPH_WRITES_RELATION = "writes"
+
+# Wave 1p9qi (1p9qg): ORM entity→table mapping edges. An entity class with a
+# DECLARED table name (JPA `@Table(name = "…")`/`@Entity(name = "…")`, EF
+# `[Table("…")]`/`ToTable("…")`) maps onto the SQL table it rides. Chosen as
+# a distinct RELATION (not a property on `reads`, and not a reads+writes
+# pair) for the same consumer-sweep reasons that made `writes` a relation:
+# every downstream consumer (impact, path, graph-signal grouping, report)
+# filters by relation, and a mapping is neither a read nor a write — it is a
+# declaration fact with no query text behind it, so emitting `reads`/`writes`
+# would overstate the evidence. Minted ONLY by the finalize bind pass at
+# LITERAL_DERIVED confidence (never in per-file fragments); declared names
+# only — convention-derived names (snake_cased class names, EF pluralization)
+# are refused and counted (standing wave-1p9qi decision).
+GRAPH_MAPS_TO_RELATION = "maps_to"
 
 # Wave 1p7dh: string-literal binding surfaces.
 # `reads_config` is an EDGE binding a code site to the config-key node
@@ -2463,7 +2544,13 @@ def _ts_is_definition_node(node_type: str, mode: str) -> bool:
     if mode == "markup":
         return any(token in lower for token in ("element", "tag", "document", "fragment"))
     if mode == "sql":
-        return any(token in lower for token in _TS_SQL_DEF_KEYWORDS) or any(token in lower for token in ("table", "view", "cte", "statement", "schema"))
+        # Wave 1p9qi (1p9qd): SQL extraction is clause-aware — definitions come
+        # from the structured statement analysis (`_sql_analyze_program`), never
+        # from node-type substring matching (which registered CTE names, temp
+        # tables, and even MERGE aliases as schema objects). The generic walk
+        # no longer runs for SQL files at all; keep the classifier honest for
+        # any other caller.
+        return False
     if mode == "config":
         return any(token in lower for token in ("block", "pair", "property", "attribute", "rule", "selector", "entry", "key", "directive"))
     if any(token in lower for token in _TS_IMPORT_KEYWORDS) or "require" in lower or "source" in lower:
@@ -2815,7 +2902,12 @@ def _ts_is_import_node(node_type: str, mode: str) -> bool:
     if mode == "markup":
         return any(token in lower for token in ("script", "style", "link", "include", "import", "resource"))
     if mode == "sql":
-        return any(token in lower for token in ("from", "join", "into", "using", "with", "call", "reference", "source"))
+        # Wave 1p9qi (1p9qd): SQL never emits `imports` edges anymore — table
+        # references are clause-aware `reads`/`writes` edges from the
+        # structured statement analysis. The substring match here was too
+        # broad by construction (`object_reference` matched "reference",
+        # `keyword_from` matched "from") — 1p9qc finding (c).
+        return False
     if mode == "config":
         return any(token in lower for token in ("include", "import", "source", "path", "file", "template", "script", "command"))
     # Wave 1p4eu: the grammar ROOT node (`source_file` for Rust/Kotlin/Go/Swift/
@@ -2842,7 +2934,10 @@ def _ts_is_call_node(node_type: str, mode: str, profile: _TsLanguageProfile | No
     if mode == "markup":
         return any(token in lower for token in ("script", "style", "form", "link", "anchor", "event", "handler"))
     if mode == "sql":
-        return any(token in lower for token in ("select", "where", "join", "from", "into", "call", "update", "delete", "insert"))
+        # Wave 1p9qi (1p9qd): SQL table references come from the structured
+        # statement analysis (clause positions, read/write direction), never
+        # from clause-node substring matching + the regex candidate fallback.
+        return False
     if mode == "config":
         return any(token in lower for token in ("command", "action", "script", "target", "task", "job", "step", "run"))
     if profile is not None and profile.call_node_types:
@@ -6000,6 +6095,1032 @@ def _ts_extract_csharp_attributes(node, source_bytes: bytes) -> list[str]:
     return attributes
 
 
+# =============================================================================
+# Embedded-SQL capture at known Java/C# sinks (wave 1p9qi / 1p9qf).
+#
+# Two-stage design mirroring `reads_config`: a per-language CAPTURE stage
+# collects SQL-candidate string literals only at a fixed sink vocabulary
+# (MyBatis annotations, native @Query, JDBC prepare*, JdbcTemplate methods,
+# C# SqlCommand/CommandText, Dapper, EF raw methods, MyBatis mapper XML),
+# buffered per file as `sql_capture_candidates`; the finalize BIND stage runs
+# each captured statement through the frozen 1p9qd statement-analysis unit
+# (`sql_statement_references`) and binds source → table at LITERAL_DERIVED
+# confidence on a UNIQUE match against the SQL-defined node set. Dynamic /
+# concatenated-with-variable SQL is refused and counted per file
+# (`sql_capture_dynamic`) so the gap stays visible in build stats.
+#
+# ORIGIN-CHECK CONVENTION (this wave defines it; parallel extractor waves
+# mirror it): sinks with DISTINCTIVE names (prepareStatement/prepareCall,
+# FromSqlRaw/ExecuteSqlRaw, `new SqlCommand`) use a NEGATIVE origin check —
+# refuse only when the receiver/type is resolvable to a PROJECT-defined
+# symbol (a user-defined impostor); an unresolvable or external receiver
+# captures, bounded by the sniff gate. Sinks with GENERIC names
+# (JdbcTemplate `query`/`update`/`execute`) use a POSITIVE origin check —
+# capture only when the receiver type resolves to the known library type.
+# Dapper's extension methods (`Query`/`Execute` on any IDbConnection
+# implementation) have an open receiver-type set, so they take the negative
+# check + sniff gate (documented capture-precision tradeoff, census-measured).
+#
+# RECORDED RESIDUAL LIMITATION (1p9qi review, adversarial finding 2): both
+# origin-check arms resolve the receiver/type against THIS FILE's
+# `symbol_lookup` only — a same-file impostor is caught at capture time, but
+# a project-defined impostor class DEFINED IN ANOTHER FILE (a class literally
+# named `JdbcTemplate` with a `query(String)` method, imported/used from a
+# different file than its own declaration) is outside the same-file check's
+# reach at capture. Accepted, not fixed: the real-corpus census (Fineract +
+# Tomcat, `1p9qf`/`1p9qg` Progress Logs) found zero false positives from this
+# gap — a cross-file class that merely LOOKS like a sink by name and method
+# shape is overwhelmingly a genuine wrapper AROUND the real SQL library (not
+# an unrelated same-named type), so the captured literal still sniffs as SQL
+# and, when it binds, binds to a real table. Broadening the check to a full
+# cross-file symbol resolution is future field-demand work, not a shipped gap.
+# =============================================================================
+
+# Sniff gate (Requirement 4): a captured literal enters the pipeline only if
+# it LEADS with a SQL statement keyword (after whitespace/parens). Non-SQL
+# strings at sinks drop silently; SQL-looking strings NOT at a sink are never
+# captured at all (no repo-wide literal trawling).
+_SQL_SNIFF_KEYWORDS = frozenset({
+    "select", "insert", "update", "delete", "with", "merge", "call", "exec",
+})
+_SQL_SNIFF_LEAD_RE = re.compile(r"[A-Za-z]+")
+
+
+def _sql_text_sniffs_as_sql(text: str) -> bool:
+    lead = text.lstrip(" \t\r\n(")
+    match = _SQL_SNIFF_LEAD_RE.match(lead)
+    return bool(match) and match.group(0).casefold() in _SQL_SNIFF_KEYWORDS
+
+
+# Reserved external namespace for unmatched table references:
+#   external::sql::<table-name-as-written>
+#
+# RELATION-SCOPED INVARIANT (mirrors the `_SUPER_CALL_PREFIX` /
+# `_STATIC_OR_INHERITED_PREFIX` reserved-marker treatment above): the prefix
+# is NOT globally unmintable — nothing stops a future emitter (or an exotic
+# language construct) from producing an `external::sql::…`-shaped id on some
+# OTHER relation (the nearest real precedent: Rust `use sql::x;` mints the
+# DOTTED `external::sql.x` on `imports` — disjoint by form, pinned by test).
+# The actual safety contract: (a) the finalize bind passes (embedded-SQL
+# 1p9qf + ORM entity mapping 1p9qg) are the ONLY emitters of
+# `external::sql::` targets, on `reads`/`writes`/`maps_to` edges, always at
+# LITERAL_DERIVED confidence; (b) those edges are minted into the OUTPUT edge
+# map only — they never enter per-file fragments, so phase-1 cross-file
+# resolution (`_resolve_fragment_edge`) never sees, rewrites, or tombstones
+# them; and (c) the bind passes never READ ids by prefix — bind candidates are
+# `sql_kind`-carrying node_map entries only, so a source-minted lookalike id
+# can never become a bind target. Pinned by ExternalSqlNamespaceInvariantTests.
+_SQL_EXTERNAL_TABLE_PREFIX = "sql::"
+
+# MyBatis mapper-XML capture-source marker: `mybatis::<namespace>::<stmt_id>`.
+# Resolved at finalize to the mapper interface method / interface node when
+# uniquely present in the project, else falls back to the XML file's module
+# node (honest: the XML file demonstrably runs the SQL). Not mintable as a
+# node id: node ids are `<rel_path>::<qname>` and an indexable file path
+# always carries a suffix, so no file yields the bare `mybatis` head.
+_MYBATIS_SOURCE_PREFIX = "mybatis::"
+
+# MyBatis `#{param}` placeholders are prepared-statement bind params; replace
+# with `?` (grammar-clean) before statement analysis. `${…}` is string
+# SUBSTITUTION — dynamic SQL — and is refused at capture time.
+_MYBATIS_PLACEHOLDER_RE = re.compile(r"#\{[^}]*\}")
+
+
+def _sql_sanitize_embedded(sql_text: str) -> str:
+    return _MYBATIS_PLACEHOLDER_RE.sub("?", sql_text)
+
+
+# Quoted-identifier normalization for the BIND match only (census finding,
+# Apache Fineract): MySQL dump DDL registers `` `m_loan` `` (backticks kept —
+# the 1p9qd unit's names-as-written contract), while embedded Java SQL
+# references the bare `m_loan`. The bind stage normalizes BOTH sides of its
+# match (and the minted external name) by stripping identifier-quote
+# characters; the statement unit's output itself is not touched.
+_SQL_IDENT_QUOTE_CHARS = str.maketrans("", "", "`\"[]")
+
+
+def _sql_normalize_object_name(name: str) -> str:
+    return name.translate(_SQL_IDENT_QUOTE_CHARS).strip()
+
+
+_STRING_ESCAPE_VALUES = {
+    "\\n": "\n", "\\t": "\t", "\\r": "\r", "\\\"": '"', "\\'": "'",
+    "\\\\": "\\", "\\0": "\0", "\\b": "\b", "\\f": "\f",
+}
+
+
+def _string_escape_value(raw: str) -> str:
+    if raw in _STRING_ESCAPE_VALUES:
+        return _STRING_ESCAPE_VALUES[raw]
+    return raw[-1:] if raw.startswith("\\") and len(raw) == 2 else raw
+
+
+def _ts_node_raw_text(node, source_bytes: bytes) -> str:
+    """Node text WITHOUT the `_ts_node_text` strip — string-literal fragments
+    carry significant leading/trailing whitespace (`"SELECT * " + "FROM t"`)."""
+    try:
+        return source_bytes[node.start_byte:node.end_byte].decode("utf-8", errors="replace")
+    except Exception:
+        return ""
+
+
+def _java_string_literal_value(node, source_bytes: bytes) -> str | None:
+    """Decoded value of a Java ``string_literal`` (incl. text blocks); None otherwise."""
+    if getattr(node, "type", "") != "string_literal":
+        return None
+    parts: list[str] = []
+    for child in (getattr(node, "named_children", []) or []):
+        ctype = str(getattr(child, "type", "") or "")
+        if ctype in ("string_fragment", "multiline_string_fragment"):
+            parts.append(_ts_node_raw_text(child, source_bytes))
+        elif ctype == "escape_sequence":
+            parts.append(_string_escape_value(_ts_node_raw_text(child, source_bytes)))
+    return "".join(parts)  # empty literal ("" / """""") → ""
+
+
+def _java_literal_string_expr(node, source_bytes: bytes) -> str | None:
+    """Compile-time string value of a Java expression: a string literal or
+    adjacent `+` concatenation of literals (Requirement 6). Anything touching
+    a variable, call, or formatter returns None — refused, never guessed."""
+    if node is None:
+        return None
+    n_type = str(getattr(node, "type", "") or "")
+    if n_type == "string_literal":
+        return _java_string_literal_value(node, source_bytes)
+    if n_type == "parenthesized_expression":
+        inner = [c for c in (getattr(node, "named_children", []) or [])]
+        return _java_literal_string_expr(inner[0], source_bytes) if len(inner) == 1 else None
+    if n_type == "binary_expression":
+        try:
+            op = node.child_by_field_name("operator")
+            left = node.child_by_field_name("left")
+            right = node.child_by_field_name("right")
+        except Exception:
+            return None
+        if op is None or _ts_node_text(op, source_bytes).strip() != "+":
+            return None
+        left_val = _java_literal_string_expr(left, source_bytes)
+        if left_val is None:
+            return None
+        right_val = _java_literal_string_expr(right, source_bytes)
+        if right_val is None:
+            return None
+        return left_val + right_val
+    return None
+
+
+def _csharp_string_literal_value(node, source_bytes: bytes) -> str | None:
+    """Decoded value of a C# string literal (regular / verbatim / raw); None otherwise."""
+    n_type = str(getattr(node, "type", "") or "")
+    if n_type == "string_literal":
+        parts: list[str] = []
+        for child in (getattr(node, "named_children", []) or []):
+            ctype = str(getattr(child, "type", "") or "")
+            if ctype == "string_literal_content":
+                parts.append(_ts_node_raw_text(child, source_bytes))
+            elif ctype == "escape_sequence":
+                parts.append(_string_escape_value(_ts_node_raw_text(child, source_bytes)))
+        return "".join(parts)
+    if n_type == "verbatim_string_literal":
+        raw = _ts_node_raw_text(node, source_bytes).strip()
+        if raw.startswith("@\"") and raw.endswith("\""):
+            return raw[2:-1].replace('""', '"')
+        return None
+    if n_type == "raw_string_literal":
+        raw = _ts_node_raw_text(node, source_bytes)
+        stripped = raw.strip()
+        fence = '"""'
+        if stripped.startswith(fence) and stripped.endswith(fence):
+            return stripped[len(fence):-len(fence)].strip("\n")
+        return None
+    return None
+
+
+def _csharp_literal_string_expr(node, source_bytes: bytes) -> str | None:
+    """C# analogue of `_java_literal_string_expr` (interpolated strings → None)."""
+    if node is None:
+        return None
+    n_type = str(getattr(node, "type", "") or "")
+    if n_type in ("string_literal", "verbatim_string_literal", "raw_string_literal"):
+        return _csharp_string_literal_value(node, source_bytes)
+    if n_type == "parenthesized_expression":
+        inner = [c for c in (getattr(node, "named_children", []) or [])]
+        return _csharp_literal_string_expr(inner[0], source_bytes) if len(inner) == 1 else None
+    if n_type == "binary_expression":
+        try:
+            op = node.child_by_field_name("operator")
+            left = node.child_by_field_name("left")
+            right = node.child_by_field_name("right")
+        except Exception:
+            return None
+        if op is None or _ts_node_text(op, source_bytes).strip() != "+":
+            return None
+        left_val = _csharp_literal_string_expr(left, source_bytes)
+        if left_val is None:
+            return None
+        right_val = _csharp_literal_string_expr(right, source_bytes)
+        if right_val is None:
+            return None
+        return left_val + right_val
+    return None
+
+
+def _ts_java_annotation_records(node, source_bytes: bytes) -> list[dict[str, Any]]:
+    """Structured annotation records for a Java declaration node.
+
+    THE SHARED ANNOTATION-ARGUMENT SEAM (wave 1p9qi): built by `1p9qf` for the
+    SQL sinks; `1p9qg` extends the same records for JPA `@Table`/`@Column`
+    entity mappings. Each record is
+    ``{"name": str, "args": [value_node, ...], "pairs": {ident: value_node}}``
+    where `name` is the annotation name verbatim (possibly qualified), `args`
+    are POSITIONAL argument AST nodes in order, and `pairs` maps
+    `element_value_pair` identifiers to their value AST nodes. Values stay AST
+    nodes (not strings) so each consumer applies its own interpretation —
+    string literals via `_java_literal_string_expr`, booleans/arrays via node
+    text/type. `marker_annotation` yields a record with empty args/pairs.
+    """
+    records: list[dict[str, Any]] = []
+    try:
+        children = list(getattr(node, "named_children", []) or [])
+    except Exception:
+        return records
+    for child in children:
+        if (getattr(child, "type", "") or "") != "modifiers":
+            continue
+        for ann in (getattr(child, "named_children", []) or []):
+            ann_type = getattr(ann, "type", "") or ""
+            if ann_type not in ("marker_annotation", "annotation"):
+                continue
+            try:
+                name_node = ann.child_by_field_name("name")
+            except Exception:
+                name_node = None
+            if name_node is None:
+                continue
+            name = _ts_node_text(name_node, source_bytes).strip()
+            if not name:
+                continue
+            record: dict[str, Any] = {"name": name, "args": [], "pairs": {}}
+            try:
+                args = ann.child_by_field_name("arguments")
+            except Exception:
+                args = None
+            for arg in (getattr(args, "named_children", []) or []):
+                arg_type = str(getattr(arg, "type", "") or "")
+                if arg_type == "element_value_pair":
+                    pair_children = [c for c in (getattr(arg, "named_children", []) or [])]
+                    if len(pair_children) >= 2 and getattr(pair_children[0], "type", "") == "identifier":
+                        key = _ts_node_text(pair_children[0], source_bytes).strip()
+                        if key:
+                            record["pairs"][key] = pair_children[1]
+                else:
+                    record["args"].append(arg)
+            records.append(record)
+    return records
+
+
+def _ts_csharp_attribute_records(node, source_bytes: bytes) -> list[dict[str, Any]]:
+    """Structured attribute records for a C# declaration node.
+
+    C# side of the shared annotation/attribute-argument seam (see
+    `_ts_java_annotation_records`); `1p9qg` consumes it for EF
+    `[Table("…")]`/`[Column("…")]` mappings. Same record shape:
+    ``{"name": str, "args": [value_node, ...], "pairs": {ident: value_node}}``
+    — positional `attribute_argument`s land in `args` (the value node is the
+    argument's expression); named arguments (`Name = expr` and `name: expr`)
+    land in `pairs`.
+    """
+    records: list[dict[str, Any]] = []
+    try:
+        children = list(getattr(node, "named_children", []) or [])
+    except Exception:
+        return records
+    for child in children:
+        if (getattr(child, "type", "") or "") != "attribute_list":
+            continue
+        for attr in (getattr(child, "named_children", []) or []):
+            if (getattr(attr, "type", "") or "") != "attribute":
+                continue
+            try:
+                name_node = attr.child_by_field_name("name")
+            except Exception:
+                name_node = None
+            if name_node is None:
+                continue
+            name = _ts_node_text(name_node, source_bytes).strip()
+            if not name:
+                continue
+            record: dict[str, Any] = {"name": name, "args": [], "pairs": {}}
+            arg_list = None
+            for ac in (getattr(attr, "named_children", []) or []):
+                if getattr(ac, "type", "") == "attribute_argument_list":
+                    arg_list = ac
+                    break
+            for arg in (getattr(arg_list, "named_children", []) or []):
+                if str(getattr(arg, "type", "") or "") != "attribute_argument":
+                    continue
+                named = [c for c in (getattr(arg, "named_children", []) or [])]
+                if not named:
+                    continue
+                head_type = str(getattr(named[0], "type", "") or "")
+                if len(named) >= 2 and head_type == "identifier":
+                    key = _ts_node_text(named[0], source_bytes).strip()
+                    if key:
+                        record["pairs"][key] = named[1]
+                elif head_type == "name_colon":
+                    key = _ts_node_text(named[0], source_bytes).strip().rstrip(":").strip()
+                    if key and len(named) >= 2:
+                        record["pairs"][key] = named[1]
+                else:
+                    record["args"].append(named[0])
+            records.append(record)
+    return records
+
+
+# Java annotation sinks (Requirement 1): MyBatis statement annotations carry
+# SQL directly; Spring/JPA `@Query` only with `nativeQuery = true` (JPQL is
+# entity-space — `1p9qg`'s job, Requirement 7); `@NamedNativeQuery` carries
+# SQL in its `query` element.
+_JAVA_MYBATIS_SQL_ANNOTATIONS = frozenset({"Select", "Insert", "Update", "Delete"})
+_JAVA_SQL_SINK_ANNOTATIONS = _JAVA_MYBATIS_SQL_ANNOTATIONS | {"Query", "NamedNativeQuery"}
+
+
+def _java_annotation_string_value(node, source_bytes: bytes) -> str | None:
+    """String value of an annotation element: a literal/concat expression, or
+    a MyBatis-style array of literals (`{"…", "…"}` — joined with spaces)."""
+    if node is None:
+        return None
+    if str(getattr(node, "type", "") or "") == "element_value_array_initializer":
+        parts: list[str] = []
+        for child in (getattr(node, "named_children", []) or []):
+            val = _java_literal_string_expr(child, source_bytes)
+            if val is None:
+                return None  # any non-literal element → dynamic
+            parts.append(val)
+        return " ".join(parts) if parts else None
+    return _java_literal_string_expr(node, source_bytes)
+
+
+def _java_annotation_sql_captures(node, source_bytes: bytes) -> tuple[list[str], int]:
+    """(sql_texts, dynamic_refusals) from a Java declaration's SQL-sink annotations."""
+    captures: list[str] = []
+    dynamic = 0
+    for record in _ts_java_annotation_records(node, source_bytes):
+        tail = record["name"].rsplit(".", 1)[-1]
+        if tail in _JAVA_MYBATIS_SQL_ANNOTATIONS:
+            value_node = record["pairs"].get("value") or (record["args"][0] if record["args"] else None)
+        elif tail == "Query":
+            native = record["pairs"].get("nativeQuery")
+            if native is None or _ts_node_text(native, source_bytes).strip() != "true":
+                continue  # JPQL — out of scope by design, not a dynamic refusal
+            value_node = record["pairs"].get("value") or (record["args"][0] if record["args"] else None)
+        elif tail == "NamedNativeQuery":
+            value_node = record["pairs"].get("query")
+        else:
+            continue
+        if value_node is None:
+            continue
+        text = _java_annotation_string_value(value_node, source_bytes)
+        if text is None:
+            dynamic += 1  # sink hit with a non-literal value → refused, counted
+            continue
+        if "${" in text:
+            dynamic += 1  # MyBatis string substitution → dynamic SQL
+            continue
+        if _sql_text_sniffs_as_sql(text):
+            captures.append(text)
+    return captures, dynamic
+
+
+# Java call sinks (Requirement 1): JDBC prepare methods (distinctive names —
+# negative origin check) and JdbcTemplate query methods (generic names —
+# positive origin check on the receiver's declared type).
+_JAVA_JDBC_PREPARE_METHODS = frozenset({"prepareStatement", "prepareCall"})
+_JAVA_JDBC_TEMPLATE_TYPES = frozenset({"JdbcTemplate", "NamedParameterJdbcTemplate"})
+_JAVA_JDBC_TEMPLATE_METHODS = frozenset({
+    "query", "queryForObject", "queryForList", "queryForMap", "queryForRowSet",
+    "queryForStream", "update", "batchUpdate", "execute",
+})
+
+
+def _java_call_sql_capture(
+    invocation_node, source_bytes: bytes, symbol_lookup: dict[str, str]
+) -> tuple[str | None, int]:
+    """(sql_text | None, dynamic_refusals) for a Java `method_invocation` at a
+    JDBC/JdbcTemplate sink. See the section comment for the origin-check
+    convention; the sniff gate drops non-SQL strings silently."""
+    try:
+        name_node = invocation_node.child_by_field_name("name")
+    except Exception:
+        return None, 0
+    if name_node is None:
+        return None, 0
+    method_name = _ts_node_text(name_node, source_bytes).strip()
+    is_prepare = method_name in _JAVA_JDBC_PREPARE_METHODS
+    is_template = method_name in _JAVA_JDBC_TEMPLATE_METHODS
+    if not (is_prepare or is_template):
+        return None, 0
+    obj = invocation_node.child_by_field_name("object")
+    if obj is None:
+        return None, 0  # bare call → own/inherited method, never a JDBC receiver
+    receiver_type = _resolve_java_receiver_type(invocation_node, source_bytes)
+    if is_template and not is_prepare and receiver_type not in _JAVA_JDBC_TEMPLATE_TYPES:
+        return None, 0  # generic method name: positive origin required
+    if receiver_type is not None and (
+        receiver_type in symbol_lookup or f"{receiver_type}.{method_name}" in symbol_lookup
+    ):
+        return None, 0  # receiver resolves to a PROJECT type → impostor, refuse
+    args = invocation_node.child_by_field_name("arguments")
+    first = next(iter(getattr(args, "named_children", []) or []), None)
+    if first is None:
+        return None, 0
+    text = _java_literal_string_expr(first, source_bytes)
+    if text is None:
+        return None, 1  # sink hit, dynamic argument → refused, counted
+    if "${" in text:
+        return None, 1
+    if not _sql_text_sniffs_as_sql(text):
+        return None, 0  # non-SQL string at a sink → silent drop (Requirement 4)
+    return text, 0
+
+
+# C# sinks (Requirement 2): ADO.NET command constructors + CommandText
+# assignment, Dapper extension methods, EF Core raw-SQL methods.
+_CSHARP_ADO_COMMAND_TYPES = frozenset({
+    "SqlCommand", "SqliteCommand", "NpgsqlCommand", "MySqlCommand", "OracleCommand",
+})
+_CSHARP_DAPPER_METHODS = frozenset({
+    "Query", "QueryAsync", "QueryFirst", "QueryFirstAsync",
+    "QueryFirstOrDefault", "QueryFirstOrDefaultAsync",
+    "QuerySingle", "QuerySingleAsync", "QuerySingleOrDefault",
+    "QuerySingleOrDefaultAsync", "QueryMultiple", "QueryMultipleAsync",
+    "Execute", "ExecuteAsync", "ExecuteScalar", "ExecuteScalarAsync",
+    "ExecuteReader", "ExecuteReaderAsync",
+})
+_CSHARP_EF_RAW_METHODS = frozenset({
+    "FromSqlRaw", "ExecuteSqlRaw", "ExecuteSqlRawAsync", "SqlQueryRaw",
+})
+
+
+def _csharp_first_argument_expr(args_node):
+    """The expression of the first argument in a C# `argument_list`
+    (arguments are wrapped in `argument` nodes)."""
+    first = next(iter(getattr(args_node, "named_children", []) or []), None)
+    if first is None:
+        return None
+    if str(getattr(first, "type", "") or "") == "argument":
+        return next(iter(getattr(first, "named_children", []) or []), None)
+    return first
+
+
+def _csharp_call_sql_capture(
+    node, node_type: str, source_bytes: bytes, symbol_lookup: dict[str, str]
+) -> tuple[str | None, int]:
+    """(sql_text | None, dynamic_refusals) for a C# `invocation_expression`
+    (Dapper / EF raw) or `object_creation_expression` (ADO.NET command)."""
+    if node_type == "object_creation_expression":
+        type_name = ""
+        for child in (getattr(node, "named_children", []) or []):
+            ctype = str(getattr(child, "type", "") or "")
+            if ctype in ("identifier", "qualified_name", "generic_name"):
+                type_name = _ts_node_text(child, source_bytes).strip()
+                break
+            if ctype == "argument_list":
+                break
+        tail = type_name.split("<", 1)[0].rsplit(".", 1)[-1].strip()
+        if tail not in _CSHARP_ADO_COMMAND_TYPES:
+            return None, 0
+        if tail in symbol_lookup:
+            return None, 0  # project-defined impostor type
+        args = None
+        for child in (getattr(node, "named_children", []) or []):
+            if str(getattr(child, "type", "") or "") == "argument_list":
+                args = child
+                break
+        expr = _csharp_first_argument_expr(args) if args is not None else None
+        if expr is None:
+            return None, 0
+        text = _csharp_literal_string_expr(expr, source_bytes)
+        if text is None:
+            return None, 1
+        if not _sql_text_sniffs_as_sql(text):
+            return None, 0
+        return text, 0
+    if node_type != "invocation_expression":
+        return None, 0
+    children = list(getattr(node, "children", []) or [])
+    if not children:
+        return None, 0
+    callee = children[0]
+    if str(getattr(callee, "type", "") or "") != "member_access_expression":
+        return None, 0  # bare call is never an extension-method / EF sink
+    try:
+        name_node = callee.child_by_field_name("name")
+    except Exception:
+        name_node = None
+    if name_node is not None and str(getattr(name_node, "type", "") or "") == "generic_name":
+        name_node = next(
+            (c for c in (getattr(name_node, "named_children", []) or [])
+             if str(getattr(c, "type", "") or "") == "identifier"),
+            name_node,
+        )
+    method_name = _ts_node_text(name_node, source_bytes).strip() if name_node is not None else ""
+    method_name = method_name.split("<", 1)[0].strip()
+    if method_name not in _CSHARP_DAPPER_METHODS and method_name not in _CSHARP_EF_RAW_METHODS:
+        return None, 0
+    receiver_type = _resolve_csharp_receiver_type(node, source_bytes)
+    if receiver_type is not None and (
+        receiver_type in symbol_lookup or f"{receiver_type}.{method_name}" in symbol_lookup
+    ):
+        return None, 0  # receiver resolves to a PROJECT type → impostor, refuse
+    args = None
+    for child in (getattr(node, "named_children", []) or []):
+        if str(getattr(child, "type", "") or "") == "argument_list":
+            args = child
+            break
+    expr = _csharp_first_argument_expr(args) if args is not None else None
+    if expr is None:
+        return None, 0
+    text = _csharp_literal_string_expr(expr, source_bytes)
+    if text is None:
+        return None, 1  # dynamic (variable / interpolated / builder) → counted
+    if not _sql_text_sniffs_as_sql(text):
+        return None, 0
+    return text, 0
+
+
+def _csharp_commandtext_sql_capture(assign_node, source_bytes: bytes) -> tuple[str | None, int]:
+    """(sql_text | None, dynamic_refusals) for a C# `<expr>.CommandText = <rhs>`
+    assignment. The property name is the sink signal (receiver types are
+    rarely resolvable for command objects); the sniff gate bounds it."""
+    try:
+        left = assign_node.child_by_field_name("left")
+        right = assign_node.child_by_field_name("right")
+    except Exception:
+        return None, 0
+    if left is None or str(getattr(left, "type", "") or "") != "member_access_expression":
+        return None, 0
+    try:
+        prop = left.child_by_field_name("name")
+    except Exception:
+        prop = None
+    if prop is None or _ts_node_text(prop, source_bytes).strip() != "CommandText":
+        return None, 0
+    if right is None:
+        return None, 0
+    text = _csharp_literal_string_expr(right, source_bytes)
+    if text is None:
+        return None, 1
+    if not _sql_text_sniffs_as_sql(text):
+        return None, 0
+    return text, 0
+
+
+# MyBatis mapper XML (Requirement 3): `<mapper namespace="…">` files
+# contribute `<select>/<insert>/<update>/<delete>` statement text with the
+# owning mapper namespace + statement id as the capture source. Statements
+# containing dynamic-SQL child elements (`<if>`, `<where>`, `<include>`, …)
+# or `${…}` substitution are refused and counted.
+_MYBATIS_STATEMENT_TAGS = frozenset({"select", "insert", "update", "delete"})
+
+
+def _xml_stag_info(element_node, source_bytes: bytes) -> tuple[str, dict[str, str], Any]:
+    """(tag_name, attributes, end_tag_node) for an XML `element` node."""
+    tag = ""
+    attrs: dict[str, str] = {}
+    etag = None
+    for child in (getattr(element_node, "named_children", []) or []):
+        ctype = str(getattr(child, "type", "") or "")
+        if ctype in ("STag", "EmptyElemTag"):
+            for c in (getattr(child, "named_children", []) or []):
+                c_type = str(getattr(c, "type", "") or "")
+                if c_type == "Name" and not tag:
+                    tag = _ts_node_text(c, source_bytes).strip()
+                elif c_type == "Attribute":
+                    a_name = ""
+                    a_val = ""
+                    for ac in (getattr(c, "named_children", []) or []):
+                        ac_type = str(getattr(ac, "type", "") or "")
+                        if ac_type == "Name":
+                            a_name = _ts_node_text(ac, source_bytes).strip()
+                        elif ac_type == "AttValue":
+                            a_val = _ts_node_text(ac, source_bytes).strip().strip("\"'")
+                    if a_name:
+                        attrs[a_name] = a_val
+        elif ctype == "ETag":
+            etag = child
+    return tag, attrs, etag
+
+
+def _mybatis_mapper_captures(root_node, source_bytes: bytes) -> tuple[list[tuple[str, str, str]], int]:
+    """([(namespace, stmt_id, sql_text)], dynamic_refusals) for a MyBatis
+    mapper XML document; ([], 0) when the root element is not a `<mapper>`."""
+    captures: list[tuple[str, str, str]] = []
+    dynamic = 0
+    mapper_el = None
+    namespace = ""
+    for child in (getattr(root_node, "named_children", []) or []):
+        if str(getattr(child, "type", "") or "") == "element":
+            tag, attrs, _ = _xml_stag_info(child, source_bytes)
+            if tag == "mapper":
+                namespace = (attrs.get("namespace") or "").strip()
+                mapper_el = child
+            break  # XML has a single root element
+    if mapper_el is None or not namespace:
+        return captures, dynamic
+    content = next(
+        (c for c in (getattr(mapper_el, "named_children", []) or [])
+         if str(getattr(c, "type", "") or "") == "content"),
+        None,
+    )
+    for el in (getattr(content, "named_children", []) or []):
+        if str(getattr(el, "type", "") or "") != "element":
+            continue
+        tag, attrs, _ = _xml_stag_info(el, source_bytes)
+        if tag not in _MYBATIS_STATEMENT_TAGS:
+            continue
+        stmt_id = (attrs.get("id") or "").strip()
+        if not stmt_id:
+            continue
+        stmt_content = next(
+            (c for c in (getattr(el, "named_children", []) or [])
+             if str(getattr(c, "type", "") or "") == "content"),
+            None,
+        )
+        if stmt_content is None:
+            continue
+        if any(
+            str(getattr(c, "type", "") or "") == "element"
+            for c in (getattr(stmt_content, "named_children", []) or [])
+        ):
+            dynamic += 1  # dynamic-SQL tags → refused, counted
+            continue
+        text = _ts_node_text(stmt_content, source_bytes)
+        text = text.replace("<![CDATA[", " ").replace("]]>", " ").strip()
+        if "${" in text:
+            dynamic += 1
+            continue
+        if text and _sql_text_sniffs_as_sql(text):
+            captures.append((namespace, stmt_id, text))
+    return captures, dynamic
+
+
+def _resolve_sql_capture_source(
+    marker: str,
+    fragment_rel: str,
+    node_map: dict[str, dict[str, Any]],
+    simple_name_index: dict[str, list[str]],
+    qualified_index: dict[str, list[str]],
+) -> str | None:
+    """Resolve a capture-source marker to a live node id for the bind edge.
+
+    Code captures carry the extraction-time node id (fall back to the file's
+    module node when the symbol collapsed — mirrors the `instruments` carrier
+    fallback). MyBatis markers (`mybatis::<ns>::<id>`) resolve to the unique
+    mapper interface METHOD, then the unique interface, else the XML file's
+    module node — unique-or-fallback, never an ambiguous guess."""
+    if marker.startswith(_MYBATIS_SOURCE_PREFIX):
+        rest = marker[len(_MYBATIS_SOURCE_PREFIX):]
+        ns, _, stmt_id = rest.rpartition("::")
+        simple_ns = ns.rsplit(".", 1)[-1]
+        if ns and stmt_id:
+            for key in (f"{ns}.{stmt_id}", f"{simple_ns}.{stmt_id}"):
+                hits = qualified_index.get(key) or []
+                if len(hits) == 1:
+                    return hits[0]
+            hits = simple_name_index.get(simple_ns) or []
+            if len(hits) == 1:
+                return hits[0]
+        return fragment_rel if fragment_rel in node_map else None
+    if marker in node_map:
+        return marker
+    file_part = marker.split("::", 1)[0]
+    return file_part if file_part in node_map else None
+
+
+# =============================================================================
+# ORM entity→table mapping capture (wave 1p9qi / 1p9qg).
+#
+# DECLARED names only: JPA `@Entity` + `@Table(name = "…"[, schema = "…"])`
+# or `@Entity(name = "…")` (Java), EF `[Table("…"[, Schema = "…"])]` or
+# fluent `ToTable("…"[, "schema"])` (C#). Convention-derived names (JPA
+# implicit naming / snake_casing, EF pluralization) are REFUSED and counted
+# per file (`orm_entity_convention`) so the recall cost stays measurable;
+# computed / constant-reference names refuse as dynamic
+# (`orm_entity_dynamic`) — only string literals bind. Candidates ride
+# per-file fragments (`orm_entity_candidates`, entries
+# ``[source_marker, declared_table]``) and bind at finalize on the dedicated
+# `maps_to` relation (see GRAPH_MAPS_TO_RELATION) with the same
+# unique-match-or-drop + `external::sql::` semantics as the embedded-SQL
+# bind pass above. Extends the shared annotation/attribute-argument seam
+# (`_ts_java_annotation_records` / `_ts_csharp_attribute_records`).
+# =============================================================================
+
+# Capture-source marker for EF fluent `ToTable` sinks, where the entity class
+# is named by the `.Entity<T>()` / `EntityTypeBuilder<T>` type argument and
+# lives in another file: `entitytype::<TypeNameAsWritten>`. Resolved at
+# finalize to the UNIQUE project class node of that name (kind-gated) — an
+# ambiguous or missing entity type drops the candidate, never a guess. Not
+# mintable as a node id (node ids are `<rel_path>::<qname>`; an indexable
+# file path always carries a suffix, so no file yields the bare
+# `entitytype` head — same argument as `_MYBATIS_SOURCE_PREFIX`).
+_ORM_ENTITY_TYPE_PREFIX = "entitytype::"
+
+# C# attribute tails accepted for `[Table("…")]` (attribute usage may spell
+# either form; both name System.ComponentModel.DataAnnotations.Schema).
+_CSHARP_TABLE_ATTRIBUTE_TAILS = frozenset({"Table", "TableAttribute"})
+
+
+def _java_entity_table_mapping(
+    node, source_bytes: bytes, symbol_lookup: dict[str, str]
+) -> tuple[str | None, int, int]:
+    """(declared_table | None, dynamic_refusals, convention_refusals) for a
+    Java class declaration.
+
+    Fires only for `@Entity` classes — the `@Entity` presence is the origin
+    gate (a bare `@Table` without `@Entity` is some other framework's
+    annotation). A same-file project-defined `Entity`/`Table` annotation
+    TYPE refuses (impostor check, same-file scope like the 1p9qf sinks).
+    Declared-name precedence: `@Table(name = …)` wins; `@Entity(name = …)`
+    is the JPA-spec explicit entity name (table name defaults to it) and
+    binds only when `@Table` declares no name. A present-but-non-literal
+    name or schema element refuses the WHOLE mapping as dynamic (never a
+    partial guess); `@Entity` with no declared name anywhere is the counted
+    convention refusal.
+    """
+    records = _ts_java_annotation_records(node, source_bytes)
+    entity = None
+    table = None
+    for record in records:
+        tail = record["name"].rsplit(".", 1)[-1]
+        if tail == "Entity" and entity is None:
+            entity = record
+        elif tail == "Table" and table is None:
+            table = record
+    if entity is None:
+        return None, 0, 0
+    if "Entity" in symbol_lookup or (table is not None and "Table" in symbol_lookup):
+        return None, 0, 0  # project-defined annotation type → impostor, refuse
+    schema: str | None = None
+    name_value: str | None = None
+    if table is not None:
+        schema_node = table["pairs"].get("schema")
+        if schema_node is not None:
+            schema = _java_literal_string_expr(schema_node, source_bytes)
+            if schema is None:
+                return None, 1, 0  # computed schema → dynamic refusal
+        name_node = table["pairs"].get("name")
+        if name_node is not None:
+            name_value = _java_literal_string_expr(name_node, source_bytes)
+            if name_value is None:
+                return None, 1, 0  # @Table(name = CONSTANT/expr) → dynamic
+    if name_value is None:
+        entity_name_node = entity["pairs"].get("name")
+        if entity_name_node is not None:
+            name_value = _java_literal_string_expr(entity_name_node, source_bytes)
+            if name_value is None:
+                return None, 1, 0
+    if not name_value:
+        return None, 0, 1  # @Entity with no declared name → convention refusal
+    return (f"{schema}.{name_value}" if schema else name_value), 0, 0
+
+
+def _csharp_entity_table_mapping(
+    node, source_bytes: bytes, symbol_lookup: dict[str, str]
+) -> tuple[str | None, int, int]:
+    """(declared_table | None, dynamic_refusals, convention_refusals) for a
+    C# class declaration carrying `[Table("…")]`
+    (System.ComponentModel.DataAnnotations.Schema).
+
+    The positional first argument is the table name; the optional `Schema`
+    named property qualifies it. A same-file project-defined
+    `Table`/`TableAttribute` type refuses (impostor). C# has no `@Entity`
+    analog, so the convention counter never fires on this path — EF's
+    convention-mapped entities are a census-measured gap, not a countable
+    per-file fact.
+    """
+    records = _ts_csharp_attribute_records(node, source_bytes)
+    table = None
+    for record in records:
+        if record["name"].rsplit(".", 1)[-1] in _CSHARP_TABLE_ATTRIBUTE_TAILS:
+            table = record
+            break
+    if table is None:
+        return None, 0, 0
+    if any(tail in symbol_lookup for tail in _CSHARP_TABLE_ATTRIBUTE_TAILS):
+        return None, 0, 0  # project-defined attribute type → impostor, refuse
+    if not table["args"]:
+        return None, 0, 0  # [Table] without a name is not a declaration
+    name_value = _csharp_literal_string_expr(table["args"][0], source_bytes)
+    if name_value is None:
+        return None, 1, 0  # nameof(…)/constant/interpolation → dynamic
+    schema_node = table["pairs"].get("Schema")
+    schema: str | None = None
+    if schema_node is not None:
+        schema = _csharp_literal_string_expr(schema_node, source_bytes)
+        if schema is None:
+            return None, 1, 0
+    return (f"{schema}.{name_value}" if schema else name_value), 0, 0
+
+
+def _csharp_generic_single_type_argument(generic_name_node, source_bytes: bytes) -> str | None:
+    """The single type argument's text of a C# `generic_name` node, or None."""
+    for child in (getattr(generic_name_node, "named_children", []) or []):
+        if str(getattr(child, "type", "") or "") == "type_argument_list":
+            args = list(getattr(child, "named_children", []) or [])
+            if len(args) == 1:
+                text = _ts_node_text(args[0], source_bytes).strip()
+                return text or None
+            return None
+    return None
+
+
+def _csharp_totable_capture(
+    node, source_bytes: bytes
+) -> tuple[str | None, str | None, int]:
+    """(entity_source_marker | None, declared_table | None, dynamic_refusals)
+    for a C# `invocation_expression` at the EF fluent `ToTable("…")` sink.
+
+    POSITIVE origin identification by construction (the origin-check
+    convention's generic-name arm): the entity type must be recoverable from
+    the call shape — either the receiver chain contains `.Entity<T>()`
+    (`modelBuilder.Entity<User>().ToTable("users")`) or the receiver is an
+    identifier the enclosing method declares as an `EntityTypeBuilder<T>`
+    parameter (the `IEntityTypeConfiguration<T>.Configure` idiom). An
+    impostor `ToTable` on any other receiver never fires. `ToTable("name",
+    "schema")` declares a schema-qualified table; a builder-action overload
+    (`ToTable(tb => …)`) declares no name and is skipped silently; any other
+    non-literal argument is a counted dynamic refusal.
+    """
+    children = list(getattr(node, "children", []) or [])
+    if not children:
+        return None, None, 0
+    callee = children[0]
+    if str(getattr(callee, "type", "") or "") != "member_access_expression":
+        return None, None, 0
+    try:
+        name_node = callee.child_by_field_name("name")
+    except Exception:
+        name_node = None
+    if name_node is None:
+        return None, None, 0
+    method_name = _ts_node_text(name_node, source_bytes).strip().split("<", 1)[0].strip()
+    if method_name != "ToTable":
+        return None, None, 0
+    try:
+        receiver = callee.child_by_field_name("expression")
+    except Exception:
+        receiver = None
+    entity_type: str | None = None
+    cursor = receiver
+    while cursor is not None and entity_type is None:
+        cursor_type = str(getattr(cursor, "type", "") or "")
+        if cursor_type == "invocation_expression":
+            inner = next(iter(getattr(cursor, "children", []) or []), None)
+            if inner is None or str(getattr(inner, "type", "") or "") != "member_access_expression":
+                break
+            try:
+                inner_name = inner.child_by_field_name("name")
+            except Exception:
+                inner_name = None
+            if (
+                inner_name is not None
+                and str(getattr(inner_name, "type", "") or "") == "generic_name"
+                and _ts_node_text(inner_name, source_bytes).strip().startswith("Entity<")
+            ):
+                entity_type = _csharp_generic_single_type_argument(inner_name, source_bytes)
+                break
+            try:
+                cursor = inner.child_by_field_name("expression")
+            except Exception:
+                break
+        elif cursor_type == "member_access_expression":
+            try:
+                cursor = cursor.child_by_field_name("expression")
+            except Exception:
+                break
+        elif cursor_type == "identifier":
+            entity_type = _csharp_entity_builder_param_type(
+                cursor, _ts_node_text(cursor, source_bytes).strip(), source_bytes
+            )
+            break
+        else:
+            break
+    if not entity_type:
+        return None, None, 0  # origin not established → not a sink, never fires
+    marker = f"{_ORM_ENTITY_TYPE_PREFIX}{entity_type}"
+    args = None
+    for child in (getattr(node, "named_children", []) or []):
+        if str(getattr(child, "type", "") or "") == "argument_list":
+            args = child
+            break
+    arg_exprs: list[Any] = []
+    for arg in (getattr(args, "named_children", []) or []):
+        if str(getattr(arg, "type", "") or "") == "argument":
+            expr = next(iter(getattr(arg, "named_children", []) or []), None)
+            if expr is not None:
+                arg_exprs.append(expr)
+    if not arg_exprs:
+        return marker, None, 0
+    first = arg_exprs[0]
+    name_value = _csharp_literal_string_expr(first, source_bytes)
+    if name_value is None:
+        if str(getattr(first, "type", "") or "") in ("lambda_expression", "anonymous_method_expression"):
+            return marker, None, 0  # builder-action overload — no name declared
+        return marker, None, 1  # variable/interpolated/constant name → dynamic
+    schema: str | None = None
+    if len(arg_exprs) >= 2:
+        second = arg_exprs[1]
+        second_type = str(getattr(second, "type", "") or "")
+        schema = _csharp_literal_string_expr(second, source_bytes)
+        if schema is None and second_type not in (
+            "lambda_expression", "anonymous_method_expression"
+        ):
+            return marker, None, 1  # computed schema → whole mapping dynamic
+    return marker, (f"{schema}.{name_value}" if schema else name_value), 0
+
+
+def _csharp_entity_builder_param_type(identifier_node, identifier_text: str, source_bytes: bytes) -> str | None:
+    """Entity type T when `identifier_text` names a parameter of the enclosing
+    C# method declared as `EntityTypeBuilder<T>`; None otherwise."""
+    if not identifier_text:
+        return None
+    cursor = getattr(identifier_node, "parent", None)
+    depth = 0
+    while cursor is not None and depth < 64:
+        if str(getattr(cursor, "type", "") or "") in ("method_declaration", "local_function_statement"):
+            break
+        cursor = getattr(cursor, "parent", None)
+        depth += 1
+    if cursor is None:
+        return None
+    params = None
+    for child in (getattr(cursor, "named_children", []) or []):
+        if str(getattr(child, "type", "") or "") == "parameter_list":
+            params = child
+            break
+    for param in (getattr(params, "named_children", []) or []):
+        if str(getattr(param, "type", "") or "") != "parameter":
+            continue
+        try:
+            p_name = param.child_by_field_name("name")
+            p_type = param.child_by_field_name("type")
+        except Exception:
+            continue
+        if p_name is None or p_type is None:
+            continue
+        if _ts_node_text(p_name, source_bytes).strip() != identifier_text:
+            continue
+        if str(getattr(p_type, "type", "") or "") != "generic_name":
+            return None
+        head = _ts_node_text(p_type, source_bytes).strip().split("<", 1)[0].strip()
+        if head.rsplit(".", 1)[-1] != "EntityTypeBuilder":
+            return None
+        return _csharp_generic_single_type_argument(p_type, source_bytes)
+    return None
+
+
+def _resolve_orm_entity_source(
+    marker: str,
+    fragment_rel: str,
+    node_map: dict[str, dict[str, Any]],
+    simple_name_index: dict[str, list[str]],
+    qualified_index: dict[str, list[str]],
+) -> str | None:
+    """Resolve an ORM-mapping capture source to a live node id.
+
+    Annotation captures carry the extraction-time class node id (module id
+    when the class collapsed into the file node) — same treatment as the
+    embedded-SQL sources. `entitytype::<T>` markers (EF `ToTable`) resolve to
+    the UNIQUE project class-kind node named T (qualified-exact first, then
+    unique simple name); ambiguity or absence drops the candidate — an
+    entity mapping bound to the wrong same-name twin is exactly the silent
+    mis-bind the confidence taxonomy forbids.
+    """
+    if marker.startswith(_ORM_ENTITY_TYPE_PREFIX):
+        type_name = marker[len(_ORM_ENTITY_TYPE_PREFIX):].strip()
+        if not type_name:
+            return None
+        leaf = type_name.rsplit(".", 1)[-1]
+        keys: list[tuple[dict[str, list[str]], str]] = [(qualified_index, type_name)]
+        if leaf != type_name:
+            keys.append((qualified_index, leaf))
+        keys.append((simple_name_index, leaf))
+        for index, key in keys:
+            hits = [
+                hit for hit in (index.get(key) or [])
+                if (node_map.get(hit) or {}).get("kind") == "class"
+            ]
+            if len(hits) == 1:
+                return hits[0]
+            if hits:
+                return None  # ambiguous entity type → drop, never guess
+        return None
+    return _resolve_sql_capture_source(
+        marker, fragment_rel, node_map, simple_name_index, qualified_index
+    )
+
+
 def _ts_extract_callee_positional(node, source_bytes: bytes) -> str | None:
     """Fallback for grammars whose call_expression has no callee field name.
 
@@ -6016,6 +7137,1038 @@ def _ts_extract_callee_positional(node, source_bytes: bytes) -> str | None:
         if candidate:
             return candidate
     return None
+
+
+# ---------------------------------------------------------------------------
+# SQL clause-aware statement analysis (wave 1p9qi / 1p9qd)
+#
+# The single shared extraction path for SQL statements. Replaces the retired
+# generic substring-match + regex-candidate pipeline for SQL mode entirely:
+# table references come from `object_reference` positions in specific clause
+# roles, each carrying a read/write direction, and query-local names (CTEs,
+# aliases, derived-table aliases, temp tables / table variables) never become
+# references or definitions.
+#
+# CONTRACT (frozen for the wave — `1p9qe` ERROR-region body recovery and
+# `1p9qf` embedded-SQL binding consume this as-is):
+#
+#   sql_statement_references(sql_text)  -> dict | None
+#     None when the SQL grammar is unavailable; otherwise
+#     {"references": [ref, ...], "definitions": [defn, ...], "error_regions": int,
+#      "recovery": {"recovered_definitions": int, "unrecovered_regions": int}}
+#     with script-level exclusions (temp-object names) already applied.
+#
+#   ref  = {"name": str,        # reference text as written ("users", "analytics.events")
+#           "schema": str|None, # schema segment when written schema-qualified
+#           "direction": "read"|"write",
+#           "clause": one of _SQL_REF_CLAUSES,
+#           "statement": statement-kind string ("select", "insert", ...),
+#           "owner": str|None,  # enclosing definition's name (view lineage), None = script level
+#           "extraction": None|"sql_recovery"}  # "sql_recovery" = ERROR-region provenance.
+#           # BOTH recovery re-attribution forms carry the marker: region-tail
+#           # re-parses AND dangling-block re-attributions (each depends on the
+#           # recovery tier having identified the owning routine).
+#   defn = {"name": str,        # dotted-full when schema-qualified
+#           "schema": str|None,
+#           "sql_kind": "table"|"view"|"procedure"|"function"|"trigger",
+#           "temporary": bool,
+#           "extraction": None|"sql_recovery"}  # None = trusted parse; marker = recovery tier
+#
+# Guarantees:
+#   * Zero references from SQL keywords, column tokens, string literals, or
+#     alias/CTE/temp names (AC-6) — references are structural clause
+#     positions, never token scans.
+#   * Scalar function invocation NAMES are excluded: an
+#     `invocation > object_reference` (`NOW()`, `UPPER(x)`, `dbo.fn(a)`) is a
+#     routine name, never a table reference — the invocation's ARGUMENT
+#     subtree is still walked, so a table read inside an argument subquery is
+#     preserved. A routine invoked in a RELATION position (a table-valued
+#     function — `FROM generate_series(...)`) likewise emits no table
+#     reference: a routine call is not a table (the recorded
+#     routine-invocation stance; a `call` clause is future field-demand work).
+#   * Read/write direction is statement-derived: FROM/JOIN sources, MERGE
+#     USING, view bodies, and FK REFERENCES are reads; INSERT INTO / UPDATE /
+#     DELETE FROM / MERGE INTO / ALTER / DROP / TRUNCATE targets are writes.
+#   * Top-level ERROR regions (counted in `error_regions`, unchanged) route
+#     through the 1p9qe DDL recovery tier: a bounded line-anchored scan over
+#     comment-/string-masked region text recovers CREATE
+#     {PROCEDURE|FUNCTION|TRIGGER|TABLE|VIEW} definitions (marked
+#     `extraction: "sql_recovery"`) plus ALTER TABLE / CREATE INDEX ON /
+#     trigger ON references. A dangling `block` following a single-routine
+#     region is that routine's body — its parsed statements attribute to the
+#     recovered routine; region text after a single recovered routine header
+#     re-parses through this unit (one level) for the same attribution. Both
+#     re-attribution forms mark their references `extraction: "sql_recovery"`.
+#     Regions yielding nothing count in `recovery.unrecovered_regions` —
+#     nothing is silently dropped. Recovery NEVER runs on parsed statements.
+# ---------------------------------------------------------------------------
+
+# Clause roles a reference can carry (the vocabulary 1p9qe/1p9qf build on).
+_SQL_REF_CLAUSES = (
+    "from", "join", "insert_into", "update", "delete_from",
+    "merge_into", "merge_using", "references", "index_on",
+    "alter", "drop", "truncate",
+)
+# Node types the reference walk never descends into: `field` is a column
+# reference whose object_reference child is a table/alias QUALIFIER (`u.id`),
+# `column`/`list`/`column_definitions`/`index_fields` are column-name and
+# literal containers. Skipping them is what keeps aliases, column tokens, and
+# string-literal contents out of the reference stream (1p9qc findings a/c/d).
+_SQL_REF_SKIP_NODE_TYPES = frozenset({
+    "field", "column", "list", "column_definitions", "index_fields",
+})
+_SQL_CREATE_KIND_BY_NODE = {
+    "create_table": "table",
+    "create_view": "view",
+    "create_materialized_view": "view",
+    "create_function": "function",
+    "create_procedure": "procedure",
+    "create_trigger": "trigger",
+}
+
+# ---------------------------------------------------------------------------
+# SQL ERROR-region DDL recovery tier (wave 1p9qi / 1p9qe).
+#
+# tree-sitter-sql cannot parse every dialect's routine/DDL forms (T-SQL,
+# MySQL, delimiter blocks, triggers) — those statements land in parse ERROR
+# regions and would otherwise vanish from the graph. The recovery tier is the
+# honest-degradation answer at statement granularity, and defines the
+# degradation-convention family (marker property shape, per-file count
+# logging, byte/line ceilings) that other loud-degradation tiers mirror:
+#
+#   * scope    — recovery runs ONLY over parse ERROR regions; parsed
+#                statements are the trusted path and are never rescanned.
+#   * masking  — comments (`--`, `/* */`) and string bodies (`'...'`,
+#                `"..."`, `$$...$$`) are space-masked BEFORE the scan, so
+#                commented-out DDL and DDL text inside string literals can
+#                never mint schema objects (security commitment).
+#   * anchors  — bounded, line-anchored patterns only; a candidate name that
+#                fails strict identifier validation is refused, not guessed.
+#   * marker   — every recovered object carries `extraction: "sql_recovery"`
+#                (node property in the graph; `extraction` key in the unit).
+#   * loudness — per-file counts on the module node (`sql_error_regions`,
+#                `sql_recovered_definitions`, `sql_unrecovered_regions`) and
+#                a verbose build-log line (`_sql_recovery_log_line`).
+#   * bounds   — single pass; regions over _SQL_RECOVERY_MAX_REGION_BYTES and
+#                lines over _SQL_RECOVERY_MAX_LINE_CHARS degrade to counts.
+# ---------------------------------------------------------------------------
+_SQL_RECOVERY_MARKER = "sql_recovery"
+_SQL_RECOVERY_MAX_REGION_BYTES = 131072  # larger regions degrade to an unrecovered count
+_SQL_RECOVERY_MAX_LINE_CHARS = 4096      # longer lines are skipped (minified/generated SQL)
+_SQL_RECOVERY_KIND_BY_WORD = {
+    "procedure": "procedure",
+    "function": "function",
+    "trigger": "trigger",
+    "table": "table",
+    "view": "view",
+    "materialized view": "view",
+}
+_SQL_RECOVERY_ROUTINE_KINDS = frozenset({"procedure", "function", "trigger"})
+# Line-anchored CREATE vocabulary (reviewable constant — extend on field
+# evidence via the unrecovered counts). INDEX is matched but, mirroring the
+# parsed path (`create_index` emits an `index_on` table READ, no definition
+# node), recovers a reference to the indexed table — never an index
+# definition, so recovered files can never claim more than parsed ones.
+_SQL_RECOVERY_CREATE_RE = re.compile(
+    r"^\s*CREATE\s+(?:OR\s+REPLACE\s+)?"
+    r"(?P<temp>(?:GLOBAL\s+|LOCAL\s+)?(?:TEMPORARY|TEMP)\s+)?"
+    r"(?P<kind>MATERIALIZED\s+VIEW|PROCEDURE|FUNCTION|TRIGGER|TABLE|VIEW|(?:UNIQUE\s+)?INDEX)\s+"
+    r"(?:IF\s+NOT\s+EXISTS\s+)?"
+    r"(?P<name>[^\s(;,]+)",
+    re.IGNORECASE,
+)
+# ALTER TABLE in an ERROR region recovers as a WRITE reference (never a
+# definition — ALTER modifies an existing object).
+_SQL_RECOVERY_ALTER_RE = re.compile(
+    r"^\s*ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?P<name>[^\s(;,]+)",
+    re.IGNORECASE,
+)
+_SQL_RECOVERY_ON_RE = re.compile(r"\bON\s+(?P<name>[^\s(;,]+)", re.IGNORECASE)
+_SQL_RECOVERY_NAME_RE = re.compile(r"^[A-Za-z_][\w$]*(?:\.[A-Za-z_][\w$]*)*$")
+# Named dollar-quote opening tag ($tag$ ... $tag$ — PostgreSQL). Bare $$ is
+# handled separately (a letter/underscore is required between the dollars here).
+_SQL_RECOVERY_DOLLAR_TAG_RE = re.compile(r"\$[A-Za-z_]\w*\$")
+
+
+class _SqlRecoveredNode:
+    """Synthetic stand-in for a tree-sitter node for recovery-extracted
+    definitions (`register_symbol` only reads ``start_point``)."""
+
+    __slots__ = ("start_point",)
+
+    def __init__(self, line: int) -> None:
+        self.start_point = (line, 0)
+
+
+def _sql_recovery_mask_noncode(text: str) -> str:
+    """Space-mask comment and string spans, preserving length and newlines.
+
+    Runs BEFORE the recovery scan so commented-out DDL (``-- CREATE ...``,
+    ``/* CREATE ... */``) and DDL text inside string literals (``'CREATE
+    TABLE ghost'``, ``$$ ... $$`` bodies) can never mint schema objects
+    (AC-3). Handles `--` line comments, `/* */` block comments, single-quoted
+    strings with ``''`` escapes, double-quoted strings, and dollar quoting —
+    both bare ``$$`` and named ``$tag$ ... $tag$`` (the close tag must match
+    the open tag); unterminated spans mask to end of text. Masking double-quoted
+    identifiers only costs recall (a quoted name is simply not recovered) —
+    never precision. Backtick/bracket identifier quoting is NOT masked; it is
+    stripped during name validation instead.
+    """
+    out = list(text)
+    n = len(text)
+
+    def _mask(a: int, b: int) -> None:
+        for j in range(a, min(b, n)):
+            if out[j] != "\n":
+                out[j] = " "
+
+    i = 0
+    while i < n:
+        ch = text[i]
+        if ch == "-" and text.startswith("--", i):
+            end = text.find("\n", i)
+            end = n if end == -1 else end
+            _mask(i, end)
+            i = end
+        elif ch == "/" and text.startswith("/*", i):
+            end = text.find("*/", i + 2)
+            end = n if end == -1 else end + 2
+            _mask(i, end)
+            i = end
+        elif ch == "$":
+            tag_match = _SQL_RECOVERY_DOLLAR_TAG_RE.match(text, i)
+            if tag_match is not None:
+                tag = tag_match.group(0)
+            elif text.startswith("$$", i):
+                tag = "$$"
+            else:
+                i += 1
+                continue
+            end = text.find(tag, i + len(tag))
+            end = n if end == -1 else end + len(tag)
+            _mask(i, end)
+            i = end
+        elif ch in ("'", '"'):
+            quote = ch
+            j = i + 1
+            while j < n:
+                if text[j] == quote:
+                    if j + 1 < n and text[j + 1] == quote:
+                        j += 2
+                        continue
+                    j += 1
+                    break
+                j += 1
+            _mask(i, j)
+            i = j
+        else:
+            i += 1
+    return "".join(out)
+
+
+def _sql_recovery_clean_name(raw: str) -> tuple[str | None, bool]:
+    """``(validated_name, is_temp_sigil)`` for a scanned name candidate.
+
+    Strips bracket/backtick/double-quote identifier quoting, then validates
+    against a strict bare-or-dotted identifier shape. Anything that fails
+    validation is refused (``None``) — recovery emits only on unambiguous
+    matches. ``#tmp`` / ``@tv`` sigil names report ``is_temp_sigil=True`` so
+    callers exclude them (temp objects are session-scoped, never schema
+    objects).
+    """
+    cleaned = raw.strip().strip(";,")
+    cleaned = cleaned.replace("[", "").replace("]", "").replace("`", "").replace('"', "")
+    if not cleaned:
+        return None, False
+    if cleaned[0] in "#@":
+        stripped = cleaned.lstrip("#@")
+        return (stripped or None), True
+    if not _SQL_RECOVERY_NAME_RE.match(cleaned):
+        return None, False
+    return cleaned, False
+
+
+def _sql_recover_error_region(region_text: str, start_line: int) -> dict[str, Any]:
+    """Bounded line-anchored DDL recovery scan over ONE parse-ERROR region.
+
+    Single pass over comment-/string-masked text. Returns::
+
+        {"definitions": [...],   # CREATE {TABLE|VIEW|PROCEDURE|FUNCTION|TRIGGER}
+         "references": [...],    # ALTER TABLE write; CREATE INDEX / trigger ON reads
+         "temp_names": set[str], # casefolded temp forms found (excluded, tracked)
+         "routines": [...],      # recovered routine defs (body-attribution hook)
+         "truncated": bool}      # region over the byte ceiling — nothing scanned
+
+    Every recovered dict carries ``extraction: "sql_recovery"`` and each
+    definition carries ``line`` (absolute) + ``match_line_offset`` (region-
+    relative, for body segmentation).
+    """
+    result: dict[str, Any] = {
+        "definitions": [], "references": [], "temp_names": set(),
+        "routines": [], "truncated": False,
+    }
+
+    def _schema_of(name: str) -> str | None:
+        return name.rsplit(".", 1)[0] if "." in name else None
+
+    if len(region_text.encode("utf-8", "replace")) > _SQL_RECOVERY_MAX_REGION_BYTES:
+        result["truncated"] = True
+        return result
+    masked = _sql_recovery_mask_noncode(region_text)
+    for offset, line in enumerate(masked.splitlines()):
+        if len(line) > _SQL_RECOVERY_MAX_LINE_CHARS:
+            continue
+        match = _SQL_RECOVERY_CREATE_RE.match(line)
+        if match is not None:
+            kind_word = " ".join(match.group("kind").split()).casefold()
+            if kind_word.endswith("index"):
+                on_match = _SQL_RECOVERY_ON_RE.search(line, match.end())
+                if on_match is not None:
+                    name, is_temp = _sql_recovery_clean_name(on_match.group("name"))
+                    if name and is_temp:
+                        result["temp_names"].add(name.casefold())
+                    elif name:
+                        result["references"].append({
+                            "name": name, "schema": _schema_of(name),
+                            "direction": "read", "clause": "index_on",
+                            "statement": "create_index", "owner": None,
+                            "extraction": _SQL_RECOVERY_MARKER,
+                        })
+                continue
+            sql_kind = _SQL_RECOVERY_KIND_BY_WORD.get(kind_word)
+            if sql_kind is None:
+                continue
+            name, is_temp = _sql_recovery_clean_name(match.group("name"))
+            if name is None:
+                continue
+            if is_temp or match.group("temp"):
+                result["temp_names"].add(name.casefold())
+                continue
+            defn = {
+                "name": name, "schema": _schema_of(name),
+                "sql_kind": sql_kind, "temporary": False,
+                "line": start_line + offset, "match_line_offset": offset,
+                "extraction": _SQL_RECOVERY_MARKER,
+            }
+            result["definitions"].append(defn)
+            if sql_kind in _SQL_RECOVERY_ROUTINE_KINDS:
+                result["routines"].append(defn)
+                if sql_kind == "trigger":
+                    # `CREATE TRIGGER trg ... ON <table>` — the trigger's
+                    # subject table, attributed to the recovered trigger.
+                    on_match = _SQL_RECOVERY_ON_RE.search(line, match.end())
+                    if on_match is not None:
+                        on_name, on_temp = _sql_recovery_clean_name(on_match.group("name"))
+                        if on_name and not on_temp:
+                            result["references"].append({
+                                "name": on_name, "schema": _schema_of(on_name),
+                                "direction": "read", "clause": "from",
+                                "statement": "create_trigger", "owner": name,
+                                "extraction": _SQL_RECOVERY_MARKER,
+                            })
+            continue
+        match = _SQL_RECOVERY_ALTER_RE.match(line)
+        if match is not None:
+            name, is_temp = _sql_recovery_clean_name(match.group("name"))
+            if name and is_temp:
+                result["temp_names"].add(name.casefold())
+            elif name:
+                result["references"].append({
+                    "name": name, "schema": _schema_of(name),
+                    "direction": "write", "clause": "alter",
+                    "statement": "alter_table", "owner": None,
+                    "extraction": _SQL_RECOVERY_MARKER,
+                })
+    return result
+
+
+def _sql_recovery_log_line(
+    rel_path: str,
+    error_regions: int,
+    recovered: int,
+    unrecovered: int,
+    partial_bodies: int = 0,
+) -> str:
+    """Per-file build-log line for the SQL DDL recovery tier (loudness).
+
+    ``partial_bodies`` counts natively-parsed routines whose BODY held a
+    nested parse-ERROR (loop/control-flow) — distinct from the top-level
+    ERROR-region counts above.
+    """
+    return (
+        f"build_index: sql recovery {rel_path} — {error_regions} parse-error "
+        f"region(s): {recovered} definition(s) recovered, "
+        f"{unrecovered} region(s) unrecovered, "
+        f"{partial_bodies} routine body(ies) partially parsed"
+    )
+
+
+def _sql_node_children(node) -> list:
+    try:
+        return list(getattr(node, "named_children", []) or [])
+    except Exception:
+        return []
+
+
+def _sql_subtree_has_error(node) -> bool:
+    """True when any descendant of ``node`` is a parse-ERROR node.
+
+    Walks ALL children (not just named) so an ERROR nested under an unnamed
+    wrapper is still found. Used to flag a natively-parsed routine whose BODY
+    contains a tree-sitter-sql parse failure — e.g. a PL/pgSQL FOR/WHILE loop
+    the grammar cannot parse. The CREATE header parses at top level, so the
+    nested ERROR never reaches scan_top and `error_regions` stays 0; in-loop
+    DML is dropped with no top-level signal. This flag restores loudness.
+    """
+    stack = list(getattr(node, "children", []) or [])
+    while stack:
+        current = stack.pop()
+        if str(getattr(current, "type", "") or "") == "ERROR":
+            return True
+        stack.extend(list(getattr(current, "children", []) or []))
+    return False
+
+
+def _sql_temp_sigil(node, source_bytes: bytes) -> bool:
+    """True when an object_reference is a temp-table / table-variable form.
+
+    `@tv` parses as the reference text itself; `#tmp` parses with the sigil
+    as a preceding ERROR token, so also check the byte immediately before
+    the node (`#tmp`, `##global`).
+    """
+    text = _ts_node_text(node, source_bytes).strip()
+    if text.startswith("#") or text.startswith("@"):
+        return True
+    start = int(getattr(node, "start_byte", 0) or 0)
+    return start > 0 and source_bytes[start - 1:start] in (b"#", b"@")
+
+
+def _sql_object_reference_parts(node, source_bytes: bytes) -> tuple[str, str | None]:
+    """(full_name, schema) for an `object_reference` node."""
+    name = " ".join(_ts_node_text(node, source_bytes).split())
+    schema: str | None = None
+    try:
+        schema_node = node.child_by_field_name("schema")
+    except Exception:
+        schema_node = None
+    if schema_node is not None:
+        schema = _ts_node_text(schema_node, source_bytes).strip() or None
+    return name, schema
+
+
+def _sql_collect_cte_names(stmt_node, source_bytes: bytes) -> set[str]:
+    """Casefolded CTE names declared anywhere in this statement subtree."""
+    names: set[str] = set()
+    stack = [stmt_node]
+    while stack:
+        current = stack.pop()
+        if str(getattr(current, "type", "") or "") == "cte":
+            for child in _sql_node_children(current):
+                if str(getattr(child, "type", "") or "") == "identifier":
+                    text = _ts_node_text(child, source_bytes).strip()
+                    if text:
+                        names.add(text.casefold())
+                    break
+        stack.extend(_sql_node_children(current))
+    return names
+
+
+def _sql_analyze_program(root_node, source_bytes: bytes, *, recover: bool = True) -> dict[str, Any]:
+    """Analyze a parsed SQL program: definitions, clause-aware references,
+    temp-object names, and ERROR regions routed through the recovery tier.
+
+    Statement-scoped exclusions (CTE names, alias positions, temp sigils) are
+    applied here; the SCRIPT-scoped temp-name exclusion is the caller's job
+    (`temp_names` is returned casefolded for that filter) so that a temp
+    object created in one statement never binds a reference in another.
+
+    ``recover=False`` disables the ERROR-region recovery scan — used for the
+    single-level body re-parse inside recovery itself (no recursion) and
+    counts every ERROR region as unrecovered.
+    """
+    definitions: list[dict[str, Any]] = []
+    references: list[dict[str, Any]] = []
+    temp_names: set[str] = set()
+    error_regions = 0
+    unrecovered_regions = 0
+    partial_bodies = 0
+
+    def make_ref(
+        oref,
+        *,
+        direction: str,
+        clause: str,
+        statement: str,
+        owner: str | None,
+        cte_names: set[str],
+    ) -> None:
+        if oref is None:
+            return
+        if _sql_temp_sigil(oref, source_bytes):
+            name = _ts_node_text(oref, source_bytes).strip().lstrip("#@")
+            if name:
+                temp_names.add(name.casefold())
+            return
+        name, schema = _sql_object_reference_parts(oref, source_bytes)
+        if not name or name.casefold() in _SQL_RELATION_KEYWORD_STOPLIST:
+            return
+        if name.casefold() in cte_names:
+            return
+        references.append({
+            "name": name,
+            "schema": schema,
+            "direction": direction,
+            "clause": clause,
+            "statement": statement,
+            "owner": owner,
+        })
+
+    def walk_reads(node, clause: str, statement: str, owner: str | None, cte_names: set[str]) -> None:
+        node_type = str(getattr(node, "type", "") or "")
+        if node_type in _SQL_REF_SKIP_NODE_TYPES:
+            return
+        if node_type == "statement":
+            # Wave 1p9qi in-body routine fix: a nested `statement` node must be
+            # dispatched through analyze_statement — never flattened by the
+            # generic read descent below. A natively-parsed PL/pgSQL routine
+            # body (`$$`/`$tag$`, the TRUSTED path) wraps each of its
+            # statements in a `statement` node exactly like the top level
+            # (verified against the parsed AST). Without this branch the whole
+            # body flowed through the generic walk, which hard-codes
+            # `direction="read"` at every object_reference — so in-body
+            # INSERT/UPDATE/DELETE/MERGE were emitted as READS (direction
+            # inverted; the write went to the wrong bucket) and in-body CREATE
+            # TABLE / CREATE TEMP TABLE became phantom reads that bypassed the
+            # AC-6 temp exclusion. Routing to analyze_statement gives each
+            # in-body statement its correct clause-derived direction, mints the
+            # temp-name exclusion for in-body temp objects, and treats in-body
+            # creates as definitions (dropped by handle_create_routine — routine
+            # bodies never mint schema objects). This makes the native path
+            # consistent with the recovery tier, which already re-enters
+            # analyze_statement for recovered bodies. Loose reference positions
+            # with no enclosing `statement` (e.g. a subquery inside an
+            # unparseable `IF (...)` that lands in a nested ERROR region) still
+            # fall through to the generic read descent below — genuine reads are
+            # never dropped.
+            analyze_statement(node, owner, cte_names)
+            return
+        if node_type == "relation":
+            for child in _sql_node_children(node):
+                ctype = str(getattr(child, "type", "") or "")
+                if ctype == "object_reference":
+                    make_ref(child, direction="read", clause=clause, statement=statement,
+                             owner=owner, cte_names=cte_names)
+                elif ctype == "subquery":
+                    walk_reads(child, "from", statement, owner, cte_names)
+                # alias identifiers are deliberately never collected
+            return
+        if node_type == "invocation":
+            # Wave 1p9qi integration: a scalar function invocation's NAME parses
+            # as `invocation > object_reference` (`WHERE created < NOW()` →
+            # `NOW`), which is a routine name, never a table reference — the
+            # generic descent minted `reads external::NOW`-style noise (4.4% of
+            # unit references on the Fineract census corpus). Skip the direct
+            # object_reference child (the function name) but KEEP walking the
+            # argument subtree so a genuine table read inside an argument
+            # subquery (`COALESCE((SELECT n FROM orgs), 'x')`) is preserved.
+            # Relation-position invocations (`FROM generate_series(...)`) are
+            # handled by the `relation` branch above and are untouched: they
+            # emit no table reference (a routine call is not a table — the
+            # recorded routine-invocation stance; a `call` clause is future
+            # field-demand work).
+            for child in _sql_node_children(node):
+                if str(getattr(child, "type", "") or "") == "object_reference":
+                    continue
+                walk_reads(child, clause, statement, owner, cte_names)
+            return
+        if node_type == "object_reference":
+            make_ref(node, direction="read", clause=clause, statement=statement,
+                     owner=owner, cte_names=cte_names)
+            return
+        if node_type == "cte":
+            for child in _sql_node_children(node):
+                if str(getattr(child, "type", "") or "") == "statement":
+                    analyze_statement(child, owner, cte_names)
+            return
+        next_clause = clause
+        if node_type == "from":
+            next_clause = "from"
+        elif "join" in node_type:
+            next_clause = "join"
+        for child in _sql_node_children(node):
+            walk_reads(child, next_clause, statement, owner, cte_names)
+
+    def handle_create_table(create_node, statement_node) -> None:
+        children = _sql_node_children(create_node)
+        name_node = next(
+            (c for c in children if str(getattr(c, "type", "") or "") == "object_reference"),
+            None,
+        )
+        is_temp = any(
+            str(getattr(c, "type", "") or "") in ("keyword_temporary", "keyword_temp")
+            for c in children
+        )
+        table_name: str | None = None
+        if name_node is not None:
+            if _sql_temp_sigil(name_node, source_bytes):
+                is_temp = True
+            name, schema = _sql_object_reference_parts(name_node, source_bytes)
+            table_name = name or None
+            if is_temp and name:
+                temp_names.add(name.casefold())
+            if not is_temp and name:
+                definitions.append({
+                    "name": name,
+                    "schema": schema,
+                    "sql_kind": "table",
+                    "temporary": False,
+                    "node": statement_node,
+                })
+        # FK targets: every OTHER object_reference in the create subtree
+        # (column-level `REFERENCES orgs(id)` and table-level constraints).
+        owner = table_name if not is_temp else None
+        stack = list(children)
+        while stack:
+            current = stack.pop()
+            if current is name_node:
+                continue
+            if str(getattr(current, "type", "") or "") == "object_reference":
+                make_ref(current, direction="read", clause="references",
+                         statement="create_table", owner=owner, cte_names=set())
+                continue
+            stack.extend(_sql_node_children(current))
+
+    def handle_create_view(create_node, statement_node, cte_names: set[str]) -> None:
+        view_name: str | None = None
+        for child in _sql_node_children(create_node):
+            ctype = str(getattr(child, "type", "") or "")
+            if ctype == "object_reference" and view_name is None:
+                name, schema = _sql_object_reference_parts(child, source_bytes)
+                if name:
+                    view_name = name
+                    definitions.append({
+                        "name": name,
+                        "schema": schema,
+                        "sql_kind": "view",
+                        "temporary": False,
+                        "node": statement_node,
+                    })
+            elif ctype in ("create_query", "statement", "select", "from"):
+                walk_reads(child, "from", "create_view", view_name, cte_names)
+
+    def handle_create_routine(create_node, statement_node, sql_kind: str, cte_names: set[str]) -> None:
+        nonlocal partial_bodies
+        routine_name: str | None = None
+        expect_return_type = False
+        # Loudness (1p9qi delivery council): if this natively-parsed routine's
+        # body subtree contains a nested parse-ERROR (a PL/pgSQL loop /
+        # control-flow construct tree-sitter-sql cannot parse), some in-body
+        # DML was silently dropped. The header parsed at top level so
+        # scan_top / `error_regions` never sees it — flag it here so the
+        # partial extraction is observable rather than silent. This is
+        # informational only; actually recovering the dropped in-loop DML
+        # needs plpgsql control-flow handling the grammar lacks (deferred).
+        if _sql_subtree_has_error(create_node):
+            partial_bodies += 1
+        # After the routine's own definition is recorded, everything the body
+        # mints via analyze_statement (in-body CREATE TABLE / CREATE VIEW, etc.)
+        # is dropped: a routine body never defines schema objects at module
+        # scope — the same stance the recovery tier takes for recovered bodies
+        # (handle_error_region discards nested definitions from its body
+        # re-parse). The body's *references* (with their clause-derived
+        # direction and routine owner) and its temp-name exclusions are kept.
+        body_def_floor: int | None = None
+        for child in _sql_node_children(create_node):
+            ctype = str(getattr(child, "type", "") or "")
+            if ctype == "object_reference" and routine_name is None:
+                name, schema = _sql_object_reference_parts(child, source_bytes)
+                if name:
+                    routine_name = name
+                    definitions.append({
+                        "name": name,
+                        "schema": schema,
+                        "sql_kind": sql_kind,
+                        "temporary": False,
+                        "node": statement_node,
+                    })
+                    body_def_floor = len(definitions)
+            elif ctype == "object_reference" and expect_return_type:
+                # 1p9qi review fix (adversarial finding 3): `RETURNS <type>`
+                # parses as a second top-level object_reference — a return
+                # TYPE name, never a table — same stance as the invocation-
+                # name exclusion above (a name is not a reference).
+                expect_return_type = False
+            else:
+                expect_return_type = ctype == "keyword_returns"
+                walk_reads(child, "from", f"create_{sql_kind}", routine_name, cte_names)
+        if body_def_floor is not None:
+            del definitions[body_def_floor:]
+
+    def analyze_statement(stmt_node, owner: str | None, outer_cte_names: set[str] | None = None) -> None:
+        cte_names = set(outer_cte_names or ()) | _sql_collect_cte_names(stmt_node, source_bytes)
+        children = _sql_node_children(stmt_node)
+        child_types = [str(getattr(c, "type", "") or "") for c in children]
+        is_delete = "delete" in child_types
+        is_merge = "keyword_merge" in child_types
+        is_truncate = "keyword_truncate" in child_types
+        if is_merge:
+            pending: str | None = None
+            for child in children:
+                ctype = str(getattr(child, "type", "") or "")
+                if ctype == "keyword_into":
+                    pending = "merge_into"
+                elif ctype == "keyword_using":
+                    pending = "merge_using"
+                elif ctype == "object_reference" and pending is not None:
+                    make_ref(
+                        child,
+                        direction="write" if pending == "merge_into" else "read",
+                        clause=pending, statement="merge", owner=owner, cte_names=cte_names,
+                    )
+                    pending = None
+                elif ctype == "subquery":
+                    walk_reads(child, "from", "merge", owner, cte_names)
+                elif ctype == "cte":
+                    walk_reads(child, "from", "merge", owner, cte_names)
+                # when_clause / predicate expressions carry only field
+                # qualifiers (aliases) — never table references.
+            return
+        for child in children:
+            ctype = str(getattr(child, "type", "") or "")
+            if ctype == "create_table":
+                handle_create_table(child, stmt_node)
+            elif ctype in ("create_view", "create_materialized_view"):
+                handle_create_view(child, stmt_node, cte_names)
+            elif ctype in ("create_function", "create_procedure", "create_trigger"):
+                handle_create_routine(child, stmt_node, _SQL_CREATE_KIND_BY_NODE[ctype], cte_names)
+            elif ctype == "create_index":
+                for sub in _sql_node_children(child):
+                    if str(getattr(sub, "type", "") or "") == "object_reference":
+                        make_ref(sub, direction="read", clause="index_on",
+                                 statement="create_index", owner=owner, cte_names=cte_names)
+            elif ctype.startswith("alter_"):
+                for sub in _sql_node_children(child):
+                    if str(getattr(sub, "type", "") or "") == "object_reference":
+                        make_ref(sub, direction="write", clause="alter",
+                                 statement=ctype, owner=owner, cte_names=cte_names)
+                        break  # only the altered object; column REFERENCES etc. below
+                # FK targets added by ALTER ... ADD CONSTRAINT ... REFERENCES:
+                seen_first = False
+                stack = _sql_node_children(child)
+                while stack:
+                    current = stack.pop(0)
+                    if str(getattr(current, "type", "") or "") == "object_reference":
+                        if not seen_first:
+                            seen_first = True
+                            continue
+                        make_ref(current, direction="read", clause="references",
+                                 statement=ctype, owner=owner, cte_names=cte_names)
+                        continue
+                    stack.extend(_sql_node_children(current))
+            elif ctype.startswith("drop_"):
+                for sub in _sql_node_children(child):
+                    if str(getattr(sub, "type", "") or "") == "object_reference":
+                        make_ref(sub, direction="write", clause="drop",
+                                 statement=ctype, owner=owner, cte_names=cte_names)
+            elif ctype == "insert":
+                insert_children = _sql_node_children(child)
+                target = next(
+                    (c for c in insert_children if str(getattr(c, "type", "") or "") == "object_reference"),
+                    None,
+                )
+                make_ref(target, direction="write", clause="insert_into",
+                         statement="insert", owner=owner, cte_names=cte_names)
+                for sub in insert_children:
+                    if sub is target:
+                        continue
+                    walk_reads(sub, "from", "insert", owner, cte_names)
+            elif ctype == "update":
+                for sub in _sql_node_children(child):
+                    stype = str(getattr(sub, "type", "") or "")
+                    if stype == "relation":
+                        for rel_child in _sql_node_children(sub):
+                            if str(getattr(rel_child, "type", "") or "") == "object_reference":
+                                make_ref(rel_child, direction="write", clause="update",
+                                         statement="update", owner=owner, cte_names=cte_names)
+                    elif stype == "object_reference":
+                        make_ref(sub, direction="write", clause="update",
+                                 statement="update", owner=owner, cte_names=cte_names)
+                    else:
+                        walk_reads(sub, "from", "update", owner, cte_names)
+            elif ctype == "from" and is_delete:
+                # DELETE FROM t: the from clause's DIRECT relation is the
+                # WRITE target; anything deeper (joins, where subqueries)
+                # remains read-direction.
+                for sub in _sql_node_children(child):
+                    stype = str(getattr(sub, "type", "") or "")
+                    if stype == "object_reference":
+                        make_ref(sub, direction="write", clause="delete_from",
+                                 statement="delete", owner=owner, cte_names=cte_names)
+                    elif stype == "relation":
+                        for rel_child in _sql_node_children(sub):
+                            if str(getattr(rel_child, "type", "") or "") == "object_reference":
+                                make_ref(rel_child, direction="write", clause="delete_from",
+                                         statement="delete", owner=owner, cte_names=cte_names)
+                    else:
+                        walk_reads(sub, "from", "delete", owner, cte_names)
+            elif ctype == "object_reference" and is_truncate:
+                make_ref(child, direction="write", clause="truncate",
+                         statement="truncate", owner=owner, cte_names=cte_names)
+            elif ctype in ("delete", "keyword_truncate"):
+                continue
+            else:
+                walk_reads(child, "from", _sql_statement_kind(child_types), owner, cte_names)
+
+    def _sql_statement_kind(child_types: list[str]) -> str:
+        if "select" in child_types:
+            return "select"
+        return "statement"
+
+    def handle_error_region(err_node) -> str | None:
+        """Recovery (1p9qe) for one parse-ERROR region.
+
+        Populates definitions/references/temp_names from the bounded
+        line-anchored scan; when the region swallowed a single routine's
+        BODY too (trigger form), re-parses the text after the recovered
+        CREATE line through this unit (one level, ``recover=False``) and
+        attaches the parseable fragments' references to the recovered
+        routine. Nested definitions and nested ERROR counts from the
+        re-parse are ignored — parsed routine bodies never mint definitions
+        either, and the region is already counted once at this level.
+
+        Returns the routine name an immediately-following dangling `block`
+        should attribute to (single-routine regions only — 0 or 2+ recovered
+        routines fall back to script scope rather than guessing).
+        """
+        nonlocal unrecovered_regions
+        start_byte = int(getattr(err_node, "start_byte", 0) or 0)
+        end_byte = int(getattr(err_node, "end_byte", 0) or 0)
+        region_text = source_bytes[start_byte:end_byte].decode("utf-8", "replace")
+        start_line = int((getattr(err_node, "start_point", None) or (0, 0))[0] or 0)
+        recovered = _sql_recover_error_region(region_text, start_line)
+        temp_names.update(recovered["temp_names"])
+        for defn in recovered["definitions"]:
+            definitions.append({
+                "name": defn["name"],
+                "schema": defn["schema"],
+                "sql_kind": defn["sql_kind"],
+                "temporary": False,
+                "extraction": _SQL_RECOVERY_MARKER,
+                "node": _SqlRecoveredNode(defn["line"]),
+            })
+        references.extend(dict(ref) for ref in recovered["references"])
+        sole_routine = recovered["routines"][0] if len(recovered["routines"]) == 1 else None
+        if sole_routine is not None:
+            body_lines = region_text.splitlines(keepends=True)
+            body_text = "".join(body_lines[sole_routine["match_line_offset"] + 1:])
+            if body_text.strip():
+                body_tree = _ts_parse("sql", body_text)
+                if body_tree is not None:
+                    nested = _sql_analyze_program(
+                        body_tree.root_node, body_text.encode("utf-8"), recover=False
+                    )
+                    temp_names.update(nested["temp_names"])
+                    for ref in nested["references"]:
+                        if ref["owner"] is None:
+                            references.append({
+                                **ref,
+                                "owner": sole_routine["name"],
+                                "extraction": _SQL_RECOVERY_MARKER,
+                            })
+        if not recovered["definitions"] and not recovered["references"]:
+            unrecovered_regions += 1
+        return sole_routine["name"] if sole_routine is not None else None
+
+    # Top-level scan (document order): analyze `statement` nodes; route
+    # parse-ERROR regions through the 1p9qe recovery tier (counted loudly
+    # either way). A dangling `block` immediately following an ERROR region
+    # whose recovery yielded exactly ONE routine is that routine's body —
+    # its statements attribute to the recovered routine instead of the
+    # script level (the live-verified dangling-reference defect). A parsed
+    # top-level statement closes the attribution window; comments between
+    # the header and its block do not.
+    pending_owner: str | None = None
+
+    def scan_top(node, inherited_owner: str | None) -> None:
+        nonlocal error_regions, unrecovered_regions, pending_owner
+        for child in _sql_node_children(node):
+            ctype = str(getattr(child, "type", "") or "")
+            if ctype == "ERROR":
+                error_regions += 1
+                pending_owner = None
+                if recover:
+                    pending_owner = handle_error_region(child)
+                else:
+                    unrecovered_regions += 1
+            elif ctype == "statement":
+                analyze_statement(child, inherited_owner)
+                if inherited_owner is None:
+                    pending_owner = None
+            elif ctype in ("comment", "marginalia"):
+                continue
+            elif ctype == "block":
+                owner = pending_owner if pending_owner is not None else inherited_owner
+                pending_owner = None
+                ref_start = len(references)
+                scan_top(child, owner)
+                # 1p9qi review: a dangling-block re-attribution depends on the
+                # recovery tier exactly like the region-tail re-parse — mark
+                # BOTH `sql_recovery`. Any non-None owner reaching scan_top
+                # traces back to handle_error_region's recovered routine
+                # (parsed CREATE bodies attribute inside analyze_statement,
+                # never through this scan), so the gate is just `owner`.
+                if owner is not None:
+                    for _ref in references[ref_start:]:
+                        if _ref.get("owner") == owner and not _ref.get("extraction"):
+                            _ref["extraction"] = _SQL_RECOVERY_MARKER
+            else:
+                scan_top(child, inherited_owner)
+
+    scan_top(root_node, None)
+
+    return {
+        "definitions": definitions,
+        "references": references,
+        "temp_names": temp_names,
+        "error_regions": error_regions,
+        "unrecovered_regions": unrecovered_regions,
+        "partial_bodies": partial_bodies,
+    }
+
+
+def sql_statement_references(sql_text: str) -> dict[str, Any] | None:
+    """Standalone SQL statement-analysis unit (wave 1p9qi / 1p9qd).
+
+    THE contract for `1p9qf`'s embedded-SQL bind stage (and `1p9qe`'s
+    recovered-body analysis): parse SQL text with no file-node context and
+    return the clause-aware reference list — the same list the SQL file
+    extraction path derives its edges from (parity-tested). Returns None
+    when the SQL grammar is unavailable; see the section comment above for
+    the reference/definition dict shapes and guarantees.
+    """
+    tree = _ts_parse("sql", sql_text)
+    if tree is None:
+        return None
+    source_bytes = sql_text.encode("utf-8")
+    analysis = _sql_analyze_program(tree.root_node, source_bytes)
+    temp_names = analysis["temp_names"]
+    references = [
+        {**ref, "extraction": ref.get("extraction")}
+        for ref in analysis["references"]
+        if ref["name"].casefold() not in temp_names
+    ]
+    # Parsed extraction wins name collisions; recovery is strictly additive.
+    parsed_names = {d["name"] for d in analysis["definitions"] if not d.get("extraction")}
+    definitions = [
+        {
+            "name": d["name"], "schema": d["schema"], "sql_kind": d["sql_kind"],
+            "temporary": d["temporary"], "extraction": d.get("extraction"),
+        }
+        for d in analysis["definitions"]
+        if not (d.get("extraction") and d["name"] in parsed_names)
+    ]
+    return {
+        "references": references,
+        "definitions": definitions,
+        "error_regions": analysis["error_regions"],
+        "recovery": {
+            "recovered_definitions": sum(1 for d in definitions if d["extraction"]),
+            "unrecovered_regions": analysis["unrecovered_regions"],
+            "partial_bodies": analysis["partial_bodies"],
+        },
+    }
+
+
+def _sql_apply_file_extraction(
+    root_node,
+    source_bytes: bytes,
+    *,
+    module_id: str,
+    node_map: dict[str, dict[str, Any]],
+    register_symbol,
+    add_edge,
+) -> None:
+    """SQL file extraction through the statement-analysis unit.
+
+    Registers schema-object definitions (tables/views/routines with a
+    `sql_kind` node property), then emits `reads`/`writes` edges for the
+    clause-aware references. Same-file resolution mirrors the 1p7dg
+    convention: an exact qualified-name match or a UNIQUE bare-name match
+    binds at RECEIVER_RESOLVED; local ambiguity or no local match emits
+    `external::<name>` at EXTRACTED for the cross-file machinery (which
+    applies the same qualified-first / unique-bare / refuse-on-ambiguity
+    rules). Temp objects are script-scoped: never registered, and references
+    to their names are dropped (AC-6).
+    """
+    analysis = _sql_analyze_program(root_node, source_bytes)
+    owner_ids: dict[str, str] = {}
+    local_qname: dict[str, str] = {}
+    local_bare: dict[str, list[str]] = {}
+    recovered_count = 0
+    # Parsed definitions register first: parsed extraction wins name
+    # collisions, recovery (1p9qe) is strictly additive on top of it.
+    parsed_defs = [d for d in analysis["definitions"] if not d.get("extraction")]
+    recovered_defs = [d for d in analysis["definitions"] if d.get("extraction")]
+    for defn in parsed_defs + recovered_defs:
+        if defn.get("extraction") and defn["name"] in owner_ids:
+            continue
+        kind = "class" if defn["sql_kind"] in ("table", "view") else "function"
+        node_id = register_symbol(defn["name"], kind, defn["node"], None)
+        node_map[node_id]["sql_kind"] = defn["sql_kind"]
+        if defn.get("extraction"):
+            # Degradation-honesty marker: this object came from the ERROR-
+            # region recovery scan, not a trusted parse.
+            node_map[node_id]["extraction"] = defn["extraction"]
+            recovered_count += 1
+        owner_ids[defn["name"]] = node_id
+        local_qname.setdefault(defn["name"], node_id)
+        bare = defn["name"].rsplit(".", 1)[-1]
+        bucket = local_bare.setdefault(bare, [])
+        if node_id not in bucket:
+            bucket.append(node_id)
+    temp_names = analysis["temp_names"]
+    for ref in analysis["references"]:
+        name = ref["name"]
+        if name.casefold() in temp_names:
+            continue
+        source = owner_ids.get(ref["owner"]) if ref["owner"] else None
+        if source is None:
+            source = module_id
+        confidence = "RECEIVER_RESOLVED"
+        target = local_qname.get(name)
+        if target is None and "." not in name:
+            bare_matches = local_bare.get(name, [])
+            if len(bare_matches) == 1:
+                target = bare_matches[0]
+        if target is None:
+            target = f"external::{name}"
+            confidence = "EXTRACTED"
+        if target == source:
+            # Self-references (self-FK, a view named in its own body) carry
+            # no graph value — 1p9qc's self-referential-import precedent.
+            continue
+        relation = GRAPH_WRITES_RELATION if ref["direction"] == "write" else GRAPH_READS_RELATION
+        add_edge(source, target, relation, confidence=confidence, evidence=ref["clause"])
+    if analysis["error_regions"]:
+        # Loud degradation counts (1p9qe convention): total parse-ERROR
+        # regions (frozen 1p9qd contract), how many definitions the recovery
+        # tier extracted from them, and how many regions yielded nothing.
+        node_map[module_id]["sql_error_regions"] = analysis["error_regions"]
+        if recovered_count:
+            node_map[module_id]["sql_recovered_definitions"] = recovered_count
+        if analysis["unrecovered_regions"]:
+            node_map[module_id]["sql_unrecovered_regions"] = analysis["unrecovered_regions"]
+    if analysis["partial_bodies"]:
+        # Loudness for the nested-in-body ERROR case (1p9qi delivery council):
+        # a natively-parsed routine whose BODY holds a parse-ERROR (a PL/pgSQL
+        # loop / control-flow construct tree-sitter-sql cannot parse) drops
+        # some in-body DML silently. Because the header parses at top level,
+        # `error_regions` never counts it — so this is set OUTSIDE the
+        # error_regions gate above. Kept DISTINCT from sql_unrecovered_regions
+        # (top-level ERROR regions): the semantics differ, and recovering the
+        # dropped in-loop DML needs plpgsql control-flow parsing the grammar
+        # lacks (deferred follow-up, not attempted here).
+        node_map[module_id]["sql_partial_bodies"] = analysis["partial_bodies"]
 
 
 def _ts_relation_candidates(
@@ -6060,7 +8213,7 @@ def _ts_relation_candidates(
     # fallback is still useful and the noise risk is lower.
     raw_candidates = re.findall(r"[A-Za-z_][A-Za-z0-9_.$:#/\-]*", text)
     profile_stop = profile.stop_terms if profile is not None else frozenset()
-    return [
+    fallback_candidates = [
         candidate for candidate in raw_candidates
         if candidate not in _STOP_TERMS
         and candidate not in profile_stop
@@ -6070,6 +8223,7 @@ def _ts_relation_candidates(
         and not (relation == "import" and candidate in _RELATION_KEYWORD_NOISE)
         and not _ts_candidate_rejected(candidate)
     ]
+    return fallback_candidates
 
 
 def _ts_pick_symbol_name(candidates: list[str], mode: str, node_type: str) -> str:
@@ -6721,6 +8875,26 @@ def _resolve_external_read_target(
     return None
 
 
+# Wave 1p9qi (1p9qd): file suffixes whose sources are SQL — derived from the
+# language map so the two can never drift. Used to recognize SQL-origin
+# `reads` edges (table references) in cross-file resolution: constant reads
+# can never originate from a SQL file (SQL mode emits no identifier reads),
+# so the source suffix is a sound routing signal.
+_SQL_SOURCE_SUFFIXES = frozenset(
+    ext for ext, lang in _TS_EXTENSION_TO_LANGUAGE.items() if lang == "sql"
+)
+
+
+def _sql_table_reference_edge(raw_edge: dict[str, Any]) -> bool:
+    """True when a `reads` edge is a SQL table reference (source is a SQL file)."""
+    if str(raw_edge.get("relation") or "") != GRAPH_READS_RELATION:
+        return False
+    src = str(raw_edge.get("source") or "")
+    src_file = src.split("::", 1)[0] if "::" in src else src
+    dot = src_file.rfind(".")
+    return dot >= 0 and src_file[dot:].lower() in _SQL_SOURCE_SUFFIXES
+
+
 def _raw_fragment_edge(edge: dict[str, Any]) -> dict[str, Any]:
     """Recover the raw (extraction-time) edge from a stored fragment edge."""
     if _PROV_DROP in edge:
@@ -6765,6 +8939,14 @@ def _edge_lookup_keys(raw_edge: dict[str, Any]) -> set[str]:
     bare = tgt[len("external::"):]
     if not bare:
         return set()
+    # Wave 1p9qi (1p9qd): SQL table-reference edges (`writes`, and `reads`
+    # emitted from SQL sources) resolve through the call machinery, so they
+    # consult the same bare + final-segment keys as calls.
+    if rel == GRAPH_WRITES_RELATION or _sql_table_reference_edge(raw_edge):
+        keys = {bare}
+        if "." in bare:
+            keys.add(bare.rsplit(".", 1)[-1])
+        return keys
     if rel == "reads":
         return {bare}
     if rel in _INHERITANCE_RELATIONS:
@@ -6802,10 +8984,20 @@ def _resolve_fragment_edge(raw_edge: dict[str, Any], ctx: dict[str, Any]) -> dic
         return raw_edge
     tgt = str(raw_edge.get("target") or "")
     rel = str(raw_edge.get("relation") or "")
-    if not tgt.startswith("external::") or rel not in ("calls", "reads", *_INHERITANCE_RELATIONS):
+    if not tgt.startswith("external::") or rel not in (
+        "calls", "reads", GRAPH_WRITES_RELATION, *_INHERITANCE_RELATIONS
+    ):
         return raw_edge
     src = str(raw_edge.get("source") or "")
     bare = tgt[len("external::"):]
+    # Wave 1p9qi (1p9qd): SQL table references (writes always; reads when the
+    # SOURCE is a SQL file) route through the CALL machinery below — exact
+    # qualified-name match first, unique bare-name fallback, refusal on
+    # ambiguity, with the 1p7dg exact-unique promotion. They must NOT hit the
+    # 1p4ls constant-read branch: its unique-CONSTANT-or-DROP contract would
+    # tombstone every unresolved table reference (`external::audit_log` is
+    # real reference evidence, not a droppable constant read).
+    sql_table_ref = rel == GRAPH_WRITES_RELATION or _sql_table_reference_edge(raw_edge)
     # Wave 1p9qh (1p9qa): `super.`/`base.` call markers are owned by the
     # finalize inheritance pass. Never resolved here — the AC-2 final-segment
     # fallback could wrong-bind the marker to an unrelated same-named symbol
@@ -6817,7 +9009,7 @@ def _resolve_fragment_edge(raw_edge: dict[str, Any], ctx: dict[str, Any]) -> dic
         or bare.startswith(_STATIC_OR_INHERITED_PREFIX)
     ):
         return raw_edge
-    if rel == "reads":
+    if rel == "reads" and not sql_table_ref:
         target = _resolve_external_read_target(
             src,
             bare,
@@ -6845,6 +9037,12 @@ def _resolve_fragment_edge(raw_edge: dict[str, Any], ctx: dict[str, Any]) -> dic
     # same-named function/constant twin is never a supertype. Refuse (stay
     # external) rather than bind a non-class candidate.
     if rel in _INHERITANCE_RELATIONS and (ctx["node_map"].get(resolved) or {}).get("kind") != "class":
+        return raw_edge
+    # Wave 1p9qi (1p9qd): a SQL table reference must resolve to a SQL schema
+    # object (`sql_kind`-carrying node) — a coincidental same-name host-
+    # language class/function is never the referenced table. Refuse (stay
+    # external) rather than bind a non-SQL twin.
+    if sql_table_ref and "sql_kind" not in (ctx["node_map"].get(resolved) or {}):
         return raw_edge
     # Wave 1p2q3 / 1p7dg: exact-unique cross-file rebinds are high-confidence
     # by construction — promote EXTRACTED->RECEIVER_RESOLVED. Heuristic binds
@@ -8355,6 +10553,30 @@ class GraphIndexSession:
                 lang_key not in _DOMINANCE_GATE_LANGS
                 or _top_level_class_count == 1
             )
+            # Wave 1p9qi (1p9qg): buffer JPA/EF entity classes for the
+            # post-walk mapping capture (it needs symbol_lookup for the
+            # same-file impostor checks). Computed BEFORE the basename-
+            # collapse early return below — a file-dominant entity class
+            # (User.java defining class User, the normal JPA layout) merges
+            # into the module node and never reaches the annotation block
+            # further down. Gated on the cheap name-only extractors so the
+            # argument-record walk runs only for annotated classes.
+            _orm_entity_carrier = None
+            # 1p9qi review: extracted once here and reused by the annotation-
+            # capture block below (previously the same node's annotations were
+            # walked twice for every Java/C# class).
+            _node_annotations: list[str] | None = None
+            if kind == "class" and lang_key in ("java", "csharp"):
+                _node_annotations = (
+                    _ts_extract_java_annotations(node, source_bytes)
+                    if lang_key == "java"
+                    else _ts_extract_csharp_attributes(node, source_bytes)
+                )
+                _orm_tails = {a.rsplit(".", 1)[-1] for a in _node_annotations}
+                if (lang_key == "java" and "Entity" in _orm_tails) or (
+                    lang_key == "csharp" and _orm_tails & _CSHARP_TABLE_ATTRIBUTE_TAILS
+                ):
+                    _orm_entity_carrier = node
             if (
                 _file_basename_candidates
                 and kind in _merge_kinds
@@ -8374,6 +10596,8 @@ class GraphIndexSession:
                 # qname → module_id mapping).
                 if module_id not in defined_symbols:
                     defined_symbols.append(module_id)
+                if _orm_entity_carrier is not None:
+                    orm_entity_class_nodes.append((module_id, _orm_entity_carrier))
                 return module_id
             node_id = f"{rel_path}::{qname}"
             label = qname.rsplit(".", 1)[-1]
@@ -8385,14 +10609,36 @@ class GraphIndexSession:
             # `modifiers` child; C# attributes live in sibling `attribute_list`
             # nodes (130tc).
             if lang_key == "java":
-                annotations = _ts_extract_java_annotations(node, source_bytes)
+                annotations = (
+                    _node_annotations
+                    if _node_annotations is not None
+                    else _ts_extract_java_annotations(node, source_bytes)
+                )
                 if annotations:
                     node_map[node_id]["annotations"] = annotations
+                    # Wave 1p9qi (1p9qf): SQL-carrying annotation sinks
+                    # (MyBatis @Select/@Insert/@Update/@Delete, native @Query,
+                    # @NamedNativeQuery). Gated on the already-extracted names
+                    # so the argument-record walk runs only at a sink.
+                    if any(
+                        a.rsplit(".", 1)[-1] in _JAVA_SQL_SINK_ANNOTATIONS
+                        for a in annotations
+                    ):
+                        _ann_sqls, _ann_dyn = _java_annotation_sql_captures(node, source_bytes)
+                        for _ann_sql in _ann_sqls:
+                            sql_capture_candidates.append((node_id, _ann_sql))
+                        _sql_dynamic[0] += _ann_dyn
             elif lang_key == "csharp":
-                attributes = _ts_extract_csharp_attributes(node, source_bytes)
+                attributes = (
+                    _node_annotations
+                    if _node_annotations is not None
+                    else _ts_extract_csharp_attributes(node, source_bytes)
+                )
                 if attributes:
                     # Surface as `annotations` for downstream parity with Java.
                     node_map[node_id]["annotations"] = attributes
+            if _orm_entity_carrier is not None:  # Wave 1p9qg: non-collapsed entity class
+                orm_entity_class_nodes.append((node_id, _orm_entity_carrier))
             add_edge(module_id, node_id, "defines", confidence="EXTRACTED")
             if parent_symbol and parent_symbol != module_id:
                 add_edge(parent_symbol, node_id, "defines", confidence="EXTRACTED")
@@ -8444,6 +10690,20 @@ class GraphIndexSession:
         # same-file supertype binds directly.
         buffered_supertypes: list[tuple[str, str, str]] = []
         config_read_candidates: list[tuple[str, str]] = []  # Wave 1p7dh: Java (reader_symbol, config_key)
+        # Wave 1p9qi (1p9qf): (source_symbol_or_mybatis_marker, sql_text) sink
+        # captures, bound at finalize; single-cell list so nested defs
+        # (register_symbol / walk_definitions) can bump the refusal count.
+        sql_capture_candidates: list[tuple[str, str]] = []
+        _sql_dynamic = [0]
+        # Wave 1p9qi (1p9qg): ORM entity→table mapping capture. Entity-class
+        # AST nodes buffered by register_symbol (both collapse paths), drained
+        # post-walk when symbol_lookup exists (impostor checks need it);
+        # candidates = (source_marker, declared_table); refusal counters ride
+        # the fragment so the convention/dynamic gaps stay visible.
+        orm_entity_class_nodes: list[tuple[str, Any]] = []
+        orm_entity_candidates: list[tuple[str, str]] = []
+        _orm_dynamic = [0]
+        _orm_convention = [0]
         func_locals: dict[str, set[str]] = {}  # reader_symbol -> {param/local binding names} (member-access F4 shadow guard)
 
         def walk_definitions(
@@ -8750,6 +11010,15 @@ class GraphIndexSession:
                     for child in getattr(node, "named_children", []):
                         walk_definitions(child, next_scope_names, next_scope_kinds, next_scope_symbols, next_scope_signatures)
                     return
+            # Wave 1p9qi (1p9qf): C# `<expr>.CommandText = "<sql>"` assignment
+            # sink — assignments are not call nodes, so capture here.
+            if lang_key == "csharp" and node_type == "assignment_expression":
+                _ct_sql, _ct_dyn = _csharp_commandtext_sql_capture(node, source_bytes)
+                if _ct_sql:
+                    sql_capture_candidates.append(
+                        (scope_symbols[-1] if scope_symbols else module_id, _ct_sql)
+                    )
+                _sql_dynamic[0] += _ct_dyn
             # Wave 1p2q3 (1p2tz post-ship-4 perf): buffer calls for post-walk
             # resolution. We can't emit edges yet because symbol_lookup is built
             # AFTER the walk completes.
@@ -8784,7 +11053,32 @@ class GraphIndexSession:
             for child in getattr(node, "named_children", []):
                 walk_definitions(child, scope_names, scope_kinds, scope_symbols, scope_signatures)
 
-        walk_definitions(tree.root_node, [], [], [], [])
+        # Wave 1p9qi (1p9qd): SQL bypasses the generic walker entirely — the
+        # clause-aware statement analysis owns definitions AND references
+        # (reads/writes edges with direction), retiring the substring-matched
+        # import/call node selection + regex candidate fallback for SQL mode.
+        # All downstream drains (buffered calls/reads/supertypes) stay empty.
+        if mode == "sql":
+            _sql_apply_file_extraction(
+                tree.root_node,
+                source_bytes,
+                module_id=module_id,
+                node_map=node_map,
+                register_symbol=register_symbol,
+                add_edge=add_edge,
+            )
+        else:
+            walk_definitions(tree.root_node, [], [], [], [])
+            # Wave 1p9qi (1p9qf): MyBatis mapper XML — statement-text capture
+            # with the mapper namespace + statement id as the source marker
+            # (resolved to the mapper interface at finalize).
+            if mode == "markup" and rel_path.lower().endswith(".xml"):
+                _mb_caps, _mb_dyn = _mybatis_mapper_captures(tree.root_node, source_bytes)
+                for _mb_ns, _mb_id, _mb_sql in _mb_caps:
+                    sql_capture_candidates.append(
+                        (f"{_MYBATIS_SOURCE_PREFIX}{_mb_ns}::{_mb_id}", _mb_sql)
+                    )
+                _sql_dynamic[0] += _mb_dyn
 
         symbol_lookup: dict[str, str] = {}
         for symbol_id in defined_symbols:
@@ -8803,6 +11097,24 @@ class GraphIndexSession:
             kind_val = node_info.get("kind") or ""
             if kind_val:
                 symbol_lookup_kinds[name] = str(kind_val)
+
+        # Wave 1p9qi (1p9qg): drain the buffered entity classes now that
+        # symbol_lookup exists (the same-file impostor checks consult it).
+        _seen_orm_candidates: set[tuple[str, str]] = set()
+        for _cls_id, _cls_node in orm_entity_class_nodes:
+            if lang_key == "java":
+                _orm_decl, _orm_dyn, _orm_conv = _java_entity_table_mapping(
+                    _cls_node, source_bytes, symbol_lookup
+                )
+            else:
+                _orm_decl, _orm_dyn, _orm_conv = _csharp_entity_table_mapping(
+                    _cls_node, source_bytes, symbol_lookup
+                )
+            _orm_dynamic[0] += _orm_dyn
+            _orm_convention[0] += _orm_conv
+            if _orm_decl and (_cls_id, _orm_decl) not in _seen_orm_candidates:
+                _seen_orm_candidates.add((_cls_id, _orm_decl))
+                orm_entity_candidates.append((_cls_id, _orm_decl))
 
         # Wave 1p7dh: OTel TypeInstrumentation type-matcher targets, keyed by the
         # enclosing class node id — attached as the `instruments` property below.
@@ -8841,6 +11153,34 @@ class GraphIndexSession:
                 _cfg_key = _java_config_getter_key(node, source_bytes)
                 if _cfg_key:
                     config_read_candidates.append((source_symbol, _cfg_key))
+            # Wave 1p9qi (1p9qf): embedded-SQL capture at known call sinks
+            # (Java JDBC prepare*/JdbcTemplate; C# SqlCommand/Dapper/EF raw).
+            # Origin-checked where the receiver type is resolvable (see the
+            # capture-section convention comment); sniff-gated; dynamic
+            # arguments refused and counted.
+            if lang_key == "java" and node_type == "method_invocation":
+                _cap_sql, _cap_dyn = _java_call_sql_capture(node, source_bytes, symbol_lookup)
+                if _cap_sql:
+                    sql_capture_candidates.append((source_symbol, _cap_sql))
+                _sql_dynamic[0] += _cap_dyn
+            elif lang_key == "csharp" and node_type in (
+                "invocation_expression", "object_creation_expression"
+            ):
+                _cap_sql, _cap_dyn = _csharp_call_sql_capture(node, node_type, source_bytes, symbol_lookup)
+                if _cap_sql:
+                    sql_capture_candidates.append((source_symbol, _cap_sql))
+                _sql_dynamic[0] += _cap_dyn
+                # Wave 1p9qi (1p9qg): EF fluent `ToTable("…")` mapping sink —
+                # the entity type comes from the `.Entity<T>()` chain or the
+                # `EntityTypeBuilder<T>` parameter (positive origin by
+                # construction; impostor `ToTable` on any other receiver
+                # never fires).
+                if node_type == "invocation_expression":
+                    _tt_marker, _tt_decl, _tt_dyn = _csharp_totable_capture(node, source_bytes)
+                    if _tt_marker and _tt_decl and (_tt_marker, _tt_decl) not in _seen_orm_candidates:
+                        _seen_orm_candidates.add((_tt_marker, _tt_decl))
+                        orm_entity_candidates.append((_tt_marker, _tt_decl))
+                    _orm_dynamic[0] += _tt_dyn
             # Wave 131bt (1319s): construction-call resolution runs FIRST.
             construction_target = _resolve_construction_target(
                 node, node_type, source_bytes, symbol_lookup, symbol_lookup_kinds, lang_key
@@ -9017,6 +11357,11 @@ class GraphIndexSession:
             "simple_names": {name: ids for name, ids in simple_names.items()},
             "mentioned_symbols": [],
             "config_read_candidates": config_read_candidates,  # Wave 1p7dh (Java @Value/getProperty)
+            "sql_capture_candidates": sql_capture_candidates,  # Wave 1p9qi (1p9qf): embedded-SQL sink captures
+            "sql_capture_dynamic": _sql_dynamic[0],  # Wave 1p9qf: dynamic-SQL refusals (visible gap)
+            "orm_entity_candidates": orm_entity_candidates,  # Wave 1p9qi (1p9qg): declared entity→table mappings
+            "orm_entity_dynamic": _orm_dynamic[0],  # Wave 1p9qg: non-literal name refusals
+            "orm_entity_convention": _orm_convention[0],  # Wave 1p9qg: @Entity-with-no-declared-name refusals
         }
 
     def _extract_code_artifact(self, rel_path: str, source_text: str) -> dict[str, Any]:
@@ -9535,6 +11880,11 @@ class GraphIndexSession:
                 "defined_symbols",
                 "mentioned_symbols",
                 "config_read_candidates",
+                "sql_capture_candidates",  # Wave 1p9qi (1p9qf): embedded-SQL captures
+                "sql_capture_dynamic",  # Wave 1p9qf: refusal count rides the fragment
+                "orm_entity_candidates",  # Wave 1p9qi (1p9qg): entity→table mapping captures
+                "orm_entity_dynamic",  # Wave 1p9qg: dynamic-name refusal count
+                "orm_entity_convention",  # Wave 1p9qg: convention-refusal count
                 "di_signals",
             ):
                 value = artifact.get(summary_key)
@@ -9792,6 +12142,244 @@ class GraphIndexSession:
                         _edge(reader, target, GRAPH_CONFIG_READS_RELATION, confidence=GRAPH_LITERAL_DERIVED_CONFIDENCE),
                     )
 
+        # Wave 1p9qi (1p9qf): embedded-SQL bind. Each captured sink literal
+        # (per-file `sql_capture_candidates` fragments) runs through the
+        # frozen 1p9qd statement-analysis unit; every clause-aware table
+        # reference binds source → table at LITERAL_DERIVED on a UNIQUE match
+        # against the SQL-DEFINED (`sql_kind` table/view) node set —
+        # schema-qualified/exact name first, then bare/final-segment;
+        # AMBIGUITY DROPS the edge (never a guess); NO match mints the
+        # reserved `external::sql::<name>` target (relation-scoped invariant —
+        # see `_SQL_EXTERNAL_TABLE_PREFIX`). Recomputed fresh from fragments
+        # on every build, exactly like the config-read pass above, so
+        # incremental == full merge by construction and these edges never
+        # enter fragments or phase-1 resolution.
+        sql_captures: list[tuple[str, str, str]] = []
+        sql_dynamic_refused = 0
+        _seen_captures: set[tuple[str, str]] = set()
+        for rel in sorted(merge_files.keys()):
+            entry = merge_files[rel]
+            try:
+                sql_dynamic_refused += int(entry.get("sql_capture_dynamic") or 0)
+            except (TypeError, ValueError):
+                pass
+            for cand in entry.get("sql_capture_candidates", []) or []:
+                if not (isinstance(cand, (list, tuple)) and len(cand) == 2):
+                    continue
+                cap_src, cap_sql = cand
+                if not (isinstance(cap_src, str) and isinstance(cap_sql, str) and cap_src and cap_sql):
+                    continue
+                if (cap_src, cap_sql) in _seen_captures:
+                    continue
+                _seen_captures.add((cap_src, cap_sql))
+                sql_captures.append((rel, cap_src, cap_sql))
+
+        # Wave 1p9qi (1p9qg): ORM entity→table mapping candidates (declared
+        # names captured per file — see the capture section). Collected here
+        # so both LITERAL_DERIVED bind passes share one `sql_kind` node index.
+        orm_mapping_candidates: list[tuple[str, str, str]] = []
+        orm_convention_refused = 0
+        orm_dynamic_refused = 0
+        _seen_orm_caps: set[tuple[str, str]] = set()
+        for rel in sorted(merge_files.keys()):
+            entry = merge_files[rel]
+            try:
+                orm_convention_refused += int(entry.get("orm_entity_convention") or 0)
+            except (TypeError, ValueError):
+                pass
+            try:
+                orm_dynamic_refused += int(entry.get("orm_entity_dynamic") or 0)
+            except (TypeError, ValueError):
+                pass
+            for cand in entry.get("orm_entity_candidates", []) or []:
+                if not (isinstance(cand, (list, tuple)) and len(cand) == 2):
+                    continue
+                map_src, map_decl = cand
+                if not (isinstance(map_src, str) and isinstance(map_decl, str) and map_src and map_decl):
+                    continue
+                if (map_src, map_decl) in _seen_orm_caps:
+                    continue
+                _seen_orm_caps.add((map_src, map_decl))
+                orm_mapping_candidates.append((rel, map_src, map_decl))
+        _orm_bind_active = bool(
+            orm_mapping_candidates or orm_convention_refused or orm_dynamic_refused
+        )
+
+        # Shared bind-target index over the SQL-defined (`sql_kind`
+        # table/view) node set — used by BOTH LITERAL_DERIVED bind passes
+        # (embedded SQL above, ORM mapping below); built once.
+        sql_object_index: dict[str, list[str]] = {}
+        sql_leaf_index: dict[str, list[str]] = {}
+        if sql_captures or sql_dynamic_refused or _orm_bind_active:
+            for node_id, node in node_map.items():
+                if node.get("sql_kind") not in ("table", "view"):
+                    continue
+                qname = node_id.split("::", 1)[1] if "::" in node_id else str(node.get("label") or "")
+                qname = _sql_normalize_object_name(qname)
+                if not qname:
+                    continue
+                sql_object_index.setdefault(qname, []).append(node_id)
+                leaf = qname.rsplit(".", 1)[-1]
+                if leaf != qname:
+                    sql_leaf_index.setdefault(leaf, []).append(node_id)
+        # Keys of the embedded-SQL edges added by the bind pass below, so the
+        # counters can be reconciled after the downstream prunes (1p9qi review:
+        # `bound`/`external` must equal edges REALLY in the payload, not edges
+        # the pass attempted — e.g. a short-symbol-pruned source method takes
+        # its embedded-SQL edges with it).
+        _sql_capture_edge_keys: set[tuple[str, str, str, str]] = set()
+        if sql_captures or sql_dynamic_refused:
+            sql_counters = {
+                "candidates": len(sql_captures),
+                "bound": 0,
+                "external": 0,
+                "ambiguous_dropped": 0,
+                # 1p9qi review (parity with the ORM pass's `entity_unresolved`):
+                # captures whose source marker resolved to no project node.
+                "source_unresolved": 0,
+                "dynamic_refused": sql_dynamic_refused,
+            }
+            _seen_sql_edges: set[tuple[str, str, str]] = set()
+            for rel, cap_src, cap_sql in sql_captures:
+                analysis = sql_statement_references(_sql_sanitize_embedded(cap_sql))
+                if analysis is None:
+                    # SQL grammar unavailable — no embedded binds this build.
+                    # 1p9qi review (1p9qe loudness convention): mark it in the
+                    # stats + say it, so zero binds is never mistaken for
+                    # "no SQL found".
+                    sql_counters["grammar_unavailable"] = True
+                    if self.verbose:
+                        print(
+                            "build_index: embedded-SQL capture skipped — SQL "
+                            "grammar unavailable (no binds this build)",
+                            flush=True,
+                        )
+                    break
+                source = _resolve_sql_capture_source(
+                    cap_src, rel, node_map, simple_name_index, qualified_index
+                )
+                if source is None:
+                    sql_counters["source_unresolved"] += 1
+                    continue
+                for ref in analysis.get("references", []):
+                    ref_name = _sql_normalize_object_name(str(ref.get("name") or ""))
+                    if not ref_name:
+                        continue
+                    relation = (
+                        GRAPH_WRITES_RELATION
+                        if str(ref.get("direction") or "") == "write"
+                        else GRAPH_READS_RELATION
+                    )
+                    matches = sql_object_index.get(ref_name) or []
+                    if not matches:
+                        leaf = ref_name.rsplit(".", 1)[-1]
+                        matches = list(dict.fromkeys(
+                            (sql_object_index.get(leaf) or []) + (sql_leaf_index.get(leaf) or [])
+                        ))
+                    if not matches:
+                        target = f"external::{_SQL_EXTERNAL_TABLE_PREFIX}{ref_name}"
+                        bucket = "external"
+                    elif len(matches) == 1:
+                        target = matches[0]
+                        bucket = "bound"
+                    else:
+                        sql_counters["ambiguous_dropped"] += 1
+                        continue
+                    if source == target:
+                        continue
+                    edge_id = (source, target, relation)
+                    if edge_id in _seen_sql_edges:
+                        continue
+                    _seen_sql_edges.add(edge_id)
+                    sql_counters[bucket] += 1
+                    edge_key = (source, target, relation, GRAPH_LITERAL_DERIVED_CONFIDENCE)
+                    _sql_capture_edge_keys.add(edge_key)
+                    edge_map.setdefault(edge_key, _edge(
+                        source, target, relation, confidence=GRAPH_LITERAL_DERIVED_CONFIDENCE,
+                    ))
+            stats["sql_capture"] = sql_counters
+            if self.verbose:
+                print(
+                    "build_index: embedded-SQL capture "
+                    f"candidates={sql_counters['candidates']} bound={sql_counters['bound']} "
+                    f"external={sql_counters['external']} "
+                    f"ambiguous_dropped={sql_counters['ambiguous_dropped']} "
+                    f"source_unresolved={sql_counters['source_unresolved']} "
+                    f"dynamic_refused={sql_counters['dynamic_refused']}",
+                    flush=True,
+                )
+
+        # Wave 1p9qi (1p9qg): ORM entity→table mapping bind. Each declared
+        # mapping (per-file `orm_entity_candidates` fragments) binds entity
+        # class → table node on the dedicated `maps_to` relation at
+        # LITERAL_DERIVED, with EXACTLY the embedded-SQL match semantics:
+        # normalized qualified-exact name first, then unique bare/leaf match
+        # against the `sql_kind` node set; AMBIGUITY DROPS the edge; NO match
+        # mints the reserved `external::sql::<name>` target. `entitytype::`
+        # sources (EF ToTable) resolve to the unique project class or drop.
+        # Recomputed fresh from fragments every build — these edges never
+        # enter fragments or phase-1 resolution (same invariant contract as
+        # the pass above; pinned by tests).
+        if _orm_bind_active:
+            orm_counters = {
+                "candidates": len(orm_mapping_candidates),
+                "bound": 0,
+                "external": 0,
+                "ambiguous_dropped": 0,
+                "entity_unresolved": 0,
+                "convention_refused": orm_convention_refused,
+                "dynamic_refused": orm_dynamic_refused,
+            }
+            _seen_orm_edges: set[tuple[str, str]] = set()
+            for rel, map_src, map_decl in orm_mapping_candidates:
+                source = _resolve_orm_entity_source(
+                    map_src, rel, node_map, simple_name_index, qualified_index
+                )
+                if source is None:
+                    orm_counters["entity_unresolved"] += 1
+                    continue
+                decl_name = _sql_normalize_object_name(map_decl)
+                if not decl_name:
+                    continue
+                matches = sql_object_index.get(decl_name) or []
+                if not matches:
+                    leaf = decl_name.rsplit(".", 1)[-1]
+                    matches = list(dict.fromkeys(
+                        (sql_object_index.get(leaf) or []) + (sql_leaf_index.get(leaf) or [])
+                    ))
+                if not matches:
+                    target = f"external::{_SQL_EXTERNAL_TABLE_PREFIX}{decl_name}"
+                    bucket = "external"
+                elif len(matches) == 1:
+                    target = matches[0]
+                    bucket = "bound"
+                else:
+                    orm_counters["ambiguous_dropped"] += 1
+                    continue
+                if source == target:
+                    continue
+                edge_id = (source, target)
+                if edge_id in _seen_orm_edges:
+                    continue
+                _seen_orm_edges.add(edge_id)
+                orm_counters[bucket] += 1
+                edge_map.setdefault(
+                    (source, target, GRAPH_MAPS_TO_RELATION, GRAPH_LITERAL_DERIVED_CONFIDENCE),
+                    _edge(source, target, GRAPH_MAPS_TO_RELATION, confidence=GRAPH_LITERAL_DERIVED_CONFIDENCE),
+                )
+            stats["entity_mapping"] = orm_counters
+            if self.verbose:
+                print(
+                    "build_index: ORM entity mapping "
+                    f"candidates={orm_counters['candidates']} bound={orm_counters['bound']} "
+                    f"external={orm_counters['external']} "
+                    f"ambiguous_dropped={orm_counters['ambiguous_dropped']} "
+                    f"entity_unresolved={orm_counters['entity_unresolved']} "
+                    f"convention_refused={orm_counters['convention_refused']} "
+                    f"dynamic_refused={orm_counters['dynamic_refused']}",
+                    flush=True,
+                )
+
         # Reverse invalidation: drop edges left dangling by deletions/renames in
         # surviving (unchanged) referrer files. A cached referrer fragment can
         # still carry an edge into a symbol or file that no longer exists. We
@@ -9828,12 +12416,17 @@ class GraphIndexSession:
         # type-param noise this prune targets — and these short names are the wave's own canonical
         # examples. The chunk lane already keeps them (`_go_const_chunk_name`); the graph matches so
         # `code_definition("OK")` resolves (1p4q4 review D2/F1).
+        # Wave 1p9qi (1p9qd): SQL schema objects (`sql_kind`-carrying nodes)
+        # are likewise exempt — a short table/view name (`t1`, `v1`) is a real
+        # CREATE-declared object, never the loop-var/type-param noise this
+        # prune targets, and pruning one silently drops its lineage edges.
         short_symbols: set[str] = {
             node_id
             for node_id, node in node_map.items()
             if "::" in node_id
             and len(str(node.get("label") or "")) <= _SHORT_SYMBOL_MAX_LEN
             and node.get("kind") != GRAPH_CONST_KIND
+            and "sql_kind" not in node
         }
         if short_symbols:
             externally_used: set[str] = set()
@@ -9849,6 +12442,33 @@ class GraphIndexSession:
                 node_map.pop(node_id, None)
             for key in [k for k in edge_map if k[0] in pruned or k[1] in pruned]:
                 edge_map.pop(key, None)
+
+        # 1p9qi review: reconcile the embedded-SQL capture counters against the
+        # POST-prune edge_map so `bound`/`external` equal edges really in the
+        # payload (the reverse-invalidation and short-symbol prunes above can
+        # drop a just-bound edge, e.g. when its source method node is pruned).
+        if _sql_capture_edge_keys and "sql_capture" in stats:
+            _sc = stats["sql_capture"]
+            _survived_bound = 0
+            _survived_external = 0
+            for key in _sql_capture_edge_keys:
+                if key in edge_map:
+                    if key[1].startswith("external::"):
+                        _survived_external += 1
+                    else:
+                        _survived_bound += 1
+            _pruned_out = (_sc["bound"] - _survived_bound) + (_sc["external"] - _survived_external)
+            if _pruned_out:
+                _sc["bound"] = _survived_bound
+                _sc["external"] = _survived_external
+                _sc["pruned_post_bind"] = _pruned_out
+                if self.verbose:
+                    print(
+                        "build_index: embedded-SQL capture reconcile — "
+                        f"{_pruned_out} edge(s) pruned post-bind; "
+                        f"bound={_survived_bound} external={_survived_external}",
+                        flush=True,
+                    )
 
         # Prune zero-edge doc/seed nodes — they're fully covered by semantic search
         # and provide no graph navigation value.
@@ -10648,6 +13268,22 @@ def update_graph_index(
             f"{counts.get('nodes', 0)} nodes, {counts.get('edges', 0)} edges",
             flush=True,
         )
+        # 1p9qe loudness: per-file SQL DDL-recovery counts (module nodes
+        # carry them, so this survives worker-process extraction).
+        for _node in payload.get("nodes") or []:
+            _regions = int(_node.get("sql_error_regions") or 0)
+            _partial = int(_node.get("sql_partial_bodies") or 0)
+            if _regions or _partial:
+                print(
+                    _sql_recovery_log_line(
+                        str(_node.get("id") or ""),
+                        _regions,
+                        int(_node.get("sql_recovered_definitions") or 0),
+                        int(_node.get("sql_unrecovered_regions") or 0),
+                        _partial,
+                    ),
+                    flush=True,
+                )
     # Wave 1p2q3 (1p2tf): Nx project-structure detection — diagnostic only this
     # round. Presence at repo root surfaces in the payload so consumers can
     # report a per-build hint when investigating low TS receiver-resolved rates.

@@ -19955,8 +19955,18 @@ class GraphSignalTests(unittest.TestCase):
         traversal tuple, the direction-aware labels (incoming = the seed's implementors/subtypes;
         outgoing = its supertypes), and the bucket grouping in `_build_graph_related`."""
         self.assertEqual(self.srv._GRAPH_SIGNAL_RELATIONS,
-                         ("calls", "imports", "reads", "extends", "implements"))
+                         ("calls", "imports", "reads", "extends", "implements", "writes", "maps_to"))
         self.assertEqual(self.srv._GRAPH_REL_LABEL[("extends", True)], "subtype")
+        # Wave 1p9qi (1p9qd): SQL write-direction table references join the signal.
+        self.assertEqual(self.srv._GRAPH_REL_LABEL[("writes", True)], "writer")
+        self.assertEqual(self.srv._GRAPH_REL_LABEL[("writes", False)], "writes")
+        self.assertEqual(self.srv._GRAPH_REL_BUCKET["writer"], "writers")
+        self.assertEqual(self.srv._GRAPH_REL_BUCKET["writes"], "writes")
+        # Wave 1p9qi (1p9qg): ORM entity→table mappings join the signal.
+        self.assertEqual(self.srv._GRAPH_REL_LABEL[("maps_to", True)], "mapped_entity")
+        self.assertEqual(self.srv._GRAPH_REL_LABEL[("maps_to", False)], "maps_to")
+        self.assertEqual(self.srv._GRAPH_REL_BUCKET["mapped_entity"], "mapped_entities")
+        self.assertEqual(self.srv._GRAPH_REL_BUCKET["maps_to"], "maps_to")
         self.assertEqual(self.srv._GRAPH_REL_LABEL[("extends", False)], "supertype")
         self.assertEqual(self.srv._GRAPH_REL_LABEL[("implements", True)], "implementor")
         self.assertEqual(self.srv._GRAPH_REL_LABEL[("implements", False)], "supertype")
@@ -19973,6 +19983,35 @@ class GraphSignalTests(unittest.TestCase):
         self.assertEqual([e["symbol"] for e in section.get("implementors", [])], ["ServiceImpl"])
         self.assertEqual([e["symbol"] for e in section.get("subtypes", [])], ["SubPanel"])
         self.assertEqual([e["symbol"] for e in section.get("supertypes", [])], ["BasePanel"])
+
+    def test_graph_related_signal_gate_derived_from_bucket_vocabulary(self):
+        """Wave 1p9qi review fix (architecture F1): the code_ask response gate that
+        decides whether an assembled graph_related section carries signal is DERIVED
+        from `_GRAPH_REL_BUCKET.values()` — the hand-enumerated tuple silently dropped
+        writers-only / mapped-entities-only sections (second occurrence of the drift
+        class after 1p9qh's inheritance buckets)."""
+        srv = self.srv
+        # Every bucket the assembler can produce is a signal key; "seed" is not
+        # (it is always present in an assembled section, neighbors or not).
+        self.assertEqual(srv._GRAPH_RELATED_SIGNAL_KEYS,
+                         frozenset(srv._GRAPH_REL_BUCKET.values()) | {"related"})
+        self.assertNotIn("seed", srv._GRAPH_RELATED_SIGNAL_KEYS)
+
+        def gate(graph_related):
+            # The exact predicate used at the code_ask response assembly site.
+            return bool(graph_related and any(
+                graph_related.get(k) for k in srv._GRAPH_RELATED_SIGNAL_KEYS))
+
+        writers_only = {"seed": ["users"], "writers": [
+            {"symbol": "insert_user", "path": "d.sql", "lines": [1, 2], "kind": "procedure"}]}
+        self.assertTrue(gate(writers_only), "a writers-only section must pass the gate")
+        mapped_only = {"seed": ["users"], "mapped_entities": [
+            {"symbol": "User", "path": "u.java", "lines": [1, 9], "kind": "class"}]}
+        self.assertTrue(gate(mapped_only), "a mapped-entities-only section must pass the gate")
+        self.assertTrue(gate({"seed": [], "writes": [{"symbol": "audit_log"}]}))
+        self.assertTrue(gate({"seed": [], "maps_to": [{"symbol": "users"}]}))
+        self.assertFalse(gate({"seed": ["users"]}), "seed alone is not signal")
+        self.assertFalse(gate(None))
 
 
 if __name__ == "__main__":
