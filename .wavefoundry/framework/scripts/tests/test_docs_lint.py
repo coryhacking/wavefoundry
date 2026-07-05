@@ -1674,10 +1674,14 @@ class PrepareCouncilVerdictLintTests(DocsLintFixtureTests):
         )
 
     def _add_council_verdict(self, root: Path) -> None:
+        # 1p9pk: the roster⇄evidence consistency check requires every rostered seat to have
+        # recorded evidence outside the verdict line, so the consistent fixture records a
+        # per-seat evidence bullet for each non-tolerance seat.
         wave_md = root / self.ACTIVE_WAVE
         wave_md.write_text(
             wave_md.read_text(encoding="utf-8")
-            + "\n## Review Checkpoints\n\n- **Prepare-phase Wave Council [prepare-council] — 2026-05-21: PASS** (moderator: wave-council; primer-depth: standard; seats: red-team, architecture-reviewer, security-reviewer, qa-reviewer, reality-checker; rotating-seat: none; strongest-challenge: red-team identified the remaining unknowns; strongest-alternative: keep the verdict structured and machine-readable)\n",
+            + "\n## Review Checkpoints\n\n- **Prepare-phase Wave Council [prepare-council] — 2026-05-21: PASS** (moderator: wave-council; primer-depth: standard; seats: red-team, architecture-reviewer, security-reviewer, qa-reviewer, reality-checker; rotating-seat: none; strongest-challenge: red-team identified the remaining unknowns; strongest-alternative: keep the verdict structured and machine-readable)\n"
+            + "\n## Prepare Review Evidence\n\n- architecture-reviewer: approved 2026-05-21 — boundaries coherent.\n- security-reviewer: approved 2026-05-21 — no trust boundary crossed.\n- qa-reviewer: approved 2026-05-21 — ACs testable.\n- reality-checker: approved 2026-05-21 — cited sites verified.\n",
             encoding="utf-8",
         )
 
@@ -1723,6 +1727,302 @@ class PrepareCouncilVerdictLintTests(DocsLintFixtureTests):
             shutil.rmtree(root)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("docs-lint: ok", result.stdout)
+
+
+class PrepareCouncilRosterEvidenceTests(unittest.TestCase):
+    """1p9pk AC-3/AC-4: roster⇄evidence consistency check for prepare-council verdict lines.
+
+    Pinned matching rule: literal role-token (or ``<stem> seat`` prose form) match; corpus =
+    ## Prepare Review Evidence + ## Review Evidence + ## Review Checkpoints MINUS every
+    structured verdict line (review-fix hardening: excluding only the matched line's own text
+    let two pasted thin PASS lines mutually certify each other); ## Participants / ## Changes
+    excluded by construction; tolerance set {red-team, wave-council}.
+    """
+
+    FROZEN_FIXTURE = TESTS_ROOT / "fixtures" / "prepare_council" / "1p9pe-wave-pre-corrective.md"
+
+    def setUp(self) -> None:
+        from wave_lint_lib.wave_validators import check_prepare_council_roster_evidence
+
+        self._check = check_prepare_council_roster_evidence
+        self._root = Path(tempfile.mkdtemp(prefix="wave-roster-evidence-"))
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self._root)
+
+    def _write_wave(self, text: str, folder: str = "zzzzz roster-fixture") -> Path:
+        wave_dir = self._root / "docs" / "waves" / folder
+        wave_dir.mkdir(parents=True, exist_ok=True)
+        wave_md = wave_dir / "wave.md"
+        wave_md.write_text(text, encoding="utf-8")
+        return wave_md
+
+    @staticmethod
+    def _verdict(seats: str, rotating: str = "none") -> str:
+        return (
+            "- **Prepare-phase Wave Council [prepare-council] — 2026-07-01: PASS** "
+            f"(moderator: wave-council; primer-depth: standard; seats: {seats}; "
+            f"rotating-seat: {rotating}; strongest-challenge: the usual; "
+            "strongest-alternative: none stronger)"
+        )
+
+    @staticmethod
+    def _wave_text(checkpoints: str, prepare_evidence: str = "", review_evidence: str = "", status: str = "implementing") -> str:
+        # Participants deliberately names the seats: a Role-column mention is a responsibility
+        # assignment, not review evidence, and must never corroborate a roster claim.
+        return (
+            "# Wave Record\n\n"
+            "Owner: Engineering\n"
+            f"Status: {status}\n"
+            "Last verified: 2026-07-01\n\n"
+            "wave-id: `zzzzz roster-fixture`\n\n"
+            "## Participants\n\n"
+            "| Role | Responsibility |\n"
+            "|------|----------------|\n"
+            "| architecture-reviewer | Boundaries. |\n"
+            "| qa-reviewer | ACs. |\n"
+            "| performance-reviewer | Hot paths. |\n"
+            "| docs-contract-reviewer | Contracts. |\n\n"
+            "## Review Checkpoints\n\n"
+            f"{checkpoints}\n\n"
+            "## Review Evidence\n\n"
+            f"{review_evidence}\n\n"
+            "## Prepare Review Evidence\n\n"
+            f"{prepare_evidence}\n"
+        )
+
+    # --- AC-3: the frozen pre-corrective 1p9pe snapshot ---
+
+    def test_frozen_pre_corrective_1p9pe_snapshot_trips(self) -> None:
+        """AC-3: the frozen pre-corrective wave record (captured from git history at the plan
+        commit) trips the check — its thin PASS roster names architecture-reviewer with no
+        recorded evidence anywhere in the record. (Status patched to implementing: the frozen
+        snapshot predates activation, and the check binds when the wave opens.)"""
+        frozen = self.FROZEN_FIXTURE.read_text(encoding="utf-8")
+        self.assertIn("Status: planned", frozen)  # provenance: pre-activation snapshot
+        self._write_wave(frozen.replace("Status: planned", "Status: implementing"))
+        errors, warnings = self._check(self._root)
+        self.assertEqual(errors, [])
+        self.assertEqual(len(warnings), 1, warnings)
+        self.assertIn("architecture-reviewer", warnings[0])
+        # Seats with evidence in the record (corrective checkpoint prose, Prepare Review
+        # Evidence) are NOT flagged.
+        self.assertNotIn("qa-reviewer", warnings[0])
+        self.assertNotIn("reality-checker", warnings[0])
+        self.assertNotIn("security-reviewer", warnings[0])
+
+    def test_truly_pre_corrective_shape_flags_all_three(self) -> None:
+        """AC-3: with the corrective re-review bullets removed (the record as it stood when the
+        thin PASS was the only prepare-council entry), all three unevidenced roster seats are
+        flagged: architecture-reviewer, qa-reviewer, reality-checker. security-reviewer is
+        evidenced by ## Prepare Review Evidence and is not flagged."""
+        frozen = self.FROZEN_FIXTURE.read_text(encoding="utf-8")
+        reduced_lines = []
+        in_checkpoints = False
+        for line in frozen.splitlines():
+            if line.startswith("## "):
+                in_checkpoints = line.strip() == "## Review Checkpoints"
+            if in_checkpoints and line.startswith("- ") and "PASS**" not in line:
+                continue  # drop the corrective READY-WITH-NOTES bullets
+            if in_checkpoints and line.startswith("  - "):
+                continue  # drop their sub-bullets
+            reduced_lines.append(line)
+        reduced = "\n".join(reduced_lines).replace("Status: planned", "Status: implementing")
+        self._write_wave(reduced)
+        errors, warnings = self._check(self._root)
+        self.assertEqual(errors, [])
+        self.assertEqual(len(warnings), 1, warnings)
+        for seat in ("architecture-reviewer", "qa-reviewer", "reality-checker"):
+            self.assertIn(seat, warnings[0])
+        self.assertNotIn("security-reviewer", warnings[0])
+
+    # --- AC-4: consistent records and tolerance cases ---
+
+    def test_consistent_record_passes(self) -> None:
+        checkpoints = self._verdict("red-team, architecture-reviewer, qa-reviewer")
+        evidence = (
+            "- architecture-reviewer: approved 2026-07-01 — boundaries hold.\n"
+            "- qa-reviewer: approved 2026-07-01 — ACs testable.\n"
+        )
+        self._write_wave(self._wave_text(checkpoints, prepare_evidence=evidence))
+        self.assertEqual(self._check(self._root), ([], []))
+
+    def test_red_team_tolerated_without_dedicated_evidence(self) -> None:
+        """red-team is the adversarial primer; its output folds into strongest-challenge."""
+        checkpoints = self._verdict("red-team, qa-reviewer")
+        self._write_wave(self._wave_text(checkpoints, prepare_evidence="- qa-reviewer: approved — checked.\n"))
+        self.assertEqual(self._check(self._root), ([], []))
+
+    def test_wave_council_tolerated_without_dedicated_evidence(self) -> None:
+        """wave-council is the moderator; synthesis is the verdict line itself."""
+        checkpoints = self._verdict("wave-council, qa-reviewer")
+        self._write_wave(self._wave_text(checkpoints, prepare_evidence="- qa-reviewer: approved — checked.\n"))
+        self.assertEqual(self._check(self._root), ([], []))
+
+    def test_seat_named_only_in_own_verdict_line_does_not_self_certify(self) -> None:
+        """AC-4/pinned rule: the matched verdict line's own text is excluded from the corpus —
+        a strongest-challenge mention inside the same line is not evidence."""
+        checkpoints = (
+            "- **Prepare-phase Wave Council [prepare-council] — 2026-07-01: PASS** "
+            "(moderator: wave-council; primer-depth: standard; seats: red-team, performance-reviewer; "
+            "rotating-seat: none; strongest-challenge: performance-reviewer raised the hot-path concern; "
+            "strongest-alternative: none stronger)"
+        )
+        self._write_wave(self._wave_text(checkpoints))
+        errors, warnings = self._check(self._root)
+        self.assertEqual(errors, [])
+        self.assertEqual(len(warnings), 1, warnings)
+        self.assertIn("performance-reviewer", warnings[0])
+
+    def test_two_pasted_thin_pass_lines_do_not_mutually_certify(self) -> None:
+        """Review-fix hardening (security S6-i + red-team primer): with only the matched
+        verdict line excluded, two near-identical thin PASS lines corroborated each other's
+        rosters (each line's seat tokens satisfied the other's check → 0 warnings). ALL
+        structured verdict lines are excluded from the corpus, so both rosters now flag."""
+        first = self._verdict("red-team, architecture-reviewer, qa-reviewer")
+        second = first.replace("2026-07-01", "2026-07-02")
+        self.assertNotEqual(first, second)  # near-identical, not byte-identical
+        self._write_wave(self._wave_text(first + "\n" + second))
+        errors, warnings = self._check(self._root)
+        self.assertEqual(errors, [])
+        self.assertEqual(len(warnings), 2, warnings)
+        for warning in warnings:
+            self.assertIn("architecture-reviewer", warning)
+            self.assertIn("qa-reviewer", warning)
+
+    def test_seat_evidenced_in_other_checkpoint_bullet_passes(self) -> None:
+        """AC-4: a literal role-token mention in a checkpoint bullet other than the verdict
+        line corroborates the seat."""
+        checkpoints = (
+            self._verdict("red-team, performance-reviewer")
+            + "\n- performance-reviewer follow-up: hot-path cost reviewed, no findings."
+        )
+        self._write_wave(self._wave_text(checkpoints))
+        self.assertEqual(self._check(self._root), ([], []))
+
+    def test_seat_evidenced_by_stem_seat_prose_passes(self) -> None:
+        """Live-corpus convention: checkpoint prose records per-seat findings as
+        '<Stem> seat ...' ('Architecture seat flagged ...'); that corroborates the seat."""
+        checkpoints = (
+            self._verdict("red-team, architecture-reviewer")
+            + "\n- Readiness narrative: Architecture seat flagged the layering decision as deferred."
+        )
+        self._write_wave(self._wave_text(checkpoints))
+        self.assertEqual(self._check(self._root), ([], []))
+
+    def test_participants_table_does_not_corroborate(self) -> None:
+        """AC-3 exclusion: the base wave text's Participants table names every seat; a roster
+        seat with no evidence outside it is still flagged."""
+        checkpoints = self._verdict("red-team, docs-contract-reviewer")
+        self._write_wave(self._wave_text(checkpoints))
+        errors, warnings = self._check(self._root)
+        self.assertEqual(errors, [])
+        self.assertEqual(len(warnings), 1, warnings)
+        self.assertIn("docs-contract-reviewer", warnings[0])
+
+    def test_unevidenced_rotating_seat_is_flagged(self) -> None:
+        checkpoints = self._verdict("red-team, qa-reviewer", rotating="docs-contract-reviewer")
+        self._write_wave(self._wave_text(checkpoints, prepare_evidence="- qa-reviewer: approved — checked.\n"))
+        errors, warnings = self._check(self._root)
+        self.assertEqual(errors, [])
+        self.assertEqual(len(warnings), 1, warnings)
+        self.assertIn("docs-contract-reviewer", warnings[0])
+
+    def test_verbatim_template_paste_is_flagged(self) -> None:
+        """A verdict line pasted from the wave_prepare template (placeholder wording intact)
+        still exposes its example seat tokens as unevidenced roster claims."""
+        checkpoints = self._verdict(
+            "<replace with the seats actually run, each at most once, e.g. red-team, "
+            "architecture-reviewer, security-reviewer, qa-reviewer, reality-checker>"
+        )
+        self._write_wave(self._wave_text(checkpoints))
+        errors, warnings = self._check(self._root)
+        self.assertEqual(errors, [])
+        self.assertEqual(len(warnings), 1, warnings)
+        for seat in ("architecture-reviewer", "security-reviewer", "qa-reviewer"):
+            self.assertIn(seat, warnings[0])
+
+    # --- Scope: statuses outside active/implementing are not checked ---
+
+    def test_planned_and_closed_waves_are_skipped(self) -> None:
+        checkpoints = self._verdict("red-team, architecture-reviewer, qa-reviewer")
+        for status, folder in (("planned", "zzzzz planned-fixture"), ("closed", "zzzzz closed-fixture")):
+            self._write_wave(self._wave_text(checkpoints, status=status), folder=folder)
+        self.assertEqual(self._check(self._root), ([], []))
+
+    def test_active_wave_is_checked(self) -> None:
+        checkpoints = self._verdict("red-team, architecture-reviewer")
+        self._write_wave(self._wave_text(checkpoints, status="active"))
+        errors, warnings = self._check(self._root)
+        self.assertEqual(errors, [])
+        self.assertEqual(len(warnings), 1, warnings)
+        self.assertIn("architecture-reviewer", warnings[0])
+
+    def test_freeform_prepare_council_mention_without_structured_verdict_is_not_checked(self) -> None:
+        """Only structured PASS/PASS WITH NOTES/BLOCKED verdict lines carry a machine-checkable
+        roster; corrective or narrative bullets that mention prepare-council are not parsed."""
+        checkpoints = (
+            "- Corrective prepare-council re-review — 2026-07-01: READY-WITH-NOTES "
+            "(seats actually run: reality-checker only; roster of the earlier pass was thin)"
+        )
+        self._write_wave(self._wave_text(checkpoints))
+        self.assertEqual(self._check(self._root), ([], []))
+
+
+class PrepareCouncilVerdictRegexParityTests(unittest.TestCase):
+    """Wave 1p9pe delivery-council fix-now lane: `_PREPARE_COUNCIL_VERDICT_LINE_RE`
+    in wave_validators deliberately mirrors `_PREPARE_COUNCIL_VERDICT_RE` in
+    server_impl (the wave_prepare parser). The two patterns are intentionally
+    identical; this parity pin fails loudly if either side is edited without
+    the other, so the lint validator and the prepare gate never diverge on
+    which verdict lines they consider structured."""
+
+    def test_verdict_line_patterns_are_identical(self) -> None:
+        # Import order matters: server_impl evicts wave_lint_lib modules from
+        # sys.modules at import time (its reload hygiene), so load it first.
+        import server_impl
+
+        from wave_lint_lib import wave_validators
+
+        self.assertEqual(
+            wave_validators._PREPARE_COUNCIL_VERDICT_LINE_RE.pattern,
+            server_impl._PREPARE_COUNCIL_VERDICT_RE.pattern,
+            "prepare-council verdict-line regexes must stay literally identical "
+            "between the lint validator and the wave_prepare parser",
+        )
+        self.assertEqual(
+            wave_validators._PREPARE_COUNCIL_VERDICT_LINE_RE.flags,
+            server_impl._PREPARE_COUNCIL_VERDICT_RE.flags,
+            "verdict-line regex flags must match (both IGNORECASE)",
+        )
+
+
+class CouncilSeedVerificationContractTests(unittest.TestCase):
+    """1p9pk AC-5: the council-review seed carries the code-grounded verification and
+    roster-honesty contracts; the moderator and review-hub seeds point at them."""
+
+    SEEDS_DIR = SCRIPTS_ROOT.parent / "seeds"
+
+    def test_seed_237_requires_code_grounded_verification(self) -> None:
+        text = (self.SEEDS_DIR / "237-council-review.prompt.md").read_text(encoding="utf-8")
+        self.assertIn("Verify code-grounded", text)
+        self.assertIn("sites and symbols must resolve", text)
+        self.assertIn("censuses must be complete", text)
+
+    def test_seed_237_carries_roster_honesty_contract(self) -> None:
+        text = (self.SEEDS_DIR / "237-council-review.prompt.md").read_text(encoding="utf-8")
+        self.assertIn("Roster honesty", text)
+        self.assertIn("seats *actually run*, each at most once", text)
+        self.assertIn("does not self-certify", text)
+
+    def test_seed_215_cross_references_recording_contract(self) -> None:
+        text = (self.SEEDS_DIR / "215-wave-council.prompt.md").read_text(encoding="utf-8")
+        self.assertIn("`prepare-council` recording contract in `237-council-review.prompt.md`", text)
+
+    def test_seed_007_points_at_roster_evidence_consistency(self) -> None:
+        text = (self.SEEDS_DIR / "007-review-system-overview.md").read_text(encoding="utf-8")
+        self.assertIn("roster⇄evidence consistency", text)
+        self.assertIn("per-seat findings (or an explicit no-findings note)", text)
 
 
 class ChangeIdDeferralForPlannedWavesTests(unittest.TestCase):
@@ -2027,14 +2327,17 @@ class IncrementalDocsLintTests(DocsLintFixtureTests):
 
     def test_changed_flag_on_non_git_tree_is_ok_noop_end_to_end(self) -> None:
         """AC-4 (end-to-end): `docs_lint.py --changed` on a non-git fixture (git reports nothing) exits
-        `ok` without falling through to a whole-tree scan."""
+        0 without falling through to a whole-tree scan — and (review-fix, 1p9pe follow-up hardening)
+        the summary line says `skipped`, not `ok`, so an advisory no-op is distinguishable from
+        checked-and-clean."""
         root = self.copy_fixture()
         try:
             result = self.run_docs_lint_with_args(root, "--changed")
         finally:
             shutil.rmtree(root)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("docs-lint: ok", result.stdout)
+        self.assertIn("docs-lint: skipped (no git changed-set available)", result.stdout)
+        self.assertNotIn("docs-lint: ok", result.stdout)
 
 
 class RelativeToRootCrossPlatformTests(unittest.TestCase):
@@ -2147,15 +2450,16 @@ class PerfCacheAndTimingsTests(DocsLintFixtureTests):
         self.assertNotIn("TIMING:", plain.stderr)
 
     def test_timings_is_inert_in_incremental_mode(self) -> None:
-        """AC-5: `--changed --timings` on a non-git fixture is an ok no-op with NO timing lines (the
-        incremental hot path stays quiet)."""
+        """AC-5: `--changed --timings` on a non-git fixture is an exit-0 no-op with NO timing lines
+        (the incremental hot path stays quiet). The summary line reports `skipped` on a non-git
+        fixture (review-fix, 1p9pe follow-up hardening)."""
         root = self.copy_fixture()
         try:
             result = self.run_docs_lint_with_args(root, "--changed", "--timings")
         finally:
             shutil.rmtree(root)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("docs-lint: ok", result.stdout)
+        self.assertIn("docs-lint: skipped (no git changed-set available)", result.stdout)
         self.assertNotIn("TIMING:", result.stderr)
 
 

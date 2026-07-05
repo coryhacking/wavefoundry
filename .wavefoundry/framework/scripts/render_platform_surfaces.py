@@ -1720,8 +1720,13 @@ def main(argv: list[str] | None = None) -> int:
         venv_bootstrap.ensure_python_resolves(strict=False)
     except Exception:
         pass
-    platforms = set(args.platform or detect_platforms(repo_root))
-    if "copilot" not in platforms:
+    detected_platforms = detect_platforms(repo_root)
+    platforms = set(args.platform or detected_platforms)
+    # Wave 1p9pe (renderer-overwrite-safety): copilot-artifact removal keys off whether the REPO
+    # has copilot surfaces (detection), never off the invocation's --platform set. An explicit
+    # `--platform claude` render on a repo with .github/copilot-instructions.md must not delete
+    # the committed .github/hooks/* (that clobber shipped twice before this guard).
+    if "copilot" not in detected_platforms:
         remove_copilot_artifacts(repo_root)
     for platform in sorted(platforms):
         render_platform_entrypoints(repo_root, platform)

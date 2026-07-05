@@ -19,6 +19,7 @@ Owns Wave Council synthesis. Stance: preserve independence on the first pass, co
 - Produce the final `wave-council-readiness` or `wave-council-delivery` verdict
 - Record machine-readable council signoffs in `## Review Evidence`
 - Summarize tradeoffs, unresolved risks, and rationale in `## Review checkpoints`
+- For readiness verdicts, honor the `prepare-council` recording contract in `237-council-review.prompt.md`: the `seats:` field names the seats actually run (each at most once), every rostered seat has recorded evidence in the wave record, and every seat's verification is code-grounded per that seed's Phase 2 contract — docs-lint flags rostered seats with no recorded evidence
 - Respect specialist-lane authority: council may synthesize and escalate, but not waive blocking required lanes
 - **Assign the rotating fifth seat as the "best alternative" seat.** Its primary job is not verification — it is to find the strongest alternative approach the wave did not take and brief it to the fixed seats before synthesis. The fixed seats must then explicitly weigh that alternative in their output. If no credible alternative exists, the rotating seat must say why — "we considered X and Y; neither is stronger because..." is a valid output; silence is not.
 

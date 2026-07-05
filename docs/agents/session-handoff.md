@@ -4,7 +4,15 @@ Owner: Engineering
 Status: active
 Last verified: 2026-07-04
 
-## Current State (2026-07-04 — 1p9qh CLOSED + committed; no wave open)
+## Current State (2026-07-04 — 1p9pe CLOSED + committed; no wave open)
+
+**Wave `1p9pe post-release-followup-hardening` CLOSED 2026-07-04 (operator-approved: "close and commit").** All five changes delivered (`1p9p6` parse diagnostics, `1p9p7` renderer overwrite safety, `1p9p8` incremental post-write lint, `1p9p9` HF Hub socket timeouts, `1p9pk` prepare-council verification rigor). Delivery review: five lanes + full delivery council (red-team primer, four fixed seats, rotating senior-engineering-challenger) — seats unanimous, synthesis PASS. Two in-review fix rounds with reproducer-flip evidence; the council round's semantic tomllib-equivalence exit guard caught a NEW balanced-bracket-desync silent-loss shape no prior guard saw. Headline: post-write advisory lint 4.7 s → 0.25–0.28 s per write (~17–30x, performance-lane measured). Final: suite 4,528 / 43 files OK; wave_validate clean; both edit gates closed. The 1p9p7 standing watchpoint (re-render deletes the operator `wave_close` block) is RETIRED — split-ownership marker region live and idempotence-verified on disk.
+
+**Next in queue:** `1p9qi sql-graph-accuracy` (readied) and `1p9q8 graph-index-accuracy` (REQUIRES a freshness pass first — its plans predate the 1p9q3/1p9qh rewrites; expect its architecture-reviewer roster warning to surface on activation). Follow-up plan authored during 1p9pe review (committed, not admitted): `docs/plans/1rqh2-debt remove-tomllib-import-fallback.md`.
+
+**Operator's untracked files NOT to sweep into commits:** `docs/waves/1ro44 agent-memory-and-retrieval-decay/`, `docs/agents/journals/1ro44-...md`, `docs/plans/1rolq-enh verify-docs-agentic-review.md`, the working-tree deletion of `docs/plans/1p8gy-enh graph-backed-agent-memory.md`, and `docs/plans/1rppn-enh wave-change-manifests-close-advisory.md` (unfilled template skeleton minted 2026-07-04 21:37, provenance unconfirmed — ask operator).
+
+## Previous State (2026-07-04 — 1p9qh CLOSED + committed)
 
 **Wave `1p9qh java-csharp-enterprise-accuracy` CLOSED 2026-07-04 (operator-approved: "close and commit")** — delivery review PASS unanimous; upgrade path (v36→v37 heal) and the new Java surface live-verified post-close (dispatch impact, implementor navigation, provenance honesty on real Tomcat data). No wave currently open.
 

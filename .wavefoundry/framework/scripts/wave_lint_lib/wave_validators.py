@@ -1460,6 +1460,159 @@ def check_prepare_council_verdict(root: Path) -> tuple[list[str], list[str]]:
     return errors, warnings
 
 
+# Structured prepare-council verdict line, mirroring the wave_prepare parser in server_impl.py.
+# Only PASS / PASS WITH NOTES / BLOCKED verdict lines carry a machine-checkable roster; freeform
+# corrective or narrative checkpoint bullets that merely mention "prepare-council" are not rosters.
+_PREPARE_COUNCIL_VERDICT_LINE_RE = re.compile(
+    r"^\s*-\s*\*\*Prepare-phase Wave Council \[prepare-council\] — (?P<date>[^:]+): "
+    r"(?P<verdict>PASS(?: WITH NOTES)?|BLOCKED)\*\*(?:\s*\((?P<meta>.*)\))?\s*$",
+    re.IGNORECASE,
+)
+
+# Seats that legitimately appear in a roster without a dedicated evidence bullet:
+# wave-council is the moderator (synthesis is the verdict line itself) and red-team is the
+# adversarial primer, whose output is conventionally folded into `strongest-challenge`.
+PREPARE_COUNCIL_ROSTER_TOLERANCE = frozenset({"red-team", "wave-council"})
+
+# A roster claim is a hyphenated role token (architecture-reviewer, qa-reviewer, reality-checker,
+# docs-contract-reviewer, ...). Requiring the hyphen is the fail-safe filter: prose fragments,
+# stray annotation words, and placeholder text never look like role tokens.
+_PREPARE_COUNCIL_ROLE_TOKEN_RE = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)+$")
+
+
+def _prepare_council_roster_tokens(meta_text: str) -> list[str]:
+    """Extract claimed non-tolerance seat tokens from a verdict line's meta fields.
+
+    Reads the ``seats:`` and ``rotating-seat:`` fields, splits on commas, and keeps only
+    plausible role tokens. Parts containing ``<`` / ``>`` are template placeholder text,
+    not seat claims; non-hyphenated parts (``none``, annotation fragments) are skipped.
+    """
+    meta: dict[str, str] = {}
+    for raw_part in re.split(r";\s*", meta_text or ""):
+        key, sep, value = raw_part.partition(":")
+        if sep:
+            meta[key.strip().casefold()] = value.strip()
+    tokens: list[str] = []
+    for field_name in ("seats", "rotating-seat"):
+        for part in (meta.get(field_name) or "").split(","):
+            candidate = part.strip().casefold()
+            if "<" in candidate or ">" in candidate:
+                continue
+            if not _PREPARE_COUNCIL_ROLE_TOKEN_RE.match(candidate):
+                continue
+            if candidate in PREPARE_COUNCIL_ROSTER_TOLERANCE:
+                continue
+            if candidate not in tokens:
+                tokens.append(candidate)
+    return tokens
+
+
+def _prepare_council_seat_evidenced(seat: str, corpus: str) -> bool:
+    """True when the seat has a literal corroboration in the (casefolded) evidence corpus.
+
+    Matches the literal role token (``architecture-reviewer``) or the seat's lane stem followed
+    by the word ``seat`` (``architecture seat``) — the two surface forms wave records actually
+    use when a seat records findings in checkpoint prose. Anything looser (e.g. the bare stem)
+    would re-open the vacuity this check exists to close.
+    """
+    if seat in corpus:
+        return True
+    stem = seat.rsplit("-", 1)[0]
+    return bool(stem) and f"{stem} seat" in corpus
+
+
+def check_prepare_council_roster_evidence(root: Path) -> tuple[list[str], list[str]]:
+    """Check that every seat named in a prepare-council verdict roster has recorded evidence.
+
+    The failure mode this closes: a structurally valid ``prepare-council: PASS`` line whose
+    ``seats:`` roster was pasted from the verdict template while the recorded evidence names
+    different (or no) reviewers — a thin readiness review that sails through the existence-only
+    check above.
+
+    Matching rule (pinned; deliberately non-vacuous):
+
+    - Roster = tokens parsed from the verdict line's ``seats:`` and ``rotating-seat:`` fields,
+      excluding the tolerance set ``{red-team, wave-council}`` (moderator synthesis and the
+      adversarial primer legitimately have no dedicated evidence bullet).
+    - Evidence corpus = ``## Prepare Review Evidence`` + ``## Review Evidence`` +
+      ``## Review Checkpoints``, with EVERY structured verdict line removed — not just the
+      matched line's own text. A seat named only inside a verdict-line roster does not
+      self-certify, and two pasted thin PASS lines must not mutually certify each other's
+      rosters (the review-fix hardening: excluding only the matched line let a second,
+      near-identical verdict line corroborate the first). The ``## Participants`` table and
+      ``## Changes`` region are outside the corpus by construction — a Participants Role entry
+      is a responsibility assignment, not review evidence.
+    - A seat is corroborated by its literal role token or its ``<stem> seat`` prose form
+      appearing anywhere in the corpus (see ``_prepare_council_seat_evidenced``).
+
+    Scope and severity (fail-safe by design):
+
+    - Only ``active`` / ``implementing`` waves are checked — the roster claim becomes
+      load-bearing when the wave opens for implementation, while readied-``planned`` records
+      are still being amended by prepare passes; closed records are preserved history.
+    - Findings are warnings, not errors: this is a consistency backstop through the standard
+      lint channel, not a hard structural gate. It can only catch unnamed/unevidenced seats;
+      it cannot judge whether a recorded review was actually code-grounded.
+
+    Recorded limitation (bounded by design, per the introducing change's Decision Log): any
+    prose mention of a seat token in a non-verdict evidence/checkpoint line corroborates —
+    including negative or planning sentences ("security-reviewer will review later",
+    "architecture-reviewer was not run"). The check closes the unnamed/unevidenced-seat
+    hole; it does not (and cannot) judge whether the mention constitutes real evidence.
+    """
+    errors: list[str] = []
+    warnings: list[str] = []
+    wave_root = root / "docs" / "waves"
+    if not wave_root.exists():
+        return errors, warnings
+
+    for path in sorted(wave_root.rglob("wave.md")):
+        text = read_text(path)
+        if "wave-id:" not in text:
+            continue
+        status = (_metadata_value(text, "Status") or "").casefold().strip()
+        if status not in ("active", "implementing"):
+            continue
+        sections = _extract_sections(text)
+        corpus_sections = (
+            sections.get("## Prepare Review Evidence", ""),
+            sections.get("## Review Evidence", ""),
+            sections.get("## Review Checkpoints", ""),
+        )
+        # Review-fix hardening: exclude ALL structured verdict lines from the
+        # corpus, not just the matched line's own text — otherwise two pasted
+        # near-identical thin PASS lines mutually certify each other's rosters
+        # (each line's seat tokens "corroborate" the other's claim).
+        corpus = "\n".join(
+            "\n".join(
+                line
+                for line in section.splitlines()
+                if not _PREPARE_COUNCIL_VERDICT_LINE_RE.match(line.strip())
+            )
+            for section in corpus_sections
+        ).casefold()
+        checkpoints = sections.get("## Review Checkpoints", "")
+        for raw_line in checkpoints.splitlines():
+            match = _PREPARE_COUNCIL_VERDICT_LINE_RE.match(raw_line.strip())
+            if not match:
+                continue
+            roster = _prepare_council_roster_tokens(match.group("meta") or "")
+            if not roster:
+                continue
+            missing = [seat for seat in roster if not _prepare_council_seat_evidenced(seat, corpus)]
+            if missing:
+                rel = relative_to_root(root, path)
+                warnings.append(
+                    f"{rel}: prepare-council verdict roster names seat(s) with no recorded evidence "
+                    f"in the wave record: {', '.join(missing)}. Each seat listed in `seats:` / "
+                    "`rotating-seat:` must record findings (or an explicit no-findings note) in "
+                    "`## Prepare Review Evidence`, `## Review Evidence`, or a `## Review Checkpoints` "
+                    "entry other than the verdict line itself; record the seats actually run, not the "
+                    "template roster"
+                )
+    return errors, warnings
+
+
 def _is_archived_legacy_wave_doc(root: Path, path: Path) -> bool:
     try:
         relative_parts = path.relative_to(root).parts

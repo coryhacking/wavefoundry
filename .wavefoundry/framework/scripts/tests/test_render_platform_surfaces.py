@@ -1188,5 +1188,93 @@ class HookStdinUtf8Tests(unittest.TestCase):
         self.assertEqual(kwargs.get("input"), payload, "the payload must be passed through unchanged")
 
 
+class CopilotRemovalDetectionGateTests(unittest.TestCase):
+    """Wave 1p9pe (1p9p7-bug renderer-overwrite-safety): copilot-artifact
+    removal must key off `detect_platforms(repo_root)` — whether the REPO has
+    copilot surfaces — never off the invocation's explicit `--platform` set.
+    Pre-fix, `render_platform_surfaces --platform claude` on a copilot repo
+    deleted the committed `.github/hooks/*` (the wave-1p9j0 DF-2 clobber).
+    """
+
+    _HOOK_SENTINEL = '{"sentinel": "operator-committed copilot hooks"}\n'
+
+    def _run_main(self, repo_root: Path, *platform_args: str) -> None:
+        sub_env = {**os.environ, "WAVEFOUNDRY_SKIP_PYTHON_HEAL": "1"}
+        result = subprocess.run(
+            ["python3", str(SCRIPT_PATH), "--repo-root", str(repo_root), *platform_args],
+            cwd=PROJECT_ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+            env=sub_env,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def _seed_copilot_hooks(self, repo_root: Path) -> Path:
+        hooks_dir = repo_root / ".github" / "hooks"
+        hooks_dir.mkdir(parents=True)
+        hooks_json = hooks_dir / "hooks.json"
+        hooks_json.write_text(self._HOOK_SENTINEL, encoding="utf-8")
+        (hooks_dir / "pre-tool-use.py").write_text("# committed hook body\n", encoding="utf-8")
+        return hooks_json
+
+    def test_explicit_non_copilot_render_preserves_copilot_hooks(self) -> None:
+        # AC-4: `--platform claude` on a repo WITH .github/copilot-instructions.md
+        # must not delete .github/hooks/* — detection, not the invocation's
+        # platform set, decides removal.
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir).resolve()
+            (repo_root / ".github").mkdir()
+            (repo_root / ".github" / "copilot-instructions.md").write_text("", encoding="utf-8")
+            hooks_json = self._seed_copilot_hooks(repo_root)
+
+            self._run_main(repo_root, "--platform", "claude")
+
+            self.assertTrue(
+                hooks_json.is_file(),
+                ".github/hooks/hooks.json must survive an explicit non-copilot render on a copilot repo",
+            )
+            self.assertEqual(
+                hooks_json.read_text(encoding="utf-8"), self._HOOK_SENTINEL,
+                "the committed copilot hooks must be untouched (copilot was not in scope to re-render)",
+            )
+            self.assertTrue((repo_root / ".github" / "hooks" / "pre-tool-use.py").is_file())
+
+    def test_no_copilot_repo_still_removes_stale_artifacts(self) -> None:
+        # AC-5: on a repo with NO copilot surfaces, stale .github/hooks/*
+        # copilot artifacts are still cleaned up — no regression.
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir).resolve()
+            hooks_json = self._seed_copilot_hooks(repo_root)  # stale, no instructions file
+
+            self._run_main(repo_root, "--platform", "claude")
+
+            self.assertFalse(hooks_json.exists(), "stale copilot hooks.json must be removed")
+            self.assertFalse((repo_root / ".github" / "hooks" / "pre-tool-use.py").exists())
+
+    def test_copilot_in_scope_still_renders_artifacts(self) -> None:
+        # AC-8: the removal-guard fix must not suppress legitimate copilot
+        # rendering — both via auto-detect and via an explicit --platform copilot.
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Auto-detect: repo with copilot-instructions.md renders/refreshes hooks.
+            repo_root = Path(temp_dir).resolve()
+            (repo_root / ".github").mkdir()
+            (repo_root / ".github" / "copilot-instructions.md").write_text("", encoding="utf-8")
+            self._run_main(repo_root)
+            hooks_json = repo_root / ".github" / "hooks" / "hooks.json"
+            self.assertTrue(hooks_json.is_file(), "auto-detect on a copilot repo must render copilot hooks")
+            rendered = json.loads(hooks_json.read_text(encoding="utf-8"))
+            self.assertIn("preToolUse", rendered["hooks"])
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Explicit --platform copilot on a repo without the instructions file:
+            # cleanup (detection says no copilot) runs BEFORE the render, so the
+            # explicit render still leaves fresh artifacts in place.
+            repo_root = Path(temp_dir).resolve()
+            self._run_main(repo_root, "--platform", "copilot")
+            hooks_json = repo_root / ".github" / "hooks" / "hooks.json"
+            self.assertTrue(hooks_json.is_file(), "explicit --platform copilot must render copilot hooks")
+
+
 if __name__ == "__main__":
     unittest.main()

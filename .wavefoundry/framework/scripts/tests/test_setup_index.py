@@ -11,6 +11,7 @@ import tempfile
 import threading
 import time
 import tomllib
+import types
 import unittest
 from contextlib import ExitStack, redirect_stderr, redirect_stdout
 from pathlib import Path
@@ -1907,6 +1908,231 @@ class SetupPhase1DeadlineTests(unittest.TestCase):
                     rc = self.mod.main(["--root", tmp, "--graph-only"])
         self.assertEqual(rc, 2)
         self.assertIn("terminated as stalled", err.getvalue())
+
+
+class HfHubSocketTimeoutScopeTests(unittest.TestCase):
+    """Change 1p9p9 (wave 1p9pe) — scoped HF Hub socket timeouts around the model warm.
+
+    The scope patches ``huggingface_hub.constants.HF_HUB_DOWNLOAD_TIMEOUT`` /
+    ``HF_HUB_ETAG_TIMEOUT`` module attributes directly — an ``os.environ`` set after import is a
+    no-op because huggingface_hub reads the env once at import — applies config/default values with
+    an operator-set env var winning as the source, restores on every exit (success, inner failure,
+    deadline timeout), and complements (never replaces) the DF-1 wall-clock deadline. Tests use a
+    fake ``huggingface_hub`` package injected via ``sys.modules`` so they are hermetic whether or
+    not the real hub is installed."""
+
+    DOWNLOAD_KEY = "hf_hub_download_timeout_seconds"
+    ETAG_KEY = "hf_hub_etag_timeout_seconds"
+
+    def setUp(self):
+        self.mod = load_setup_index()
+
+    def _fake_hub(self, download=10, etag=10, omit_etag=False):
+        pkg = types.ModuleType("huggingface_hub")
+        constants = types.ModuleType("huggingface_hub.constants")
+        constants.HF_HUB_DOWNLOAD_TIMEOUT = download
+        if not omit_etag:
+            constants.HF_HUB_ETAG_TIMEOUT = etag
+        pkg.constants = constants
+        return pkg, constants
+
+    def _scope_env(self, pkg, constants, active=None, env=None):
+        """ExitStack installing the fake hub modules, a clean HF timeout env (plus ``env``
+        overrides), and the per-run active timeout values."""
+        stack = ExitStack()
+        stack.enter_context(patch.dict(sys.modules, {
+            "huggingface_hub": pkg,
+            "huggingface_hub.constants": constants,
+        }))
+        stack.enter_context(patch.dict(os.environ))
+        os.environ.pop("HF_HUB_DOWNLOAD_TIMEOUT", None)
+        os.environ.pop("HF_HUB_ETAG_TIMEOUT", None)
+        for key, value in (env or {}).items():
+            os.environ[key] = value
+        stack.enter_context(patch.object(self.mod, "_ACTIVE_HF_HUB_SOCKET_TIMEOUTS", active))
+        return stack
+
+    # --- AC-1: effectiveness — the CONSTANTS reflect the configured values DURING the warm ----------
+
+    def test_constants_reflect_configured_values_during_warm(self):
+        # The value the HF download actually consumes at call time (the module constant, NOT
+        # os.environ) equals the configured value inside the warm body, and restores after.
+        pkg, constants = self._fake_hub()
+        seen = {}
+
+        def inner(model_name, *, local_files_only):
+            seen["download"] = constants.HF_HUB_DOWNLOAD_TIMEOUT
+            seen["etag"] = constants.HF_HUB_ETAG_TIMEOUT
+
+        active = {self.DOWNLOAD_KEY: 77.0, self.ETAG_KEY: 33.0}
+        with self._scope_env(pkg, constants, active=active):
+            with patch.object(self.mod, "_warm_model_inner", side_effect=inner):
+                self.mod._warm_model("bge-small", local_files_only=False, deadline_seconds=5.0)
+        self.assertEqual(seen, {"download": 77.0, "etag": 33.0})
+        self.assertEqual(constants.HF_HUB_DOWNLOAD_TIMEOUT, 10)  # restored (AC-3)
+        self.assertEqual(constants.HF_HUB_ETAG_TIMEOUT, 10)
+
+    def test_defaults_apply_when_no_run_config(self):
+        # Direct scope entry with no per-run config (e.g. an explicit-deadline caller): the shipped
+        # defaults apply to the constants.
+        pkg, constants = self._fake_hub()
+        with self._scope_env(pkg, constants, active=None):
+            with self.mod._hf_hub_timeout_scope():
+                self.assertEqual(
+                    constants.HF_HUB_DOWNLOAD_TIMEOUT, self.mod.HF_HUB_DOWNLOAD_TIMEOUT_DEFAULT
+                )
+                self.assertEqual(
+                    constants.HF_HUB_ETAG_TIMEOUT, self.mod.HF_HUB_ETAG_TIMEOUT_DEFAULT
+                )
+        self.assertEqual(constants.HF_HUB_DOWNLOAD_TIMEOUT, 10)
+        self.assertEqual(constants.HF_HUB_ETAG_TIMEOUT, 10)
+
+    # --- AC-3: scoped restore + operator env value honored as the source -----------------------------
+
+    def test_operator_env_value_wins_over_config(self):
+        # An operator-set HF_HUB_*_TIMEOUT env var is the SOURCE of the applied value — a lower
+        # config/default never overrides an explicit operator choice.
+        pkg, constants = self._fake_hub()
+        active = {self.DOWNLOAD_KEY: 30.0, self.ETAG_KEY: 30.0}
+        env = {"HF_HUB_DOWNLOAD_TIMEOUT": "120", "HF_HUB_ETAG_TIMEOUT": "45.5"}
+        with self._scope_env(pkg, constants, active=active, env=env):
+            with self.mod._hf_hub_timeout_scope():
+                self.assertEqual(constants.HF_HUB_DOWNLOAD_TIMEOUT, 120.0)
+                self.assertEqual(constants.HF_HUB_ETAG_TIMEOUT, 45.5)
+        self.assertEqual(constants.HF_HUB_DOWNLOAD_TIMEOUT, 10)
+        self.assertEqual(constants.HF_HUB_ETAG_TIMEOUT, 10)
+
+    def test_malformed_or_nonpositive_env_falls_back_to_config(self):
+        pkg, constants = self._fake_hub()
+        active = {self.DOWNLOAD_KEY: 44.0, self.ETAG_KEY: 55.0}
+        env = {"HF_HUB_DOWNLOAD_TIMEOUT": "soon", "HF_HUB_ETAG_TIMEOUT": "-1"}
+        with self._scope_env(pkg, constants, active=active, env=env):
+            with self.mod._hf_hub_timeout_scope():
+                self.assertEqual(constants.HF_HUB_DOWNLOAD_TIMEOUT, 44.0)
+                self.assertEqual(constants.HF_HUB_ETAG_TIMEOUT, 55.0)
+
+    def test_scope_restores_constants_on_exception(self):
+        pkg, constants = self._fake_hub()
+        with self._scope_env(pkg, constants):
+            with self.assertRaises(RuntimeError):
+                with self.mod._hf_hub_timeout_scope():
+                    self.assertEqual(
+                        constants.HF_HUB_DOWNLOAD_TIMEOUT, self.mod.HF_HUB_DOWNLOAD_TIMEOUT_DEFAULT
+                    )
+                    raise RuntimeError("boom")
+        self.assertEqual(constants.HF_HUB_DOWNLOAD_TIMEOUT, 10)
+        self.assertEqual(constants.HF_HUB_ETAG_TIMEOUT, 10)
+
+    def test_warm_failure_restores_constants(self):
+        pkg, constants = self._fake_hub()
+
+        def boom(model_name, *, local_files_only):
+            raise RuntimeError("cache miss")
+
+        with self._scope_env(pkg, constants):
+            with patch.object(self.mod, "_warm_model_inner", side_effect=boom):
+                with self.assertRaises(RuntimeError):
+                    self.mod._warm_model("bge-small", local_files_only=False, deadline_seconds=5.0)
+        self.assertEqual(constants.HF_HUB_DOWNLOAD_TIMEOUT, 10)
+        self.assertEqual(constants.HF_HUB_ETAG_TIMEOUT, 10)
+
+    # --- AC-4/AC-5: deadline untouched; healthy warm unchanged; default ordering ---------------------
+
+    def test_deadline_timeout_still_raises_and_restores(self):
+        # The DF-1 wall-clock deadline is untouched: it still fires with the same error type, and
+        # because the scope wraps the deadline runner on the joining thread, the constants restore
+        # even on the abandoned-thread timeout path.
+        pkg, constants = self._fake_hub()
+
+        def slow(model_name, *, local_files_only):
+            time.sleep(2)  # daemon worker; still running when the tiny deadline elapses
+
+        with self._scope_env(pkg, constants):
+            with patch.object(self.mod, "_warm_model_inner", side_effect=slow):
+                with self.assertRaises(self.mod.ModelPrewarmTimeout):
+                    self.mod._warm_model("bge-small", local_files_only=False, deadline_seconds=0.05)
+        self.assertEqual(constants.HF_HUB_DOWNLOAD_TIMEOUT, 10)
+        self.assertEqual(constants.HF_HUB_ETAG_TIMEOUT, 10)
+
+    def test_healthy_warm_success_path_unchanged(self):
+        # A healthy within-timeout warm behaves exactly as today: same inner call, same success.
+        pkg, constants = self._fake_hub()
+        seen = {}
+
+        def fast(model_name, *, local_files_only):
+            seen["args"] = (model_name, local_files_only)
+
+        with self._scope_env(pkg, constants):
+            with patch.object(self.mod, "_warm_model_inner", side_effect=fast):
+                self.mod._warm_model("bge-small", local_files_only=True, deadline_seconds=5.0)
+        self.assertEqual(seen["args"], ("bge-small", True))
+
+    def test_default_socket_timeouts_below_wall_clock_deadline(self):
+        # AC-5: the socket timeout must be able to fire BEFORE the wall-clock deadline.
+        self.assertLess(self.mod.HF_HUB_DOWNLOAD_TIMEOUT_DEFAULT, self.mod.MODEL_WARM_TIMEOUT_DEFAULT)
+        self.assertLess(self.mod.HF_HUB_ETAG_TIMEOUT_DEFAULT, self.mod.MODEL_WARM_TIMEOUT_DEFAULT)
+
+    # --- import-guard / forward-compat no-ops ---------------------------------------------------------
+
+    def test_scope_noop_when_huggingface_hub_absent(self):
+        # sys.modules[name] = None makes `from huggingface_hub import constants` raise ImportError:
+        # the scope must yield as a clean no-op, never break the warm.
+        with patch.dict(sys.modules, {"huggingface_hub": None, "huggingface_hub.constants": None}):
+            with self.mod._hf_hub_timeout_scope():
+                pass
+
+    def test_scope_skips_renamed_constant(self):
+        # A future hub release renaming one constant: the other is still patched; the missing one is
+        # skipped (never created), and nothing raises.
+        pkg, constants = self._fake_hub(omit_etag=True)
+        with self._scope_env(pkg, constants):
+            with self.mod._hf_hub_timeout_scope():
+                self.assertEqual(
+                    constants.HF_HUB_DOWNLOAD_TIMEOUT, self.mod.HF_HUB_DOWNLOAD_TIMEOUT_DEFAULT
+                )
+                self.assertFalse(hasattr(constants, "HF_HUB_ETAG_TIMEOUT"))
+        self.assertEqual(constants.HF_HUB_DOWNLOAD_TIMEOUT, 10)
+        self.assertFalse(hasattr(constants, "HF_HUB_ETAG_TIMEOUT"))
+
+    # --- AC-2: config surface (loader + main wiring) --------------------------------------------------
+
+    def test_setup_deadlines_reads_hf_hub_timeout_overrides(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "docs").mkdir(parents=True, exist_ok=True)
+            (root / "docs" / "workflow-config.json").write_text(
+                json.dumps({"setup": {self.DOWNLOAD_KEY: 45, self.ETAG_KEY: "soon"}}),
+                encoding="utf-8",
+            )
+            d = self.mod._setup_deadlines(root)
+        self.assertEqual(d[self.DOWNLOAD_KEY], 45.0)  # override honored
+        self.assertEqual(d[self.ETAG_KEY], self.mod.HF_HUB_ETAG_TIMEOUT_DEFAULT)  # malformed -> default
+
+    def test_main_resolves_active_socket_timeouts_from_config(self):
+        # The per-run channel `_ACTIVE_HF_HUB_SOCKET_TIMEOUTS` is populated by main from the same
+        # workflow-config block as the model-warm deadline.
+        prior = self.mod._ACTIVE_HF_HUB_SOCKET_TIMEOUTS
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                (root / "docs").mkdir(parents=True, exist_ok=True)
+                (root / "docs" / "workflow-config.json").write_text(
+                    json.dumps({"setup": {self.DOWNLOAD_KEY: 61, self.ETAG_KEY: 12}}),
+                    encoding="utf-8",
+                )
+                with patch.object(self.mod, "ensure_deps"), \
+                     patch.object(self.mod, "_reexec_with_venv_if_needed"), \
+                     patch.object(self.mod, "_workflow_project_include_prefixes", return_value={}), \
+                     patch.object(self.mod, "_run_indexer"):
+                    with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                        rc = self.mod.main(["--root", tmp, "--graph-only"])
+            self.assertEqual(rc, 0)
+            self.assertEqual(
+                self.mod._ACTIVE_HF_HUB_SOCKET_TIMEOUTS,
+                {self.DOWNLOAD_KEY: 61.0, self.ETAG_KEY: 12.0},
+            )
+        finally:
+            self.mod._ACTIVE_HF_HUB_SOCKET_TIMEOUTS = prior
 
 
 class CoremlProbeTempdirRetryTests(unittest.TestCase):

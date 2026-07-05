@@ -7,6 +7,8 @@ import inspect
 import json
 import math
 import os
+import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -2289,7 +2291,7 @@ class AutoLintAtMcpGatesTests(unittest.TestCase):
                 "warnings": [],
             }
 
-        with patch.object(self.srv, "run_validate", side_effect=fake_validate):
+        with patch.object(self.srv, "run_validate_changed", side_effect=fake_validate):
             lint = self.srv._run_post_write_lint(self.root)
 
         self.assertEqual(lint["error_count"], 20,
@@ -2305,7 +2307,7 @@ class AutoLintAtMcpGatesTests(unittest.TestCase):
         def bad_validate(_root):
             raise RuntimeError("simulated lint crash")
 
-        with patch.object(self.srv, "run_validate", side_effect=bad_validate):
+        with patch.object(self.srv, "run_validate_changed", side_effect=bad_validate):
             lint = self.srv._run_post_write_lint(self.root)
 
         self.assertIsNone(lint["clean"], "crash → clean is None")
@@ -2319,6 +2321,320 @@ class AutoLintAtMcpGatesTests(unittest.TestCase):
         envelope = self.srv._response("error", {"sentinel": True})
         result = self.srv._attach_lint_to_response(envelope, self.root, "create")
         self.assertNotIn("lint", result["data"])
+
+
+class PostWriteLintIncrementalTests(unittest.TestCase):
+    """Wave 1p9pe / 1p9p8: the ADVISORY post-write lint attachment runs the cheap
+    incremental changed-set scan (`run_validate_changed`, hook timeout bound) while
+    the six full-corpus `run_validate` lifecycle gates (wave_audit, wave_validate,
+    wave_install_audit, wave_prepare, wave_review, wave_close) stay unchanged."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        self.srv = type(self).srv
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _write_docs_lint_config(self, **docs_lint) -> None:
+        (self.root / "docs" / "workflow-config.json").write_text(
+            json.dumps({"docs_lint": docs_lint}), encoding="utf-8",
+        )
+
+    def _mock_run(self, returncode: int = 0, stdout: str = "docs-lint: ok\n", stderr: str = ""):
+        return MagicMock(returncode=returncode, stdout=stdout, stderr=stderr)
+
+    # --- AC-1: the post-write path is incremental, never the full corpus ---------------------------
+
+    def test_post_write_lint_spawns_changed_scan_and_never_full(self):
+        """AC-1: `_run_post_write_lint` spawns docs_lint with `--changed` and does NOT
+        route through the full-corpus `run_validate` (patched to fail loudly if hit)."""
+        with patch.object(self.srv, "_mcp_subprocess_run", return_value=self._mock_run()) as run, \
+             patch.object(self.srv, "run_validate",
+                          side_effect=AssertionError("full-corpus run_validate must not run on the post-write path")):
+            lint = self.srv._run_post_write_lint(self.root)
+        self.assertTrue(lint["clean"])
+        self.assertEqual(run.call_count, 1, "exactly one docs_lint spawn")
+        cmd = run.call_args.args[0]
+        self.assertIn("--changed", cmd, f"post-write argv must include --changed: {cmd}")
+        self.assertIn("docs_lint.py", cmd[1])
+
+    # --- AC-2: bounded by the hook knob, not the full-scan knob ------------------------------------
+
+    def test_post_write_lint_bounded_by_hook_timeout_not_full_scan_knob(self):
+        """AC-2: the incremental scan forwards `docs_lint.hook_timeout_seconds` as the
+        subprocess timeout — even when the full-scan knob is set to a different value."""
+        self._write_docs_lint_config(hook_timeout_seconds=77, full_scan_timeout_seconds=555)
+        with patch.object(self.srv, "_mcp_subprocess_run", return_value=self._mock_run()) as run:
+            self.srv.run_validate_changed(self.root)
+        self.assertEqual(run.call_args.kwargs.get("timeout"), 77.0)
+
+    def test_post_write_lint_hook_timeout_defaults_to_120(self):
+        """AC-2: absent config, the hook knob's 120s default applies (via
+        indexer.docs_lint_hook_timeout_seconds), not the 300s full-scan default."""
+        with patch.object(self.srv, "_mcp_subprocess_run", return_value=self._mock_run()) as run:
+            self.srv.run_validate_changed(self.root)
+        self.assertEqual(run.call_args.kwargs.get("timeout"), 120.0)
+        self.assertNotEqual(
+            run.call_args.kwargs.get("timeout"), self.srv.DOCS_LINT_FULL_SCAN_TIMEOUT_DEFAULT,
+        )
+
+    # --- AC-3: every one of the six lifecycle gates stays full-corpus ------------------------------
+
+    def test_all_six_lifecycle_gates_route_through_full_run_validate(self):
+        """AC-3: each of the six gate functions calls full-corpus `run_validate(root)`
+        and none uses the incremental helper — a partial rescope leak into ANY gate fails."""
+        gate_funcs = [
+            self.srv.wave_audit_response,
+            self.srv.wave_validate_response,
+            self.srv.wave_install_audit_response,
+            self.srv.wave_prepare_response,
+            self.srv.wave_review_response,
+            self.srv.wave_close_response,
+        ]
+        for func in gate_funcs:
+            src = inspect.getsource(func)
+            self.assertRegex(
+                src, r"\brun_validate\(root\)",
+                f"{func.__name__} must call the full-corpus run_validate",
+            )
+            self.assertNotIn(
+                "run_validate_changed(", src,
+                f"{func.__name__} must NOT be rescoped to the incremental scan",
+            )
+
+    def test_post_write_helper_is_sole_incremental_caller(self):
+        """AC-3: `_run_post_write_lint` is the ONLY `run_validate_changed` caller, and
+        `run_validate_changed` is the only site spawning the `--changed` argv."""
+        module_src = Path(self.srv.__file__).read_text(encoding="utf-8")
+        calls = re.findall(r"(?<!def )run_validate_changed\(", module_src)
+        self.assertEqual(
+            len(calls), 1,
+            "exactly one run_validate_changed call site (the post-write helper) is allowed",
+        )
+        self.assertIn(
+            "run_validate_changed(",
+            inspect.getsource(self.srv._run_post_write_lint),
+            "the single incremental call site must be _run_post_write_lint",
+        )
+        self.assertEqual(
+            module_src.count('"--changed"'), 1,
+            "the --changed argv literal must appear only in run_validate_changed",
+        )
+        self.assertIn('"--changed"', inspect.getsource(self.srv.run_validate_changed))
+
+    def test_wave_validate_gate_uses_full_scan_behaviorally(self):
+        """AC-3 (behavioral): the wave_validate gate calls run_validate, and the
+        incremental helper (patched to fail loudly) is never consulted for the gate."""
+        passing = {"passed": True, "errors": [], "warnings": [], "output": ""}
+        with patch.object(self.srv, "run_validate", return_value=passing) as full, \
+             patch.object(self.srv, "run_validate_changed",
+                          side_effect=AssertionError("gate must not use the incremental scan")):
+            result = self.srv.wave_validate_response(self.root)
+        self.assertEqual(full.call_count, 1)
+        self.assertEqual(result["status"], "ok")
+
+    # --- AC-4: unchanged response shape + degradation contract -------------------------------------
+
+    def test_post_write_lint_shape_on_clean_changed_set(self):
+        with patch.object(self.srv, "_mcp_subprocess_run", return_value=self._mock_run()):
+            lint = self.srv._run_post_write_lint(self.root)
+        self.assertEqual(
+            lint,
+            {
+                "clean": True, "error_count": 0, "warning_count": 0, "first_errors": [],
+                # Review-fix: the additive `mode` key — a spawn that printed the normal
+                # summary line reports "incremental".
+                "mode": "incremental",
+            },
+        )
+
+    def test_post_write_lint_surfaces_changed_doc_error(self):
+        mock = self._mock_run(returncode=1, stdout="",
+                              stderr="ERROR: docs/plans/x.md: broken link\nWARNING: stale date\n")
+        with patch.object(self.srv, "_mcp_subprocess_run", return_value=mock):
+            lint = self.srv._run_post_write_lint(self.root)
+        self.assertFalse(lint["clean"])
+        self.assertEqual(lint["error_count"], 1)
+        self.assertEqual(lint["warning_count"], 1)
+        self.assertIn("ERROR: docs/plans/x.md: broken link", lint["first_errors"])
+
+    def test_post_write_lint_timeout_degrades_legibly(self):
+        """AC-4: a hung incremental scan degrades to the structured contract naming the
+        hook config key — no raised exception, and the envelope shape is preserved."""
+        self._write_docs_lint_config(hook_timeout_seconds=77)
+
+        def _timeout(*args, **kwargs):
+            raise subprocess.TimeoutExpired(cmd="docs_lint", timeout=77)
+
+        with patch.object(self.srv, "_mcp_subprocess_run", side_effect=_timeout):
+            lint = self.srv._run_post_write_lint(self.root)
+        self.assertFalse(lint["clean"])
+        self.assertEqual(
+            sorted(lint), ["clean", "error_count", "first_errors", "mode", "warning_count"],
+        )
+        self.assertTrue(
+            any("docs_lint.hook_timeout_seconds" in e for e in lint["first_errors"]),
+            f"timeout error must name the hook config key: {lint['first_errors']}",
+        )
+        with patch.object(self.srv, "_mcp_subprocess_run", side_effect=_timeout):
+            result = self.srv.run_validate_changed(self.root)
+        self.assertFalse(result["passed"])
+        self.assertTrue(any("77" in e for e in result["errors"]),
+                        f"timeout error must name the elapsed bound: {result['errors']}")
+
+    def test_post_write_lint_empty_changed_set_on_non_git_root_reports_clean(self):
+        """AC-4 (end-to-end, real spawn): on a non-git skeleton the changed set is empty,
+        so the incremental scan is a clean no-op — even though this same skeleton FAILS
+        the full-corpus scan (missing required files), proving corpus checks were skipped.
+        Review-fix: the attached summary carries `mode: "skipped"` so the checked-nothing
+        no-op is distinguishable from checked-and-clean."""
+        lint = self.srv._run_post_write_lint(self.root)
+        self.assertTrue(lint["clean"], lint)
+        self.assertEqual(lint["error_count"], 0)
+        self.assertEqual(lint["first_errors"], [])
+        self.assertEqual(lint["mode"], "skipped", lint)
+        result = self.srv.run_validate_changed(self.root)
+        self.assertEqual(result["mode"], "skipped")
+        self.assertIn("docs-lint: skipped (no git changed-set available)", result["output"])
+
+
+@unittest.skipUnless(shutil.which("git"), "git not available")
+class PostWriteLintIncrementalGitBehaviorTests(unittest.TestCase):
+    """Wave 1p9pe / 1p9p8 (readiness anti-vacuity note): fixture-scale REAL-behavior
+    evidence, no argv mocking — the incremental post-write scan demonstrably does not
+    run the full corpus, surfaces a defect in a changed doc, and a changed config file
+    still triggers the CLI's internal full-lint fallback (AC-5)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        self.srv = type(self).srv
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+        self._git("init", "-q")
+        self._git("add", "-A")
+        self._git("-c", "user.email=wave@test", "-c", "user.name=wave", "commit", "-qm", "base")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _git(self, *args: str) -> None:
+        subprocess.run(
+            ["git", *args], cwd=self.root, check=True, capture_output=True, text=True,
+        )
+
+    def test_incremental_skips_corpus_defects_the_full_scan_reports(self):
+        """The same tree, both scans: full-corpus FAILS on corpus-wide defects (the
+        skeleton misses required files) while the incremental scan with an EMPTY
+        changed set passes clean — direct proof the post-write path does not run
+        the full corpus."""
+        full = self.srv.run_validate(self.root)
+        self.assertFalse(full["passed"], "precondition: the skeleton must fail the full scan")
+        self.assertTrue(any("missing required" in e for e in full["errors"]), full["errors"])
+        inc = self.srv.run_validate_changed(self.root)
+        self.assertTrue(inc["passed"], f"empty changed set must be a clean no-op: {inc['output']}")
+        lint = self.srv._run_post_write_lint(self.root)
+        self.assertTrue(lint["clean"], lint)
+
+    def test_changed_doc_defect_surfaces_through_post_write_lint(self):
+        """A defective doc in the working tree (untracked → in the changed set) is
+        caught by the incremental per-file validators and lands in first_errors."""
+        bad = self.root / "docs" / "plans" / "bad-link.md"
+        bad.parent.mkdir(parents=True, exist_ok=True)
+        bad.write_text("# Bad\n\n[missing](./no-such-file.md)\n", encoding="utf-8")
+        lint = self.srv._run_post_write_lint(self.root)
+        self.assertFalse(lint["clean"], lint)
+        self.assertGreater(lint["error_count"], 0)
+        self.assertTrue(
+            any("bad-link.md" in e for e in lint["first_errors"]),
+            f"the changed doc's defect must surface: {lint['first_errors']}",
+        )
+
+    def test_changed_config_file_falls_back_to_full_lint(self):
+        """AC-5: a changed config file (docs/workflow-config.json) makes the CLI fall
+        back to the FULL lint inside the incremental invocation — the corpus-wide
+        defects the empty-changed-set scan skipped are now reported again. Review-fix:
+        the result carries `mode: "full-fallback"` (vs `"incremental"` beforehand)."""
+        clean = self.srv.run_validate_changed(self.root)
+        self.assertTrue(clean["passed"], "precondition: clean incremental scan before the config change")
+        self.assertEqual(clean["mode"], "incremental", clean)
+        cfg = self.root / "docs" / "workflow-config.json"
+        data = json.loads(cfg.read_text(encoding="utf-8"))
+        data["docs_lint"] = {"hook_timeout_seconds": 90}
+        cfg.write_text(json.dumps(data), encoding="utf-8")
+        result = self.srv.run_validate_changed(self.root)
+        self.assertFalse(result["passed"], "config change must trigger the full-lint fallback")
+        self.assertTrue(
+            any("missing required" in e for e in result["errors"]),
+            f"full-lint fallback must report corpus-wide defects: {result['errors']}",
+        )
+        self.assertEqual(result["mode"], "full-fallback", result["mode"])
+
+    # --- Review-fix (1p9pe follow-up hardening): timeout-knob crossover ----------------------------
+
+    def _write_docs_lint_config(self, **docs_lint) -> None:
+        cfg = self.root / "docs" / "workflow-config.json"
+        data = json.loads(cfg.read_text(encoding="utf-8"))
+        data["docs_lint"] = docs_lint
+        cfg.write_text(json.dumps(data), encoding="utf-8")
+
+    def test_predicted_full_fallback_uses_full_scan_timeout_knob(self):
+        """A trigger file (docs/workflow-config.json) in the git changed set means the
+        `--changed` invocation will run the FULL corpus inside the CLI, so the subprocess
+        must be bounded by `docs_lint.full_scan_timeout_seconds` — not the 120s hook knob
+        the incremental path uses (the pre-fix crossover)."""
+        self._write_docs_lint_config(hook_timeout_seconds=77, full_scan_timeout_seconds=555)
+        # The config write above IS the changed trigger file (unstaged in the fixture repo).
+        self.assertTrue(self.srv._predict_incremental_full_fallback(self.root))
+        mock_result = MagicMock(returncode=0, stdout="docs-lint: ok\n", stderr="")
+        with patch.object(self.srv, "_mcp_subprocess_run", return_value=mock_result) as run:
+            result = self.srv.run_validate_changed(self.root)
+        self.assertEqual(run.call_args.kwargs.get("timeout"), 555.0,
+                         "predicted fallback must use the full-scan knob")
+        self.assertEqual(result["mode"], "full-fallback")
+
+    def test_predicted_full_fallback_timeout_message_names_full_scan_knob(self):
+        self._write_docs_lint_config(hook_timeout_seconds=77, full_scan_timeout_seconds=555)
+
+        def _timeout(*args, **kwargs):
+            raise subprocess.TimeoutExpired(cmd="docs_lint", timeout=555)
+
+        with patch.object(self.srv, "_mcp_subprocess_run", side_effect=_timeout):
+            result = self.srv.run_validate_changed(self.root)
+        self.assertFalse(result["passed"])
+        self.assertTrue(
+            any("docs_lint.full_scan_timeout_seconds" in e for e in result["errors"]),
+            f"the fallback timeout must name the full-scan knob: {result['errors']}",
+        )
+        self.assertFalse(
+            any("docs_lint.hook_timeout_seconds" in e for e in result["errors"]),
+            "the fallback timeout must NOT point the operator at the hook knob",
+        )
+
+    def test_normal_changed_doc_uses_hook_timeout_knob(self):
+        """With the config committed (clean) and only a doc changed, no fallback is
+        predicted and the hook knob bounds the scan."""
+        self._write_docs_lint_config(hook_timeout_seconds=77, full_scan_timeout_seconds=555)
+        self._git("add", "-A")
+        self._git("-c", "user.email=wave@test", "-c", "user.name=wave", "commit", "-qm", "config")
+        doc = self.root / "docs" / "plans" / "note.md"
+        doc.parent.mkdir(parents=True, exist_ok=True)
+        doc.write_text("# Note\n", encoding="utf-8")
+        self.assertFalse(self.srv._predict_incremental_full_fallback(self.root))
+        mock_result = MagicMock(returncode=0, stdout="docs-lint: ok\n", stderr="")
+        with patch.object(self.srv, "_mcp_subprocess_run", return_value=mock_result) as run:
+            result = self.srv.run_validate_changed(self.root)
+        self.assertEqual(run.call_args.kwargs.get("timeout"), 77.0,
+                         "the normal incremental path must keep the hook knob")
+        self.assertEqual(result["mode"], "incremental")
 
 
 class WaveCreateScaffoldAlignmentTests(unittest.TestCase):
@@ -18989,6 +19305,71 @@ class WavePrepareCouncilGateTests(unittest.TestCase):
                 result = self.srv.wave_prepare_response(self.root, wave_id, mode="dry_run")
         brief = result["data"]["council_brief"]
         self.assertEqual(brief["rotating_seat"], "security-reviewer")
+
+
+class PrepareCouncilVerdictTemplateTests(unittest.TestCase):
+    """1p9pk AC-1/AC-2/AC-5: verdict template de-dup, replace-me placeholder, code-grounded brief."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def _template_seats_field(self, rotating_seat):
+        template = self.srv._prepare_council_verdict_template(rotating_seat)
+        match = re.search(r"seats: (?P<seats>[^;]*);", template)
+        self.assertIsNotNone(match, f"template has no seats: field: {template}")
+        return template, match.group("seats")
+
+    def test_template_dedups_security_reviewer_rotating_pick(self):
+        """AC-1: security-reviewer rotating pick collides with the fixed seat — appears exactly once."""
+        template, seats = self._template_seats_field("security-reviewer")
+        self.assertEqual(seats.count("security-reviewer"), 1)
+        # The served-as-both signal is preserved losslessly in the rotating-seat field.
+        self.assertIn("rotating-seat: security-reviewer;", template)
+
+    def test_template_dedups_architecture_reviewer_rotating_pick(self):
+        """AC-1: architecture-reviewer is also in the fixed-seat list — same collision, same de-dup."""
+        template, seats = self._template_seats_field("architecture-reviewer")
+        self.assertEqual(seats.count("architecture-reviewer"), 1)
+        self.assertIn("rotating-seat: architecture-reviewer;", template)
+
+    def test_template_appends_non_colliding_rotating_pick(self):
+        """AC-1: a rotating pick outside the fixed list is still appended, once."""
+        template, seats = self._template_seats_field("docs-contract-reviewer")
+        self.assertEqual(seats.count("docs-contract-reviewer"), 1)
+        self.assertIn("rotating-seat: docs-contract-reviewer;", template)
+
+    def test_template_without_rotating_seat_lists_each_fixed_seat_once(self):
+        """AC-1: no rotating pick — five fixed seats, each exactly once, rotating-seat: none."""
+        template, seats = self._template_seats_field(None)
+        for seat in ("red-team", "architecture-reviewer", "security-reviewer", "qa-reviewer", "reality-checker"):
+            self.assertEqual(seats.count(seat), 1, f"{seat} must appear exactly once in {seats!r}")
+        self.assertIn("rotating-seat: none;", template)
+
+    def test_template_seat_list_is_replace_me_placeholder(self):
+        """AC-2: the seat list reads as a template placeholder, not a real roster."""
+        for rotating in (None, "security-reviewer", "docs-contract-reviewer"):
+            _, seats = self._template_seats_field(rotating)
+            self.assertIn("<replace with the seats actually run", seats)
+
+    def test_template_still_parses_as_valid_verdict_line(self):
+        """The de-dup'd placeholder template still matches the structured verdict parser
+        (the example the brief hands out must be a syntactically valid line)."""
+        template = self.srv._prepare_council_verdict_template("security-reviewer")
+        info = self.srv._prepare_council_verdict_info(
+            "## Review Checkpoints\n\n" + template + "\n"
+        )
+        self.assertTrue(info["present"])
+        self.assertEqual(info["missing_fields"], [])
+
+    def test_brief_instructions_require_code_grounded_verification(self):
+        """AC-5: the prepare-council brief instructions carry the code-grounded verification contract."""
+        brief = self.srv._build_prepare_council_brief("w1", "wave text", ["c1"])
+        instructions = brief["instructions"]
+        self.assertIn("code-grounded", instructions)
+        self.assertIn("file:line sites and symbols must resolve", instructions)
+        self.assertIn("censuses must be complete", instructions)
+        self.assertIn("seats actually run", instructions)
 
 
 class WaveImplementTests(unittest.TestCase):

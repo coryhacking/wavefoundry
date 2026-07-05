@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-17
+Last verified: 2026-07-04
 
 **Shortcut phrases:** `Council review` · `Run council` · `Wave Council review`
 
@@ -43,6 +43,7 @@ Run each fixed seat in isolation. Each seat receives the standard briefing plus 
 - Explicitly address the red-team's `strongest_challenge`
 - Answer the `primer_questions` from their lane's perspective
 - Contribute lane-specific findings independent of the primer
+- **Verify code-grounded:** check the artifact's load-bearing claims against the actual tree, not against the artifact's own prose — cited `file:line` sites and symbols must resolve, "X already does Y" claims must hold in the code, and "no other caller/site" censuses must be complete. Do not approve an artifact whose claims were checked only against its own text. (A readiness review answerable purely from plan prose is how nonexistent symbols, wrong caller censuses, and no-op mechanisms pass review.)
 
 Default fixed seats: `architecture-reviewer`, `security-reviewer`, `qa-reviewer`, `reality-checker`.
 
@@ -73,6 +74,8 @@ Synthesis must include:
 - Final verdict: **pass**, **pass with conditions**, or **blocked**
 
 When the review is used for `Prepare wave`, the recorded verdict must be written back into `## Review Checkpoints` as a structured `prepare-council` line containing `moderator`, `primer-depth`, `seats`, `rotating-seat`, `strongest-challenge`, and `strongest-alternative`. The lifecycle gate only accepts that structured verdict, not a freeform marker.
+
+**Roster honesty:** the `seats:` field lists the seats *actually run*, each at most once — never paste the template's example roster verbatim. A rotating pick that is also a fixed seat appears once in `seats:` and is identified by the `rotating-seat:` field. Every listed seat (other than the `red-team` primer and the `wave-council` moderator) must have recorded evidence in the wave record — a finding or an explicit no-findings note in `## Prepare Review Evidence`, `## Review Evidence`, or a `## Review Checkpoints` entry other than the verdict line itself. docs-lint flags rostered seats with no recorded evidence: a seat named only inside its own verdict line does not self-certify.
 
 ---
 

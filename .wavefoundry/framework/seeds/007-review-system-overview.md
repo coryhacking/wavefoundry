@@ -16,7 +16,7 @@ Explain the shared Wave Framework review model: what review is for, how it fits 
 
 Projects may enable **Wave Council** as a universal meta-review for every wave. Wave Council does **not** replace specialist review lanes. It adds two required synthesis checkpoints:
 
-- **`wave-council-readiness`** — before implementation begins; requires a structured `prepare-council` verdict line in `## Review Checkpoints`
+- **`wave-council-readiness`** — before implementation begins; requires a structured `prepare-council` verdict line in `## Review Checkpoints` whose `seats:` field names the seats actually run (each at most once — a verbatim template roster is a recording defect) and whose rostered seats each have recorded evidence in the wave record; docs-lint checks this roster⇄evidence consistency
 - **`wave-council-delivery`** — after implementation and before closure
 
 Wave Council uses a two-phase structured protocol:
@@ -187,7 +187,8 @@ When Wave Council is enabled, record the machine-readable council signoffs in th
 
 Keep the detailed narrative synthesis in `## Review checkpoints`. At minimum, record:
 
-- the full seat roster for the phase, including the rotating fifth seat
+- the full seat roster for the phase, including the rotating fifth seat — the seats actually run, each at most once, never a pasted template roster
+- per-seat findings (or an explicit no-findings note) for every rostered seat, so the roster is corroborated by evidence somewhere other than the verdict line itself
 - the moderator's synthesis summary
 - any material disagreements between seats
 - how those disagreements were resolved, or why they remain unresolved

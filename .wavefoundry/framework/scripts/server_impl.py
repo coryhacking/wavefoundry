@@ -2025,6 +2025,99 @@ def docs_lint_full_scan_timeout_seconds(root: Path) -> float:
     return DOCS_LINT_FULL_SCAN_TIMEOUT_DEFAULT
 
 
+# Wave 1p9pe: defensive mirror of indexer.DOCS_LINT_HOOK_TIMEOUT_DEFAULT (120s), used only when the
+# indexer module itself cannot be loaded. The canonical default and config reader live in indexer.py;
+# this constant exists so the incremental post-write lint path never raises on a broken sibling import.
+DOCS_LINT_HOOK_TIMEOUT_FALLBACK = 120.0
+
+
+def _docs_lint_hook_timeout_default() -> float:
+    """The CANONICAL hook-timeout default (``indexer.DOCS_LINT_HOOK_TIMEOUT_DEFAULT``), for
+    operator-facing messages. Review-fix (1p9pe follow-up hardening): messages must cite the
+    canonical default, not the defensive mirror above — the mirror is only the fail-safe when
+    the sibling import is broken."""
+    try:
+        return float(_load_script("indexer").DOCS_LINT_HOOK_TIMEOUT_DEFAULT)
+    except Exception:
+        return DOCS_LINT_HOOK_TIMEOUT_FALLBACK
+
+
+# Review-fix (1p9pe follow-up hardening): defensive mirror of
+# wave_lint_lib.cli.INCREMENTAL_FULL_FALLBACK_FILES, used only when the sibling package cannot
+# be imported. The canonical trigger list lives in wave_lint_lib/cli.py next to the fallback
+# logic it drives.
+_INCREMENTAL_FULL_FALLBACK_FILES_MIRROR = (
+    "docs/workflow-config.json",
+    "docs/prompts/prompt-surface-manifest.json",
+    "docs/repo-profile.json",
+)
+
+
+def _incremental_full_fallback_trigger_files() -> tuple[str, ...]:
+    """Files whose change makes ``docs_lint --changed`` silently fall back to the FULL lint."""
+    try:
+        from wave_lint_lib.cli import INCREMENTAL_FULL_FALLBACK_FILES
+
+        return tuple(INCREMENTAL_FULL_FALLBACK_FILES)
+    except Exception:
+        return _INCREMENTAL_FULL_FALLBACK_FILES_MIRROR
+
+
+def _predict_incremental_full_fallback(root: Path) -> bool:
+    """Predict whether ``docs_lint --changed`` will fall back to the full lint.
+
+    Review-fix (1p9pe follow-up hardening): the CLI's fallback (a changed config/manifest/
+    repo-profile file in the git changed set) runs a FULL-corpus scan inside the ``--changed``
+    invocation — so ``run_validate_changed`` must bound it with the full-scan timeout knob,
+    not the 120s hook knob. Mirrors ``_get_changed_files`` semantics (tracked changes vs HEAD
+    plus untracked non-ignored files) in a single cheap ``git status --porcelain`` subprocess.
+    Fail-safe: any git failure (non-git checkout, missing binary) predicts False — the CLI
+    no-ops on a missing changed set there, so the light hook bound is correct.
+
+    Uses ``subprocess_util.isolated_run`` directly (NOT ``_mcp_subprocess_run``) — this is a
+    cheap pre-check, not the docs_lint spawn, and the argv/count assertions on the post-write
+    tests patch ``_mcp_subprocess_run`` expecting exactly one docs_lint invocation.
+    """
+    import subprocess_util
+
+    triggers = set(_incremental_full_fallback_trigger_files())
+    try:
+        result = subprocess_util.isolated_run(
+            ["git", "status", "--porcelain"],
+            cwd=str(root),
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+    except Exception:
+        return False
+    if result.returncode != 0:
+        return False
+    for line in result.stdout.splitlines():
+        if len(line) < 4:
+            continue
+        path = line[3:].strip()
+        # Rename entries read "old -> new"; the new path is the live one.
+        if " -> " in path:
+            path = path.rsplit(" -> ", 1)[1]
+        path = path.strip().strip('"')
+        if path in triggers:
+            return True
+    return False
+
+
+def docs_lint_hook_timeout_seconds(root: Path) -> float:
+    """Timeout (seconds) for the INCREMENTAL post-write docs-lint subprocess run by
+    ``run_validate_changed`` (wave 1p9pe). Delegates to ``indexer.docs_lint_hook_timeout_seconds``
+    — the same ``docs_lint.hook_timeout_seconds`` knob (default 120s) that bounds the post-edit
+    hook's incremental scan, because both incremental paths share one cost profile and should be
+    governed by one knob. Fail-safe: any error falls back to the mirrored default and never raises."""
+    try:
+        return float(_load_script("indexer").docs_lint_hook_timeout_seconds(root))
+    except Exception:
+        return DOCS_LINT_HOOK_TIMEOUT_FALLBACK
+
+
 def _read_project_required_review_lanes(root: Path) -> list[str]:
     """Return project-declared required review lanes from workflow-config.json."""
     cfg = _read_workflow_config(root)
@@ -3036,7 +3129,7 @@ def _regenerate_codebase_map_safe(root: Path) -> bool:
 
 
 def _run_post_write_lint(root: Path) -> dict[str, Any]:
-    """Run docs-lint and return a bounded summary for write-tool responses.
+    """Run the incremental docs-lint and return a bounded summary for write-tool responses.
 
     Wave 1p3dk / 1p3dq: every write-side wave MCP tool calls this after its
     mutations so the response carries the post-write lint state. Agents no
@@ -3045,14 +3138,25 @@ def _run_post_write_lint(root: Path) -> dict[str, Any]:
     can succeed structurally while the docs gate has issues, and the agent
     sees both signals at once.
 
-    Returns ``{clean, error_count, warning_count, first_errors}``. The
-    ``first_errors`` list is capped at 5 messages to keep responses bounded;
-    full output is available via ``wave_validate`` for deep dives. On unexpected
-    failure (e.g., lint subprocess crashes), returns ``clean: None`` and an
-    error notice in ``first_errors`` — the integration never breaks the tool.
+    Wave 1p9pe: this ADVISORY attachment runs the cheap incremental scan
+    (``run_validate_changed`` — git-changed-set only, hook timeout bound) so a
+    write tool's response reflects only what it just wrote and returns quickly.
+    The authoritative FULL-corpus gate stays at the six lifecycle callers of
+    ``run_validate`` (wave_audit, wave_validate, wave_install_audit,
+    wave_prepare, wave_review, wave_close).
+
+    Returns ``{clean, error_count, warning_count, first_errors, mode}``. The
+    ``mode`` key (additive, review-fix) is ``"incremental"`` | ``"full-fallback"``
+    | ``"skipped"`` — ``skipped`` means no git changed-set was available (non-git
+    checkout), so ``clean: True`` reflects a checked-nothing no-op rather than a
+    checked-and-clean scan. The ``first_errors`` list is capped at 5 messages to
+    keep responses bounded; full output is available via ``wave_validate`` for
+    deep dives. On unexpected failure (e.g., lint subprocess crashes), returns
+    ``clean: None`` and an error notice in ``first_errors`` — the integration
+    never breaks the tool.
     """
     try:
-        result = run_validate(root)
+        result = run_validate_changed(root)
         errors = result.get("errors", [])
         warnings = result.get("warnings", [])
         return {
@@ -3060,6 +3164,7 @@ def _run_post_write_lint(root: Path) -> dict[str, Any]:
             "error_count": len(errors),
             "warning_count": len(warnings),
             "first_errors": errors[:5],
+            "mode": result.get("mode", "incremental"),
         }
     except Exception as exc:  # pragma: no cover — defensive isolation
         return {
@@ -3097,16 +3202,15 @@ def run_validate(root: Path) -> dict:
     import subprocess
 
     script = Path(__file__).resolve().parent / "docs_lint.py"
-    # Wave 1p3dk delivery-council finding (red-team): every write-side wave tool invokes run_validate
-    # via _run_post_write_lint, so a hung lint process would otherwise freeze the calling tool. Wave
-    # 1p9iu makes the timeout configurable via docs/workflow-config.json ``docs_lint.full_scan_timeout_
-    # seconds`` (default DOCS_LINT_FULL_SCAN_TIMEOUT_DEFAULT) because the old hardcoded 30s was too short
-    # for a large field repo's full-corpus scan. This is a FULL scan (no --changed) — only the timeout
-    # is tunable, not the scan scope. On timeout we return a structured passed:False result naming the
-    # config key instead of propagating TimeoutExpired: the five lifecycle callers (wave_validate,
-    # wave_prepare, wave_review, wave_close, wave_install_audit) render ``errors`` via docs_lint_error,
-    # so one catch here surfaces an actionable diagnostic through all of them. _run_post_write_lint keeps
-    # its own broader try/except as a defense-in-depth net.
+    # Wave 1p9iu makes the timeout configurable via docs/workflow-config.json ``docs_lint.full_scan_
+    # timeout_seconds`` (default DOCS_LINT_FULL_SCAN_TIMEOUT_DEFAULT) because the old hardcoded 30s was
+    # too short for a large field repo's full-corpus scan. This is a FULL scan (no --changed flag) —
+    # only the timeout is tunable, not the scan scope. On timeout we return a structured passed:False
+    # result naming the config key instead of propagating TimeoutExpired: the six lifecycle callers
+    # (wave_audit, wave_validate, wave_prepare, wave_review, wave_close, wave_install_audit) render
+    # ``errors`` via docs_lint_error, so one catch here surfaces an actionable diagnostic through all
+    # of them. Wave 1p9pe: the ADVISORY post-write attachment no longer calls this full scan — it uses
+    # the incremental sibling run_validate_changed below; these six gate callers stay full-corpus.
     timeout_s = docs_lint_full_scan_timeout_seconds(root)
     try:
         result = _mcp_subprocess_run(
@@ -3138,6 +3242,88 @@ def run_validate(root: Path) -> dict:
         "errors": errors,
         "warnings": warnings,
         "output": result.stdout + result.stderr,
+    }
+
+
+def run_validate_changed(root: Path) -> dict:
+    """Run the INCREMENTAL docs_lint (changed-set scan) and return structured pass/fail.
+
+    Wave 1p9pe: the advisory post-write lint attachment path. Spawns ``docs_lint.py``
+    with the incremental flag, which self-detects the git working-tree changed set,
+    runs only the per-file validators on changed ``docs/`` markdown, no-ops clean on
+    an empty or non-git changed set, and falls back to the full lint inside the CLI
+    when a config/corpus file changed. Bounded by the hook timeout knob
+    (``docs_lint.hook_timeout_seconds``, default 120s — the same knob that bounds the
+    post-edit hook's incremental scan), NOT the heavier full-scan knob — EXCEPT when
+    the CLI's full-lint fallback is predicted (a trigger config/manifest/repo-profile
+    file is in the git changed set): that invocation runs the full corpus, so it is
+    bounded by ``docs_lint.full_scan_timeout_seconds`` and any timeout message names
+    that knob (review-fix: the two knobs must not cross over). Returns the same
+    ``{passed, errors, warnings, output}`` shape as ``run_validate``, including the
+    structured timeout return, plus an additive ``mode`` key —
+    ``"incremental"`` | ``"full-fallback"`` | ``"skipped"`` (no git changed-set
+    available, per the CLI's summary line) — so callers can tell a checked-and-clean
+    result from a checked-nothing no-op. The six full-corpus lifecycle gates keep
+    calling ``run_validate`` — this helper is only for the post-write attachment.
+
+    ``PROJECT_ROOT`` is forwarded explicitly so the subprocess lints the correct tree
+    even when the caller's environment already has ``PROJECT_ROOT`` set to a
+    different path (e.g. in multi-project MCP setups).
+    """
+    import subprocess
+
+    script = Path(__file__).resolve().parent / "docs_lint.py"
+    fallback_predicted = _predict_incremental_full_fallback(root)
+    if fallback_predicted:
+        timeout_s = docs_lint_full_scan_timeout_seconds(root)
+    else:
+        timeout_s = docs_lint_hook_timeout_seconds(root)
+    try:
+        result = _mcp_subprocess_run(
+            [_preferred_python(), str(script), "--changed"],
+            cwd=str(root),
+            env={**os.environ, "PROJECT_ROOT": str(root)},
+            timeout=timeout_s,
+        )
+    except subprocess.TimeoutExpired as exc:
+        elapsed = exc.timeout if getattr(exc, "timeout", None) else timeout_s
+        if fallback_predicted:
+            message = (
+                f"ERROR: docs-lint changed-set scan (full-lint fallback: a changed config/corpus "
+                f"file forces the full corpus) timed out after {elapsed:g}s. Raise "
+                f"`docs_lint.full_scan_timeout_seconds` in docs/workflow-config.json (default "
+                f"{DOCS_LINT_FULL_SCAN_TIMEOUT_DEFAULT:g}s) if this repo's docs corpus "
+                f"legitimately needs longer, or investigate a stalled docs_lint.py."
+            )
+        else:
+            message = (
+                f"ERROR: docs-lint incremental (changed-set) scan timed out after {elapsed:g}s. Raise "
+                f"`docs_lint.hook_timeout_seconds` in docs/workflow-config.json (default "
+                f"{_docs_lint_hook_timeout_default():g}s) if the changed-set scan legitimately needs "
+                f"longer, or investigate a stalled docs_lint.py."
+            )
+        return {
+            "passed": False,
+            "errors": [message],
+            "warnings": [],
+            "output": message,
+            "mode": "full-fallback" if fallback_predicted else "incremental",
+        }
+    lines = (result.stdout + result.stderr).strip().splitlines()
+    errors = [l for l in lines if l.startswith("ERROR:")]
+    warnings = [l for l in lines if l.startswith("WARNING:")]
+    if fallback_predicted:
+        mode = "full-fallback"
+    elif any(l.startswith("docs-lint: skipped") for l in lines):
+        mode = "skipped"
+    else:
+        mode = "incremental"
+    return {
+        "passed": result.returncode == 0,
+        "errors": errors,
+        "warnings": warnings,
+        "output": result.stdout + result.stderr,
+        "mode": mode,
     }
 
 
@@ -8884,12 +9070,18 @@ def _prepare_council_verdict_present(wave_text: str) -> bool:
 def _prepare_council_verdict_template(rotating_seat: str | None) -> str:
     rotating_part = rotating_seat or "none"
     seat_list = ["red-team", "architecture-reviewer", "security-reviewer", "qa-reviewer", "reality-checker"]
-    if rotating_seat:
+    # De-dup: the rotating pick can itself be a fixed seat (security-reviewer and
+    # architecture-reviewer are both in the fixed list). The roster lists distinct seats;
+    # a seat serving as both fixed and rotating is identified by the separate
+    # `rotating-seat:` field, so dropping the duplicate token loses no information.
+    if rotating_seat and rotating_seat not in seat_list:
         seat_list.append(rotating_seat)
     seats = ", ".join(seat_list)
     return (
         "- **Prepare-phase Wave Council [prepare-council] — <date>: PASS** "
-        f"(moderator: wave-council; primer-depth: standard; seats: {seats}; rotating-seat: {rotating_part}; "
+        "(moderator: wave-council; primer-depth: standard; "
+        f"seats: <replace with the seats actually run, each at most once, e.g. {seats}>; "
+        f"rotating-seat: {rotating_part}; "
         "strongest-challenge: <summary>; strongest-alternative: <summary>)"
     )
 
@@ -8909,8 +9101,14 @@ def _build_prepare_council_brief(wave_id: str, wave_text: str, change_ids: list[
         "council_seats": seats,
         "instructions": (
             "Run each council seat in isolation against the admitted change docs and wave record. "
-            "Have wave-council synthesize findings. "
+            "Verification must be code-grounded: verify each plan's load-bearing claims against the "
+            "actual tree, not against the plan's own prose — cited file:line sites and symbols must "
+            "resolve, 'X already does Y' claims must hold in the code, and 'no other caller/site' "
+            "censuses must be complete. Do not approve a plan whose claims were checked only against "
+            "its own text. Have wave-council synthesize findings. "
             "Record the verdict in ## Review Checkpoints with a structured 'prepare-council' line "
+            "whose seats: field lists the seats actually run, each at most once, with per-seat "
+            "evidence (or an explicit no-findings note) recorded in the wave record "
             f"(e.g. `{_prepare_council_verdict_template(rotating_seat)}`) "
             "before calling wave_prepare(mode='create')."
         ),

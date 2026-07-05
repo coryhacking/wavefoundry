@@ -7399,7 +7399,7 @@ class GraphIndexSession:
 
     def _extract_python_artifact(self, rel_path: str, source_text: str) -> dict[str, Any]:
         try:
-            tree = ast.parse(source_text)
+            tree = ast.parse(source_text, filename=rel_path)
         except SyntaxError:
             return {
                 "kind": "code",
@@ -10298,21 +10298,6 @@ def _extract_artifact_for_worker(args: tuple) -> tuple[str, dict | None]:
     Module-level (required by `spawn` start method on macOS) and self-
     contained so each worker can be a fresh Python process.
     """
-    # Wave 1p2q3 (1p2wd post-ship 1.3.23 / Bug 4 part 3): worker-side
-    # breadcrumb that routes through the worker's stderr -> parent's log.
-    # If this never prints in a hung field run, workers literally never
-    # reach Python code (the deadlock is in `Process.start()` or earlier).
-    # Per-worker prints are deduplicated by pid + first-task heuristic
-    # because the gate prints once per process-id.
-    if os.environ.get("WAVEFOUNDRY_GRAPH_WORKER_TRACE") == "1" or not getattr(_extract_artifact_for_worker, "_logged_boot", False):
-        try:
-            print(f"build_index: [worker-debug pid={os.getpid()}] _extract_artifact_for_worker called", file=sys.stderr, flush=True)
-        except Exception:
-            pass
-        try:
-            _extract_artifact_for_worker._logged_boot = True  # type: ignore[attr-defined]
-        except Exception:
-            pass
     # Wave 1p2q3 (1p2wd post-ship 1.3.28): worker args include `shared_state`
     # (pre-loaded by parent) and `shared_gitattrs_patterns` so each per-task
     # `GraphIndexSession` construction skips the disk read + JSON parse +

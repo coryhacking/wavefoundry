@@ -1,11 +1,11 @@
 # Rescope the post-write docs-lint to the incremental `--changed` scan, reserving full-corpus scans for the lifecycle gates
 
 Change ID: `1p9p8-enh post-write-lint-incremental-changed`
-Change Status: `planned`
+Change Status: `implemented`
 Owner: Engineering
-Status: planned
+Status: implemented
 Last verified: 2026-07-04
-Wave: TBD
+Wave: `1p9pe post-release-followup-hardening`
 
 ## Rationale
 
@@ -48,20 +48,20 @@ The write tools' own mutations land in the git working tree (unstaged), so `--ch
 
 ## Acceptance Criteria
 
-- [ ] AC-1: `_run_post_write_lint` invokes `docs_lint.py` with `--changed` (not a full-corpus scan); a unit test asserts the spawned argv includes `--changed` and that the post-write path does not run the full scan.
-- [ ] AC-2: The post-write incremental scan is bounded by `docs_lint_hook_timeout_seconds` (default 120s), verified by a unit test that sets the hook config value and asserts the forwarded subprocess `timeout`.
-- [ ] AC-3: **All** full-corpus `run_validate` callers (the five lifecycle gates `wave_validate`/`wave_prepare`/`wave_review`/`wave_close`/`wave_install_audit` **plus `wave_audit`**) still run the full scan (no `--changed`); the post-write path is the **only** `--changed` caller. A unit test asserts every one of the six full-scan call sites still routes through `run_validate` (not "at least one" — a partial rescope leak into some gates must fail), and that `_run_post_write_lint` is the sole `--changed` caller.
-- [ ] AC-4: `_run_post_write_lint` returns the unchanged `{clean, error_count, warning_count, first_errors}` shape for: a clean changed set, a changed set with a docs error, an empty/non-git changed set (reports clean), and a timeout (degrades to the legible/`clean` contract, not a raised exception). Covered by unit tests.
-- [ ] AC-5: A changed **config** file still triggers the CLI's internal full-lint fallback (not silently skipped) — verified by a test or by confirming the `--changed` CLI contract is unmodified and exercised.
-- [ ] AC-6: `python3 .wavefoundry/framework/scripts/run_tests.py` passes; `wave_validate` is clean.
+- [x] AC-1: `_run_post_write_lint` invokes `docs_lint.py` with `--changed` (not a full-corpus scan); a unit test asserts the spawned argv includes `--changed` and that the post-write path does not run the full scan.
+- [x] AC-2: The post-write incremental scan is bounded by `docs_lint_hook_timeout_seconds` (default 120s), verified by a unit test that sets the hook config value and asserts the forwarded subprocess `timeout`.
+- [x] AC-3: **All** full-corpus `run_validate` callers (the five lifecycle gates `wave_validate`/`wave_prepare`/`wave_review`/`wave_close`/`wave_install_audit` **plus `wave_audit`**) still run the full scan (no `--changed`); the post-write path is the **only** `--changed` caller. A unit test asserts every one of the six full-scan call sites still routes through `run_validate` (not "at least one" — a partial rescope leak into some gates must fail), and that `_run_post_write_lint` is the sole `--changed` caller.
+- [x] AC-4: `_run_post_write_lint` returns the unchanged `{clean, error_count, warning_count, first_errors}` shape for: a clean changed set, a changed set with a docs error, an empty/non-git changed set (reports clean), and a timeout (degrades to the legible/`clean` contract, not a raised exception). Covered by unit tests.
+- [x] AC-5: A changed **config** file still triggers the CLI's internal full-lint fallback (not silently skipped) — verified by a test or by confirming the `--changed` CLI contract is unmodified and exercised.
+- [x] AC-6: `python3 .wavefoundry/framework/scripts/run_tests.py` passes; `wave_validate` is clean.
 
 ## Tasks
 
-- [ ] Add `run_validate_changed(root)` in `server_impl.py` next to `run_validate` (`:3071`): spawn `docs_lint.py --changed`, bound by `docs_lint_hook_timeout_seconds`, same `{passed, errors, warnings, output}` shape + structured timeout return naming `docs_lint.hook_timeout_seconds`.
-- [ ] Rewire `_run_post_write_lint` (`:3019`) to call `run_validate_changed`; keep the defensive `except` and the `{clean, ...}` shape.
-- [ ] Confirm (and pin with a test) the five lifecycle callers still call `run_validate` (full scan) — no accidental rescope of the gates.
-- [ ] Add unit tests in `tests/test_server_tools.py`: `--changed` argv on the post-write path, hook-timeout binding, clean-on-empty-changed-set, error-on-changed-doc, timeout degradation, and a lifecycle-path full-scan regression assertion.
-- [ ] Run `python3 .wavefoundry/framework/scripts/run_tests.py` and `wave_validate`; clean any `__pycache__`.
+- [x] Add `run_validate_changed(root)` in `server_impl.py` next to `run_validate` (`:3071`): spawn `docs_lint.py --changed`, bound by `docs_lint_hook_timeout_seconds`, same `{passed, errors, warnings, output}` shape + structured timeout return naming `docs_lint.hook_timeout_seconds`.
+- [x] Rewire `_run_post_write_lint` (`:3019`) to call `run_validate_changed`; keep the defensive `except` and the `{clean, ...}` shape.
+- [x] Confirm (and pin with a test) the five lifecycle callers still call `run_validate` (full scan) — no accidental rescope of the gates (pinned for all six callers including `wave_audit`, per the readiness-corrected census).
+- [x] Add unit tests in `tests/test_server_tools.py`: `--changed` argv on the post-write path, hook-timeout binding, clean-on-empty-changed-set, error-on-changed-doc, timeout degradation, and a lifecycle-path full-scan regression assertion.
+- [x] Run `python3 .wavefoundry/framework/scripts/run_tests.py` and `wave_validate`; clean any `__pycache__`.
 
 ## Agent Execution Graph
 
@@ -101,6 +101,8 @@ N/A — the change swaps one internal subprocess invocation (full-corpus → `--
 | Date | Update | Evidence |
 | ---- | ------ | -------- |
 | 2026-07-03 | Scoped from the first `1p9j0` delivery council's rotating-seat (performance) alternative and `1p9iu`'s accepted-but-flagged 30s→300s post-write latency risk. Verified: `_run_post_write_lint` (`server_impl.py:3033` post-1p9q3) → `run_validate` (`:3085`) full scan, no `--changed` (~:3098-3112), 300s bound (`docs_lint_full_scan_timeout_seconds`, `:2005` — still exact). Incremental machinery present and proven: `docs_lint.py --changed` via the post-edit hook (`render_platform_surfaces.py:350`), flag + `_run_incremental_checks` in `wave_lint_lib/cli.py:62,171` (safe `([], [])` no-op; config-change → full-lint fallback), hook bound `docs_lint_hook_timeout_seconds` (default 120s, `indexer.py:221` post-1roqn). | `server_impl.py:2005,3033,3085,~3098-3112` (refreshed 2026-07-04); `wave_lint_lib/cli.py:62,171`; `render_platform_surfaces.py:350`; `indexer.py:221`. |
+| 2026-07-04 | Implemented. Added `run_validate_changed(root)` beside `run_validate` in `server_impl.py` (spawns `docs_lint.py --changed`, same `{passed, errors, warnings, output}` shape, structured timeout return naming `docs_lint.hook_timeout_seconds`) plus a `docs_lint_hook_timeout_seconds(root)` server-side reader delegating to `indexer.docs_lint_hook_timeout_seconds` (single source of truth for the 120s default; defensive mirror `DOCS_LINT_HOOK_TIMEOUT_FALLBACK` only on sibling-import failure). Rewired `_run_post_write_lint` to the incremental helper, keeping the defensive `except` and the `{clean, error_count, warning_count, first_errors}` shape. All six `run_validate` gates untouched. Tests: 13 new (10 in `PostWriteLintIncrementalTests` — argv/`--changed` + never-full assertion, hook-vs-full-scan timeout binding, 120s default, six-gate source pin, sole-incremental-caller pin, behavioral `wave_validate` gate check, shape on clean/error/timeout, real-spawn non-git clean no-op; 3 in `PostWriteLintIncrementalGitBehaviorTests` — real git fixtures with no argv mocking, per the readiness anti-vacuity note: full scan fails on corpus defects while the empty-changed-set incremental passes clean on the same tree; an untracked defective doc surfaces through `first_errors`; a changed `docs/workflow-config.json` re-reports corpus defects, proving the CLI full-lint fallback is not defeated). Two existing `AutoLintAtMcpGatesTests` patches retargeted `run_validate` → `run_validate_changed`. Full suite 4,483 passed (baseline 4,470 + 13); `__pycache__` clean; `wave_validate` clean. `docs/specs/mcp-tool-surface.md` audit: no post-write-lint scope characterization found (searched post-write/full-corpus), so no spec note needed. | `server_impl.py` (`docs_lint_hook_timeout_seconds` ~:2028, `_run_post_write_lint` ~:3056, `run_validate_changed` ~:3160); `tests/test_server_tools.py` (`PostWriteLintIncrementalTests`, `PostWriteLintIncrementalGitBehaviorTests`); `run_tests.py`: 4,483 OK. |
+| 2026-07-04 | Review-fix lane (red-team primer moderate + code lane Low): fixed the timeout-knob crossover on the CLI's silent full-lint fallback — `run_validate_changed` now pre-checks the git changed set (one `git status --porcelain` subprocess mirroring `_get_changed_files` semantics: tracked changes vs HEAD + untracked) against `wave_lint_lib.cli.INCREMENTAL_FULL_FALLBACK_FILES` (constant made public; defensive mirror in `server_impl.py`), and when fallback is predicted it uses `docs_lint.full_scan_timeout_seconds` with a timeout message naming THAT knob; otherwise the hook knob, whose timeout message now cites the canonical `indexer.DOCS_LINT_HOOK_TIMEOUT_DEFAULT` instead of the defensive mirror constant. Also fixed the non-git "clean when checked nothing" ambiguity: `docs_lint --changed` prints `docs-lint: skipped (no git changed-set available)` (exit 0 unchanged) when no git changed-set exists, and `run_validate_changed` / `_run_post_write_lint` surface an additive `mode` key (`incremental` / `full-fallback` / `skipped`) — existing keys unchanged. Tests: 3 new git-fixture tests (predicted-fallback → full knob + message; committed-config + changed doc → hook knob; fallback mode), skipped-mode assertions on the non-git real-spawn test, two CLI non-git end-to-end tests updated to the skipped summary line, and the two exact-shape assertions extended for the additive key. | `server_impl.py` (`_predict_incremental_full_fallback`, `_incremental_full_fallback_trigger_files`, `_docs_lint_hook_timeout_default`, `run_validate_changed`, `_run_post_write_lint`); `wave_lint_lib/cli.py` (`INCREMENTAL_FULL_FALLBACK_FILES`, `_emit(..., skipped=)`, `main`); `tests/test_server_tools.py` (`PostWriteLintIncrementalTests` 9, `PostWriteLintIncrementalGitBehaviorTests` 7 — all green); `tests/test_docs_lint.py` (506 green). |
 
 
 ## Decision Log

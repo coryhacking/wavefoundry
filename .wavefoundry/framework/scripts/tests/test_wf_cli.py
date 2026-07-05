@@ -274,7 +274,7 @@ class NoLiveReferenceToRetiredWrapperTests(unittest.TestCase):
 
 
 class NoRawCoveredScriptInvocationInOperatorDocsTests(unittest.TestCase):
-    """Wave 1p88t AC-5: operator/agent-facing guidance must NOT show a runnable raw
+    r"""Wave 1p88t AC-5: operator/agent-facing guidance must NOT show a runnable raw
     ``python3 .wavefoundry/framework/scripts/<script>.py`` command for a script that HAS a ``wf``
     subcommand — agents/operators copy-paste those and they are fragile across Windows/POSIX. Use
     the ``wf <subcommand>`` form instead.

@@ -576,6 +576,74 @@ def _offline_env():
             os.environ["HF_HUB_OFFLINE"] = prior
 
 
+# Change 1p9p9 (wave 1p9pe): the Hugging Face Hub socket-timeout knobs the model warm patches, mapped
+# constant name -> workflow-config key (`setup.<key>`). huggingface_hub reads the SAME-NAMED env vars
+# once at import into these module constants and the download code reads the CONSTANTS at call time —
+# it never re-reads os.environ after import — so mutating the env around the warm would be a silent
+# no-op (the same import-time-caching hazard class as the cached global httpx.Client that
+# `_apply_ca_bundle` works around via `close_session()`). The scoped patch below therefore targets the
+# module constants directly; an operator-set env var is honored as the SOURCE of the value to apply.
+_HF_HUB_TIMEOUT_CONSTANTS: dict[str, str] = {
+    "HF_HUB_DOWNLOAD_TIMEOUT": "hf_hub_download_timeout_seconds",
+    "HF_HUB_ETAG_TIMEOUT": "hf_hub_etag_timeout_seconds",
+}
+
+
+def _hf_hub_timeout_value(constant_name: str, config_key: str) -> float:
+    """The value to apply for one HF Hub timeout constant. Precedence: an operator-set, valid
+    (positive numeric) env var of the same name wins as the source of the value — never override an
+    explicit operator choice with a lower default; otherwise the per-run workflow-config value
+    (``setup.<config_key>``, resolved once by ``main`` into ``_ACTIVE_HF_HUB_SOCKET_TIMEOUTS``);
+    otherwise the shipped default. A malformed/non-positive env value falls through fail-safe,
+    mirroring ``_setup_deadlines``."""
+    raw = os.environ.get(constant_name)
+    if raw is not None:
+        try:
+            operator_value = float(raw)
+        except ValueError:
+            operator_value = None
+        if operator_value is not None and operator_value > 0:
+            return operator_value
+    active = _ACTIVE_HF_HUB_SOCKET_TIMEOUTS
+    if active is not None and config_key in active:
+        return active[config_key]
+    return _SETUP_DEADLINE_KEYS[config_key]
+
+
+@contextlib.contextmanager
+def _hf_hub_timeout_scope():
+    """Scoped HF Hub socket timeouts for the model warm (change 1p9p9). Mirrors ``_offline_env``'s
+    save/set/restore shape but patches ``huggingface_hub.constants.*`` module attributes rather than
+    ``os.environ`` (see ``_HF_HUB_TIMEOUT_CONSTANTS`` for why an env mutation here is a no-op).
+    Bounded socket timeouts make the common stalled-socket fetch (connected but hung mid-transfer, or
+    a dead etag/HEAD request) raise ON the worker thread, inside the wall-clock deadline, so the warm
+    fails in-thread with the cache quiescent instead of via the abandoning wall-clock abort. This
+    COMPLEMENTS — never replaces — the DF-1 wall-clock deadline (``_run_in_process_with_deadline``):
+    a drip-feed connection (each chunk arriving just under the read timeout) or a non-Hub stall still
+    needs the deadline backstop. Best-effort: a missing huggingface_hub or a renamed constant makes
+    this a (partial) no-op and never breaks the warm. Exception-safe: every patched constant is
+    restored on every exit."""
+    try:
+        from huggingface_hub import constants as hf_constants
+    except Exception:  # noqa: BLE001 — hub absent/unimportable: nothing to patch
+        yield
+        return
+    saved: dict[str, object] = {}
+    try:
+        try:
+            for constant_name, config_key in _HF_HUB_TIMEOUT_CONSTANTS.items():
+                if not hasattr(hf_constants, constant_name):
+                    continue  # renamed/removed in a future hub release: skip it, never break the warm
+                saved[constant_name] = getattr(hf_constants, constant_name)
+                setattr(hf_constants, constant_name, _hf_hub_timeout_value(constant_name, config_key))
+        except Exception:  # noqa: BLE001 — application is best-effort by contract
+            pass
+        yield
+    finally:
+        for constant_name, prior_value in saved.items():
+            setattr(hf_constants, constant_name, prior_value)
+
+
 def _embedding_providers_for_setup() -> list[str]:
     selected = os.environ.get(provider_policy.SETUP_SELECTED_ENV)
     if selected and selected != provider_policy.CPU_PROVIDER:
@@ -880,20 +948,26 @@ def _warm_model(model_name: str, *, local_files_only: bool, deadline_seconds: fl
     CA-retry ladder runs inside the bounded attempt and its error semantics are preserved."""
     if deadline_seconds is None:
         deadline_seconds = _ACTIVE_MODEL_WARM_DEADLINE_SECONDS or MODEL_WARM_TIMEOUT_DEFAULT
-    _run_in_process_with_deadline(
-        lambda: _warm_model_inner(model_name, local_files_only=local_files_only),
-        deadline_seconds=deadline_seconds,
-        timeout_error=ModelPrewarmTimeout(
-            f"Model '{model_name}' warm exceeded the {deadline_seconds:g}s deadline and was aborted. A "
-            "hung model download is almost always a network/proxy/TLS problem — check reachability to "
-            "the model host (Hugging Face) behind a corp MITM / flaky proxy, or point the CA bundle at "
-            "the right store (SSL_CERT_FILE / REQUESTS_CA_BUNDLE / host-agent CA var). Raise "
-            "`setup.model_warm_timeout_seconds` in docs/workflow-config.json if the link is legitimately "
-            "slow. If the network is healthy, a corrupted model cache can also hang the warm — clear "
-            "the fastembed cache directory (FASTEMBED_CACHE_PATH, default ~/.wavefoundry/cache/fastembed) "
-            "and rerun."
-        ),
-    )
+    # Change 1p9p9: the bounded attempt runs under scoped HF Hub socket timeouts so the common
+    # stalled-socket fetch fails in-thread BEFORE this wall-clock deadline fires. The socket timeouts
+    # complement the deadline; they do not replace it (drip-feed and non-Hub stalls still need it).
+    # The scope wraps the deadline runner on THIS thread (module constants are process-global, so the
+    # worker thread sees them) so restore is guaranteed on every exit — including a deadline timeout.
+    with _hf_hub_timeout_scope():
+        _run_in_process_with_deadline(
+            lambda: _warm_model_inner(model_name, local_files_only=local_files_only),
+            deadline_seconds=deadline_seconds,
+            timeout_error=ModelPrewarmTimeout(
+                f"Model '{model_name}' warm exceeded the {deadline_seconds:g}s deadline and was aborted. A "
+                "hung model download is almost always a network/proxy/TLS problem — check reachability to "
+                "the model host (Hugging Face) behind a corp MITM / flaky proxy, or point the CA bundle at "
+                "the right store (SSL_CERT_FILE / REQUESTS_CA_BUNDLE / host-agent CA var). Raise "
+                "`setup.model_warm_timeout_seconds` in docs/workflow-config.json if the link is legitimately "
+                "slow. If the network is healthy, a corrupted model cache can also hang the warm — clear "
+                "the fastembed cache directory (FASTEMBED_CACHE_PATH, default ~/.wavefoundry/cache/fastembed) "
+                "and rerun."
+            ),
+        )
 
 
 def _warm_model_inner(model_name: str, *, local_files_only: bool) -> None:
@@ -1792,6 +1866,13 @@ UV_BOOTSTRAP_TIMEOUT_DEFAULT = 600.0         # `pip install uv` (network)
 DEP_INSTALL_TIMEOUT_DEFAULT = 1800.0         # full dependency resolve + download (network, large wheels)
 MODEL_WARM_TIMEOUT_DEFAULT = 1800.0          # in-process model download + load (network)
 INDEX_BUILD_STALL_TIMEOUT_DEFAULT = 1800.0   # no-progress window for the index-build child stdout stream
+# Change 1p9p9: HF Hub SOCKET timeouts for the model warm — unlike the wall-clock deadlines above,
+# these are per-request/no-progress read timeouts (a download that keeps making progress resets the
+# download read timeout; it is not a total cap). Conservative (3x the HF library default of 10s) for
+# slow-but-legit links, and sized well below MODEL_WARM_TIMEOUT_DEFAULT so a stalled socket fails
+# in-thread BEFORE the wall-clock deadline abandons the warm thread.
+HF_HUB_DOWNLOAD_TIMEOUT_DEFAULT = 30.0       # per-chunk download read timeout (socket-level)
+HF_HUB_ETAG_TIMEOUT_DEFAULT = 30.0           # metadata/HEAD (etag) request timeout (socket-level)
 
 _SETUP_DEADLINE_KEYS: dict[str, float] = {
     "venv_create_timeout_seconds": VENV_CREATE_TIMEOUT_DEFAULT,
@@ -1799,6 +1880,8 @@ _SETUP_DEADLINE_KEYS: dict[str, float] = {
     "dep_install_timeout_seconds": DEP_INSTALL_TIMEOUT_DEFAULT,
     "model_warm_timeout_seconds": MODEL_WARM_TIMEOUT_DEFAULT,
     "index_build_stall_timeout_seconds": INDEX_BUILD_STALL_TIMEOUT_DEFAULT,
+    "hf_hub_download_timeout_seconds": HF_HUB_DOWNLOAD_TIMEOUT_DEFAULT,
+    "hf_hub_etag_timeout_seconds": HF_HUB_ETAG_TIMEOUT_DEFAULT,
 }
 
 # Set once per run by ``main`` from ``_setup_deadlines(root)`` before prewarm, then read by
@@ -1806,6 +1889,13 @@ _SETUP_DEADLINE_KEYS: dict[str, float] = {
 # threading root through ``prewarm_models`` -> ``_prewarm_required_model`` -> ``warm_fn``) keeps the
 # generic ``_prewarm_required_model`` warm_fn contract — ``(model_name, local_files_only)`` — unchanged.
 _ACTIVE_MODEL_WARM_DEADLINE_SECONDS: float | None = None
+
+# Change 1p9p9: per-run HF Hub socket-timeout values (config_key -> seconds), resolved once by ``main``
+# from ``_setup_deadlines(root)`` alongside the model-warm deadline and read by
+# ``_hf_hub_timeout_value`` when ``_warm_model`` enters ``_hf_hub_timeout_scope``. Same module-level
+# channel rationale as ``_ACTIVE_MODEL_WARM_DEADLINE_SECONDS``. ``None`` (e.g. a direct unit-test
+# call) falls back to the shipped defaults.
+_ACTIVE_HF_HUB_SOCKET_TIMEOUTS: "dict[str, float] | None" = None
 
 
 def _setup_deadlines(root: Path | None) -> dict[str, float]:
@@ -1912,9 +2002,14 @@ def main(argv: list[str] | None = None) -> int:
     # Wave 1p9it: establish the in-process model-warm deadline for THIS run from workflow-config (the
     # default applies when unset). Read once here; `_warm_model` reads it when its `deadline_seconds`
     # arg is left default. This keeps the `prewarm_models`/`_prewarm_required_model` warm_fn contract
-    # unchanged (see `_ACTIVE_MODEL_WARM_DEADLINE_SECONDS`).
-    global _ACTIVE_MODEL_WARM_DEADLINE_SECONDS
-    _ACTIVE_MODEL_WARM_DEADLINE_SECONDS = _setup_deadlines(root)["model_warm_timeout_seconds"]
+    # unchanged (see `_ACTIVE_MODEL_WARM_DEADLINE_SECONDS`). Change 1p9p9: the HF Hub socket timeouts
+    # for the warm resolve from the same config block here (see `_ACTIVE_HF_HUB_SOCKET_TIMEOUTS`).
+    global _ACTIVE_MODEL_WARM_DEADLINE_SECONDS, _ACTIVE_HF_HUB_SOCKET_TIMEOUTS
+    _run_deadlines = _setup_deadlines(root)
+    _ACTIVE_MODEL_WARM_DEADLINE_SECONDS = _run_deadlines["model_warm_timeout_seconds"]
+    _ACTIVE_HF_HUB_SOCKET_TIMEOUTS = {
+        config_key: _run_deadlines[config_key] for config_key in _HF_HUB_TIMEOUT_CONSTANTS.values()
+    }
     include_prefixes = _workflow_project_include_prefixes(root)
     docs_prefixes = include_prefixes.get(DOCS_PREFIXES_KEY, ())
     code_prefixes = include_prefixes.get(CODE_PREFIXES_KEY, ())

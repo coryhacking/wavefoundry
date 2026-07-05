@@ -24,11 +24,12 @@ from .helpers import (
 )
 from .link_validators import check_markdown_links
 from .metadata_validators import check_metadata
-from .secrets_validators import _get_changed_files, check_hardcoded_secrets
+from .secrets_validators import _get_changed_files, _is_inside_git, check_hardcoded_secrets
 from .wave_validators import (
     check_closed_wave_requirements,
     check_cross_artifact_consistency,
     check_factor_surface,
+    check_prepare_council_roster_evidence,
     check_prepare_council_verdict,
     _check_agent_category_metadata,
     _check_agent_role_metadata,
@@ -158,7 +159,10 @@ def _render_audit_report(warnings: list[str], infos: list[str]) -> str:
 # Wave 1p9c1: config/corpus files whose correctness is inherently cross-file. A change to any of
 # these forces the incremental path to fall back to the full lint — the per-file validators do not
 # cover JSON, and the cross-artifact / factor-surface checks need the whole set.
-_INCREMENTAL_FULL_FALLBACK_FILES = (
+# Review-fix (1p9pe follow-up hardening): public constant — `server_impl.run_validate_changed`
+# imports it to PREDICT the full-lint fallback and bound the subprocess with the full-scan
+# timeout knob instead of the lighter hook knob (the two must not cross over).
+INCREMENTAL_FULL_FALLBACK_FILES = (
     "docs/workflow-config.json",
     "docs/prompts/prompt-surface-manifest.json",
     "docs/repo-profile.json",
@@ -176,7 +180,7 @@ def _run_incremental_checks(root: Path):
     scan. The authoritative corpus lint stays at wave_validate / wave_close / prepare / install /
     upgrade, which call the cli without ``--changed``."""
     changed = _get_changed_files(root)
-    fallback_files = {root / rel for rel in _INCREMENTAL_FULL_FALLBACK_FILES}
+    fallback_files = {root / rel for rel in INCREMENTAL_FULL_FALLBACK_FILES}
     if any(path in fallback_files for path in changed):
         return None  # a config/corpus file changed → run the full lint
 
@@ -262,6 +266,9 @@ def _run_full_checks(root: Path, args: argparse.Namespace, timings: dict | None 
         council_errors, council_warnings = check_prepare_council_verdict(root)
         failures.extend(council_errors)
         warnings.extend(council_warnings)
+        roster_errors, roster_warnings = check_prepare_council_roster_evidence(root)
+        failures.extend(roster_errors)
+        warnings.extend(roster_warnings)
         ds_failures, ds_warnings = check_design_system(root)
         failures.extend(ds_failures)
         warnings.extend(ds_warnings)
@@ -294,8 +301,16 @@ def _emit(
     root: Path,
     args: argparse.Namespace,
     incremental: bool,
+    skipped: bool = False,
 ) -> int:
-    """Shared output/exit contract for both the full and incremental paths."""
+    """Shared output/exit contract for both the full and incremental paths.
+
+    ``skipped`` (review-fix, 1p9pe follow-up hardening): the incremental path had no git
+    changed-set to inspect (non-git checkout), so per-file docs checks ran on NOTHING. The
+    final status line says so — ``docs-lint: skipped (no git changed-set available)`` —
+    instead of an indistinguishable-from-checked ``docs-lint: ok``. Exit code stays 0: the
+    advisory no-op contract is unchanged; only the honesty of the summary line changes.
+    """
     if failures:
         for failure in failures:
             print(f"ERROR: {failure}", file=sys.stderr)
@@ -317,7 +332,10 @@ def _emit(
             file=sys.stderr,
         )
 
-    print("docs-lint: ok")
+    if incremental and skipped:
+        print("docs-lint: skipped (no git changed-set available)")
+    else:
+        print("docs-lint: ok")
     return 0
 
 
@@ -342,7 +360,11 @@ def main() -> int:
         incremental = _run_incremental_checks(root)
         if incremental is not None:
             failures, warnings = incremental
-            return _emit(failures, warnings, [], root, args, incremental=True)
+            # Review-fix (1p9pe follow-up hardening): distinguish "checked the changed set,
+            # clean" from "had no changed set to check" — a non-git checkout's advisory
+            # summary must not read as checked-and-clean.
+            skipped = not _is_inside_git(root)
+            return _emit(failures, warnings, [], root, args, incremental=True, skipped=skipped)
 
     # Wave 1p9c6: --timings records per-phase wall-clock without altering pass/fail or the exit contract.
     timings: dict | None = {} if args.timings else None

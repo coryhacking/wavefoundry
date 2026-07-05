@@ -494,7 +494,7 @@ def chunk_python(source: str, path: str) -> list[Chunk]:
         return []
 
     try:
-        tree = ast.parse(source)
+        tree = ast.parse(source, filename=path)
     except SyntaxError:
         return chunk_line_window(source, path, language="python", section=_file_stem(path))
 
@@ -5174,9 +5174,9 @@ def _extract_code_symbols(source: str, language: str) -> list[str]:
     return symbols
 
 
-def _extract_python_module_docstring(source: str) -> Optional[str]:
+def _extract_python_module_docstring(source: str, filename: str = "<unknown>") -> Optional[str]:
     try:
-        tree = ast.parse(source)
+        tree = ast.parse(source, filename=filename)
     except SyntaxError:
         return None
     if tree.body and isinstance(tree.body[0], ast.Expr) and isinstance(tree.body[0].value, ast.Constant) and isinstance(tree.body[0].value.value, str):
@@ -5222,7 +5222,7 @@ def _chunk_code_summary(
     if not source.strip():
         return None
     if language == "python":
-        docstring = _extract_python_module_docstring(source) or _extract_leading_comment(source)
+        docstring = _extract_python_module_docstring(source, filename=path) or _extract_leading_comment(source)
     else:
         docstring = _extract_leading_comment(source)
     symbols = _extract_code_symbols(source, language)

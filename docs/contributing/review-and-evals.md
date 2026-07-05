@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-03
+Last verified: 2026-07-04
 
 ## Review Lane Summary
 
@@ -61,6 +61,8 @@ Fixed Phase 2 seats: `architecture-reviewer`, `security-reviewer`, `qa-reviewer`
 The `wave-council` owns the protocol and verdict. The `wave-coordinator` routes lanes and enforces the gate.
 
 Record machine-readable council signoffs in `## Review Evidence`. Record the narrative synthesis in `## Review checkpoints`.
+
+**Readiness recording contract:** the structured `prepare-council` verdict line's `seats:` field names the seats actually run, each at most once (a rotating pick that is also a fixed seat appears once, identified by `rotating-seat:`), and every rostered seat other than the `red-team` primer and the `wave-council` moderator must have recorded evidence — a finding or an explicit no-findings note — in `## Prepare Review Evidence`, `## Review Evidence`, or a `## Review Checkpoints` entry other than the verdict line itself. docs-lint checks this roster⇄evidence consistency on open waves. Seat verification must be code-grounded: claims checked against the tree, not only against plan prose (see `docs/prompts/council-review.prompt.md`).
 
 ## Code Review Requirements
 
