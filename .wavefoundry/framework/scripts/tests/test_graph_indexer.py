@@ -1166,7 +1166,7 @@ class GraphIndexerTests(unittest.TestCase):
             {("dbo.get_users", "users", "read")},
         )
         self.assertEqual(unit["error_regions"], 2)
-        self.assertEqual(unit["recovery"], {"recovered_definitions": 1, "unrecovered_regions": 1, "partial_bodies": 0})
+        self.assertEqual(unit["recovery"], {"recovered_definitions": 1, "unrecovered_regions": 1, "partial_bodies": 0, "partial_bodies_recovered": 0})
         # MySQL delimiter style: CREATE sits mid-region after DELIMITER //.
         unit = self.mod.sql_statement_references(
             "DELIMITER //\nCREATE PROCEDURE audit_cleanup()\nBEGIN\n"
@@ -1180,7 +1180,7 @@ class GraphIndexerTests(unittest.TestCase):
             {(r["owner"], r["name"], r["direction"]) for r in unit["references"]},
             {("audit_cleanup", "audit_log", "write")},
         )
-        self.assertEqual(unit["recovery"], {"recovered_definitions": 1, "unrecovered_regions": 1, "partial_bodies": 0})
+        self.assertEqual(unit["recovery"], {"recovered_definitions": 1, "unrecovered_regions": 1, "partial_bodies": 0, "partial_bodies_recovered": 0})
         # PL/pgSQL dollar-quoted body: parses natively — trusted path, no marker.
         unit = self.mod.sql_statement_references(
             "CREATE FUNCTION count_users() RETURNS integer AS $$\nBEGIN\n"
@@ -1191,7 +1191,7 @@ class GraphIndexerTests(unittest.TestCase):
             [("count_users", "function", None)],
         )
         self.assertEqual(unit["error_regions"], 0)
-        self.assertEqual(unit["recovery"], {"recovered_definitions": 0, "unrecovered_regions": 0, "partial_bodies": 0})
+        self.assertEqual(unit["recovery"], {"recovered_definitions": 0, "unrecovered_regions": 0, "partial_bodies": 0, "partial_bodies_recovered": 0})
         # Trigger: the WHOLE statement (body included) is one ERROR region —
         # the ON-table reference and the re-parsed body INSERT both attach to
         # the recovered trigger, marked with their recovery provenance.
@@ -1210,7 +1210,7 @@ class GraphIndexerTests(unittest.TestCase):
                 ("trg_users_audit", "audit_log", "write", "sql_recovery"),
             },
         )
-        self.assertEqual(unit["recovery"], {"recovered_definitions": 1, "unrecovered_regions": 0, "partial_bodies": 0})
+        self.assertEqual(unit["recovery"], {"recovered_definitions": 1, "unrecovered_regions": 0, "partial_bodies": 0, "partial_bodies_recovered": 0})
 
     def test_sql_recovery_commented_and_string_ddl_never_mints(self):
         """AC-3 (adversarial): commented-out DDL (line + block comments,
@@ -1353,7 +1353,7 @@ class GraphIndexerTests(unittest.TestCase):
         )
         unit = self.mod.sql_statement_references(sql_text)
         self.assertEqual(unit["error_regions"], 0)
-        self.assertEqual(unit["recovery"], {"recovered_definitions": 0, "unrecovered_regions": 0, "partial_bodies": 0})
+        self.assertEqual(unit["recovery"], {"recovered_definitions": 0, "unrecovered_regions": 0, "partial_bodies": 0, "partial_bodies_recovered": 0})
         self.assertTrue(all(d["extraction"] is None for d in unit["definitions"]))
         self.assertTrue(all(r["extraction"] is None for r in unit["references"]))
         payload = self._build_file("db/clean.sql", sql_text)
@@ -1394,7 +1394,7 @@ class GraphIndexerTests(unittest.TestCase):
             self.mod._sql_recovery_log_line("db/mixed.sql", 2, 1, 1),
             "build_index: sql recovery db/mixed.sql — 2 parse-error "
             "region(s): 1 definition(s) recovered, 1 region(s) unrecovered, "
-            "0 routine body(ies) partially parsed",
+            "0 routine body(ies) partially parsed (0 loop-recovered)",
         )
         # Byte ceiling: an over-limit region degrades to truncated/unrecovered.
         original = self.mod._SQL_RECOVERY_MAX_REGION_BYTES
@@ -1405,7 +1405,8 @@ class GraphIndexerTests(unittest.TestCase):
             )
             self.assertEqual(unit["definitions"], [])
             self.assertEqual(
-                unit["recovery"], {"recovered_definitions": 0, "unrecovered_regions": 1, "partial_bodies": 0}
+                unit["recovery"],
+                {"recovered_definitions": 0, "unrecovered_regions": 1, "partial_bodies": 0, "partial_bodies_recovered": 0},
             )
         finally:
             self.mod._SQL_RECOVERY_MAX_REGION_BYTES = original
@@ -1414,17 +1415,15 @@ class GraphIndexerTests(unittest.TestCase):
         )
         self.assertEqual(region["definitions"], [], "over-length lines are skipped")
 
-    def test_sql_partial_body_loudness_for_loop_control_flow(self):
-        """1p9qi delivery council: a natively-parsed PL/pgSQL routine whose
-        BODY contains a loop / control-flow construct tree-sitter-sql cannot
-        parse mangles the loop into a NESTED ERROR under the function body.
-        The CREATE header parses at top level, so `error_regions` stays 0 and
-        scan_top never sees the nested ERROR — the in-loop DML is dropped
-        SILENTLY. This asserts the new `sql_partial_bodies` loudness signal
-        fires (module node + unit recovery dict + build-log line) so the
-        partial extraction is observable; a clean fully-parsed body does not
-        trip it. Actually recovering the dropped in-loop write needs plpgsql
-        control-flow parsing the grammar lacks (recorded follow-up)."""
+    def test_sql_partial_body_loop_dml_recovery(self):
+        """Wave 1rs45 (was 1p9qi loudness-only): a natively-parsed PL/pgSQL
+        routine whose BODY contains an inline-query-FOR loop mangles the loop
+        scaffolding into NESTED ERROR nodes; the DML absorbed after `LOOP` (the
+        parser is still in SELECT/FROM state) was previously dropped SILENTLY.
+        The strip-reparse now RECOVERS it: the in-loop INSERT write and the
+        header-query read both surface, attributed to the routine owner with
+        `sql_recovery` provenance. `sql_partial_bodies` still fires (the honest
+        loudness signal), now split with `sql_partial_bodies_recovered`."""
         self._require_sql_parser()
         loop_fn = (
             "CREATE FUNCTION process_all() RETURNS void AS $$\n"
@@ -1436,39 +1435,48 @@ class GraphIndexerTests(unittest.TestCase):
             "END;\n"
             "$$ LANGUAGE plpgsql;\n"
         )
-        # Unit level: no top-level ERROR region (the silent-drop hazard), but
-        # partial_bodies flags the nested-in-body ERROR loudly. Distinct from
-        # unrecovered_regions (which stays 0 — this is NOT a top-level region).
+        # Unit level: no top-level ERROR region; partial_bodies flags the
+        # nested-in-body ERROR AND the split records that it was recovered.
         unit = self.mod.sql_statement_references(loop_fn)
         self.assertEqual(unit["error_regions"], 0)
         self.assertEqual(
             unit["recovery"],
-            {"recovered_definitions": 0, "unrecovered_regions": 0, "partial_bodies": 1},
+            {"recovered_definitions": 0, "unrecovered_regions": 0,
+             "partial_bodies": 1, "partial_bodies_recovered": 1},
         )
         # The routine header still extracts as a trusted (non-recovery) def.
         self.assertEqual(
             [(d["name"], d["sql_kind"], d["extraction"]) for d in unit["definitions"]],
             [("process_all", "function", None)],
         )
-        # The in-loop INSERT write is dropped (the recall gap the signal flags):
-        # only the pre-loop FOR-source read survives at the routine owner.
-        self.assertNotIn(
-            ("loop_audit", "write"),
-            {(r["name"], r["direction"]) for r in unit["references"]},
-            "in-loop DML is dropped; the signal exists precisely because we cannot recover it",
-        )
-        # File level: the module node carries the count so it survives worker
-        # extraction and reaches the verbose build log.
+        # AC-1 FLIP: the in-loop INSERT write is now RECOVERED as a write to the
+        # correct table, attributed to the routine, with sql_recovery provenance;
+        # the header-query read survives (no-regression on the read).
+        refs = {(r["name"], r["direction"]): r for r in unit["references"]}
+        self.assertIn(("loop_audit", "write"), refs,
+                      "1rs45: the post-LOOP INSERT is now recovered, not dropped")
+        self.assertIn(("source_tbl", "read"), refs)
+        self.assertEqual(refs[("loop_audit", "write")]["owner"], "process_all")
+        self.assertEqual(refs[("loop_audit", "write")]["extraction"], self.mod._SQL_RECOVERY_MARKER)
+        # File level: the module node carries BOTH counts so they survive worker
+        # extraction and reach the verbose build log.
         payload = self._build_file("db/loop.sql", loop_fn)
         module = next(n for n in payload["nodes"] if n["id"] == "db/loop.sql")
         self.assertEqual(int(module.get("sql_partial_bodies") or 0), 1)
+        self.assertEqual(int(module.get("sql_partial_bodies_recovered") or 0), 1)
         self.assertNotIn("sql_error_regions", module, "no TOP-LEVEL error region")
-        # Build-log line renders the partial-body count.
+        # The recovered write reaches the graph as a `writes` edge to the table.
+        write_edges = {
+            (e["source"], e["target"]) for e in payload["edges"]
+            if e.get("relation") == self.mod.GRAPH_WRITES_RELATION
+        }
+        self.assertIn(("db/loop.sql::process_all", "external::loop_audit"), write_edges)
+        # Build-log line renders the partial-body count with the recovered split.
         self.assertEqual(
-            self.mod._sql_recovery_log_line("db/loop.sql", 0, 0, 0, 1),
+            self.mod._sql_recovery_log_line("db/loop.sql", 0, 0, 0, 1, 1),
             "build_index: sql recovery db/loop.sql — 0 parse-error "
             "region(s): 0 definition(s) recovered, 0 region(s) unrecovered, "
-            "1 routine body(ies) partially parsed",
+            "1 routine body(ies) partially parsed (1 loop-recovered)",
         )
         # Negative: a clean fully-parsed body never trips the signal.
         clean_fn = (
@@ -1480,9 +1488,159 @@ class GraphIndexerTests(unittest.TestCase):
         )
         clean_unit = self.mod.sql_statement_references(clean_fn)
         self.assertEqual(clean_unit["recovery"]["partial_bodies"], 0)
+        self.assertEqual(clean_unit["recovery"]["partial_bodies_recovered"], 0)
         clean_payload = self._build_file("db/clean_fn.sql", clean_fn)
         clean_module = next(n for n in clean_payload["nodes"] if n["id"] == "db/clean_fn.sql")
         self.assertNotIn("sql_partial_bodies", clean_module)
+        self.assertNotIn("sql_partial_bodies_recovered", clean_module)
+
+    def _routine_refs(self, body: str) -> set:
+        """Helper: wrap a PL/pgSQL body in a CREATE FUNCTION, analyze, return
+        the recovered (direction, name) reference set for the routine."""
+        fn = (
+            "CREATE FUNCTION r() RETURNS void AS $$\nBEGIN\n"
+            + body
+            + "\nEND;\n$$ LANGUAGE plpgsql;\n"
+        )
+        unit = self.mod.sql_statement_references(fn)
+        return {(r["direction"], r["name"]) for r in unit["references"]}
+
+    def test_sql_loop_recovery_strip_robustness_and_faithfulness(self):
+        """Wave 1rs45 AC-2/AC-3: the keyword/token-masked strip handles every
+        loop shape without over- or under-stripping, and preserves the unit's
+        faithfulness guards (header-read preservation, CTE/temp exclusion,
+        no phantom reads, masked string/comment DML)."""
+        self._require_sql_parser()
+        # Multi-line inline-query-FOR header.
+        self.assertEqual(
+            self._routine_refs(
+                "  FOR r IN\n    SELECT id FROM src_ml\n  LOOP\n"
+                "    INSERT INTO dst_ml VALUES (r.id);\n  END LOOP;"),
+            {("read", "src_ml"), ("write", "dst_ml")},
+        )
+        # Single-line full loop.
+        self.assertEqual(
+            self._routine_refs(
+                "  FOR r IN SELECT id FROM src_sl LOOP INSERT INTO dst_sl VALUES (r.id); END LOOP;"),
+            {("read", "src_sl"), ("write", "dst_sl")},
+        )
+        # Labelled loop (<<lbl>> … END LOOP lbl;).
+        self.assertEqual(
+            self._routine_refs(
+                "  <<outer>>\n  FOR r IN SELECT id FROM src_lbl LOOP\n"
+                "    UPDATE dst_lbl SET n = n + 1;\n  END LOOP outer;"),
+            {("read", "src_lbl"), ("write", "dst_lbl")},
+        )
+        # Nested loops — both header reads + the innermost write.
+        self.assertEqual(
+            self._routine_refs(
+                "  FOR a IN SELECT id FROM outer_src LOOP\n"
+                "    FOR b IN SELECT id FROM inner_src LOOP\n"
+                "      INSERT INTO pair_tbl VALUES (a.id, b.id);\n"
+                "    END LOOP;\n  END LOOP;"),
+            {("read", "outer_src"), ("read", "inner_src"), ("write", "pair_tbl")},
+        )
+        # WHILE loop (no-regression: post-LOOP DML already recovered; strip must
+        # not break it) and integer-range FOR (no phantom read from `1..10`).
+        self.assertEqual(
+            self._routine_refs("  WHILE x < 10 LOOP\n    UPDATE counters SET n = n + 1;\n  END LOOP;"),
+            {("write", "counters")},
+        )
+        self.assertEqual(
+            self._routine_refs("  FOR i IN 1..10 LOOP\n    INSERT INTO nums VALUES (i);\n  END LOOP;"),
+            {("write", "nums")},
+        )
+        # Identifier/column containing "loop" is NOT stripped (word boundary).
+        self.assertEqual(
+            self._routine_refs(
+                "  FOR r IN SELECT id FROM loop_events LOOP\n"
+                "    INSERT INTO loop_audit VALUES (r.id);\n  END LOOP;"),
+            {("read", "loop_events"), ("write", "loop_audit")},
+        )
+        # CTE exclusion inherited from the unit: a loop-local WITH x does NOT
+        # mint a write to the CTE name.
+        self.assertEqual(
+            self._routine_refs(
+                "  FOR r IN SELECT id FROM feed LOOP\n"
+                "    WITH x AS (SELECT r.id AS id) INSERT INTO real_tbl (id) SELECT id FROM x;\n"
+                "  END LOOP;"),
+            {("read", "feed"), ("write", "real_tbl")},
+        )
+        # Masked string DML: a `LOOP` and an INSERT-looking token inside a string
+        # literal mint nothing beyond the real recovered refs.
+        self.assertEqual(
+            self._routine_refs(
+                "  FOR r IN SELECT id FROM src_str LOOP\n"
+                "    INSERT INTO note VALUES ('END LOOP; INSERT INTO ghost');\n  END LOOP;"),
+            {("read", "src_str"), ("write", "note")},
+        )
+
+    def test_sql_loop_recovery_mixed_body_and_gating(self):
+        """Wave 1rs45 AC-4 + security-reviewer prepare-council: a loop-bearing
+        body that ALSO holds a sibling non-loop DML keeps that DML (mixed-body
+        no-regression); a non-loop partial body stays on the normal walk (gate);
+        no double-processing; the top-level recovery tier is untouched."""
+        self._require_sql_parser()
+        # MIXED body: a sibling IF-block INSERT + a FOR loop. The `\bLOOP\b` gate
+        # routes the whole body through strip-reparse, and the IF-branch DML the
+        # normal walk recovers today must survive.
+        mixed = self._routine_refs(
+            "  IF cond THEN\n    INSERT INTO branch_tbl VALUES (1);\n  END IF;\n"
+            "  FOR r IN SELECT id FROM src_mix LOOP\n"
+            "    INSERT INTO dst_mix VALUES (r.id);\n  END LOOP;")
+        self.assertEqual(
+            mixed,
+            {("write", "branch_tbl"), ("read", "src_mix"), ("write", "dst_mix")},
+            "mixed-body: the IF-branch write must not be dropped by loop gating",
+        )
+        # GATE no-regression: a NON-loop partial body (IF only) recovers its
+        # in-branch DML exactly as before AND is not counted as loop-recovered.
+        if_only = (
+            "CREATE FUNCTION g() RETURNS void AS $$\nBEGIN\n"
+            "  IF cond THEN\n    INSERT INTO only_if VALUES (1);\n  END IF;\n"
+            "END;\n$$ LANGUAGE plpgsql;\n"
+        )
+        unit = self.mod.sql_statement_references(if_only)
+        self.assertIn(
+            ("write", "only_if"),
+            {(r["direction"], r["name"]) for r in unit["references"]},
+        )
+        self.assertEqual(unit["recovery"]["partial_bodies"], 1)
+        self.assertEqual(unit["recovery"]["partial_bodies_recovered"], 0,
+                         "a non-loop partial body must NOT be routed through the strip")
+        # NO double-processing: the header read appears exactly once.
+        double = (
+            "CREATE FUNCTION d() RETURNS void AS $$\nBEGIN\n"
+            "  FOR r IN SELECT id FROM once_tbl LOOP\n"
+            "    INSERT INTO once_dst VALUES (r.id);\n  END LOOP;\n"
+            "END;\n$$ LANGUAGE plpgsql;\n"
+        )
+        unit_d = self.mod.sql_statement_references(double)
+        reads = [r for r in unit_d["references"] if (r["direction"], r["name"]) == ("read", "once_tbl")]
+        self.assertEqual(len(reads), 1, "strip-reparse REPLACES the walk; no doubled read")
+        # SCOPE BOUNDARY (honest): 1rs45 covers a NATIVELY-parsed routine (its
+        # header parses as a `create_*` statement — every FUNCTION form incl.
+        # `CREATE OR REPLACE FUNCTION`). A `CREATE PROCEDURE` whose header falls
+        # into a TOP-LEVEL ERROR region is the 1p9qe top-level-recovery tier, NOT
+        # the partial-body tier — 1rs45 leaves it untouched, so its loop residual
+        # stays dropped (recovers only the header read the top-level tier already
+        # gets). This pins the boundary so a future extension is a conscious
+        # choice, not an accident.
+        proc = (
+            "CREATE PROCEDURE p() AS $$\nBEGIN\n"
+            "  FOR r IN SELECT id FROM feeder LOOP\n"
+            "    INSERT INTO sink VALUES (r.id);\n  END LOOP;\n"
+            "END;\n$$ LANGUAGE plpgsql;\n"
+        )
+        unit_p = self.mod.sql_statement_references(proc)
+        self.assertEqual(unit_p["recovery"]["partial_bodies"], 0,
+                         "a top-level-ERROR PROCEDURE is NOT a partial body")
+        self.assertEqual(unit_p["recovery"]["partial_bodies_recovered"], 0)
+        self.assertNotIn(
+            ("write", "sink"),
+            {(r["direction"], r["name"]) for r in unit_p["references"]},
+            "top-level-ERROR PROCEDURE loop residual is out of 1rs45 scope",
+        )
 
     # ------------------------------------------------------------------
     # Wave 1p9q6 — line-scan degraded extraction for files over the AST
@@ -8261,7 +8419,7 @@ class GraphBuilderVersionTests(unittest.TestCase):
     """Wave 1p4ls AC-3: the node/edge shape changed (constant nodes + reads edge) so the builder
     version is bumped, forcing a full re-extract against any older cache."""
 
-    def test_graph_builder_version_is_40(self):
+    def test_graph_builder_version_is_41(self):
         # 1p4ls bumped 25→26 (constant nodes + reads edge); 1p4q4 bumped 26→27 (TS enum member nodes);
         # 1p4q4 review bumped 27→28 (namespace-prefixed enum members + short-symbol-prune exemption);
         # 1p4up bumped 28→29 (member-access constant reads — new function→constant `reads` edges);
@@ -8310,7 +8468,13 @@ class GraphBuilderVersionTests(unittest.TestCase):
         # new DI edges → node/edge/property-set shape change → re-extract. NO CLUSTER_BUILDER_VERSION
         # bump: graph_cluster.py projection is unchanged and the graph-fingerprint/builder-version
         # staleness gate already forces the recluster.
-        self.assertEqual(load_graph_indexer().GRAPH_BUILDER_VERSION, "40")
+        # Wave 1rvdp bumped 40→41 (1rs45 PL/pgSQL loop-body DML recovery: a
+        # natively-parsed routine's loop-scaffolding ERROR body is strip-reparsed
+        # so the post-LOOP DML is recovered as reads/writes edges + a new
+        # `sql_partial_bodies_recovered` module-node count property; extraction-
+        # output + node-property shape change. The sibling 1rqh2 tomllib change
+        # touches no graph code. NO CLUSTER_BUILDER_VERSION bump).
+        self.assertEqual(load_graph_indexer().GRAPH_BUILDER_VERSION, "41")
 
 
 class OversizedTreeSitterGuardTests(unittest.TestCase):

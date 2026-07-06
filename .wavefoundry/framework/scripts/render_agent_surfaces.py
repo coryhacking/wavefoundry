@@ -311,10 +311,7 @@ def upsert_codex_mcp_config(
             on_fail_safe(reason)
         return existing if existing is not None else ""
 
-    try:
-        import tomllib
-    except ImportError:  # pragma: no cover — tomllib is stdlib on Python 3.11+
-        tomllib = None
+    import tomllib
 
     block = (
         f"{CODEX_CONFIG_MARKER_BEGIN}\n"
@@ -330,11 +327,10 @@ def upsert_codex_mcp_config(
     # the string-embedding pre-check and the semantic-equivalence exit guard
     # below both require a parsed baseline and are skipped.
     existing_doc: dict | None = None
-    if tomllib is not None:
-        try:
-            existing_doc = tomllib.loads(existing)
-        except Exception:
-            existing_doc = None
+    try:
+        existing_doc = tomllib.loads(existing)
+    except Exception:
+        existing_doc = None
 
     # Fail-safe BEFORE branch selection: a multiline operator string that
     # reproduces a marker comment as a whole physical line would match the
@@ -421,28 +417,27 @@ def upsert_codex_mcp_config(
             candidate = "".join(lines[:header_index] + [block] + lines[absorbed_end:])
 
     # Single exit: no merged content leaves this function unvalidated.
-    if tomllib is not None:
-        try:
-            candidate_doc = tomllib.loads(candidate)
-        except Exception:
-            # Never write a config Codex cannot parse. Leaving the file
-            # untouched keeps the operator's working config; the framework
-            # block simply stays stale until resolved manually.
-            return fail_safe("merged result would not parse as TOML")
-        # Semantic-equivalence guard: the parse check alone is blind to
-        # valid-TOML content loss (an absorption desync or string slice can
-        # eat operator content and still produce parseable TOML). After
-        # normalizing the framework-owned differences, existing and candidate
-        # must describe the SAME document; anything else is operator content
-        # the merge would silently drop or alter.
-        if existing_doc is not None and (
-            _codex_normalized_doc(existing_doc) != _codex_normalized_doc(candidate_doc)
-        ):
-            return fail_safe(
-                "merged result would change operator-owned parsed content "
-                "(valid-TOML content loss the parse check cannot flag) — "
-                "refusing to write"
-            )
+    try:
+        candidate_doc = tomllib.loads(candidate)
+    except Exception:
+        # Never write a config Codex cannot parse. Leaving the file
+        # untouched keeps the operator's working config; the framework
+        # block simply stays stale until resolved manually.
+        return fail_safe("merged result would not parse as TOML")
+    # Semantic-equivalence guard: the parse check alone is blind to
+    # valid-TOML content loss (an absorption desync or string slice can
+    # eat operator content and still produce parseable TOML). After
+    # normalizing the framework-owned differences, existing and candidate
+    # must describe the SAME document; anything else is operator content
+    # the merge would silently drop or alter.
+    if existing_doc is not None and (
+        _codex_normalized_doc(existing_doc) != _codex_normalized_doc(candidate_doc)
+    ):
+        return fail_safe(
+            "merged result would change operator-owned parsed content "
+            "(valid-TOML content loss the parse check cannot flag) — "
+            "refusing to write"
+        )
     return candidate
 
 

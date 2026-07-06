@@ -45,13 +45,7 @@ from wave_lint_lib.constants import (
     SCAN_RULES_PROJECT_PATH,
 )
 
-try:
-    import tomllib
-except ImportError:  # Python < 3.11
-    try:
-        import tomli as tomllib  # type: ignore[no-redef]
-    except ImportError:
-        tomllib = None  # type: ignore[assignment]
+import tomllib
 
 
 # ---------------------------------------------------------------------------
@@ -650,8 +644,6 @@ class TestShippedFrameworkSelfExclusions(unittest.TestCase):
     """
 
     def _shipped_allowlist_paths(self) -> list[str]:
-        if tomllib is None:
-            self.skipTest("tomllib/tomli unavailable")
         repo_root = SCRIPTS_ROOT.parents[2]
         fw_path = repo_root / SCAN_RULES_FRAMEWORK_PATH
         if not fw_path.exists():
@@ -910,8 +902,6 @@ class TestGenericApiKeyDocsScope(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        if tomllib is None:
-            raise unittest.SkipTest("tomllib/tomli unavailable")
         fw = SCRIPTS_ROOT.parents[2] / SCAN_RULES_FRAMEWORK_PATH
         if not fw.exists():
             raise unittest.SkipTest(f"shipped ruleset absent at {fw}")
@@ -978,8 +968,6 @@ class TestJwtExpiry(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        if tomllib is None:
-            raise unittest.SkipTest("tomllib/tomli unavailable")
         cls._fw_path = SCRIPTS_ROOT.parents[2] / SCAN_RULES_FRAMEWORK_PATH
         if not cls._fw_path.exists():
             raise unittest.SkipTest("shipped ruleset absent")
@@ -1092,8 +1080,6 @@ paths = []
 
     @classmethod
     def _shipped_filter(cls):
-        if tomllib is None:
-            raise unittest.SkipTest("tomllib unavailable")
         fw = SCRIPTS_ROOT.parents[2] / SCAN_RULES_FRAMEWORK_PATH
         if not fw.exists():
             raise unittest.SkipTest("ruleset absent")
@@ -1509,8 +1495,6 @@ class TestRe2PythonRegexCompat(unittest.TestCase):
     failed `re.compile` and were silently dead. The shim translates on failure only."""
 
     def _framework_rules(self):
-        if tomllib is None:
-            self.skipTest("tomllib unavailable")
         path = SCRIPTS_ROOT.parent / "scan-rules.toml"
         return tomllib.load(open(path, "rb")).get("rules", [])
 
@@ -1848,13 +1832,6 @@ class TestFrameworkRuleset(unittest.TestCase):
         self.assertTrue(path.exists(), f"{SCAN_RULES_FRAMEWORK_PATH} not found")
 
     def test_framework_scan_rules_has_policy_section(self) -> None:
-        try:
-            import tomllib
-        except ImportError:
-            try:
-                import tomli as tomllib  # type: ignore[no-redef]
-            except ImportError:
-                self.skipTest("tomllib not available")
         path = self.FRAMEWORK_ROOT / SCAN_RULES_FRAMEWORK_PATH
         if not path.exists():
             self.skipTest(f"{SCAN_RULES_FRAMEWORK_PATH} not found")
@@ -1865,13 +1842,6 @@ class TestFrameworkRuleset(unittest.TestCase):
         self.assertEqual(policy["false_positive_confirmations_required"], 2)
 
     def test_framework_scan_rules_has_rules(self) -> None:
-        try:
-            import tomllib
-        except ImportError:
-            try:
-                import tomli as tomllib  # type: ignore[no-redef]
-            except ImportError:
-                self.skipTest("tomllib not available")
         path = self.FRAMEWORK_ROOT / SCAN_RULES_FRAMEWORK_PATH
         if not path.exists():
             self.skipTest(f"{SCAN_RULES_FRAMEWORK_PATH} not found")

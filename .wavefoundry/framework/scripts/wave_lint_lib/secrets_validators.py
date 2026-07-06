@@ -9,13 +9,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-try:
-    import tomllib
-except ImportError:
-    try:
-        import tomli as tomllib  # type: ignore[no-redef]
-    except ImportError:
-        tomllib = None  # type: ignore[assignment]
+import tomllib
 
 from .cel_filter import eval_filter, _jwt_exp_claim
 from .constants import SCAN_ALLOWLIST_PATH, SCAN_FINDINGS_PATH, SCAN_RULES_FRAMEWORK_PATH, SCAN_RULES_PROJECT_PATH
@@ -35,12 +29,6 @@ _INLINE_SUPPRESS_RE = re.compile(r"#\s*wavefoundry-ignore:\s*secrets(.*)")
 # TOML loading
 # ---------------------------------------------------------------------------
 
-def _require_tomllib() -> bool:
-    if tomllib is None:
-        return False
-    return True
-
-
 def _load_toml(path: Path) -> dict:
     with open(path, "rb") as f:
         return tomllib.load(f)
@@ -51,14 +39,8 @@ def load_merged_ruleset(root: Path) -> tuple[list[dict], dict, list[str]]:
 
     rules: merged list of rule dicts from framework + project files.
     policy: merged policy dict (project overrides framework).
-    errors: fatal diagnostic messages if tomllib is unavailable or files are corrupt.
+    errors: fatal diagnostic messages if files are corrupt.
     """
-    if not _require_tomllib():
-        return [], {}, [
-            "secrets scan requires tomllib (Python >= 3.11) or the tomli package; "
-            "run: pip install tomli"
-        ]
-
     framework_path = root / SCAN_RULES_FRAMEWORK_PATH
     if not framework_path.exists():
         # Silent no-op: ruleset absent means this project hasn't installed secrets scanning yet.
@@ -1371,7 +1353,7 @@ def check_hardcoded_secrets(
 
     fw_path = root / SCAN_RULES_FRAMEWORK_PATH
     try:
-        if _require_tomllib() and fw_path.exists():
+        if fw_path.exists():
             with open(fw_path, "rb") as f:
                 fw_raw = tomllib.load(f)
             fw_allow = fw_raw.get("allowlist", {})
@@ -1383,7 +1365,7 @@ def check_hardcoded_secrets(
 
     proj_path = root / SCAN_RULES_PROJECT_PATH
     try:
-        if _require_tomllib() and proj_path.exists():
+        if proj_path.exists():
             with open(proj_path, "rb") as f:
                 proj_raw = tomllib.load(f)
             proj_allow = proj_raw.get("allowlist", {})
