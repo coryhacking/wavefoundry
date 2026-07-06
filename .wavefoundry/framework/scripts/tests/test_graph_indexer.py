@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import importlib.util
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -20,6 +21,115 @@ def load_graph_indexer():
     sys.modules["graph_indexer"] = mod
     spec.loader.exec_module(mod)
     return mod
+
+
+def load_graph_di_signals():
+    path = SCRIPTS_ROOT / "graph_di_signals.py"
+    spec = importlib.util.spec_from_file_location("graph_di_signals", path)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules["graph_di_signals"] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class DiSignalPrecheckTests(unittest.TestCase):
+    """Wave 1p9q8: the DI-collector raw-source pre-check must skip the walk for
+    a DI-free file WITHOUT ever dropping a real signal (superset property)."""
+
+    def setUp(self):
+        self.di = load_graph_di_signals()
+
+    def test_python_precheck_skips_di_free_source(self):
+        import ast
+        src = "def run():\n    return 1\n\nclass Foo:\n    def bar(self):\n        return self\n"
+        tree = ast.parse(src)
+        self.assertEqual(
+            self.di.collect_python_di_signals("f.py", tree, {}, {"run", "Foo"}, src),
+            [],
+        )
+
+    def test_python_precheck_no_false_negative_on_real_depends(self):
+        import ast
+        src = (
+            "from fastapi import Depends\n"
+            "def prov():\n    return 1\n"
+            "def handler(x=Depends(prov)):\n    return x\n"
+        )
+        tree = ast.parse(src)
+        sigs = self.di.collect_python_di_signals(
+            "f.py", tree, {"Depends": "fastapi.Depends"}, {"prov", "handler"}, src
+        )
+        self.assertEqual(
+            [(s["kind"], s["consumer_type"], s["dependency_type"]) for s in sigs],
+            [("injects", "handler", "prov")],
+        )
+
+    def test_python_trigger_absent_from_di_free_source(self):
+        # Pin the superset contract: the trigger token is genuinely absent, so
+        # the fast path (not a walk that happens to find nothing) fires.
+        self.assertNotIn(self.di._PY_DI_TRIGGER, "def run():\n    return 1\n")
+
+    def test_ts_trigger_tokens_absent_from_di_free_source(self):
+        di_free = b"export function add(a: number, b: number) { return a + b; }\n"
+        self.assertFalse(any(t in di_free for t in self.di._TS_DI_TRIGGER_TOKENS))
+
+    def test_ts_trigger_tokens_superset_of_collector_idioms(self):
+        """Wave 1p9q8 (delivery-council fix round): the prior version of this
+        test re-checked `_TS_DI_TRIGGER_TOKENS` against a hand-copied tuple
+        that was IDENTICAL to the trigger-token definition itself — a
+        tautology that would never catch a future collector idiom added
+        without a matching trigger token. This version derives the reference
+        set from REAL fixtures that functionally exercise each idiom through
+        `collect_ts_di_signals` (proving each is genuine collector-emitting
+        behavior, not a hand-typed string), then asserts every fixture's raw
+        source is covered by a trigger-token substring — the same
+        no-false-negative property the pre-check relies on. A collector idiom
+        added without a corresponding trigger token would fail here because
+        its fixture's source would not contain any `_TS_DI_TRIGGER_TOKENS`
+        entry.
+        """
+        try:
+            import tree_sitter_typescript  # noqa: F401
+        except ImportError:
+            self.skipTest("tree_sitter_typescript not available in test env")
+        mod = load_graph_indexer()
+        fixtures = {
+            "Injectable": (
+                "import { Injectable } from '@nestjs/common';\n"
+                "@Injectable()\nexport class Foo { constructor(private real: Real) {} }\n"
+            ),
+            "injectable": (
+                "import { injectable } from 'inversify';\n"
+                "@injectable()\nexport class Foo { constructor(private real: Real) {} }\n"
+            ),
+            "Inject": (
+                "import { Injectable, Inject } from '@nestjs/common';\n"
+                "@Injectable()\nexport class Foo { constructor(@Inject('TOKEN') private real: any) {} }\n"
+            ),
+            "inject": (
+                "import { injectable, inject } from 'inversify';\n"
+                "@injectable()\nexport class Foo { constructor(@inject('TOKEN') private real: any) {} }\n"
+            ),
+            "Module": (
+                "import { Module } from '@nestjs/common';\n"
+                "@Module({ providers: [{ provide: 'IFoo', useClass: Foo }] })\nexport class AppModule {}\n"
+            ),
+            "bind": (
+                "import { Container } from 'inversify';\n"
+                "const c = new Container();\nc.bind(IFoo).to(Foo);\n"
+            ),
+        }
+        for idiom, source_text in fixtures.items():
+            tree = mod._ts_parse("typescript", source_text)
+            self.assertIsNotNone(tree, f"tree-sitter parse unavailable for the {idiom!r} fixture")
+            source_bytes = source_text.encode("utf-8")
+            signals = self.di.collect_ts_di_signals("f.ts", tree.root_node, source_bytes)
+            self.assertTrue(
+                signals, f"{idiom!r} fixture must be genuine collector-emitting behavior; got no signals")
+            self.assertTrue(
+                any(t in source_bytes for t in self.di._TS_DI_TRIGGER_TOKENS),
+                f"{idiom!r} fixture's source must be covered by a trigger-token substring (no false negative)",
+            )
 
 
 def _make_repo(root: Path) -> None:
@@ -1374,6 +1484,336 @@ class GraphIndexerTests(unittest.TestCase):
         clean_module = next(n for n in clean_payload["nodes"] if n["id"] == "db/clean_fn.sql")
         self.assertNotIn("sql_partial_bodies", clean_module)
 
+    # ------------------------------------------------------------------
+    # Wave 1p9q6 — line-scan degraded extraction for files over the AST
+    # parse cap (but under the walk cap). Mirrors the 1p9qe recovery
+    # convention (marker + per-file counts + build-log line). The scanner
+    # itself is new: whole-file, AST-free, comment/string-masked, line-
+    # anchored. Tests lower the AST cap via WAVEFOUNDRY_MAX_TS_PARSE_BYTES so
+    # a small fixture routes through the fallback tier.
+    # ------------------------------------------------------------------
+
+    def _lower_ast_cap(self, cap_bytes: int = 50) -> None:
+        prior = os.environ.get("WAVEFOUNDRY_MAX_TS_PARSE_BYTES")
+        os.environ["WAVEFOUNDRY_MAX_TS_PARSE_BYTES"] = str(cap_bytes)
+
+        def _restore():
+            if prior is None:
+                os.environ.pop("WAVEFOUNDRY_MAX_TS_PARSE_BYTES", None)
+            else:
+                os.environ["WAVEFOUNDRY_MAX_TS_PARSE_BYTES"] = prior
+
+        self.addCleanup(_restore)
+
+    def _require_ts_parser(self, lang: str) -> None:
+        if getattr(self.mod, "_ts_get_parser", lambda *_: None)(lang) is None:
+            self.skipTest(f"tree-sitter {lang} grammar unavailable")
+
+    def _build_files_verbose(self, files: dict[str, str]) -> str:
+        """Run a verbose build and return captured stdout (for log assertions)."""
+        buf = io.StringIO()
+        paths, meta = [], {}
+        for rel_path, source in files.items():
+            fp = self.root / rel_path
+            fp.parent.mkdir(parents=True, exist_ok=True)
+            fp.write_text(source, encoding="utf-8")
+            paths.append(fp)
+            meta[rel_path.replace("\\", "/")] = {"hash": f"hash-{rel_path}"}
+        with redirect_stdout(buf):
+            self.mod.update_graph_index(
+                root=self.root,
+                index_dir=self.root / ".wavefoundry" / "index",
+                layer="project",
+                files=paths,
+                current_file_meta=meta,
+                changed=set(meta),
+                removed=set(),
+                walker_version="1",
+                chunker_version="1",
+                verbose=True,
+            )
+        return buf.getvalue()
+
+    def test_line_scan_exact_set_and_count_properties(self):
+        """AC-1 + AC-1b: a file over the AST cap yields a line_scan module node,
+        its import edges, and its top-level definition nodes/defines edges — and
+        NO calls/reads edges. The per-file count properties
+        `line_scan_defines`/`line_scan_imports`/`line_scan_skipped` (the direct
+        parallel to 1p9qe's `sql_recovered_definitions`/`sql_error_regions`/
+        `sql_unrecovered_regions`) exist on the module node with correct values.
+        Exact node + edge set pinned."""
+        self._lower_ast_cap(50)
+        payload = self._build_files(
+            {
+                "w/widgets.go": (
+                    "package widgets\n"
+                    'import "fmt"\n'
+                    "func BuildWidget() int { return 1 }\n"
+                    "type Gadget struct{}\n"
+                ),
+            }
+        )
+        by_id = {n["id"]: n for n in payload["nodes"]}
+        module = by_id["w/widgets.go"]
+        # Marker (AC-1) on the module + every recovered node.
+        self.assertEqual(module.get("extraction"), "line_scan")
+        self.assertEqual(by_id["w/widgets.go::BuildWidget"]["kind"], "function")
+        self.assertEqual(by_id["w/widgets.go::BuildWidget"].get("extraction"), "line_scan")
+        self.assertEqual(by_id["w/widgets.go::Gadget"]["kind"], "class")
+        self.assertEqual(by_id["w/widgets.go::Gadget"].get("extraction"), "line_scan")
+        # AC-1b: the count properties pinned BY NAME with correct values.
+        self.assertEqual(module["line_scan_defines"], 2)
+        self.assertEqual(module["line_scan_imports"], 1)
+        self.assertEqual(module["line_scan_skipped"], 0)
+        # Exact node + edge set — imports + defines only, never calls/reads.
+        self.assertEqual(
+            {(n["id"], n["kind"]) for n in payload["nodes"]},
+            {
+                ("w/widgets.go", "module"),
+                ("w/widgets.go::BuildWidget", "function"),
+                ("w/widgets.go::Gadget", "class"),
+            },
+        )
+        self.assertEqual(
+            {(e["relation"], e["source"], e["target"], e.get("confidence")) for e in payload["edges"]},
+            {
+                ("imports", "w/widgets.go", "external::fmt", "EXTRACTED"),
+                ("defines", "w/widgets.go", "w/widgets.go::BuildWidget", "EXTRACTED"),
+                ("defines", "w/widgets.go", "w/widgets.go::Gadget", "EXTRACTED"),
+            },
+        )
+        self.assertFalse(
+            any(e["relation"] in ("calls", "reads") for e in payload["edges"]),
+            "line scan must never emit calls/reads edges",
+        )
+
+    def test_line_scan_multi_syntax_declaration_families(self):
+        """AC-1 (multi-syntax): the scanner recognizes Python-style, C-style,
+        and Go/Rust-style import + top-level declaration syntaxes. Unit-level
+        (the scanner is language-family agnostic; the wiring only reaches
+        tree-sitter languages, but the pattern table must cover each family)."""
+        scan = self.mod._line_scan_extract
+        py = scan(
+            "import os\n"
+            "from a.b import thing\n"
+            "def top_func():\n"
+            "    def nested():\n"
+            "        pass\n"
+            "class TopClass:\n"
+            "    def method(self):\n"
+            "        pass\n",
+            "python",
+        )
+        self.assertEqual(py["imports"], ["os", "a.b"])
+        self.assertEqual(
+            py["definitions"], [("top_func", "function", 3), ("TopClass", "class", 6)],
+            "nested/indented declarations are NOT top-level and are excluded",
+        )
+        c = scan(
+            "#include <stdio.h>\n"
+            '#include "local.h"\n'
+            "struct Point { int x; };\n"
+            "int helper(void) { return 0; }\n",  # bare C funcs (no keyword) are not captured
+            "c",
+        )
+        self.assertEqual(c["imports"], ["stdio.h", "local.h"])
+        self.assertEqual(c["definitions"], [("Point", "class", 3)])
+        rust = scan(
+            "use std::collections::HashMap;\n"
+            "pub fn compute() {}\n"
+            "struct Widget {}\n"
+            "enum Color { Red }\n"
+            "trait Draw {}\n"
+            "impl Widget {}\n",
+            "rust",
+        )
+        self.assertEqual(rust["imports"], ["std::collections::HashMap"])
+        self.assertEqual(
+            [d[0] for d in rust["definitions"]],
+            ["compute", "Widget", "Color", "Draw"],
+            "impl re-uses an already-seen name (Widget) and is deduped",
+        )
+        go = scan('import "fmt"\nfunc Handler() {}\ntype Server struct{}\n', "go")
+        self.assertEqual(go["imports"], ["fmt"])
+        self.assertEqual(go["definitions"], [("Handler", "function", 2), ("Server", "class", 3)])
+
+    def test_line_scan_referrer_resolution_and_twin_refusal(self):
+        """AC-2 (faithfulness core, both directions): a referrer's call resolves
+        against an oversized file's line-scanned definition under the unique-
+        candidate rule; and a twin definition (parsed OR line-scanned) forces
+        refusal of the otherwise-unique bind — presence knowledge preventing a
+        wrong bind."""
+        self._require_ts_parser("go")
+        self._lower_ast_cap(80)
+        oversized = "package big\n// pad " + ("x" * 120) + "\nfunc Widget() int { return 1 }\n"
+        referrer = "package app\nfunc Use() int { return Widget() }\n"
+        # Direction 1: unique line-scanned candidate → the call RESOLVES to it.
+        payload = self._build_files(
+            {"big/widget.go": oversized, "app/use.go": referrer}
+        )
+        by_id = {n["id"]: n for n in payload["nodes"]}
+        self.assertEqual(by_id["big/widget.go::Widget"].get("extraction"), "line_scan")
+        call_edges = {
+            (e["source"], e["target"], e.get("confidence"))
+            for e in payload["edges"]
+            if e["relation"] == "calls" and e["source"] == "app/use.go::Use"
+        }
+        self.assertEqual(
+            call_edges, {("app/use.go::Use", "big/widget.go::Widget", "RECEIVER_RESOLVED")}
+        )
+        # Direction 2: add a same-name twin → 2 candidates → the bind REFUSES
+        # (stays external). The line-scanned definition is one of the two.
+        twin = "package other\nfunc Widget() int { return 2 }\n"
+        payload2 = self._build_files(
+            {"big/widget.go": oversized, "other/widget.go": twin, "app/use.go": referrer}
+        )
+        refuse_edges = {
+            (e["target"], e.get("confidence"))
+            for e in payload2["edges"]
+            if e["relation"] == "calls" and e["source"] == "app/use.go::Use"
+        }
+        self.assertEqual(refuse_edges, {("external::Widget", "EXTRACTED")})
+        sni, _, _, _, _ = self.mod._build_candidate_indexes({n["id"]: n for n in payload2["nodes"]})
+        self.assertEqual(
+            sorted(sni.get("Widget") or []),
+            ["big/widget.go::Widget", "other/widget.go::Widget"],
+            "the line-scanned definition participates as a candidate (forcing refusal)",
+        )
+
+    def test_line_scan_adversarial_precision_and_ceiling(self):
+        """AC-3: declaration-looking text inside string literals, comments, and
+        an over-length (minified) line mints NO definition; a whole file over
+        the scan-byte ceiling degrades to a logged skip (no nodes)."""
+        scan = self.mod._line_scan_extract
+        adversarial = (
+            "// def GhostComment class GhostC\n"
+            "func Real() int { return 0 }\n"
+            'var s = "func GhostString type GhostT"\n'
+            "/* class GhostBlock */\n"
+            "code_here " + ("y" * (self.mod._LINE_SCAN_MAX_LINE_CHARS + 10)) + " func GhostMinified\n"
+        )
+        out = scan(adversarial, "go")
+        self.assertEqual(out["definitions"], [("Real", "function", 2)])
+        self.assertEqual(out["imports"], [])
+        self.assertEqual(out["skipped_lines"], 1, "the over-length line is skipped, counted")
+        for ghost in ("GhostComment", "GhostC", "GhostString", "GhostT", "GhostBlock", "GhostMinified"):
+            self.assertNotIn(ghost, {d[0] for d in out["definitions"]})
+        # Scan-byte ceiling: over it → nothing scanned, flagged ceiling_skipped.
+        prior = os.environ.get("WAVEFOUNDRY_MAX_LINE_SCAN_BYTES")
+        os.environ["WAVEFOUNDRY_MAX_LINE_SCAN_BYTES"] = "10"
+        try:
+            capped = scan("func Real() {}\ntype Thing struct{}\n", "go")
+        finally:
+            if prior is None:
+                os.environ.pop("WAVEFOUNDRY_MAX_LINE_SCAN_BYTES", None)
+            else:
+                os.environ["WAVEFOUNDRY_MAX_LINE_SCAN_BYTES"] = prior
+        self.assertTrue(capped["ceiling_skipped"])
+        self.assertEqual(capped["definitions"], [])
+        # End-to-end: a ceiling-skipped file over the AST cap yields an empty
+        # module node flagged for the LOUD skip — no marker, no definitions.
+        self._lower_ast_cap(30)
+        os.environ["WAVEFOUNDRY_MAX_LINE_SCAN_BYTES"] = "20"
+        self.addCleanup(lambda: os.environ.pop("WAVEFOUNDRY_MAX_LINE_SCAN_BYTES", None))
+        payload = self._build_files(
+            {"big/huge.go": "package big\nfunc Real() int { return 0 }\n"}
+        )
+        module = next(n for n in payload["nodes"] if n["id"] == "big/huge.go")
+        self.assertTrue(module.get("line_scan_ceiling_skipped"))
+        self.assertNotIn("extraction", module)
+        self.assertEqual(
+            [n for n in payload["nodes"] if n["id"].startswith("big/huge.go::")], []
+        )
+
+    def test_line_scan_cost_bound_and_build_log(self):
+        """AC-4: the scan of a maximum-size fixture completes within the single-
+        pass bound (instrumented; measurement recorded), and the build log
+        reports the fallback-file count. The log line has a stable shape (both
+        the recovered and the ceiling-skip forms)."""
+        import time
+
+        # A large-but-bounded fixture: many ordinary lines. Single pass → the
+        # scan is linear; assert it completes well within a generous bound.
+        big = "".join(f"func Fn{i}() {{}}\n" for i in range(20000))
+        start = time.perf_counter()
+        out = self.mod._line_scan_extract(big, "go")
+        elapsed_ms = (time.perf_counter() - start) * 1000
+        self.assertEqual(len(out["definitions"]), 20000)
+        self.assertLess(elapsed_ms, 3000, f"scan not single-pass-bounded ({elapsed_ms:.1f} ms)")
+        # Recorded measurement (surfaced on -v runs; AC-4 "measurement recorded").
+        print(f"[1p9q6 AC-4] line-scan of 20000-def fixture: {elapsed_ms:.1f} ms")
+        # Log-line shapes.
+        self.assertEqual(
+            self.mod._line_scan_log_line("big/x.go", 5, 3, 2),
+            "build_index: line-scan big/x.go — over the AST parse cap: "
+            "5 definition(s) + 3 import(s) recovered, 2 line(s) skipped (length guard)",
+        )
+        self.assertEqual(
+            self.mod._line_scan_log_line("big/x.go", 0, 0, 0, ceiling_skipped=True),
+            "build_index: line-scan big/x.go — over the scan-byte ceiling; "
+            "skipped (imports + top-level definitions not recovered)",
+        )
+        # Verbose build reports the fallback-file count + per-file line.
+        self._lower_ast_cap(50)
+        log = self._build_files_verbose(
+            {"w/widgets.go": ("package widgets\n" 'import "fmt"\n' "func BuildWidget() int { return 1 }\n")}
+        )
+        self.assertIn("line-scan degraded extraction — 1 file(s) over the AST parse cap", log)
+        self.assertIn("build_index: line-scan w/widgets.go — over the AST parse cap:", log)
+
+    def test_line_scan_connectivity_calibration(self):
+        """AC-5: on a fixture corpus with an oversized hub file, dangling
+        `external::` references to its symbols drop versus baseline. Baseline =
+        the silent-hole shape (hub absent from the graph); treatment = the hub
+        present and line-scanned. Counts recorded."""
+        self._require_ts_parser("go")
+        self._lower_ast_cap(80)
+        referrer = "package app\nfunc Use() int { return Widget() }\n"
+        oversized = "package big\n// pad " + ("x" * 120) + "\nfunc Widget() int { return 1 }\n"
+
+        def _dangling_widget(payload):
+            return sum(
+                1
+                for e in payload["edges"]
+                if e["relation"] == "calls" and e["target"] == "external::Widget"
+            )
+
+        # Baseline: the hub is a hole — the referrer alone dangles to external.
+        baseline = self._build_files({"app/use.go": referrer})
+        base_dangling = _dangling_widget(baseline)
+        # Treatment: the hub is present and line-scanned — the reference binds.
+        treated = self._build_files({"app/use.go": referrer, "big/widget.go": oversized})
+        treated_dangling = _dangling_widget(treated)
+        resolved = sum(
+            1
+            for e in treated["edges"]
+            if e["relation"] == "calls" and e["target"] == "big/widget.go::Widget"
+        )
+        print(
+            f"[1p9q6 AC-5] dangling external::Widget baseline={base_dangling} "
+            f"treatment={treated_dangling}; resolved-to-hub={resolved}"
+        )
+        self.assertEqual(base_dangling, 1)
+        self.assertEqual(treated_dangling, 0)
+        self.assertEqual(resolved, 1)
+
+    def test_line_scan_encoding_robustness(self):
+        """AC / Requirement 3: BOM stripped, no-final-newline still yields the
+        last line, mixed newline styles tolerated — the decode shapes big
+        generated files actually exhibit."""
+        scan = self.mod._line_scan_extract
+        self.assertEqual(
+            scan("﻿func Alpha() {}", "go")["definitions"], [("Alpha", "function", 1)]
+        )
+        self.assertEqual(
+            scan("func Beta() {}", "go")["definitions"], [("Beta", "function", 1)],
+            "a missing final newline still yields the last line",
+        )
+        self.assertEqual(
+            [d[0] for d in scan("func A() {}\r\nfunc B() {}\r\n", "go")["definitions"]],
+            ["A", "B"],
+        )
+
     def test_sql_trigger_execute_function_action_name_not_a_reference(self):
         """AC-1 / R1: a Postgres `CREATE TRIGGER … EXECUTE FUNCTION log_it()`
         parses the action function name as a trailing top-level
@@ -2209,6 +2649,270 @@ class GraphDependencyInjectionTests(unittest.TestCase):
         self.assertNotIn("binds", relations)
         self.assertNotIn("injects", relations)
 
+    # --- Wave 1p9q7: AST-anchored Python/TS DI ---------------------------
+
+    def _di_edges(self, payload) -> list[tuple[str, str, str]]:
+        return sorted(
+            (edge["relation"], edge["source"], edge["target"])
+            for edge in payload["edges"]
+            if edge["relation"] in ("binds", "injects")
+        )
+
+    def test_python_fastapi_depends_exact_set(self):
+        # AC-1: Depends(ref) defaults + Annotated[...] form emit injects to the
+        # resolved callable (same-file and cross-file); bare Depends() emits
+        # nothing. Exact set — zero extras.
+        payload = self._build({
+            "src/deps.py": "def get_session():\n    return 1\n",
+            "src/routes.py": (
+                "from fastapi import Depends\n"
+                "from typing import Annotated\n"
+                "from .deps import get_session\n"
+                "def get_current_user():\n    return 'u'\n"
+                "def list_items(user = Depends(get_current_user), db = Depends(get_session)):\n"
+                "    return user\n"
+                "def show(x: Annotated[str, Depends(get_current_user)] = None):\n    return x\n"
+                "def nodep(y = Depends()):\n    return y\n"
+            ),
+        })
+        self.assertEqual(
+            self._di_edges(payload),
+            [
+                ("injects", "src/routes.py::list_items", "src/deps.py::get_session"),
+                ("injects", "src/routes.py::list_items", "src/routes.py::get_current_user"),
+                ("injects", "src/routes.py::show", "src/routes.py::get_current_user"),
+            ],
+        )
+
+    def test_python_depends_alias_recognized(self):
+        # AC-1: `from fastapi import Depends as D` is recognized via the import
+        # origin, not the local spelling.
+        payload = self._build({
+            "src/a.py": (
+                "from fastapi import Depends as D\n"
+                "def prov():\n    return 1\n"
+                "def handler(x = D(prov)):\n    return x\n"
+            ),
+        })
+        self.assertEqual(
+            self._di_edges(payload),
+            [("injects", "src/a.py::handler", "src/a.py::prov")],
+        )
+
+    def test_python_depends_impostor_refused(self):
+        # AC-1: a same-named non-FastAPI `Depends` (local def or foreign import)
+        # is refused (negative origin check).
+        payload = self._build({
+            "src/local.py": (
+                "def Depends(x):\n    return x\n"
+                "def prov():\n    return 1\n"
+                "def handler(a = Depends(prov)):\n    return a\n"
+            ),
+            "src/foreign.py": (
+                "from other.di import Depends\n"
+                "def prov():\n    return 1\n"
+                "def handler(a = Depends(prov)):\n    return a\n"
+            ),
+        })
+        self.assertEqual(self._di_edges(payload), [])
+
+    def test_python_depends_ambiguous_stays_external(self):
+        # AC-1: an ambiguous provider (two project definitions) never guesses.
+        payload = self._build({
+            "src/d1.py": "def shared():\n    return 1\n",
+            "src/d2.py": "def shared():\n    return 2\n",
+            "src/use.py": (
+                "from fastapi import Depends\n"
+                "def handler(a = Depends(shared)):\n    return a\n"
+            ),
+        })
+        self.assertEqual(
+            self._di_edges(payload),
+            [("injects", "src/use.py::handler", "external::shared")],
+        )
+
+    def test_ts_nestjs_injectable_inject_module_exact_set(self):
+        # AC-2: @Injectable constructor params (class type), @Inject(TOKEN)
+        # (identifier + string), @Module provider objects. Exact set; a string
+        # token and a primitive param never emit a resolved-class edge.
+        payload = self._build({
+            "src/user.service.ts": (
+                "import { Injectable, Inject } from '@nestjs/common';\n"
+                "@Injectable()\n"
+                "export class UserService {\n"
+                "  constructor(private repo: UserRepository, @Inject('CONFIG') cfg: any, "
+                "@Inject(LoggerToken) log: any, private name: string) {}\n"
+                "}\n"
+                "export class UserRepository {}\n"
+                "export class LoggerToken {}\n"
+            ),
+            "src/app.module.ts": (
+                "import { Module } from '@nestjs/common';\n"
+                "@Module({ providers: [UserService, { provide: DBToken, useClass: PgDb }] })\n"
+                "export class AppModule {}\n"
+                "export class PgDb {}\n"
+                "export class DBToken {}\n"
+            ),
+        })
+        self.assertEqual(
+            self._di_edges(payload),
+            [
+                ("binds", "src/app.module.ts::DBToken", "src/app.module.ts::PgDb"),
+                ("injects", "src/user.service.ts::UserService", "external::CONFIG"),
+                ("injects", "src/user.service.ts::UserService", "src/user.service.ts::LoggerToken"),
+                ("injects", "src/user.service.ts::UserService", "src/user.service.ts::UserRepository"),
+            ],
+        )
+
+    def test_ts_inversify_alias_recognized_and_bind(self):
+        # AC-2 (origin-check symmetry): `Inject as I` and lowercase `injectable`
+        # from inversify are recognized; `bind(X).to(Y)` emits binds (positive
+        # gate: inversify import present).
+        payload = self._build({
+            "src/ninja.ts": (
+                "import { Container, injectable, Inject as I } from 'inversify';\n"
+                "@injectable()\n"
+                "export class Ninja {\n"
+                "  constructor(@I(WeaponToken) w: any) {}\n"
+                "}\n"
+                "export class WeaponToken {}\n"
+                "const c = new Container();\n"
+                "c.bind(Sword).to(Katana);\n"
+                "export class Sword {}\n"
+                "export class Katana {}\n"
+            ),
+        })
+        self.assertEqual(
+            self._di_edges(payload),
+            [
+                ("binds", "src/ninja.ts::Sword", "src/ninja.ts::Katana"),
+                ("injects", "src/ninja.ts::Ninja", "src/ninja.ts::WeaponToken"),
+            ],
+        )
+
+    def test_ts_inject_impostor_and_bind_without_import_refused(self):
+        # AC-2 (origin-check symmetry): a same-named user-defined `@Inject` is
+        # refused (negative check → falls to the type annotation, here a
+        # primitive → no edge), and `bind().to()` without an inversify import is
+        # refused (positive check on the generic `bind` name).
+        payload = self._build({
+            "src/impostor.ts": (
+                "import { Injectable } from '@nestjs/common';\n"
+                "function Inject(t: any) { return (a: any, b: any, c: any) => {}; }\n"
+                "@Injectable()\n"
+                "export class ImpostorSvc {\n"
+                "  constructor(@Inject(SecretToken) a: any) {}\n"
+                "}\n"
+                "export class SecretToken {}\n"
+            ),
+            "src/no_inversify.ts": (
+                "function bind(x: any) { return { to(y: any) {} }; }\n"
+                "bind(A).to(B);\n"
+            ),
+        })
+        self.assertEqual(self._di_edges(payload), [])
+
+    def test_ts_binds_ambiguous_useclass_twin_stays_external(self):
+        # Wave 1p9q8: two same-name `PgDb` classes in different files → a
+        # `useClass: PgDb` binds endpoint is AMBIGUOUS and must refuse to
+        # `external::PgDb` rather than arbitrarily picking one twin (the token
+        # `DBToken` is unique and still resolves). Faithful unique-candidate
+        # discipline, mirroring the injects path.
+        payload = self._build({
+            "src/a.ts": "export class PgDb {}\n",
+            "src/b.ts": "export class PgDb {}\n",
+            "src/app.module.ts": (
+                "import { Module } from '@nestjs/common';\n"
+                "@Module({ providers: [{ provide: DBToken, useClass: PgDb }] })\n"
+                "export class AppModule {}\n"
+                "export class DBToken {}\n"
+            ),
+        })
+        self.assertEqual(
+            self._di_edges(payload),
+            [("binds", "src/app.module.ts::DBToken", "external::PgDb")],
+        )
+
+    def test_ts_inversify_binds_ambiguous_impl_twin_stays_external(self):
+        # Wave 1p9q8: same discipline for the Inversify `bind(Token).to(PgDb)`
+        # form — an ambiguous impl twin refuses to `external::PgDb`.
+        payload = self._build({
+            "src/a.ts": "export class PgDb {}\n",
+            "src/b.ts": "export class PgDb {}\n",
+            "src/wire.ts": (
+                "import { Container } from 'inversify';\n"
+                "const c = new Container();\n"
+                "c.bind(DBToken).to(PgDb);\n"
+                "export class DBToken {}\n"
+            ),
+        })
+        self.assertEqual(
+            self._di_edges(payload),
+            [("binds", "src/wire.ts::DBToken", "external::PgDb")],
+        )
+
+    def test_di_ast_anchoring_ignores_strings_and_comments(self):
+        # AC-3: idiom text inside strings/comments produces no edges (the regex
+        # failure mode AST anchoring exists to defeat).
+        payload = self._build({
+            "src/strings.py": (
+                "from fastapi import Depends\n"
+                "def prov():\n    return 1\n"
+                "# db = Depends(prov) in a comment\n"
+                "def handler():\n"
+                "    s = 'x = Depends(prov)'\n"
+                "    return s\n"
+            ),
+            "src/strings.ts": (
+                "// @Injectable() class Fake { constructor(x: Real) {} }\n"
+                "const marker = '@Injectable class Q { constructor(y: Real) {} }';\n"
+                "export class Real {}\n"
+            ),
+        })
+        self.assertEqual(self._di_edges(payload), [])
+
+    def test_di_signals_java_and_python_coexist(self):
+        # Collect-side merge (wave 1p9q7): AST-anchored Python signals and
+        # text-based Java signals both survive into the resolved edge set.
+        payload = self._build({
+            "src/FooService.java": "@Service\npublic class FooService implements IFooService {}",
+            "src/BarController.java": (
+                "@RestController\npublic class BarController {\n"
+                "    public BarController(IFooService fooService) {}\n}"
+            ),
+            "src/routes.py": (
+                "from fastapi import Depends\n"
+                "def get_user():\n    return 'u'\n"
+                "def handler(u = Depends(get_user)):\n    return u\n"
+            ),
+        })
+        edges = self._di_edges(payload)
+        self.assertIn(("injects", "src/routes.py::handler", "src/routes.py::get_user"), edges)
+        self.assertIn(("binds", "src/FooService.java::IFooService", "src/FooService.java"), edges)
+        self.assertIn(("injects", "src/BarController.java", "src/FooService.java"), edges)
+
+    def test_jvm_di_edge_set_unchanged_by_python_ts_expansion(self):
+        # AC-5: the shipped JVM DI extraction is byte-identical — the exact edge
+        # set is pinned so a shared-code regression is caught.
+        payload = self._build({
+            "src/AppConfig.java": (
+                "@Configuration\npublic class AppConfig {\n"
+                "    @Bean\n    public IFooService fooService() { return new FooService(); }\n}"
+            ),
+            "src/FooService.java": "@Service\npublic class FooService implements IFooService {}",
+            "src/BarController.java": (
+                "@RestController\npublic class BarController {\n"
+                "    public BarController(IFooService fooService) {}\n}"
+            ),
+        })
+        self.assertEqual(
+            self._di_edges(payload),
+            [
+                ("binds", "src/AppConfig.java::IFooService", "src/FooService.java"),
+                ("injects", "src/BarController.java", "src/AppConfig.java::IFooService"),
+            ],
+        )
+
 
 class CrossFileResolutionTests(unittest.TestCase):
     """Regression tests for wave 130ol: cross-file symbol resolution +
@@ -2946,6 +3650,273 @@ class CrossFileResolutionTests(unittest.TestCase):
         self.assertTrue(all(str(t).startswith("external::") for t in targets),
                         f"Python same-dir unimported receiver must stay external; got {targets}")
 
+    # ------------------------------------------------------------------
+    # Wave 1p9q5: Rust module-path model + same-module disambiguation tier.
+    # Rust's visibility rule is the MODULE TREE (not the directory): items in
+    # the same module are visible without `use`. AC-1 pins the module-path
+    # model; AC-2 pins the tier's bind/refuse logic; AC-3 pins C# namespace-key
+    # normalization; AC-4/AC-5 pin alias precedence + no other-language leakage.
+    # ------------------------------------------------------------------
+
+    def _require_rust(self):
+        try:
+            import tree_sitter_rust  # noqa: F401
+        except ImportError:
+            self.skipTest("tree_sitter_rust not available in test env")
+
+    def _rust_module_index(self, payload):
+        node_map = {n["id"]: n for n in payload["nodes"]}
+        return self.mod._build_rust_module_index(node_map)
+
+    # ---- AC-1: Rust module-path model ----
+
+    def test_rust_module_model_crate_root_mod_decl_inline_and_path(self):
+        """AC-1: a crate root is `crate`; a `mod foo;` file is `crate::foo`; a
+        `#[path]`-relocated `mod` maps to the override file; inline `mod` scopes
+        get distinct nested keys (file-scope != inline != nested-inline)."""
+        self._require_rust()
+        payload = self._build({
+            "src/lib.rs": (
+                "mod alpha;\n"
+                "#[path = \"custom/loc.rs\"]\nmod gamma;\n"
+                "mod beta {\n"
+                "  pub struct Widget;\n"
+                "  impl Widget { pub fn frob(&self) -> i32 { 1 } }\n"
+                "  mod inner { pub struct Gadget; impl Gadget { pub fn go(&self) -> i32 { 2 } } }\n"
+                "}\n"
+                "pub struct TopThing;\nimpl TopThing { pub fn top(&self) -> i32 { 3 } }\n"
+            ),
+            "src/alpha.rs": "pub struct AlphaT;\n",
+            "src/custom/loc.rs": "pub struct GammaT;\n",
+        })
+        rmi = self._rust_module_index(payload)
+        mbf, imf = rmi["module_by_file"], rmi["inline_mods_by_file"]
+        self.assertEqual(mbf.get("src/lib.rs"), "crate")
+        self.assertEqual(mbf.get("src/alpha.rs"), "crate::alpha")
+        # `#[path]` override resolves the file for `mod gamma;`.
+        self.assertEqual(mbf.get("src/custom/loc.rs"), "crate::gamma")
+        key = self.mod._rust_module_key
+        self.assertEqual(key("src/lib.rs::TopThing.top", mbf, imf), "crate")
+        self.assertEqual(key("src/lib.rs::beta.Widget.frob", mbf, imf), "crate::beta")
+        self.assertEqual(key("src/lib.rs::beta.inner.Gadget.go", mbf, imf), "crate::beta::inner")
+        # file-scope, inline-mod, and nested-inline keys are all distinct.
+        self.assertEqual(
+            len({
+                key("src/lib.rs::TopThing.top", mbf, imf),
+                key("src/lib.rs::beta.Widget.frob", mbf, imf),
+                key("src/lib.rs::beta.inner.Gadget.go", mbf, imf),
+            }),
+            3,
+        )
+
+    def test_rust_module_model_2018_edition_and_mod_rs_forms(self):
+        """AC-1: 2018-edition `mod bar;` inside `foo.rs` maps to `foo/bar.rs`
+        (`crate::foo::bar`); a `foo/mod.rs` directory module is `crate::foo` and
+        its children resolve as `foo/<child>.rs`."""
+        self._require_rust()
+        payload = self._build({
+            "src/lib.rs": "mod foo;\nmod widgets;\n",
+            "src/foo.rs": "mod bar;\npub struct FooT;\n",
+            "src/foo/bar.rs": "pub struct BarT;\n",
+            "src/widgets/mod.rs": "mod gizmo;\npub struct WMod;\n",
+            "src/widgets/gizmo.rs": "pub struct GizmoT;\n",
+        })
+        mbf = self._rust_module_index(payload)["module_by_file"]
+        self.assertEqual(mbf.get("src/foo.rs"), "crate::foo")
+        self.assertEqual(mbf.get("src/foo/bar.rs"), "crate::foo::bar")
+        self.assertEqual(mbf.get("src/widgets/mod.rs"), "crate::widgets")
+        self.assertEqual(mbf.get("src/widgets/gizmo.rs"), "crate::widgets::gizmo")
+
+    def test_rust_module_model_unreachable_files_get_distinct_fallback(self):
+        """AC-1: files unreachable from any crate root (no `lib.rs`/`main.rs`, or
+        not declared by any `mod`) fall to a per-file identity that only ever
+        equals itself — never a guessed shared parent. Two orphans get DISTINCT
+        keys so the tier can never cross-bind them."""
+        self._require_rust()
+        payload = self._build({
+            "src/orphan.rs": "pub struct Orphan; impl Orphan { pub fn frob(&self) -> i32 { 1 } }\n",
+            "src/lonely.rs": "pub struct Lonely; impl Lonely { pub fn frob(&self) -> i32 { 2 } }\n",
+        })
+        mbf = self._rust_module_index(payload)["module_by_file"]
+        self.assertEqual(mbf.get("src/orphan.rs"), "mod-file:src/orphan.rs")
+        self.assertEqual(mbf.get("src/lonely.rs"), "mod-file:src/lonely.rs")
+        self.assertNotEqual(mbf["src/orphan.rs"], mbf["src/lonely.rs"])
+
+    # ---- AC-2: Rust same-module disambiguation tier ----
+
+    def _resolve_rust(self, src, bare, candidates, module_by_file, inline_mods=None):
+        """Drive the tier directly: the candidate index collapses same-file
+        same-leaf symbols and every `.rs` file is a distinct module, so the tier
+        is exercised through `_resolve_external_call_target` with an explicit
+        candidate set (the honest unit of the tier's bind/refuse logic)."""
+        qi = {bare: list(candidates)}
+        rmi = {"module_by_file": module_by_file, "inline_mods_by_file": inline_mods or {}}
+        return self.mod._resolve_external_call_target(
+            src, bare, "EXTRACTED",
+            simple_name_index={}, qualified_index=qi, imports_by_file={},
+            cs_file_ns={}, rust_module_index=rmi,
+        )[0]
+
+    def test_rust_same_module_tier_binds_unique_survivor(self):
+        """AC-2: an ambiguous receiver with exactly one same-module candidate
+        binds to it; two same-module candidates refuse (unique-survivor); a
+        different-module candidate set stays external."""
+        cands = ["a.rs::Ledger.tally", "b.rs::Ledger.tally"]
+        # one same-module candidate → bind
+        mbf = {"a.rs": "crate::acct", "b.rs": "crate::other", "c.rs": "crate::acct"}
+        self.assertEqual(
+            self._resolve_rust("c.rs::caller", "Ledger.tally", cands, mbf),
+            "a.rs::Ledger.tally",
+        )
+        # caller in a module matching NEITHER candidate → refuse (external)
+        mbf_none = {"a.rs": "crate::acct", "b.rs": "crate::other", "d.rs": "crate::none"}
+        self.assertIsNone(self._resolve_rust("d.rs::caller", "Ledger.tally", cands, mbf_none))
+        # TWO same-module candidates → refuse (never guess)
+        mbf_two = {"a.rs": "crate::acct", "b.rs": "crate::acct", "c.rs": "crate::acct"}
+        self.assertIsNone(self._resolve_rust("c.rs::caller", "Ledger.tally", cands, mbf_two))
+
+    def test_rust_inline_mod_scope_does_not_cross_bind(self):
+        """AC-2: the sharpest wrong-bind risk — a call inside inline `mod m1`
+        binds the `m1` twin, never the `m2` twin nor a file-scope twin in the
+        same file."""
+        cands = [
+            "src/lib.rs::m1.Widget.frob",
+            "src/lib.rs::m2.Widget.frob",
+            "src/lib.rs::Widget.frob",
+        ]
+        mbf = {"src/lib.rs": "crate"}
+        imf = {"src/lib.rs": ["m1", "m2"]}
+        # caller inside m1 → m1 twin
+        self.assertEqual(
+            self._resolve_rust("src/lib.rs::m1.caller", "Widget.frob", cands, mbf, imf),
+            "src/lib.rs::m1.Widget.frob",
+        )
+        # caller inside m2 → m2 twin
+        self.assertEqual(
+            self._resolve_rust("src/lib.rs::m2.caller", "Widget.frob", cands, mbf, imf),
+            "src/lib.rs::m2.Widget.frob",
+        )
+        # caller at file scope → the file-scope twin, not either inline-mod twin
+        self.assertEqual(
+            self._resolve_rust("src/lib.rs::caller", "Widget.frob", cands, mbf, imf),
+            "src/lib.rs::Widget.frob",
+        )
+
+    def test_rust_cross_file_different_module_receiver_stays_external(self):
+        """AC-2 (end-to-end faithfulness): a receiver whose type is ambiguous
+        across two files stays external when the caller's module matches
+        neither — the module tree, not the directory, is the visibility rule, so
+        no same-name twin in another module is ever bound."""
+        self._require_rust()
+        payload = self._build({
+            "src/lib.rs": "mod a;\nmod b;\nmod c;\n",
+            "src/a.rs": "pub struct Widget; impl Widget { pub fn frobnicate(&self) -> i32 { 1 } }\n",
+            "src/b.rs": "pub struct Widget; impl Widget { pub fn frobnicate(&self) -> i32 { 2 } }\n",
+            "src/c.rs": "use crate::a::Widget;\npub fn caller(){ let w = Widget{}; let _ = w.frobnicate(); }\n",
+        })
+        targets = [e["target"] for e in self._calls_edges(payload)
+                   if "caller" in str(e.get("source", "")) and "frobnicate" in str(e.get("target", ""))]
+        self.assertTrue(targets, "expected a frobnicate call edge from caller")
+        self.assertTrue(all(str(t).startswith("external::") for t in targets),
+                        f"cross-file different-module receiver must stay external; got {targets}")
+
+    # ---- AC-4: alias / explicit-import precedence over the Rust tier ----
+
+    def test_rust_tier_yields_to_explicit_import_disambiguation(self):
+        """AC-4: when the source file's `imports` edge disambiguates the receiver
+        head, the explicit-import tier binds FIRST and the Rust same-module tier
+        never runs — an aliased/imported receiver is not double-handled. Here the
+        caller's OWN module matches NEITHER candidate, so a bind can only come
+        from the import tier, proving precedence."""
+        qi = {"Widget.frob": ["a.rs::Widget.frob", "b.rs::Widget.frob"]}
+        # `Widget` imported from module `a` (import FQN's module head).
+        imports = {"c.rs": {"Widget": "a.Widget"}}
+        rmi = {"module_by_file": {"a.rs": "crate::a", "b.rs": "crate::b", "c.rs": "crate::c"},
+               "inline_mods_by_file": {}}
+        resolved, _ = self.mod._resolve_external_call_target(
+            "c.rs::caller", "Widget.frob", "EXTRACTED",
+            simple_name_index={}, qualified_index=qi, imports_by_file=imports,
+            cs_file_ns={}, rust_module_index=rmi,
+        )
+        self.assertEqual(resolved, "a.rs::Widget.frob",
+                         "explicit import must win before the Rust module tier")
+
+    # ---- AC-5: no other-language leakage ----
+
+    def test_rust_module_index_empty_for_non_rust_project(self):
+        """AC-5: `_build_rust_module_index` yields no module mappings for a
+        project with no `.rs` files, and the `.rs`-gated tier never touches other
+        languages (a Python same-shape receiver stays external — pinned in
+        `test_python_same_dir_unimported_receiver_stays_external`)."""
+        payload = self._build({
+            "pkg/a.py": "class User:\n    def save(self): return 1\n",
+            "pkg/b.ts": "export class User { save() { return 2; } }\n",
+        })
+        rmi = self._rust_module_index(payload)
+        self.assertEqual(rmi["module_by_file"], {})
+        self.assertEqual(rmi["inline_mods_by_file"], {})
+
+    # ---- AC-3: C# namespace-key normalization (verify-and-close, regression pin) ----
+
+    def test_csharp_namespace_key_normalizes_three_declaration_styles(self):
+        """AC-3: file-scoped (`namespace A.B;`), compound (`namespace A.B {`), and
+        nested-block (`namespace A { namespace B {`) declarations all normalize to
+        the identical `cs_file_ns` key. Verified already-correct → regression pin
+        (no C# tier change). NOTE: a file-scoped-namespace CLASS carries no
+        namespace prefix in its qname (the class is an AST sibling of the
+        declaration), so its `_cs_ns` membership is a separate pre-existing tier
+        nuance outside this AC — only the `cs_file_ns` KEY normalization is
+        pinned here."""
+        try:
+            import tree_sitter_c_sharp  # noqa: F401
+        except ImportError:
+            self.skipTest("tree_sitter_c_sharp not available in test env")
+        payload = self._build({
+            "FileScoped.cs": "namespace Acme.Widgets;\npublic class Alpha { public void Frobnicate(){} }\n",
+            "Compound.cs": "namespace Acme.Widgets {\n  public class Beta { public void Frobnicate(){} }\n}\n",
+            "Nested.cs": "namespace Acme { namespace Widgets {\n  public class Gamma { public void Frobnicate(){} }\n} }\n",
+        })
+        node_map = {n["id"]: n for n in payload["nodes"]}
+        _si, _qi, cs_file_ns, _pk, _rmi = self.mod._build_candidate_indexes(node_map)
+        self.assertIn("Acme.Widgets", cs_file_ns.get("FileScoped.cs", set()))
+        self.assertIn("Acme.Widgets", cs_file_ns.get("Compound.cs", set()))
+        self.assertIn("Acme.Widgets", cs_file_ns.get("Nested.cs", set()))
+
+    # ---- AC-6: Rust fixture calibration (real-pipeline oracle) ----
+
+    def test_rust_module_tier_calibration(self):
+        """AC-6: on a Rust fixture corpus exercising the module model + tier,
+        record the before/after resolution shape. FINDING (recorded honestly):
+        the same-module tier adds ZERO productive end-to-end binds because (a)
+        same-file same-module defs already resolve at extraction via
+        `symbol_lookup`, (b) every `.rs` file is a DISTINCT module (module=file),
+        so cross-file candidates never share the caller's module, and (c) the
+        candidate index collapses same-file same-leaf symbols, hiding intra-file
+        inline-mod ambiguity. What the tier DOES guarantee — and what this
+        calibration asserts — is faithfulness: every cross-module ambiguous
+        receiver stays external (no wrong twin bound). The module model itself
+        (AC-1) is the durable deliverable."""
+        self._require_rust()
+        payload = self._build({
+            "src/lib.rs": "mod a;\nmod b;\nmod c;\n",
+            "src/a.rs": "pub struct Widget; impl Widget { pub fn frobnicate(&self) -> i32 { 1 } }\n",
+            "src/b.rs": "pub struct Widget; impl Widget { pub fn frobnicate(&self) -> i32 { 2 } }\n",
+            "src/c.rs": "use crate::a::Widget;\npub fn caller(){ let w = Widget{}; let _ = w.frobnicate(); }\n",
+        })
+        calls = self._calls_edges(payload)
+        recv = [e for e in calls if "frobnicate" in str(e.get("target", ""))]
+        resolved = sum(1 for e in recv if not str(e.get("target", "")).startswith("external::"))
+        external = sum(1 for e in recv if str(e.get("target", "")).startswith("external::"))
+        wrong_binds = sum(
+            1 for e in recv
+            if str(e.get("target", "")).startswith("src/b.rs::")  # the wrong-module twin
+        )
+        print(f"[1p9q5 AC-6] rust receiver calls: resolved={resolved} external={external} "
+              f"wrong-module-binds={wrong_binds} (productive same-module binds via tier: 0 — structural)")
+        # Faithfulness bar: the wrong-module twin is NEVER bound.
+        self.assertEqual(wrong_binds, 0)
+        self.assertGreaterEqual(external, 1)
+
 
 class SwiftClassModuleMergeTests(unittest.TestCase):
     """1316l: Swift class/module merge at index time.
@@ -3524,9 +4495,12 @@ class AnnotationReceiverTypeTests(unittest.TestCase):
         self.assertTrue(edges, f"Python typed param edge missing: {self._receiver_edges(payload)}")
 
     def test_python_unannotated_local_does_not_receiver_resolve(self):
+        # A genuinely untyped receiver (unannotated parameter) never RECEIVER_RESOLVEs.
+        # (Wave 1p9q4 repointed this off `foo = Foo()`, which is now a deterministic
+        # CONSTRUCTION_RESOLVED signal — see Python1p9q4ReceiverTests.)
         payload = self._build({
             "src/foo.py": "class Foo:\n    def bar(self): pass\n",
-            "src/bar.py": "from src.foo import Foo\ndef make():\n    foo = Foo()\n    foo.bar()\n",
+            "src/bar.py": "from src.foo import Foo\ndef make(foo):\n    foo.bar()\n",
         })
         edges = [e for e in self._receiver_edges(payload) if "bar.py::make" in str(e.get("source", ""))]
         # Self.method and Foo.bar via symbol_lookup may produce EXTRACTED, but no RECEIVER_RESOLVED.
@@ -3571,6 +4545,264 @@ class AnnotationReceiverTypeTests(unittest.TestCase):
         })
         edges = [e for e in self._receiver_edges(payload) if "Foo.bar" in str(e.get("target", ""))]
         self.assertTrue(edges, f"Python Optional[Foo] edge missing: {self._receiver_edges(payload)}")
+
+
+class Python1p9q4ReceiverTests(unittest.TestCase):
+    """1p9q4: Python receiver resolution from annotated attributes, string
+    annotations, and constructor assignments — the residue that pre-1p9q4 stayed
+    `external::`. Two deterministic AST-local signals feed the receiver-type
+    table: annotations (RECEIVER_RESOLVED) and constructor assignments
+    (CONSTRUCTION_RESOLVED). Unique-match-or-drop; conflicting evidence demotes;
+    no inheritance/MRO walk. Every positive has a faithfulness twin."""
+
+    def setUp(self):
+        self.mod = load_graph_indexer()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        (self.root / "docs").mkdir(parents=True, exist_ok=True)
+        (self.root / "docs" / "workflow-config.json").write_text("{}", encoding="utf-8")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _build(self, files):
+        paths, meta = [], {}
+        for rel, content in files.items():
+            path = self.root / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+            paths.append(path)
+            meta[rel.replace("\\", "/")] = {"hash": content}
+        return self.mod.update_graph_index(
+            root=self.root, index_dir=self.root / ".wavefoundry" / "index",
+            layer="project", files=paths, current_file_meta=meta,
+            changed=set(meta.keys()), removed=set(),
+            walker_version="1", chunker_version="1", verbose=False,
+        )
+
+    def _call_confs(self, payload, src_sub, tgt_sub):
+        """Confidences of `calls` edges from src_sub to a PROJECT node (non-external::)
+        whose id contains tgt_sub. Project bind = a real target path, not `external::`."""
+        return [
+            e.get("confidence")
+            for e in payload.get("edges", [])
+            if e.get("relation") == "calls"
+            and src_sub in str(e.get("source", ""))
+            and tgt_sub in str(e.get("target", ""))
+            and not str(e.get("target", "")).startswith("external::")
+        ]
+
+    def _ext_call_confs(self, payload, src_sub, tgt_sub):
+        """Confidences of `calls` edges from src_sub to an UNRESOLVED (`external::`)
+        target whose id contains tgt_sub. Wave 1p9q8: an unresolved edge — a typed
+        receiver whose qualified name is not in `symbol_lookup` (method absent from
+        the resolved class, or an ambiguous cross-file same-name twin) — must carry
+        EXTRACTED, never the receiver/construction resolution confidence."""
+        return [
+            e.get("confidence")
+            for e in payload.get("edges", [])
+            if e.get("relation") == "calls"
+            and src_sub in str(e.get("source", ""))
+            and tgt_sub in str(e.get("target", ""))
+            and str(e.get("target", "")).startswith("external::")
+        ]
+
+    # ---- AC-1: annotation signal (attributes + string forward refs) ----
+    def test_annotated_self_attr_in_init_resolves_receiver(self):
+        payload = self._build({
+            "src/dep.py": "class Dep:\n    def bar(self): pass\n",
+            "src/svc.py": (
+                "from src.dep import Dep\n"
+                "class Service:\n"
+                "    def __init__(self):\n"
+                "        self.dep: Dep = build()\n"
+                "    def execute(self):\n"
+                "        self.dep.bar()\n"
+            ),
+        })
+        confs = self._call_confs(payload, "svc.py::Service.execute", "dep.py::Dep.bar")
+        self.assertEqual(confs, ["RECEIVER_RESOLVED"], f"annotated self-attr must RECEIVER_RESOLVED: {confs}")
+
+    def test_class_body_annotated_attr_resolves_receiver(self):
+        payload = self._build({
+            "src/dep.py": "class Dep:\n    def bar(self): pass\n",
+            "src/svc.py": (
+                "from src.dep import Dep\n"
+                "class Service:\n"
+                "    dep: Dep\n"
+                "    def execute(self):\n"
+                "        self.dep.bar()\n"
+            ),
+        })
+        confs = self._call_confs(payload, "svc.py::Service.execute", "dep.py::Dep.bar")
+        self.assertEqual(confs, ["RECEIVER_RESOLVED"], f"class-body annotated attr must RECEIVER_RESOLVED: {confs}")
+
+    def test_string_forward_ref_annotation_resolves_receiver(self):
+        payload = self._build({
+            "src/foo.py": "class Foo:\n    def bar(self): pass\n",
+            "src/bar.py": "from src.foo import Foo\ndef make(foo: 'Foo'):\n    foo.bar()\n",
+        })
+        confs = self._call_confs(payload, "bar.py::make", "foo.py::Foo.bar")
+        self.assertEqual(confs, ["RECEIVER_RESOLVED"], f"string forward-ref annotation must resolve: {confs}")
+
+    def test_string_optional_forward_ref_unwraps(self):
+        payload = self._build({
+            "src/foo.py": "class Foo:\n    def bar(self): pass\n",
+            "src/bar.py": "from src.foo import Foo\ndef make(foo: 'Optional[Foo]'):\n    foo.bar()\n",
+        })
+        confs = self._call_confs(payload, "bar.py::make", "foo.py::Foo.bar")
+        self.assertEqual(confs, ["RECEIVER_RESOLVED"], f"string Optional[Foo] forward-ref must unwrap: {confs}")
+
+    # ---- AC-2: construction signal (local, self.attr, module-level) ----
+    def test_local_construction_resolves_construction(self):
+        payload = self._build({
+            "src/foo.py": "class Foo:\n    def bar(self): pass\n",
+            "src/bar.py": "from src.foo import Foo\ndef make():\n    foo = Foo()\n    foo.bar()\n",
+        })
+        confs = self._call_confs(payload, "bar.py::make", "foo.py::Foo.bar")
+        self.assertEqual(confs, ["CONSTRUCTION_RESOLVED"], f"local `foo = Foo()` must CONSTRUCTION_RESOLVED: {confs}")
+
+    def test_self_attr_construction_resolves_construction(self):
+        payload = self._build({
+            "src/dep.py": "class Dep:\n    def bar(self): pass\n",
+            "src/svc.py": (
+                "from src.dep import Dep\n"
+                "class Service:\n"
+                "    def __init__(self):\n"
+                "        self.dep = Dep()\n"
+                "    def execute(self):\n"
+                "        self.dep.bar()\n"
+            ),
+        })
+        confs = self._call_confs(payload, "svc.py::Service.execute", "dep.py::Dep.bar")
+        self.assertEqual(confs, ["CONSTRUCTION_RESOLVED"], f"self.dep = Dep() must CONSTRUCTION_RESOLVED: {confs}")
+
+    def test_module_level_construction_resolves_construction(self):
+        payload = self._build({
+            "src/foo.py": "class Foo:\n    def bar(self): pass\n",
+            "src/bar.py": "from src.foo import Foo\nfoo = Foo()\ndef make():\n    foo.bar()\n",
+        })
+        confs = self._call_confs(payload, "bar.py::make", "foo.py::Foo.bar")
+        self.assertEqual(confs, ["CONSTRUCTION_RESOLVED"], f"module-level `foo = Foo()` must CONSTRUCTION_RESOLVED: {confs}")
+
+    def test_annotation_and_construction_same_type_prefers_receiver(self):
+        # Both signals agree on the type → annotation (stronger) sets RECEIVER_RESOLVED.
+        payload = self._build({
+            "src/foo.py": "class Foo:\n    def bar(self): pass\n",
+            "src/bar.py": "from src.foo import Foo\ndef make():\n    foo: Foo = Foo()\n    foo.bar()\n",
+        })
+        confs = self._call_confs(payload, "bar.py::make", "foo.py::Foo.bar")
+        self.assertEqual(confs, ["RECEIVER_RESOLVED"], f"annotation must win over construction on agreement: {confs}")
+
+    # ---- AC-3: faithfulness negatives (drop) ----
+    def test_conflicting_reassignment_demotes(self):
+        payload = self._build({
+            "src/multi.py": "class A:\n    def amethod(self): pass\nclass B:\n    def bmethod(self): pass\n",
+            "src/bar.py": "from src.multi import A, B\ndef make():\n    x = A()\n    x = B()\n    x.amethod()\n",
+        })
+        confs = self._call_confs(payload, "bar.py::make", "amethod")
+        self.assertEqual(confs, [], f"conflicting reassignment must demote (no bind): {confs}")
+
+    def test_non_optional_union_annotation_does_not_bind(self):
+        payload = self._build({
+            "src/foo.py": "class Foo:\n    def bar(self): pass\n",
+            "src/bar.py": "from typing import Union\nfrom src.foo import Foo\ndef make(foo: Union[Foo, int]):\n    foo.bar()\n",
+        })
+        confs = self._call_confs(payload, "bar.py::make", "foo.py::Foo.bar")
+        self.assertEqual(confs, [], f"multi-type Union must not bind: {confs}")
+
+    def test_pep604_multi_union_does_not_bind(self):
+        payload = self._build({
+            "src/foo.py": "class Foo:\n    def bar(self): pass\nclass Baz:\n    def bar(self): pass\n",
+            "src/bar.py": "from src.foo import Foo, Baz\ndef make(foo: Foo | Baz):\n    foo.bar()\n",
+        })
+        confs = self._call_confs(payload, "bar.py::make", "foo.py::Foo.bar")
+        self.assertEqual(confs, [], f"PEP 604 multi union must not bind: {confs}")
+
+    def test_getattr_receiver_does_not_bind(self):
+        payload = self._build({
+            "src/foo.py": "class Foo:\n    def bar(self): pass\n",
+            "src/bar.py": "from src.foo import Foo\ndef make(foo: Foo):\n    getattr(foo, 'x').bar()\n",
+        })
+        confs = self._call_confs(payload, "bar.py::make", "foo.py::Foo.bar")
+        self.assertEqual(confs, [], f"getattr()-chained receiver must not bind: {confs}")
+
+    def test_star_imported_class_not_construction_typed(self):
+        # A star-imported name is not in import_aliases (only `*` is), so it is
+        # never a bindable construction type — never guess through a star import.
+        payload = self._build({
+            "src/foo.py": "class Foo:\n    def bar(self): pass\n",
+            "src/bar.py": "from src.foo import *\ndef make():\n    x = Foo()\n    x.bar()\n",
+        })
+        confs = self._call_confs(payload, "bar.py::make", "foo.py::Foo.bar")
+        self.assertEqual(confs, [], f"star-imported class must not construction-type: {confs}")
+
+    def test_method_absent_from_resolved_class_stays_external(self):
+        payload = self._build({
+            "src/foo.py": "class Foo:\n    def bar(self): pass\n",
+            "src/bar.py": "from src.foo import Foo\ndef make(foo: Foo):\n    foo.missing()\n",
+        })
+        # Typed receiver, but Foo has no `missing` → no project bind (stays external::).
+        confs = self._call_confs(payload, "bar.py::make", "missing")
+        self.assertEqual(confs, [], f"method absent from class must stay external: {confs}")
+        # Wave 1p9q8: the unresolved `external::Foo.missing` edge must be honest —
+        # EXTRACTED, not the RECEIVER_RESOLVED that the typed receiver would suggest.
+        ext = self._ext_call_confs(payload, "bar.py::make", "Foo.missing")
+        self.assertEqual(ext, ["EXTRACTED"], f"unresolved external edge must be EXTRACTED, not resolved: {ext}")
+
+    def test_ambiguous_cross_file_twin_stays_external(self):
+        # `Dup` is defined in two files and NOT imported into c.py → the annotated
+        # receiver's `external::Dup.go` has two candidates → not unique → external.
+        payload = self._build({
+            "src/a.py": "class Dup:\n    def go(self): pass\n",
+            "src/b.py": "class Dup:\n    def go(self): pass\n",
+            "src/c.py": "def make(d: Dup):\n    d.go()\n",
+        })
+        confs = self._call_confs(payload, "c.py::make", ".go")
+        self.assertEqual(confs, [], f"ambiguous cross-file twin must stay external: {confs}")
+        # Wave 1p9q8: the ambiguous `external::Dup.go` edge (two candidate classes,
+        # not unique) is UNRESOLVED — it must carry EXTRACTED, not RECEIVER_RESOLVED.
+        ext = self._ext_call_confs(payload, "c.py::make", "Dup.go")
+        self.assertEqual(ext, ["EXTRACTED"], f"ambiguous twin external edge must be EXTRACTED: {ext}")
+
+    def test_construction_from_non_class_factory_does_not_bind(self):
+        payload = self._build({
+            "src/bar.py": "def factory():\n    pass\ndef make():\n    x = factory()\n    x.run()\n",
+        })
+        confs = self._call_confs(payload, "bar.py::make", ".run")
+        self.assertEqual(confs, [], f"construction from a same-file function must not bind: {confs}")
+
+    def test_module_type_shadowed_by_local_param_does_not_bind(self):
+        # A module global `foo = Foo()` is shadowed by a same-named untyped
+        # parameter → the module type must not leak into the shadowed scope.
+        payload = self._build({
+            "src/foo.py": "class Foo:\n    def bar(self): pass\n",
+            "src/bar.py": "from src.foo import Foo\nfoo = Foo()\ndef make(foo):\n    foo.bar()\n",
+        })
+        confs = self._call_confs(payload, "bar.py::make", "foo.py::Foo.bar")
+        self.assertEqual(confs, [], f"shadowed module global must not bind: {confs}")
+
+    # ---- Interaction with 1p7dg promotion: no double-labeling ----
+    def test_no_double_labeling_with_1p7dg_self_promotion(self):
+        # A `self.helper()` bare call (1p7dg self-promotion → RECEIVER_RESOLVED)
+        # and a construction `d = Dep(); d.bar()` (CONSTRUCTION_RESOLVED) coexist:
+        # each call yields exactly ONE correctly-labeled edge, no duplicate.
+        payload = self._build({
+            "src/dep.py": "class Dep:\n    def bar(self): pass\n",
+            "src/svc.py": (
+                "from src.dep import Dep\n"
+                "class Service:\n"
+                "    def helper(self): pass\n"
+                "    def execute(self):\n"
+                "        self.helper()\n"
+                "        d = Dep()\n"
+                "        d.bar()\n"
+            ),
+        })
+        helper = self._call_confs(payload, "svc.py::Service.execute", "svc.py::Service.helper")
+        run = self._call_confs(payload, "svc.py::Service.execute", "dep.py::Dep.bar")
+        self.assertEqual(helper, ["RECEIVER_RESOLVED"], f"self.helper() must be single RECEIVER_RESOLVED: {helper}")
+        self.assertEqual(run, ["CONSTRUCTION_RESOLVED"], f"d.bar() must be single CONSTRUCTION_RESOLVED: {run}")
 
 
 class PythonConfidencePromotionTests(unittest.TestCase):
@@ -3658,11 +4890,14 @@ class PythonConfidencePromotionTests(unittest.TestCase):
         self.assertIn("RECEIVER_RESOLVED", confs, f"exact cross-file bind not promoted: {confs}")
 
     def test_unannotated_receiver_guess_not_promoted(self):
-        # FAITHFULNESS: an unannotated local's `foo.bar()` is a receiver-type
-        # guess — it must NOT bind/promote (no type is known).
+        # FAITHFULNESS: a genuinely untyped receiver (unannotated parameter, no
+        # constructor assignment) is a receiver-type guess — it must NOT
+        # bind/promote (no type is known). (Wave 1p9q4 repointed this fixture off
+        # `foo = Foo()`, which is now a deterministic CONSTRUCTION_RESOLVED signal;
+        # the construction path is covered positively in Python1p9q4ReceiverTests.)
         payload = self._build({
             "src/foo.py": "class Foo:\n    def bar(self): pass\n",
-            "src/bar.py": "from src.foo import Foo\ndef make():\n    foo = Foo()\n    foo.bar()\n",
+            "src/bar.py": "from src.foo import Foo\ndef make(foo):\n    foo.bar()\n",
         })
         confs = self._confs(payload, "bar.py::make", "Foo.bar")
         self.assertNotIn("RECEIVER_RESOLVED", confs, f"guessed receiver wrongly promoted: {confs}")
@@ -7026,7 +8261,7 @@ class GraphBuilderVersionTests(unittest.TestCase):
     """Wave 1p4ls AC-3: the node/edge shape changed (constant nodes + reads edge) so the builder
     version is bumped, forcing a full re-extract against any older cache."""
 
-    def test_graph_builder_version_is_37(self):
+    def test_graph_builder_version_is_40(self):
         # 1p4ls bumped 25→26 (constant nodes + reads edge); 1p4q4 bumped 26→27 (TS enum member nodes);
         # 1p4q4 review bumped 27→28 (namespace-prefixed enum members + short-symbol-prune exemption);
         # 1p4up bumped 28→29 (member-access constant reads — new function→constant `reads` edges);
@@ -7065,7 +8300,17 @@ class GraphBuilderVersionTests(unittest.TestCase):
         # writes captured; R6a routine body-definition drop made unconditional — phantom-edge
         # removals + newly-surfaced contained reads → extraction-output change → re-extract. R7 is
         # a read-only diagnostic (no projection change → no CLUSTER_BUILDER_VERSION bump).
-        self.assertEqual(load_graph_indexer().GRAPH_BUILDER_VERSION, "39")
+        # Wave 1p9q8 bumped 39→40 (coordinated SINGLE bump for graph-index-accuracy: 1p9q4 Python
+        # receiver/construction resolution — new RECEIVER_RESOLVED/CONSTRUCTION_RESOLVED calls binds +
+        # union/generic over-bind faithfulness fix; 1p9q5 Rust module-path model + `rust_mod_decls`/
+        # `rust_inline_mods` node properties + same-module tier (zero productive binds today, node-shape
+        # change); 1p9q6 oversized-file line-scan tier — new `extraction: "line_scan"` module/def nodes +
+        # `line_scan_defines`/`line_scan_imports`/`line_scan_skipped` properties; 1p9q7 AST-anchored
+        # Python/TS `injects`/`binds` DI edges. New nodes + node properties + new/rebound calls +
+        # new DI edges → node/edge/property-set shape change → re-extract. NO CLUSTER_BUILDER_VERSION
+        # bump: graph_cluster.py projection is unchanged and the graph-fingerprint/builder-version
+        # staleness gate already forces the recluster.
+        self.assertEqual(load_graph_indexer().GRAPH_BUILDER_VERSION, "40")
 
 
 class OversizedTreeSitterGuardTests(unittest.TestCase):
@@ -7889,6 +9134,17 @@ class JavaStaticImportInheritedShadowTests(unittest.TestCase):
         ):
             self.assertNotIn(wrong, targets,
                              f"never bind {wrong} on a multi-definer refusal")
+        # Wave 1p9q8 (delivery-council fix round): the refusal re-emits the
+        # marker's original RECEIVER_RESOLVED confidence on a dotted external
+        # target — the pipeline-end honesty pass must relabel it EXTRACTED
+        # (an ambiguous multi-definer refusal is not a resolved bind).
+        refusal_confs = [
+            e.get("confidence") for e in payload["edges"]
+            if e.get("relation") == "calls" and e.get("target") == "external::Child.helper"
+        ]
+        self.assertEqual(
+            refusal_confs, ["EXTRACTED"],
+            f"multi-definer staticorinherited refusal must be honestly EXTRACTED; got {refusal_confs}")
 
     def _assert_no_marker_anywhere(self, payload: dict) -> None:
         prefix = self.mod._STATIC_OR_INHERITED_PREFIX
@@ -8316,10 +9572,19 @@ class JavaCSharpInheritanceTests(unittest.TestCase):
         payload = self._build({
             "com/app/UserRepo.java": "package com.app;\npublic class UserRepo extends ExternalBase {\n    public void persist() { super.persist(); }\n}\n",
         })
-        targets = [e["target"] for e in self._calls_to(payload, "persist") if "UserRepo.persist" in e["source"]]
+        edges = [e for e in self._calls_to(payload, "persist") if "UserRepo.persist" in e["source"]]
+        targets = [e["target"] for e in edges]
         self.assertEqual(
             targets, ["external::super.UserRepo.persist"],
             f"an unbound super call must keep the explicit super marker (refusal, not a guess); got {targets}")
+        # Wave 1p9q8 (delivery-council fix round): the marker is emitted at
+        # extraction with RECEIVER_RESOLVED, but a super call to a library
+        # superclass never binds a project node — the pipeline-end honesty
+        # pass (`_downgrade_unresolved_typed_calls`) must relabel it EXTRACTED,
+        # never leave the pre-existing RECEIVER_RESOLVED over-claim standing.
+        self.assertEqual(
+            edges[0].get("confidence"), "EXTRACTED",
+            f"unresolved super marker must be honestly EXTRACTED, not RECEIVER_RESOLVED; got {edges[0]}")
 
     def test_csharp_base_call_binds_via_extends_target(self):
         self._require_csharp()

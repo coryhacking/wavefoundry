@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-05
+Last verified: 2026-07-06
 
 Architecture reference for Wavefoundry's code and documentation graph index: how it is generated, stored, traversed, clustered, and surfaced through MCP tools.
 
@@ -117,6 +117,8 @@ Every edge is a dict produced by `_edge()` at `graph_indexer.py:509-525`:
 
 **Decision note — Java receiver forms and package keying (wave `1p9qh` / `1p9qb`).** Java receiver-type resolution covers, beyond bare identifiers: single-segment `field_access` receivers — `this.repo.save()` and `Enclosing.STATIC_FIELD.m()` (static field via the enclosing class name) — resolved through a field-declaration-ONLY lookup (`_search_java_field_declarations`) so a local/parameter shadow never diverts `this.<field>` (Java semantics: `this.f` always denotes the field). Deeper chains (`this.a.b.m()`), non-`this` field paths, casts, and lambdas stay uncertain (documented give-ups). Java `@interface` declarations classify as kind `class` (type declarations, like interface/enum/record), which makes the basename merge apply to annotation-type files. The Java/Kotlin same-package disambiguation tier keys on the **parsed `package` declaration** (`declared_package` on the file's module node, patterns mirroring `graph_query`'s package-collapse mechanism) with directory fallback for declaration-less files — the language fact, not directory layout, consistent with the C# declared-namespace stance; Go keeps directory keying because a Go package IS its directory.
 
+**Decision note — same-scope disambiguation tier by language (wave `1p9q5` adds Rust).** The same-scope disambiguation tier — an ambiguous receiver type binds to a same-name candidate ONLY when a language-defined scope key matches, unique-survivor, refuse-on-ambiguity — now covers **Java/Kotlin/Go/C#/Rust**. Python/JS/TS deliberately **refuse** this tier (no directory/scope proxy for visibility; a standing decision, not a gap). For **Rust** (wave `1p9q5`), the scope key is a **crate-relative module path**, not a directory: `_build_rust_module_index` BFS-maps files to module paths from `mod foo;` declarations (harvested onto each `.rs` module node as `rust_mod_decls`) and `_rust_module_key` composes the file-module path with an inline-`mod {}` nesting suffix (`rust_inline_mods`), also honoring `#[path]` relocation, the crate root, and a per-file identity fallback for unreachable/ambiguous files (never a guessed parent). The `.rs` tier binds a receiver to a same-module definition only, ordered AFTER explicit-import disambiguation (which wins first). **Bounds:** no cross-crate resolution and no re-export (`pub use`) graph — a `use` re-export chain is not followed. On current-era repos the tier produces near-zero productive end-to-end binds (a Rust module ≈ one file, and same-file same-module calls already resolve at extraction via `symbol_lookup`); the durable deliverable is the module-path model plus the `rust_mod_decls`/`rust_inline_mods` node properties. C# was verify-and-close in the same wave (`_cs_ns`/`cs_file_ns` already normalize `namespace A.B;`, block, and nested declaration styles to one key; a file-scoped-namespace class carries no namespace prefix and does not participate in the C# tier).
+
 ---
 
 ## Generation Pipeline (`graph_indexer.py`)
@@ -127,7 +129,7 @@ Four constants gate incremental reuse (`graph_indexer.py:27-37`):
 
 ```
 GRAPH_SCHEMA_VERSION  = "1"
-GRAPH_BUILDER_VERSION = "38"   # 38: 1p9qi coordinated single bump — SQL keyword-noise suppression (1p9qc), clause-aware statement-unit extraction + new `writes` relation + `sql_kind` (1p9qd), ERROR-region recovery tier + `sql_recovery` provenance (1p9qe), embedded-SQL capture/bind fragment keys + `external::sql::` externals (1p9qf), entity `maps_to` mapping + orm_entity fragment keys (1p9qg); 37: 1p9qh coordinated single bump — structured Java imports (1p9q9), extends/implements inheritance edges + inherited-method resolution (1p9qa), this.field receivers + annotation-type kind + package-declaration keying (1p9qb); 36: 1p9q3 compact+gzip+atomic persistence, build-time betweenness, incremental merge state store (see the constant's in-code changelog for the full history)
+GRAPH_BUILDER_VERSION = "40"   # 40: 1p9q8 coordinated single bump — Python receiver-type resolution (annotations incl. string forward-refs / attrs / module globals + constructor assignments → RECEIVER_RESOLVED / CONSTRUCTION_RESOLVED, unique-match-or-external) (1p9q4), Rust module-path model + `.rs` same-module tier (1p9q5), oversized-file line-scan tier (1p9q6), AST-anchored Python/TS DI `injects`/`binds` (1p9q7); 38: 1p9qi coordinated single bump — SQL keyword-noise suppression (1p9qc), clause-aware statement-unit extraction + new `writes` relation + `sql_kind` (1p9qd), ERROR-region recovery tier + `sql_recovery` provenance (1p9qe), embedded-SQL capture/bind fragment keys + `external::sql::` externals (1p9qf), entity `maps_to` mapping + orm_entity fragment keys (1p9qg); 37: 1p9qh coordinated single bump — structured Java imports (1p9q9), extends/implements inheritance edges + inherited-method resolution (1p9qa), this.field receivers + annotation-type kind + package-declaration keying (1p9qb); 36: 1p9q3 compact+gzip+atomic persistence, build-time betweenness, incremental merge state store (see the constant's in-code changelog for the full history)
 ```
 
 The community-clustering layer (`graph_cluster.py`) carries its own `CLUSTER_BUILDER_VERSION = "11"` (10: seeded-RNG determinism + grab-bag split; 11: build-time betweenness section + `input_fingerprint` key, wave `1p9q3`).
@@ -150,7 +152,14 @@ Code extensions: approximately 50 suffixes including `.py`, `.js`/`.jsx`/`.mjs`/
 
 Three strategies are selected by file type (`graph_indexer.py:1621-1654`):
 
-**Python** (`graph_indexer.py:1143-1318`): Full `ast` module walk via `CallCollector(ast.NodeVisitor)`. Resolves `ast.Call` nodes by matching `ast.Name` and `ast.Attribute` nodes against `import_aliases` and `symbol_lookup`. Confidence: `"EXTRACTED"`.
+**Python** (`_extract_python_artifact`, `graph_indexer.py:10304-11073`): Full `ast` module walk via `CallCollector(ast.NodeVisitor)`. Resolves `ast.Call` nodes by matching `ast.Name` and `ast.Attribute` nodes against `import_aliases` and `symbol_lookup`. A bare / same-file `symbol_lookup` bind lands `EXTRACTED` (promoted to `RECEIVER_RESOLVED` when the target is a unique project node, wave `1p7dg`); an unresolved receiver stays `external::…` at `EXTRACTED`.
+
+**Python receiver-type resolution (wave `1p9q4`).** Beyond the bare-name path, `CallCollector` binds a method call through the receiver's *inferred type* from two deterministic, AST-local signals, feeding a per-scope type table (`local_types`/`attr_types`/`module_types`):
+
+- **Annotations → `RECEIVER_RESOLVED`.** Parameter / attribute / class-body / local annotations, including **string forward-refs** (`x: 'Foo'`) and a faithful `Optional[T]` / union / generic unwrap (a *non-Optional* multi-type union or generic **refuses** — never over-binds).
+- **Constructor assignments → `CONSTRUCTION_RESOLVED`.** `x = Foo()` locals, `self.attr = Foo()` attributes, and module-global constructions. On agreement with an annotation, the annotation (stronger) wins → `RECEIVER_RESOLVED`.
+
+The bind is gated **unique-match-or-drop**: `{receiver_type}.{method}` must resolve to exactly one project node that actually defines the method. There is **no inheritance/MRO walk** (a method inherited from a base class is not resolved), conflicting reassignment demotes (no bind), and a `getattr(...)` / non-class-factory / star-imported / shadowed receiver does not bind. A typed-receiver CROSS-FILE bind emits `external::{Type}.{method}` WITH its resolution confidence and relies on the finalize cross-file rewrite to swap the target onto the real project node (preserving the confidence). **Honesty rule (wave `1p9q8`):** when that target never binds a project node — the method is absent from the resolved class, or the receiver type is an ambiguous cross-file same-name twin — the edge stays `external::` and is downgraded to `EXTRACTED` in the finalize pass (`_downgrade_unresolved_typed_calls`); `RECEIVER_RESOLVED` means "bound to a receiver-typed project node", so an unresolved external target must not carry it. This pass runs on the FINAL edge map for every `calls` edge, not just Python's: it also honests-out Java's `super.`/`staticorinherited#` markers (see the inheritance-model decision note above) when the finalize inheritance pass cannot bind them to a unique project supertype definer — those refusal paths re-emit a dotted `external::` target while keeping the marker's `RECEIVER_RESOLVED` confidence, which was itself a pre-existing over-claim on a genuinely-unresolved (e.g. library-superclass) target.
 
 **JS/TS without tree-sitter** (`graph_indexer.py:1406-1419`): Regex `_JS_CALL_RE` scans each line. Fires only when the tree-sitter grammar is unavailable.
 
@@ -199,7 +208,7 @@ Returns a dict with: `layer`, `schema_version`, `nodes` (list), `edges` (list), 
 
 ### Scope
 
-Extracts dependency-injection wiring and resolves it into `"binds"` and `"injects"` graph edges. Active only for Java/Kotlin (`.java`, `.kt`, `.kts`) and C# (`.cs`) files (`graph_di_signals.py:47-53`).
+Extracts dependency-injection wiring and resolves it into `"binds"` and `"injects"` graph edges. Coverage: **Java/Kotlin** (`.java`, `.kt`, `.kts`) and **C#** (`.cs`) via regex signal collection (unchanged), plus **Python** and **TypeScript** via **AST-anchored** collection (wave `1p9q7`). Python/TS signals are gathered from the parse tree (idiom text inside strings/comments emits nothing) and route through the shared `resolve_di_edges` machinery, which stays byte-identical for the JVM/.NET path (the AST collectors' faithfulness is opt-in per-signal via `faithful_external`/`*_token` flags). Unresolved, string-token, or ambiguous Python/TS targets stay plain `external::` (unique-match-or-external; no reserved `external::di::` namespace) (`graph_di_signals.py`).
 
 ### Signals
 
@@ -215,6 +224,10 @@ Extracts dependency-injection wiring and resolves it into `"binds"` and `"inject
 - `AddSingleton<I,C>()`, `AddScoped<I,C>()`, `AddTransient<I,C>()`, `AddHostedService<I,C>()` → `kind: "binds"`, confidence `"EXTRACTED"`.
 - Autofac `RegisterType<C>().As<I>()` → `kind: "binds"`, confidence `"EXTRACTED"`.
 - Constructor parameter injection patterns → `kind: "injects"`, confidence `"INFERRED"`.
+
+**Python** (AST-anchored, wave `1p9q7`; `collect_python_di_signals`): FastAPI `Depends(ref)` in parameter defaults and `Annotated[T, Depends(ref)]` forms → `kind: "injects"` to the resolved callable (same-file and imported); bare `Depends()` and non-idiom decorators emit nothing; ambiguous refs stay `external::`. Alias-imported `Depends` (`from fastapi import Depends as D`) is recognized; a same-named non-FastAPI `Depends` is refused (distinctive→negative / generic→positive origin check).
+
+**TypeScript** (AST-anchored, wave `1p9q7`; `collect_ts_di_signals`): NestJS `@Injectable` constructor params and `@Inject(TOKEN)` params → `kind: "injects"`; `@Module` `{ provide, useClass }` providers and Inversify `bind(X).to(Y)`/`.toClass()` → `kind: "binds"`. String tokens (`@Inject('CONFIG')`) and ambiguous targets stay `external::`; undecorated classes emit nothing. Alias-imported idioms (`import { Inject as I } from 'inversify'`) are recognized and same-named user-defined impostors refused, mirroring the Python origin check.
 
 ### Integration
 

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-03
+Last verified: 2026-07-06
 
 This document describes how Wavefoundry builds and maintains its search indexes. It covers
 every stage of the pipeline: file discovery, change detection, chunking, embedding, and
@@ -189,8 +189,21 @@ logged once. This stops a pathologically large file (e.g. a multi-GB SQL backup)
 into memory and handed to tree-sitter, which would spin the indexer. A separate, smaller
 **tree-sitter parse cap** (`indexing.max_treesitter_parse_bytes`, default 2 MB) is published to
 the chunker and graph extractor via `WAVEFOUNDRY_MAX_TS_PARSE_BYTES`: a code file over that cap is
-still indexed as plain-text chunks but skips the AST parse (and graph extraction), degrading to the
-regex/line fallback instead of spinning. Set either key to `0` to disable that cap.
+still indexed as plain-text chunks but skips the AST parse, degrading to the regex/line fallback
+instead of spinning. Set either key to `0` to disable that cap.
+
+For **graph extraction**, a file in the window between the tree-sitter parse cap and the walk cap no
+longer contributes zero nodes (which left a silent hole — everything importing an oversized
+generated/vendored file dangled to `external::`). It degrades to a bounded **line-scan tier** (wave
+1p9q6): a whole-file, AST-free, comment/string-masked, line-anchored scan that recovers the file's
+imports and top-level definitions only (module node + definition nodes + `defines`/`imports` edges,
+every node marked `extraction: "line_scan"`), at `EXTRACTED` confidence. It emits no `calls`/`reads`
+edges — a line scan cannot resolve those faithfully — but its definitions do participate as
+cross-file resolution candidates (binding inbound references and correctly forcing twin-refusal). The
+scan is single-pass with a per-line length guard and a whole-file scan-byte ceiling
+(`WAVEFOUNDRY_MAX_LINE_SCAN_BYTES`); past the ceiling it degrades to a logged skip. Per-file counts
+(`line_scan_defines`/`line_scan_imports`/`line_scan_skipped`) land on the module node with a verbose
+build-log line — mirroring the SQL ERROR-region recovery convention (wave 1p9qe).
 
 ---
 

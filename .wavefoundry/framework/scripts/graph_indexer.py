@@ -35,7 +35,7 @@ except ImportError:  # pragma: no cover - exercised when tree-sitter is not inst
     _TSParser = None  # type: ignore[assignment]
 
 GRAPH_SCHEMA_VERSION = "1"
-GRAPH_BUILDER_VERSION = "39"  # Wave 1rrx5 (sql-graph-accuracy-followups) — coordinated SINGLE bump covering the bounded 1p9qi statement-unit/capture faithfulness follow-ups; R7 is a read-only diagnostic (no projection change → no CLUSTER_BUILDER_VERSION bump). (R1) trigger `EXECUTE FUNCTION|PROCEDURE <name>` action names no longer mint a phantom `reads external::<fn>` — the action name parses as a trailing object_reference after keyword_execute and is now skipped by a latching flag mirroring the RETURNS-type skip; the ON-table read (before keyword_execute) is preserved. (R2) MERGE `WHEN … THEN` branch subqueries now surface their table reads — the merge loop routes each `subquery` node inside a `when_clause` through the read walk, so a `SET x=(SELECT … FROM lookup_tbl)` assignment read AND a `list`-wrapped `VALUES ((SELECT … FROM seed_tbl))` read are emitted as `reads`; predicate columns, assignment LHS, and merge aliases still mint nothing. (R3) PL/pgSQL `DECLARE <var> <type>` non-builtin type names (`record`, custom types) no longer mint a phantom read — walk_reads skips a function_declaration's direct object_reference type name while still descending into other children, so a `DECLARE x int := (SELECT … FROM t)` default-value read stays preserved (builtin types already parsed as non-object_reference keyword nodes). (R4) bracket/backtick/quote-quoted external ids on the SQL-file path normalize to a clean `external::dbo.users` — node-id hygiene at the external-emit site only (the names-as-written statement unit output is untouched); binding stays unique-match-or-drop so two differently-quoted forms collapse onto the same external node, never a wrong bind. (R5) the embedded-SQL sniff gate now recognizes leading `TRUNCATE`/`ALTER`/`DROP`, so schema-affecting embedded statements at known sinks are captured and bound as `writes` (analyze_statement already handled their write direction). (R6a) the routine body-definition drop is now UNCONDITIONAL on routine nodes so the "routine bodies never define schema objects at module scope" invariant is total — an unnamed-but-parseable `CREATE FUNCTION () RETURNS integer …` (empty name + builtin return type leaves routine_name None) no longer leaks its in-body `CREATE TABLE`. Phantom-edge removals (R1/R3/R4/R6a) + newly-surfaced contained reads (R2/R5) → extraction-output change → bump so consumer caches re-extract. Previous bump (1p9qi, sql-graph-accuracy — coordinated SINGLE bump covering the whole wave; later lanes do not re-bump). (1p9qc) SQL keyword-noise suppression: all-relation, case-insensitive SQL keyword stoplist (`_SQL_RELATION_KEYWORD_STOPLIST` + `_sql_relation_candidate_filter`, SQL mode only) + dotted/bare column-token reduction (structural `field`/`object_reference` disambiguation) + the self-referential CREATE-import skip — previously every SQL file minted fake `external::FROM/JOIN/ON/SELECT/WHERE` nodes and `external::users.id`-style column externals on both `calls` and `imports`. (1p9qd) Clause-aware SQL statement-unit extraction rewrite: the generic substring/regex candidate path is RETIRED for SQL mode (`_sql_apply_file_extraction` + the frozen public unit `sql_statement_references(sql_text)`); references come only from `object_reference` clause positions with statement-derived direction, so SQL emits `reads` and NEW `writes` relation edges instead of `calls`/`imports` (writes = INSERT INTO/UPDATE/DELETE FROM/MERGE INTO/ALTER/DROP/TRUNCATE targets); view/FK/index lineage as reads; new `sql_kind` node property (table/view/procedure/function/trigger; node kind stays class/function); qualified-name (schema.table) resolution; phantom alias/CTE/temp/derived-table definitions no longer minted — relation-set + node-set + property shape change. (1p9qe) ERROR-region DDL recovery tier: top-level ERROR regions route to a bounded, comment/string-masked line-anchored scan recovering CREATE {PROCEDURE|FUNCTION|TRIGGER|TABLE|VIEW|INDEX} definitions with `extraction: "sql_recovery"` provenance, plus module-node `sql_error_regions`/`sql_recovered_definitions`/`sql_unrecovered_regions` count properties; recovered routine bodies re-parse through the statement unit and their references RE-ATTACH to the recovered routine node (previously procedures vanished and body references dangled at module scope). (1p9qf) Embedded-SQL capture at known Java/C#/MyBatis-XML sinks: NEW fragment keys `sql_capture_candidates`/`sql_capture_dynamic` (joined the incremental-merge passthrough list); finalize bind via the statement unit → method→table `reads`/`writes` at LITERAL_DERIVED, unique-match-or-drop with identifier-quote normalization, unmatched tables mint relation-scoped `external::sql::<name>` externals (invariant-tested namespace). (1p9qg) ORM entity→table mapping: NEW `maps_to` relation (JPA `@Entity`+`@Table(name=…)`/`@Entity(name=…)`, EF `[Table("…")]`/`ToTable("…")` positive-origin sinks → table node at LITERAL_DERIVED, declared names only — conventions refused and counted); NEW fragment keys `orm_entity_candidates`/`orm_entity_dynamic`/`orm_entity_convention` (passthrough list). Two new relations + SQL relation migration (calls/imports → reads/writes) + new node properties + new fragment keys + node-set change → bump so consumer caches re-extract (a cached fragment from v37 would silently lack the new keys and the SQL edge model). Previous bump (1p9qh, java-csharp-enterprise-accuracy — coordinated SINGLE bump covering the whole wave; later lanes do not re-bump): (1p9q9) Structured Java import parsing: Java `import_declaration` nodes are parsed structurally (explicit / wildcard / static member / static wildcard) instead of falling to the shared regex fallback, which truncated `import com.foo.*;` into a useless `com.foo.` candidate and emitted a spurious `external::static` edge for every static import. Wildcard imports now emit a package-prefix `imports` edge (`external::com.foo.*`) that participates in ambiguous-receiver disambiguation with the same unique-survivor rule as an explicit import (two matching wildcards → stay external; a same-package twin counts as an implicit match so Java package shadowing is honored); statically-imported members resolve bare calls (`import static com.foo.Bar.baz;` + `baz()` → project `Bar.baz` when it exists, else qualified `external::Bar.baz` — never bare; static wildcard analogous for otherwise-unresolved bare calls); `external::static` never appears. Non-Java candidate extraction is untouched (the shared regex is unchanged; regression-pinned). (1p9qa) Inheritance edges (`extends`/`implements`) + inherited-method resolution for Java/C#. (1p9qb) `this.field` receiver resolution, annotation-type kind fix, and package-declaration-keyed disambiguation. Extraction-output + edge-set shape change → bump so consumer caches re-extract. Previous bump (1p9q3 (1p9py, compact+gzip+atomic persistence)): graph artifacts are now written as gzip-compressed COMPACT JSON (separators=(",", ":"), sort_keys retained) through a same-directory temp file + os.replace atomic write; readers sniff the gzip magic bytes (0x1f 0x8b) and transparently fall back to legacy plain JSON, and a corrupted/truncated gzip degrades to the caller default exactly like corrupted JSON. Serialization-only — node/edge content, counts, and `input_fingerprint` semantics are unchanged — but the on-disk artifact FORMAT changed, so bump per the standing artifact-shape rule (downstream caches and the version-staleness query path treat the transition as a rebuild boundary, rewriting pre-upgrade plain artifacts compressed). This single bump also covers the wave's sibling artifact-shape changes (1p9q1 build-time betweenness, 1p9q2 incremental merge state store) per the coordinated-single-bump serialization point. Previous bump (1p7dh, reads_config Java/Spring file config): extended the config-key->reader `reads_config` edge to Java/Spring FILE config — `.properties`/`.yml`/`.yaml` now emit config-key NODES (`file::dotted.key`, kind "class") and Java artifacts capture `@Value("${key}")` placeholders + `getProperty`/`getRequiredProperty` calls into `config_read_candidates`; the language-agnostic finalize pass binds them on a unique config-file + distinctive-key match. Extraction-output change (new nodes + populated config_read_candidates → new edges) → bump so consumer caches re-extract. Previous bump (1p7de (graph-edge-trust)): coordinated bump for two extractor changes (1p7dg confidence promotion + 1p7dh string-literal binding) so consumers re-extract. (v34 supersedes the in-flight v33 test builds: the 1p7dh `instruments` capture was refined to read `namedOneOf(...)` multi-arg matchers + matchers nested in structural wrappers (`implementsInterface`/`hasSuperType`/`isSubTypeOf`) — an EXTRACTION-OUTPUT change, so it gets its own version increment per the builder-version discipline; without the bump an incremental-update consumer that skips unchanged files would not pick up the broadened `instruments` targets. Downstream-validated: javaagent 24/24 OTel TypeInstrumentation classes carry correct `instruments`; Swift solaris promotion realized EXTRACTED 52.7%→33.4%.) 1p7dg generalizes the v23 TS/JS confidence promotion to ALL languages: a call that binds a UNIQUE non-`external::` project node (same-file `symbol_lookup` match at the extraction site, or an exact-unique cross-file rewrite — exact simple name / exact qualified name / Go package-authoritative / import-edge-disambiguated) is promoted EXTRACTED→RECEIVER_RESOLVED. Target UNCHANGED — only the confidence label moves on an already-unique bind — so no new wrong-twin/zeroed-edge risk; the AC-2 type-guess fallback + same-dir/C# namespace heuristics deliberately stay EXTRACTED. Self-host lift: Python EXTRACTED 90.4%→31.9%, resolved 1,136→8,102. 1p7dh adds a new `reads_config` EDGE (a code site `.get("KEY")`/`cfg["KEY"]` → the config-key node `file.json::key` it reads, at `LITERAL_DERIVED` confidence; triple-gated — config-file basename + key-distinctiveness + unique match — so ubiquitous dict literals don't bind data-JSON keys) and a new `instruments` NODE PROPERTY on OTel `TypeInstrumentation` classes (their `typeMatcher()` ByteBuddy matcher target strings, descriptive metadata — NOT an edge, since instrumentation targets are ~100% third-party by design). Edge-confidence relabels + new relation + new node property → node/edge-set shape change → bump (consumer graph caches re-extract). Previous bump (1p66e, graph-edge-extraction-determinism): cross-file resolution made order-independent so identical input yields an identical resolved edge set across from-scratch rebuilds (a consumer observed 75068 vs 74890 edges on identical source). Three order-dependent sites fixed with explicit stable tie-breaks: (a) `per_file_simple` length-tie now breaks on the lexicographically smaller node_id (was first-seen by node_map iteration order); (b) `imports_by_file` final-segment collision now keeps the lexicographically smallest FQN (was "later import wins" by edge_map order); (c) cross-file edge rewrites are applied sorted by (new_key, old_key) so a `setdefault` collapse onto the same new_key keeps a stable survivor. Plus a persisted `input_fingerprint` (sha256 over the sorted node-set + sorted resolved edge-set) in the graph payload + state for downstream reproducibility verification. Edge-set shape stabilizes → bump so consumer caches re-extract. Faithfulness preserved: every resolution branch still requires a UNIQUE (`len==1`) match, so no `len==1` outcome changes and no wrong same-name twin is newly bound — only genuinely-ambiguous tie choices are made deterministic. Previous bump (1p61v, ts-symbol-kind-extraction-faithfulness): TS/JS type-shape members are no longer mislabeled `function`. A `type_alias_declaration` now extracts as kind="type" and an interface/object-type `property_signature` (a `: T` data member) as kind="property" (method *signatures* keep `function`) — previously both fell through to the default `function`, so `code_outline`-invisible `: string` fields and `export type` aliases rendered as `(function)` entry points in the codebase map (p60n field trace, Issue 1). Plus a registration-site faithfulness guard (`_ts_is_emittable_symbol_name`): a definition whose picked name is the reserved word `function` (anonymous `function (…){}` expressions) or a non-identifier route-path token (`/`) is no longer registered as a junk symbol (Issue 2). Node KIND-set + node-set shape change → bump (consumer graph caches re-extract). Conservative: contextual keywords that are legal identifiers (`type`, `async`, `fn`, …) are NOT rejected, so no real callable is dropped. Previous bump (1p5c4, guard-oversized-files-indexing): files over the tree-sitter parse cap (default 2 MB; override WAVEFOUNDRY_MAX_TS_PARSE_BYTES / `indexing.max_treesitter_parse_bytes`) now SKIP AST graph extraction, and files over the hard size cap are dropped from the walk entirely — so oversized files contribute no graph nodes. Bump forces re-extraction so any large file parsed under v29 has its stale nodes pruned. Wave 1p4up (member-access-constant-reads): a CONSTANT accessed via a qualified member expression (`Status.ACTIVE`, `AppConstants.Network.userAgent`, `Outer.Inner.TOKEN`, Ruby/PHP `A::B::C`) now produces a function→constant `reads` edge by EXACT qualified-name match (const-kind-gated; the qualifier disambiguates so a same-leaf param/import/bare-call can't match). Faithfulness guards: F1 full-qname (not `_simple_name` partial key), F2 reject `this`/`self`/`super`/`cls`, F4 qualifier-shadow (a member-access read whose head is a function param/local is dropped — `func_locals` from per-language binding nodes) + the property/trailing leaf of a member access is no longer also buffered as a bare read (member-path resolves it instead). New `reads` edges → node/edge-set shape change → bump (consumer graph caches re-extract). Wave 1p4q4 review (28) (D1/D2): namespace-scoped enum member nodes now carry the enclosing namespace prefix (`NSA.Inner.AAA` vs `NSB.Inner.AAA` — no cross-namespace collision/clobber), and constant nodes are EXEMPT from the ≤2-char short-symbol prune so short members (`Status.OK`/`Dir.Up`) resolve. Node-set shape change → bump (consumer graph caches re-extract). Wave 1p4q4 (27): TS `enum`/`const enum` members are now `kind="constant"` graph nodes (`Enum.Member`), child of the enum type node. Wave 1p4ls (26) (graph-constant-nodes-and-references): module-/type-level CONSTANT declarations are now graph nodes (kind="constant", carrying a simple-literal `value` where the RHS is a literal) across all core languages, plus a faithfulness-gated function→constant `reads` edge (same-scope + explicitly-imported only; never binds a coincidental same-name twin — symbol_lookup uniqueness + a const-kind gate + a local-shadow guard). Consumers surface them: code_definition resolves a constant name; code_references lists readers in a distinct `reads` bucket (NOT merged into callers); graph_neighbors includes constants when `reads` is requested. `reads` is OPT-IN for default 1-hop traversal (excluded when no explicit relations are passed, so a hot constant does not balloon neighbor sets / 1p4hu expansion) and stays OUT of the impact/call default relations; constant nodes + `reads` edges are excluded from clustering (CLUSTER_BUILDER_VERSION 8→9, no community-label shift). resolve_symbol is kind-aware (a constant sharing a simple name no longer shadows a callable lookup). Detection reuses the 1p4mf chunk-lane per-language predicates (one detector, two consumers — Req-7); the graph lane is BROADER where it lands naturally (class/type-level constants; Swift enum cases; Go grouped-const per member). NOTE: TS `enum`/`const enum` members ARE emitted as constant nodes (`Enum.Member`) — delivered in 1p4q4 (see the v27 line at the top). Kotlin bare top-level/object `val` (no `const`) stays `kind="variable"` (an immutable binding is not a compile-time constant — won't-do). Previous bump (1p4eq, cross-file-resolution-followups): one consolidated bump covering five graph-shaping changes: (1p4ef) fix a leaked `qualified` loop var that injected phantom qualified_index candidates for collapsed/basename-merged nodes (C#/Swift/Rust/Ruby) and silently suppressed unique cross-file resolution; (1p4er) same-package/same-directory disambiguation fallback for ambiguous receivers used WITHOUT an import (Java field miss, `JreCompat.canAccess`), GATED to Java/Kotlin/Go (same-dir ⇒ same-package visibility; Python/JS/TS/Rust/C# excluded); (1p4et) Go methods now keyed `Type.method` (was bare `method`) + package-qualified receiver inference (`var h foo.Helper` → `foo.Helper`, package PRESERVED and resolved by the candidate's package directory); (1p4eu) Rust `Type::assoc_fn()` resolution + struct-literal/`::new()` let-binding type inference; (1p4ev) C# namespace-membership disambiguation (own-namespace ∪ `using`), the namespace derived from each file's DECLARED namespace nodes by longest-prefix (nesting-proof), NOT by fixed-segment qname stripping. FAITHFULNESS FIXES (1p4eq adversarial verification): the 1p4et/1p4ev paths above already incorporate the over-resolution fixes the verification caught — dropping the Go package qualifier bound a co-located cross-package twin, and fixed-segment C# namespace stripping mis-derived a nested-class caller's namespace and bound a coincident sibling twin; both now stay external unless a unique package/namespace-faithful candidate matches. COVERAGE SCOPE — synthetic-fixture tests only, NOT yet validated against a real consumer project: same-package = Java; cross-file method/assoc-fn = Go + Rust; ambiguous-receiver namespace membership = C#. Each carries an adversarial "never binds the wrong twin / stays external" test. **Correction to the v24 line below:** v24 advertised its `imports`-edge disambiguation as "language-agnostic (Python + Java/Kotlin/C#/Go)" — that was over-stated; it fired ONLY for Python + Java (per-type imports), and was dead code for C#/Go/Rust (their import heads are namespaces/packages, not type names) until v25 supplied the per-language mechanisms above. Previous bump (1p47e 1p470): Python sibling-loader return-type inference + cross-file import disambiguation. v24 resolves the lazy-loader blast-radius hole — `gq = _load_graph_query()` (→ `_load_script("graph_query")`) and direct `v = _load_script("mod")` now bind `v.Class.method()` / `v.func()` to the loaded module's symbols (previously emitted NO edge because `v` had no known type; e.g. `GraphQueryIndex.from_root` was called from 14 sites with 0 incoming edges). Also adds import-edge-based disambiguation in the cross-file rewrite pass: an ambiguous `external::Type.method` (multiple same-simple-name candidates) is disambiguated via the source file's `imports` edge for `Type`, language-agnostically (Python + Java/Kotlin/C#/Go). Previous bump (1p2q3 / 1p2tz post-ship-5 1.3.16): TS/JS symbol-table promotion. Intra-file (and cross-file unique-simple-name) calls where `_ts_resolve_target` bound directly to a project node previously landed as `EXTRACTED` even though the binding required an exact match in `symbol_lookup`. Field validation on the v22 stable state showed `getRootToken` and similar intra-file arrow-const targets had only `EXTRACTED` incoming edges — invisible to the `receiver_resolved` attribution bucket — despite the symbol being correctly resolved at extraction time. v23 promotes these to `RECEIVER_RESOLVED` for TS/JS only: when `_ts_resolve_target` returns a non-`external::` project node (i.e. the call site bound to a locally-defined symbol or to the unique cross-file simple-name match) the edge is high-confidence by construction. Affects TS/JS only — other languages route through their per-language receiver resolvers + the cross-file rewrite pass and are out of scope for this round. Previous bump (1.3.12 v21→v22): TS/JS relative-import path resolution into import_targets. v21 emitted arrow-const function nodes but +9,379 of the new TS edges landed as EXTRACTED rather than RECEIVER_RESOLVED because intra-package callers using relative imports (`import { foo } from './events'`) had `import_targets[foo]` populated with the lossy `external::events` form. The cross-file rewrite pass then promoted the edge to the right project node but kept it at EXTRACTED confidence. v22 extracts the raw module specifier before `_ts_clean_name` strips the `./` prefix, resolves relative imports against the source file's directory, then runs the same barrel walk + import_targets binding as the aliased path. The +9,379 EXTRACTED edges observed in the field in v21 → v22 should migrate to RECEIVER_RESOLVED for any intra-package direct call to a relatively-imported arrow-const. Affects TS/JS only. Previous bump (1.3.11 v20→v21) was the arrow-const node-emission half — v22 completes the receiver-type attribution half. Modern TS code uses `export const foo = async (args) => { ... }` as the dominant function shape (field-confirmed: ALL backend functions on a 12k-node Nx monorepo are arrow-const, zero `function` declarations). Tree-sitter parses these as `lexical_declaration → variable_declarator → arrow_function`, not `function_declaration`, so the default name-from-descendants extractor returned empty and the symbol never registered. v21 detects arrow-const bindings explicitly and registers each as a function symbol; walks scope through the arrow body so calls FROM inside arrow-const-bound functions get attributed to the const name rather than the file. Expected impact on barrel-export-heavy + arrow-const-heavy codebases: TS resolved-share rises from 6% range into 30–60% (per field estimate). Affects TS/JS only — other languages unchanged. Previous bump (1.3.10 v19→v20) covered direct-function-call import_targets promotion + bundler-mode .js→.ts swap + community-label barrel deprioritization
+GRAPH_BUILDER_VERSION = "40"  # Wave 1p9q8 (graph-index-accuracy) — coordinated SINGLE bump covering all four changes; `graph_indexer.py` is the shared hub (Python extractor 1p9q4+1p9q7; cross-file pass 1p9q4+1p9q5; size gate 1p9q6), so one increment invalidates every consumer cache once. NO CLUSTER_BUILDER_VERSION bump: `graph_cluster.py` is untouched — its projection (`_project_undirected_projection`) and `_RELATION_WEIGHTS` are unchanged, and the cluster staleness gate (graph_cluster.py:1064-1073) already forces a full recluster whenever the graph's `input_fingerprint` OR `graph_builder_version` changes, both of which this bump changes; the new nodes/edges flow through the identical projection with no clustering-algorithm change (same discipline as 1p7dh config-key nodes / 1p9qd `writes` / 1p9qg `maps_to`, which added projection-visible nodes/edges without a cluster bump). (1p9q4) Python receiver-type resolution: annotated params/attributes/locals (including string forward-refs and faithful `Optional[T]`/union/generic unwrap) and constructor assignments (`local`/`self.attr`/module-global) now bind method calls to the annotated/constructed class's methods at `RECEIVER_RESOLVED` / `CONSTRUCTION_RESOLVED` confidence via the unique-candidate + method-exists-on-class gate — calls the Python extractor previously left `external::` or emitted no edge for. Faithfulness fix: non-Optional unions and generics no longer over-bind (multi-type receivers refuse); conflicting reassignment demotes; ambiguous cross-file twins stay `external::`. New/rebound `calls` edges → edge-set shape change. (1p9q5) Rust module model: `.rs` module nodes gain `rust_mod_decls`/`rust_inline_mods` properties; a crate-relative module-path scope key (`_build_rust_module_index`/`_rust_module_key`: mod-decl file mapping, inline-`mod {}` nesting, `#[path]`, crate-root, per-file identity fallback) feeds a `.rs` same-module disambiguation tier (unique-survivor, refuse-on-ambiguity, ordered after explicit-import disambiguation). Bounds: no cross-crate resolution, no re-export graph. The tier is faithful but produces zero productive end-to-end binds on this-era repos (module ≈ file; same-file same-module already resolves via `symbol_lookup`) — the durable deliverable is the module model + the new node properties (node-property shape change). C# was verify-and-close (namespace-key normalization already correct; no tier change). (1p9q6) Oversized-file line-scan tier: files over the tree-sitter parse cap (between the parse cap and the walk cap) degrade to a bounded line-anchored scan instead of contributing zero nodes — emitting module + top-level definition nodes marked `extraction: "line_scan"` and their `imports`/`defines` edges (no `calls`/`reads` — a line scan cannot resolve those faithfully), at `EXTRACTED` confidence. New module-node count properties `line_scan_defines`/`line_scan_imports`/`line_scan_skipped` (mirroring the 1p9qe recovery convention) plus `line_scan_ceiling_skipped` for whole-file past-ceiling skips. These definitions join the cross-file candidate sets, so referrers reconnect (and a line-scan twin correctly refuses an otherwise-unique bind — faithfulness). New nodes + new node properties + new edges → node-set shape change. (1p9q7) AST-anchored DI expansion to Python/TS: the pre-existing `injects`/`binds` DI relations (JVM/.NET, `graph_di_signals.py`) now also cover Python (FastAPI `Depends(...)` in defaults + `Annotated[...]`, alias-aware, impostor-refusing) and TypeScript (NestJS `@Injectable`/`@Inject(TOKEN)`/`@Module` providers, Inversify `bind().to()`/`toClass()`), collected AST-anchored (idiom text in strings/comments emits nothing) and resolved through the shared `resolve_di_edges` machinery. Unresolved/string-token/ambiguous DI targets stay plain `external::` (NOT a reserved `external::di::` namespace) — unique-match-or-external. The JVM/.NET path is byte-identical (the shared resolver change is opt-in per-signal via `faithful_external`/`*_token` flags set only by the new AST collectors). New Python/TS `injects`/`binds` edges → edge-set shape change. New node properties (1p9q5/1p9q6) + new/rebound `calls` edges (1p9q4) + new `injects`/`binds` edges (1p9q7) + new line-scan nodes (1p9q6) → node/edge/property-set shape change → bump so consumer caches re-extract (a cached fragment from v39 would silently lack the new properties and the new binds). Previous bump (1rrx5, sql-graph-accuracy-followups) — coordinated SINGLE bump covering the bounded 1p9qi statement-unit/capture faithfulness follow-ups; R7 is a read-only diagnostic (no projection change → no CLUSTER_BUILDER_VERSION bump). (R1) trigger `EXECUTE FUNCTION|PROCEDURE <name>` action names no longer mint a phantom `reads external::<fn>` — the action name parses as a trailing object_reference after keyword_execute and is now skipped by a latching flag mirroring the RETURNS-type skip; the ON-table read (before keyword_execute) is preserved. (R2) MERGE `WHEN … THEN` branch subqueries now surface their table reads — the merge loop routes each `subquery` node inside a `when_clause` through the read walk, so a `SET x=(SELECT … FROM lookup_tbl)` assignment read AND a `list`-wrapped `VALUES ((SELECT … FROM seed_tbl))` read are emitted as `reads`; predicate columns, assignment LHS, and merge aliases still mint nothing. (R3) PL/pgSQL `DECLARE <var> <type>` non-builtin type names (`record`, custom types) no longer mint a phantom read — walk_reads skips a function_declaration's direct object_reference type name while still descending into other children, so a `DECLARE x int := (SELECT … FROM t)` default-value read stays preserved (builtin types already parsed as non-object_reference keyword nodes). (R4) bracket/backtick/quote-quoted external ids on the SQL-file path normalize to a clean `external::dbo.users` — node-id hygiene at the external-emit site only (the names-as-written statement unit output is untouched); binding stays unique-match-or-drop so two differently-quoted forms collapse onto the same external node, never a wrong bind. (R5) the embedded-SQL sniff gate now recognizes leading `TRUNCATE`/`ALTER`/`DROP`, so schema-affecting embedded statements at known sinks are captured and bound as `writes` (analyze_statement already handled their write direction). (R6a) the routine body-definition drop is now UNCONDITIONAL on routine nodes so the "routine bodies never define schema objects at module scope" invariant is total — an unnamed-but-parseable `CREATE FUNCTION () RETURNS integer …` (empty name + builtin return type leaves routine_name None) no longer leaks its in-body `CREATE TABLE`. Phantom-edge removals (R1/R3/R4/R6a) + newly-surfaced contained reads (R2/R5) → extraction-output change → bump so consumer caches re-extract. Previous bump (1p9qi, sql-graph-accuracy — coordinated SINGLE bump covering the whole wave; later lanes do not re-bump). (1p9qc) SQL keyword-noise suppression: all-relation, case-insensitive SQL keyword stoplist (`_SQL_RELATION_KEYWORD_STOPLIST` + `_sql_relation_candidate_filter`, SQL mode only) + dotted/bare column-token reduction (structural `field`/`object_reference` disambiguation) + the self-referential CREATE-import skip — previously every SQL file minted fake `external::FROM/JOIN/ON/SELECT/WHERE` nodes and `external::users.id`-style column externals on both `calls` and `imports`. (1p9qd) Clause-aware SQL statement-unit extraction rewrite: the generic substring/regex candidate path is RETIRED for SQL mode (`_sql_apply_file_extraction` + the frozen public unit `sql_statement_references(sql_text)`); references come only from `object_reference` clause positions with statement-derived direction, so SQL emits `reads` and NEW `writes` relation edges instead of `calls`/`imports` (writes = INSERT INTO/UPDATE/DELETE FROM/MERGE INTO/ALTER/DROP/TRUNCATE targets); view/FK/index lineage as reads; new `sql_kind` node property (table/view/procedure/function/trigger; node kind stays class/function); qualified-name (schema.table) resolution; phantom alias/CTE/temp/derived-table definitions no longer minted — relation-set + node-set + property shape change. (1p9qe) ERROR-region DDL recovery tier: top-level ERROR regions route to a bounded, comment/string-masked line-anchored scan recovering CREATE {PROCEDURE|FUNCTION|TRIGGER|TABLE|VIEW|INDEX} definitions with `extraction: "sql_recovery"` provenance, plus module-node `sql_error_regions`/`sql_recovered_definitions`/`sql_unrecovered_regions` count properties; recovered routine bodies re-parse through the statement unit and their references RE-ATTACH to the recovered routine node (previously procedures vanished and body references dangled at module scope). (1p9qf) Embedded-SQL capture at known Java/C#/MyBatis-XML sinks: NEW fragment keys `sql_capture_candidates`/`sql_capture_dynamic` (joined the incremental-merge passthrough list); finalize bind via the statement unit → method→table `reads`/`writes` at LITERAL_DERIVED, unique-match-or-drop with identifier-quote normalization, unmatched tables mint relation-scoped `external::sql::<name>` externals (invariant-tested namespace). (1p9qg) ORM entity→table mapping: NEW `maps_to` relation (JPA `@Entity`+`@Table(name=…)`/`@Entity(name=…)`, EF `[Table("…")]`/`ToTable("…")` positive-origin sinks → table node at LITERAL_DERIVED, declared names only — conventions refused and counted); NEW fragment keys `orm_entity_candidates`/`orm_entity_dynamic`/`orm_entity_convention` (passthrough list). Two new relations + SQL relation migration (calls/imports → reads/writes) + new node properties + new fragment keys + node-set change → bump so consumer caches re-extract (a cached fragment from v37 would silently lack the new keys and the SQL edge model). Previous bump (1p9qh, java-csharp-enterprise-accuracy — coordinated SINGLE bump covering the whole wave; later lanes do not re-bump): (1p9q9) Structured Java import parsing: Java `import_declaration` nodes are parsed structurally (explicit / wildcard / static member / static wildcard) instead of falling to the shared regex fallback, which truncated `import com.foo.*;` into a useless `com.foo.` candidate and emitted a spurious `external::static` edge for every static import. Wildcard imports now emit a package-prefix `imports` edge (`external::com.foo.*`) that participates in ambiguous-receiver disambiguation with the same unique-survivor rule as an explicit import (two matching wildcards → stay external; a same-package twin counts as an implicit match so Java package shadowing is honored); statically-imported members resolve bare calls (`import static com.foo.Bar.baz;` + `baz()` → project `Bar.baz` when it exists, else qualified `external::Bar.baz` — never bare; static wildcard analogous for otherwise-unresolved bare calls); `external::static` never appears. Non-Java candidate extraction is untouched (the shared regex is unchanged; regression-pinned). (1p9qa) Inheritance edges (`extends`/`implements`) + inherited-method resolution for Java/C#. (1p9qb) `this.field` receiver resolution, annotation-type kind fix, and package-declaration-keyed disambiguation. Extraction-output + edge-set shape change → bump so consumer caches re-extract. Previous bump (1p9q3 (1p9py, compact+gzip+atomic persistence)): graph artifacts are now written as gzip-compressed COMPACT JSON (separators=(",", ":"), sort_keys retained) through a same-directory temp file + os.replace atomic write; readers sniff the gzip magic bytes (0x1f 0x8b) and transparently fall back to legacy plain JSON, and a corrupted/truncated gzip degrades to the caller default exactly like corrupted JSON. Serialization-only — node/edge content, counts, and `input_fingerprint` semantics are unchanged — but the on-disk artifact FORMAT changed, so bump per the standing artifact-shape rule (downstream caches and the version-staleness query path treat the transition as a rebuild boundary, rewriting pre-upgrade plain artifacts compressed). This single bump also covers the wave's sibling artifact-shape changes (1p9q1 build-time betweenness, 1p9q2 incremental merge state store) per the coordinated-single-bump serialization point. Previous bump (1p7dh, reads_config Java/Spring file config): extended the config-key->reader `reads_config` edge to Java/Spring FILE config — `.properties`/`.yml`/`.yaml` now emit config-key NODES (`file::dotted.key`, kind "class") and Java artifacts capture `@Value("${key}")` placeholders + `getProperty`/`getRequiredProperty` calls into `config_read_candidates`; the language-agnostic finalize pass binds them on a unique config-file + distinctive-key match. Extraction-output change (new nodes + populated config_read_candidates → new edges) → bump so consumer caches re-extract. Previous bump (1p7de (graph-edge-trust)): coordinated bump for two extractor changes (1p7dg confidence promotion + 1p7dh string-literal binding) so consumers re-extract. (v34 supersedes the in-flight v33 test builds: the 1p7dh `instruments` capture was refined to read `namedOneOf(...)` multi-arg matchers + matchers nested in structural wrappers (`implementsInterface`/`hasSuperType`/`isSubTypeOf`) — an EXTRACTION-OUTPUT change, so it gets its own version increment per the builder-version discipline; without the bump an incremental-update consumer that skips unchanged files would not pick up the broadened `instruments` targets. Downstream-validated: javaagent 24/24 OTel TypeInstrumentation classes carry correct `instruments`; Swift solaris promotion realized EXTRACTED 52.7%→33.4%.) 1p7dg generalizes the v23 TS/JS confidence promotion to ALL languages: a call that binds a UNIQUE non-`external::` project node (same-file `symbol_lookup` match at the extraction site, or an exact-unique cross-file rewrite — exact simple name / exact qualified name / Go package-authoritative / import-edge-disambiguated) is promoted EXTRACTED→RECEIVER_RESOLVED. Target UNCHANGED — only the confidence label moves on an already-unique bind — so no new wrong-twin/zeroed-edge risk; the AC-2 type-guess fallback + same-dir/C# namespace heuristics deliberately stay EXTRACTED. Self-host lift: Python EXTRACTED 90.4%→31.9%, resolved 1,136→8,102. 1p7dh adds a new `reads_config` EDGE (a code site `.get("KEY")`/`cfg["KEY"]` → the config-key node `file.json::key` it reads, at `LITERAL_DERIVED` confidence; triple-gated — config-file basename + key-distinctiveness + unique match — so ubiquitous dict literals don't bind data-JSON keys) and a new `instruments` NODE PROPERTY on OTel `TypeInstrumentation` classes (their `typeMatcher()` ByteBuddy matcher target strings, descriptive metadata — NOT an edge, since instrumentation targets are ~100% third-party by design). Edge-confidence relabels + new relation + new node property → node/edge-set shape change → bump (consumer graph caches re-extract). Previous bump (1p66e, graph-edge-extraction-determinism): cross-file resolution made order-independent so identical input yields an identical resolved edge set across from-scratch rebuilds (a consumer observed 75068 vs 74890 edges on identical source). Three order-dependent sites fixed with explicit stable tie-breaks: (a) `per_file_simple` length-tie now breaks on the lexicographically smaller node_id (was first-seen by node_map iteration order); (b) `imports_by_file` final-segment collision now keeps the lexicographically smallest FQN (was "later import wins" by edge_map order); (c) cross-file edge rewrites are applied sorted by (new_key, old_key) so a `setdefault` collapse onto the same new_key keeps a stable survivor. Plus a persisted `input_fingerprint` (sha256 over the sorted node-set + sorted resolved edge-set) in the graph payload + state for downstream reproducibility verification. Edge-set shape stabilizes → bump so consumer caches re-extract. Faithfulness preserved: every resolution branch still requires a UNIQUE (`len==1`) match, so no `len==1` outcome changes and no wrong same-name twin is newly bound — only genuinely-ambiguous tie choices are made deterministic. Previous bump (1p61v, ts-symbol-kind-extraction-faithfulness): TS/JS type-shape members are no longer mislabeled `function`. A `type_alias_declaration` now extracts as kind="type" and an interface/object-type `property_signature` (a `: T` data member) as kind="property" (method *signatures* keep `function`) — previously both fell through to the default `function`, so `code_outline`-invisible `: string` fields and `export type` aliases rendered as `(function)` entry points in the codebase map (p60n field trace, Issue 1). Plus a registration-site faithfulness guard (`_ts_is_emittable_symbol_name`): a definition whose picked name is the reserved word `function` (anonymous `function (…){}` expressions) or a non-identifier route-path token (`/`) is no longer registered as a junk symbol (Issue 2). Node KIND-set + node-set shape change → bump (consumer graph caches re-extract). Conservative: contextual keywords that are legal identifiers (`type`, `async`, `fn`, …) are NOT rejected, so no real callable is dropped. Previous bump (1p5c4, guard-oversized-files-indexing): files over the tree-sitter parse cap (default 2 MB; override WAVEFOUNDRY_MAX_TS_PARSE_BYTES / `indexing.max_treesitter_parse_bytes`) now SKIP AST graph extraction, and files over the hard size cap are dropped from the walk entirely — so oversized files contribute no graph nodes. Bump forces re-extraction so any large file parsed under v29 has its stale nodes pruned. Wave 1p4up (member-access-constant-reads): a CONSTANT accessed via a qualified member expression (`Status.ACTIVE`, `AppConstants.Network.userAgent`, `Outer.Inner.TOKEN`, Ruby/PHP `A::B::C`) now produces a function→constant `reads` edge by EXACT qualified-name match (const-kind-gated; the qualifier disambiguates so a same-leaf param/import/bare-call can't match). Faithfulness guards: F1 full-qname (not `_simple_name` partial key), F2 reject `this`/`self`/`super`/`cls`, F4 qualifier-shadow (a member-access read whose head is a function param/local is dropped — `func_locals` from per-language binding nodes) + the property/trailing leaf of a member access is no longer also buffered as a bare read (member-path resolves it instead). New `reads` edges → node/edge-set shape change → bump (consumer graph caches re-extract). Wave 1p4q4 review (28) (D1/D2): namespace-scoped enum member nodes now carry the enclosing namespace prefix (`NSA.Inner.AAA` vs `NSB.Inner.AAA` — no cross-namespace collision/clobber), and constant nodes are EXEMPT from the ≤2-char short-symbol prune so short members (`Status.OK`/`Dir.Up`) resolve. Node-set shape change → bump (consumer graph caches re-extract). Wave 1p4q4 (27): TS `enum`/`const enum` members are now `kind="constant"` graph nodes (`Enum.Member`), child of the enum type node. Wave 1p4ls (26) (graph-constant-nodes-and-references): module-/type-level CONSTANT declarations are now graph nodes (kind="constant", carrying a simple-literal `value` where the RHS is a literal) across all core languages, plus a faithfulness-gated function→constant `reads` edge (same-scope + explicitly-imported only; never binds a coincidental same-name twin — symbol_lookup uniqueness + a const-kind gate + a local-shadow guard). Consumers surface them: code_definition resolves a constant name; code_references lists readers in a distinct `reads` bucket (NOT merged into callers); graph_neighbors includes constants when `reads` is requested. `reads` is OPT-IN for default 1-hop traversal (excluded when no explicit relations are passed, so a hot constant does not balloon neighbor sets / 1p4hu expansion) and stays OUT of the impact/call default relations; constant nodes + `reads` edges are excluded from clustering (CLUSTER_BUILDER_VERSION 8→9, no community-label shift). resolve_symbol is kind-aware (a constant sharing a simple name no longer shadows a callable lookup). Detection reuses the 1p4mf chunk-lane per-language predicates (one detector, two consumers — Req-7); the graph lane is BROADER where it lands naturally (class/type-level constants; Swift enum cases; Go grouped-const per member). NOTE: TS `enum`/`const enum` members ARE emitted as constant nodes (`Enum.Member`) — delivered in 1p4q4 (see the v27 line at the top). Kotlin bare top-level/object `val` (no `const`) stays `kind="variable"` (an immutable binding is not a compile-time constant — won't-do). Previous bump (1p4eq, cross-file-resolution-followups): one consolidated bump covering five graph-shaping changes: (1p4ef) fix a leaked `qualified` loop var that injected phantom qualified_index candidates for collapsed/basename-merged nodes (C#/Swift/Rust/Ruby) and silently suppressed unique cross-file resolution; (1p4er) same-package/same-directory disambiguation fallback for ambiguous receivers used WITHOUT an import (Java field miss, `JreCompat.canAccess`), GATED to Java/Kotlin/Go (same-dir ⇒ same-package visibility; Python/JS/TS/Rust/C# excluded); (1p4et) Go methods now keyed `Type.method` (was bare `method`) + package-qualified receiver inference (`var h foo.Helper` → `foo.Helper`, package PRESERVED and resolved by the candidate's package directory); (1p4eu) Rust `Type::assoc_fn()` resolution + struct-literal/`::new()` let-binding type inference; (1p4ev) C# namespace-membership disambiguation (own-namespace ∪ `using`), the namespace derived from each file's DECLARED namespace nodes by longest-prefix (nesting-proof), NOT by fixed-segment qname stripping. FAITHFULNESS FIXES (1p4eq adversarial verification): the 1p4et/1p4ev paths above already incorporate the over-resolution fixes the verification caught — dropping the Go package qualifier bound a co-located cross-package twin, and fixed-segment C# namespace stripping mis-derived a nested-class caller's namespace and bound a coincident sibling twin; both now stay external unless a unique package/namespace-faithful candidate matches. COVERAGE SCOPE — synthetic-fixture tests only, NOT yet validated against a real consumer project: same-package = Java; cross-file method/assoc-fn = Go + Rust; ambiguous-receiver namespace membership = C#. Each carries an adversarial "never binds the wrong twin / stays external" test. **Correction to the v24 line below:** v24 advertised its `imports`-edge disambiguation as "language-agnostic (Python + Java/Kotlin/C#/Go)" — that was over-stated; it fired ONLY for Python + Java (per-type imports), and was dead code for C#/Go/Rust (their import heads are namespaces/packages, not type names) until v25 supplied the per-language mechanisms above. Previous bump (1p47e 1p470): Python sibling-loader return-type inference + cross-file import disambiguation. v24 resolves the lazy-loader blast-radius hole — `gq = _load_graph_query()` (→ `_load_script("graph_query")`) and direct `v = _load_script("mod")` now bind `v.Class.method()` / `v.func()` to the loaded module's symbols (previously emitted NO edge because `v` had no known type; e.g. `GraphQueryIndex.from_root` was called from 14 sites with 0 incoming edges). Also adds import-edge-based disambiguation in the cross-file rewrite pass: an ambiguous `external::Type.method` (multiple same-simple-name candidates) is disambiguated via the source file's `imports` edge for `Type`, language-agnostically (Python + Java/Kotlin/C#/Go). Previous bump (1p2q3 / 1p2tz post-ship-5 1.3.16): TS/JS symbol-table promotion. Intra-file (and cross-file unique-simple-name) calls where `_ts_resolve_target` bound directly to a project node previously landed as `EXTRACTED` even though the binding required an exact match in `symbol_lookup`. Field validation on the v22 stable state showed `getRootToken` and similar intra-file arrow-const targets had only `EXTRACTED` incoming edges — invisible to the `receiver_resolved` attribution bucket — despite the symbol being correctly resolved at extraction time. v23 promotes these to `RECEIVER_RESOLVED` for TS/JS only: when `_ts_resolve_target` returns a non-`external::` project node (i.e. the call site bound to a locally-defined symbol or to the unique cross-file simple-name match) the edge is high-confidence by construction. Affects TS/JS only — other languages route through their per-language receiver resolvers + the cross-file rewrite pass and are out of scope for this round. Previous bump (1.3.12 v21→v22): TS/JS relative-import path resolution into import_targets. v21 emitted arrow-const function nodes but +9,379 of the new TS edges landed as EXTRACTED rather than RECEIVER_RESOLVED because intra-package callers using relative imports (`import { foo } from './events'`) had `import_targets[foo]` populated with the lossy `external::events` form. The cross-file rewrite pass then promoted the edge to the right project node but kept it at EXTRACTED confidence. v22 extracts the raw module specifier before `_ts_clean_name` strips the `./` prefix, resolves relative imports against the source file's directory, then runs the same barrel walk + import_targets binding as the aliased path. The +9,379 EXTRACTED edges observed in the field in v21 → v22 should migrate to RECEIVER_RESOLVED for any intra-package direct call to a relatively-imported arrow-const. Affects TS/JS only. Previous bump (1.3.11 v20→v21) was the arrow-const node-emission half — v22 completes the receiver-type attribution half. Modern TS code uses `export const foo = async (args) => { ... }` as the dominant function shape (field-confirmed: ALL backend functions on a 12k-node Nx monorepo are arrow-const, zero `function` declarations). Tree-sitter parses these as `lexical_declaration → variable_declarator → arrow_function`, not `function_declaration`, so the default name-from-descendants extractor returned empty and the symbol never registered. v21 detects arrow-const bindings explicitly and registers each as a function symbol; walks scope through the arrow body so calls FROM inside arrow-const-bound functions get attributed to the const name rather than the file. Expected impact on barrel-export-heavy + arrow-const-heavy codebases: TS resolved-share rises from 6% range into 30–60% (per field estimate). Affects TS/JS only — other languages unchanged. Previous bump (1.3.10 v19→v20) covered direct-function-call import_targets promotion + bundler-mode .js→.ts swap + community-label barrel deprioritization
 GRAPH_DIRNAME = "graph"
 
 # Wave 1p9q3 (1p9py): graph artifacts persist as gzip-compressed COMPACT JSON.
@@ -2318,6 +2318,18 @@ def _ts_parse(lang_key: str, source_text: str):
         return None
 
 
+def _over_ts_parse_cap(source_text: str) -> bool:
+    """True when a file exceeds the tree-sitter AST parse cap (the SAME cap
+    ``_ts_parse`` enforces, computed identically on character length).
+
+    Wave 1p9q6: a file in the (parse-cap, walk-cap] window returns True and
+    routes to the bounded line-scan degraded-extraction tier instead of
+    contributing zero graph nodes. Cap of 0/negative disables the guard, in
+    which case nothing is ever "over cap" (parity with ``_ts_parse``)."""
+    cap = int(os.environ.get("WAVEFOUNDRY_MAX_TS_PARSE_BYTES") or MAX_TREESITTER_PARSE_BYTES_DEFAULT)
+    return cap > 0 and len(source_text) > cap
+
+
 def _ts_node_text(node, source_bytes: bytes) -> str:
     try:
         return source_bytes[node.start_byte:node.end_byte].decode("utf-8", errors="replace").strip()
@@ -4118,6 +4130,36 @@ def _resolve_go_call_target(call_node, source_bytes: bytes, symbol_lookup: dict[
 # =============================================================================
 # Rust receiver-type resolution (wave 1319a).
 # =============================================================================
+
+
+def _rust_mod_path_attr(mod_node, source_bytes: bytes) -> str | None:
+    """The `#[path = "…"]` file override for a `mod name;` decl, or None (wave 1p9q5).
+
+    The `attribute_item` is a PRECEDING SIBLING of the `mod_item` (not a child).
+    Scans back over adjacent attribute siblings for `path = "<literal>"` and
+    returns the unquoted literal. Bounded: only a plain string literal is read
+    (raw/byte-string/escape edge cases fall to None → the default file-mapping
+    rule, never a wrong path).
+    """
+    sib = getattr(mod_node, "prev_named_sibling", None)
+    while sib is not None and getattr(sib, "type", "") == "attribute_item":
+        for attr in getattr(sib, "children", []) or []:
+            if getattr(attr, "type", "") != "attribute":
+                continue
+            kids = list(getattr(attr, "children", []) or [])
+            has_path = any(
+                getattr(c, "type", "") == "identifier"
+                and source_bytes[c.start_byte:c.end_byte] == b"path"
+                for c in kids
+            )
+            if not has_path:
+                continue
+            for c in kids:
+                if getattr(c, "type", "") == "string_literal":
+                    raw = source_bytes[c.start_byte:c.end_byte].decode("utf-8", "replace").strip()
+                    return raw.strip('"') or None
+        sib = getattr(sib, "prev_named_sibling", None)
+    return None
 
 
 def _rust_use_imports(use_node, source_bytes: bytes) -> list[tuple[str, str]]:
@@ -7580,6 +7622,255 @@ def _sql_recovery_log_line(
     )
 
 
+# ---------------------------------------------------------------------------
+# Line-scan degraded extraction tier (wave 1p9q6). The direct parallel to the
+# 1p9qe SQL ERROR-region recovery convention above, applied to CODE files over
+# the tree-sitter AST parse cap (default 2 MB) but under the walk cap (5 MB).
+# Such files previously contributed ZERO graph nodes — a silent hole where
+# everything importing them dangled to `external::`. This tier recovers their
+# IMPORTS and TOP-LEVEL DEFINITIONS only, via a bounded, AST-free scan; it
+# emits NO calls/reads edges (a line scan cannot resolve those faithfully).
+# Its definitions DO participate as cross-file resolution candidates, so an
+# oversized hub's symbols both bind inbound references AND correctly force
+# refusal of an otherwise-unique bind when a twin exists (faithfulness core).
+# Mirrors the 1p9qe convention shape (SCANNER is new; the marker/counts/log
+# layer is the convention-mirror):
+#   * marker   — every line-scanned node carries `extraction: "line_scan"`
+#                (the parallel to `extraction: "sql_recovery"`).
+#   * loudness — per-file counts on the module node (`line_scan_defines`,
+#                `line_scan_imports`, `line_scan_skipped` — parallel to
+#                `sql_recovered_definitions`/`sql_error_regions`/
+#                `sql_unrecovered_regions`) + a verbose build-log line
+#                (`_line_scan_log_line`, parallel to `_sql_recovery_log_line`);
+#                a whole-file skip past the byte ceiling sets
+#                `line_scan_ceiling_skipped` and is logged, never silent.
+#   * bounds   — single pass; a hard scan-byte ceiling
+#                (`_LINE_SCAN_MAX_BYTES_DEFAULT`, env-overridable via
+#                WAVEFOUNDRY_MAX_LINE_SCAN_BYTES) + a per-line length guard
+#                (`_LINE_SCAN_MAX_LINE_CHARS`) so pathological minified lines
+#                cannot blow up build time.
+#   * masking  — comment/string spans are space-masked BEFORE the scan (the
+#                `_sql_recovery_mask_noncode` shape, generalized to code
+#                comment styles) so declaration-looking text inside strings,
+#                comments, or minified lines can never mint a node (AC-3).
+# ---------------------------------------------------------------------------
+_LINE_SCAN_MARKER = "line_scan"
+# Whole-file scan-byte ceiling; over it → today's behavior (skip), now LOUD.
+# Defaults to the walk cap so every file that actually reaches this tier
+# (already < walk cap) is scanned by default; the ceiling is the env-tunable
+# safety valve the cost-bound tests exercise (AC-3/AC-4).
+_LINE_SCAN_MAX_BYTES_DEFAULT = 5_000_000
+_LINE_SCAN_MAX_LINE_CHARS = 4096  # longer lines are skipped, counted (minified guard)
+
+# Line-leading declaration: optional (bounded) modifier keywords, then a
+# definition keyword, then the name. Anchored at column 0 (a top-level proxy —
+# nested/indented declarations are intentionally not recovered; Requirement 1
+# is "top-level definition names").
+_LINE_SCAN_DEF_RE = re.compile(
+    r"^(?:(?:pub|export|default|public|private|protected|internal|static|final|"
+    r"abstract|async|open|sealed|const|unsafe|extern|inline|virtual|override|"
+    r"partial)\s+){0,4}"
+    r"(?P<kw>def|class|function|func|fn|type|impl|struct|enum|trait|interface|"
+    r"record|object|protocol|actor|namespace|module|mod)\s+"
+    r"(?P<name>[A-Za-z_][A-Za-z0-9_]*)"
+)
+# Keyword → node kind (mirrors the tree-sitter normalization: struct/enum/
+# trait/type/… collapse to "class"; callables are "function").
+_LINE_SCAN_CLASS_KEYWORDS = frozenset({
+    "class", "type", "impl", "struct", "enum", "trait", "interface", "record",
+    "object", "protocol", "actor", "namespace", "module", "mod",
+})
+# Import anchor — the keyword is CODE, so it survives comment/string masking;
+# a commented-out or stringified import line is blanked by the mask and never
+# matches here. `#` is only an include when the comment profile treats it as
+# code (C-family), so a Python `#`-comment line is masked before this runs.
+_LINE_SCAN_IMPORT_ANCHOR_RE = re.compile(
+    r"^(?:from\s+[\w.]+\s+import\b|import\b|use\b|#\s*include\b)"
+)
+# Bare (unquoted) module specifier — Python `import os` / `from a.b import`,
+# Rust `use a::b::c`. Captured from the MASKED line (bare identifiers survive).
+_LINE_SCAN_BARE_SPEC_RE = re.compile(
+    r"^(?:from\s+(?P<from>[\w.]+)|(?:import|use)\s+(?P<mod>[\w.:]+))"
+)
+# Quoted / angle-bracket specifier — JS/TS `from "x"`, Go `import "fmt"`,
+# C `#include <stdio.h>`. Read from the RAW line (the string span is masked
+# away in the masked line), and ONLY after the anchor confirmed on the masked
+# line that this is a genuine (non-commented) import.
+_LINE_SCAN_QUOTED_SPEC_RE = re.compile(r"""['"<]([^'"<>\n]+)['">]""")
+
+# `#`-line-comment languages. For everything else (the C-family that actually
+# reaches this tier), `#` starts a preprocessor directive (`#include`) that
+# MUST survive masking, and `/* */` block comments apply.
+_LINE_SCAN_HASH_COMMENT_LANGS = frozenset({
+    "python", "ruby", "perl", "r", "elixir", "julia", "make",
+    "yaml", "toml", "shell", "bash", "dockerfile",
+})
+
+
+def _line_scan_comment_profile(lang_key: str | None) -> tuple[tuple[str, ...], bool]:
+    """``(line_comment_tokens, has_block_comment)`` for the mask, by language
+    family. `#` is a comment ONLY for `#`-comment languages; for the C-family
+    default it is preprocessor syntax and must not be masked."""
+    if lang_key in _LINE_SCAN_HASH_COMMENT_LANGS:
+        return ("#",), False
+    return ("//",), True
+
+
+def _line_scan_mask(text: str, lang_key: str | None, *, mask_strings: bool = True) -> str:
+    """Space-mask comment (and, by default, string) spans, preserving length
+    and newlines (the `_sql_recovery_mask_noncode` shape, generalized to code
+    comment styles). Runs BEFORE the definition scan so declaration-looking
+    text in comments/strings can never mint a node (precision commitment).
+
+    ``mask_strings=False`` masks comments ONLY (strings survive) — used for
+    import-specifier extraction, where the module path IS a string literal but
+    a trailing comment must still be neutralized so a quoted token inside a
+    comment can never be read as a module."""
+    line_comments, has_block = _line_scan_comment_profile(lang_key)
+    out = list(text)
+    n = len(text)
+
+    def _mask(a: int, b: int) -> None:
+        for j in range(a, min(b, n)):
+            if out[j] != "\n":
+                out[j] = " "
+
+    i = 0
+    while i < n:
+        ch = text[i]
+        matched_lc = next((tok for tok in line_comments if text.startswith(tok, i)), None)
+        if matched_lc is not None:
+            end = text.find("\n", i)
+            end = n if end == -1 else end
+            _mask(i, end)
+            i = end
+        elif has_block and text.startswith("/*", i):
+            end = text.find("*/", i + 2)
+            end = n if end == -1 else end + 2
+            _mask(i, end)
+            i = end
+        elif mask_strings and (text.startswith('"""', i) or text.startswith("'''", i)):
+            # Triple-quoted strings (Python docstrings) — mask to the matching
+            # close so declaration text in a docstring never mints.
+            q3 = text[i:i + 3]
+            end = text.find(q3, i + 3)
+            end = n if end == -1 else end + 3
+            _mask(i, end)
+            i = end
+        elif mask_strings and ch in ("'", '"', "`"):
+            quote = ch
+            j = i + 1
+            while j < n:
+                if text[j] == "\\":  # backslash escape (C-family / Python strings)
+                    j += 2
+                    continue
+                if text[j] == quote:
+                    j += 1
+                    break
+                j += 1
+            _mask(i, j)
+            i = j
+        else:
+            i += 1
+    return "".join(out)
+
+
+def _line_scan_extract(source_text: str, lang_key: str | None = None) -> dict[str, Any]:
+    """Bounded, AST-free line scan recovering IMPORTS + TOP-LEVEL DEFINITIONS.
+
+    Returns::
+
+        {"imports": [module_spec, ...],            # order-preserving, deduped
+         "definitions": [(name, kind, line), ...],  # top-level only, deduped
+         "skipped_lines": int,                      # length-guard skips
+         "ceiling_skipped": bool}                   # whole file over byte ceiling
+
+    Never emits call/read facts. Definitions are line-anchored at column 0
+    (after optional modifiers) on comment/string-masked text, so strings,
+    comments, and minified lines mint nothing (AC-3). Encoding robustness: a
+    UTF-8 BOM is stripped; ``splitlines`` yields the last line even without a
+    final newline and tolerates mixed newline styles."""
+    result: dict[str, Any] = {
+        "imports": [], "definitions": [], "skipped_lines": 0, "ceiling_skipped": False,
+    }
+    text = source_text
+    if text.startswith("\ufeff"):  # strip UTF-8 BOM (encoding robustness)
+        text = text[1:]
+    ceiling = int(os.environ.get("WAVEFOUNDRY_MAX_LINE_SCAN_BYTES") or _LINE_SCAN_MAX_BYTES_DEFAULT)
+    if ceiling > 0 and len(text.encode("utf-8", "replace")) > ceiling:
+        result["ceiling_skipped"] = True
+        return result
+    # Two masks (both O(n), cheap even at the walk cap): the FULL mask (comments
+    # + strings) drives the definition scan, the import anchor, and bare-name
+    # capture — none of which may see string/comment content. The COMMENT-ONLY
+    # mask preserves string literals (so a quoted module specifier survives) but
+    # still neutralizes a trailing comment (so a quoted token inside a comment
+    # can never be misread as a module).
+    full_masked = _line_scan_mask(text, lang_key, mask_strings=True)
+    comment_masked = _line_scan_mask(text, lang_key, mask_strings=False)
+    raw_lines = text.splitlines()
+    masked_lines = full_masked.splitlines()
+    comment_masked_lines = comment_masked.splitlines()
+    seen_imports: set[str] = set()
+    seen_defs: set[str] = set()
+    for offset, masked_line in enumerate(masked_lines):
+        raw_line = raw_lines[offset] if offset < len(raw_lines) else ""
+        if len(raw_line) > _LINE_SCAN_MAX_LINE_CHARS:
+            result["skipped_lines"] += 1
+            continue
+        def_match = _LINE_SCAN_DEF_RE.match(masked_line)
+        if def_match is not None:
+            name = def_match.group("name")
+            kw = def_match.group("kw")
+            kind = "class" if kw in _LINE_SCAN_CLASS_KEYWORDS else "function"
+            if name not in seen_defs:
+                seen_defs.add(name)
+                result["definitions"].append((name, kind, offset + 1))
+            continue
+        if _LINE_SCAN_IMPORT_ANCHOR_RE.match(masked_line):
+            spec: str | None = None
+            cmask_line = comment_masked_lines[offset] if offset < len(comment_masked_lines) else ""
+            quoted = _LINE_SCAN_QUOTED_SPEC_RE.search(cmask_line)
+            bare = _LINE_SCAN_BARE_SPEC_RE.match(masked_line)
+            if bare is not None and bare.group("from") is not None:
+                # Python `from a.b import c` — the module is the bare `from`
+                # target (never a same-line quoted token).
+                spec = bare.group("from")
+            elif quoted is not None:
+                # JS/TS `from "x"`, Go `import "fmt"`, C `#include <x>` — the
+                # module is the (string/angle) specifier.
+                spec = quoted.group(1)
+            elif bare is not None:
+                # Python `import os`, Rust `use a::b::c` — bare dotted/`::` path.
+                spec = bare.group("mod")
+            if spec and spec not in seen_imports:
+                seen_imports.add(spec)
+                result["imports"].append(spec)
+    return result
+
+
+def _line_scan_log_line(
+    rel_path: str,
+    defines: int,
+    imports: int,
+    skipped: int,
+    *,
+    ceiling_skipped: bool = False,
+) -> str:
+    """Per-file build-log line for the line-scan degraded-extraction tier
+    (loudness; the `_sql_recovery_log_line` parallel)."""
+    if ceiling_skipped:
+        return (
+            f"build_index: line-scan {rel_path} — over the scan-byte ceiling; "
+            f"skipped (imports + top-level definitions not recovered)"
+        )
+    return (
+        f"build_index: line-scan {rel_path} — over the AST parse cap: "
+        f"{defines} definition(s) + {imports} import(s) recovered, "
+        f"{skipped} line(s) skipped (length guard)"
+    )
+
+
 # R7 (wave 1rrx5): clustering-asymmetry measurement threshold. Community
 # detection excludes `reads` but NOT `writes`/`maps_to`, so a hot write-target
 # data node (an audit/events log written by many routines, or an entity mapped
@@ -8695,10 +8986,148 @@ _PROV_DROP = "_d"
 _ANALYTICS_NODE_FLAGS = ("is_entry_point", "dead_code_risk", "is_chokepoint")
 
 
+def _rust_norm_join(base: str, rel: str) -> str:
+    """Join a repo-relative dir with a (possibly ``../``) relative path, normalized.
+
+    Pure string normalization on forward-slash repo-relative paths (the form
+    node ids use). ``.`` segments drop; ``..`` pops the accumulated tail.
+    """
+    parts: list[str] = []
+    for seg in (base.split("/") if base else []) + rel.replace("\\", "/").split("/"):
+        if seg in ("", "."):
+            continue
+        if seg == "..":
+            if parts:
+                parts.pop()
+        else:
+            parts.append(seg)
+    return "/".join(parts)
+
+
+def _rust_child_dir(file_path: str) -> str:
+    """Directory under which a module file's ``mod child;`` children live.
+
+    Rust 2018 rule: a crate root (``lib.rs``/``main.rs``) and a ``mod.rs`` file
+    resolve children in their OWN directory; any other module file ``foo.rs``
+    resolves children under a sibling ``foo/`` directory.
+    """
+    d = file_path.rsplit("/", 1)[0] if "/" in file_path else ""
+    base = file_path.rsplit("/", 1)[-1]
+    if base in ("lib.rs", "main.rs", "mod.rs"):
+        return d
+    stem = base[:-3] if base.endswith(".rs") else base
+    return f"{d}/{stem}" if d else stem
+
+
+def _resolve_rust_mod_file(
+    child_dir: str, name: str, override: str | None, rs_files: set[str], parent_file: str
+) -> str | None:
+    """Resolve a ``mod name;`` declaration to the child module's file, or None.
+
+    ``#[path = "…"]`` override wins and is resolved relative to the directory of
+    the file that CONTAINS the ``mod`` declaration (correct for crate-root /
+    ``mod.rs`` hosts — the common case). Otherwise the 2018-edition pair
+    ``<child_dir>/name.rs`` then ``<child_dir>/name/mod.rs`` is tried. Returns a
+    file only when it exists in the indexed set — an unresolved decl yields None
+    so the child falls to per-file identity (never a guessed parent).
+    """
+    if override:
+        pdir = parent_file.rsplit("/", 1)[0] if "/" in parent_file else ""
+        cand = _rust_norm_join(pdir, override)
+        return cand if cand in rs_files else None
+    flat = f"{child_dir}/{name}.rs" if child_dir else f"{name}.rs"
+    nested = f"{child_dir}/{name}/mod.rs" if child_dir else f"{name}/mod.rs"
+    if flat in rs_files:
+        return flat
+    if nested in rs_files:
+        return nested
+    return None
+
+
+def _build_rust_module_index(node_map: dict[str, dict[str, Any]]) -> dict[str, dict]:
+    """Model each Rust definition's crate-relative module path (wave 1p9q5).
+
+    Returns ``{"module_by_file": {file -> module-path}, "inline_mods_by_file":
+    {file -> [dotted inline-mod qnames]}}``. The module path is derived from the
+    ``mod`` declaration graph rooted at crate roots (``lib.rs``/``main.rs`` =
+    ``crate``); files unreachable from any crate root (common under partial
+    indexing) fall to a per-file identity ``mod-file:<path>`` that only ever
+    equals itself — a missing model degrades to a recall gap (``external::``),
+    never a wrong same-name bind. ``mod`` decls and inline-mod qnames are read
+    from the ``rust_mod_decls`` / ``rust_inline_mods`` properties the extractor
+    stores on each ``.rs`` file's module node (node-borne, so incremental merges
+    recover them from per-file fragments, exactly like ``declared_package``).
+    """
+    rs_files: set[str] = set()
+    mod_decls_by_file: dict[str, list[dict]] = {}
+    inline_mods_by_file: dict[str, list[str]] = {}
+    for node_id, node in node_map.items():
+        if node_id.startswith("external::") or "::" in node_id:
+            continue
+        if not node_id.endswith(".rs"):
+            continue
+        rs_files.add(node_id)
+        decls = node.get("rust_mod_decls")
+        if decls:
+            mod_decls_by_file[node_id] = decls
+        inline = node.get("rust_inline_mods")
+        if inline:
+            inline_mods_by_file[node_id] = list(inline)
+    module_by_file: dict[str, str] = {}
+    # BFS from crate roots along the mod-declaration graph. A plain list acts as
+    # the queue (order-independent result: each file is claimed by exactly one
+    # parent — Rust forbids declaring the same module file from two places).
+    queue: list[str] = []
+    for f in sorted(rs_files):
+        if f.rsplit("/", 1)[-1] in ("lib.rs", "main.rs"):
+            module_by_file[f] = "crate"
+            queue.append(f)
+    head = 0
+    while head < len(queue):
+        f = queue[head]
+        head += 1
+        base_mod = module_by_file[f]
+        child_dir = _rust_child_dir(f)
+        for decl in mod_decls_by_file.get(f, []):
+            name = decl.get("name")
+            if not name:
+                continue
+            child = _resolve_rust_mod_file(child_dir, name, decl.get("path"), rs_files, f)
+            if child and child not in module_by_file:
+                module_by_file[child] = f"{base_mod}::{name}"
+                queue.append(child)
+    for f in rs_files:
+        module_by_file.setdefault(f, f"mod-file:{f}")
+    return {"module_by_file": module_by_file, "inline_mods_by_file": inline_mods_by_file}
+
+
+def _rust_module_key(
+    node_id: str, module_by_file: dict[str, str], inline_mods_by_file: dict[str, list[str]]
+) -> str:
+    """The full Rust module-path key for a definition node (wave 1p9q5).
+
+    ``<file-module-path>`` optionally suffixed with the longest inline-``mod``
+    qname (segment-aligned) that encloses the definition — so two defs in the
+    same inline ``mod`` share a key while a file-scope def and an inline-mod def
+    in the same file do NOT. Cross-file defs never share a key (each ``.rs`` file
+    is a distinct module), so the tier can only bind a same-module candidate.
+    """
+    file_part = node_id.split("::", 1)[0]
+    base = module_by_file.get(file_part) or f"mod-file:{file_part}"
+    qn = node_id.split("::", 1)[1] if "::" in node_id else ""
+    best = ""
+    for m in inline_mods_by_file.get(file_part, ()):
+        if (qn == m or qn.startswith(m + ".")) and len(m) > len(best):
+            best = m
+    if best:
+        return f"{base}::" + best.replace(".", "::")
+    return base
+
+
 def _build_candidate_indexes(
     node_map: dict[str, dict[str, Any]],
-) -> tuple[dict[str, list[str]], dict[str, list[str]], dict[str, set[str]], dict[str, str]]:
-    """Build (simple_name_index, qualified_index, cs_file_ns, pkg_by_file) from a node map.
+) -> tuple[dict[str, list[str]], dict[str, list[str]], dict[str, set[str]], dict[str, str], dict[str, dict]]:
+    """Build (simple_name_index, qualified_index, cs_file_ns, pkg_by_file, rust_module_index) from a node map.
 
     Extracted verbatim from finalize (waves 130ol/1312l/1316l/1p4ef/1p4ev/
     1p66e — see the inline comments retained below). Pure function of the node
@@ -8711,6 +9140,13 @@ def _build_candidate_indexes(
     extractor stores on the file's module node. Node-derived like
     ``cs_file_ns``, so incremental merges rebuild it from per-file fragments
     with no extra state.
+
+    Wave 1p9q5: ``rust_module_index`` models each Rust definition's crate-
+    relative module path (``_build_rust_module_index``) so the same-module
+    disambiguation tier can key on Rust's language-defined scope (the module
+    tree, not the directory). Node-derived from ``rust_mod_decls`` /
+    ``rust_inline_mods`` on each ``.rs`` module node, so it too rebuilds from
+    per-file fragments on an incremental merge.
     """
     simple_name_index: dict[str, list[str]] = {}
     qualified_index: dict[str, list[str]] = {}
@@ -8778,7 +9214,8 @@ def _build_candidate_indexes(
         qualified_index[_k] = list(dict.fromkeys(qualified_index[_k]))
     for _k in list(simple_name_index.keys()):
         simple_name_index[_k] = list(dict.fromkeys(simple_name_index[_k]))
-    return simple_name_index, qualified_index, cs_file_ns, pkg_by_file
+    rust_module_index = _build_rust_module_index(node_map)
+    return simple_name_index, qualified_index, cs_file_ns, pkg_by_file, rust_module_index
 
 
 def _candidate_delta_keys(nodes: list[dict[str, Any]]) -> set[str]:
@@ -8796,7 +9233,7 @@ def _candidate_delta_keys(nodes: list[dict[str, Any]]) -> set[str]:
             node_id = str(node.get("id") or "")
             if node_id:
                 subset.setdefault(node_id, node)
-    simple_idx, qualified_idx, _, _ = _build_candidate_indexes(subset)
+    simple_idx, qualified_idx, _, _, _ = _build_candidate_indexes(subset)
     return set(simple_idx) | set(qualified_idx)
 
 
@@ -8849,6 +9286,7 @@ def _resolve_external_call_target(
     cs_file_ns: dict[str, set[str]],
     wildcard_imports_by_file: dict[str, list[str]] | None = None,
     java_pkg_by_file: dict[str, str] | None = None,
+    rust_module_index: dict[str, dict] | None = None,
 ) -> tuple[str | None, bool]:
     """Resolve one `external::<bare>` calls-edge target to a project node.
 
@@ -9055,6 +9493,24 @@ def _resolve_external_call_target(
             ns_matches = [c for c in candidates if _cs_ns(c) in accept_ns]
             if len(ns_matches) == 1:
                 resolved = ns_matches[0]
+        # Wave 1p9q5: Rust same-module membership — Rust's visibility rule is the
+        # MODULE TREE (items in the same module are visible without `use`), not
+        # the directory. Key each candidate on its full module-path (crate-
+        # relative file-module path + longest enclosing inline-`mod` suffix) and
+        # keep those equal to the call site's module. Resolve iff exactly one
+        # survives; zero/multiple → stay external (never bind a same-name twin in
+        # another module, and — the sharpest wrong-bind risk — never cross-bind a
+        # file-scope def with an inline-`mod` def in the same file). A file whose
+        # crate root is not indexed falls to a per-file identity, so an unmodeled
+        # module degrades to a recall gap, not a wrong parent guess.
+        if resolved is None and src_file.endswith(".rs"):
+            _rmi = rust_module_index or {}
+            _mbf = _rmi.get("module_by_file") or {}
+            _imf = _rmi.get("inline_mods_by_file") or {}
+            _src_key = _rust_module_key(src, _mbf, _imf)
+            same_mod = [c for c in candidates if _rust_module_key(c, _mbf, _imf) == _src_key]
+            if len(same_mod) == 1:
+                resolved = same_mod[0]
     return resolved, rewrote_exact
 
 
@@ -9176,6 +9632,57 @@ def _edge_lookup_keys(raw_edge: dict[str, Any]) -> set[str]:
     return keys
 
 
+_TYPED_RECEIVER_CONFS = ("RECEIVER_RESOLVED", "CONSTRUCTION_RESOLVED")
+
+
+def _downgrade_unresolved_typed_calls(edge: dict[str, Any]) -> dict[str, Any]:
+    """Honesty pass (wave 1p9q8): a typed-receiver METHOD-CALL `calls` edge that
+    STAYS `external::` after cross-file resolution must not carry a
+    receiver/construction resolution confidence.
+
+    The Python typed-receiver resolver (annotations / constructor assignments,
+    wave 1p9q4) emits `external::<Type>.<method>` WITH `RECEIVER_RESOLVED` /
+    `CONSTRUCTION_RESOLVED` at extraction time and relies on the finalize
+    cross-file rewrite to swap the target onto the real project node (keeping
+    that confidence). When the qualified `<Type>.<method>` name never binds a
+    project node — the method is absent from the resolved class, or the receiver
+    type is an ambiguous cross-file same-name twin — the edge remains
+    `external::`, i.e. UNRESOLVED. `RECEIVER_RESOLVED` means "bound to a
+    receiver-typed PROJECT node"; an external target is not resolved, so the
+    honest label is `EXTRACTED`. No provenance is recorded: the downgraded edge
+    IS its own raw form, so a later symbol delta that makes the target
+    resolvable re-resolves from `EXTRACTED` and re-promotes on an exact unique
+    rebind.
+
+    Scope: only a DOTTED `external::<Type>.<method>` target — the exact shape a
+    typed-receiver method call produces. A BARE `external::<Type>` construction
+    edge (the constructor call itself; e.g. Go composite-literal / `new(Foo)`
+    tagged `CONSTRUCTION_RESOLVED` before a language's cross-file type rewrite is
+    wired) is a resolved-TYPE reference, not a dangling method call, and is left
+    untouched.
+
+    This ALSO catches Java's `super.`/`staticorinherited#` markers when the
+    finalize inheritance pass (`_apply_inheritance_output_passes` /
+    `_arbitrate_static_or_inherited`) cannot bind them to a unique project
+    supertype definer: both refusal paths re-emit a DOTTED
+    `external::super.<Enclosing>.<method>` or `external::<Enclosing>.<method>`
+    target while keeping the marker's original `RECEIVER_RESOLVED` confidence,
+    so it lands here unchanged and is downgraded the same as an unresolved
+    Python typed-receiver call. This is intended, not a gap: `RECEIVER_RESOLVED`
+    on an unresolved external super/inherited target was a pre-existing Java
+    over-claim (the library-superclass or ambiguous-definer case genuinely
+    never resolved to a project node); this pass makes that label honest too.
+    """
+    if (
+        edge.get("relation") == "calls"
+        and edge.get("confidence") in _TYPED_RECEIVER_CONFS
+    ):
+        tgt = str(edge.get("target") or "")
+        if tgt.startswith("external::") and "." in tgt[len("external::"):]:
+            return {**edge, "confidence": "EXTRACTED"}
+    return edge
+
+
 def _resolve_fragment_edge(raw_edge: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
     """Resolve ONE raw edge into its stored fragment form.
 
@@ -9185,6 +9692,13 @@ def _resolve_fragment_edge(raw_edge: dict[str, Any], ctx: dict[str, Any]) -> dic
     unique constant or become tombstones. Provenance keys keep the raw edge
     recoverable so a later symbol-delta re-runs resolution (promotion AND
     demotion). All other edges pass through unchanged.
+
+    Wave 1p9q8: the honesty downgrade for a typed-receiver `calls` edge that
+    stays `external::` runs LATER, on the FINAL output edge set (after the
+    finalize inheritance/package output passes that resolve some `external::`
+    calls edges to project nodes) — see `_downgrade_unresolved_typed_calls`
+    applied in `finalize()`. It cannot run here: a fragment-stage `external::`
+    edge may still resolve to a project node in a later output pass.
     """
     # Degenerate-corpus guard: the former rewrite loop ran only when at least
     # one candidate index was non-empty; replicate so a docs-only corpus keeps
@@ -9239,6 +9753,7 @@ def _resolve_fragment_edge(raw_edge: dict[str, Any], ctx: dict[str, Any]) -> dic
         cs_file_ns=ctx["cs_file_ns"],
         wildcard_imports_by_file=ctx.get("wildcard_imports_by_file"),
         java_pkg_by_file=ctx.get("java_pkg_by_file"),
+        rust_module_index=ctx.get("rust_module_index"),
     )
     if not resolved or resolved == src:
         return raw_edge
@@ -9442,6 +9957,7 @@ def _arbitrate_static_or_inherited(
         cs_file_ns=resolve_ctx.get("cs_file_ns") or {},
         wildcard_imports_by_file=resolve_ctx.get("wildcard_imports_by_file"),
         java_pkg_by_file=resolve_ctx.get("java_pkg_by_file"),
+        rust_module_index=resolve_ctx.get("rust_module_index"),
     )
     if resolved and resolved != src:
         _emit(resolved)
@@ -9966,43 +10482,130 @@ class GraphIndexSession:
         # edge only ever binds a constant target (never a coincidental same-name function/class).
         const_ids = {n["id"] for n in nodes if n.get("kind") == GRAPH_CONST_KIND}
 
-        # Wave 131bt (1319q): Python receiver-type resolution via PEP 484
-        # type annotations. Extracts simple type names from annotated locals
-        # (`foo: Foo = ...`), typed parameters (`def m(self, foo: Foo)`), and
-        # routes `foo.method()` calls to `Foo.method`. Unannotated declarations
-        # remain unresolved — falls back to the existing EXTRACTED path.
+        # Wave 1p9q4: simple names of THIS file's class nodes — the same-file half
+        # of the constructor-assignment gate (`x = Foo()` types `x` as `Foo` only
+        # when `Foo` is a same-file class or an imported name). Collapsed
+        # dominant-class file nodes carry the class name as `label`, so their
+        # `label` participates too.
+        local_class_names = {n["label"] for n in nodes if n.get("kind") == "class" and n.get("label")}
+
+        # Wave 131bt (1319q) + 1p9q4: Python receiver-type resolution. Two
+        # deterministic, AST-local, unique-match-or-drop signals feed a
+        # receiver-type table:
+        #   (1) ANNOTATION (RECEIVER_RESOLVED) — parameter/local/attribute type
+        #       annotations (`def m(self, foo: Foo)`, `foo: Foo`, `self.x: Foo`,
+        #       class-body `x: Foo`). Optional[T]/`T | None` and string forward
+        #       refs unwrap to T; any genuine multi-type union or other generic
+        #       is unresolvable (no guess).
+        #   (2) CONSTRUCTION (CONSTRUCTION_RESOLVED) — direct constructor
+        #       assignment (`foo = Foo()`, `self.x = Foo()`, module-level
+        #       `foo = Foo()`) where `Foo` is a same-file class or imported name.
+        # A receiver call `recv.method()` binds to `Type.method` only when that
+        # method exists on the resolved class (same-file `symbol_lookup`, else the
+        # existing unique-candidate cross-file pass). Conflicting resolved types
+        # for one name demote it (no bind). No inheritance/MRO walk.
         def _py_extract_simple_type(annotation: ast.AST | None) -> str | None:
             if annotation is None:
                 return None
             if isinstance(annotation, ast.Name):
-                return annotation.id
+                return annotation.id if annotation.id != "None" else None
+            if isinstance(annotation, ast.Constant) and isinstance(annotation.value, str):
+                # String / forward-ref annotation (`x: "Foo"`, `x: "Optional[Foo]"`).
+                # Parse the string as an expression and recurse; a malformed or
+                # unresolvable string yields None (no guess).
+                text = annotation.value.strip()
+                if not text:
+                    return None
+                try:
+                    parsed = ast.parse(text, mode="eval")
+                except SyntaxError:
+                    return None
+                return _py_extract_simple_type(parsed.body)
+            if isinstance(annotation, ast.Attribute):
+                # foo.bar.Foo — last segment (a dotted named type, not a union/generic).
+                return annotation.attr
             if isinstance(annotation, ast.Subscript):
-                # Optional[Foo] / Union[Foo, None] — extract inner non-None.
+                # ONLY Optional[T] / Union[...] unwrap — and only to a SINGLE
+                # non-None member. Every other generic (List[Foo], Dict[str, Foo],
+                # Callable[...], ...) is treated as unresolvable — no guess at the
+                # element type (Requirement 1 / AC-3).
                 if isinstance(annotation.value, ast.Name) and annotation.value.id in ("Optional", "Union"):
                     slice_node = annotation.slice
-                    if isinstance(slice_node, ast.Name):
-                        return slice_node.id
                     if isinstance(slice_node, ast.Tuple):
-                        for elt in slice_node.elts:
-                            inner = _py_extract_simple_type(elt)
-                            if inner and inner != "None":
-                                return inner
-                    return _py_extract_simple_type(slice_node)
-                # List[Foo] / Container[Foo] / Dict[str, Foo] — outer name (e.g. List).
-                if isinstance(annotation.value, ast.Name):
-                    return annotation.value.id
-            if isinstance(annotation, ast.Attribute):
-                # foo.bar.Foo — last segment.
-                return annotation.attr
+                        inners = [_py_extract_simple_type(elt) for elt in slice_node.elts]
+                        non_none = [t for t in inners if t and t != "None"]
+                        # Optional[T] / Union[T, None] → T; a genuine Union[A, B]
+                        # (multiple non-None members) is ambiguous → no bind.
+                        return non_none[0] if len(non_none) == 1 else None
+                    inner = _py_extract_simple_type(slice_node)
+                    return inner if inner and inner != "None" else None
+                return None
             if isinstance(annotation, ast.BinOp) and isinstance(annotation.op, ast.BitOr):
-                # Foo | None → first non-None type
-                left = _py_extract_simple_type(annotation.left)
-                right = _py_extract_simple_type(annotation.right)
-                if left and left != "None":
-                    return left
-                if right and right != "None":
-                    return right
+                # PEP 604 `A | B | None`. Unwrap ONLY when exactly one non-None
+                # member survives across the whole flattened union; a multi-type
+                # union is ambiguous → no bind. A member we cannot resolve to a
+                # simple type also poisons the union (unresolvable → no guess).
+                parts: list[str] = []
+                stack: list[ast.AST] = [annotation.left, annotation.right]
+                resolvable = True
+                while stack:
+                    node = stack.pop()
+                    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
+                        stack.extend([node.left, node.right])
+                        continue
+                    if isinstance(node, ast.Constant) and node.value is None:
+                        continue  # the `None` half of an optional
+                    t = _py_extract_simple_type(node)
+                    if t is None:
+                        resolvable = False
+                        continue
+                    if t != "None":
+                        parts.append(t)
+                if not resolvable:
+                    return None
+                return parts[0] if len(parts) == 1 else None
             return None
+
+        def _py_construction_type(value: ast.AST | None) -> str | None:
+            # Wave 1p9q4: the class name a `= Foo()` constructor assignment types
+            # its target as, else None. Faithful gate: `Foo` must be a bare Name
+            # that is a same-file class OR an imported name (dotted / attribute
+            # constructors are out of scope — the doc's signal is direct
+            # `ClassName(...)`). Non-constructor calls (`helper()`) whose callee is
+            # neither a same-file class nor an import return None. Imported-name
+            # over-permissiveness is self-bounding: `Foo.method` only survives when
+            # a UNIQUE project class actually defines `method` (else it stays
+            # external and is dropped), so a mis-classified factory never binds.
+            if not (isinstance(value, ast.Call) and isinstance(value.func, ast.Name)):
+                return None
+            name = value.func.id
+            if name in local_class_names or name in import_aliases:
+                return name
+            return None
+
+        def _py_finalize_types(acc: dict[str, list[tuple[str, str]]]) -> dict[str, tuple[str, str]]:
+            # Wave 1p9q4: collapse per-name (type, signal) evidence into a single
+            # (type, confidence) binding, demoting on conflict. `signal` is "ann"
+            # (annotation) or "ctor" (construction). Conflicting RESOLVED types for
+            # one name → drop (no bind). When exactly one type survives, annotation
+            # evidence (if any) sets RECEIVER_RESOLVED; construction-only sets
+            # CONSTRUCTION_RESOLVED.
+            out: dict[str, tuple[str, str]] = {}
+            for name, entries in acc.items():
+                distinct = {t for t, _sig in entries}
+                if len(distinct) != 1:
+                    continue  # conflicting evidence → unresolvable
+                only_type = next(iter(distinct))
+                conf = "RECEIVER_RESOLVED" if any(sig == "ann" for _t, sig in entries) else "CONSTRUCTION_RESOLVED"
+                out[name] = (only_type, conf)
+            return out
+
+        def _py_is_self_attr_target(target: ast.AST) -> bool:
+            return (
+                isinstance(target, ast.Attribute)
+                and isinstance(target.value, ast.Name)
+                and target.value.id in ("self", "cls")
+            )
 
         # Wave 1p47e (1p470): lazy-loader return-type inference. The wavefoundry
         # sibling-script loader idiom `def _load_X(): return _load_script("mod")`
@@ -10049,10 +10652,21 @@ class GraphIndexSession:
                     return loader_modules[fn]
             return None
 
-        def _py_build_local_types(node: ast.AST, scope_class: str | None) -> dict[str, str]:
-            """Build name → type mapping for a function body (one-level scope)."""
-            types: dict[str, str] = {}
-            # If this is a function, capture typed parameters.
+        def _py_build_local_types(node: ast.AST, scope_class: str | None) -> dict[str, tuple[str, str]]:
+            """Build name → (type, confidence) mapping for a function body.
+
+            Wave 1p9q4: two signals — annotations (params + local `AnnAssign`;
+            RECEIVER_RESOLVED) and constructor assignments (local `x = Foo()`;
+            CONSTRUCTION_RESOLVED). One-level scope (does not descend into nested
+            functions/classes). Conflicting resolved types for one name demote it.
+            """
+            acc: dict[str, list[tuple[str, str]]] = {}
+
+            def _record(name: str, t: str | None, signal: str) -> None:
+                if t:
+                    acc.setdefault(name, []).append((t, signal))
+
+            # If this is a function, capture typed parameters (annotation signal).
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 args = node.args
                 all_args = list(args.posonlyargs) + list(args.args) + list(args.kwonlyargs)
@@ -10061,11 +10675,9 @@ class GraphIndexSession:
                 if args.kwarg:
                     all_args.append(args.kwarg)
                 for arg in all_args:
-                    t = _py_extract_simple_type(getattr(arg, "annotation", None))
-                    if t:
-                        types[arg.arg] = t
-            # Scan body for AnnAssign at this scope level (don't descend into
-            # nested functions/classes — they have their own scope).
+                    _record(arg.arg, _py_extract_simple_type(getattr(arg, "annotation", None)), "ann")
+            # Scan body at this scope level (don't descend into nested
+            # functions/classes — they have their own scope).
             body = getattr(node, "body", []) or []
             stack = list(body)
             while stack:
@@ -10073,16 +10685,96 @@ class GraphIndexSession:
                 if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
                     continue
                 if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
-                    t = _py_extract_simple_type(stmt.annotation)
-                    if t:
-                        types[stmt.target.id] = t
+                    _record(stmt.target.id, _py_extract_simple_type(stmt.annotation), "ann")
+                elif (
+                    isinstance(stmt, ast.Assign)
+                    and len(stmt.targets) == 1
+                    and isinstance(stmt.targets[0], ast.Name)
+                ):
+                    _record(stmt.targets[0].id, _py_construction_type(stmt.value), "ctor")
                 # Descend into compound statements (if/for/while/try/with).
                 for field, value in ast.iter_fields(stmt):
                     if isinstance(value, list):
                         stack.extend(v for v in value if isinstance(v, ast.stmt))
                     elif isinstance(value, ast.stmt):
                         stack.append(value)
-            return types
+            return _py_finalize_types(acc)
+
+        def _py_build_class_attr_types(classdef: ast.ClassDef) -> dict[str, tuple[str, str]]:
+            """Wave 1p9q4: attribute name → (type, confidence) for a class.
+
+            Aggregates receiver-type evidence for `self.<attr>` across the whole
+            class body (all methods): annotated attributes (`self.x: Foo`,
+            class-body `x: Foo`; RECEIVER_RESOLVED) and constructor assignments
+            (`self.x = Foo()`, class-body `x = Foo()`; CONSTRUCTION_RESOLVED).
+            Conflicting resolved types for one attribute demote it. Enables
+            `self.x.method()` resolution to `Foo.method`.
+            """
+            acc: dict[str, list[tuple[str, str]]] = {}
+
+            def _record(name: str, t: str | None, signal: str) -> None:
+                if t:
+                    acc.setdefault(name, []).append((t, signal))
+
+            def _scan_method_body(method: ast.AST) -> None:
+                substack = list(getattr(method, "body", []) or [])
+                while substack:
+                    s = substack.pop()
+                    if isinstance(s, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                        continue
+                    if isinstance(s, ast.AnnAssign) and _py_is_self_attr_target(s.target):
+                        _record(s.target.attr, _py_extract_simple_type(s.annotation), "ann")
+                    elif (
+                        isinstance(s, ast.Assign)
+                        and len(s.targets) == 1
+                        and _py_is_self_attr_target(s.targets[0])
+                    ):
+                        _record(s.targets[0].attr, _py_construction_type(s.value), "ctor")
+                    for _field, value in ast.iter_fields(s):
+                        if isinstance(value, list):
+                            substack.extend(v for v in value if isinstance(v, ast.stmt))
+                        elif isinstance(value, ast.stmt):
+                            substack.append(value)
+
+            for stmt in classdef.body:
+                if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
+                    _record(stmt.target.id, _py_extract_simple_type(stmt.annotation), "ann")
+                elif (
+                    isinstance(stmt, ast.Assign)
+                    and len(stmt.targets) == 1
+                    and isinstance(stmt.targets[0], ast.Name)
+                ):
+                    _record(stmt.targets[0].id, _py_construction_type(stmt.value), "ctor")
+                elif isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    _scan_method_body(stmt)
+            return _py_finalize_types(acc)
+
+        def _py_build_module_types() -> dict[str, tuple[str, str]]:
+            """Wave 1p9q4: module-level name → (type, confidence).
+
+            Top-level `name: Foo` annotations and `name = Foo()` constructor
+            assignments — the module-global receiver-type table. Shadow-guarded at
+            resolution time: a function-local binding of the same name suppresses
+            the module type (never resolve a shadowed global).
+            """
+            acc: dict[str, list[tuple[str, str]]] = {}
+
+            def _record(name: str, t: str | None, signal: str) -> None:
+                if t:
+                    acc.setdefault(name, []).append((t, signal))
+
+            for stmt in tree.body:
+                if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
+                    _record(stmt.target.id, _py_extract_simple_type(stmt.annotation), "ann")
+                elif (
+                    isinstance(stmt, ast.Assign)
+                    and len(stmt.targets) == 1
+                    and isinstance(stmt.targets[0], ast.Name)
+                ):
+                    _record(stmt.targets[0].id, _py_construction_type(stmt.value), "ctor")
+            return _py_finalize_types(acc)
+
+        py_module_types = _py_build_module_types()
 
         def _py_build_module_vars(node: ast.AST) -> dict[str, str]:
             """Map local var → module name for sibling-loader assignments (1p470).
@@ -10114,16 +10806,24 @@ class GraphIndexSession:
             return mvars
 
         class CallCollector(ast.NodeVisitor):
-            def __init__(self, current_symbol: str, scope_class: str | None = None, local_types: dict[str, str] | None = None, module_vars: dict[str, str] | None = None, local_names: set[str] | None = None) -> None:
+            def __init__(self, current_symbol: str, scope_class: str | None = None, local_types: dict[str, tuple[str, str]] | None = None, module_vars: dict[str, str] | None = None, local_names: set[str] | None = None, attr_types: dict[str, tuple[str, str]] | None = None, module_types: dict[str, tuple[str, str]] | None = None) -> None:
                 self.current_symbol = current_symbol
                 self.scope_class = scope_class
-                self.local_types: dict[str, str] = local_types or {}
+                # Wave 1p9q4: name/attr → (type, confidence). local_types and
+                # attr_types carry per-name confidence (RECEIVER_RESOLVED for an
+                # annotation, CONSTRUCTION_RESOLVED for a constructor assignment).
+                self.local_types: dict[str, tuple[str, str]] = local_types or {}
+                self.attr_types: dict[str, tuple[str, str]] = attr_types or {}
+                self.module_types: dict[str, tuple[str, str]] = module_types or {}
                 self.module_vars: dict[str, str] = module_vars or {}
                 # Wave 1p4ls: names bound locally in this function — a read of one is the local, not
                 # a same-name constant (shadowing guard), so it never emits a reads edge.
                 self.local_names: set[str] = local_names or set()
-                # Wave 131bt (1319q): tuples of (source, target, receiver_resolved).
-                self.calls: list[tuple[str, str, bool]] = []
+                # Wave 131bt (1319q) + 1p9q4: tuples of (source, target,
+                # explicit_confidence_or_None). None → the emit loop derives the
+                # confidence from the target (same-file bound → RECEIVER_RESOLVED,
+                # else EXTRACTED); a string is the resolver-determined level.
+                self.calls: list[tuple[str, str, str | None]] = []
                 # Wave 1p4ls: (source, constant_target) reads of a same-file constant.
                 self.reads: list[tuple[str, str]] = []
                 # Wave 1p7dh: (source, literal_key) config-key read candidates from
@@ -10142,9 +10842,9 @@ class GraphIndexSession:
                 return None
 
             def visit_Call(self, node: ast.Call) -> Any:  # noqa: N802
-                target, receiver_resolved = self._resolve_call(node.func)
+                target, conf = self._resolve_call(node.func)
                 if target:
-                    self.calls.append((self.current_symbol, target, receiver_resolved))
+                    self.calls.append((self.current_symbol, target, conf))
                 # Wave 1p7dh: a string-literal first arg to a `.get("KEY")` getter
                 # is a config-key read candidate (bounded later by node match).
                 if (
@@ -10198,19 +10898,23 @@ class GraphIndexSession:
                     # drops it (most imports are functions/classes → dropped; never wrong-bound).
                     self.reads.append((self.current_symbol, f"external::{import_aliases[name]}"))
 
-            def _resolve_call(self, func: ast.AST) -> tuple[str | None, bool]:
+            def _resolve_call(self, func: ast.AST) -> tuple[str | None, str | None]:
+                # Returns (target, explicit_confidence_or_None). None confidence
+                # defers to the emit loop (same-file bound → RECEIVER_RESOLVED,
+                # else EXTRACTED). A receiver-typed bind returns its own level:
+                # RECEIVER_RESOLVED (annotation) or CONSTRUCTION_RESOLVED (ctor).
                 if isinstance(func, ast.Name):
                     name = func.id
                     if name in import_aliases:
                         target_label = import_aliases[name]
-                        return f"external::{target_label}", False
+                        return f"external::{target_label}", None
                     if name in symbol_lookup:
-                        return symbol_lookup[name], False
+                        return symbol_lookup[name], None
                     if self.scope_class:
                         candidate = f"{self.scope_class}.{name}"
                         if candidate in symbol_lookup:
-                            return symbol_lookup[candidate], False
-                    return None, False
+                            return symbol_lookup[candidate], None
+                    return None, None
                 if isinstance(func, ast.Attribute):
                     attr = func.attr
                     value = func.value
@@ -10219,87 +10923,124 @@ class GraphIndexSession:
                         if root in ("self", "cls") and self.scope_class:
                             candidate = f"{self.scope_class}.{attr}"
                             if candidate in symbol_lookup:
-                                return symbol_lookup[candidate], False
-                        # Wave 131bt (1319q): receiver-type via local type
-                        # table built from PEP 484 annotations.
+                                return symbol_lookup[candidate], None
+                        # Wave 131bt (1319q) + 1p9q4: receiver-type via the local
+                        # type table (annotation → RECEIVER_RESOLVED, constructor
+                        # assignment → CONSTRUCTION_RESOLVED — the level travels
+                        # with the type).
                         if root in self.local_types:
-                            receiver_type = self.local_types[root]
+                            receiver_type, conf = self.local_types[root]
                             qualified = f"{receiver_type}.{attr}"
                             if qualified in symbol_lookup:
-                                return symbol_lookup[qualified], True
-                            return f"external::{receiver_type}.{attr}", True
+                                return symbol_lookup[qualified], conf
+                            return f"external::{receiver_type}.{attr}", conf
                         # Wave 1p470: sibling-loader module var, e.g.
                         # `gq = _load_graph_query(); gq.some_module_func()`.
                         if root in self.module_vars:
-                            return f"external::{self.module_vars[root]}.{attr}", True
+                            return f"external::{self.module_vars[root]}.{attr}", "RECEIVER_RESOLVED"
                         if root in import_aliases:
-                            return f"external::{import_aliases[root]}.{attr}", False
+                            return f"external::{import_aliases[root]}.{attr}", None
                         if root in symbol_lookup:
                             candidate = f"{root}.{attr}"
                             if candidate in symbol_lookup:
-                                return symbol_lookup[candidate], False
+                                return symbol_lookup[candidate], None
+                        # Wave 1p9q4: module-level typed global (shadow-guarded — a
+                        # function-local binding of the same name wins and is
+                        # handled above / left unresolved).
+                        if root in self.module_types and root not in self.local_names:
+                            receiver_type, conf = self.module_types[root]
+                            qualified = f"{receiver_type}.{attr}"
+                            if qualified in symbol_lookup:
+                                return symbol_lookup[qualified], conf
+                            return f"external::{receiver_type}.{attr}", conf
                     # Wave 1p470: inline sibling-loader call, e.g.
                     # `_load_graph_query().load_graph()`.
                     if isinstance(value, ast.Call):
                         mod = _py_loader_module(value)
                         if mod:
-                            return f"external::{mod}.{attr}", True
+                            return f"external::{mod}.{attr}", "RECEIVER_RESOLVED"
                     if isinstance(value, ast.Attribute) and isinstance(value.value, ast.Name):
                         root = value.value.id
+                        # Wave 1p9q4: self-attribute receiver typing —
+                        # `self.store.put()` where `self.store` has an annotation
+                        # or construction type. The confidence level travels with
+                        # the attribute type.
+                        if root in ("self", "cls") and value.attr in self.attr_types:
+                            receiver_type, conf = self.attr_types[value.attr]
+                            qualified = f"{receiver_type}.{attr}"
+                            if qualified in symbol_lookup:
+                                return symbol_lookup[qualified], conf
+                            return f"external::{receiver_type}.{attr}", conf
                         # Wave 1p470: `gq.GraphQueryIndex.from_root()` where gq is a
                         # sibling-loader module var → graph_query.GraphQueryIndex.from_root.
                         if root in self.module_vars:
-                            return f"external::{self.module_vars[root]}.{value.attr}.{attr}", True
+                            return f"external::{self.module_vars[root]}.{value.attr}.{attr}", "RECEIVER_RESOLVED"
                         if root in import_aliases:
-                            return f"external::{import_aliases[root]}.{value.attr}.{attr}", False
+                            return f"external::{import_aliases[root]}.{value.attr}.{attr}", None
                     # Wave 1p470: inline loader 3-level, e.g.
                     # `_load_graph_query().GraphQueryIndex.from_root()`.
                     if isinstance(value, ast.Attribute) and isinstance(value.value, ast.Call):
                         mod = _py_loader_module(value.value)
                         if mod:
-                            return f"external::{mod}.{value.attr}.{attr}", True
-                    return None, False
-                return None, False
+                            return f"external::{mod}.{value.attr}.{attr}", "RECEIVER_RESOLVED"
+                    return None, None
+                return None, None
 
-        def collect_calls(body: list[ast.stmt], current_symbol: str, scope_class: str | None = None, owner_node: ast.AST | None = None) -> None:
-            # Wave 131bt (1319q): build local type table for receiver-type
-            # resolution when an owner function/method is provided.
-            local_types: dict[str, str] = {}
+        def collect_calls(body: list[ast.stmt], current_symbol: str, scope_class: str | None = None, owner_node: ast.AST | None = None, attr_types: dict[str, tuple[str, str]] | None = None) -> None:
+            # Wave 131bt (1319q) + 1p9q4: build the local type table for
+            # receiver-type resolution when an owner function/method is provided;
+            # `attr_types` (the enclosing class's `self.<attr>` type table) is
+            # threaded in by the caller.
+            local_types: dict[str, tuple[str, str]] = {}
             module_vars: dict[str, str] = {}
             local_names: set[str] = set()
             if owner_node is not None:
                 local_types = _py_build_local_types(owner_node, scope_class)
                 module_vars = _py_build_module_vars(owner_node)
                 local_names = _py_local_names(owner_node)
-            collector = CallCollector(current_symbol, scope_class=scope_class, local_types=local_types, module_vars=module_vars, local_names=local_names)
+            collector = CallCollector(current_symbol, scope_class=scope_class, local_types=local_types, module_vars=module_vars, local_names=local_names, attr_types=attr_types, module_types=py_module_types)
             for stmt in body:
                 collector.visit(stmt)
                 if isinstance(stmt, ast.ClassDef):
                     class_qname = f"{current_symbol.split('::', 1)[-1]}.{stmt.name}" if current_symbol else stmt.name
+                    child_attr_types = _py_build_class_attr_types(stmt)
                     for child in stmt.body:
                         if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
                             child_symbol = f"{rel_path}::{class_qname}.{child.name}"
-                            collect_calls(child.body, child_symbol, scope_class=class_qname, owner_node=child)
+                            collect_calls(child.body, child_symbol, scope_class=class_qname, owner_node=child, attr_types=child_attr_types)
                 elif isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     func_qname = f"{current_symbol.split('::', 1)[-1]}.{stmt.name}" if current_symbol else stmt.name
-                    collect_calls(stmt.body, f"{rel_path}::{func_qname}", scope_class=scope_class, owner_node=stmt)
-            for src, target, receiver_resolved in collector.calls:
-                # Wave 1p7dg: v23-style same-file confidence promotion. When the
-                # receiver TYPE was not needed but `_resolve_call` still bound a
-                # non-`external::` target, that target is a UNIQUE same-file
-                # `symbol_lookup` match BY CONSTRUCTION — `symbol_lookup` holds this
-                # file's `defined_symbols` (per-file unique) plus `simple_names`
-                # entries added only at `len==1`. The four such paths are an
-                # enclosing-class method (`self`/`cls`), a same-file bare def, an
-                # enclosing-class bare call, and a qualified `Owner.method` whose
-                # owner is itself a same-file symbol — all exact-by-name, not a
-                # receiver-type guess. So the edge is high-confidence even though
-                # `receiver_resolved` is False (the flag means "a TYPE was resolved",
-                # not "the target is unbound"). Mirrors the TS/JS bare-simple-name
-                # promotion at the cross-file rewrite (see ~7497). Target unchanged —
-                # only the confidence label. A guessed receiver / unresolved name
-                # returns `external::`/None and correctly stays EXTRACTED.
-                if receiver_resolved or (target and not target.startswith("external::")):
+                    # A nested function inside a method still sees the enclosing
+                    # class's `self` — propagate the current attr_types.
+                    collect_calls(stmt.body, f"{rel_path}::{func_qname}", scope_class=scope_class, owner_node=stmt, attr_types=attr_types)
+            for src, target, conf in collector.calls:
+                # Wave 1p7dg / 1p9q4: derive the edge confidence. An explicit level
+                # from `_resolve_call` (RECEIVER_RESOLVED for an annotation-typed
+                # receiver, CONSTRUCTION_RESOLVED for a constructor-assignment
+                # receiver) is trusted as-is. When `_resolve_call` returned None the
+                # bind is a same-file `symbol_lookup` match BY CONSTRUCTION —
+                # `symbol_lookup` holds this file's per-file-unique `defined_symbols`
+                # plus `simple_names` entries added only at `len==1`. Those four
+                # paths (enclosing-class method via `self`/`cls`, same-file bare def,
+                # enclosing-class bare call, qualified `Owner.method` on a same-file
+                # symbol) are exact-by-name, so a non-`external::` target promotes
+                # EXTRACTED->RECEIVER_RESOLVED. A guessed/unresolved receiver returns
+                # `external::`/None and correctly stays EXTRACTED.
+                #
+                # NOTE (wave 1p9q8): a typed-receiver CROSS-FILE bind emits
+                # `external::<Type>.<attr>` WITH its resolution confidence here and
+                # relies on the finalize cross-file rewrite to swap the target onto
+                # the real project node (preserving the confidence). So the honesty
+                # correction — an edge that STAYS `external::` because it never
+                # rewrites (method absent from the class; ambiguous same-name twin)
+                # must not keep RECEIVER_RESOLVED/CONSTRUCTION_RESOLVED — cannot be
+                # applied at THIS emit site (we do not yet know whether the external
+                # target will resolve). It is applied in the finalize pass
+                # (`_downgrade_unresolved_typed_calls`), where "did it actually bind
+                # a project node" is finally known.
+                if conf is not None:
+                    confidence = conf
+                elif target and not target.startswith("external::"):
                     confidence = "RECEIVER_RESOLVED"
                 else:
                     confidence = "EXTRACTED"
@@ -10321,9 +11062,22 @@ class GraphIndexSession:
                 collect_calls(stmt.body, f"{rel_path}::{stmt.name}", owner_node=stmt)
             elif isinstance(stmt, ast.ClassDef):
                 class_qname = stmt.name
+                class_attr_types = _py_build_class_attr_types(stmt)
                 for child in stmt.body:
                     if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                        collect_calls(child.body, f"{rel_path}::{class_qname}.{child.name}", scope_class=class_qname, owner_node=child)
+                        collect_calls(child.body, f"{rel_path}::{class_qname}.{child.name}", scope_class=class_qname, owner_node=child, attr_types=class_attr_types)
+
+        # Wave 1p9q7: AST-anchored FastAPI `Depends(...)` DI signals. Produced
+        # here (not by the text-based `collect_di_signals`) so idiom text in
+        # strings/comments never fires; merged WITH the text collector at the
+        # call site (`_extract_code_artifact`).
+        di_signals: list[dict[str, Any]] = []
+        try:
+            di_signals = _load_di_signals_module().collect_python_di_signals(
+                rel_path, tree, import_aliases, set(simple_names.keys()), source_text
+            )
+        except Exception:
+            di_signals = []
 
         return {
             "kind": "code",
@@ -10335,6 +11089,7 @@ class GraphIndexSession:
             "simple_names": simple_names,
             "mentioned_symbols": [],
             "config_read_candidates": config_read_candidates,
+            "di_signals": di_signals,
         }
 
     def _extract_js_artifact(self, rel_path: str, source_text: str) -> dict[str, Any]:
@@ -10461,6 +11216,80 @@ class GraphIndexSession:
             "mentioned_symbols": [],
         }
 
+    def _extract_line_scan_artifact(
+        self, rel_path: str, source_text: str, lang_key: str | None
+    ) -> dict[str, Any]:
+        """Wave 1p9q6: degraded line-scan extraction for a code file over the
+        AST parse cap (but under the walk cap). Recovers imports + top-level
+        definitions only — every node marked ``extraction: "line_scan"`` — and
+        emits NO call/read edges. The recovered definition nodes flow into
+        ``defined_symbols``/``simple_names`` exactly like a parsed definition,
+        so the cross-file candidate index picks them up (a hub's symbols bind
+        inbound references AND correctly force twin-refusal). Mirrors the 1p9qe
+        recovery convention: marker + per-file count properties + build-log
+        line. Over the scan-byte ceiling → an empty module node flagged
+        ``line_scan_ceiling_skipped`` (logged, never silent)."""
+        module_id = rel_path
+        module_node = _node(module_id, _path_term(rel_path), "module", rel_path, "1:0", layer=self.layer)
+        nodes: list[dict[str, Any]] = [module_node]
+        edges: list[dict[str, Any]] = []
+        defined_symbols: list[str] = []
+        simple_names: dict[str, list[str]] = defaultdict(list)
+
+        scan = _line_scan_extract(source_text, lang_key)
+        if scan["ceiling_skipped"]:
+            module_node["line_scan_ceiling_skipped"] = True
+            return {
+                "kind": "code",
+                "path": rel_path,
+                "source_hash": _sha256_text(source_text),
+                "nodes": nodes,
+                "edges": edges,
+                "defined_symbols": defined_symbols,
+                "simple_names": {},
+                "mentioned_symbols": [],
+            }
+
+        module_node["extraction"] = _LINE_SCAN_MARKER
+        import_count = 0
+        for spec in scan["imports"]:
+            edges.append(_edge(module_id, f"external::{spec}", "imports", confidence="EXTRACTED"))
+            import_count += 1
+        emitted: set[str] = set()
+        for name, kind, line in scan["definitions"]:
+            node_id = f"{module_id}::{name}"
+            if node_id in emitted:
+                continue
+            emitted.add(node_id)
+            node = _node(
+                node_id, name, kind, rel_path,
+                self._source_location(source_text, line), layer=self.layer,
+            )
+            node["extraction"] = _LINE_SCAN_MARKER
+            nodes.append(node)
+            edges.append(_edge(module_id, node_id, "defines", confidence="EXTRACTED"))
+            defined_symbols.append(node_id)
+            simple = _simple_name(node_id)
+            if simple and node_id not in simple_names[simple]:
+                simple_names[simple].append(node_id)
+
+        # Loud degradation counts (1p9qe convention parallel; AC-1b pins these
+        # three by name). Always set — even at zero — so the per-file contract
+        # is uniform and directly assertable.
+        module_node["line_scan_defines"] = len(defined_symbols)
+        module_node["line_scan_imports"] = import_count
+        module_node["line_scan_skipped"] = int(scan["skipped_lines"])
+        return {
+            "kind": "code",
+            "path": rel_path,
+            "source_hash": _sha256_text(source_text),
+            "nodes": nodes,
+            "edges": edges,
+            "defined_symbols": defined_symbols,
+            "simple_names": {name: ids for name, ids in simple_names.items()},
+            "mentioned_symbols": [],
+        }
+
     def _extract_json_artifact(self, rel_path: str, source_text: str) -> dict[str, Any]:
         ts_artifact = self._extract_tree_sitter_artifact(rel_path, source_text, "json")
         if ts_artifact is not None and ts_artifact.get("defined_symbols"):
@@ -10547,6 +11376,17 @@ class GraphIndexSession:
         mode = profile.mode
         source_bytes = source_text.encode("utf-8", errors="replace")
         source_lines = source_text.splitlines()  # Wave 1p4ls: chunker const predicates need lines
+        # Wave 1p9q7: AST-anchored NestJS/Inversify DI signals (TypeScript only),
+        # walked over the already-parsed tree so idiom text in strings/comments
+        # never fires. Merged WITH the text collector at the call site.
+        _ts_di_signals: list[dict[str, Any]] = []
+        if lang_key == "typescript":
+            try:
+                _ts_di_signals = _load_di_signals_module().collect_ts_di_signals(
+                    rel_path, tree.root_node, source_bytes
+                )
+            except Exception:
+                _ts_di_signals = []
         const_node_ids: set[str] = set()  # Wave 1p4ls: this file's constant node ids (reads gate)
         module_id = rel_path
         node_map: dict[str, dict[str, Any]] = {
@@ -10914,6 +11754,14 @@ class GraphIndexSession:
         _orm_dynamic = [0]
         _orm_convention = [0]
         func_locals: dict[str, set[str]] = {}  # reader_symbol -> {param/local binding names} (member-access F4 shadow guard)
+        # Wave 1p9q5: Rust module-model harvest. `rust_mod_decls` = external
+        # `mod name;` decls (name + optional `#[path]` override) driving the
+        # cross-file module tree; `rust_inline_mods` = dotted qnames of inline
+        # `mod name { … }` scopes (matching the walker's `.`-joined qnames) so
+        # finalize can key each def on its enclosing inline module. Both are
+        # stored on the file's module node (node-borne, incremental-merge safe).
+        rust_mod_decls: list[dict[str, str | None]] = []
+        rust_inline_mods: list[str] = []
 
         def walk_definitions(
             node,
@@ -11125,6 +11973,22 @@ class GraphIndexSession:
                     qname = ".".join([*scope_names, name]) if scope_names else name
                     parent_symbol = scope_symbols[-1] if scope_symbols else module_id
                     node_id = register_symbol(qname, kind, node, parent_symbol)
+                    # Wave 1p9q5: Rust module-model harvest at the registration
+                    # site (so the inline-mod qname matches the walker's exactly).
+                    # A `mod name { … }` (has a `declaration_list` body) is an
+                    # inline scope; a bodyless `mod name;` is an external decl
+                    # mapping to a sibling/child file (its `#[path]` override read
+                    # from the preceding attribute sibling).
+                    if lang_key == "rust" and node_type == "mod_item":
+                        if any(
+                            getattr(c, "type", "") == "declaration_list"
+                            for c in getattr(node, "children", []) or []
+                        ):
+                            rust_inline_mods.append(qname)
+                        else:
+                            rust_mod_decls.append(
+                                {"name": name, "path": _rust_mod_path_attr(node, source_bytes)}
+                            )
                     # Wave 1p9qh (1p9qa): Java/C# inheritance facts, buffered
                     # for the post-walk drain. Interface declarers additionally
                     # carry `declared_kind: "interface"` — `_ts_kind_for_definition`
@@ -11278,6 +12142,14 @@ class GraphIndexSession:
             )
         else:
             walk_definitions(tree.root_node, [], [], [], [])
+            # Wave 1p9q5: persist the Rust module-model facts on the file's
+            # module node so `_build_rust_module_index` recovers them at finalize
+            # (node-borne, so incremental merges rebuild from per-file fragments).
+            if lang_key == "rust":
+                if rust_mod_decls:
+                    node_map[module_id]["rust_mod_decls"] = rust_mod_decls
+                if rust_inline_mods:
+                    node_map[module_id]["rust_inline_mods"] = rust_inline_mods
             # Wave 1p9qi (1p9qf): MyBatis mapper XML — statement-text capture
             # with the mapper namespace + statement id as the source marker
             # (resolved to the mapper interface at finalize).
@@ -11571,6 +12443,7 @@ class GraphIndexSession:
             "orm_entity_candidates": orm_entity_candidates,  # Wave 1p9qi (1p9qg): declared entity→table mappings
             "orm_entity_dynamic": _orm_dynamic[0],  # Wave 1p9qg: non-literal name refusals
             "orm_entity_convention": _orm_convention[0],  # Wave 1p9qg: @Entity-with-no-declared-name refusals
+            "di_signals": _ts_di_signals,  # Wave 1p9q7: AST-anchored NestJS/Inversify DI signals (TS only)
         }
 
     def _extract_code_artifact(self, rel_path: str, source_text: str) -> dict[str, Any]:
@@ -11586,7 +12459,16 @@ class GraphIndexSession:
             if lang_key:
                 artifact = self._extract_tree_sitter_artifact(rel_path, source_text, lang_key)
                 if artifact is None:
-                    if lang_key in {"javascript", "typescript"}:
+                    if _over_ts_parse_cap(source_text):
+                        # Wave 1p9q6: the file is over the AST parse cap (but
+                        # under the walk cap that would have dropped it). Rather
+                        # than contribute zero graph nodes (a silent hole),
+                        # degrade to a bounded line scan recovering imports +
+                        # top-level definitions. This precedes the JS/TS regex
+                        # fallback deliberately: that fallback has no size guard
+                        # and would run unbounded over a multi-MB minified file.
+                        artifact = self._extract_line_scan_artifact(rel_path, source_text, lang_key)
+                    elif lang_key in {"javascript", "typescript"}:
                         artifact = self._extract_js_artifact(rel_path, source_text)
                     else:
                         artifact = self._empty_code_artifact(rel_path, source_text)
@@ -11605,9 +12487,17 @@ class GraphIndexSession:
                 }
         try:
             di_mod = _load_di_signals_module()
-            artifact["di_signals"] = di_mod.collect_di_signals(rel_path, source_text)
+            # Wave 1p9q7: the language extractors (Python `ast`, TS tree-sitter)
+            # may have ALREADY populated AST-anchored DI signals on the artifact.
+            # MERGE them with the text-based collector (Java/Kotlin/C#) rather
+            # than overwriting — a Java text-signal and a Python AST-signal must
+            # both survive. The text collector returns [] for Python/TS, so the
+            # merge is order-independent and never double-counts.
+            extractor_signals = artifact.get("di_signals") or []
+            text_signals = di_mod.collect_di_signals(rel_path, source_text)
+            artifact["di_signals"] = list(extractor_signals) + list(text_signals)
         except Exception:
-            artifact["di_signals"] = []
+            artifact.setdefault("di_signals", [])
         return artifact
 
     # ------------------------------------------------------------------
@@ -12176,7 +13066,7 @@ class GraphIndexSession:
             pass
 
         # --- Cross-file resolution context (candidate indexes; wave 130ol+). ---
-        simple_name_index, qualified_index, cs_file_ns, java_pkg_by_file = _build_candidate_indexes(node_map)
+        simple_name_index, qualified_index, cs_file_ns, java_pkg_by_file, rust_module_index = _build_candidate_indexes(node_map)
 
         # Raw edge views per file (fragment provenance makes untouched files'
         # raw edges recoverable without touching their store rows).
@@ -12207,6 +13097,7 @@ class GraphIndexSession:
             "wildcard_imports_by_file": wildcard_imports_by_file,
             "cs_file_ns": cs_file_ns,
             "java_pkg_by_file": java_pkg_by_file,
+            "rust_module_index": rust_module_index,
         }
 
         # --- Symbol delta (Req-2): candidate-index keys whose candidate set
@@ -12824,6 +13715,29 @@ class GraphIndexSession:
                     node_map[nid]["is_chokepoint"] = True
         except Exception:
             pass
+
+        # Wave 1p9q8 honesty pass: a `calls` edge that reaches the END of the
+        # finalize pipeline STILL `external::` must not carry a receiver/
+        # construction resolution confidence — `RECEIVER_RESOLVED` means "bound
+        # to a receiver-typed PROJECT node", and an `external::` target is
+        # unresolved. The Python typed-receiver resolver (1p9q4) emits
+        # `external::<Type>.<method>` WITH that confidence and relies on the
+        # cross-file / inheritance rewrites to swap the target onto a project
+        # node; the ones that never bind (method absent from the resolved class,
+        # ambiguous cross-file same-name twin) reach here still external. Run on
+        # the FINAL edge map — after every rewrite pass — so a fragment- or
+        # output-stage rebind to a real project node is never clobbered. Confidence
+        # is part of the edge key, so re-key and collapse any collision onto an
+        # already-EXTRACTED twin.
+        _downgraded_edge_map: dict[tuple[str, str, str, str], dict[str, Any]] = {}
+        for _ekey, _eedge in edge_map.items():
+            _new_edge = _downgrade_unresolved_typed_calls(_eedge)
+            if _new_edge is _eedge:
+                _downgraded_edge_map.setdefault(_ekey, _eedge)
+                continue
+            _new_key = (_ekey[0], _ekey[1], _ekey[2], str(_new_edge.get("confidence") or ""))
+            _downgraded_edge_map.setdefault(_new_key, _new_edge)
+        edge_map = _downgraded_edge_map
 
         from datetime import UTC, datetime
 
@@ -13547,6 +14461,37 @@ def update_graph_index(
                     ),
                     flush=True,
                 )
+        # 1p9q6 loudness: per-file line-scan degraded-extraction counts
+        # (module nodes carry them, so this survives worker-process
+        # extraction — the 1p9qe pattern). A file past the scan-byte ceiling
+        # is a LOUD skip, never silent (AC-3/AC-4).
+        _line_scan_files = 0
+        _line_scan_ceiling_skips = 0
+        for _node in payload.get("nodes") or []:
+            if _node.get("line_scan_ceiling_skipped"):
+                _line_scan_ceiling_skips += 1
+                print(
+                    _line_scan_log_line(str(_node.get("id") or ""), 0, 0, 0, ceiling_skipped=True),
+                    flush=True,
+                )
+            elif "line_scan_defines" in _node:
+                _line_scan_files += 1
+                print(
+                    _line_scan_log_line(
+                        str(_node.get("id") or ""),
+                        int(_node.get("line_scan_defines") or 0),
+                        int(_node.get("line_scan_imports") or 0),
+                        int(_node.get("line_scan_skipped") or 0),
+                    ),
+                    flush=True,
+                )
+        if _line_scan_files or _line_scan_ceiling_skips:
+            print(
+                f"build_index: line-scan degraded extraction — {_line_scan_files} "
+                f"file(s) over the AST parse cap, {_line_scan_ceiling_skips} past "
+                f"scan-ceiling skip(s)",
+                flush=True,
+            )
         # R7 (wave 1rrx5): clustering-asymmetry measurement — surface hot
         # write-target data-layer nodes so the writes/maps_to clustering-
         # exclusion decision can be made on evidence. Read-only.
