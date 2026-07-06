@@ -1149,11 +1149,12 @@ class GraphIndexerTests(unittest.TestCase):
     def test_sql_recovery_dialect_forms_with_loud_degradation(self):
         """AC-2: T-SQL, MySQL-delimiter, and trigger forms each recover their
         definition through the ERROR-region scan; PL/pgSQL dollar-quoted
-        functions parse natively (recovery never touches them); forms outside
-        the vocabulary (GO / DELIMITER fragments) degrade to a counted
-        unrecovered region — never silence."""
+        functions parse natively (recovery never touches them); a MySQL
+        `DELIMITER` fragment outside the vocabulary degrades to a counted
+        unrecovered region — never silence. (Wave 1rvky: a trailing T-SQL `GO`
+        is now recognized-benign and no longer counts as unrecovered.)"""
         self._require_sql_parser()
-        # T-SQL: schema-qualified name; trailing GO is outside the vocabulary.
+        # T-SQL: schema-qualified name; trailing GO is now recognized-benign (1rvky).
         unit = self.mod.sql_statement_references(
             "CREATE PROCEDURE dbo.get_users\nAS\nBEGIN\n  SELECT * FROM users;\nEND;\nGO\n"
         )
@@ -1166,7 +1167,7 @@ class GraphIndexerTests(unittest.TestCase):
             {("dbo.get_users", "users", "read")},
         )
         self.assertEqual(unit["error_regions"], 2)
-        self.assertEqual(unit["recovery"], {"recovered_definitions": 1, "unrecovered_regions": 1, "partial_bodies": 0, "partial_bodies_recovered": 0})
+        self.assertEqual(unit["recovery"], {"recovered_definitions": 1, "unrecovered_regions": 0, "partial_bodies": 0, "partial_bodies_recovered": 0})
         # MySQL delimiter style: CREATE sits mid-region after DELIMITER //.
         unit = self.mod.sql_statement_references(
             "DELIMITER //\nCREATE PROCEDURE audit_cleanup()\nBEGIN\n"
@@ -1389,11 +1390,13 @@ class GraphIndexerTests(unittest.TestCase):
         module = next(n for n in payload["nodes"] if n["id"] == "db/mixed.sql")
         self.assertEqual(int(module.get("sql_error_regions") or 0), 2)
         self.assertEqual(int(module.get("sql_recovered_definitions") or 0), 1)
-        self.assertEqual(int(module.get("sql_unrecovered_regions") or 0), 1)
+        # Wave 1rvky: the trailing `GO` region is now recognized-benign, so it no
+        # longer counts as unrecovered (the proc recovered; the GO is not a hole).
+        self.assertEqual(int(module.get("sql_unrecovered_regions") or 0), 0)
         self.assertEqual(
-            self.mod._sql_recovery_log_line("db/mixed.sql", 2, 1, 1),
+            self.mod._sql_recovery_log_line("db/mixed.sql", 2, 1, 0),
             "build_index: sql recovery db/mixed.sql — 2 parse-error "
-            "region(s): 1 definition(s) recovered, 1 region(s) unrecovered, "
+            "region(s): 1 definition(s) recovered, 0 region(s) unrecovered, "
             "0 routine body(ies) partially parsed (0 loop-recovered)",
         )
         # Byte ceiling: an over-limit region degrades to truncated/unrecovered.
@@ -1641,6 +1644,259 @@ class GraphIndexerTests(unittest.TestCase):
             {(r["direction"], r["name"]) for r in unit_p["references"]},
             "top-level-ERROR PROCEDURE loop residual is out of 1rs45 scope",
         )
+
+    # ------------------------------------------------------------------
+    # Wave 1rvdq — SQL schema-DDL faithfulness. Column-type/DEFAULT/GENERATED
+    # phantom reads suppressed by parse-position discrimination while FK/LIKE/
+    # CTAS reads are preserved; CREATE TYPE/DOMAIN definition nodes; CREATE
+    # OPERATOR + row-locking clauses recognized-benign; pseudo-type stoplist.
+    # All fixtures use GENERIC invented schemas (the real validation corpus is
+    # proprietary and stays a local-only oracle — no proprietary identifiers).
+    # ------------------------------------------------------------------
+    def _refs(self, sql: str) -> set:
+        unit = self.mod.sql_statement_references(sql)
+        return {(r["direction"], r["name"]) for r in unit["references"]}
+
+    def test_sql_ddl_custom_type_phantom_suppression_fk_preserved(self):
+        """AC-1: a custom column TYPE name (non-keyword domain/composite/enum)
+        mints NO `reads`; genuine FK targets (column-level and table-level) ARE
+        captured. Builtin type keywords never leak (already clean)."""
+        self._require_sql_parser()
+        # column type `usd`/`addr` suppressed; column-level FK `orders` kept.
+        self.assertEqual(
+            self._refs("CREATE TABLE t (id int primary key, amt usd, home addr, "
+                       "parent_id int references orders (id));"),
+            {("read", "orders")},
+        )
+        # table-level CONSTRAINT … FOREIGN KEY … REFERENCES parent.
+        self.assertEqual(
+            self._refs("CREATE TABLE t (a int, CONSTRAINT fk FOREIGN KEY (a) "
+                       "REFERENCES parent (id));"),
+            {("read", "parent")},
+        )
+        # FK capture across shapes: two column-level FKs + a suppressed type.
+        self.assertEqual(
+            self._refs("CREATE TABLE t (a int references p1(id), b money, "
+                       "c int references p2(id), d addr_type);"),
+            {("read", "p1"), ("read", "p2")},
+        )
+        # Column-list-less `REFERENCES parent` shorthand (references the target's
+        # PK) — tree-sitter shreds it into an ERROR under column_definitions;
+        # the FK read must still be captured (delivery adversarial lane 2026-07-06).
+        self.assertEqual(
+            self._refs("CREATE TABLE orders (cust int REFERENCES customers);"),
+            {("read", "customers")},
+        )
+        self.assertEqual(
+            self._refs("CREATE TABLE orders (a int, FOREIGN KEY (a) REFERENCES customers);"),
+            {("read", "customers")},
+        )
+        # No-col-list FK + a suppressed custom type on the same column.
+        self.assertEqual(
+            self._refs("CREATE TABLE t (amt usd REFERENCES customers, home addr);"),
+            {("read", "customers")},
+        )
+        # A table with ONLY custom-type columns (no FK) still mints nothing — the
+        # ERROR-recurse must not resurrect a phantom.
+        self.assertEqual(self._refs("CREATE TABLE t (amt usd, home addr);"), set())
+        # A recovery-tier / graph check: the FK reads reach the graph as edges,
+        # the type names do not.
+        payload = self._build_file(
+            "db/schema.sql",
+            "CREATE TABLE t (id int primary key, amt usd, "
+            "parent_id int references orders (id));",
+        )
+        read_targets = {
+            e["target"] for e in payload["edges"]
+            if e.get("relation") == self.mod.GRAPH_READS_RELATION
+        }
+        self.assertIn("external::orders", read_targets)
+        self.assertNotIn("external::usd", read_targets)
+
+    def test_sql_ddl_like_and_ctas_reads_preserved(self):
+        """AC-1b (recall no-regression): `CREATE TABLE t (LIKE parent …)` keeps
+        `read parent`, and CTAS `CREATE TABLE t AS SELECT … FROM src` keeps its
+        reads (exactly once — the old blanket walk doubled them)."""
+        self._require_sql_parser()
+        self.assertEqual(
+            self._refs("CREATE TABLE t (LIKE parent INCLUDING ALL, extra int);"),
+            {("read", "parent")},
+        )
+        # CTAS reads preserved, and NOT doubled.
+        unit = self.mod.sql_statement_references(
+            "CREATE TABLE t AS SELECT id, x FROM src JOIN other ON src.id = other.id;")
+        pairs = [(r["direction"], r["name"]) for r in unit["references"]]
+        self.assertEqual(sorted(pairs), [("read", "other"), ("read", "src")])
+        self.assertEqual(len(pairs), 2, "CTAS reads must be minted exactly once")
+
+    def test_sql_ddl_default_generated_and_pseudo_type_suppression(self):
+        """AC-2/AC-3: DEFAULT/GENERATED expression tokens and pseudo-type
+        parameters mint no `reads`."""
+        self._require_sql_parser()
+        self.assertEqual(
+            self._refs("CREATE TABLE t (id uuid default gen_uuid(), "
+                       "d int generated always as (extract(epoch from now())) stored);"),
+            set(),
+        )
+        # pseudo-type param + return type mint nothing.
+        self.assertEqual(
+            self._refs("CREATE FUNCTION f(a anyelement) RETURNS anyelement AS "
+                       "$$ SELECT a $$ LANGUAGE sql;"),
+            set(),
+        )
+
+    def test_sql_ddl_create_type_and_domain_definition_nodes(self):
+        """AC-4: CREATE TYPE (composite + enum) and CREATE DOMAIN mint definition
+        nodes with the new `sql_kind`; the CREATE TYPE self-`read` phantom is gone."""
+        self._require_sql_parser()
+        comp = self.mod.sql_statement_references("CREATE TYPE addr AS (street text, zip text);")
+        self.assertEqual([(d["name"], d["sql_kind"]) for d in comp["definitions"]], [("addr", "type")])
+        self.assertEqual(comp["references"], [])
+        en = self.mod.sql_statement_references("CREATE TYPE status AS ENUM ('a', 'b');")
+        self.assertEqual([(d["name"], d["sql_kind"]) for d in en["definitions"]], [("status", "type")])
+        self.assertEqual(en["references"], [])
+        dom = self.mod.sql_statement_references("CREATE DOMAIN usd AS numeric CHECK (VALUE > 0);")
+        self.assertEqual([(d["name"], d["sql_kind"]) for d in dom["definitions"]], [("usd", "domain")])
+        self.assertEqual(dom["recovery"]["unrecovered_regions"], 0)
+
+    def test_sql_ddl_operator_and_locking_clause_recognized_benign(self):
+        """AC-5/AC-6: CREATE OPERATOR and bare row-locking clauses (`FOR UPDATE
+        [SKIP LOCKED|NOWAIT]` / `FOR SHARE`) no longer inflate `unrecovered_regions`;
+        the SELECT's real table read is preserved."""
+        self._require_sql_parser()
+        op = self.mod.sql_statement_references(
+            "CREATE OPERATOR === (procedure = my_eq, leftarg = text, rightarg = text);")
+        self.assertEqual(op["recovery"]["unrecovered_regions"], 0)
+        for clause in ("FOR UPDATE SKIP LOCKED", "FOR UPDATE NOWAIT", "FOR SHARE",
+                       "FOR UPDATE OF q SKIP LOCKED"):
+            unit = self.mod.sql_statement_references(f"SELECT id FROM q {clause};")
+            self.assertEqual(unit["recovery"]["unrecovered_regions"], 0, clause)
+            self.assertIn(("read", "q"), {(r["direction"], r["name"]) for r in unit["references"]}, clause)
+
+    def test_sql_ddl_oracle_tsql_builtin_types_suppressed(self):
+        """Wave 1rvjs dialect fold-in: Oracle and SQL Server builtin type names
+        (which parse as object_references, unlike Postgres grammar keywords) no
+        longer leak phantom `reads` under the 1rvdq column-type rule; genuine FK
+        reads on clean columns are preserved. NOTE: a parenthesized custom type
+        (`number(10,2)`/`varchar2(50)`) desyncs the tree-sitter parse and is
+        deferred to the sql-dialect-robustness follow-up — not covered here."""
+        self._require_sql_parser()
+        # Oracle builtin types → no phantom read; the FK survives.
+        self.assertEqual(
+            self._refs("CREATE TABLE t (a number, b clob, c rowid, d long, "
+                       "parent_id int REFERENCES orders (id));"),
+            {("read", "orders")},
+        )
+        # SQL Server / T-SQL builtin types → no phantom read; the FK survives.
+        self.assertEqual(
+            self._refs("CREATE TABLE t (a uniqueidentifier, b money, c datetime2, "
+                       "e hierarchyid, fk int REFERENCES parent (id));"),
+            {("read", "parent")},
+        )
+        # A CAST to a dialect type mints no phantom for the type name.
+        self.assertEqual(self._refs("SELECT CAST(x AS number) FROM tbl;"), {("read", "tbl")})
+
+    def test_sql_dialect_tsql_select_into_top_level_gated(self):
+        """Wave 1rvky R1: top-level T-SQL `SELECT … INTO newtbl` mints the table
+        def + a write; the FROM still reads. CRITICAL: a PL/pgSQL `SELECT … INTO
+        var` (byte-identical tree) inside a routine body mints NOTHING — the
+        write-mint is gated to top-level statement scope."""
+        self._require_sql_parser()
+        unit = self.mod.sql_statement_references("SELECT a, b INTO newtbl FROM src;")
+        self.assertEqual({(r["direction"], r["name"]) for r in unit["references"]},
+                         {("write", "newtbl"), ("read", "src")})
+        self.assertIn(("newtbl", "table"), [(d["name"], d["sql_kind"]) for d in unit["definitions"]])
+        # INSERT INTO … SELECT is NOT a SELECT-INTO (keyword_into nested in insert).
+        self.assertEqual(self._refs("INSERT INTO t SELECT id FROM src;"),
+                         {("write", "t"), ("read", "src")})
+        # THE GUARD: PL/pgSQL SELECT INTO var (assignment) inside a body → no phantom table.
+        body = ("CREATE FUNCTION f() RETURNS void AS $$\nBEGIN\n"
+                "  SELECT count(*) INTO myvar FROM real_tbl;\nEND;\n$$ LANGUAGE plpgsql;")
+        bu = self.mod.sql_statement_references(body)
+        self.assertNotIn("myvar", [d["name"] for d in bu["definitions"]])
+        self.assertNotIn(("write", "myvar"), {(r["direction"], r["name"]) for r in bu["references"]})
+        self.assertIn(("read", "real_tbl"), {(r["direction"], r["name"]) for r in bu["references"]})
+        # Adversarial 2026-07-06: a T-SQL `SELECT … INTO #tmp / ##g / @tv` targets a
+        # SESSION temp object, NOT a permanent table — mint no def/write (the FROM
+        # still reads). Regression for the temp-sigil-suppression fix.
+        for temp_target in ("#tmp", "##g", "@tv"):
+            u = self.mod.sql_statement_references(f"SELECT a INTO {temp_target} FROM src;")
+            self.assertEqual(u["definitions"], [], temp_target)
+            self.assertEqual({(r["direction"], r["name"]) for r in u["references"]},
+                             {("read", "src")}, temp_target)
+        # Dotted target keeps its schema; a bracket-qualified `[dbo].[rpt]` target
+        # also keeps its schema (code-review fix — uses the full target text, not
+        # just the trailing field component).
+        du = self.mod.sql_statement_references("SELECT a INTO dbo.newtbl FROM src;")
+        self.assertIn(("dbo.newtbl", "table"), [(d["name"], d["sql_kind"]) for d in du["definitions"]])
+        bu2 = self.mod.sql_statement_references("SELECT a INTO [dbo].[rpt] FROM src;")
+        self.assertIn(("dbo.rpt", "dbo"), [(d["name"], d.get("schema")) for d in bu2["definitions"]])
+
+    def test_sql_dialect_oracle_global_temporary_table(self):
+        """Wave 1rvky R2: Oracle `CREATE GLOBAL TEMPORARY TABLE` is a permanent
+        schema object → mints a table def; plain TEMP/TEMPORARY stays excluded."""
+        self._require_sql_parser()
+        gtt = self.mod.sql_statement_references("CREATE GLOBAL TEMPORARY TABLE gtt (id int, name text);")
+        self.assertIn(("gtt", "table"), [(d["name"], d["sql_kind"]) for d in gtt["definitions"]])
+        self.assertEqual(self.mod.sql_statement_references("CREATE TEMP TABLE t (id int);")["definitions"], [])
+        self.assertEqual(self.mod.sql_statement_references("CREATE TEMPORARY TABLE t2 (id int);")["definitions"], [])
+        # Adversarial 2026-07-06: a TEMP table literally NAMED `global` must NOT be
+        # mis-flipped to permanent (the GLOBAL check excludes the name node).
+        self.assertEqual(self.mod.sql_statement_references("CREATE TEMP TABLE global (a int);")["definitions"], [])
+
+    def test_sql_dialect_go_and_dual_and_locking(self):
+        """Wave 1rvky R3/R7: T-SQL `GO` batch separator does not inflate
+        `unrecovered_regions`; Oracle `DUAL` is not minted as a read."""
+        self._require_sql_parser()
+        go = self.mod.sql_statement_references("CREATE TABLE a (id int); GO CREATE TABLE b (id int);")
+        self.assertEqual(go["recovery"]["unrecovered_regions"], 0)
+        self.assertEqual({d["name"] for d in go["definitions"]}, {"a", "b"})
+        self.assertNotIn(("read", "dual"), self._refs("SELECT seq.NEXTVAL FROM dual;"))
+        # A real table whose name merely contains 'go' is not suppressed.
+        self.assertIn(("read", "go_table"), self._refs("SELECT id FROM go_table;"))
+
+    def test_sql_dialect_parenthesized_type_fk_recovery(self):
+        """Wave 1rvky R4: a parenthesized dialect type (`number(10,2)`) desyncs
+        the parse and orphans a trailing FK into a top-level ERROR; the FK read
+        is now recovered (text-regex), including schema-qualified + multi-FK."""
+        self._require_sql_parser()
+        self.assertEqual(
+            self._refs("CREATE TABLE t (amt number(10,2), fk int REFERENCES parent (id));"),
+            {("read", "parent")})
+        self.assertEqual(
+            self._refs("CREATE TABLE t (amt number(10,2), fk int REFERENCES sales.parent (id));"),
+            {("read", "sales.parent")})
+        self.assertEqual(
+            self._refs("CREATE TABLE t (a foo(5), b int REFERENCES p1(id), c bar(9), d int REFERENCES p2(id));"),
+            {("read", "p1"), ("read", "p2")})
+        # No phantom read for the parenthesized type name itself.
+        self.assertNotIn(("read", "number"),
+                         self._refs("CREATE TABLE t (amt number(10,2), fk int REFERENCES parent (id));"))
+
+    def test_sql_dialect_tsql_merge_without_into_recovery(self):
+        """Wave 1rvky R6: legal T-SQL `MERGE t USING s …` (no INTO) fails to parse
+        and drops every name from the tree; a raw-text regex sniff recovers the
+        target (write) + source (read). MERGE-with-INTO is unchanged (native)."""
+        self._require_sql_parser()
+        self.assertEqual(
+            self._refs("MERGE tgt USING src ON tgt.id=src.id WHEN MATCHED THEN UPDATE SET a=1;"),
+            {("write", "tgt"), ("read", "src")})
+        self.assertEqual(
+            self._refs("MERGE INTO tgt USING src ON tgt.id=src.id WHEN MATCHED THEN UPDATE SET a=1;"),
+            {("write", "tgt"), ("read", "src")})
+
+    def test_sql_dialect_tsql_bracket_quote_edge_is_clean(self):
+        """Wave 1rvky R5: a T-SQL bracket-quoted `[dbo].[Users]` read resolves to
+        a CLEAN graph edge `external::dbo.Users` (via the landed emit-normalize) —
+        lineage preserved, not corrupted. (The unit's names-as-written output
+        stays quote-mangled by the frozen-unit design; the edge is what binds.)"""
+        self._require_sql_parser()
+        payload = self._build_file("db/tsql.sql", "SELECT * FROM [dbo].[Users];")
+        read_targets = {
+            e["target"] for e in payload["edges"]
+            if e.get("relation") == self.mod.GRAPH_READS_RELATION
+        }
+        self.assertIn("external::dbo.Users", read_targets)
 
     # ------------------------------------------------------------------
     # Wave 1p9q6 — line-scan degraded extraction for files over the AST
@@ -8419,7 +8675,7 @@ class GraphBuilderVersionTests(unittest.TestCase):
     """Wave 1p4ls AC-3: the node/edge shape changed (constant nodes + reads edge) so the builder
     version is bumped, forcing a full re-extract against any older cache."""
 
-    def test_graph_builder_version_is_41(self):
+    def test_graph_builder_version_is_43(self):
         # 1p4ls bumped 25→26 (constant nodes + reads edge); 1p4q4 bumped 26→27 (TS enum member nodes);
         # 1p4q4 review bumped 27→28 (namespace-prefixed enum members + short-symbol-prune exemption);
         # 1p4up bumped 28→29 (member-access constant reads — new function→constant `reads` edges);
@@ -8474,7 +8730,17 @@ class GraphBuilderVersionTests(unittest.TestCase):
         # `sql_partial_bodies_recovered` module-node count property; extraction-
         # output + node-property shape change. The sibling 1rqh2 tomllib change
         # touches no graph code. NO CLUSTER_BUILDER_VERSION bump).
-        self.assertEqual(load_graph_indexer().GRAPH_BUILDER_VERSION, "41")
+        # Wave 1rvjs bumped 41→42 (1rvdq SQL schema-DDL faithfulness: phantom
+        # column-type/DEFAULT/GENERATED/CHECK reads suppressed via parse-position
+        # discrimination — FK/LIKE/CTAS reads preserved; CREATE TYPE/DOMAIN
+        # definition nodes; CREATE OPERATOR + row-locking clauses recognized-benign;
+        # pseudo-type + skip/locked/nowait stoplist. Extraction-output + node-property
+        # shape change. NO CLUSTER_BUILDER_VERSION bump).
+        # Wave 1rvjs bumped 42→43 (1rvky Oracle/T-SQL dialect robustness: SELECT
+        # INTO table def+write [top-level gated], Oracle GLOBAL TEMPORARY = real
+        # table, GO/DUAL recognized, parenthesized-type FK recovery, MERGE-without-
+        # INTO recovery. Extraction-output change. NO CLUSTER_BUILDER_VERSION bump).
+        self.assertEqual(load_graph_indexer().GRAPH_BUILDER_VERSION, "43")
 
 
 class OversizedTreeSitterGuardTests(unittest.TestCase):
