@@ -2536,9 +2536,8 @@ class MultiVersionTransitionDetectionTests(unittest.TestCase):
         self.mod = load_upgrade_module()
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
-        (self.root / ".wavefoundry" / "index").mkdir(parents=True)
+        (self.root / ".wavefoundry" / "index" / "graph").mkdir(parents=True)
         (self.root / ".wavefoundry" / "framework" / "scripts").mkdir(parents=True)
-        (self.root / ".wavefoundry" / "framework" / "index" / "graph").mkdir(parents=True)
 
     def tearDown(self) -> None:
         self.tmp.cleanup()
@@ -2562,9 +2561,25 @@ class MultiVersionTransitionDetectionTests(unittest.TestCase):
         )
 
     def _write_graph_state(self, content: dict) -> None:
-        (self.root / ".wavefoundry" / "framework" / "index" / "graph" / "framework-graph-state.json").write_text(
+        # Wave 1rvfx: the installed graph state lives in the REAL project graph dir — the legacy JSON
+        # fallback path (pre-1p9q2 repos / the reader's fallback branch). The sqlite primary path is
+        # exercised by _write_graph_state_sqlite + test_snapshot_reads_sqlite_graph_state.
+        (self.root / ".wavefoundry" / "index" / "graph" / "project-graph-state.json").write_text(
             json.dumps(content), encoding="utf-8",
         )
+
+    def _write_graph_state_sqlite(self, builder_version: str) -> None:
+        # Wave 1rvfx: write the PRIMARY project graph state — the SQLite store's meta table — matching
+        # the production shape read by _read_installed_graph_builder_version.
+        import sqlite3
+        store = self.root / ".wavefoundry" / "index" / "graph" / "project-graph-state.sqlite"
+        conn = sqlite3.connect(str(store))
+        try:
+            conn.execute("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT)")
+            conn.execute("INSERT INTO meta (key, value) VALUES ('builder_version', ?)", (builder_version,))
+            conn.commit()
+        finally:
+            conn.close()
 
     def test_read_walker_version(self) -> None:
         self._write_pack("24", "6", "23")
@@ -2585,6 +2600,36 @@ class MultiVersionTransitionDetectionTests(unittest.TestCase):
         self.assertEqual(snap["chunker_code"], "22")
         self.assertEqual(snap["walker"], "4")
         self.assertEqual(snap["graph_builder"], "22")
+
+    def test_snapshot_reads_sqlite_graph_state(self) -> None:
+        # Wave 1rvfx AC-1: the PRIMARY read path — the installed project graph SQLite store's meta table.
+        self._write_graph_state_sqlite("42")
+        self._write_pack("24", "5", "43")
+        snap = self.mod._snapshot_pre_extract_versions(self.root)
+        self.assertEqual(snap["graph_builder"], "42")
+        transitions = self.mod._detect_version_transitions(snap, self.root)
+        self.assertTrue(any("GRAPH_BUILDER_VERSION" in name for name, _, _ in transitions))
+
+    def test_snapshot_sqlite_takes_precedence_over_legacy_json(self) -> None:
+        # Wave 1rvfx: when both exist, the SQLite store wins (mirrors read_state_builder_version).
+        self._write_graph_state_sqlite("42")
+        self._write_graph_state({"builder_version": "40"})  # legacy JSON present but superseded
+        self.assertEqual(self.mod._read_installed_graph_builder_version(self.root), "42")
+
+    def test_snapshot_graph_builder_absent_is_fail_safe(self) -> None:
+        # Wave 1rvfx AC-3: no installed project graph state → no graph_builder key, no GRAPH_BUILDER_VERSION
+        # transition, and NO exception (the upgrade must proceed).
+        self._write_pack("24", "5", "43")
+        snap = self.mod._snapshot_pre_extract_versions(self.root)
+        self.assertNotIn("graph_builder", snap)
+        transitions = self.mod._detect_version_transitions(snap, self.root)
+        self.assertFalse(any("GRAPH_BUILDER_VERSION" in name for name, _, _ in transitions))
+
+    def test_snapshot_graph_builder_corrupt_store_is_fail_safe(self) -> None:
+        # Wave 1rvfx AC-3: a corrupt/unreadable SQLite store yields no entry and never raises.
+        store = self.root / ".wavefoundry" / "index" / "graph" / "project-graph-state.sqlite"
+        store.write_text("this is not a sqlite database", encoding="utf-8")
+        self.assertEqual(self.mod._read_installed_graph_builder_version(self.root), "")
 
     def test_detect_chunker_transition(self) -> None:
         self._write_meta({

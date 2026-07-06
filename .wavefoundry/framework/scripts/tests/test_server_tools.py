@@ -18320,7 +18320,10 @@ class WaveDashboardOpenTests(unittest.TestCase):
         """AC-2: when dashboard running, webbrowser.open is called and opened=True returned."""
         self._write_meta(pid=12345, url="http://localhost:7890")
         import server_impl
+        # Wave 1rswx: open now classifies the recorded PID with the zombie-safe cmdline-verified check,
+        # so a genuinely-running dashboard must appear in the cmdline scan for this root.
         with self._dashboard_lib_patch(), \
+             patch.object(server_impl, "_dashboard_cmdline_pids", return_value=[12345]), \
              patch.object(server_impl, "_pid_is_running", return_value=True), \
              patch("webbrowser.open") as mock_wb:
             result = self.srv.wave_dashboard_open_response(self.root)
@@ -18559,7 +18562,10 @@ class WaveDashboardBrowserSuppressTests(unittest.TestCase):
             encoding="utf-8",
         )
         import server_impl
-        with patch("webbrowser.open") as mock_wb, patch.object(server_impl, "_pid_is_running", return_value=True):
+        # Wave 1rswx: the recorded PID must appear in the cmdline scan to be classified live (zombie-safe).
+        with patch("webbrowser.open") as mock_wb, \
+             patch.object(server_impl, "_dashboard_cmdline_pids", return_value=[os.getpid()]), \
+             patch.object(server_impl, "_pid_is_running", return_value=True):
             result = server_impl.wave_dashboard_open_response(self.root)
         mock_wb.assert_not_called()
         self.assertFalse(result["data"].get("opened"))

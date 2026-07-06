@@ -51,6 +51,11 @@ class _MockStore:
     def get(self) -> dict:
         return self._snapshot
 
+    def watcher_health(self) -> dict:
+        # Wave 1rtju: /api/dashboard merges this read-time liveness view; a benign healthy stub here.
+        return {"stalled": False, "last_cycle_age_seconds": 0.0, "interval_seconds": 3.0,
+                "stall_threshold_seconds": 90.0}
+
     def register_sse_client(self):
         _, srv = load_dashboard_modules()
         client = srv._SseClient()
@@ -1588,7 +1593,13 @@ class DashboardProcessControlTests(unittest.TestCase):
         _make_repo(other_root)
         other_meta = self._write_dashboard_metadata(other_root, pid=9999)
 
-        with patch.object(self.server, "_pid_is_running", return_value=True), patch.object(
+        # Wave 1rswx: a genuinely-live recorded dashboard is classified via the cmdline-verified
+        # (zombie-safe) check now, so it must appear in the cmdline scan for this root — that is exactly
+        # what a real live dashboard does. (A <defunct> recorded PID would be absent from the scan and is
+        # covered by the zombie-stop tests.)
+        with patch.object(self.server, "_dashboard_cmdline_pids", return_value=[4321]), patch.object(
+            self.server, "_pid_is_running", return_value=True
+        ), patch.object(
             self.server, "_terminate_dashboard_pid", return_value=True
         ) as terminate:
             env = self.server.wave_dashboard_stop_response(self.root)
@@ -1645,6 +1656,209 @@ class DashboardProcessControlTests(unittest.TestCase):
 
         self.assertEqual(rc, 0)
         self.assertIn("http://127.0.0.1:43127/dashboard.html", stdout.getvalue())
+
+
+class DashboardChildReapTests(unittest.TestCase):
+    """Wave 1rswx: the long-lived MCP server reaps the dashboard children it spawns (mirroring the
+    1p98u background-build reaper), and the stop/restart/status paths classify a recorded PID with the
+    zombie-safe cmdline-verified check so a <defunct> dashboard is treated as already stopped — not a
+    live kill target that fails."""
+
+    def setUp(self):
+        self.lib, self.srv = load_dashboard_modules()
+        self.server = sys.modules["server_impl"]
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        _make_repo(self.root)
+        self._saved_pids = set(self.server._DASHBOARD_CHILD_PIDS)
+        self.server._DASHBOARD_CHILD_PIDS.clear()
+
+    def tearDown(self):
+        self.server._DASHBOARD_CHILD_PIDS.clear()
+        self.server._DASHBOARD_CHILD_PIDS.update(self._saved_pids)
+        self.tmp.cleanup()
+
+    def _write_dashboard_metadata(self, root: Path, *, pid: int, url: str = "http://127.0.0.1:43127/dashboard.html") -> Path:
+        meta_path = self.lib.dashboard_metadata_path(root)
+        self.lib.write_dashboard_metadata(
+            root,
+            {"host": "127.0.0.1", "port": 43127, "url": url, "entrypoint": "dashboard.html",
+             "pid": pid, "started_at": "2026-05-13T00:00:00Z"},
+        )
+        return meta_path
+
+    # ---- registry + WNOHANG sweep (mirrors BackgroundBuildReapRegistryTests) ----
+
+    def test_register_is_posix_only_and_validates(self):
+        with patch.object(self.server.os, "name", "posix"):
+            self.server._register_dashboard_child_pid(4321)
+            self.assertIn(4321, self.server._DASHBOARD_CHILD_PIDS)
+            self.server._register_dashboard_child_pid(0)
+            self.server._register_dashboard_child_pid(-3)
+            self.assertNotIn(0, self.server._DASHBOARD_CHILD_PIDS)
+            self.assertNotIn(-3, self.server._DASHBOARD_CHILD_PIDS)
+
+    def test_register_noop_on_windows(self):
+        with patch.object(self.server.os, "name", "nt"):
+            self.server._register_dashboard_child_pid(4321)
+        self.assertNotIn(4321, self.server._DASHBOARD_CHILD_PIDS)
+
+    def test_reap_removes_finished_child(self):
+        self.server._DASHBOARD_CHILD_PIDS.add(4321)
+        with patch.object(self.server.os, "name", "posix"), \
+             patch.object(self.server.os, "waitpid", return_value=(4321, 0)) as wp:
+            self.server._reap_dashboard_child_pids()
+        wp.assert_called_once_with(4321, self.server.os.WNOHANG)
+        self.assertNotIn(4321, self.server._DASHBOARD_CHILD_PIDS)
+
+    def test_reap_keeps_still_running_child(self):
+        self.server._DASHBOARD_CHILD_PIDS.add(4321)
+        with patch.object(self.server.os, "name", "posix"), \
+             patch.object(self.server.os, "waitpid", return_value=(0, 0)):
+            self.server._reap_dashboard_child_pids()
+        self.assertIn(4321, self.server._DASHBOARD_CHILD_PIDS)
+
+    def test_reap_discards_non_child(self):
+        self.server._DASHBOARD_CHILD_PIDS.add(4321)
+        with patch.object(self.server.os, "name", "posix"), \
+             patch.object(self.server.os, "waitpid", side_effect=ChildProcessError):
+            self.server._reap_dashboard_child_pids()
+        self.assertNotIn(4321, self.server._DASHBOARD_CHILD_PIDS)
+
+    def test_reap_noop_on_windows(self):
+        self.server._DASHBOARD_CHILD_PIDS.add(4321)
+        with patch.object(self.server.os, "name", "nt"), \
+             patch.object(self.server.os, "waitpid") as wp:
+            self.server._reap_dashboard_child_pids()
+        wp.assert_not_called()
+        self.assertIn(4321, self.server._DASHBOARD_CHILD_PIDS)
+
+    # ---- AC-4: the frequently-hit index-refresh path sweeps dashboard children ----
+
+    def test_index_refresh_sweeps_dashboard_children(self):
+        # AC-4(b): a dashboard that died is reaped by an index-refresh sweep with NO wave_dashboard_* call.
+        with patch.object(self.server, "_reap_dashboard_child_pids") as reap, \
+             patch.object(self.server, "_background_refresh_active", return_value=True):
+            self.server._start_background_index_refresh(self.root, "project")
+        reap.assert_called_once_with()
+
+    # ---- AC-1/AC-3: zombie-safe stop ----
+
+    def test_stop_on_zombie_recorded_pid_returns_success(self):
+        # AC-1: recorded PID is a zombie — reaped on entry by _reap_dashboard_child_pids (WNOHANG), after
+        # which it is NO LONGER os.kill-alive (a reaped PID's os.kill raises ESRCH). Stop must return a
+        # clean success with metadata cleared, never a live kill target. Wave 1rvfw: model the reaped
+        # zombie as _pid_is_running=False (its real post-reap state) so the empty-targets branch takes the
+        # genuinely-stopped path — an os.kill-alive-but-unverified PID would instead be reported honestly
+        # as dashboard_pid_unverified (see test_stop_unverified_alive_pid_reports_honestly).
+        meta_path = self._write_dashboard_metadata(self.root, pid=4321)
+        self.server._DASHBOARD_CHILD_PIDS.add(4321)
+        with patch.object(self.server.os, "name", "posix"), \
+             patch.object(self.server.os, "waitpid", return_value=(4321, 0)) as wp, \
+             patch.object(self.server, "_dashboard_cmdline_pids", return_value=[]), \
+             patch.object(self.server, "_pid_is_running", return_value=False), \
+             patch.object(self.server, "_terminate_dashboard_pid", return_value=True) as term:
+            env = self.server.wave_dashboard_stop_response(self.root)
+        self.assertEqual(env["status"], "ok")
+        self.assertTrue(env["data"].get("already_stopped"))
+        term.assert_not_called()  # a <defunct> PID is never SIGTERM/SIGKILL'd
+        self.assertFalse(meta_path.exists(), "stale metadata must be cleared")
+        wp.assert_any_call(4321, self.server.os.WNOHANG)  # the zombie was reaped on entry
+        self.assertNotIn(4321, self.server._DASHBOARD_CHILD_PIDS)
+
+    def test_stop_unverified_alive_pid_reports_honestly(self):
+        # Wave 1rvfw AC-1: recorded PID is os.kill-alive but NOT cmdline-verified (scan runs, misses it —
+        # a recycled PID or a scan-missed live dashboard). Stop must NOT claim already_stopped and must
+        # NOT delete the metadata; it reports honestly with a dashboard_pid_unverified diagnostic and
+        # never signals the PID (the 1rswx AC-3 never-kill-unverified control stands).
+        meta_path = self._write_dashboard_metadata(self.root, pid=5555)
+        with patch.object(self.server, "_dashboard_cmdline_pids", return_value=[]), \
+             patch.object(self.server, "_pid_is_running", return_value=True), \
+             patch.object(self.server, "_terminate_dashboard_pid", return_value=True) as term:
+            env = self.server.wave_dashboard_stop_response(self.root)
+        self.assertEqual(env["status"], "ok")
+        self.assertFalse(env["data"].get("already_stopped"))  # not a false success
+        self.assertFalse(env["data"].get("stopped"))
+        codes = [d.get("code") for d in (env.get("diagnostics") or [])]
+        self.assertIn("dashboard_pid_unverified", codes)
+        term.assert_not_called()  # the unverified PID is never terminated
+        self.assertTrue(meta_path.exists(), "metadata must be RETAINED for an alive-but-unverified instance")
+
+    def test_stop_genuinely_stopped_dead_pid_clears_metadata(self):
+        # Wave 1rvfw AC-2: a recorded PID that is NOT os.kill-alive (dead/absent), with no scanned pids,
+        # still takes the clean already_stopped + metadata-cleared path.
+        meta_path = self._write_dashboard_metadata(self.root, pid=5555)
+        with patch.object(self.server, "_dashboard_cmdline_pids", return_value=[]), \
+             patch.object(self.server, "_pid_is_running", return_value=False), \
+             patch.object(self.server, "_terminate_dashboard_pid", return_value=True) as term:
+            env = self.server.wave_dashboard_stop_response(self.root)
+        self.assertEqual(env["status"], "ok")
+        self.assertTrue(env["data"].get("already_stopped"))
+        term.assert_not_called()
+        self.assertFalse(meta_path.exists(), "a genuinely-dead recorded PID clears its metadata")
+
+    def test_stop_still_kills_live_dashboard(self):
+        # AC-3: a genuinely-live dashboard for this root (present in the cmdline scan) is still terminated.
+        self._write_dashboard_metadata(self.root, pid=4321)
+        with patch.object(self.server, "_dashboard_cmdline_pids", return_value=[4321]), \
+             patch.object(self.server, "_pid_is_running", return_value=True), \
+             patch.object(self.server, "_terminate_dashboard_pid", return_value=True) as term:
+            env = self.server.wave_dashboard_stop_response(self.root)
+        self.assertTrue(env["data"].get("stopped"))
+        term.assert_called_once_with(4321)
+
+    def test_restart_reaps_zombie_then_starts_fresh(self):
+        # AC-2: restart with a zombie prior dashboard reaps/clears it (stop returns ok) then spawns fresh.
+        # Wave 1rvfw: the reaped zombie is no longer os.kill-alive (_pid_is_running=False), so stop takes
+        # the clean already_stopped path and restart proceeds to start.
+        self._write_dashboard_metadata(self.root, pid=4321)
+        self.server._DASHBOARD_CHILD_PIDS.add(4321)
+        start_env = {"status": "ok",
+                     "data": {"started": True, "pid": 9876, "url": "http://127.0.0.1:43128/dashboard.html"},
+                     "diagnostics": [], "next_tools": [], "usage": "http://127.0.0.1:43128/dashboard.html"}
+        with patch.object(self.server.os, "name", "posix"), \
+             patch.object(self.server.os, "waitpid", return_value=(4321, 0)), \
+             patch.object(self.server, "_dashboard_cmdline_pids", return_value=[]), \
+             patch.object(self.server, "_pid_is_running", return_value=False), \
+             patch.object(self.server, "_terminate_dashboard_pid", return_value=True) as term, \
+             patch.object(self.server, "wave_dashboard_start_response", return_value=start_env) as start:
+            env = self.server.wave_dashboard_restart_response(self.root)
+        self.assertEqual(env["status"], "ok")
+        self.assertTrue(env["data"].get("restarted"))
+        self.assertEqual(env["data"].get("pid"), 9876)
+        term.assert_not_called()  # the zombie was reaped, not killed
+        start.assert_called_once()
+
+    # ---- AC-5: status/open must not report a zombie as serving ----
+
+    def test_open_does_not_report_zombie_as_serving(self):
+        self._write_dashboard_metadata(self.root, pid=4321)
+        with patch.object(self.server, "_reap_dashboard_child_pids"), \
+             patch.object(self.server, "_dashboard_cmdline_pids", return_value=[]), \
+             patch.object(self.server, "_pid_is_running", return_value=True), \
+             patch.object(self.server, "wave_dashboard_start_response",
+                          return_value={"status": "ok", "data": {"started": True}, "diagnostics": [],
+                                        "next_tools": [], "usage": ""}) as start:
+            # A live recorded dashboard would return opened/url directly; a zombie must fall through to
+            # start (delegation), not report the dead URL as serving.
+            self.server.wave_dashboard_open_response(self.root)
+        start.assert_called_once()
+
+    def test_start_registers_spawned_dashboard_pid(self):
+        # AC-4(a): the spawned dashboard PID is registered so a later sweep can reap it (POSIX).
+        self._write_dashboard_metadata(self.root, pid=8888)
+
+        class _FakeProc:
+            pid = 8888
+
+        with patch.object(self.server.os, "name", "posix"), \
+             patch.object(self.server, "_reap_dashboard_child_pids"), \
+             patch.object(self.server, "_dashboard_cmdline_pids", return_value=[]), \
+             patch.object(self.server, "_dashboard_url_reachable", return_value=False), \
+             patch.object(self.server, "_terminate_dashboard_pid", return_value=True), \
+             patch("subprocess.Popen", return_value=_FakeProc()):
+            self.server.wave_dashboard_start_response(self.root)
+        self.assertIn(8888, self.server._DASHBOARD_CHILD_PIDS)
 
 
 class DashboardDaemonModeTests(unittest.TestCase):
@@ -2376,6 +2590,196 @@ class SnapshotStoreTests(unittest.TestCase):
         self.assertEqual(len(errors_seen), 1)
         snap = store.get()
         self.assertIn("project", snap)
+
+
+class DashboardWatcherHardeningTests(unittest.TestCase):
+    """Wave 1rtju: the watcher can no longer wedge silently — its snapshot collection is bounded by a
+    per-cycle timeout, a stalled watcher is surfaced (health field + SSE signal), nested doc-file edits
+    trip the fast-change path, and watcher logging survives the MCP-spawn DEVNULL stderr."""
+
+    def setUp(self):
+        self.lib, self.srv = load_dashboard_modules()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        _make_repo(self.root)
+        _make_wave(self.root)
+        self._stores: list = []
+
+    def tearDown(self):
+        for store in self._stores:
+            store.stop()
+        self._stores.clear()
+        self.tmp.cleanup()
+
+    def _make_store(self):
+        store = self.srv.SnapshotStore(self.root)
+        self._stores.append(store)
+        return store
+
+    # ---- AC-1: the bounded collection cannot freeze the watcher ----
+
+    def test_collect_bounded_times_out_and_does_not_pile_up(self):
+        import threading
+        store = self._make_store()  # startup collect already completed
+        started = threading.Event()
+        release = threading.Event()
+        calls = [0]
+
+        def blocking_collect(root, skip_git=False):
+            calls[0] += 1
+            started.set()
+            release.wait(5)
+            return {"project": {}, "waves": []}
+
+        with patch.object(self.srv, "_COLLECT_TIMEOUT_SECONDS", 0.2), \
+             patch.object(self.lib, "collect_dashboard_snapshot", side_effect=blocking_collect):
+            r1 = store._rebuild(force_git=True)          # blocks 0.2s → timeout → None, keeps last-good
+            self.assertIsNone(r1)
+            self.assertIsNotNone(store._pending_collect)
+            self.assertTrue(started.is_set())
+            r2 = store._rebuild(force_git=True)          # still hung → None WITHOUT resubmitting
+            self.assertIsNone(r2)
+            self.assertEqual(calls[0], 1, "must not resubmit a new collection while one is hung")
+        # Snapshot preserved (not wiped to partial/empty) across the stall.
+        self.assertIn("project", store.get())
+        release.set()
+        store._pending_collect.result(timeout=5)          # let the hung future finish
+        changed = store._rebuild(force_git=True)          # resubmits the (real) collect → completes
+        self.assertIsNotNone(changed)
+
+    # ---- AC-2: a stalled watcher is surfaced (health field + SSE) ----
+
+    def test_watcher_health_reports_healthy_then_stalled(self):
+        import time
+        store = self._make_store()
+        store.stop()  # freeze the watcher thread; drive state directly
+        self.assertFalse(store.watcher_health()["stalled"])
+        store._watcher_stalled = True
+        h = store.watcher_health()
+        self.assertTrue(h["stalled"])
+        self.assertIn("last_cycle_age_seconds", h)
+
+    def test_watcher_health_stalls_on_stale_cycle_age(self):
+        import time
+        store = self._make_store()
+        store.stop()
+        store._last_watch_cycle_at = time.monotonic() - (self.srv._WATCHER_STALL_SECONDS + 10)
+        self.assertTrue(store.watcher_health()["stalled"])
+
+    def test_stall_and_recovery_emit_sse_once(self):
+        store = self._make_store()
+        store.stop()
+        client = store.register_sse_client()
+        store._mark_cycle_stalled()
+        self.assertEqual(client.queue.get_nowait(), "watcher_status:1")
+        store._mark_cycle_stalled()  # already stalled → no duplicate signal
+        self.assertTrue(client.queue.empty())
+        store._note_cycle_recovered()  # recovery (tied to a completed rebuild)
+        self.assertEqual(client.queue.get_nowait(), "watcher_status:0")
+
+    def test_no_op_cycle_does_not_clear_stall(self):
+        # A heartbeat (no rebuild needed) must NOT declare recovery while a collection is still hung.
+        store = self._make_store()
+        store.stop()
+        store._watcher_stalled = True
+        client = store.register_sse_client()
+        store._note_cycle_alive()  # liveness only
+        self.assertTrue(store._watcher_stalled, "a no-op cycle must not clear a stall")
+        self.assertTrue(client.queue.empty(), "a no-op cycle must not emit a recovery signal")
+
+    def test_api_dashboard_includes_watcher_health(self):
+        store = self._make_store()
+        store.stop()
+        # The /api/dashboard handler merges watcher_health() additively.
+        merged = {**store.get(), "watcher": store.watcher_health()}
+        self.assertIn("watcher", merged)
+        self.assertIn("stalled", merged["watcher"])
+
+    # ---- AC-3: nested-file edits trip the fast-change path ----
+
+    def test_current_mtimes_detects_nested_file_edit(self):
+        import time
+        store = self._make_store()
+        store.stop()
+        base = self.root / "docs" / "waves"
+        nested_dir = base / "12x test-wave"  # existing wave subdir from _make_wave
+        nested_file = nested_dir / "change.md"
+        nested_file.write_text("v1", encoding="utf-8")
+        before = store._current_mtimes()
+        # Edit the nested file with a strictly-newer mtime (bump forward to avoid clock granularity).
+        future = time.time() + 5
+        os.utime(nested_file, (future, future))
+        after = store._current_mtimes()
+        tree_key = f"tree::{base}"
+        self.assertIn(tree_key, before)
+        self.assertNotEqual(before[tree_key], after[tree_key],
+                            "a nested-file edit must change the tree signature")
+        # The flat docs/waves dir mtime alone does NOT change on a nested-file edit — proving the
+        # nested signature is what catches it (the pre-1rtju gap).
+        self.assertEqual(before[str(base)], after[str(base)])
+
+    # ---- AC-4: the client-side staleness watchdog (dashboard.js source contract) ----
+
+    def test_dashboard_js_has_client_staleness_watchdog(self):
+        # AC-4: the client must recover from a "connected but silent" SSE stall. This locks the
+        # dashboard.js watchdog the same way the suite locks other client behavior (source assertion),
+        # so a revert of the watchdog is caught even though the JS is not unit-executable here.
+        js = (SCRIPTS_ROOT.parent / "dashboard" / "dashboard.js").read_text(encoding="utf-8")
+        # A last-update timestamp + a bounded stale window drive a safety poll while SSE is connected.
+        self.assertIn("lastUpdateAtRef", js)
+        self.assertIn("WATCHDOG_STALE_MS", js)
+        self.assertIn("WATCHDOG_INTERVAL_MS", js)
+        # The safety poll only fires when connected AND silent beyond the window (no double-fetch when healthy).
+        self.assertIn("sseActiveRef.current && Date.now() - lastUpdateAtRef.current > WATCHDOG_STALE_MS", js)
+        # An explicit server stall signal triggers an immediate poll.
+        self.assertIn('es.addEventListener("watcher_status"', js)
+        # The interval is cleared on cleanup (no leak) and the update event refreshes the freshness clock.
+        self.assertIn("clearInterval(watchdogRef.current)", js)
+        # The live watcher-health field must be excluded from the content hash so it never churns.
+        self.assertIn("watcher: _w", js)
+
+    # ---- AC-6: the nested scan is bounded (no unbounded walk) ----
+
+    def test_nested_signature_is_bounded(self):
+        store = self._make_store()
+        store.stop()
+        base = self.root / "docs" / "plans"
+        base.mkdir(parents=True, exist_ok=True)
+        for i in range(5):
+            (base / f"f{i}.md").write_text("x", encoding="utf-8")
+        with patch.object(self.srv, "_NESTED_SCAN_MAX_ENTRIES", 2):
+            sig = store._nested_signature(base)
+        self.assertTrue(sig.endswith(":capped"), f"scan must short-circuit at the cap, got {sig!r}")
+
+    # ---- AC-5: watcher logging survives DEVNULL stderr (MCP spawn) ----
+
+    def test_dashboard_log_persists_to_file_when_root_set(self):
+        log_file = self.root / ".wavefoundry" / "logs" / "dashboard.log"
+        with patch.object(self.srv, "_LOG_ROOT", self.root), \
+             patch.dict(os.environ, {}, clear=False):
+            os.environ.pop(self.srv._DAEMON_ENV_MARKER, None)
+            self.srv._dashboard_log("watcher error: simulated boom")
+        self.assertTrue(log_file.exists())
+        self.assertIn("watcher error: simulated boom", log_file.read_text(encoding="utf-8"))
+
+    def test_dashboard_log_skips_file_for_daemon_child(self):
+        log_file = self.root / ".wavefoundry" / "logs" / "dashboard.log"
+        with patch.object(self.srv, "_LOG_ROOT", self.root), \
+             patch.dict(os.environ, {self.srv._DAEMON_ENV_MARKER: "1"}):
+            self.srv._dashboard_log("daemon-child-only-line")
+        # The --daemon child's stderr is already redirected to dashboard.log; no direct duplicate write.
+        wrote = log_file.exists() and "daemon-child-only-line" in log_file.read_text(encoding="utf-8")
+        self.assertFalse(wrote)
+
+    def test_dashboard_log_persist_false_stays_off_the_file(self):
+        # Wave 1rtju: HTTP access lines (log_message → persist=False) must NOT flood the always-on file.
+        log_file = self.root / ".wavefoundry" / "logs" / "dashboard.log"
+        with patch.object(self.srv, "_LOG_ROOT", self.root), \
+             patch.dict(os.environ, {}, clear=False):
+            os.environ.pop(self.srv._DAEMON_ENV_MARKER, None)
+            self.srv._dashboard_log('GET /api/dashboard HTTP/1.1 200 -', persist=False)
+        wrote = log_file.exists() and "GET /api/dashboard" in log_file.read_text(encoding="utf-8")
+        self.assertFalse(wrote, "access-log lines must not be persisted to dashboard.log")
 
 
 class UpgradeLockFailureMarkerTests(unittest.TestCase):

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import contextlib
 import hashlib
 import importlib.util
@@ -44,6 +45,19 @@ ASSET_ROOT = Path(__file__).resolve().parent.parent / "dashboard"
 _GIT_INTERVAL = 60       # seconds between git stat rebuilds
 _WATCH_INTERVAL = 3.0    # seconds between mtime polls
 _SSE_HEARTBEAT = 15      # seconds between SSE keep-alive comments
+# Wave 1rtju: bound the watcher's snapshot collection so a slow/hung filesystem or git call cannot
+# freeze the single watcher thread for the process lifetime. On timeout the loop keeps the last-good
+# snapshot and surfaces a stall signal instead of publishing partial state. 30s is a generous bounded
+# multiple of the 3s watch interval — far above a normal sub-second collection, so the healthy path is
+# unchanged.
+_COLLECT_TIMEOUT_SECONDS = 30.0
+# Wave 1rtju: a watcher is considered stalled (surfaced on /api/dashboard + an SSE signal) when it has
+# not completed a cycle within this window — a bounded multiple of the git-refresh interval, above one
+# legitimately-slow collect-timeout cycle so a single slow cycle is not a false stall.
+_WATCHER_STALL_SECONDS = 90.0
+# Wave 1rtju: bound the recursive nested-tree mtime scan so it can never become an unbounded walk on a
+# pathological docs tree (no-busy-loop AC-6). The watched doc trees are far smaller than this.
+_NESTED_SCAN_MAX_ENTRIES = 20000
 # Wave 1p4ww: single project index — the framework layer is folded in.
 _INDEX_LAYERS = ("project",)
 # Wave 1p5xw: the on-demand staleness display is rate-limited so a busy repo can't
@@ -65,11 +79,33 @@ def _get_indexer():
     return _INDEXER_MOD
 
 
-def _dashboard_log(message: str, *, context: str | None = None) -> None:
+# Wave 1rtju (AC-5): the repo root for the always-on log sink, set once in main() after root discovery.
+# When set, _dashboard_log persists to .wavefoundry/logs/dashboard.log so watcher/error lines survive
+# the MCP-spawn DEVNULL stdout/stderr (server_impl.py) — previously only the --daemon path logged to a
+# file, so a stall under the normal MCP launch was undiagnosable.
+_LOG_ROOT: Path | None = None
+
+
+def _dashboard_log(message: str, *, context: str | None = None, persist: bool = True) -> None:
     prefix = f"{datetime.now(UTC).isoformat()} - "
     if context:
         prefix += f"{context} - "
-    sys.stderr.write(f"[dashboard] {prefix}{message}\n")
+    line = f"[dashboard] {prefix}{message}\n"
+    sys.stderr.write(line)
+    # Wave 1rtju: also persist to dashboard.log so watcher/lifecycle diagnostics are captured even when
+    # stderr is DEVNULL (the MCP-tool spawn path). `persist=False` keeps the per-request HTTP access-log
+    # firehose (log_message) OFF the file so it can't grow unbounded — access lines still reach stderr
+    # (and the --daemon child's stderr is already the file, so that path is unchanged either way). Skip
+    # the direct write when we ARE the --daemon child whose stderr is ALREADY redirected to dashboard.log
+    # (_daemonize) — that would double-write every line.
+    if persist and _LOG_ROOT is not None and os.environ.get(_DAEMON_ENV_MARKER) != "1":
+        try:
+            log_path = _LOG_ROOT / ".wavefoundry" / "logs" / "dashboard.log"
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(log_path, "a", encoding="utf-8") as fh:
+                fh.write(line)
+        except OSError:
+            pass
 
 
 def _get_graph_query():
@@ -170,11 +206,27 @@ class SnapshotStore:
         self._stop_event = threading.Event()  # set by stop() to terminate _watch_loop
         self._sse_lock = threading.Lock()
         self._sse_clients: list[_SseClient] = []
-        self._last_mtimes: dict[str, float] = {}
+        self._last_mtimes: dict[str, float | str] = {}
         self._last_git_at: float = 0.0
         self._cached_git: dict[str, Any] = {}
         self._content_hash: str = ""
         self._upgrade_paused: bool = False  # R2: True while upgrade lock file is present
+        # Wave 1rtju: bound the watcher's snapshot collection with a single-worker executor so a hung
+        # FS/git call cannot freeze the watcher thread. A timed-out collection stays referenced in
+        # _pending_collect so the next cycle does NOT resubmit (no piling up) until it finally returns.
+        self._collect_executor = concurrent.futures.ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="wf-dashboard-collect"
+        )
+        self._pending_collect: concurrent.futures.Future | None = None
+        # Wave 1rtju: watcher-liveness signals, surfaced on /api/dashboard + an SSE watcher_status event
+        # so a "stale but still serving" watcher becomes visible instead of silent. Read at request time
+        # (see watcher_health) so a blocked watcher's staleness is observable even mid-block.
+        self._last_watch_cycle_at: float = time.monotonic()
+        self._watcher_stalled: bool = False
+        # Wave 1rtju: dedupe consecutive identical watcher-error log lines so a persistently-raising
+        # collect/stat (e.g. a flaky mount) cannot append the same line to dashboard.log every 3s. Reset
+        # on any clean cycle so a recurrence after recovery is logged again.
+        self._last_watcher_error: str | None = None
 
         cfg = dashboard_lib.read_dashboard_config(root)
         # 1p7it: the dashboard does NOT trigger index builds — index updates are owned by the
@@ -235,13 +287,57 @@ class SnapshotStore:
             r / ".wavefoundry" / "logs" / "project-background-build.log",
         ]
 
-    def _current_mtimes(self) -> dict[str, float]:
-        out: dict[str, float] = {}
+    def _watched_trees(self) -> list[Path]:
+        """Directory trees whose NESTED files must trip the fast-change path (wave 1rtju, AC-3).
+
+        The flat directory-mtime watch in ``_watched_paths`` only sees direct-child add/remove/rename;
+        a directory's mtime does not change when a file nested inside an existing subdirectory is edited
+        (the common ``docs/waves/<id>/<change>.md`` / ``wave.md`` editing pattern). These trees get a
+        bounded recursive mtime signature so nested edits surface promptly instead of only on the 60s
+        git fallback."""
+        r = self._root
+        return [
+            r / "docs" / "waves",
+            r / "docs" / "plans",
+            r / "docs" / "agents",
+            r / ".claude" / "agents",
+        ]
+
+    def _nested_signature(self, base: Path) -> str:
+        """A bounded recursive signature (max-mtime + file-count) over a watched tree (wave 1rtju).
+
+        Any nested-file EDIT bumps that file's mtime → raises max-mtime; an add/remove changes the file
+        count. Both change the signature, tripping the fast-change path. The walk is bounded by
+        ``_NESTED_SCAN_MAX_ENTRIES`` so it can never become an unbounded scan (no-busy-loop AC-6). Cheap
+        relative to the existing unconditional 60s full git recollect."""
+        if not base.is_dir():
+            return ""
+        max_mtime = 0.0
+        count = 0
+        for dirpath, _dirnames, filenames in os.walk(base):
+            for fn in filenames:
+                count += 1
+                try:
+                    m = os.stat(os.path.join(dirpath, fn)).st_mtime
+                except OSError:
+                    continue
+                if m > max_mtime:
+                    max_mtime = m
+                if count >= _NESTED_SCAN_MAX_ENTRIES:
+                    return f"{max_mtime:.6f}:{count}:capped"
+        return f"{max_mtime:.6f}:{count}"
+
+    def _current_mtimes(self) -> dict[str, float | str]:
+        out: dict[str, float | str] = {}
         for p in self._watched_paths():
             try:
                 out[str(p)] = p.stat().st_mtime
             except OSError:
                 out[str(p)] = 0.0
+        # Wave 1rtju (AC-3): add a bounded nested signature per watched tree so edits to files nested
+        # inside them trip the fast-change diff (the flat dir stat above misses nested writes).
+        for tree in self._watched_trees():
+            out[f"tree::{tree}"] = self._nested_signature(tree)
         return out
 
     @staticmethod
@@ -252,11 +348,37 @@ class SnapshotStore:
             json.dumps(filtered, sort_keys=True, default=str).encode()
         ).hexdigest()
 
-    def _rebuild(self, force_git: bool = False) -> bool:
-        """Rebuild the snapshot. Returns True if content changed."""
+    def _collect_bounded(self, skip_git: bool) -> dict[str, Any] | None:
+        """Run ``collect_dashboard_snapshot`` under a per-cycle timeout (wave 1rtju, AC-1).
+
+        Returns the snapshot, or ``None`` if the collection did not finish within
+        ``_COLLECT_TIMEOUT_SECONDS`` — in which case the still-running future is retained so the next
+        cycle does not resubmit work on top of a hung call (bounded to one in-flight collection).
+        Non-timeout exceptions raised inside the collection propagate to the caller (surfaced as a
+        watcher error by ``_watch_loop``), preserving the prior direct-call error behavior."""
+        if self._pending_collect is not None:
+            if not self._pending_collect.done():
+                return None  # previous collection still hung — do not pile up work
+            self._pending_collect = None
+        future = self._collect_executor.submit(
+            dashboard_lib.collect_dashboard_snapshot, self._root, skip_git=skip_git
+        )
+        try:
+            return future.result(timeout=_COLLECT_TIMEOUT_SECONDS)
+        except concurrent.futures.TimeoutError:
+            self._pending_collect = future
+            return None
+
+    def _rebuild(self, force_git: bool = False) -> bool | None:
+        """Rebuild the snapshot. Returns True if content changed, False if unchanged, or None if the
+        bounded collection timed out / is still hung (caller keeps the last-good snapshot; wave 1rtju)."""
         now = time.monotonic()
         do_git = force_git or (now - self._last_git_at >= _GIT_INTERVAL)
-        snap = dashboard_lib.collect_dashboard_snapshot(self._root, skip_git=not do_git)
+        snap = self._collect_bounded(skip_git=not do_git)
+        if snap is None:
+            # Collection timed out / still hung — keep the last-good snapshot and let the watch loop
+            # surface the stall signal rather than publishing partial state (AC-1/AC-2 risk mitigation).
+            return None
         if do_git:
             self._last_git_at = now
             self._cached_git = snap.get("git", {})
@@ -334,6 +456,35 @@ class SnapshotStore:
             except queue.Full:
                 pass
 
+    def _notify_watcher_sse(self, stalled: bool) -> None:
+        """Emit a watcher_status SSE event with {"stalled": bool} (wave 1rtju, AC-2).
+
+        Sent only on a stall-state transition so a wedged watcher becomes visible to the client (which
+        can force a poll/reconnect) without spamming the stream."""
+        with self._sse_lock:
+            clients = list(self._sse_clients)
+        for c in clients:
+            try:
+                c.queue.put_nowait(f"watcher_status:{'1' if stalled else '0'}")
+            except queue.Full:
+                pass
+
+    def watcher_health(self) -> dict[str, Any]:
+        """Read-time watcher-liveness view (wave 1rtju, AC-2).
+
+        Computed on request (not written by the possibly-blocked watcher) so a wedged watcher's
+        staleness is observable even while it is blocked: ``stalled`` is true when the watcher
+        explicitly hit a collection timeout OR has not completed a cycle within ``_WATCHER_STALL_SECONDS``
+        (covers a fully-frozen or dead watcher thread)."""
+        age = time.monotonic() - self._last_watch_cycle_at
+        stalled = self._watcher_stalled or (age > _WATCHER_STALL_SECONDS)
+        return {
+            "stalled": stalled,
+            "last_cycle_age_seconds": round(age, 1),
+            "interval_seconds": _WATCH_INTERVAL,
+            "stall_threshold_seconds": _WATCHER_STALL_SECONDS,
+        }
+
     def stop(self) -> None:
         """Signal the watcher thread to exit.
 
@@ -342,6 +493,36 @@ class SnapshotStore:
         builds (1p7it: indexing is MCP/hook-owned), so there is nothing else to cancel.
         """
         self._stop_event.set()
+        # Wave 1rtju: release the bounded-collection executor. Don't wait on a possibly-hung collection.
+        try:
+            self._collect_executor.shutdown(wait=False, cancel_futures=True)
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _note_cycle_alive(self) -> None:
+        """Heartbeat: the watcher completed a loop iteration (feeds the time-based stall check in
+        ``watcher_health``). Does NOT clear a collection stall — a no-op cycle with nothing to rebuild
+        must not declare recovery while the last collection is still hung and the snapshot is stale."""
+        self._last_watch_cycle_at = time.monotonic()
+
+    def _note_cycle_recovered(self) -> None:
+        """A rebuild completed successfully — record liveness AND clear any prior stall (emit once).
+        Recovery is tied to an actual completed collection, not merely a live watcher thread (1rtju)."""
+        self._last_watch_cycle_at = time.monotonic()
+        if self._watcher_stalled:
+            self._watcher_stalled = False
+            _dashboard_log("watcher recovered — snapshot collection completed after a stall.")
+            self._notify_watcher_sse(stalled=False)
+
+    def _mark_cycle_stalled(self) -> None:
+        """Flag a collection timeout and emit the stall signal once per stall episode (1rtju, AC-2)."""
+        if not self._watcher_stalled:
+            self._watcher_stalled = True
+            _dashboard_log(
+                f"watcher stall — snapshot collection exceeded {_COLLECT_TIMEOUT_SECONDS:.0f}s; "
+                "keeping last-good snapshot and signalling staleness."
+            )
+            self._notify_watcher_sse(stalled=True)
 
     def _watch_loop(self) -> None:
         self._last_mtimes = self._current_mtimes()
@@ -358,6 +539,8 @@ class SnapshotStore:
                     self._rebuild(force_git=False)
                     self._notify_sse()
                     self._notify_upgrade_sse("paused")
+                    self._note_cycle_alive()
+                    continue
                 elif not lock_present and self._upgrade_paused:
                     # Upgrade completed — resume display. (1p7it: no dashboard reindex trigger;
                     # the upgrade's own index phase + the MCP/hook path reindex.)
@@ -366,23 +549,39 @@ class SnapshotStore:
                     self._rebuild(force_git=True)
                     self._notify_sse()
                     self._notify_upgrade_sse("idle")
+                    self._note_cycle_alive()
                     continue
 
                 if self._upgrade_paused:
-                    # While paused, skip all mtime polling and staleness checks.
+                    # While paused, skip all mtime polling and staleness checks — but the cycle itself
+                    # completed, so the watcher thread is alive.
+                    self._note_cycle_alive()
                     continue
 
                 current = self._current_mtimes()
                 changed_keys = {k for k in current if current[k] != self._last_mtimes.get(k)}
-                self._last_mtimes = current
-                if changed_keys:
-                    # File changed — rebuild the dashboard snapshot.
-                    if self._rebuild(force_git=True):
-                        self._notify_sse()
-                elif time.monotonic() - self._last_git_at >= _GIT_INTERVAL:
-                    # Git timer expired — refresh git stats, notify only if they changed.
-                    if self._rebuild(force_git=True):
-                        self._notify_sse()
+                # Wave 1rtju (AC-1/AC-2): a rebuild returns None when the bounded collection timed out /
+                # is still hung — keep the last-good snapshot and surface the stall. A completed rebuild
+                # (True/False) clears any prior stall; a no-op cycle only heartbeats liveness (it must NOT
+                # declare recovery while a collection is still hung and the snapshot is stale).
+                git_due = time.monotonic() - self._last_git_at >= _GIT_INTERVAL
+                if changed_keys or git_due:
+                    # File changed (incl. nested doc edits, AC-3) or git timer expired — rebuild.
+                    changed = self._rebuild(force_git=True)
+                    if changed is None:
+                        # Stall: do NOT commit _last_mtimes — retry this same change set on the next 3s
+                        # cycle (the bounded collect returns fast while the prior one is still hung) rather
+                        # than consuming the delta and waiting up to the 60s git timer to notice the edit.
+                        self._mark_cycle_stalled()
+                    else:
+                        self._last_mtimes = current
+                        if changed:
+                            self._notify_sse()
+                        self._note_cycle_recovered()
+                else:
+                    # Nothing to do this cycle — the watcher thread is alive, but do not clear a stall.
+                    self._last_mtimes = current
+                    self._note_cycle_alive()
                 # NOTE (wave 1p5xt / 1p5xw): the dashboard no longer runs a continuous
                 # staleness monitor or trigger index builds on a periodic recheck.
                 # Continuous index-freshness monitoring now lives in the MCP server
@@ -390,8 +589,14 @@ class SnapshotStore:
                 # read-only health UI: index staleness for display is computed on
                 # demand when the snapshot is built (see _rebuild) and refreshed by the
                 # one-shot startup check (#1) and post-upgrade reindex (#3) paths.
+                self._last_watcher_error = None  # a clean cycle clears the error dedup
             except Exception as exc:  # noqa: BLE001
-                _dashboard_log(f"watcher error: {exc}")
+                # Wave 1rtju: dedupe consecutive identical errors so a persistent per-cycle failure does
+                # not flood dashboard.log; the first occurrence and any change are still captured.
+                msg = str(exc)
+                if msg != self._last_watcher_error:
+                    _dashboard_log(f"watcher error: {msg}")
+                    self._last_watcher_error = msg
 
     def register_sse_client(self) -> _SseClient:
         client = _SseClient()
@@ -542,10 +747,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
             while True:
                 try:
                     msg = client.queue.get(timeout=_SSE_HEARTBEAT)
-                    # R2: upgrade_status events carry a state payload; all others are "update".
+                    # R2: upgrade_status events carry a state payload; wave 1rtju: watcher_status carries
+                    # a stalled flag; all others are "update".
                     if isinstance(msg, str) and msg.startswith("upgrade_status:"):
                         state = msg.split(":", 1)[1]
                         self._sse_write("upgrade_status", {"state": state})
+                    elif isinstance(msg, str) and msg.startswith("watcher_status:"):
+                        stalled = msg.split(":", 1)[1] == "1"
+                        self._sse_write("watcher_status", {"stalled": stalled})
                     else:
                         self._sse_write("update", {})
                 except queue.Empty:
@@ -580,7 +789,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return self._handle_doc()
         snapshot = self._store.get()
         if path == "/api/dashboard":
-            return self._send_json(snapshot)
+            # Wave 1rtju (AC-2): attach the read-time watcher-liveness view additively so a stalled
+            # watcher is observable to clients. Computed per request (not stored) so it never churns the
+            # snapshot content hash and reflects a wedged watcher even while it is blocked.
+            return self._send_json({**snapshot, "watcher": self._store.watcher_health()})
         if path == "/api/health":
             return self._send_json(snapshot.get("health", {}))
         if path == "/api/project":
@@ -673,7 +885,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def log_message(self, fmt: str, *args: Any) -> None:
-        _dashboard_log(fmt % args, context=self.address_string())
+        # Wave 1rtju: HTTP access lines go to stderr only (persist=False) — do NOT flood the always-on
+        # dashboard.log, which is reserved for watcher/lifecycle diagnostics (AC-5).
+        _dashboard_log(fmt % args, context=self.address_string(), persist=False)
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
@@ -737,6 +951,11 @@ def _daemonize(root: Path, argv: list[str]) -> int:
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     root = dashboard_lib.discover_root(args.root)
+    # Wave 1rtju (AC-5): route _dashboard_log to .wavefoundry/logs/dashboard.log for this root so
+    # watcher/error lines are captured even under the MCP-spawn DEVNULL stderr. Set before the daemon
+    # branch and before SnapshotStore startup so first-cycle logs are persisted.
+    global _LOG_ROOT
+    _LOG_ROOT = root
 
     # Wave 1p7pn: `--daemon` self-detaches (unless we ARE the detached child) so the cross-OS
     # `python dashboard_server.py --daemon` forwarder survives shell exit, then exits. The child

@@ -6,6 +6,21 @@ the individual wave records under [`docs/waves/`](docs/waves/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.11.0] - 2026-07-06
+
+### Added
+
+- **The code graph extracts SQL far more accurately, including Oracle and T-SQL dialects.** SQL graph extraction now recovers data-manipulation edges inside procedural loop bodies (so a routine's writes are no longer lost when they sit inside a `WHILE`/`LOOP`), distinguishes foreign-key / `LIKE` / `CREATE TABLE AS` references from ordinary column-type mentions in `CREATE TABLE`, handles `CREATE TYPE`, `MERGE`, and `SELECT … INTO` (including temp-table sigils so a `#tmp`/`SELECT INTO #x` target is not minted as a permanent table), and recognizes Oracle/T-SQL forms — pseudo-types, built-in scalar types, `DUAL`, `FOR UPDATE SKIP LOCKED`/`NOWAIT`, and bracket-qualified names. Schema DDL and stored-routine bodies now produce correct nodes and edges instead of phantom or missing relations. An upgrade materializes the new extraction automatically.
+
+### Fixed
+
+- **The local dashboard's stop and restart work on a dead instance.** When a dashboard process exited without being reaped it lingered as a zombie that the stop/restart tools mistook for a live process and failed to clear, returning a stop failure with nothing actually stopped. The server now reaps the dashboard children it spawns — including opportunistically during ordinary editing — and classifies a recorded process with a zombie-safe check, so stop and restart reliably clear a dead dashboard and start fresh. Windows process handling is unchanged.
+- **The running dashboard no longer silently stops reflecting repository changes.** Three compounding gaps could leave the page stale while the server kept serving: the single watcher thread could wedge on a slow filesystem call with no timeout, its directory-level watch missed edits to files nested inside a watched folder (the common wave-document editing pattern), and the browser had no recovery when the event stream was "connected" but no longer delivering updates. The watcher's snapshot collection is now bounded per cycle and surfaces a staleness signal on the dashboard API and event stream, change detection catches nested-file edits promptly, the client falls back to an active poll when updates stop arriving, and watcher activity is always written to `dashboard.log` so a future stall is diagnosable even under the MCP launch path.
+
+### Changed
+
+- **Reload the MCP server after an upgrade that changes the graph builder, or the graph is silently downgraded.** An already-running MCP server keeps the previous graph extractor in memory for its whole lifetime. An upgrade re-extracts the graph at the new version, but the first graph query on a server that was not reloaded re-extracts the graph back down to the old version using its stale in-memory extractor — reverting the upgrade's graph work. The upgrade instructions now state plainly that reloading the server (`wave_mcp_reload`) or restarting the host after a graph-builder change is mandatory before issuing graph queries, and the upgrade's own code comments were corrected to describe how the graph phase actually works (it re-extracts during the upgrade; the first-query rebuild is only a safety net).
+
 ## [1.10.1] - 2026-07-03
 
 ### Changed

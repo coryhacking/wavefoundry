@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-02
+Last verified: 2026-07-06
 
 Shortcut: **`Upgrade Wavefoundry`** | Legacy: **`Upgrade wave framework`** / **`Upgrade wave context`**
 
@@ -30,6 +30,7 @@ The expected operator flow is:
    - The upgrade's final phase updates **both** the semantic indexes and the graph, each version-aware: an incremental update normally, auto-escalating to a full rebuild when its version advanced — semantic on a `CHUNKER_VERSION`/model bump (re-embed, minutes), graph on a `GRAPH_BUILDER_VERSION` bump (graph-only re-extract, ~10–30 s). You do **not** run a separate index command for a normal upgrade.
    - A manual `wave_index_build(...)` / `--update-index` call is only for re-running after the agent editing pass or recovering a backgrounded code build (see the Verification Checklist).
    - So a graph-builder bump materializes **during the upgrade**, symmetric with the semantic indexes — no manual step. (The first-query in-process auto-rebuild remains a safety net.) **1.8.1** bumps `GRAPH_BUILDER_VERSION` only (32→35) → a graph-only re-extract (no re-embed) carrying the new edges/nodes: cross-language confidence promotion, `reads_config`, `instruments`, `.properties`/`.yml` config-key nodes.
+   - **Mandatory reload after a `GRAPH_BUILDER_VERSION` bump — a non-reloaded server DOWNGRADES the graph.** An already-running MCP server keeps the pre-upgrade graph extractor in memory for its whole lifetime. Phase 4b re-extracts the graph at the new version during the upgrade, but the first graph query on a still-stale server re-extracts it back DOWN to the old version using its in-memory extractor — silently reverting the upgrade's graph work. `wave_mcp_reload()` (or a host restart) loads the new extractor first, so the safety-net auto-rebuild can never invert into a downgrade.
 
 What this prompt is not:
 
@@ -146,7 +147,7 @@ See `docs/contributing/build-and-verification.md` **Wave framework pack upgrade 
    ```
    Use `mode="rebuild"` after a version transition (moving to 1.6 bumps `CHUNKER_VERSION` and `GRAPH_BUILDER_VERSION` — see step 4). There is a single project index (the framework's seeds fold into it) — no separate framework index to rebuild. See `docs/contributing/build-and-verification.md` **Upgrade index rule**.
    - If the refresh is detached or backgrounded, poll `wave_index_build_status(layer?)` until it finishes before you rely on the refreshed search state.
-   - Treat the reload + post-edit re-index as part of the upgrade, not optional cleanup. Until the reload happens, the repository may still be running old MCP code or stale search state.
+   - Treat the reload + post-edit re-index as part of the upgrade, not optional cleanup. Until the reload happens, the repository may still be running old MCP code or stale search state. **After a `GRAPH_BUILDER_VERSION` bump this is not optional:** issuing any graph query (`code_callhierarchy`, `code_impact`, `wave_graph_report`, …) before the reload makes the stale server re-extract the graph DOWN to its old builder version — reload first, then query.
 7. Review diff of pack changes, hooks, `docs/prompts/`, manifests
 8. Commit (operator-owned)
 

@@ -65,7 +65,9 @@ class ErrorBoundary extends Component {
 const POLL_STEPS = [2000, 5000, 8000, 13000, 21000, 30000];
 
 function _snapshotHash(snapshot) {
-  const { generated_at: _ts, ...rest } = snapshot;
+  // Wave 1rtju: `watcher` is a read-time liveness view (its last_cycle_age_seconds changes every
+  // request) — exclude it, like generated_at, so it never produces a spurious content-change hash.
+  const { generated_at: _ts, watcher: _w, ...rest } = snapshot;
   // Sort keys so insertion-order differences in the server response don't produce spurious hash changes.
   return JSON.stringify(rest, Object.keys(rest).sort());
 }
@@ -4387,6 +4389,17 @@ function App() {
   // active EventSource, even after reconnect cycles replace the original instance.
   const esRef = useRef(null);
   const reconnectTimerRef = useRef(null);
+  // Wave 1rtju (AC-4): a client staleness watchdog recovers from a silent server stall — an
+  // EventSource that stays "connected" (heartbeats keep it open) but stops delivering `update`
+  // events because the server watcher wedged. We track the last time real data arrived and, while
+  // connected, run a low-frequency safety poll if no update has landed within the bounded window.
+  // It stands down the moment updates resume (no double-fetching when SSE is healthy).
+  const lastUpdateAtRef = useRef(Date.now());
+  const watchdogRef = useRef(null);
+  // Bounded window: above the 60s server git-refresh cadence so a healthy idle repo does not trip it
+  // every tick; comparable to the server's own _WATCHER_STALL_SECONDS.
+  const WATCHDOG_STALE_MS = 90000;
+  const WATCHDOG_INTERVAL_MS = 30000;
 
   useEffect(() => {
     let reconnectDelay = 2000;
@@ -4396,13 +4409,23 @@ function App() {
       esRef.current = es;
 
       es.addEventListener("update", () => {
+        lastUpdateAtRef.current = Date.now();
         if (timerRef.current) { window.clearTimeout(timerRef.current); timerRef.current = null; }
         refresh();
+      });
+      // Wave 1rtju: an explicit server stall signal — poll immediately (bypasses the wedged watcher)
+      // rather than waiting for the watchdog window to elapse.
+      es.addEventListener("watcher_status", (ev) => {
+        try {
+          const data = JSON.parse(ev.data);
+          if (data && data.stalled) { refresh(); }
+        } catch (_e) { /* ignore malformed payloads */ }
       });
       es.onopen = () => {
         sseActiveRef.current = true;
         setSseConnected(true);
         reconnectDelay = 2000;
+        lastUpdateAtRef.current = Date.now();
         // Cancel any in-flight poll timer — SSE is driving from here.
         if (timerRef.current) { window.clearTimeout(timerRef.current); timerRef.current = null; }
       };
@@ -4422,9 +4445,19 @@ function App() {
     }
 
     connect();
+    // Wave 1rtju: the connected-but-silent safety poll. Only fires while SSE reports connected and no
+    // update has arrived within WATCHDOG_STALE_MS; a single active fetch keeps the page fresh even if
+    // the server watcher is wedged. Re-arms the window so a persistently-stalled server keeps refreshing.
+    watchdogRef.current = window.setInterval(() => {
+      if (sseActiveRef.current && Date.now() - lastUpdateAtRef.current > WATCHDOG_STALE_MS) {
+        lastUpdateAtRef.current = Date.now();
+        refresh();
+      }
+    }, WATCHDOG_INTERVAL_MS);
     return () => {
       if (esRef.current) { esRef.current.close(); esRef.current = null; }
       if (reconnectTimerRef.current) { window.clearTimeout(reconnectTimerRef.current); reconnectTimerRef.current = null; }
+      if (watchdogRef.current) { window.clearInterval(watchdogRef.current); watchdogRef.current = null; }
     };
   }, [refresh]);
 

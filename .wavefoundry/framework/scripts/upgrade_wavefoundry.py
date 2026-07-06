@@ -538,10 +538,18 @@ def _compute_seed_diffs(
 #
 # Operator-visible logging of any framework version constant change at upgrade
 # time. The indexer's `build_index` auto-escalate handles chunker/walker
-# mismatches via full rebuild; the graph layer rebuilds on first query when
-# `GRAPH_BUILDER_VERSION` advances. This module's job is to surface those
-# transitions in the upgrade log so operators see what changed, then trust the
-# indexer / graph layer to do the right thing on the next call.
+# mismatches via full rebuild. The graph layer is materialized DURING the upgrade
+# by Phase 4b (`phase_index_update` runs `setup_index --graph-only` as a fresh
+# subprocess): opening the per-file graph state store calls
+# `GraphStateStore.ensure_current()`, which resets the store and forces a
+# full-corpus re-extraction whenever the pack's `GRAPH_BUILDER_VERSION` differs
+# from the persisted one — independent of `--full`. The in-process first-query
+# rebuild (`graph_query._ensure_graph_builder_current`) is only a SAFETY NET for
+# when Phase 4b is skipped; note it can DOWNGRADE the graph if an already-running
+# MCP server holds the pre-upgrade extractor in memory (hence the mandatory
+# post-upgrade `wave_mcp_reload`/restart — see the upgrade prompt). This module's
+# job is to surface those transitions in the upgrade log so operators see what
+# changed, then trust Phase 4b / the graph layer to do the right thing.
 
 _VERSION_CONSTANT_RE_TEMPLATE = (
     r'^{name}\s*=\s*["\']([^"\']+)["\']'
@@ -614,6 +622,47 @@ def _read_graph_builder_version_from_pack(root: Path) -> str:
     )
 
 
+def _read_installed_graph_builder_version(root: Path) -> str:
+    """Read the INSTALLED (pre-extract) project graph builder version from the real project graph state.
+
+    Wave 1rvfx: the state lives under ``.wavefoundry/index/graph/`` — the SQLite store
+    ``project-graph-state.sqlite`` (``meta`` table, ``key='builder_version'``) with a fallback to the
+    legacy monolithic ``project-graph-state.json`` (``builder_version`` key). Mirrors the canonical
+    ``graph_indexer.read_state_builder_version`` but is inlined with stdlib ``sqlite3``/``json`` only —
+    the upgrade module deliberately avoids importing the heavy, tree-sitter-dependent ``graph_indexer``
+    (which is also replaced during extraction). Read-only URI open (no file creation, sub-ms). Returns
+    ``""`` when the state is absent/unreadable — FAIL-SAFE: the upgrade must never abort because this
+    operator-log version probe could not read state (matches read_state_builder_version's contract).
+    (The retired framework-graph layer's ``framework-graph-state.json`` is intentionally NOT read — it
+    never exists in a current install, which is why the transition log line used to never fire.)"""
+    import sqlite3  # local import — stdlib-only, keeps the upgrade module import-light
+    graph_dir = root / ".wavefoundry" / "index" / "graph"
+    store_path = graph_dir / "project-graph-state.sqlite"
+    if store_path.exists():
+        try:
+            conn = sqlite3.connect(f"file:{store_path.as_posix()}?mode=ro", uri=True, timeout=2.0)
+            try:
+                row = conn.execute("SELECT value FROM meta WHERE key = 'builder_version'").fetchone()
+            finally:
+                conn.close()
+            if row and row[0]:
+                return str(row[0])
+        except (sqlite3.Error, OSError):
+            return ""
+        return ""
+    legacy_path = graph_dir / "project-graph-state.json"
+    if legacy_path.is_file():
+        try:
+            data = json.loads(legacy_path.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                gb = data.get("builder_version")
+                if isinstance(gb, (str, int)) and str(gb).strip():
+                    return str(gb)
+        except (OSError, ValueError):
+            return ""
+    return ""
+
+
 def _snapshot_pre_extract_versions(root: Path) -> dict[str, str]:
     """Snapshot all relevant framework version constants from the consumer's
     pre-existing index/graph state files. Returns a flat dict with keys
@@ -635,16 +684,12 @@ def _snapshot_pre_extract_versions(root: Path) -> dict[str, str]:
                 out["walker"] = str(walker)
         except (OSError, ValueError):
             pass
-    # Graph builder version lives in the framework graph state
-    graph_state = root / ".wavefoundry" / "framework" / "index" / "graph" / "framework-graph-state.json"
-    if graph_state.is_file():
-        try:
-            data = json.loads(graph_state.read_text(encoding="utf-8"))
-            gb = data.get("builder_version")
-            if isinstance(gb, (str, int)) and str(gb).strip():
-                out["graph_builder"] = str(gb)
-        except (OSError, ValueError):
-            pass
+    # Wave 1rvfx: graph builder version lives in the INSTALLED project graph state
+    # (.wavefoundry/index/graph/), read via _read_installed_graph_builder_version. The old read pointed
+    # at the retired framework-graph layer's dead path, so this transition never fired in production.
+    gb = _read_installed_graph_builder_version(root)
+    if gb:
+        out["graph_builder"] = gb
     return out
 
 
@@ -2597,9 +2642,13 @@ def main(argv: list[str] | None = None) -> int:
                 for _name, _old, _new in _transitions:
                     _log(f"   {_name}: {_old} → {_new}")
                 _log(
-                    "   Phase 4 will run a full re-embed where versions "
-                    "changed (indexer auto-escalate); graph layer rebuilds "
-                    "on its next query."
+                    "   Phase 4 will run a full re-embed where the semantic "
+                    "versions changed (indexer auto-escalate); the graph layer "
+                    "is re-extracted in Phase 4b during THIS upgrade when "
+                    "GRAPH_BUILDER_VERSION advanced (graph-only, fresh "
+                    "subprocess). Reload MCP (wave_mcp_reload) or restart the "
+                    "host after the upgrade so a running server does not keep "
+                    "the old graph extractor."
                 )
                 # Track for compat with v1 tests + post-condition path.
                 _chunker_transition = next(

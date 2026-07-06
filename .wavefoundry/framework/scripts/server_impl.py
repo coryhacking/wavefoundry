@@ -5202,6 +5202,41 @@ def _reap_background_build_pids() -> None:
             _BACKGROUND_BUILD_PIDS.discard(pid)  # reaped — no longer a zombie
 
 
+# Wave 1rswx: the same non-reparenting spawn problem 1p98u fixed for background builds also applies to
+# the dashboard, which the server launches with start_new_session=True (POSIX) and never reaps — so a
+# dashboard that crashes/exits mid-session lingers as a <defunct> zombie parented to the server until it
+# exits. That zombie also broke wave_dashboard_stop/restart, whose bare os.kill(pid,0) liveness can't
+# tell a zombie from a live process. Track the dashboard PIDs we spawn and reap the finished ones with
+# the identical WNOHANG sweep pattern. POSIX-only for the same reason (Windows detached processes create
+# no zombies; os.waitpid is not applicable). Deliberately NOT a SIGCHLD handler — rejected in 1p98u
+# because it breaks the server's synchronous subprocess.run/.wait() with ECHILD.
+_DASHBOARD_CHILD_PIDS: set[int] = set()
+
+
+def _register_dashboard_child_pid(pid: int) -> None:
+    if os.name == "nt" or not isinstance(pid, int) or pid <= 0:
+        return
+    _DASHBOARD_CHILD_PIDS.add(pid)
+
+
+def _reap_dashboard_child_pids() -> None:
+    """Reap finished server-launched dashboard children so they don't linger as zombies.
+
+    POSIX-only, WNOHANG, and scoped to PIDs this server itself spawned (never a bare/recycled PID) —
+    mirrors ``_reap_background_build_pids``. A still-running dashboard stays registered for a later
+    sweep; a PID that is not (or no longer) our child raises ChildProcessError and is dropped."""
+    if os.name == "nt":
+        return
+    for pid in list(_DASHBOARD_CHILD_PIDS):
+        try:
+            ended_pid, _ = os.waitpid(pid, os.WNOHANG)
+        except (ChildProcessError, OSError):
+            _DASHBOARD_CHILD_PIDS.discard(pid)  # not our child / already reaped / gone
+            continue
+        if ended_pid == pid:
+            _DASHBOARD_CHILD_PIDS.discard(pid)  # reaped — no longer a zombie
+
+
 def _start_background_index_refresh(root: Path, layer: str = "project") -> bool:
     # Wave 1p4ww: single project index — the framework layer is folded in.
     if layer != "project":
@@ -5209,6 +5244,10 @@ def _start_background_index_refresh(root: Path, layer: str = "project") -> bool:
     # Wave 1p98u: reap any prior finished background builds before launching another, so server-owned
     # zombies don't accumulate across a session (each new refresh sweeps the previous ones).
     _reap_background_build_pids()
+    # Wave 1rswx: sweep finished dashboard children on this frequently-hit path too, so a dashboard that
+    # dies mid-session is reaped during ordinary editing — not left until the next explicit
+    # wave_dashboard_* call or server exit (readiness amendment / AC-4).
+    _reap_dashboard_child_pids()
     state_path = _background_refresh_state_path(root, layer)
     state_path.parent.mkdir(parents=True, exist_ok=True)
     if _background_refresh_active(state_path):
@@ -7487,6 +7526,10 @@ def wave_dashboard_start_response(root: Path, port: int | None = None) -> dict[s
     import time as _time
     import dashboard_lib
 
+    # Wave 1rswx: reap finished dashboard children on entry so a prior crashed instance's zombie can't
+    # linger and can't be misread by the reconcile/liveness checks below.
+    _reap_dashboard_child_pids()
+
     meta_path = dashboard_lib.dashboard_metadata_path(root)  # 1p64x: the server lock file
 
     def running_meta() -> dict[str, Any] | None:
@@ -7630,6 +7673,11 @@ def wave_dashboard_start_response(root: Path, port: int | None = None) -> dict[s
                 diagnostics=[_diagnostic("spawn_failed", str(exc))],
             )
 
+        # Wave 1rswx: track this server-launched dashboard so a later sweep (index-refresh or any
+        # dashboard entry point) reaps it once it exits (POSIX), instead of leaving a defunct PID that
+        # a bare os.kill liveness check would misread as a live kill target.
+        _register_dashboard_child_pid(proc.pid)
+
         # Poll up to 5s for a SERVING dashboard (host, port, URL). Wave 1p8pf: accept a serving
         # dashboard by URL-reachability and/or a live dashboard PID for this root — NOT by matching the
         # just-spawned proc.pid. The old PID-exact check (`meta.pid == proc.pid`) false-reported
@@ -7707,13 +7755,18 @@ def wave_dashboard_open_response(root: Path) -> dict[str, Any]:
     import webbrowser
     import dashboard_lib
 
+    # Wave 1rswx: reap finished dashboard children so a zombie recorded PID isn't reported as serving.
+    _reap_dashboard_child_pids()
+
     meta_path = dashboard_lib.dashboard_metadata_path(root)
     if meta_path.exists():
         try:
             meta = json.loads(meta_path.read_text(encoding="utf-8"))
             pid = meta.get("pid")
             url = meta.get("url", "")
-            if isinstance(pid, int) and _pid_is_running(pid) and url:
+            # Wave 1rswx: zombie-safe liveness (cmdline-verified) so a <defunct> recorded PID is not
+            # reported as a live/serving dashboard (Req 7 / AC-5) — align with the start-path treatment.
+            if isinstance(pid, int) and _dashboard_pid_is_live(pid, root) and url:
                 opened = False
                 if dashboard_lib.dashboard_browser_open_enabled():
                     webbrowser.open(url)
@@ -7901,6 +7954,11 @@ def _terminate_dashboard_pid(pid: int) -> bool:
 
 
 def wave_dashboard_stop_response(root: Path) -> dict[str, Any]:
+    # Wave 1rswx: reap any of our finished dashboard children first, so a recorded PID that is now a
+    # <defunct> zombie is cleared from the process table (and no longer passes os.kill(pid,0)) before we
+    # classify targets — otherwise the zombie was added as a kill target and stop returned stop_failed.
+    _reap_dashboard_child_pids()
+
     meta_path, meta = _dashboard_process_metadata(root)
     pid = meta.get("pid")
     url = meta.get("url", "")
@@ -7914,10 +7972,45 @@ def wave_dashboard_stop_response(root: Path) -> dict[str, Any]:
     # recorded PID — so a drifted/removed metadata file can't leave an orphan alive.
     scanned = _dashboard_cmdline_pids(root)
     targets: set[int] = set(scanned or [])
-    if isinstance(pid, int) and pid > 0 and _pid_is_running(pid):
+    # Wave 1rswx: classify the recorded PID with the cmdline-verified, zombie-safe check (not a bare
+    # os.kill liveness). A <defunct> recorded PID fails this test — so it is treated as already stopped
+    # (metadata cleared below) instead of a live kill target that SIGTERM/SIGKILL can never reap. A
+    # genuinely-live dashboard for this root is already in ``targets`` via the cmdline scan above.
+    #
+    # SECURITY CONTROL (1rswx AC-3): we never fall back to killing an os.kill-alive-but-unverified
+    # recorded PID, because a zombie/recycled PID is indistinguishable from a scan-missed live dashboard
+    # WITHOUT the cmdline check — SIGKILLing it could hit a PID recycled to an unrelated process. So when
+    # the scan RUNS but misses a genuinely-live dashboard (e.g. a symlink path component repointed
+    # mid-session so its --root no longer resolves-equal), that instance is NOT added to targets and is
+    # never signalled. The scan-UNAVAILABLE (None) case still falls back to bare liveness inside
+    # _dashboard_pid_is_live. (Wave 1rvfw handles the reporting for that unverified-alive case below.)
+    if isinstance(pid, int) and pid > 0 and _dashboard_pid_is_live(pid, root):
         targets.add(pid)
 
     if not targets:
+        # Wave 1rvfw: distinguish "genuinely stopped" from "alive but unverifiable". If the recorded PID
+        # is still os.kill-alive but was NOT cmdline-verified (not in targets), do NOT claim
+        # already_stopped and do NOT delete the metadata — that would be a false success plus state loss
+        # while the process keeps serving. Report honestly (already_stopped=False, stopped=False, keep
+        # metadata) with a distinct diagnostic and leave the kill decision untouched (the PID is never
+        # signalled — the AC-3 control stands). A genuinely dead/reaped/absent PID — including a
+        # 1rswx-reaped <defunct> zombie, which is no longer os.kill-alive — takes the clean
+        # already_stopped + metadata-cleared path below.
+        if isinstance(pid, int) and pid > 0 and _pid_is_running(pid):
+            summary.update({"already_stopped": False, "stopped": False})
+            return _response(
+                "ok",
+                summary,
+                diagnostics=[_diagnostic(
+                    "dashboard_pid_unverified",
+                    f"Recorded dashboard PID {pid} is alive but could not be verified as a dashboard for "
+                    "this repository (it may be a recycled PID now owned by an unrelated process, or a "
+                    "live dashboard the process scan could not match for this root). It was NOT "
+                    "terminated and the metadata was kept; investigate and stop it manually if it is a "
+                    "stray dashboard.",
+                )],
+                usage="wave_dashboard_stop()",
+            )
         summary.update({"already_stopped": True, "metadata_removed": _remove_dashboard_metadata(meta_path)})
         return _response("ok", summary, usage="wave_dashboard_stop()")
 
