@@ -4,9 +4,17 @@ Owner: Engineering
 Status: active
 Last verified: 2026-07-06
 
-## Current State (2026-07-06 — 1p9q8 REVIEW COMPLETE, awaiting operator close decision)
+## Current State (2026-07-06 — 1p9q8 CLOSED+committed `829f1e51`; no wave open)
 
-**Wave `1p9q8 graph-index-accuracy` is OPEN and close-ready except operator signoff.** Four changes implemented + integrated (GRAPH_BUILDER_VERSION 40, CLUSTER 11 no-bump). Full re-readiness (after the wave's stale 2026-07-03 readiness) + implementation (1p9q6→1p9q5→1p9q4→1p9q7) + integration + delivery review (5 lanes + delivery-council primer) + a fix round + a primer-finding fix. wave_review green (wave-council-delivery + all lane signoffs recorded); wave_close dry-run CLEAN; wave_validate clean; suite 4,663; live v39→v40 heal verified; both edit gates closed. **AWAITING OPERATOR CLOSE + a 1p9q5 disposition decision (see readout).**
+**Wave `1p9q8 graph-index-accuracy` CLOSED + committed `829f1e51`** (operator: "close and commit"). Four graph-accuracy changes shipped at GRAPH_BUILDER_VERSION 40; delivery review caught+fixed two faithfulness defects (confidence-label inflation on external edges; TS DI binds ambiguity wrong-bind); adversarial-faithfulness PASS (no wrong binds). 1p9q5 Rust module model shipped as durable infra, tier zero-delta (operator accepted). Suite 4,663. Commit excluded operator's untracked files (1ro44, 1rsh9, 1rtnn, 1rolq, 1rppn, reindex reports).
+
+**Waves closed+committed this session:** 1p9qm, 1p9q3, 1roqn, 1p9qh, 1p9pe (`59b25d22`), 1p9qi (`d848ef01`), 1rs44 (`a75cd93d`), 1p9q8 (`829f1e51`).
+
+**Open recorded follow-ups (planned, unadmitted):** `1rs45` (SQL PL/pgSQL loop-body DML recovery — has an open regex-vs-reparse mechanism decision), `1rtar` (spike: sqlglot strict-validity gate for the embedded-prose false-positive class), `1rqh2` (tomllib import fallback removal); plus in-doc follow-up notes: the `_source_location` splitlines-per-symbol perf hotspot (1p9q7 doc), and the 1p9q5 candidate-index-collapse relaxation that would activate the Rust disambiguation tier. Operator's own untracked work NOT to commit: 1ro44 (agent-memory), 1rsh9 (sqlite-index-substrate), 1rtnn (dashboard-lifecycle), 1rolq, 1rppn.
+
+## Prior State (2026-07-06 — 1p9q8 was OPEN, close-ready)
+
+**Wave `1p9q8 graph-index-accuracy` was OPEN and close-ready except operator signoff.** Four changes implemented + integrated (GRAPH_BUILDER_VERSION 40, CLUSTER 11 no-bump). Full re-readiness (after the wave's stale 2026-07-03 readiness) + implementation (1p9q6→1p9q5→1p9q4→1p9q7) + integration + delivery review (5 lanes + delivery-council primer) + a fix round + a primer-finding fix. wave_review green (wave-council-delivery + all lane signoffs recorded); wave_close dry-run CLEAN; wave_validate clean; suite 4,663; live v39→v40 heal verified; both edit gates closed. **AWAITING OPERATOR CLOSE + a 1p9q5 disposition decision (see readout).**
 
 **Honest outcome:** 1p9q6 real value (oversized-file line-scan tier); 1p9q4 modest +10 self-host binds (200 CONSTRUCTION_RESOLVED) + two faithfulness FIXES the review caught (union/generic over-bind; confidence-label honesty on unresolved external edges); 1p9q7 DI Python/TS coverage + a WRONG-BIND bug (TS binds ambiguity) caught+fixed; **1p9q5 Rust module model DURABLE but tier ZERO-delta today** (module≈file; candidate-index collapse) — operator disposition. Adversarial-faithfulness PASS (no wrong binds). Recorded follow-ups: 1rs45 (loop recovery), 1rtar (SQL strict-validity spike), _source_location splitlines hotspot (perf), 1rqh2 (tomllib), 1p9q5 candidate-collapse-relaxation (would activate the Rust tier). **Close is operator-owned — do NOT wave_close(create) without explicit words.** Live MCP sessions need wave_mcp_reload.
 
