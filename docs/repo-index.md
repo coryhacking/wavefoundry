@@ -35,29 +35,29 @@ between the markers is machine-maintained; the surrounding narrative is not.
 
 | Area | Path | Kind | Size (nodes) |
 | ---- | ---- | ---- | ------------ |
-| tests | `.wavefoundry/framework/scripts/tests` | code | 7156 |
-| server_impl | `.wavefoundry/framework/scripts` | code | 641 |
-| graph | `.wavefoundry/framework/scripts` | code | 320 |
+| tests | `.wavefoundry/framework/scripts/tests` | code | 7167 |
+| server_impl | `.wavefoundry/framework/scripts` | code | 643 |
+| graph | `.wavefoundry/framework/scripts` | code | 323 |
+| scripts/dashboard_lib | `.wavefoundry/framework/scripts` | code | 223 |
 | dashboard | `.wavefoundry/framework/dashboard` | code | 216 |
 | wave_lint_lib | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 180 |
-| subprocess_util | `.wavefoundry/framework/scripts` | code | 173 |
+| subprocess_util | `.wavefoundry/framework/scripts` | code | 175 |
 | chunker | `.wavefoundry/framework/scripts` | code | 161 |
-| scripts/dashboard_lib | `.wavefoundry/framework/scripts` | code | 124 |
-| indexer | `.wavefoundry/framework/scripts` | code | 110 |
-| upgrade_wavefoundry | `.wavefoundry/framework/scripts` | code | 90 |
+| indexer | `.wavefoundry/framework/scripts` | code | 111 |
+| upgrade_wavefoundry | `.wavefoundry/framework/scripts` | code | 81 |
+| docs/dashboard_lib | `.wavefoundry/framework/scripts` | code | 69 |
 | render_platform_surfaces | `.wavefoundry/framework/scripts` | code | 68 |
 | gen_codebase_map | `.wavefoundry/framework/scripts` | code | 58 |
-| docs/dashboard_lib | `.wavefoundry/framework/scripts` | code | 57 |
 | graph_cluster | `.wavefoundry/framework/scripts` | code | 38 |
-| accel_embedder | `.wavefoundry/framework/scripts` | code | 26 |
+| accel_embedder | `.wavefoundry/framework/scripts` | code | 27 |
 | design_token_build | `.wavefoundry/framework/scripts` | code | 25 |
 | graph_query | `.wavefoundry/framework/scripts` | code | 22 |
 | upgrade_extensions | `.wavefoundry/framework/scripts` | code | 21 |
 | docs_gardener | `.wavefoundry/framework/scripts` | code | 17 |
 | server | `.wavefoundry/framework/scripts` | code | 13 |
 | tokens | `docs/design-system/tokens` | config | 320 |
-| docs | `docs` | config | 197 |
 | modes | `docs/design-system/tokens/modes` | config | 150 |
+| docs | `docs` | config | 89 |
 | json | `docs/design-system/exports/json` | config | 86 |
 <!-- waveframework:repo-index-modules end -->
 

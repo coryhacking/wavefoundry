@@ -35,7 +35,7 @@ except ImportError:  # pragma: no cover - exercised when tree-sitter is not inst
     _TSParser = None  # type: ignore[assignment]
 
 GRAPH_SCHEMA_VERSION = "1"
-GRAPH_BUILDER_VERSION = "38"  # Wave 1p9qi (sql-graph-accuracy) — coordinated SINGLE bump covering the whole wave (later lanes do not re-bump). (1p9qc) SQL keyword-noise suppression: all-relation, case-insensitive SQL keyword stoplist (`_SQL_RELATION_KEYWORD_STOPLIST` + `_sql_relation_candidate_filter`, SQL mode only) + dotted/bare column-token reduction (structural `field`/`object_reference` disambiguation) + the self-referential CREATE-import skip — previously every SQL file minted fake `external::FROM/JOIN/ON/SELECT/WHERE` nodes and `external::users.id`-style column externals on both `calls` and `imports`. (1p9qd) Clause-aware SQL statement-unit extraction rewrite: the generic substring/regex candidate path is RETIRED for SQL mode (`_sql_apply_file_extraction` + the frozen public unit `sql_statement_references(sql_text)`); references come only from `object_reference` clause positions with statement-derived direction, so SQL emits `reads` and NEW `writes` relation edges instead of `calls`/`imports` (writes = INSERT INTO/UPDATE/DELETE FROM/MERGE INTO/ALTER/DROP/TRUNCATE targets); view/FK/index lineage as reads; new `sql_kind` node property (table/view/procedure/function/trigger; node kind stays class/function); qualified-name (schema.table) resolution; phantom alias/CTE/temp/derived-table definitions no longer minted — relation-set + node-set + property shape change. (1p9qe) ERROR-region DDL recovery tier: top-level ERROR regions route to a bounded, comment/string-masked line-anchored scan recovering CREATE {PROCEDURE|FUNCTION|TRIGGER|TABLE|VIEW|INDEX} definitions with `extraction: "sql_recovery"` provenance, plus module-node `sql_error_regions`/`sql_recovered_definitions`/`sql_unrecovered_regions` count properties; recovered routine bodies re-parse through the statement unit and their references RE-ATTACH to the recovered routine node (previously procedures vanished and body references dangled at module scope). (1p9qf) Embedded-SQL capture at known Java/C#/MyBatis-XML sinks: NEW fragment keys `sql_capture_candidates`/`sql_capture_dynamic` (joined the incremental-merge passthrough list); finalize bind via the statement unit → method→table `reads`/`writes` at LITERAL_DERIVED, unique-match-or-drop with identifier-quote normalization, unmatched tables mint relation-scoped `external::sql::<name>` externals (invariant-tested namespace). (1p9qg) ORM entity→table mapping: NEW `maps_to` relation (JPA `@Entity`+`@Table(name=…)`/`@Entity(name=…)`, EF `[Table("…")]`/`ToTable("…")` positive-origin sinks → table node at LITERAL_DERIVED, declared names only — conventions refused and counted); NEW fragment keys `orm_entity_candidates`/`orm_entity_dynamic`/`orm_entity_convention` (passthrough list). Two new relations + SQL relation migration (calls/imports → reads/writes) + new node properties + new fragment keys + node-set change → bump so consumer caches re-extract (a cached fragment from v37 would silently lack the new keys and the SQL edge model). Previous bump (1p9qh, java-csharp-enterprise-accuracy — coordinated SINGLE bump covering the whole wave; later lanes do not re-bump): (1p9q9) Structured Java import parsing: Java `import_declaration` nodes are parsed structurally (explicit / wildcard / static member / static wildcard) instead of falling to the shared regex fallback, which truncated `import com.foo.*;` into a useless `com.foo.` candidate and emitted a spurious `external::static` edge for every static import. Wildcard imports now emit a package-prefix `imports` edge (`external::com.foo.*`) that participates in ambiguous-receiver disambiguation with the same unique-survivor rule as an explicit import (two matching wildcards → stay external; a same-package twin counts as an implicit match so Java package shadowing is honored); statically-imported members resolve bare calls (`import static com.foo.Bar.baz;` + `baz()` → project `Bar.baz` when it exists, else qualified `external::Bar.baz` — never bare; static wildcard analogous for otherwise-unresolved bare calls); `external::static` never appears. Non-Java candidate extraction is untouched (the shared regex is unchanged; regression-pinned). (1p9qa) Inheritance edges (`extends`/`implements`) + inherited-method resolution for Java/C#. (1p9qb) `this.field` receiver resolution, annotation-type kind fix, and package-declaration-keyed disambiguation. Extraction-output + edge-set shape change → bump so consumer caches re-extract. Previous bump (1p9q3 (1p9py, compact+gzip+atomic persistence)): graph artifacts are now written as gzip-compressed COMPACT JSON (separators=(",", ":"), sort_keys retained) through a same-directory temp file + os.replace atomic write; readers sniff the gzip magic bytes (0x1f 0x8b) and transparently fall back to legacy plain JSON, and a corrupted/truncated gzip degrades to the caller default exactly like corrupted JSON. Serialization-only — node/edge content, counts, and `input_fingerprint` semantics are unchanged — but the on-disk artifact FORMAT changed, so bump per the standing artifact-shape rule (downstream caches and the version-staleness query path treat the transition as a rebuild boundary, rewriting pre-upgrade plain artifacts compressed). This single bump also covers the wave's sibling artifact-shape changes (1p9q1 build-time betweenness, 1p9q2 incremental merge state store) per the coordinated-single-bump serialization point. Previous bump (1p7dh, reads_config Java/Spring file config): extended the config-key->reader `reads_config` edge to Java/Spring FILE config — `.properties`/`.yml`/`.yaml` now emit config-key NODES (`file::dotted.key`, kind "class") and Java artifacts capture `@Value("${key}")` placeholders + `getProperty`/`getRequiredProperty` calls into `config_read_candidates`; the language-agnostic finalize pass binds them on a unique config-file + distinctive-key match. Extraction-output change (new nodes + populated config_read_candidates → new edges) → bump so consumer caches re-extract. Previous bump (1p7de (graph-edge-trust)): coordinated bump for two extractor changes (1p7dg confidence promotion + 1p7dh string-literal binding) so consumers re-extract. (v34 supersedes the in-flight v33 test builds: the 1p7dh `instruments` capture was refined to read `namedOneOf(...)` multi-arg matchers + matchers nested in structural wrappers (`implementsInterface`/`hasSuperType`/`isSubTypeOf`) — an EXTRACTION-OUTPUT change, so it gets its own version increment per the builder-version discipline; without the bump an incremental-update consumer that skips unchanged files would not pick up the broadened `instruments` targets. Downstream-validated: javaagent 24/24 OTel TypeInstrumentation classes carry correct `instruments`; Swift solaris promotion realized EXTRACTED 52.7%→33.4%.) 1p7dg generalizes the v23 TS/JS confidence promotion to ALL languages: a call that binds a UNIQUE non-`external::` project node (same-file `symbol_lookup` match at the extraction site, or an exact-unique cross-file rewrite — exact simple name / exact qualified name / Go package-authoritative / import-edge-disambiguated) is promoted EXTRACTED→RECEIVER_RESOLVED. Target UNCHANGED — only the confidence label moves on an already-unique bind — so no new wrong-twin/zeroed-edge risk; the AC-2 type-guess fallback + same-dir/C# namespace heuristics deliberately stay EXTRACTED. Self-host lift: Python EXTRACTED 90.4%→31.9%, resolved 1,136→8,102. 1p7dh adds a new `reads_config` EDGE (a code site `.get("KEY")`/`cfg["KEY"]` → the config-key node `file.json::key` it reads, at `LITERAL_DERIVED` confidence; triple-gated — config-file basename + key-distinctiveness + unique match — so ubiquitous dict literals don't bind data-JSON keys) and a new `instruments` NODE PROPERTY on OTel `TypeInstrumentation` classes (their `typeMatcher()` ByteBuddy matcher target strings, descriptive metadata — NOT an edge, since instrumentation targets are ~100% third-party by design). Edge-confidence relabels + new relation + new node property → node/edge-set shape change → bump (consumer graph caches re-extract). Previous bump (1p66e, graph-edge-extraction-determinism): cross-file resolution made order-independent so identical input yields an identical resolved edge set across from-scratch rebuilds (a consumer observed 75068 vs 74890 edges on identical source). Three order-dependent sites fixed with explicit stable tie-breaks: (a) `per_file_simple` length-tie now breaks on the lexicographically smaller node_id (was first-seen by node_map iteration order); (b) `imports_by_file` final-segment collision now keeps the lexicographically smallest FQN (was "later import wins" by edge_map order); (c) cross-file edge rewrites are applied sorted by (new_key, old_key) so a `setdefault` collapse onto the same new_key keeps a stable survivor. Plus a persisted `input_fingerprint` (sha256 over the sorted node-set + sorted resolved edge-set) in the graph payload + state for downstream reproducibility verification. Edge-set shape stabilizes → bump so consumer caches re-extract. Faithfulness preserved: every resolution branch still requires a UNIQUE (`len==1`) match, so no `len==1` outcome changes and no wrong same-name twin is newly bound — only genuinely-ambiguous tie choices are made deterministic. Previous bump (1p61v, ts-symbol-kind-extraction-faithfulness): TS/JS type-shape members are no longer mislabeled `function`. A `type_alias_declaration` now extracts as kind="type" and an interface/object-type `property_signature` (a `: T` data member) as kind="property" (method *signatures* keep `function`) — previously both fell through to the default `function`, so `code_outline`-invisible `: string` fields and `export type` aliases rendered as `(function)` entry points in the codebase map (p60n field trace, Issue 1). Plus a registration-site faithfulness guard (`_ts_is_emittable_symbol_name`): a definition whose picked name is the reserved word `function` (anonymous `function (…){}` expressions) or a non-identifier route-path token (`/`) is no longer registered as a junk symbol (Issue 2). Node KIND-set + node-set shape change → bump (consumer graph caches re-extract). Conservative: contextual keywords that are legal identifiers (`type`, `async`, `fn`, …) are NOT rejected, so no real callable is dropped. Previous bump (1p5c4, guard-oversized-files-indexing): files over the tree-sitter parse cap (default 2 MB; override WAVEFOUNDRY_MAX_TS_PARSE_BYTES / `indexing.max_treesitter_parse_bytes`) now SKIP AST graph extraction, and files over the hard size cap are dropped from the walk entirely — so oversized files contribute no graph nodes. Bump forces re-extraction so any large file parsed under v29 has its stale nodes pruned. Wave 1p4up (member-access-constant-reads): a CONSTANT accessed via a qualified member expression (`Status.ACTIVE`, `AppConstants.Network.userAgent`, `Outer.Inner.TOKEN`, Ruby/PHP `A::B::C`) now produces a function→constant `reads` edge by EXACT qualified-name match (const-kind-gated; the qualifier disambiguates so a same-leaf param/import/bare-call can't match). Faithfulness guards: F1 full-qname (not `_simple_name` partial key), F2 reject `this`/`self`/`super`/`cls`, F4 qualifier-shadow (a member-access read whose head is a function param/local is dropped — `func_locals` from per-language binding nodes) + the property/trailing leaf of a member access is no longer also buffered as a bare read (member-path resolves it instead). New `reads` edges → node/edge-set shape change → bump (consumer graph caches re-extract). Wave 1p4q4 review (28) (D1/D2): namespace-scoped enum member nodes now carry the enclosing namespace prefix (`NSA.Inner.AAA` vs `NSB.Inner.AAA` — no cross-namespace collision/clobber), and constant nodes are EXEMPT from the ≤2-char short-symbol prune so short members (`Status.OK`/`Dir.Up`) resolve. Node-set shape change → bump (consumer graph caches re-extract). Wave 1p4q4 (27): TS `enum`/`const enum` members are now `kind="constant"` graph nodes (`Enum.Member`), child of the enum type node. Wave 1p4ls (26) (graph-constant-nodes-and-references): module-/type-level CONSTANT declarations are now graph nodes (kind="constant", carrying a simple-literal `value` where the RHS is a literal) across all core languages, plus a faithfulness-gated function→constant `reads` edge (same-scope + explicitly-imported only; never binds a coincidental same-name twin — symbol_lookup uniqueness + a const-kind gate + a local-shadow guard). Consumers surface them: code_definition resolves a constant name; code_references lists readers in a distinct `reads` bucket (NOT merged into callers); graph_neighbors includes constants when `reads` is requested. `reads` is OPT-IN for default 1-hop traversal (excluded when no explicit relations are passed, so a hot constant does not balloon neighbor sets / 1p4hu expansion) and stays OUT of the impact/call default relations; constant nodes + `reads` edges are excluded from clustering (CLUSTER_BUILDER_VERSION 8→9, no community-label shift). resolve_symbol is kind-aware (a constant sharing a simple name no longer shadows a callable lookup). Detection reuses the 1p4mf chunk-lane per-language predicates (one detector, two consumers — Req-7); the graph lane is BROADER where it lands naturally (class/type-level constants; Swift enum cases; Go grouped-const per member). NOTE: TS `enum`/`const enum` members ARE emitted as constant nodes (`Enum.Member`) — delivered in 1p4q4 (see the v27 line at the top). Kotlin bare top-level/object `val` (no `const`) stays `kind="variable"` (an immutable binding is not a compile-time constant — won't-do). Previous bump (1p4eq, cross-file-resolution-followups): one consolidated bump covering five graph-shaping changes: (1p4ef) fix a leaked `qualified` loop var that injected phantom qualified_index candidates for collapsed/basename-merged nodes (C#/Swift/Rust/Ruby) and silently suppressed unique cross-file resolution; (1p4er) same-package/same-directory disambiguation fallback for ambiguous receivers used WITHOUT an import (Java field miss, `JreCompat.canAccess`), GATED to Java/Kotlin/Go (same-dir ⇒ same-package visibility; Python/JS/TS/Rust/C# excluded); (1p4et) Go methods now keyed `Type.method` (was bare `method`) + package-qualified receiver inference (`var h foo.Helper` → `foo.Helper`, package PRESERVED and resolved by the candidate's package directory); (1p4eu) Rust `Type::assoc_fn()` resolution + struct-literal/`::new()` let-binding type inference; (1p4ev) C# namespace-membership disambiguation (own-namespace ∪ `using`), the namespace derived from each file's DECLARED namespace nodes by longest-prefix (nesting-proof), NOT by fixed-segment qname stripping. FAITHFULNESS FIXES (1p4eq adversarial verification): the 1p4et/1p4ev paths above already incorporate the over-resolution fixes the verification caught — dropping the Go package qualifier bound a co-located cross-package twin, and fixed-segment C# namespace stripping mis-derived a nested-class caller's namespace and bound a coincident sibling twin; both now stay external unless a unique package/namespace-faithful candidate matches. COVERAGE SCOPE — synthetic-fixture tests only, NOT yet validated against a real consumer project: same-package = Java; cross-file method/assoc-fn = Go + Rust; ambiguous-receiver namespace membership = C#. Each carries an adversarial "never binds the wrong twin / stays external" test. **Correction to the v24 line below:** v24 advertised its `imports`-edge disambiguation as "language-agnostic (Python + Java/Kotlin/C#/Go)" — that was over-stated; it fired ONLY for Python + Java (per-type imports), and was dead code for C#/Go/Rust (their import heads are namespaces/packages, not type names) until v25 supplied the per-language mechanisms above. Previous bump (1p47e 1p470): Python sibling-loader return-type inference + cross-file import disambiguation. v24 resolves the lazy-loader blast-radius hole — `gq = _load_graph_query()` (→ `_load_script("graph_query")`) and direct `v = _load_script("mod")` now bind `v.Class.method()` / `v.func()` to the loaded module's symbols (previously emitted NO edge because `v` had no known type; e.g. `GraphQueryIndex.from_root` was called from 14 sites with 0 incoming edges). Also adds import-edge-based disambiguation in the cross-file rewrite pass: an ambiguous `external::Type.method` (multiple same-simple-name candidates) is disambiguated via the source file's `imports` edge for `Type`, language-agnostically (Python + Java/Kotlin/C#/Go). Previous bump (1p2q3 / 1p2tz post-ship-5 1.3.16): TS/JS symbol-table promotion. Intra-file (and cross-file unique-simple-name) calls where `_ts_resolve_target` bound directly to a project node previously landed as `EXTRACTED` even though the binding required an exact match in `symbol_lookup`. Field validation on the v22 stable state showed `getRootToken` and similar intra-file arrow-const targets had only `EXTRACTED` incoming edges — invisible to the `receiver_resolved` attribution bucket — despite the symbol being correctly resolved at extraction time. v23 promotes these to `RECEIVER_RESOLVED` for TS/JS only: when `_ts_resolve_target` returns a non-`external::` project node (i.e. the call site bound to a locally-defined symbol or to the unique cross-file simple-name match) the edge is high-confidence by construction. Affects TS/JS only — other languages route through their per-language receiver resolvers + the cross-file rewrite pass and are out of scope for this round. Previous bump (1.3.12 v21→v22): TS/JS relative-import path resolution into import_targets. v21 emitted arrow-const function nodes but +9,379 of the new TS edges landed as EXTRACTED rather than RECEIVER_RESOLVED because intra-package callers using relative imports (`import { foo } from './events'`) had `import_targets[foo]` populated with the lossy `external::events` form. The cross-file rewrite pass then promoted the edge to the right project node but kept it at EXTRACTED confidence. v22 extracts the raw module specifier before `_ts_clean_name` strips the `./` prefix, resolves relative imports against the source file's directory, then runs the same barrel walk + import_targets binding as the aliased path. The +9,379 EXTRACTED edges observed in the field in v21 → v22 should migrate to RECEIVER_RESOLVED for any intra-package direct call to a relatively-imported arrow-const. Affects TS/JS only. Previous bump (1.3.11 v20→v21) was the arrow-const node-emission half — v22 completes the receiver-type attribution half. Modern TS code uses `export const foo = async (args) => { ... }` as the dominant function shape (field-confirmed: ALL backend functions on a 12k-node Nx monorepo are arrow-const, zero `function` declarations). Tree-sitter parses these as `lexical_declaration → variable_declarator → arrow_function`, not `function_declaration`, so the default name-from-descendants extractor returned empty and the symbol never registered. v21 detects arrow-const bindings explicitly and registers each as a function symbol; walks scope through the arrow body so calls FROM inside arrow-const-bound functions get attributed to the const name rather than the file. Expected impact on barrel-export-heavy + arrow-const-heavy codebases: TS resolved-share rises from 6% range into 30–60% (per field estimate). Affects TS/JS only — other languages unchanged. Previous bump (1.3.10 v19→v20) covered direct-function-call import_targets promotion + bundler-mode .js→.ts swap + community-label barrel deprioritization
+GRAPH_BUILDER_VERSION = "39"  # Wave 1rrx5 (sql-graph-accuracy-followups) — coordinated SINGLE bump covering the bounded 1p9qi statement-unit/capture faithfulness follow-ups; R7 is a read-only diagnostic (no projection change → no CLUSTER_BUILDER_VERSION bump). (R1) trigger `EXECUTE FUNCTION|PROCEDURE <name>` action names no longer mint a phantom `reads external::<fn>` — the action name parses as a trailing object_reference after keyword_execute and is now skipped by a latching flag mirroring the RETURNS-type skip; the ON-table read (before keyword_execute) is preserved. (R2) MERGE `WHEN … THEN` branch subqueries now surface their table reads — the merge loop routes each `subquery` node inside a `when_clause` through the read walk, so a `SET x=(SELECT … FROM lookup_tbl)` assignment read AND a `list`-wrapped `VALUES ((SELECT … FROM seed_tbl))` read are emitted as `reads`; predicate columns, assignment LHS, and merge aliases still mint nothing. (R3) PL/pgSQL `DECLARE <var> <type>` non-builtin type names (`record`, custom types) no longer mint a phantom read — walk_reads skips a function_declaration's direct object_reference type name while still descending into other children, so a `DECLARE x int := (SELECT … FROM t)` default-value read stays preserved (builtin types already parsed as non-object_reference keyword nodes). (R4) bracket/backtick/quote-quoted external ids on the SQL-file path normalize to a clean `external::dbo.users` — node-id hygiene at the external-emit site only (the names-as-written statement unit output is untouched); binding stays unique-match-or-drop so two differently-quoted forms collapse onto the same external node, never a wrong bind. (R5) the embedded-SQL sniff gate now recognizes leading `TRUNCATE`/`ALTER`/`DROP`, so schema-affecting embedded statements at known sinks are captured and bound as `writes` (analyze_statement already handled their write direction). (R6a) the routine body-definition drop is now UNCONDITIONAL on routine nodes so the "routine bodies never define schema objects at module scope" invariant is total — an unnamed-but-parseable `CREATE FUNCTION () RETURNS integer …` (empty name + builtin return type leaves routine_name None) no longer leaks its in-body `CREATE TABLE`. Phantom-edge removals (R1/R3/R4/R6a) + newly-surfaced contained reads (R2/R5) → extraction-output change → bump so consumer caches re-extract. Previous bump (1p9qi, sql-graph-accuracy — coordinated SINGLE bump covering the whole wave; later lanes do not re-bump). (1p9qc) SQL keyword-noise suppression: all-relation, case-insensitive SQL keyword stoplist (`_SQL_RELATION_KEYWORD_STOPLIST` + `_sql_relation_candidate_filter`, SQL mode only) + dotted/bare column-token reduction (structural `field`/`object_reference` disambiguation) + the self-referential CREATE-import skip — previously every SQL file minted fake `external::FROM/JOIN/ON/SELECT/WHERE` nodes and `external::users.id`-style column externals on both `calls` and `imports`. (1p9qd) Clause-aware SQL statement-unit extraction rewrite: the generic substring/regex candidate path is RETIRED for SQL mode (`_sql_apply_file_extraction` + the frozen public unit `sql_statement_references(sql_text)`); references come only from `object_reference` clause positions with statement-derived direction, so SQL emits `reads` and NEW `writes` relation edges instead of `calls`/`imports` (writes = INSERT INTO/UPDATE/DELETE FROM/MERGE INTO/ALTER/DROP/TRUNCATE targets); view/FK/index lineage as reads; new `sql_kind` node property (table/view/procedure/function/trigger; node kind stays class/function); qualified-name (schema.table) resolution; phantom alias/CTE/temp/derived-table definitions no longer minted — relation-set + node-set + property shape change. (1p9qe) ERROR-region DDL recovery tier: top-level ERROR regions route to a bounded, comment/string-masked line-anchored scan recovering CREATE {PROCEDURE|FUNCTION|TRIGGER|TABLE|VIEW|INDEX} definitions with `extraction: "sql_recovery"` provenance, plus module-node `sql_error_regions`/`sql_recovered_definitions`/`sql_unrecovered_regions` count properties; recovered routine bodies re-parse through the statement unit and their references RE-ATTACH to the recovered routine node (previously procedures vanished and body references dangled at module scope). (1p9qf) Embedded-SQL capture at known Java/C#/MyBatis-XML sinks: NEW fragment keys `sql_capture_candidates`/`sql_capture_dynamic` (joined the incremental-merge passthrough list); finalize bind via the statement unit → method→table `reads`/`writes` at LITERAL_DERIVED, unique-match-or-drop with identifier-quote normalization, unmatched tables mint relation-scoped `external::sql::<name>` externals (invariant-tested namespace). (1p9qg) ORM entity→table mapping: NEW `maps_to` relation (JPA `@Entity`+`@Table(name=…)`/`@Entity(name=…)`, EF `[Table("…")]`/`ToTable("…")` positive-origin sinks → table node at LITERAL_DERIVED, declared names only — conventions refused and counted); NEW fragment keys `orm_entity_candidates`/`orm_entity_dynamic`/`orm_entity_convention` (passthrough list). Two new relations + SQL relation migration (calls/imports → reads/writes) + new node properties + new fragment keys + node-set change → bump so consumer caches re-extract (a cached fragment from v37 would silently lack the new keys and the SQL edge model). Previous bump (1p9qh, java-csharp-enterprise-accuracy — coordinated SINGLE bump covering the whole wave; later lanes do not re-bump): (1p9q9) Structured Java import parsing: Java `import_declaration` nodes are parsed structurally (explicit / wildcard / static member / static wildcard) instead of falling to the shared regex fallback, which truncated `import com.foo.*;` into a useless `com.foo.` candidate and emitted a spurious `external::static` edge for every static import. Wildcard imports now emit a package-prefix `imports` edge (`external::com.foo.*`) that participates in ambiguous-receiver disambiguation with the same unique-survivor rule as an explicit import (two matching wildcards → stay external; a same-package twin counts as an implicit match so Java package shadowing is honored); statically-imported members resolve bare calls (`import static com.foo.Bar.baz;` + `baz()` → project `Bar.baz` when it exists, else qualified `external::Bar.baz` — never bare; static wildcard analogous for otherwise-unresolved bare calls); `external::static` never appears. Non-Java candidate extraction is untouched (the shared regex is unchanged; regression-pinned). (1p9qa) Inheritance edges (`extends`/`implements`) + inherited-method resolution for Java/C#. (1p9qb) `this.field` receiver resolution, annotation-type kind fix, and package-declaration-keyed disambiguation. Extraction-output + edge-set shape change → bump so consumer caches re-extract. Previous bump (1p9q3 (1p9py, compact+gzip+atomic persistence)): graph artifacts are now written as gzip-compressed COMPACT JSON (separators=(",", ":"), sort_keys retained) through a same-directory temp file + os.replace atomic write; readers sniff the gzip magic bytes (0x1f 0x8b) and transparently fall back to legacy plain JSON, and a corrupted/truncated gzip degrades to the caller default exactly like corrupted JSON. Serialization-only — node/edge content, counts, and `input_fingerprint` semantics are unchanged — but the on-disk artifact FORMAT changed, so bump per the standing artifact-shape rule (downstream caches and the version-staleness query path treat the transition as a rebuild boundary, rewriting pre-upgrade plain artifacts compressed). This single bump also covers the wave's sibling artifact-shape changes (1p9q1 build-time betweenness, 1p9q2 incremental merge state store) per the coordinated-single-bump serialization point. Previous bump (1p7dh, reads_config Java/Spring file config): extended the config-key->reader `reads_config` edge to Java/Spring FILE config — `.properties`/`.yml`/`.yaml` now emit config-key NODES (`file::dotted.key`, kind "class") and Java artifacts capture `@Value("${key}")` placeholders + `getProperty`/`getRequiredProperty` calls into `config_read_candidates`; the language-agnostic finalize pass binds them on a unique config-file + distinctive-key match. Extraction-output change (new nodes + populated config_read_candidates → new edges) → bump so consumer caches re-extract. Previous bump (1p7de (graph-edge-trust)): coordinated bump for two extractor changes (1p7dg confidence promotion + 1p7dh string-literal binding) so consumers re-extract. (v34 supersedes the in-flight v33 test builds: the 1p7dh `instruments` capture was refined to read `namedOneOf(...)` multi-arg matchers + matchers nested in structural wrappers (`implementsInterface`/`hasSuperType`/`isSubTypeOf`) — an EXTRACTION-OUTPUT change, so it gets its own version increment per the builder-version discipline; without the bump an incremental-update consumer that skips unchanged files would not pick up the broadened `instruments` targets. Downstream-validated: javaagent 24/24 OTel TypeInstrumentation classes carry correct `instruments`; Swift solaris promotion realized EXTRACTED 52.7%→33.4%.) 1p7dg generalizes the v23 TS/JS confidence promotion to ALL languages: a call that binds a UNIQUE non-`external::` project node (same-file `symbol_lookup` match at the extraction site, or an exact-unique cross-file rewrite — exact simple name / exact qualified name / Go package-authoritative / import-edge-disambiguated) is promoted EXTRACTED→RECEIVER_RESOLVED. Target UNCHANGED — only the confidence label moves on an already-unique bind — so no new wrong-twin/zeroed-edge risk; the AC-2 type-guess fallback + same-dir/C# namespace heuristics deliberately stay EXTRACTED. Self-host lift: Python EXTRACTED 90.4%→31.9%, resolved 1,136→8,102. 1p7dh adds a new `reads_config` EDGE (a code site `.get("KEY")`/`cfg["KEY"]` → the config-key node `file.json::key` it reads, at `LITERAL_DERIVED` confidence; triple-gated — config-file basename + key-distinctiveness + unique match — so ubiquitous dict literals don't bind data-JSON keys) and a new `instruments` NODE PROPERTY on OTel `TypeInstrumentation` classes (their `typeMatcher()` ByteBuddy matcher target strings, descriptive metadata — NOT an edge, since instrumentation targets are ~100% third-party by design). Edge-confidence relabels + new relation + new node property → node/edge-set shape change → bump (consumer graph caches re-extract). Previous bump (1p66e, graph-edge-extraction-determinism): cross-file resolution made order-independent so identical input yields an identical resolved edge set across from-scratch rebuilds (a consumer observed 75068 vs 74890 edges on identical source). Three order-dependent sites fixed with explicit stable tie-breaks: (a) `per_file_simple` length-tie now breaks on the lexicographically smaller node_id (was first-seen by node_map iteration order); (b) `imports_by_file` final-segment collision now keeps the lexicographically smallest FQN (was "later import wins" by edge_map order); (c) cross-file edge rewrites are applied sorted by (new_key, old_key) so a `setdefault` collapse onto the same new_key keeps a stable survivor. Plus a persisted `input_fingerprint` (sha256 over the sorted node-set + sorted resolved edge-set) in the graph payload + state for downstream reproducibility verification. Edge-set shape stabilizes → bump so consumer caches re-extract. Faithfulness preserved: every resolution branch still requires a UNIQUE (`len==1`) match, so no `len==1` outcome changes and no wrong same-name twin is newly bound — only genuinely-ambiguous tie choices are made deterministic. Previous bump (1p61v, ts-symbol-kind-extraction-faithfulness): TS/JS type-shape members are no longer mislabeled `function`. A `type_alias_declaration` now extracts as kind="type" and an interface/object-type `property_signature` (a `: T` data member) as kind="property" (method *signatures* keep `function`) — previously both fell through to the default `function`, so `code_outline`-invisible `: string` fields and `export type` aliases rendered as `(function)` entry points in the codebase map (p60n field trace, Issue 1). Plus a registration-site faithfulness guard (`_ts_is_emittable_symbol_name`): a definition whose picked name is the reserved word `function` (anonymous `function (…){}` expressions) or a non-identifier route-path token (`/`) is no longer registered as a junk symbol (Issue 2). Node KIND-set + node-set shape change → bump (consumer graph caches re-extract). Conservative: contextual keywords that are legal identifiers (`type`, `async`, `fn`, …) are NOT rejected, so no real callable is dropped. Previous bump (1p5c4, guard-oversized-files-indexing): files over the tree-sitter parse cap (default 2 MB; override WAVEFOUNDRY_MAX_TS_PARSE_BYTES / `indexing.max_treesitter_parse_bytes`) now SKIP AST graph extraction, and files over the hard size cap are dropped from the walk entirely — so oversized files contribute no graph nodes. Bump forces re-extraction so any large file parsed under v29 has its stale nodes pruned. Wave 1p4up (member-access-constant-reads): a CONSTANT accessed via a qualified member expression (`Status.ACTIVE`, `AppConstants.Network.userAgent`, `Outer.Inner.TOKEN`, Ruby/PHP `A::B::C`) now produces a function→constant `reads` edge by EXACT qualified-name match (const-kind-gated; the qualifier disambiguates so a same-leaf param/import/bare-call can't match). Faithfulness guards: F1 full-qname (not `_simple_name` partial key), F2 reject `this`/`self`/`super`/`cls`, F4 qualifier-shadow (a member-access read whose head is a function param/local is dropped — `func_locals` from per-language binding nodes) + the property/trailing leaf of a member access is no longer also buffered as a bare read (member-path resolves it instead). New `reads` edges → node/edge-set shape change → bump (consumer graph caches re-extract). Wave 1p4q4 review (28) (D1/D2): namespace-scoped enum member nodes now carry the enclosing namespace prefix (`NSA.Inner.AAA` vs `NSB.Inner.AAA` — no cross-namespace collision/clobber), and constant nodes are EXEMPT from the ≤2-char short-symbol prune so short members (`Status.OK`/`Dir.Up`) resolve. Node-set shape change → bump (consumer graph caches re-extract). Wave 1p4q4 (27): TS `enum`/`const enum` members are now `kind="constant"` graph nodes (`Enum.Member`), child of the enum type node. Wave 1p4ls (26) (graph-constant-nodes-and-references): module-/type-level CONSTANT declarations are now graph nodes (kind="constant", carrying a simple-literal `value` where the RHS is a literal) across all core languages, plus a faithfulness-gated function→constant `reads` edge (same-scope + explicitly-imported only; never binds a coincidental same-name twin — symbol_lookup uniqueness + a const-kind gate + a local-shadow guard). Consumers surface them: code_definition resolves a constant name; code_references lists readers in a distinct `reads` bucket (NOT merged into callers); graph_neighbors includes constants when `reads` is requested. `reads` is OPT-IN for default 1-hop traversal (excluded when no explicit relations are passed, so a hot constant does not balloon neighbor sets / 1p4hu expansion) and stays OUT of the impact/call default relations; constant nodes + `reads` edges are excluded from clustering (CLUSTER_BUILDER_VERSION 8→9, no community-label shift). resolve_symbol is kind-aware (a constant sharing a simple name no longer shadows a callable lookup). Detection reuses the 1p4mf chunk-lane per-language predicates (one detector, two consumers — Req-7); the graph lane is BROADER where it lands naturally (class/type-level constants; Swift enum cases; Go grouped-const per member). NOTE: TS `enum`/`const enum` members ARE emitted as constant nodes (`Enum.Member`) — delivered in 1p4q4 (see the v27 line at the top). Kotlin bare top-level/object `val` (no `const`) stays `kind="variable"` (an immutable binding is not a compile-time constant — won't-do). Previous bump (1p4eq, cross-file-resolution-followups): one consolidated bump covering five graph-shaping changes: (1p4ef) fix a leaked `qualified` loop var that injected phantom qualified_index candidates for collapsed/basename-merged nodes (C#/Swift/Rust/Ruby) and silently suppressed unique cross-file resolution; (1p4er) same-package/same-directory disambiguation fallback for ambiguous receivers used WITHOUT an import (Java field miss, `JreCompat.canAccess`), GATED to Java/Kotlin/Go (same-dir ⇒ same-package visibility; Python/JS/TS/Rust/C# excluded); (1p4et) Go methods now keyed `Type.method` (was bare `method`) + package-qualified receiver inference (`var h foo.Helper` → `foo.Helper`, package PRESERVED and resolved by the candidate's package directory); (1p4eu) Rust `Type::assoc_fn()` resolution + struct-literal/`::new()` let-binding type inference; (1p4ev) C# namespace-membership disambiguation (own-namespace ∪ `using`), the namespace derived from each file's DECLARED namespace nodes by longest-prefix (nesting-proof), NOT by fixed-segment qname stripping. FAITHFULNESS FIXES (1p4eq adversarial verification): the 1p4et/1p4ev paths above already incorporate the over-resolution fixes the verification caught — dropping the Go package qualifier bound a co-located cross-package twin, and fixed-segment C# namespace stripping mis-derived a nested-class caller's namespace and bound a coincident sibling twin; both now stay external unless a unique package/namespace-faithful candidate matches. COVERAGE SCOPE — synthetic-fixture tests only, NOT yet validated against a real consumer project: same-package = Java; cross-file method/assoc-fn = Go + Rust; ambiguous-receiver namespace membership = C#. Each carries an adversarial "never binds the wrong twin / stays external" test. **Correction to the v24 line below:** v24 advertised its `imports`-edge disambiguation as "language-agnostic (Python + Java/Kotlin/C#/Go)" — that was over-stated; it fired ONLY for Python + Java (per-type imports), and was dead code for C#/Go/Rust (their import heads are namespaces/packages, not type names) until v25 supplied the per-language mechanisms above. Previous bump (1p47e 1p470): Python sibling-loader return-type inference + cross-file import disambiguation. v24 resolves the lazy-loader blast-radius hole — `gq = _load_graph_query()` (→ `_load_script("graph_query")`) and direct `v = _load_script("mod")` now bind `v.Class.method()` / `v.func()` to the loaded module's symbols (previously emitted NO edge because `v` had no known type; e.g. `GraphQueryIndex.from_root` was called from 14 sites with 0 incoming edges). Also adds import-edge-based disambiguation in the cross-file rewrite pass: an ambiguous `external::Type.method` (multiple same-simple-name candidates) is disambiguated via the source file's `imports` edge for `Type`, language-agnostically (Python + Java/Kotlin/C#/Go). Previous bump (1p2q3 / 1p2tz post-ship-5 1.3.16): TS/JS symbol-table promotion. Intra-file (and cross-file unique-simple-name) calls where `_ts_resolve_target` bound directly to a project node previously landed as `EXTRACTED` even though the binding required an exact match in `symbol_lookup`. Field validation on the v22 stable state showed `getRootToken` and similar intra-file arrow-const targets had only `EXTRACTED` incoming edges — invisible to the `receiver_resolved` attribution bucket — despite the symbol being correctly resolved at extraction time. v23 promotes these to `RECEIVER_RESOLVED` for TS/JS only: when `_ts_resolve_target` returns a non-`external::` project node (i.e. the call site bound to a locally-defined symbol or to the unique cross-file simple-name match) the edge is high-confidence by construction. Affects TS/JS only — other languages route through their per-language receiver resolvers + the cross-file rewrite pass and are out of scope for this round. Previous bump (1.3.12 v21→v22): TS/JS relative-import path resolution into import_targets. v21 emitted arrow-const function nodes but +9,379 of the new TS edges landed as EXTRACTED rather than RECEIVER_RESOLVED because intra-package callers using relative imports (`import { foo } from './events'`) had `import_targets[foo]` populated with the lossy `external::events` form. The cross-file rewrite pass then promoted the edge to the right project node but kept it at EXTRACTED confidence. v22 extracts the raw module specifier before `_ts_clean_name` strips the `./` prefix, resolves relative imports against the source file's directory, then runs the same barrel walk + import_targets binding as the aliased path. The +9,379 EXTRACTED edges observed in the field in v21 → v22 should migrate to RECEIVER_RESOLVED for any intra-package direct call to a relatively-imported arrow-const. Affects TS/JS only. Previous bump (1.3.11 v20→v21) was the arrow-const node-emission half — v22 completes the receiver-type attribution half. Modern TS code uses `export const foo = async (args) => { ... }` as the dominant function shape (field-confirmed: ALL backend functions on a 12k-node Nx monorepo are arrow-const, zero `function` declarations). Tree-sitter parses these as `lexical_declaration → variable_declarator → arrow_function`, not `function_declaration`, so the default name-from-descendants extractor returned empty and the symbol never registered. v21 detects arrow-const bindings explicitly and registers each as a function symbol; walks scope through the arrow body so calls FROM inside arrow-const-bound functions get attributed to the const name rather than the file. Expected impact on barrel-export-heavy + arrow-const-heavy codebases: TS resolved-share rises from 6% range into 30–60% (per field estimate). Affects TS/JS only — other languages unchanged. Previous bump (1.3.10 v19→v20) covered direct-function-call import_targets promotion + bundler-mode .js→.ts swap + community-label barrel deprioritization
 GRAPH_DIRNAME = "graph"
 
 # Wave 1p9q3 (1p9py): graph artifacts persist as gzip-compressed COMPACT JSON.
@@ -6142,6 +6142,12 @@ def _ts_extract_csharp_attributes(node, source_bytes: bytes) -> list[str]:
 # captured at all (no repo-wide literal trawling).
 _SQL_SNIFF_KEYWORDS = frozenset({
     "select", "insert", "update", "delete", "with", "merge", "call", "exec",
+    # R5 (wave 1rrx5): schema-affecting DDL leads the analyze_statement write
+    # path already handles (`analyze_statement` binds ALTER/DROP/TRUNCATE
+    # targets as `writes`). Without these the sniff gate silently dropped
+    # embedded `TRUNCATE TABLE t` / `ALTER TABLE t …` / `DROP TABLE t`
+    # literals at known sinks (one live Apache Fineract site observed).
+    "truncate", "alter", "drop",
 })
 _SQL_SNIFF_LEAD_RE = re.compile(r"[A-Za-z]+")
 
@@ -6150,6 +6156,77 @@ def _sql_text_sniffs_as_sql(text: str) -> bool:
     lead = text.lstrip(" \t\r\n(")
     match = _SQL_SNIFF_LEAD_RE.match(lead)
     return bool(match) and match.group(0).casefold() in _SQL_SNIFF_KEYWORDS
+
+
+def _sql_embedded_parse_has_error(sql_text: str) -> bool:
+    """True when embedded SQL parses with a trailing/garbage ERROR region.
+
+    FIX 1 (wave 1rrx5 delivery review, adversarial finding 1) support: guards
+    the confidently-wrong TRUNCATE bind. Unlike DELETE/UPDATE (which need a
+    `from`/`set` connective), tree-sitter-sql's TRUNCATE production accepts
+    `TRUNCATE <ident>` with no connective keyword AND tolerates trailing
+    tokens, so non-SQL prose at a SQL sink like `truncate events now` parses as
+    a truncate of `events` plus a sibling ERROR `now` — binding a real table at
+    LITERAL_DERIVED. Clean `TRUNCATE TABLE events` / `TRUNCATE events` parse
+    with zero ERROR nodes. Returns False when the grammar is unavailable (the
+    bind pass already handles that case separately).
+    """
+    tree = _ts_parse("sql", sql_text)
+    if tree is None:
+        return False
+    return _sql_subtree_has_error(tree.root_node)
+
+
+def _sql_embedded_has_interior_error(sql_text: str) -> bool:
+    """True when a parse carries an ERROR node BEFORE the first table reference.
+
+    R8 (wave 1rrx5, added after delivery review) support: generalizes FIX 1's
+    clean-parse defense from the TRUNCATE arm to the DELETE/UPDATE/INSERT arm of
+    the SAME confidently-wrong class. Non-SQL prose that leads with a sniff
+    keyword and carries a mandatory-clause connective — `jdbc.update("delete the
+    row from cache")` — mis-parses as a DELETE of `cache` whose interior `the
+    row` becomes an ERROR node positioned BEFORE the `from` target. The
+    recovered reference is coincidental prose recovery, not a real dependency,
+    and must not bind.
+
+    By contrast, VALID trailing dialect clauses tree-sitter-sql does not model
+    (`DELETE FROM t RETURNING id`, `INSERT INTO t … ON CONFLICT DO …`, an
+    unmodeled `DELETE FROM t USING src …` option tail) parse the core statement
+    and its target cleanly and leave any ERROR *after* the first
+    `object_reference` — those are TRAILING and are kept.
+
+    Discriminator (empirically validated against the live tree-sitter-sql
+    grammar before ship — change-doc R8 / AC-9): refuse when the earliest ERROR
+    node starts before the earliest `object_reference` (the statement's target).
+    Unlike the TRUNCATE any-ERROR gate, this distinguishes interior corruption
+    from an unmodeled trailing clause, so valid dialect is not over-rejected.
+    Returns False when the grammar is unavailable (handled separately by the
+    bind pass) and when the parse has no ERROR at all; returns True on an ERROR
+    with no parsed table target (the recovered reference, if any, is
+    untrustworthy).
+    """
+    tree = _ts_parse("sql", sql_text)
+    if tree is None:
+        return False
+    first_error: int | None = None
+    first_ref: int | None = None
+    stack = [tree.root_node]
+    while stack:
+        node = stack.pop()
+        ntype = str(getattr(node, "type", "") or "")
+        start = int(getattr(node, "start_byte", 0) or 0)
+        if ntype == "ERROR":
+            if first_error is None or start < first_error:
+                first_error = start
+        elif ntype == "object_reference":
+            if first_ref is None or start < first_ref:
+                first_ref = start
+        stack.extend(list(getattr(node, "children", []) or []))
+    if first_error is None:
+        return False
+    if first_ref is None:
+        return True
+    return first_error < first_ref
 
 
 # Reserved external namespace for unmatched table references:
@@ -7503,6 +7580,47 @@ def _sql_recovery_log_line(
     )
 
 
+# R7 (wave 1rrx5): clustering-asymmetry measurement threshold. Community
+# detection excludes `reads` but NOT `writes`/`maps_to`, so a hot write-target
+# data node (an audit/events log written by many routines, or an entity mapped
+# by many classes) can bridge otherwise-unrelated modules — the exact failure
+# mode the `reads` exclusion prevents. This is the incoming-edge count at or
+# above which a data-layer node is surfaced for that evidence-gathering
+# decision. Read-only: it changes no edge and no community.
+_SQL_HOT_DATA_INDEGREE_THRESHOLD = 8
+
+
+def sql_hot_data_layer_nodes(payload, *, threshold: int = _SQL_HOT_DATA_INDEGREE_THRESHOLD):
+    """Read-only clustering-asymmetry diagnostic (wave 1rrx5 R7).
+
+    Surfaces data-layer nodes (``sql_kind`` table/view) whose incoming
+    ``writes``/``maps_to`` in-degree is ``>= threshold`` — the hot write-target
+    tables that could bridge communities if ``writes``/``maps_to`` were ever
+    admitted to clustering. Evidence-gathering only: no edge, node, or
+    community is changed. Returns ``[{"id", "sql_kind", "in_degree"}, …]``
+    sorted by descending in-degree then id.
+    """
+    nodes: dict[str, dict[str, Any]] = {}
+    for n in (payload.get("nodes") or []):
+        nid = n.get("id")
+        if nid is not None:
+            nodes[nid] = n
+    counts: dict[str, int] = {}
+    for e in (payload.get("edges") or []):
+        if e.get("relation") in (GRAPH_WRITES_RELATION, GRAPH_MAPS_TO_RELATION):
+            tgt = e.get("target")
+            node = nodes.get(tgt)
+            if node is not None and node.get("sql_kind") in ("table", "view"):
+                counts[tgt] = counts.get(tgt, 0) + 1
+    hot = [
+        {"id": nid, "sql_kind": nodes[nid].get("sql_kind"), "in_degree": count}
+        for nid, count in counts.items()
+        if count >= threshold
+    ]
+    hot.sort(key=lambda h: (-h["in_degree"], h["id"]))
+    return hot
+
+
 def _sql_node_children(node) -> list:
     try:
         return list(getattr(node, "named_children", []) or [])
@@ -7690,6 +7808,43 @@ def _sql_analyze_program(root_node, source_bytes: bytes, *, recover: bool = True
                 if str(getattr(child, "type", "") or "") == "statement":
                     analyze_statement(child, owner, cte_names)
             return
+        if node_type == "function_declaration":
+            # R3 (wave 1rrx5): a PL/pgSQL `DECLARE <var> <type>` parses as a
+            # `function_declaration` whose DIRECT object_reference child is the
+            # TYPE name (`DECLARE r record` → object_reference `record`), never
+            # a table — same "a name is not a reference" family as the routine
+            # name / RETURNS type / EXECUTE action skips. (A builtin type parses
+            # as an `int`/keyword node, not object_reference, so it is already
+            # clean.) Skip the direct type-name object_reference but still
+            # descend into other children so a default-value read
+            # (`DECLARE x int := (SELECT … FROM t)`, a nested `statement`
+            # routed through analyze_statement) is preserved.
+            #
+            # R3 refinement (1rrx5 delivery review, adversarial finding 2): a
+            # `%ROWTYPE` / `%TYPE` attribute makes the object_reference a
+            # GENUINE table dependency — `DECLARE r some_table%ROWTYPE` anchors
+            # the row type to `some_table`, and `DECLARE v some_table.col%TYPE`
+            # to that table's column. The grammar parses `some_table` as a clean
+            # object_reference and leaves the trailing `%ROWTYPE`/`%TYPE` as an
+            # ERROR sibling of the declaration. So skip the object_reference type
+            # name ONLY for a BARE type (`record`, custom domain — no % signal);
+            # when a `%ROWTYPE`/`%TYPE` ERROR sibling is present, KEEP the
+            # object_reference so the real table read survives (pre-R3 behavior
+            # for anchored declarations, restored without the phantom).
+            children = _sql_node_children(node)
+            anchors_table = False
+            for _c in children:
+                if str(getattr(_c, "type", "") or "") == "ERROR":
+                    _errtxt = _ts_node_text(_c, source_bytes).casefold()
+                    if "%rowtype" in _errtxt or "%type" in _errtxt:
+                        anchors_table = True
+                        break
+            for child in children:
+                if (not anchors_table
+                        and str(getattr(child, "type", "") or "") == "object_reference"):
+                    continue
+                walk_reads(child, clause, statement, owner, cte_names)
+            return
         next_clause = clause
         if node_type == "from":
             next_clause = "from"
@@ -7760,6 +7915,7 @@ def _sql_analyze_program(root_node, source_bytes: bytes, *, recover: bool = True
         nonlocal partial_bodies
         routine_name: str | None = None
         expect_return_type = False
+        expect_action_name = False
         # Loudness (1p9qi delivery council): if this natively-parsed routine's
         # body subtree contains a nested parse-ERROR (a PL/pgSQL loop /
         # control-flow construct tree-sitter-sql cannot parse), some in-body
@@ -7777,7 +7933,18 @@ def _sql_analyze_program(root_node, source_bytes: bytes, *, recover: bool = True
         # (handle_error_region discards nested definitions from its body
         # re-parse). The body's *references* (with their clause-derived
         # direction and routine owner) and its temp-name exclusions are kept.
-        body_def_floor: int | None = None
+        #
+        # R6a (wave 1rrx5): the drop is UNCONDITIONAL on routine nodes so the
+        # "bodies never define at module scope" invariant is TOTAL — the floor
+        # starts at the current definition count (before this routine adds
+        # anything) and is bumped past the routine's own definition once its
+        # name parses. If the header name does NOT parse as an object_reference
+        # (an unnamed-but-parseable `CREATE FUNCTION () RETURNS integer …`,
+        # where the empty name leaves routine_name None and a builtin return
+        # type is a non-object_reference `int` node), the floor stays at the
+        # pre-routine count and every in-body definition is still dropped
+        # (previously this leaked because the drop was gated on a parsed name).
+        body_def_floor = len(definitions)
         for child in _sql_node_children(create_node):
             ctype = str(getattr(child, "type", "") or "")
             if ctype == "object_reference" and routine_name is None:
@@ -7798,11 +7965,23 @@ def _sql_analyze_program(root_node, source_bytes: bytes, *, recover: bool = True
                 # TYPE name, never a table — same stance as the invocation-
                 # name exclusion above (a name is not a reference).
                 expect_return_type = False
+            elif ctype == "object_reference" and expect_action_name:
+                # R1 (wave 1rrx5): a trigger's `EXECUTE FUNCTION <name>` /
+                # `EXECUTE PROCEDURE <name>` action name parses as a trailing
+                # object_reference AFTER `keyword_execute` (and an intervening
+                # `keyword_function`/`keyword_procedure`) — a routine name, not
+                # a table. Skip it. The ON-table read (which appears BEFORE
+                # keyword_execute) is already minted by the else branch, so it
+                # is preserved. The flag latches from keyword_execute until this
+                # object_reference is consumed so the intervening keyword does
+                # not clear it.
+                expect_action_name = False
             else:
                 expect_return_type = ctype == "keyword_returns"
+                if ctype == "keyword_execute":
+                    expect_action_name = True
                 walk_reads(child, "from", f"create_{sql_kind}", routine_name, cte_names)
-        if body_def_floor is not None:
-            del definitions[body_def_floor:]
+        del definitions[body_def_floor:]
 
     def analyze_statement(stmt_node, owner: str | None, outer_cte_names: set[str] | None = None) -> None:
         cte_names = set(outer_cte_names or ()) | _sql_collect_cte_names(stmt_node, source_bytes)
@@ -7830,8 +8009,29 @@ def _sql_analyze_program(root_node, source_bytes: bytes, *, recover: bool = True
                     walk_reads(child, "from", "merge", owner, cte_names)
                 elif ctype == "cte":
                     walk_reads(child, "from", "merge", owner, cte_names)
-                # when_clause / predicate expressions carry only field
-                # qualifiers (aliases) — never table references.
+                elif ctype == "when_clause":
+                    # R2 (wave 1rrx5): a MERGE `WHEN … THEN` branch holds real
+                    # table reads inside subqueries — a `SET x = (SELECT v FROM
+                    # lookup_tbl)` assignment and an `INSERT … VALUES ((SELECT …
+                    # FROM seed_tbl))` (the VALUES subquery is `list`-wrapped,
+                    # which walk_reads skips, so route the subquery NODES
+                    # directly). Walk the when_clause subtree at UNBOUNDED depth
+                    # and route every `subquery` node found — a subquery nested
+                    # at ANY depth under the when_clause is reached (the stack
+                    # descends through intervening wrapper nodes; a found
+                    # subquery is handed to walk_reads, which recurses into its
+                    # own nested subqueries). Bounded by the reference filter,
+                    # not by depth: predicate columns and the assignment LHS
+                    # parse as `field`/`column` (skipped), merge aliases are
+                    # plain `identifier` siblings (walk_reads mints only at
+                    # object_reference) — none mint a reference.
+                    stack = _sql_node_children(child)
+                    while stack:
+                        node = stack.pop(0)
+                        if str(getattr(node, "type", "") or "") == "subquery":
+                            walk_reads(node, "from", "merge", owner, cte_names)
+                        else:
+                            stack.extend(_sql_node_children(node))
             return
         for child in children:
             ctype = str(getattr(child, "type", "") or "")
@@ -8141,7 +8341,16 @@ def _sql_apply_file_extraction(
             if len(bare_matches) == 1:
                 target = bare_matches[0]
         if target is None:
-            target = f"external::{name}"
+            # R4 (wave 1rrx5): node-id hygiene — a bracket/backtick/quote-
+            # quoted T-SQL/MySQL identifier (`[dbo].[users]`) that the grammar
+            # mis-parses (ref name `dbo].[users`) must not mint a mangled
+            # `external::dbo].[users`. Normalize ONLY the emitted external id
+            # via the existing quote-strip table; the statement unit's
+            # names-as-written output (`ref["name"]`) is untouched. Binding
+            # stays unique-match-or-drop, so two differently-quoted forms
+            # collapsing onto one `external::dbo.users` point at the SAME
+            # external node (correct), never a wrong bind.
+            target = f"external::{_sql_normalize_object_name(name) or name}"
             confidence = "EXTRACTED"
         if target == source:
             # Self-references (self-FK, a view named in its own body) carry
@@ -12238,6 +12447,17 @@ class GraphIndexSession:
                 # captures whose source marker resolved to no project node.
                 "source_unresolved": 0,
                 "dynamic_refused": sql_dynamic_refused,
+                # FIX 1 (1rrx5 delivery review): TRUNCATE-led candidates whose
+                # parse carries trailing garbage after the target (non-SQL prose
+                # at a SQL sink) — refused before bind so no confidently-wrong
+                # writes edge is minted. Loud per the 1p9qi stats convention.
+                "dirty_truncate_refused": 0,
+                # R8 (1rrx5, post-delivery): DELETE/UPDATE/INSERT-led candidates
+                # whose parse carries an INTERIOR error before the target table
+                # (non-SQL prose with a mandatory-clause connective at a SQL
+                # sink, e.g. `delete the row from cache`) — refused before bind,
+                # generalizing the truncate defense to the same wrong class.
+                "dirty_prose_refused": 0,
             }
             _seen_sql_edges: set[tuple[str, str, str]] = set()
             for rel, cap_src, cap_sql in sql_captures:
@@ -12260,6 +12480,47 @@ class GraphIndexSession:
                 )
                 if source is None:
                     sql_counters["source_unresolved"] += 1
+                    continue
+                # FIX 1 (1rrx5 delivery review, adversarial finding 1): refuse a
+                # TRUNCATE-led candidate whose parse carries trailing garbage
+                # after the target table. `jdbc.update("truncate events now")`
+                # sniffs as SQL (leads with `truncate`), parses as a truncate of
+                # `events` + a sibling ERROR `now`, and would otherwise mint a
+                # confidently-wrong `writes` edge against a REAL table at
+                # LITERAL_DERIVED. Scoped to candidates that actually produced a
+                # truncate reference so the extra parse only runs for the rare
+                # TRUNCATE case; clean `TRUNCATE TABLE events` / `TRUNCATE
+                # events` (no ERROR) bind unchanged, and DELETE/UPDATE/INSERT/
+                # ALTER/DROP are untouched (they never carry statement=truncate).
+                if any(
+                    str(ref.get("statement") or "") == "truncate"
+                    for ref in analysis.get("references", [])
+                ) and _sql_embedded_parse_has_error(_sql_sanitize_embedded(cap_sql)):
+                    sql_counters["dirty_truncate_refused"] += 1
+                    continue
+                # R8 (1rrx5, post-delivery review): generalize the clean-parse
+                # defense to the DELETE/UPDATE/INSERT arm of the SAME
+                # confidently-wrong class FIX 1 hardened for TRUNCATE.
+                # `jdbc.update("delete the row from cache")` sniffs as SQL (leads
+                # with `delete`), parses as a DELETE of `cache` whose interior
+                # `the row` is an ERROR node BEFORE the `from` target, and would
+                # otherwise mint a confidently-wrong `writes cache` at
+                # LITERAL_DERIVED. Refuse a delete/update/insert candidate whose
+                # parse carries an INTERIOR error (before its first table
+                # reference); valid trailing dialect the grammar does not model
+                # (`DELETE FROM t RETURNING id`, `INSERT … ON CONFLICT …`, an
+                # unmodeled `USING`/option tail) leaves the ERROR AFTER the
+                # target and binds unchanged. Scoped to candidates that actually
+                # produced a delete/update/insert reference so the extra parse
+                # runs only for that arm; TRUNCATE keeps its own any-ERROR gate
+                # above (its minimal `TRUNCATE <ident>` grammar cannot separate
+                # interior from trailing). Discriminator empirically validated
+                # against the live grammar before ship (change-doc R8/AC-9).
+                if any(
+                    str(ref.get("statement") or "") in ("delete", "update", "insert")
+                    for ref in analysis.get("references", [])
+                ) and _sql_embedded_has_interior_error(_sql_sanitize_embedded(cap_sql)):
+                    sql_counters["dirty_prose_refused"] += 1
                     continue
                 for ref in analysis.get("references", []):
                     ref_name = _sql_normalize_object_name(str(ref.get("name") or ""))
@@ -12305,6 +12566,8 @@ class GraphIndexSession:
                     f"external={sql_counters['external']} "
                     f"ambiguous_dropped={sql_counters['ambiguous_dropped']} "
                     f"source_unresolved={sql_counters['source_unresolved']} "
+                    f"dirty_truncate_refused={sql_counters['dirty_truncate_refused']} "
+                    f"dirty_prose_refused={sql_counters['dirty_prose_refused']} "
                     f"dynamic_refused={sql_counters['dynamic_refused']}",
                     flush=True,
                 )
@@ -13284,6 +13547,16 @@ def update_graph_index(
                     ),
                     flush=True,
                 )
+        # R7 (wave 1rrx5): clustering-asymmetry measurement — surface hot
+        # write-target data-layer nodes so the writes/maps_to clustering-
+        # exclusion decision can be made on evidence. Read-only.
+        for _hot in sql_hot_data_layer_nodes(payload):
+            print(
+                f"build_index: sql hot data-layer node {_hot['id']} "
+                f"({_hot['sql_kind']}) — {_hot['in_degree']} incoming "
+                f"writes/maps_to",
+                flush=True,
+            )
     # Wave 1p2q3 (1p2tf): Nx project-structure detection — diagnostic only this
     # round. Presence at repo root surfaces in the payload so consumers can
     # report a per-build hint when investigating low TS receiver-resolved rates.

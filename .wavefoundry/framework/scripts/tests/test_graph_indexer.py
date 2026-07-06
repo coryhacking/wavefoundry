@@ -1374,6 +1374,426 @@ class GraphIndexerTests(unittest.TestCase):
         clean_module = next(n for n in clean_payload["nodes"] if n["id"] == "db/clean_fn.sql")
         self.assertNotIn("sql_partial_bodies", clean_module)
 
+    def test_sql_trigger_execute_function_action_name_not_a_reference(self):
+        """AC-1 / R1: a Postgres `CREATE TRIGGER … EXECUTE FUNCTION log_it()`
+        parses the action function name as a trailing top-level
+        object_reference AFTER `keyword_execute` (and an intervening
+        `keyword_function`) — a routine name, never a table. It must NOT mint a
+        `reads`/`external::` reference. Both flip directions pinned: the phantom
+        action-name read is ABSENT and the trigger's ON-table read (`accounts`,
+        which appears BEFORE keyword_execute) is PRESENT. `EXECUTE PROCEDURE`
+        (the older spelling) is covered too."""
+        self._require_sql_parser()
+        unit = self.mod.sql_statement_references(
+            "CREATE TRIGGER t_audit AFTER INSERT ON accounts\n"
+            "FOR EACH ROW EXECUTE FUNCTION log_it();\n"
+        )
+        refs = {(r["name"], r["direction"]) for r in unit["references"]}
+        self.assertEqual(refs, {("accounts", "read")})
+        self.assertNotIn("log_it", {r["name"] for r in unit["references"]})
+        # EXECUTE PROCEDURE spelling: action name still skipped, ON-table kept.
+        unit2 = self.mod.sql_statement_references(
+            "CREATE TRIGGER t2 AFTER UPDATE ON ledger\n"
+            "FOR EACH ROW EXECUTE PROCEDURE recompute();\n"
+        )
+        self.assertEqual(
+            {(r["name"], r["direction"]) for r in unit2["references"]},
+            {("ledger", "read")},
+        )
+        # File-path parity: the ON-table read is the only reads edge; the action
+        # name never surfaces as an external node.
+        payload = self._build_file(
+            "db/trg.sql",
+            "CREATE TABLE accounts (id INT);\n"
+            "CREATE TRIGGER t_audit AFTER INSERT ON accounts\n"
+            "FOR EACH ROW EXECUTE FUNCTION log_it();\n",
+        )
+        read_targets = {
+            e["target"].split("::")[-1]
+            for e in payload["edges"] if e["relation"] == "reads"
+        }
+        self.assertIn("accounts", read_targets)
+        self.assertNotIn("log_it", read_targets)
+
+    def test_sql_merge_when_clause_subquery_reads_surface_exact_set(self):
+        """AC-2 / R2: MERGE `WHEN … THEN` branch subqueries surface their table
+        reads. The `UPDATE SET x = (SELECT v FROM lookup_tbl)` assignment
+        subquery AND the `INSERT … VALUES ((SELECT c FROM seed_tbl))` VALUES
+        subquery (which is `list`-wrapped — walk_reads skips `list`, so the
+        merge loop routes the subquery NODES directly) both emit `reads`.
+        Absence sweep: predicate columns (`t.id`/`s.id`), the assignment LHS
+        (`x`), the insert column list (`a`), and merge aliases (`t`/`s`) mint
+        nothing — only the INTO target write, the USING source read, and the two
+        subquery reads survive."""
+        self._require_sql_parser()
+        unit = self.mod.sql_statement_references(
+            "MERGE INTO target t USING src s ON t.id = s.id\n"
+            "WHEN MATCHED THEN UPDATE SET x = (SELECT v FROM lookup_tbl)\n"
+            "WHEN NOT MATCHED THEN INSERT (a) VALUES ((SELECT c FROM seed_tbl));\n"
+        )
+        refs = {(r["name"], r["direction"]) for r in unit["references"]}
+        self.assertEqual(refs, {
+            ("target", "write"),      # MERGE INTO target
+            ("src", "read"),          # USING source
+            ("lookup_tbl", "read"),   # WHEN MATCHED SET subquery
+            ("seed_tbl", "read"),     # WHEN NOT MATCHED VALUES subquery (list-wrapped)
+        })
+        # Explicit absence sweep: no predicate column, assignment LHS, insert
+        # column, or merge alias leaks as a reference.
+        names = {r["name"] for r in unit["references"]}
+        self.assertEqual(names & {"t", "s", "x", "a", "id", "v", "c", "target.id"}, set())
+
+    def test_sql_declare_type_name_not_a_reference_three_way(self):
+        """AC-3 / R3: a PL/pgSQL `DECLARE <var> <type>` type name is not a
+        table reference. Three-way pin: (a) a non-builtin type (`record`, a
+        custom domain type) mints NO reference; (b) a builtin (`integer`) is
+        already clean (parses as a keyword node, not object_reference); (c) a
+        `DECLARE x int := (SELECT … FROM t)` default-value read IS preserved
+        (the fix skips only the direct type-name object_reference, still
+        descending into the nested default-value statement)."""
+        self._require_sql_parser()
+        unit = self.mod.sql_statement_references(
+            "CREATE FUNCTION f() RETURNS void AS $$\n"
+            "DECLARE\n"
+            "  r record;\n"
+            "  c custom_domain;\n"
+            "  n integer;\n"
+            "  x int := (SELECT id FROM defaults_tbl);\n"
+            "BEGIN\n"
+            "  SELECT 1 FROM body_tbl;\n"
+            "END;\n"
+            "$$ LANGUAGE plpgsql;\n"
+        )
+        refs = {(r["name"], r["direction"]) for r in unit["references"]}
+        # (a) non-builtin type names absent; (b) builtin already clean;
+        # (c) default-value read + genuine body read preserved.
+        self.assertEqual(refs, {
+            ("defaults_tbl", "read"),
+            ("body_tbl", "read"),
+        })
+        ref_names = {r["name"] for r in unit["references"]}
+        self.assertNotIn("record", ref_names)
+        self.assertNotIn("custom_domain", ref_names)
+        self.assertNotIn("integer", ref_names)
+
+    def test_sql_bracket_quoted_external_id_normalized_clean(self):
+        """AC-4 / R4: a bracket/backtick/quote-quoted identifier on the
+        SQL-file path mints a CLEAN external id (`external::dbo.users`), not the
+        mangled `external::dbo].[users`. Node-id hygiene only: the statement
+        unit's names-as-written output is UNCHANGED; two differently-quoted
+        forms collapse onto the SAME external node (a correct collision, never a
+        wrong bind); and an existing legitimate local bind is not regressed."""
+        self._require_sql_parser()
+        # Frozen names-as-written contract: the unit still emits the raw text.
+        unit = self.mod.sql_statement_references("SELECT * FROM [dbo].[users];")
+        self.assertEqual([r["name"] for r in unit["references"]], ["dbo].[users"])
+        payload = self._build_file(
+            "db/q.sql",
+            "CREATE TABLE realtbl (id INT);\n"
+            "SELECT * FROM [dbo].[users];\n"
+            "SELECT * FROM `dbo`.`users`;\n"
+            "SELECT * FROM realtbl;\n"
+        )
+        read_edges = {
+            (e["target"], e.get("confidence"))
+            for e in payload["edges"] if e["relation"] == "reads"
+        }
+        # Both quoting variants collapse to ONE clean external node.
+        self.assertIn(("external::dbo.users", "EXTRACTED"), read_edges)
+        self.assertNotIn("external::dbo].[users", {t for t, _ in read_edges})
+        # No mangled residue anywhere in the read targets.
+        for target, _ in read_edges:
+            self.assertNotIn("]", target)
+            self.assertNotIn("[", target)
+            self.assertNotIn("`", target)
+        # No-regress: the legitimate local bind still resolves in-project.
+        self.assertIn(("db/q.sql::realtbl", "RECEIVER_RESOLVED"), read_edges)
+
+    def test_sql_embedded_ddl_sniff_captures_truncate_alter_drop(self):
+        """AC-5 / R5: the embedded-SQL sniff gate recognizes leading
+        `TRUNCATE`/`ALTER`/`DROP`, so a schema-affecting embedded statement at a
+        known Java sink is captured and bound as a `writes` mutation
+        (analyze_statement already handles their write direction). A non-SQL
+        string at the same sink still refuses (drops silently)."""
+        self._require_sql_parser()
+        if self.mod._ts_get_parser("java") is None:
+            self.skipTest("tree-sitter java grammar unavailable")
+        payload = self._build_files({
+            "db/schema.sql": (
+                "CREATE TABLE m_loan (id INT);\n"
+                "CREATE TABLE m_client (id INT);\n"
+                "CREATE TABLE m_old (id INT);\n"
+            ),
+            "src/Dao.java": (
+                "public class Dao {\n"
+                "  void run(JdbcTemplate jdbc) {\n"
+                "    jdbc.update(\"TRUNCATE TABLE m_loan\");\n"
+                "    jdbc.update(\"ALTER TABLE m_client ADD col INT\");\n"
+                "    jdbc.update(\"DROP TABLE m_old\");\n"
+                "    jdbc.update(\"frobnicate the wozzle\");\n"
+                "  }\n"
+                "}\n"
+            ),
+        })
+        literal_writes = {
+            (e["source"].split("::")[-1], e["target"].split("::")[-1])
+            for e in payload["edges"]
+            if e.get("confidence") == "LITERAL_DERIVED" and e["relation"] == "writes"
+        }
+        self.assertEqual(literal_writes, {
+            ("Dao.run", "m_loan"),
+            ("Dao.run", "m_client"),
+            ("Dao.run", "m_old"),
+        })
+        # The non-SQL string never captured (no edge to a "frobnicate"/"wozzle"
+        # external), and no reads leaked from these write-direction statements.
+        all_literal_targets = {
+            e["target"].split("::")[-1]
+            for e in payload["edges"]
+            if e.get("confidence") == "LITERAL_DERIVED"
+        }
+        self.assertNotIn("wozzle", all_literal_targets)
+        self.assertNotIn("frobnicate", all_literal_targets)
+
+    def test_sql_embedded_dirty_truncate_refused_clean_truncate_binds(self):
+        """FIX 1 (1rrx5 delivery review, adversarial finding 1): a TRUNCATE-led
+        embedded literal whose parse carries trailing garbage after the target
+        table is refused BEFORE bind, so no confidently-wrong `writes` edge is
+        minted against a real table. `jdbc.update("truncate events now")` sniffs
+        as SQL and (unlike DELETE/UPDATE, which need a `from`/`set` connective)
+        parses as a truncate of `events` + a sibling ERROR `now` — the flip.
+        Clean `TRUNCATE TABLE events` and bare `TRUNCATE events` (no ERROR) must
+        still bind their `writes` mutation."""
+        self._require_sql_parser()
+        if self.mod._ts_get_parser("java") is None:
+            self.skipTest("tree-sitter java grammar unavailable")
+        payload = self._build_files({
+            "db/schema.sql": "CREATE TABLE events (id INT);\n",
+            "src/Dao.java": (
+                "public class Dao {\n"
+                "  void run(JdbcTemplate jdbc) {\n"
+                "    jdbc.update(\"truncate events now\");\n"      # dirty → refused
+                "    jdbc.update(\"TRUNCATE TABLE events\");\n"    # clean → binds
+                "    jdbc.update(\"TRUNCATE events\");\n"          # clean → binds
+                "  }\n"
+                "}\n"
+            ),
+        })
+        literal_writes = {
+            (e["source"].split("::")[-1], e["target"].split("::")[-1])
+            for e in payload["edges"]
+            if e.get("confidence") == "LITERAL_DERIVED" and e["relation"] == "writes"
+        }
+        # The clean forms bind (both collapse to the same source→table edge);
+        # the dirty-truncate prose contributes no edge — no confidently-wrong
+        # write against the real `events` table beyond the legitimate ones.
+        self.assertEqual(literal_writes, {("Dao.run", "events")})
+        # The trailing-garbage token never leaked as an external target either.
+        all_literal_targets = {
+            e["target"].split("::")[-1]
+            for e in payload["edges"] if e.get("confidence") == "LITERAL_DERIVED"
+        }
+        self.assertNotIn("now", all_literal_targets)
+
+    def test_sql_embedded_dirty_prose_delete_update_refused_dialect_binds(self):
+        """AC-9 / R8 (1rrx5, post-delivery): generalize the clean-parse defense
+        from the TRUNCATE arm (FIX 1) to the DELETE/UPDATE/INSERT arm of the SAME
+        confidently-wrong class. Non-SQL prose that leads with a sniff keyword
+        and carries a mandatory-clause connective mis-parses as SQL and would
+        bind a real table at LITERAL_DERIVED:
+
+          * `jdbc.update("delete the row from cache")` parses as a DELETE of
+            `cache` whose interior `the row` is an ERROR node BEFORE the `from`
+            target — the FLIP (would-be `writes cache`, refused).
+          * `"update the config from source"` mints no reference at all (a second
+            layer of safety) — no edge.
+
+        Valid trailing dialect tree-sitter-sql leaves an ERROR only AFTER the
+        target (or none) and MUST still capture + bind:
+
+          * `DELETE FROM t RETURNING id` (RETURNING) — `writes t`.
+          * `INSERT INTO t VALUES (1) ON CONFLICT DO NOTHING` (ON CONFLICT) —
+            `writes t`.
+
+        And a clean DELETE at the same sink must NOT regress:
+
+          * `DELETE FROM sessions WHERE id = ?` — `writes sessions`.
+
+        `cache`/`config`/`source` exist as candidate targets so the assertions
+        prove the GATE (not a missing table) is what suppresses the prose edges.
+        """
+        self._require_sql_parser()
+        if self.mod._ts_get_parser("java") is None:
+            self.skipTest("tree-sitter java grammar unavailable")
+        payload = self._build_files({
+            "db/schema.sql": (
+                "CREATE TABLE cache (id INT);\n"
+                "CREATE TABLE config (id INT);\n"
+                "CREATE TABLE source (id INT);\n"
+                "CREATE TABLE sessions (id INT);\n"
+                "CREATE TABLE t (id INT);\n"
+            ),
+            "src/Dao.java": (
+                "public class Dao {\n"
+                "  void run(JdbcTemplate jdbc) {\n"
+                "    jdbc.update(\"delete the row from cache\");\n"            # prose → refused
+                "    jdbc.update(\"update the config from source\");\n"       # prose → no ref
+                "    jdbc.update(\"DELETE FROM t RETURNING id\");\n"          # dialect → binds
+                "    jdbc.update(\"INSERT INTO t VALUES (1) ON CONFLICT DO NOTHING\");\n"  # dialect → binds
+                "    jdbc.update(\"DELETE FROM sessions WHERE id = ?\");\n"   # clean → binds
+                "  }\n"
+                "}\n"
+            ),
+        })
+        literal_writes = {
+            (e["source"].split("::")[-1], e["target"].split("::")[-1])
+            for e in payload["edges"]
+            if e.get("confidence") == "LITERAL_DERIVED" and e["relation"] == "writes"
+        }
+        # Valid dialect + clean bind; prose contributes NOTHING. `t` collapses
+        # the RETURNING and ON CONFLICT statements onto one edge.
+        self.assertEqual(literal_writes, {
+            ("Dao.run", "t"),
+            ("Dao.run", "sessions"),
+        })
+        # The interior-ERROR flip: `cache` exists but the delete-prose is refused,
+        # so no confidently-wrong `writes cache`. `config`/`source` never bind
+        # either (update-prose mints no reference).
+        all_literal_targets = {
+            e["target"].split("::")[-1]
+            for e in payload["edges"] if e.get("confidence") == "LITERAL_DERIVED"
+        }
+        self.assertNotIn("cache", all_literal_targets)
+        self.assertNotIn("config", all_literal_targets)
+        self.assertNotIn("source", all_literal_targets)
+
+    def test_sql_embedded_has_interior_error_discriminator(self):
+        """AC-9 / R8: unit-level pin of the interior-vs-trailing ERROR
+        discriminator. Prose with a mandatory-clause connective carries an ERROR
+        BEFORE its first table reference (interior → refuse); valid trailing
+        dialect the grammar does not model leaves the ERROR AFTER the target, or
+        none at all (trailing/clean → keep)."""
+        self._require_sql_parser()
+        f = self.mod._sql_embedded_has_interior_error
+        # Interior ERROR (prose): the recovered reference is coincidental.
+        self.assertTrue(f("delete the row from cache"))
+        self.assertTrue(f("delete this from that"))
+        # Trailing dialect / clean: kept (unmodeled USING tail is AFTER target).
+        self.assertFalse(f("DELETE FROM t RETURNING id"))
+        self.assertFalse(f("INSERT INTO t VALUES (1) ON CONFLICT DO NOTHING"))
+        self.assertFalse(f("UPDATE t SET x = 1 RETURNING x"))
+        self.assertFalse(f("DELETE FROM t USING src WHERE t.id = src.id"))
+        self.assertFalse(f("DELETE FROM cache WHERE id = ?"))
+        self.assertFalse(f("INSERT INTO t VALUES (1)"))
+
+    def test_sql_declare_rowtype_and_type_anchor_table_preserved(self):
+        """FIX 2 (1rrx5 delivery review, adversarial finding 2): a PL/pgSQL
+        `DECLARE r some_table%ROWTYPE` / `DECLARE v other_table.col%TYPE`
+        anchors a GENUINE table dependency — the `%ROWTYPE`/`%TYPE` attribute
+        types the variable off that table's row/column. R3's blanket
+        `function_declaration` object_reference skip regressed these (their
+        object_reference is structurally identical to the `record` phantom R3
+        drops; the `%…` parses as an ERROR sibling). The refinement KEEPS the
+        object_reference when a `%ROWTYPE`/`%TYPE` ERROR sibling is present, and
+        still SKIPS a bare type name (`record`, custom domain) and leaves a
+        builtin (`integer`) clean + the default-value read preserved."""
+        self._require_sql_parser()
+        unit = self.mod.sql_statement_references(
+            "CREATE FUNCTION f() RETURNS void AS $$\n"
+            "DECLARE\n"
+            "  r some_table%ROWTYPE;\n"
+            "  v other_table.col%TYPE;\n"
+            "  q record;\n"
+            "  c custom_domain;\n"
+            "  n integer;\n"
+            "  x int := (SELECT id FROM defaults_tbl);\n"
+            "BEGIN\n"
+            "  SELECT 1 FROM body_tbl;\n"
+            "END;\n"
+            "$$ LANGUAGE plpgsql;\n"
+        )
+        refs = {(r["name"], r["direction"]) for r in unit["references"]}
+        # %ROWTYPE / %TYPE anchors preserved (the recall regression, restored);
+        # default-value + body reads preserved; bare/builtin type names absent.
+        self.assertEqual(refs, {
+            ("some_table", "read"),
+            ("other_table.col", "read"),
+            ("defaults_tbl", "read"),
+            ("body_tbl", "read"),
+        })
+        ref_names = {r["name"] for r in unit["references"]}
+        self.assertNotIn("record", ref_names)
+        self.assertNotIn("custom_domain", ref_names)
+        self.assertNotIn("integer", ref_names)
+
+    def test_sql_routine_body_definition_drop_is_unconditional(self):
+        """AC-6 / R6a: the routine body-definition drop is UNCONDITIONAL, so
+        the "routine bodies never define schema objects at module scope"
+        invariant is total. An unnamed-but-parseable `CREATE FUNCTION ()
+        RETURNS integer …` (empty name leaves routine_name None; a builtin
+        return type parses as a non-object_reference node) previously leaked its
+        in-body `CREATE TABLE scratch` to module scope because the drop was
+        gated on a parsed routine name. Flip: the in-body definition is now
+        dropped; a NAMED routine still keeps its own definition."""
+        self._require_sql_parser()
+        unnamed = (
+            "CREATE OR REPLACE FUNCTION () RETURNS integer AS $$\n"
+            "BEGIN\n"
+            "  CREATE TABLE scratch (id INT);\n"
+            "  RETURN 1;\n"
+            "END;\n"
+            "$$ LANGUAGE plpgsql;\n"
+        )
+        unit = self.mod.sql_statement_references(unnamed)
+        self.assertEqual(
+            [d["name"] for d in unit["definitions"]], [],
+            "an unnamed-but-parseable routine body must not define at module scope",
+        )
+        # A named routine still records ITS OWN definition; only the in-body
+        # CREATE is dropped.
+        named = self.mod.sql_statement_references(
+            "CREATE FUNCTION mk() RETURNS void AS $$\n"
+            "BEGIN\n  CREATE TABLE scratch (id INT);\nEND;\n"
+            "$$ LANGUAGE plpgsql;\n"
+        )
+        self.assertEqual(
+            [(d["name"], d["sql_kind"]) for d in named["definitions"]],
+            [("mk", "function")],
+        )
+
+    def test_sql_hot_data_layer_diagnostic_surfaces_high_indegree_node(self):
+        """AC-7 / R7: the clustering-asymmetry measurement surfaces a
+        data-layer node (`sql_kind` table/view) with a high incoming
+        `writes`/`maps_to` in-degree, reporting the node and its in-degree — the
+        evidence for the writes/maps_to clustering-exclusion decision. A
+        below-threshold node is NOT surfaced; a hot node reached only by
+        `reads` (which clustering already excludes) is NOT surfaced. Read-only:
+        it changes no edge or community."""
+        threshold = self.mod._SQL_HOT_DATA_INDEGREE_THRESHOLD
+        n = threshold + 2
+        nodes = [{"id": "db/schema.sql::audit_log", "kind": "class", "sql_kind": "table"}]
+        nodes.append({"id": "db/schema.sql::rare_tbl", "kind": "class", "sql_kind": "table"})
+        nodes.append({"id": "db/schema.sql::report_view", "kind": "class", "sql_kind": "view"})
+        edges = []
+        # N routines write audit_log (above threshold via writes + maps_to mix).
+        for i in range(n):
+            rel = "writes" if i % 2 == 0 else "maps_to"
+            edges.append({"source": f"src/R{i}.sql::proc{i}", "target": "db/schema.sql::audit_log", "relation": rel})
+        # rare_tbl written by only 2 routines (below threshold).
+        edges.append({"source": "src/A.sql::a", "target": "db/schema.sql::rare_tbl", "relation": "writes"})
+        edges.append({"source": "src/B.sql::b", "target": "db/schema.sql::rare_tbl", "relation": "writes"})
+        # report_view reached only by reads (excluded relation) — never surfaced.
+        for i in range(n):
+            edges.append({"source": f"src/Q{i}.sql::q{i}", "target": "db/schema.sql::report_view", "relation": "reads"})
+        payload = {"nodes": nodes, "edges": edges}
+        hot = self.mod.sql_hot_data_layer_nodes(payload)
+        self.assertEqual(hot, [
+            {"id": "db/schema.sql::audit_log", "sql_kind": "table", "in_degree": n},
+        ])
+        surfaced = {h["id"] for h in hot}
+        self.assertNotIn("db/schema.sql::rare_tbl", surfaced)
+        self.assertNotIn("db/schema.sql::report_view", surfaced)
+
     def test_doc_to_doc_link_produces_edge(self):
         wave = self.root / "docs" / "wave.md"
         change = self.root / "docs" / "change.md"
@@ -6638,7 +7058,14 @@ class GraphBuilderVersionTests(unittest.TestCase):
         # 1p9qf embedded-SQL capture fragment keys + LITERAL_DERIVED code→table binds +
         # `external::sql::` externals; 1p9qg NEW `maps_to` entity→table relation + orm_entity
         # fragment keys — new relations + relation migration + new fragment keys → re-extract).
-        self.assertEqual(load_graph_indexer().GRAPH_BUILDER_VERSION, "38")
+        # Wave 1rrx5 bumped 38→39 (coordinated SINGLE bump for the bounded 1p9qi SQL follow-ups:
+        # R1 trigger EXECUTE FUNCTION/PROCEDURE action-name phantom removed; R2 MERGE when_clause
+        # subquery reads surfaced; R3 DECLARE <type> phantom removed; R4 bracket-quoted external-id
+        # normalized to a clean node id; R5 sniff gate recognizes TRUNCATE/ALTER/DROP → embedded
+        # writes captured; R6a routine body-definition drop made unconditional — phantom-edge
+        # removals + newly-surfaced contained reads → extraction-output change → re-extract. R7 is
+        # a read-only diagnostic (no projection change → no CLUSTER_BUILDER_VERSION bump).
+        self.assertEqual(load_graph_indexer().GRAPH_BUILDER_VERSION, "39")
 
 
 class OversizedTreeSitterGuardTests(unittest.TestCase):
