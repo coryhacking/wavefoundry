@@ -6,6 +6,12 @@ the individual wave records under [`docs/waves/`](docs/waves/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.11.2] - 2026-07-06
+
+### Fixed
+
+- **Upgrading from an older version now removes the one-time `install-wavefoundry.md` bootstrap file from the project root.** The cleanup added in 1.11.1 only ran during the extract step, which executes the previously-installed code when upgrading through the MCP server — so an upgrade from a version that predated the cleanup left the file behind, and it was cleared only on the following upgrade. The cleanup now also runs during the index-update step, which always executes the freshly installed code, so an upgrade from any prior version removes the file in the same run. The archive still ships the file at its root by design; only the extracted copy is removed.
+
 ## [1.11.1] - 2026-07-06
 
 ### Fixed

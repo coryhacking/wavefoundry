@@ -14,7 +14,7 @@ This is a generated, read-only orientation map of this project's own codebase, b
 - **Drill in** by passing an area's `hub_node_id` (a stable cross-rebuild anchor) to `code_graph_community`, or open its key files with `code_outline`. Use `hub_node_id`, never a `community_id` (those renumber on re-cluster).
 - The map is regenerated with the index build; it tracks index freshness rather than per-commit parity.
 
-_Grouping: graph communities collapsed to packages/directories. Areas shown: 24 of 41. Cluster builder version: `11`. Files in scope: 164; symbols: 11282._
+_Grouping: graph communities collapsed to packages/directories. Areas shown: 24 of 41. Cluster builder version: `11`. Files in scope: 164; symbols: 11284._
 
 ## Areas
 
@@ -23,7 +23,7 @@ _Grouping: graph communities collapsed to packages/directories. Areas shown: 24 
 - Path: `.wavefoundry/framework/scripts/tests`
 - Area id: `tests` (MCP: `wavefoundry://area/tests`)
 - Responsibility: tests
-- Size: 7321 graph nodes
+- Size: 7323 graph nodes
 - Key entry points (by cross-file fan-in): `map` (function), `fileno` (function), `load_server` (function), `copy_fixture` (function), `run_docs_lint` (function)
 - Key files: `.wavefoundry/framework/scripts/tests/test_server_tools.py`, `.wavefoundry/framework/scripts/tests/test_graph_indexer.py`, `.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py`, `.wavefoundry/framework/scripts/tests/test_chunker.py`, `.wavefoundry/framework/scripts/tests/test_indexer.py`, `.wavefoundry/framework/scripts/tests/test_secrets_validators.py`
 - Drill in: `code_graph_community(hub_node_id=".wavefoundry/framework/scripts/tests/test_server_tools.py")` or `code_outline` on the key files above.

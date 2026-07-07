@@ -2745,10 +2745,38 @@ class RemoveRootBootstrapFileTests(unittest.TestCase):
         src = inspect.getsource(self.mod)
         self.assertIn("_remove_root_bootstrap_file(root)", src, "the cleanup call must be wired in")
         extract_pos = src.index("zf.extractall")
-        call_pos = src.index("_remove_root_bootstrap_file(root)")  # the call (def line reads `(root: Path)`)
+        # Wave 1rych added a second call in the --update-index phase (which precedes the extract block in
+        # source order), so anchor on the FIRST call AT OR AFTER zf.extractall — that is the extract-phase
+        # call this test locks.
+        call_pos = src.index("_remove_root_bootstrap_file(root)", extract_pos)
         self.assertGreater(
             call_pos, extract_pos,
             "the bootstrap cleanup must run AFTER zf.extractall in the extract phase",
+        )
+
+    def test_update_index_phase_wires_the_bootstrap_removal(self) -> None:
+        # Wave 1rych: the --update-index phase must invoke _remove_root_bootstrap_file (from the freshly
+        # extracted NEW code) so a from-old MCP upgrade — whose extract ran the OLD orchestrator with no
+        # removal helper — still cleans up the re-dropped root install-wavefoundry.md. The full
+        # --update-index path spawns a real index build (no unit harness), so lock the wiring by source:
+        # the removal call must appear AFTER phase_index_update in the --update-index handler.
+        import inspect
+        src = inspect.getsource(self.mod)
+        piu = src.index("phase_index_update(root)")  # closing paren matches the call site, not the def
+        removal_after = src.index("_remove_root_bootstrap_file(root)", piu)
+        self.assertGreater(
+            removal_after, piu,
+            "the --update-index phase must call _remove_root_bootstrap_file after phase_index_update",
+        )
+
+    def test_removal_wired_at_both_extract_and_update_index_sites(self) -> None:
+        # AC-3: belt-and-suspenders — the extract-phase call is KEPT and the --update-index call is ADDED,
+        # so there must be (at least) two distinct call sites of _remove_root_bootstrap_file(root).
+        import inspect
+        src = inspect.getsource(self.mod)
+        self.assertGreaterEqual(
+            src.count("_remove_root_bootstrap_file(root)"), 2,
+            "both the extract-phase and --update-index removal call sites must be present",
         )
 
 

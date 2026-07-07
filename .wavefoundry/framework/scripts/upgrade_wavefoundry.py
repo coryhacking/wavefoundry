@@ -2477,6 +2477,14 @@ def main(argv: list[str] | None = None) -> int:
             # reliable new-code place to heal. Idempotent (a repo already on scheme_version v2 is a no-op)
             # and fail-safe (a config error degrades to a recovery pointer — never fails the index phase).
             _ensure_lifecycle_policy_backstop(root)
+            # Wave 1rych: bootstrap-file removal from NEW code, mirroring the lifecycle backstop above.
+            # `_remove_root_bootstrap_file` is also called in the extract phase (Phase 0b), but on a
+            # from-old MCP upgrade the extract runs the OLD in-process orchestrator (which predates the
+            # removal helper), so the stray root `install-wavefoundry.md` is left behind. This
+            # `--update-index` subprocess runs the freshly extracted (NEW) code and is invoked by every
+            # MCP upgrade flow post-extract, so it reliably cleans up the file even from an older source
+            # version. Idempotent (a missing file is a no-op) and fail-safe (never aborts the index phase).
+            _remove_root_bootstrap_file(root)
             _run_hook("post_index_update", _rb_ctx, _rb_ext)
             upgrade_lib.update_upgrade_lock(
                 root,
