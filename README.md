@@ -1,6 +1,6 @@
 # Wavefoundry
 
-[![Version](https://img.shields.io/badge/version-1.11.0-purple)](https://github.com/coryhacking/wavefoundry/releases)
+[![Version](https://img.shields.io/badge/version-1.11.1-purple)](https://github.com/coryhacking/wavefoundry/releases)
 [![MCP](https://img.shields.io/badge/MCP-local_server-0a7ea4)](https://modelcontextprotocol.io)
 [![Hosts](https://img.shields.io/badge/hosts-Claude_Code_%C2%B7_Codex_%C2%B7_Antigravity_%C2%B7_Cursor-blue)](https://github.com/coryhacking/wavefoundry)
 [![Python](https://img.shields.io/badge/python-%E2%89%A53.11-blue)](https://www.python.org/downloads/)
