@@ -2693,6 +2693,65 @@ class MultiVersionTransitionDetectionTests(unittest.TestCase):
         self.assertEqual(transitions, [])
 
 
+class RemoveRootBootstrapFileTests(unittest.TestCase):
+    """Wave 1rxyi: the upgrade removes the re-dropped root install-wavefoundry.md (fail-safe).
+
+    The zip ships that single-use bootstrap file at the zip root by design, so every extract re-drops it
+    at the project root and prune (MANIFEST-scoped to .wavefoundry/framework/) never removes it."""
+
+    def setUp(self) -> None:
+        self.mod = load_upgrade_module()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def test_removes_present_bootstrap_file(self) -> None:
+        # AC-1: a present root install-wavefoundry.md is deleted.
+        f = self.root / "install-wavefoundry.md"
+        f.write_text("bootstrap instructions", encoding="utf-8")
+        self.mod._remove_root_bootstrap_file(self.root)
+        self.assertFalse(f.exists(), "the root bootstrap file must be removed")
+
+    def test_absent_is_noop(self) -> None:
+        # AC-2: no file present → no-op, no exception.
+        self.mod._remove_root_bootstrap_file(self.root)  # must not raise
+        self.assertFalse((self.root / "install-wavefoundry.md").exists())
+
+    def test_unlink_error_is_swallowed(self) -> None:
+        # AC-2: a failed unlink is logged and swallowed — the upgrade must never abort over cleanup.
+        f = self.root / "install-wavefoundry.md"
+        f.write_text("x", encoding="utf-8")
+        with patch.object(self.mod.Path, "unlink", side_effect=OSError("boom")):
+            self.mod._remove_root_bootstrap_file(self.root)  # must not raise
+
+    def test_only_touches_the_reserved_bootstrap_name(self) -> None:
+        # A same-directory unrelated file is never touched — only the framework-reserved name is removed.
+        other = self.root / "README.md"
+        other.write_text("project readme", encoding="utf-8")
+        (self.root / "install-wavefoundry.md").write_text("bootstrap", encoding="utf-8")
+        self.mod._remove_root_bootstrap_file(self.root)
+        self.assertTrue(other.exists(), "unrelated root files must be left untouched")
+        self.assertFalse((self.root / "install-wavefoundry.md").exists())
+
+    def test_extract_phase_wires_the_cleanup_after_extractall(self) -> None:
+        # F1 (delivery review): lock the wiring — the upgrade extract phase must CALL
+        # `_remove_root_bootstrap_file(root)` AFTER `zf.extractall`, so a refactor that drops the call is
+        # caught. The helper is otherwise only unit-tested and the full apply path has no test harness
+        # (main() is only reachable in the suite via --resume-after-gate / --materialize-lifecycle-policy,
+        # neither of which reaches the extract block).
+        import inspect
+        src = inspect.getsource(self.mod)
+        self.assertIn("_remove_root_bootstrap_file(root)", src, "the cleanup call must be wired in")
+        extract_pos = src.index("zf.extractall")
+        call_pos = src.index("_remove_root_bootstrap_file(root)")  # the call (def line reads `(root: Path)`)
+        self.assertGreater(
+            call_pos, extract_pos,
+            "the bootstrap cleanup must run AFTER zf.extractall in the extract phase",
+        )
+
+
 class UpgradeContextChunkerFieldsTests(unittest.TestCase):
     """AC-1: UpgradeContext gains the three chunker-version transition fields."""
 
@@ -3758,6 +3817,23 @@ class MaterializeLifecyclePolicyTests(unittest.TestCase):
             self.mod._ensure_lifecycle_policy_backstop(self.root)  # no raise
         self.assertEqual(self.cfg.read_text(encoding="utf-8"), "{corrupt")
         self.assertTrue(any("--materialize-lifecycle-policy" in line for line in logged), logged)
+
+    def test_update_index_phase_wires_the_lifecycle_backstop(self):
+        # Wave 1ryce: the --update-index phase must invoke _ensure_lifecycle_policy_backstop (from the
+        # freshly extracted NEW code) so a from-<1.10.1 MCP upgrade — whose preflight ran old code with no
+        # Phase 2c and whose old server never reached the cleanup backstop — self-provisions scheme v2.
+        # The full --update-index path spawns a real index build (no unit harness), so lock the wiring by
+        # source: the backstop call must appear AFTER phase_index_update in the --update-index handler.
+        import inspect
+        src = inspect.getsource(self.mod)
+        # `phase_index_update(root)` (closing paren) matches call sites, not the `(root: Path)` def; the
+        # first call is the --update-index handler.
+        piu = src.index("phase_index_update(root)")
+        backstop_after = src.index("_ensure_lifecycle_policy_backstop(root)", piu)
+        self.assertGreater(
+            backstop_after, piu,
+            "the --update-index phase must call _ensure_lifecycle_policy_backstop after phase_index_update",
+        )
 
 
 if __name__ == "__main__":

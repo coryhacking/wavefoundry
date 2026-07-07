@@ -663,6 +663,29 @@ def _read_installed_graph_builder_version(root: Path) -> str:
     return ""
 
 
+# Wave 1rxyi: the distribution zip ships the single-use bootstrap `install-wavefoundry.md` at the ZIP
+# ROOT (build_pack.py — the agent must discover it before .wavefoundry/ is known). It therefore
+# extracts into the PROJECT ROOT on every install and upgrade (`unzip -o`/`extractall`). The prune step
+# is MANIFEST-scoped to .wavefoundry/framework/ and never touches a root file, so the bootstrap file
+# would otherwise linger after install and be re-dropped on every upgrade. Remove it after extraction —
+# it is transient (the canonical install instructions live in docs/prompts/install-wavefoundry.prompt.md).
+_ROOT_BOOTSTRAP_FILENAME = "install-wavefoundry.md"
+
+
+def _remove_root_bootstrap_file(root: Path) -> None:
+    """Delete the extracted root ``install-wavefoundry.md`` bootstrap file (wave 1rxyi).
+
+    Fail-safe: a missing file is a no-op and an unlink error is logged and swallowed — this is cosmetic
+    project-root hygiene and must never fail or gate the upgrade."""
+    path = root / _ROOT_BOOTSTRAP_FILENAME
+    try:
+        if path.exists():
+            path.unlink()
+            _log(f"  Removed transient bootstrap file {_ROOT_BOOTSTRAP_FILENAME} from the project root.")
+    except OSError as exc:  # non-fatal — never abort the upgrade over a cleanup unlink
+        _log(f"  ⚠  Could not remove {_ROOT_BOOTSTRAP_FILENAME} (non-fatal): {exc}")
+
+
 def _snapshot_pre_extract_versions(root: Path) -> dict[str, str]:
     """Snapshot all relevant framework version constants from the consumer's
     pre-existing index/graph state files. Returns a flat dict with keys
@@ -2446,6 +2469,14 @@ def main(argv: list[str] | None = None) -> int:
             # internal auto-escalate handles the chunker/walker bump full-rebuild
             # case. Trust the indexer; no explicit force-rebuild routing.
             phase_index_update(root)
+            # Wave 1ryce: lifecycle scheme-v2 provisioning backstop from NEW code. An MCP wave_upgrade
+            # from a version BEFORE 1.10.1 runs the pre-upgrade orchestrator through preflight (which
+            # therefore has no Phase 2c) and the old server may never reach the phase_cleanup backstop —
+            # so the repo silently stays on v1 IDs. This `--update-index` subprocess runs the freshly
+            # extracted (NEW) code and is invoked by every MCP upgrade flow post-extract, so it is the
+            # reliable new-code place to heal. Idempotent (a repo already on scheme_version v2 is a no-op)
+            # and fail-safe (a config error degrades to a recovery pointer — never fails the index phase).
+            _ensure_lifecycle_policy_backstop(root)
             _run_hook("post_index_update", _rb_ctx, _rb_ext)
             upgrade_lib.update_upgrade_lock(
                 root,
@@ -2630,6 +2661,11 @@ def main(argv: list[str] | None = None) -> int:
                 tree_mutated = True
                 _log(f"  Extracted {zip_path.name}")
             _run_hook("post_extract", ctx, ext_mod)
+
+            # Wave 1rxyi: the zip drops the single-use bootstrap `install-wavefoundry.md` at the project
+            # root (it ships at the zip root by design). Prune is MANIFEST-scoped to .wavefoundry/ and
+            # never removes a root file, so clean it up here — fail-safe, so it never aborts the upgrade.
+            _remove_root_bootstrap_file(root)
 
             # Note any framework version transitions in the upgrade log.
             # Don't branch on them — Phase 4 always runs phase_index_update at

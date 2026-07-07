@@ -181,6 +181,16 @@ Answer each explicitly. A "no, this project has no admin role" is a valid answer
 
 If anything other than `complete` is returned, the install isn't done — work the named blocker and re-call.
 
+### 2.14 — Remove the bootstrap file from the project root
+
+**Action:** Once `wave_install_audit()` returns `complete`, delete the single-use bootstrap file `install-wavefoundry.md` from the repository root. It ships at the zip root purely so you could discover the install instructions before `.wavefoundry/` existed; it is now consumed, and the canonical install instructions live at `docs/prompts/install-wavefoundry.prompt.md`. Do not move it into `.wavefoundry/` — delete it, so it does not clutter the operator's project root.
+
+```bash
+rm -f install-wavefoundry.md
+```
+
+**Expected artifact:** No `install-wavefoundry.md` at the repository root.
+
 ## Operator summary (handoff)
 
 After 2.13 returns `complete`, deliver a concise summary to the operator covering:

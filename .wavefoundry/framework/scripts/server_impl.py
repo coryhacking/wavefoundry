@@ -6318,6 +6318,122 @@ def _index_dir_size(index_dir: Path) -> Optional[dict[str, Any]]:
     return {"total_bytes": total, "total_human": _human_bytes(total), "components": components}
 
 
+# Wave 1rycf: bloat-gated, tier-1-only index optimize run at wave close as an interim reclaim.
+# Background: LanceDB's incremental FTS rebuild (`create_fts_index(replace=True)`) leaves un-GC'd
+# `_indices/` versions, so `docs.lance` balloons (698 MB observed, 640 MB reclaimable) between the deep
+# optimizes that only run at install/upgrade. Until the SQLite FTS5 migration removes the leak at the
+# source, reclaim opportunistically at close — but ONLY when the table is genuinely bloated, ONLY tier-1
+# in-place (never spawn a synchronous rebuild), and NEVER at the expense of the close itself.
+CLOSE_OPTIMIZE_BLOAT_RATIO = 3.0      # on-disk / logical-floor ratio at/above which a table is "bloated"
+CLOSE_OPTIMIZE_MIN_ROW_BYTES = 2048   # conservative per-row logical floor (chunk text + vector + FTS)
+
+
+def _close_optimize_enabled(root: Path) -> bool:
+    """Kill-switch for the wave 1rycf close-time optimize. Reads
+    ``docs/workflow-config.json`` ``indexing.close_optimize_enabled`` (default ``True``). Fail-safe:
+    any read/parse error or missing key yields the default; never raises."""
+    try:
+        cfg = _read_workflow_config(root)
+        indexing = cfg.get("indexing")
+        if isinstance(indexing, dict) and "close_optimize_enabled" in indexing:
+            return bool(indexing.get("close_optimize_enabled"))
+    except Exception:  # noqa: BLE001 — a config read must never gate the close
+        pass
+    return True
+
+
+def _index_table_bloat_ratios(root: Path) -> dict[str, float]:
+    """Wave 1rycf. Best-effort on-disk-bloat ratio per Lance table (``docs``/``code``): on-disk
+    component bytes divided by a conservative logical floor (``rows * CLOSE_OPTIMIZE_MIN_ROW_BYTES``).
+    A ratio well above 1.0 means the table's physical footprint far exceeds what its live rows require —
+    the FTS-version-leak signature. Read-only, fail-safe: any error (missing dir, unreadable table,
+    zero rows) drops that table from the result rather than raising, and returns ``{}`` on total failure."""
+    ratios: dict[str, float] = {}
+    try:
+        index_dir = root / ".wavefoundry" / "index"
+        sizes = _index_dir_size(index_dir)
+        if not sizes:
+            return {}
+        components = sizes.get("components") or {}
+        import lancedb  # local import: keep module import cheap and optional
+        db = lancedb.connect(str(index_dir))
+        for table in ("docs", "code"):
+            on_disk = int(components.get(f"{table}.lance") or 0)
+            if on_disk <= 0:
+                continue
+            try:
+                rows = int(db.open_table(table).count_rows())
+            except Exception:  # noqa: BLE001 — missing/unreadable table: skip, don't fail the sweep
+                continue
+            floor = rows * CLOSE_OPTIMIZE_MIN_ROW_BYTES
+            if floor <= 0:
+                continue
+            ratios[table] = on_disk / floor
+    except Exception:  # noqa: BLE001 — the gate is advisory; never let it raise into the close
+        return {}
+    return ratios
+
+
+def _maybe_optimize_index_on_close(root: Path) -> Optional[dict[str, Any]]:
+    """Wave 1rycf. If the close-time optimize is enabled and a Lance table is genuinely bloated
+    (ratio >= ``CLOSE_OPTIMIZE_BLOAT_RATIO``), run a tier-1 in-place ``optimize_index_tables`` over the
+    bloated tables to reclaim leaked FTS versions. Contract:
+
+    - **Gated** — no-op (returns ``None``) when disabled or when no table is bloated (the common case).
+    - **Lock-aware** — if a build already holds the index lock, ``optimize_index_tables`` raises
+      ``IndexBuildAlreadyRunning``; we skip (report ``skipped: index_build_lock_held``) rather than wait.
+    - **Tier-1 only** — calls ``optimize_index_tables`` directly, which never spawns a rebuild; any
+      ``needs_rebuild`` table is reported and deferred (the tier-3 spawn lives only in the response
+      wrapper, not here), so close never blocks on a synchronous re-embed.
+    - **Fail-safe** — any error is swallowed; a close must never fail because of opportunistic reclaim.
+
+    Returns a compact summary dict for attachment to the close response, or ``None`` when nothing ran."""
+    try:
+        if not _close_optimize_enabled(root):
+            return None
+        ratios = _index_table_bloat_ratios(root)
+        bloated = sorted(t for t, r in ratios.items() if r >= CLOSE_OPTIMIZE_BLOAT_RATIO)
+        if not bloated:
+            return None
+        index_dir = root / ".wavefoundry" / "index"
+        idx = _load_script("indexer")
+        already_running = getattr(idx, "IndexBuildAlreadyRunning", None)
+        try:
+            results = idx.optimize_index_tables(index_dir, tuple(bloated))
+        except Exception as exc:  # noqa: BLE001
+            if already_running is not None and isinstance(exc, already_running):
+                return {"ran": False, "skipped": "index_build_lock_held",
+                        "bloated_tables": bloated,
+                        "ratios": {t: round(ratios[t], 2) for t in bloated}}
+            return {"ran": False, "skipped": "optimize_error", "error": str(exc),
+                    "bloated_tables": bloated}
+        reclaimed_total = 0
+        deferred_rebuild: list[str] = []
+        tables_out: dict[str, Any] = {}
+        for t, res in (results or {}).items():
+            before = int(res.get("bytes_before") or 0)
+            after = int(res.get("bytes_after") or 0)
+            reclaimed = max(0, before - after)
+            reclaimed_total += reclaimed
+            if res.get("needs_rebuild"):
+                deferred_rebuild.append(t)
+            tables_out[t] = {"tier": res.get("tier"), "reclaimed_bytes": reclaimed,
+                             "reclaimed": _human_bytes(reclaimed)}
+        return {
+            "ran": True,
+            "bloated_tables": bloated,
+            "ratios": {t: round(ratios[t], 2) for t in bloated},
+            "tables": tables_out,
+            "reclaimed_bytes": reclaimed_total,
+            "reclaimed": _human_bytes(reclaimed_total),
+            # Tier-3 rebuild is DEFERRED at close (never spawned inline) — surface it so a follow-up
+            # wave_index_optimize / wave_index_build can pick it up.
+            "needs_rebuild_deferred": sorted(deferred_rebuild),
+        }
+    except Exception:  # noqa: BLE001 — the close must never fail because of opportunistic reclaim
+        return None
+
+
 def wave_index_health_response(index: WaveIndex) -> dict[str, Any]:
     """Return structured health status for the project index layer.
 
@@ -10167,6 +10283,7 @@ def wave_close_response(root: Path, wave_id: str, mode: str = "dry_run", cache: 
     wave_summary = _generate_wave_close_summary(wave_id, text, wave_md)
     updated = False
     handoff_rel = ""
+    close_optimize: Optional[dict[str, Any]] = None
     if mode_s == "create":
         status_match = _STATUS_PATTERN.search(text)
         if status_match and status_match.group(1) != "closed":
@@ -10185,6 +10302,11 @@ def wave_close_response(root: Path, wave_id: str, mode: str = "dry_run", cache: 
             handoff_rel = str(handoff.relative_to(root)).replace("\\", "/")
             if cache:
                 cache.invalidate()
+            # Wave 1rycf: interim bloat reclaim. Run BEFORE the close's own background refresh so the
+            # index build lock is still free; the optimize is gated (only bloated tables), lock-aware
+            # (skips if a build holds the lock), tier-1-only (never spawns a synchronous rebuild), and
+            # fail-safe (never affects the close). Superseded later by the SQLite FTS5 migration.
+            close_optimize = _maybe_optimize_index_on_close(root)
             refresh_paths: list[str | Path] = [wave_md]
             if handoff_rel:
                 refresh_paths.append(handoff)
@@ -10195,7 +10317,8 @@ def wave_close_response(root: Path, wave_id: str, mode: str = "dry_run", cache: 
         _regenerate_codebase_map_safe(root)
     envelope = _response(
         "dry_run" if mode_s == "dry_run" else "ok",
-        {"wave_id": wave_id, "mode": mode_s, "updated": updated, "handoff_path": handoff_rel, "wave_summary": wave_summary, **secrets_notice},
+        {"wave_id": wave_id, "mode": mode_s, "updated": updated, "handoff_path": handoff_rel, "wave_summary": wave_summary,
+         **({"index_optimize": close_optimize} if close_optimize else {}), **secrets_notice},
         diagnostics=gate_diagnostics if gate_diagnostics else None,
         next_tools=["wave_current"],
         usage="wave_current()",

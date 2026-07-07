@@ -6,6 +6,17 @@ the individual wave records under [`docs/waves/`](docs/waves/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.11.1] - 2026-07-06
+
+### Fixed
+
+- **Upgrading from a version before 1.10.1 now provisions the collision-resistant lifecycle-ID scheme automatically.** A repository upgraded from an older version through the MCP server could silently keep minting the previous, collision-prone ID scheme, because the code that installs the new scheme was not yet running when the upgrade was orchestrated — so a manual provisioning step was required. The upgrade's index phase, which always runs the freshly installed code, now provisions the new scheme idempotently and fail-safe, so a from-old-version upgrade self-heals without any manual step.
+- **Install and upgrade no longer leave the one-time `install-wavefoundry.md` bootstrap file in the project root.** The distribution ships that single-use file at the archive root so the install agent can find it before the framework is unpacked, but nothing removed the extracted copy afterward, and every upgrade re-dropped it. Install and upgrade now delete it once it has been consumed; the archive-root packaging contract is unchanged.
+
+### Changed
+
+- **Closing a wave now reclaims search-index storage that has grown large.** A heavy documentation session could balloon the on-disk docs index, because its full-text index accumulates stale versions that only a deep optimization reclaims — and that optimization previously ran only at install and upgrade. Wave close now runs a bloat-gated, lock-aware optimization that reclaims the leaked storage when the index has grown well beyond its expected size, and does nothing when the index is already compact. It never delays or blocks the close, and never triggers a heavy rebuild.
+
 ## [1.11.0] - 2026-07-06
 
 ### Added

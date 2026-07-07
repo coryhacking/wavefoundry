@@ -62,7 +62,7 @@ What this prompt is not:
 
 Discovery/preview is **CLI-only**: run the flag via your shell (that is the agent-safe path — not `ls`). The MCP `wave_upgrade` tool *runs* the upgrade — its default `preflight_to_docs_gate` phase adopts the highest pack — and has **no** dry-run or discovery-only phase (its only argument is `phase=`; there is no `mode=`).
 
-**Step 0 (optional zip adoption):** If a `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` is in the repository root, `~/.wavefoundry/`, `~/.wavefoundry/dist/`, or `~/Downloads/`, the upgrade seed stages the selected pack under `.wavefoundry/framework/`, runs `wf render-surfaces`, and continues full reconciliation. Non-matching filenames are skipped. The shell-heavy upgrade flow still runs from **WSL2** on Windows; the no-PATH dispatcher fallback above is the native-Windows form.
+**Step 0 (optional zip adoption):** If a `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` is in the repository root, `~/.wavefoundry/`, `~/.wavefoundry/dist/`, or `~/Downloads/`, the upgrade seed stages the selected pack under `.wavefoundry/framework/`, runs `wf render-surfaces`, and continues full reconciliation. Non-matching filenames are skipped. The shell-heavy upgrade flow still runs from **WSL2** on Windows; the no-PATH dispatcher fallback above is the native-Windows form. The pack ships the single-use bootstrap `install-wavefoundry.md` at the zip root, so extraction re-drops it at the repository root; the upgrade removes it automatically (`wave_upgrade` / `wf upgrade`). If you run a fully-manual `unzip -o`, delete it yourself after pruning (`rm -f install-wavefoundry.md`).
 
 **Full reconciliation:**
 1. Inventory current state (seed-030 in targeted mode)

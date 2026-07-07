@@ -21101,6 +21101,157 @@ class IndexOptimizeToolTests(unittest.TestCase):
         self.assertEqual(resp["data"]["tables"], {})
 
 
+class CloseTimeOptimizeTests(unittest.TestCase):
+    """Wave 1rycf: bloat-gated, tier-1-only index optimize at wave close (interim FTS-leak reclaim).
+
+    Gate/lock/tier/fail-safe behavior of the close-time helpers, plus the wiring lock that they run
+    BEFORE the close's own background refresh (lock free) and never spawn a rebuild."""
+
+    def setUp(self):
+        import server_impl
+        self.srv = server_impl
+
+    def _fake_indexer(self, results, raises=None, raise_busy=False):
+        from types import SimpleNamespace
+
+        class _AlreadyRunning(RuntimeError):
+            pass
+
+        calls = {"tables": None}
+
+        def optimize_index_tables(index_dir, tables=("docs", "code")):
+            calls["tables"] = tables
+            if raise_busy:
+                raise _AlreadyRunning("a build is already running")
+            if raises is not None:
+                raise raises
+            return results
+
+        ns = SimpleNamespace(
+            optimize_index_tables=optimize_index_tables,
+            IndexBuildAlreadyRunning=_AlreadyRunning,
+        )
+        return ns, calls
+
+    # --- _close_optimize_enabled (kill-switch) ---
+
+    def test_enabled_default_true_when_no_config(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertTrue(self.srv._close_optimize_enabled(Path(tmp)))
+
+    def test_enabled_respects_config_false(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            docs = Path(tmp) / "docs"
+            docs.mkdir(parents=True)
+            (docs / "workflow-config.json").write_text(
+                json.dumps({"indexing": {"close_optimize_enabled": False}}), encoding="utf-8")
+            self.assertFalse(self.srv._close_optimize_enabled(Path(tmp)))
+
+    def test_enabled_fail_safe_on_corrupt_config(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            docs = Path(tmp) / "docs"
+            docs.mkdir(parents=True)
+            (docs / "workflow-config.json").write_text("{ not json", encoding="utf-8")
+            self.assertTrue(self.srv._close_optimize_enabled(Path(tmp)))
+
+    # --- _index_table_bloat_ratios (fail-safe) ---
+
+    def test_bloat_ratios_empty_when_no_index_dir(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(self.srv._index_table_bloat_ratios(Path(tmp)), {})
+
+    # --- _maybe_optimize_index_on_close (the gate) ---
+
+    def test_fires_on_bloated_table_and_reports_reclaim(self):
+        results = {"docs": {"tier": 1, "rows": 100, "needs_rebuild": False,
+                            "bytes_before": 700_000_000, "bytes_after": 60_000_000}}
+        fake, calls = self._fake_indexer(results)
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.object(self.srv, "_close_optimize_enabled", return_value=True), \
+                 patch.object(self.srv, "_index_table_bloat_ratios", return_value={"docs": 18.0, "code": 1.2}), \
+                 patch.object(self.srv, "_load_script", return_value=fake):
+                summary = self.srv._maybe_optimize_index_on_close(Path(tmp))
+        self.assertIsNotNone(summary)
+        self.assertTrue(summary["ran"])
+        self.assertEqual(summary["bloated_tables"], ["docs"])
+        # only the bloated table is optimized (code, ratio 1.2, is not)
+        self.assertEqual(calls["tables"], ("docs",))
+        self.assertEqual(summary["reclaimed_bytes"], 640_000_000)
+        self.assertEqual(summary["needs_rebuild_deferred"], [])
+
+    def test_noop_when_no_table_bloated(self):
+        fake, calls = self._fake_indexer({})
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.object(self.srv, "_close_optimize_enabled", return_value=True), \
+                 patch.object(self.srv, "_index_table_bloat_ratios", return_value={"docs": 1.3, "code": 1.1}), \
+                 patch.object(self.srv, "_load_script", return_value=fake) as load:
+                summary = self.srv._maybe_optimize_index_on_close(Path(tmp))
+        self.assertIsNone(summary)
+        load.assert_not_called()  # gate short-circuits before loading the indexer
+        self.assertIsNone(calls["tables"])
+
+    def test_kill_switch_disables_even_when_bloated(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.object(self.srv, "_close_optimize_enabled", return_value=False), \
+                 patch.object(self.srv, "_index_table_bloat_ratios", return_value={"docs": 42.0}), \
+                 patch.object(self.srv, "_load_script") as load:
+                summary = self.srv._maybe_optimize_index_on_close(Path(tmp))
+        self.assertIsNone(summary)
+        load.assert_not_called()
+
+    def test_skips_when_build_lock_held(self):
+        fake, calls = self._fake_indexer({}, raise_busy=True)
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.object(self.srv, "_close_optimize_enabled", return_value=True), \
+                 patch.object(self.srv, "_index_table_bloat_ratios", return_value={"docs": 18.0}), \
+                 patch.object(self.srv, "_load_script", return_value=fake):
+                summary = self.srv._maybe_optimize_index_on_close(Path(tmp))
+        self.assertIsNotNone(summary)
+        self.assertFalse(summary["ran"])
+        self.assertEqual(summary["skipped"], "index_build_lock_held")
+
+    def test_optimize_error_is_swallowed_and_reported(self):
+        fake, calls = self._fake_indexer({}, raises=RuntimeError("disk exploded"))
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.object(self.srv, "_close_optimize_enabled", return_value=True), \
+                 patch.object(self.srv, "_index_table_bloat_ratios", return_value={"docs": 18.0}), \
+                 patch.object(self.srv, "_load_script", return_value=fake):
+                summary = self.srv._maybe_optimize_index_on_close(Path(tmp))
+        self.assertIsNotNone(summary)
+        self.assertFalse(summary["ran"])
+        self.assertEqual(summary["skipped"], "optimize_error")
+
+    def test_needs_rebuild_is_deferred_never_spawned(self):
+        # A tier-3/unreadable table reports needs_rebuild — close must DEFER it, never spawn a rebuild.
+        results = {"docs": {"tier": 3, "rows": 0, "needs_rebuild": True,
+                            "bytes_before": 100, "bytes_after": 100}}
+        fake, _calls = self._fake_indexer(results)
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.object(self.srv, "_close_optimize_enabled", return_value=True), \
+                 patch.object(self.srv, "_index_table_bloat_ratios", return_value={"docs": 18.0}), \
+                 patch.object(self.srv, "_load_script", return_value=fake), \
+                 patch.object(self.srv, "run_index_rebuild") as rebuild:
+                summary = self.srv._maybe_optimize_index_on_close(Path(tmp))
+            rebuild.assert_not_called()  # tier-3 spawn lives only in the response wrapper, not at close
+        self.assertEqual(summary["needs_rebuild_deferred"], ["docs"])
+
+    def test_never_raises_on_internal_failure(self):
+        # Any unexpected error inside the helper must be swallowed (a close never fails on reclaim).
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.object(self.srv, "_close_optimize_enabled", side_effect=RuntimeError("boom")):
+                self.assertIsNone(self.srv._maybe_optimize_index_on_close(Path(tmp)))
+
+    # --- wiring lock: runs before the refresh trigger, wired into wave_close ---
+
+    def test_close_wires_optimize_before_background_refresh(self):
+        import inspect
+        src = inspect.getsource(self.srv.wave_close_response)
+        opt = src.index("_maybe_optimize_index_on_close(root)")
+        refresh = src.index("_trigger_background_index_refresh_for_paths(root, refresh_paths)")
+        self.assertGreater(refresh, opt,
+                           "close-time optimize must run BEFORE the background refresh (lock still free)")
+
+
 class StalenessMonitorQuietPeriodTests(unittest.TestCase):
     """Wave 1p9am: the staleness monitor is a quiet-period safety net, not a competing trigger."""
 

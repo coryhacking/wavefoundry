@@ -64,6 +64,10 @@ Execution flow (no-MCP CLI fallback — `wf upgrade`; when MCP is attached, pref
  ```bash
  python3 .wavefoundry/framework/scripts/prune_framework.py --old-manifest /tmp/wf-manifest-old.txt
  ```
+ - **Remove the re-dropped bootstrap file.** The pack ships the single-use `install-wavefoundry.md` at the zip root, so `unzip -o` re-drops it at the repository root; prune is MANIFEST-scoped to `.wavefoundry/framework/` and never touches a root file. Delete it so it does not linger in the project root (the MCP `wave_upgrade` / `wf upgrade` path removes it automatically; this manual step is only for the fully-hand-run unzip fallback):
+ ```bash
+ rm -f install-wavefoundry.md
+ ```
  - **Reconcile journals** after prune and hook regeneration. For each journal file under `docs/agents/journals/`:
  - (a) **Rename known activity-log headings:** rename `Recent Captures` → `Active Signals` if the old heading is present.
  - (b) **Delete all activity-log sections by content, not by name:** identify *any* section — regardless of its heading — whose entries are solely wave-closed records, change-shipped summaries, or test-pass notes. Delete the entire section. The test: would any entry still matter to a new agent inheriting this role with no access to git history? If every entry in a section fails that test, delete the section.
