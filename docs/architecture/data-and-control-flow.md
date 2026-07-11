@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-03
+Last verified: 2026-07-11
 
 ## Primary Control Paths
 
@@ -65,10 +65,12 @@ The `scheme_version: "v2"` policy is provisioned by code, not agents: fresh inst
 8. `fastembed` embeds docs/seeds by default using `BAAI/bge-base-en-v1.5`; semantic code embeddings use the same model and run in the foreground by default, and the code pass skips framework internal tests plus non-source/test/generated files unless `--include-tests` or `--include-generated` is passed
 9. Project code indexing excludes `.wavefoundry/framework/` by default; repos can explicitly opt in additional excluded paths with `docs/workflow-config.json` -> `indexing.project_include_prefixes` (`docs` and `code` lists, consumed by `setup_index.py` and forwarded to `indexer.py --project-include-prefix`)
 10. Project index written to `.wavefoundry/index/` (LanceDB `docs`/`code` tables, graph sidecars, and `meta.json`) — this is the single semantic index; framework seeds fold into the project `docs` table at setup/upgrade
-11. Subsequent runs are incremental: only files whose SHA-256 changed are re-chunked; existing LanceDB rows for those paths are compared by `chunk_hash` so unchanged chunk vectors can be reused and only changed/new chunks are re-embedded
+11. Subsequent runs are incremental: only files whose SHA-256 changed are re-chunked; existing LanceDB rows for those paths are compared by `chunk_hash` so unchanged chunk vectors can be reused and only changed/new chunks are re-embedded. A path whose freshly-chunked `{id: chunk_hash}` map exactly matches the chunk registry (in the index-state store) skips its Lance read entirely (wave 1rsh9; kill switch `WAVEFOUNDRY_DISABLE_REGISTRY_INCREMENTAL`)
+12. Index-state store passes (wave 1rsh9, all inside the build lock, all derived-only and fail-safe): (a) SQLite FTS5 lexical tables + chunk registry sync in one store transaction ordered **after** the Lance writes, with an end-of-build chunk-id reconciliation repairing any crash window from Lance; (b) per-path build bookkeeping written to the store, then `meta.json` exported from it as a reader-contract-compatible snapshot (atomic-swap/Windows-retry retained); (c) freshness/attribution refresh from one batched `git log` pass (zero-change builds skip on the git-HEAD + path-set fingerprint); (d) end-of-build store maintenance — `wal_checkpoint(TRUNCATE)` + `incremental_vacuum` — so the WAL stays bounded under the long-lived MCP server
+13. The secrets scan consults the per-file scan cache (content hash + rules fingerprint) on the index-state store: matching files are skipped, scanned files' rows are upserted in one transaction; any cache problem fails toward a full scan (wave 1rsh9 / 1rsha)
 
-**State read:** entire repository tree (excluding index, binaries, ignores)
-**State written:** `.wavefoundry/index/` (gitignored)
+**State read:** entire repository tree (excluding index, binaries, ignores); git history (one batched `git log` per build for freshness)
+**State written:** `.wavefoundry/index/` (gitignored), including `index-state.sqlite`
 **Triggered by:** manual run, post-edit hook (background subprocess after each file edit), or qualifying MCP mutation tools after successful docs writes
 
 ### Path 6: MCP Tool Calls
@@ -151,6 +153,7 @@ Opt-in via `dashboard.auto_index: true` in `docs/workflow-config.json` (default:
 | `.mcp.json` | Engineering | Claude Code and compatible clients | render_platform_surfaces.py |
 | `.junie/mcp/mcp.json` | Engineering | JetBrains Junie / AI Assistant MCP | render_platform_surfaces.py |
 | `.wavefoundry/index/` | indexer.py | server.py | indexer.py (incremental) |
+| `.wavefoundry/index/index-state.sqlite` | index_state_store.py (wave 1rsh9) | server.py (read-only per-operation connections: FTS fusion, freshness primitive, health probe), scan_secrets.py / run_secrets_scan.py (scan cache) | indexer.py build passes, secrets-scan record, `wave_index_optimize` maintenance |
 | `.wavefoundry/dashboard-server.json` | dashboard_server.py | dashboard_server.py | dashboard_server.py |
 | Background refresh state `.wavefoundry/index/background-refresh.json` | MCP server runtime | server.py background refresh helper | MCP mutation/review tools that request detached docs-index refresh |
 | Wave records `docs/waves/<id>/wave.md` | wave-coordinator | wave inspection tools | wave lifecycle commands |

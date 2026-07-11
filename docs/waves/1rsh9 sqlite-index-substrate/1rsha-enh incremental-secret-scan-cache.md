@@ -1,10 +1,10 @@
 # Incremental Secret-Scan Cache (SQLite, Tier-2-Ready)
 
 Change ID: `1rsha-enh incremental-secret-scan-cache`
-Change Status: `planned`
+Change Status: `implemented`
 Owner: Engineering
-Status: planned
-Last verified: 2026-07-05
+Status: implemented
+Last verified: 2026-07-11
 Wave: `1rsh9 sqlite-index-substrate`
 
 ## Rationale
@@ -54,27 +54,27 @@ The load-bearing safety property: the cache is a skip optimization over the exis
 
 ## Acceptance Criteria
 
-- [ ] AC-1: Secret-scan state persists as a per-file table on the `1rq4h` store with `content_hash`, `rules_fingerprint`, `scanned_at`, clean flag, and finding refs; writes occur in a single transaction per scan pass and survive an interrupted build (crash-window fixture leaves the store consistent or triggers a clean full re-scan).
-- [ ] AC-2: A file whose `content_hash` and `rules_fingerprint` both match its cached row is skipped; any mismatch re-scans it; a content-identical file that git reports as changed (branch switch / whitespace / touch-revert fixtures) is correctly skipped.
-- [ ] AC-3: A ruleset change re-scans affected files and the scan output reports skipped-vs-scanned counts and the rules-change escalation flag.
-- [ ] AC-4: The per-rule hash catalog and per-file provenance are persisted from ruleset parsing (no per-rule execution required); a fixture shows the stored delta inputs are sufficient to identify added/removed/modified rules between two ruleset versions, with Tier-2 execution explicitly not performed.
-- [ ] AC-5: The feasibility spike result (viable / partially / not viable + blocking detail) is recorded in the Progress Log; no delta-execution code ships in this change.
-- [ ] AC-6: A differential test proves cache-path findings are identical to a no-cache `mode=full` scan across add/modify/delete/rename/revert and rules-change fixtures; divergence fails.
-- [ ] AC-7: A corrupt/missing/schema-mismatched cache degrades to a full scan with a loud diagnostic and never suppresses a finding; cache absence is a normal cold-start (no error).
-- [ ] AC-8: `scan-state.json` `rules_hash` consumers are unbroken (snapshot or migrated reader per the Decision Log), and `scan-findings.json` plus the `wave_close` secrets gate are behaviorally unchanged except for the scanned-file set.
-- [ ] AC-9: Full framework tests run bytecode-free and docs validation passes.
+- [x] AC-1: Secret-scan state persists as a per-file table on the `1rq4h` store with `content_hash`, `rules_fingerprint`, `scanned_at`, clean flag, and finding refs; writes occur in a single transaction per scan pass and survive an interrupted build (crash-window fixture leaves the store consistent or triggers a clean full re-scan). — `secret_scan_cache` table (schema v3) + `secret_scan_record` single transaction; `SkipCorrectnessTests::test_cache_row_shape_and_finding_refs` / `test_interrupted_write_leaves_consistent_store` (mid-transaction crash rolls back atomically).
+- [x] AC-2: A file whose `content_hash` and `rules_fingerprint` both match its cached row is skipped; any mismatch re-scans it; a content-identical file that git reports as changed (branch switch / whitespace / touch-revert fixtures) is correctly skipped. — `secret_scan_filter` content+rules gate; `SkipCorrectnessTests` (match-skip, content-change, rules-change, touch-and-revert, unreadable-never-skipped).
+- [x] AC-3: A ruleset change re-scans affected files and the scan output reports skipped-vs-scanned counts and the rules-change escalation flag. — `files_skipped`/`files_scanned`/`rules_change_escalation` in the `update_secrets_scan` summary, saved scan-state, and `run_secrets_scan.py` output JSON; `InstrumentationAndCompatTests`.
+- [x] AC-4: The per-rule hash catalog and per-file provenance are persisted from ruleset parsing (no per-rule execution required); a fixture shows the stored delta inputs are sufficient to identify added/removed/modified rules between two ruleset versions, with Tier-2 execution explicitly not performed. — `secret_rule_catalog` table + `_rule_catalog` (parse/hash via `load_merged_ruleset`, honoring merge/disable semantics); `RuleCatalogTests::test_stored_catalog_identifies_rule_deltas_between_versions` (added + modified + removed identified between v1/v2 catalogs).
+- [x] AC-5: The feasibility spike result (viable / partially / not viable + blocking detail) is recorded in the Progress Log; no delta-execution code ships in this change. — recorded 2026-07-10 (verdict: partially viable); zero delta-execution code shipped.
+- [x] AC-6: A differential test proves cache-path findings are identical to a no-cache `mode=full` scan across add/modify/delete/rename/revert and rules-change fixtures; divergence fails. — `DifferentialEquivalenceTests::test_equivalence_across_the_fixture_matrix` runs the REAL scanner over a git fixture repo through all six mutations, comparing normalized findings after every step; plus `test_cache_never_suppresses_a_finding_a_full_scan_reports`.
+- [x] AC-7: A corrupt/missing/schema-mismatched cache degrades to a full scan with a loud diagnostic and never suppresses a finding; cache absence is a normal cold-start (no error). — fail-safe `secret_scan_filter` (unreadable store → all candidates scanned) + version-gate reset; `SelfHealTests` (absent, byte-corrupt, schema-mismatch fixtures).
+- [x] AC-8: `scan-state.json` `rules_hash` consumers are unbroken (snapshot or migrated reader per the Decision Log), and `scan-findings.json` plus the `wave_close` secrets gate are behaviorally unchanged except for the scanned-file set. — scan-state.json kept as the exported snapshot (Decision Log 2026-07-10) with `rules_hash` semantics intact; findings ledger and `_check_secrets_gate` untouched; `InstrumentationAndCompatTests::test_scan_state_json_rules_hash_contract_preserved`.
+- [x] AC-9: Full framework tests run bytecode-free and docs validation passes. — full suite 4,809 tests OK bytecode-free (run_tests.py, 2026-07-10); `wave_validate` clean.
 
 ## Tasks
 
-- [ ] Add the per-file scan-cache schema (+ per-rule catalog + provenance) to the `1rq4h` store; bump the store schema version per convention.
-- [ ] Implement content_hash + rules_fingerprint skip in `run_secrets_scan.py` / `secrets_validators`, replacing the git-changed-only gate while keeping full-ruleset scanning for non-skipped files.
-- [ ] Persist the decomposed per-rule hash catalog and per-file provenance (parse/hash only).
-- [ ] Add skipped-vs-scanned + escalation instrumentation to the scan output JSON.
-- [ ] Run the per-rule-execution feasibility spike; record findings in the Progress Log.
-- [ ] Build the differential equivalence harness (cache vs full-scan) across the fixture matrix.
-- [ ] Implement derived-only self-heal (corruption/version-mismatch → full scan + diagnostic).
-- [ ] Resolve `scan-state.json` compatibility (snapshot vs reader migration); record the decision.
-- [ ] Run `python3 .wavefoundry/framework/scripts/run_tests.py` and `wave_validate`.
+- [x] Add the per-file scan-cache schema (+ per-rule catalog + provenance) to the `1rq4h` store; bump the store schema version per convention. — `secret_scan_cache` + `secret_rule_catalog` tables; schema version bumped 2→3 (sequenced after 1rrr0's bump per the wave watchpoint).
+- [x] Implement content_hash + rules_fingerprint skip in `run_secrets_scan.py` / `secrets_validators`, replacing the git-changed-only gate while keeping full-ruleset scanning for non-skipped files. — `secret_scan_filter`/`secret_scan_record` in the store module; `run_secrets_scan.py` incremental mode now takes ALL tracked files as candidates with the content-addressed skip deciding; `scan_secrets.update_secrets_scan` filters its changed-set through the cache; non-skipped files always scan with the full ruleset.
+- [x] Persist the decomposed per-rule hash catalog and per-file provenance (parse/hash only). — `_rule_catalog` via `load_merged_ruleset` (merge/disable semantics honored); per-file provenance = the cache row's `rules_fingerprint` referencing the catalog version.
+- [x] Add skipped-vs-scanned + escalation instrumentation to the scan output JSON. — `files_scanned`/`files_skipped`/`rules_change_escalation` in the build summary, saved scan-state, and the subprocess output JSON.
+- [x] Run the per-rule-execution feasibility spike; record findings in the Progress Log. — recorded 2026-07-10: partially viable.
+- [x] Build the differential equivalence harness (cache vs full-scan) across the fixture matrix. — `DifferentialEquivalenceTests` (real scanner, git fixture repo, add/modify/revert/rename/delete/rules-change).
+- [x] Implement derived-only self-heal (corruption/version-mismatch → full scan + diagnostic). — fail-safe filter + version-gate reset; `SelfHealTests`.
+- [x] Resolve `scan-state.json` compatibility (snapshot vs reader migration); record the decision. — kept as the exported snapshot (Decision Log 2026-07-10).
+- [x] Run `python3 .wavefoundry/framework/scripts/run_tests.py` and `wave_validate`. — full suite 4,809 tests OK bytecode-free (run_tests.py, 2026-07-10); `wave_validate` clean.
 
 ## Agent Execution Graph
 
@@ -129,6 +129,8 @@ The load-bearing safety property: the cache is a skip optimization over the exis
 | Date | Update | Evidence |
 | ---- | ------ | -------- |
 | 2026-07-05 | Drafted from operator direction to leverage the `1rq4h` SQLite store for incremental secret scanning as the graph did (1p9q3). Ships Tier 1 (per-file content+rules cache) with a Tier-2-ready schema (per-rule catalog + provenance persisted) so rule-delta scanning is a later additive step; feasibility spike recorded but non-committal. Admitted into wave 1rsh9 as its third change. | `run_secrets_scan.py` (single-field scan-state.json, rules-change full-rescan escalation); graph state store pattern (wave 1p9q3); `1rq4h` store substrate. |
+| 2026-07-10 | Implemented Tier 1: cache schema (store v3), fail-safe filter/record, both entry points wired (`scan_secrets.update_secrets_scan` + `run_secrets_scan.py`), instrumentation, Tier-2 catalog, differential harness (19 tests in `test_secret_scan_cache.py`, all green). **Fixed a latent rules-hash bug found on the way:** both entry points hashed `.wavefoundry/scan-rules.toml` — a path that never exists (the framework ruleset lives at `.wavefoundry/framework/scan-rules.toml`, per `wave_lint_lib.constants.SCAN_RULES_FRAMEWORK_PATH`) — so a framework-rules change (e.g. via upgrade) silently missed the promised full-re-scan escalation. Corrected in both `_RULES_RELPATHS` (pinned by a cross-module test); one-time effect: the hash changes on upgrade → one full re-scan, which is exactly the correct behavior for a fingerprint that now actually covers the rules. | `_RULES_RELPATHS` in `scan_secrets.py`/`run_secrets_scan.py`; `InstrumentationAndCompatTests::test_rules_relpaths_cover_the_real_framework_ruleset`; 297KB framework ruleset previously outside the hash. |
+| 2026-07-10 | **Feasibility spike (Req 5 / AC-5) — per-rule execution: PARTIALLY VIABLE.** (a) Mechanics: `check_hardcoded_secrets` loads the full merged ruleset internally (`load_merged_ruleset`) and exposes no rules-subset parameter — Tier 2 needs a small additive `rules_filter` argument (phase-1 matching already iterates rules independently, so subset execution is structurally safe; a filtered temp ruleset file is NOT an option because it would corrupt the rules-hash semantics). (b) Phase-2 semantics survive subsets: the global allowlist (paths/regexes/stopwords) is rule-independent and per-rule allowlists ride each rule dict, so running a subset preserves exception/allowlist behavior for the executed rules. (c) The blocking design question: REMOVED-rule disposal — dropping removed-rule findings with zero scanning means sweeping `scan-findings.json` entries by `rule_id`, which discards any false-positive confirmation history attached to them; a later re-added rule would need re-confirmation. Acceptable, but it must be an explicit Tier-2 decision, not incidental. No delta-execution code ships in this change. | `check_hardcoded_secrets` signature (root, scan_all, files, max_workers, as_of, record_only); `load_merged_ruleset` merge/disable flow; per-rule loop at `secrets_validators.py:1420`; finding entries carry `file` + rule attribution. |
 
 
 ## Decision Log
@@ -137,6 +139,8 @@ The load-bearing safety property: the cache is a skip optimization over the exis
 | Date | Decision | Reason | Alternatives |
 | ---- | -------- | ------ | ------------ |
 | 2026-07-05 | Ship Tier 1 (per-file content+rules cache) now on the `1rq4h` store, with a Tier-2-ready schema (decomposed per-rule catalog + per-file provenance persisted, delta execution deferred). | The incremental path is already git-gated, so Tier 1's honest win is robustness/crash-safety/git-decoupling; the large speedup is Tier 2 (rule delta), which carries an equivalence burden and a feasibility unknown. Storing the delta inputs now makes Tier 2 additive rather than a rewrite, matching the operator's "easily move toward Tier 2" direction. | **Tier 1 only, no Tier-2 schema:** weakness — a later Tier 2 would need a schema migration and re-derivation of per-rule state. **Full Tier 2 now:** weakness — commits to rule-delta correctness and per-rule execution before the feasibility spike, risking a scanner that finds fewer secrets than a full scan. **Do nothing:** weakness — leaves the whole-repo rules-change re-scan and git-coupled skip in place, and forgoes crash-safe state. |
+| 2026-07-10 | `scan-state.json` kept as the exported snapshot (its `rules_hash` still written every pass); the cache supersedes it as the working skip state. | Lower-risk of the two Req-8 options: zero reader changes, the file is one small JSON, and the write already existed; migrating the sole reader buys nothing this change needs. | **Migrate the reader:** weakness — touches the escalation decision path for no functional gain. |
+| 2026-07-10 | Incremental candidates: `run_secrets_scan.py` uses ALL tracked files with the content-addressed skip (git gate replaced — precise across branch switches/touch-revert, decoupled from git status; first post-ship scan is a one-time cold-cache full pass); the indexer build path keeps its precise changed-set as candidates and cache-filters within it. `--mode full` and rules/scanner-version escalations bypass the skip entirely and repopulate the cache. | The standalone scanner is where git-noise waste lived; the indexer already has exact change detection, so filtering within its changed-set adds robustness without re-hashing the repo every build. Full-mode bypass keeps an operator's explicit full scan a REAL full scan (cache-recovery escape hatch). | **Cache-filter full scans too:** weakness — an operator asking for a full scan after suspected cache trouble would silently get skips. **All-tracked candidates on the build path too:** weakness — hashes the whole repo on every post-edit hook build for marginal gain. |
 | 2026-07-05 | Cache is a skip optimization over the unchanged scanner, protected by a differential equivalence harness and derived-only self-heal. | A secret scanner must never find fewer secrets because of a cache; the equivalence net + fail-to-full-scan on any cache problem make the optimization safe by construction. | **Trust the cache as source of truth:** weakness — a cache bug becomes a missed secret, the worst possible failure mode for this subsystem. |
 
 

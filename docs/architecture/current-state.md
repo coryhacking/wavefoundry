@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-02
+Last verified: 2026-07-11
 
 ## Runtime Topology
 
@@ -76,9 +76,16 @@ setup_wavefoundry.py --root .
   ├── chunker.py       →  chunk_python (AST) / chunk_markdown / tree-sitter chunkers for JS/TS/Go/Rust/Java/C/C++/C#/Bash/Kotlin / chunk_line_window fallback
   ├── fastembed        →  BAAI/bge-small-en-v1.5 via selected ONNX provider
   └── .wavefoundry/index/
-        ├── docs.npy / docs.json
-        ├── code.npy / code.json
-        └── meta.json  (file hashes, model/chunker/walker versions for incremental rebuild)
+        ├── docs.lance/ / code.lance/  (LanceDB chunk + vector tables; vector index only —
+        │              the Lance/Tantivy FTS was retired in wave 1rsh9, legacy indices
+        │              dropped by the reclaim path at upgrade)
+        ├── meta.json  (exported snapshot of the store's bookkeeping — file hashes,
+        │              model/chunker/walker versions for incremental rebuild)
+        ├── index-state.sqlite  (wave 1rsh9 — derived-only relational sidecar: freshness/
+        │              attribution tables, FTS5 lexical tables, per-path bookkeeping +
+        │              chunk registry, per-file secret-scan cache; WAL, schema-versioned,
+        │              drop-and-rebuild recovery; maintained by wave_index_optimize)
+        └── graph/  (graph artifacts + project-graph-state.sqlite merge store)
 
 build_pack.py
   ├── stamps .wavefoundry/framework/VERSION

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-01
+Last verified: 2026-07-11
 
 ## The Problem
 
@@ -303,16 +303,37 @@ For code navigation (Layer 2 and 3), there is no fallback: the tools either retu
 
 ---
 
+## Hybrid Lexical Layer (SQLite FTS5)
+
+Wave 1rsh9 added the retrieval-quality lever the project's own findings kept pointing at: hybrid lexical + reranking, not a better embedder. Dense retrieval is weakest exactly where agents need precision — exact identifiers, rare tokens, error strings — and the cross-encoder can only rerank candidates the fetch actually surfaced.
+
+**Mechanics.** The index-state store (`index-state.sqlite`, see Index Format) carries one contentful FTS5 table per Lance content table (`fts_docs`, `fts_code`), keyed by chunk id and maintained by the build under an ordered-consistency model: Lance is authoritative for chunk existence, the store's rows commit in one SQLite transaction ordered after the Lance writes, and an end-of-build reconciliation pass (chunk-id set comparison → derived-only rebuild from Lance) repairs any crash window. Tokenizer: `unicode61 tokenchars '_'` — compound identifiers stay whole tokens, because exact-identifier queries are this layer's reason to exist (concept queries are the dense layer's job).
+
+**Fusion.** `search_combined` (the `code_ask` retrieval core) fetches top-`LEXICAL_TOP_K` BM25 candidates per table alongside the vector candidates and merges them into the pool **before** the cross-encoder rerank, so the reranker arbitrates on one unified scale. Lexical hits form a third selection source, so the selection's key-merge unions `sources` — a chunk found by both passes carries `["code", "lexical"]` (multi-source agreement, same convention RRF fusion rewarded). User query text reaches FTS5 only as a bound parameter with every token quoted (operators become literals); a query FTS5 rejects degrades that call to vector-only with no error. When the reranker is unavailable, lexical candidates get rank-derived fallback scores (`LEXICAL_RRF_FALLBACK_WEIGHT`). Kill switch: `WAVEFOUNDRY_DISABLE_LEXICAL_FUSION`.
+
+**Availability.** FTS5 presence is probed once per process and recorded in store meta; absence degrades to vector-only retrieval with no lexical tables and no errors. `code_keyword` is untouched — live grep remains the exactness contract; FTS is a ranked-retrieval candidate source, not a keyword-tool replacement.
+
+**One lexical engine.** The FTS5 layer is the ONLY lexical index. The former Lance/Tantivy FTS (retired in wave 1rsh9/1sauc) rebuilt whole on every changed build and leaked un-GC-able index versions under `_indices/` (measured 98 MB on this repo); its one consumer — `search_code`'s hybrid lexical half — now reads the FTS5 tables (`kind`/`tags` filter inside the query; `language` rides the rows for the post-filter; scores are −bm25 so the RRF merge order holds), and the reclaim path drops legacy Tantivy indices from field repos at upgrade.
+
+---
+
 ## Index Format
 
 ```
 .wavefoundry/index/
- docs.npy float32 matrix [n_chunks × dim]
- docs.json list of chunk dicts, row-parallel with docs.npy
- code.npy float32 matrix [n_code_chunks × dim]
- code.json list of code chunk dicts
- meta.json { model_versions, content, file_hashes, built_at }
+ docs.lance/ LanceDB table: doc chunks + vectors (vector index only —
+ the Lance/Tantivy FTS was retired in wave 1rsh9; legacy
+ indices are dropped by the reclaim path at upgrade)
+ code.lance/ LanceDB table: code chunks + vectors
+ meta.json { model_versions, chunker_versions, walker_version, content, file_meta, built_at }
+ index-state.sqlite semantic-index state store (wave 1rsh9) — derived-only relational
+ sidecar: freshness/attribution tables, FTS5 lexical tables
+ (fts_docs/fts_code), per-path build bookkeeping + chunk registry,
+ per-file secret-scan cache. WAL journaling; schema-versioned;
+ drop-and-rebuild on corruption or version mismatch.
 ```
+
+`meta.json` is now an **exported snapshot**: the store's bookkeeping tables are the working source of truth for per-path build state, and `meta.json` is generated from them at the end of each build (reader-contract compatible — every existing reader keeps working unchanged; the atomic-swap/Windows-retry write machinery is retained).
 
 **Chunk schema:**
 

@@ -190,6 +190,19 @@ LANCEDB_REFINE_FACTOR = 10  # reranking candidates multiplier
 RRF_NAVIGATIONAL_CODE_WEIGHT = 1.5
 RRF_NAVIGATIONAL_DOCS_WEIGHT = 1.0
 
+# Hybrid lexical fusion (wave 1rsh9 / 1rrr0): BM25 candidates from the
+# index-state store's SQLite FTS5 tables are merged into the candidate pool
+# BEFORE the cross-encoder rerank — the documented dense-retrieval weak
+# patterns (exact identifiers, rare tokens, error strings) get a real lexical
+# signal, and the reranker arbitrates on the unified sigmoid scale.
+LEXICAL_TOP_K = 20  # BM25 candidates fetched per FTS table (docs + code)
+# When the cross-encoder is unavailable, lexical candidates would otherwise sit
+# at score 0.0 (they carry no cosine). They join the fallback ordering with a
+# rank-derived score: WEIGHT / (1 + bm25_rank) — rank 0 lands high in its
+# source bucket but below very-strong cosine matches (> the weight).
+LEXICAL_RRF_FALLBACK_WEIGHT = 0.75
+LEXICAL_FUSION_DISABLE_ENV = "WAVEFOUNDRY_DISABLE_LEXICAL_FUSION"  # kill switch (1rrr0 Req 3)
+
 # Path segments that identify scaffolding/wiring layers across framework families.
 # Citations from these layers confirm a connection exists but do not contain business logic.
 # Cloud IaC: CDK, Terraform — Node/TS: Express, NestJS — JVM: Spring — generic infra labels.
@@ -551,23 +564,49 @@ class WaveIndex:
             return stripped[1:-1]
         return query
 
-    def _lance_fts_search(self, table, query: str, top_n: int, where: Optional[str] = None, layer: str = "project") -> list[dict]:
+    def _fts5_lexical_search(
+        self,
+        table_name: str,
+        query: str,
+        top_n: int,
+        kind: Optional[str] = None,
+        tags: Optional[list] = None,
+        layer: str = "project",
+    ) -> list[dict]:
+        """Lexical candidates from the index-state store's FTS5 tables (wave 1rsh9 / 1sauc).
+
+        Replaces the retired Lance/Tantivy ``_lance_fts_search`` as the FTS
+        half of ``search_code``'s hybrid merge. Filter parity with the Lance
+        ``where`` clause it replaced: exact ``kind`` match and any-of ``tags``
+        substring match apply inside the FTS5 query; the ``language``
+        post-filter works because rows carry a ``language`` field. Scores are
+        ``-bm25`` (higher = better) so the existing best-first sort and RRF
+        rank order hold. Every degrade path — absent store, FTS5-less
+        interpreter, FTS-hostile query — returns ``[]`` (dense-only hybrid),
+        never an error.
+        """
         fts_q = self._fts_query(query)
         try:
-            q = table.search(fts_q, query_type="fts").limit(top_n)
-            if where:
-                q = q.where(where, prefilter=True)
-            results = q.to_list()
-        except Exception:
+            iss = _load_script("index_state_store")
+            index_dir = Path(self.root) / ".wavefoundry" / "index"
+            hits = iss.fts_search(index_dir, table_name, fts_q, limit=top_n,
+                                  kind=kind, tags_any=tags)
+        except Exception:  # noqa: BLE001 - the lexical half is additive only
             return []
         out = []
-        for r in results:
-            d = dict(r)
-            score = d.pop("_score", None)
-            d.pop("vector", None)
-            d["path"] = self._qualify_index_path(d.get("path", ""), layer)
-            d["score"] = float(score) if score is not None else 0.0
-            out.append(d)
+        for h in hits:
+            out.append({
+                "id": h.get("id", ""),
+                "path": self._qualify_index_path(h.get("path", ""), layer),
+                "kind": h.get("kind", ""),
+                "language": h.get("language", ""),
+                "tags": h.get("tags", ""),
+                "lines": list(h.get("lines") or []),
+                "text": h.get("text", ""),
+                # sqlite bm25() is smaller-is-better (negative); negate so the
+                # existing higher-is-better sort and RRF ordering apply.
+                "score": -float(h.get("bm25", 0.0)),
+            })
         return out
 
     def _indexer_module(self):
@@ -1529,6 +1568,41 @@ class WaveIndex:
         out.sort(key=_wscore, reverse=True)
         return out
 
+    def _lexical_candidates(self, query: str) -> list[dict]:
+        """Wave 1rsh9 (1rrr0): BM25 candidates from the index-state store's FTS5 tables.
+
+        Returns candidate dicts shaped like ``_lance_search`` output (path,
+        kind, lines, text, score=0.0 — the rerank scores them) ordered
+        best-first by BM25 across both tables. Every degrade path — store
+        absent, FTS unavailable, FTS-hostile query, any sqlite error — returns
+        ``[]`` so retrieval stays vector-only with no error.
+        """
+        try:
+            iss = _load_script("index_state_store")
+        except Exception:
+            return []
+        index_dir = Path(self.root) / ".wavefoundry" / "index"
+        hits: list[dict] = []
+        for table_name in ("docs", "code"):
+            try:
+                rows = iss.fts_search(index_dir, table_name, query, limit=LEXICAL_TOP_K)
+            except Exception:  # noqa: BLE001 - lexical is additive only
+                rows = []
+            hits.extend(rows)
+        # sqlite bm25() is smaller-is-better (negative); best-first ascending.
+        hits.sort(key=lambda h: h.get("bm25", 0.0))
+        out: list[dict] = []
+        for h in hits:
+            out.append({
+                "id": h.get("id", ""),
+                "path": self._qualify_index_path(h.get("path", "")),
+                "kind": h.get("kind") or "",
+                "lines": list(h.get("lines") or []),
+                "text": h.get("text", ""),
+                "score": 0.0,
+            })
+        return out
+
     def _indexer_constant(self, name: str) -> str:
         mod = _load_script("indexer")
         return getattr(mod, name)
@@ -1617,10 +1691,13 @@ class WaveIndex:
             return self._lance_search(table, qvec, fetch_n, where=where, layer=layer)
 
         def _code_fts(layer: str) -> list[dict]:
-            table = self._open_lance_table(layer, "code")
-            if table is None:
-                return []
-            return self._lance_fts_search(table, query, fetch_n, where=where, layer=layer)
+            # Wave 1rsh9 (1sauc): the lexical half of the hybrid merge comes
+            # from the index-state store's FTS5 tables (the Lance/Tantivy FTS
+            # is retired). kind/tags filter inside the FTS5 query; the
+            # language post-filter below applies because rows carry language.
+            return self._fts5_lexical_search(
+                "code", query, fetch_n, kind=kind, tags=tags, layer=layer
+            )
 
         if getattr(self, "_lance_available", None):
             dense_lists: list[list[dict]] = []
@@ -1766,6 +1843,35 @@ class WaveIndex:
 
         all_candidates = docs_candidates + code_candidates
 
+        # --- Hybrid lexical fusion (wave 1rsh9 / 1rrr0) ---
+        # BM25 candidates from the index-state store's FTS5 tables join the
+        # pool BEFORE the rerank (the cross-encoder arbitrates); candidates
+        # already retrieved by the vector pass are tagged instead of
+        # duplicated, preserving the multi-source agreement signal. The kill
+        # switch removes all lexical participation.
+        _lex_src: list[dict] = []
+        if not os.environ.get(LEXICAL_FUSION_DISABLE_ENV):
+            try:
+                _lex_hits = self._lexical_candidates(query)
+            except Exception:  # noqa: BLE001 - lexical is additive only
+                _lex_hits = []
+            if _lex_hits:
+                _by_key = {
+                    (c.get("path", ""), tuple(c.get("lines") or [])): c
+                    for c in all_candidates
+                }
+                for _rank, _h in enumerate(_lex_hits):
+                    _k = (_h.get("path", ""), tuple(_h.get("lines") or []))
+                    _existing = _by_key.get(_k)
+                    if _existing is not None:
+                        _existing.setdefault("_lex_rank", _rank)
+                        _lex_src.append(_existing)
+                    else:
+                        _h["_lex_rank"] = _rank
+                        _lex_src.append(_h)
+                        all_candidates.append(_h)
+                        _by_key[_k] = _h
+
         # --- Definition-file boosting: vocabulary-triggered keyword augmentation ---
         q_lower = query.lower()
         definition_boosted: list[str] = []
@@ -1853,6 +1959,14 @@ class WaveIndex:
         # cross-encoder path and the `rrf_fallback` path were REMOVED here — `docs_search`/`code_search`
         # keep their own independent rerank. (`rerank` param retained for API compat; ignored.)
         agent_reranked = self._agent_rerank(query, all_candidates)
+        # Lexical fallback scores (1rrr0 Req 3): with the reranker unavailable,
+        # lexical-only candidates carry no cosine — give them a rank-derived
+        # score with the named weight so they participate in the fallback
+        # ordering instead of sinking at 0.0.
+        if not agent_reranked and _lex_src:
+            for _c in _lex_src:
+                if not (_c.get("score") or 0.0):
+                    _c["score"] = LEXICAL_RRF_FALLBACK_WEIGHT / (1.0 + float(_c.get("_lex_rank", 0)))
         # Apply the doc-type relevance prior BEFORE selection — a validated signal (code >
         # reference/narrative docs for code-implementation questions); applied up front so the floor +
         # drop-off operate on the adjusted relevance and the demoted prose tail falls below the cutoff.
@@ -1891,7 +2005,14 @@ class WaveIndex:
         )
         # Citations are SEMANTIC-only (docs + code). The structural graph signal (1p4hu) goes to the
         # dedicated relationship-grouped ``graph_related`` section, bounded by AGENT_GRAPH_SIGNAL_CAP.
+        # Wave 1rsh9 (1rrr0): the lexical hits form a third source list — the
+        # selection's key-merge unions ``sources``, so a chunk found by both
+        # the vector and BM25 passes carries e.g. ["code", "lexical"] (the
+        # existing source-marker convention, extended).
         _agent_sources = {"docs": _docs_src, "code": _code_src}
+        if _lex_src:
+            _lex_src.sort(key=lambda c: c.get("score") or 0.0, reverse=True)
+            _agent_sources["lexical"] = _lex_src
         _graph_src = self._graph_signal_candidates(query, all_candidates, cap=AGENT_GRAPH_SIGNAL_CAP)
         # Wave 1p66t: enumeration queries ("which/all X") need the full set, not a reranked top-k —
         # widen the text budget so more of the set clears the selection cutoff (bounded by the mult).
@@ -1921,6 +2042,7 @@ class WaveIndex:
         for r in results:
             r.pop("_sym_injected", None)
             r.pop("_graph_kind", None)
+            r.pop("_lex_rank", None)
         rerank_ms = round((time.monotonic() - t_rerank) * 1000)
         return results, agent_reranked, vector_ms, rerank_ms, definition_boosted, second_hop_symbols, symbol_extraction_method, graph_related
 
@@ -3518,6 +3640,39 @@ def _graph_health_summary(root: Path) -> dict[str, Any]:
             "present": True, "last_built_at": last_built,
             "node_count": node_count, "edge_count": edge_count,
         }
+    return summary
+
+
+def _state_store_health_summary(root: Path) -> dict[str, Any]:
+    """Wave 1rsh9 (1rq4h): index-state store presence, schema version, integrity.
+
+    Runs the two-layer probe (structural ``quick_check`` + freshness
+    source-fingerprint binding). Shape:
+        {"present": bool, "schema_version": str | None,
+         "integrity": "ok" | "structural-fail" | "stale-fingerprint" | None,
+         "size_bytes": int}
+    Absence of the store (or of the module in an older pack) reports
+    ``present: False`` with no diagnostics — a normal not-yet-built state.
+    """
+    index_dir = root / ".wavefoundry" / "index"
+    summary: dict[str, Any] = {
+        "present": False, "schema_version": None, "integrity": None, "size_bytes": 0,
+    }
+    try:
+        iss = _load_script("index_state_store")
+    except Exception:
+        return summary
+    try:
+        store_path = iss.state_store_path(index_dir)
+        if not store_path.exists():
+            return summary
+        summary["present"] = True
+        summary["size_bytes"] = iss._store_size_bytes(store_path)
+        probe = iss.probe_state_store(root, index_dir, deep=False)
+        summary["integrity"] = probe.get("status")
+        summary["schema_version"] = probe.get("schema_version")
+    except Exception:
+        pass
     return summary
 
 
@@ -6570,6 +6725,22 @@ def wave_index_health_response(index: WaveIndex) -> dict[str, Any]:
     # graph_last_built_at per layer alongside the existing fields.
     health["graph"] = _graph_health_summary(index.root)
 
+    # Wave 1rsh9 (1rq4h): index-state store presence + schema version + two-layer
+    # integrity verdict (quick_check + freshness-fingerprint binding). Absence
+    # is a normal not-yet-built state, never an error (AC-2/AC-6).
+    health["state_store"] = _state_store_health_summary(index.root)
+    if health["state_store"].get("integrity") == "structural-fail":
+        diagnostics.append(
+            _diagnostic(
+                "state_store_structural_fail",
+                "The index-state store failed its structural integrity check. It is "
+                "derived-only: the next index build drops and rebuilds it automatically, "
+                "or run wave_index_optimize() to verify and reclaim now.",
+                recovery_tools=["wave_index_optimize", "wave_index_build"],
+                recovery_usage="wave_index_optimize()",
+            )
+        )
+
     semantic_ready = health.get("semantic_ready")
     return _response(
         "ok",
@@ -7119,7 +7290,14 @@ def _wave_index_optimize_response(
     unreadable) — over the ``docs``/``code`` Lance tables, with **no** re-embedding in the common case.
     Returns per-table ``{tier, rows, size_before, size_after, reclaimed}`` plus a total. When
     ``rebuild_if_needed`` and a table was unreadable (Tier 3), a full rebuild is spawned in the
-    background after the build lock is released."""
+    background after the build lock is released.
+
+    Wave 1rsh9 (1rq4h): this is now the unified maintenance verb for EVERY index. After the Lance
+    pass it also runs SQLite maintenance — WAL checkpoint/truncate, ``VACUUM``, ``PRAGMA optimize``,
+    and the two-layer integrity check — across every reachable SQLite store: the index-state store
+    and the graph state store (closing the old "graph index is not reclaimed this way" gap).
+    SQLite maintenance runs under the same index-build lock, is on-demand only (never alters the
+    graph build path), and reports per-store ``size_before/size_after/reclaimed`` under ``stores``."""
     content_s = (content or "all").strip().lower()
     layer_map = {"docs": ("docs",), "code": ("code",), "all": ("docs", "code"), "": ("docs", "code")}
     tables = layer_map.get(content_s)
@@ -7129,8 +7307,9 @@ def _wave_index_optimize_response(
             {"content": content, "operation": "optimize"},
             diagnostics=[_diagnostic(
                 "invalid_arguments",
-                f"wave_index_optimize operates on the Lance tables — content must be 'docs', 'code', or "
-                f"'all' (got {content!r}). The graph index is not reclaimed this way.",
+                f"wave_index_optimize's content selects the Lance tables — it must be 'docs', 'code', or "
+                f"'all' (got {content!r}). The SQLite stores (index-state + graph state) are always "
+                f"maintained alongside whichever Lance selection runs.",
             )],
             next_tools=["wave_index_health"],
             usage="wave_index_optimize(content='all')",
@@ -7162,11 +7341,64 @@ def _wave_index_optimize_response(
             next_tools=["wave_index_health"],
             usage="wave_index_health()",
         )
+    # Wave 1rsh9 (1rq4h): unified maintenance — SQLite stores (index-state +
+    # graph state) get WAL checkpoint/truncate, full VACUUM, PRAGMA optimize,
+    # and the deep integrity check, under the same index-build lock discipline
+    # as the Lance pass. Best-effort: a lock conflict or error is reported as
+    # a diagnostic, never a failure of the Lance results.
+    stores_out: dict[str, Any] = {}
+    store_diagnostics: list[dict[str, Any]] = []
+    stores_reclaimed = 0
+    try:
+        iss = _load_script("index_state_store")
+        with idx._index_build_lock(index_dir):
+            raw_stores = iss.optimize_state_stores(index_dir, full_vacuum=True, deep_integrity=True)
+        for name, res in raw_stores.items():
+            s_before = int(res.get("size_before_bytes") or 0)
+            s_after = int(res.get("size_after_bytes") or 0)
+            s_reclaimed = int(res.get("reclaimed_bytes") or 0)
+            stores_reclaimed += s_reclaimed
+            stores_out[name] = {
+                "present": bool(res.get("present")),
+                "integrity": res.get("integrity"),
+                "size_before_bytes": s_before,
+                "size_before": _human_bytes(s_before),
+                "size_after_bytes": s_after,
+                "size_after": _human_bytes(s_after),
+                "reclaimed_bytes": s_reclaimed,
+                "reclaimed": _human_bytes(s_reclaimed),
+                "error": res.get("error"),
+            }
+            if res.get("present") and res.get("integrity") == "structural-fail":
+                store_diagnostics.append(_diagnostic(
+                    "state_store_structural_fail",
+                    f"SQLite store '{name}' failed its integrity check. Stores are derived-only: "
+                    f"the next build (or graph rebuild) drops and repopulates it automatically.",
+                    recovery_tools=["wave_index_build"],
+                    recovery_usage="wave_index_build(content='all', mode='update')",
+                ))
+    except Exception as exc:  # noqa: BLE001
+        if already_running is not None and isinstance(exc, already_running):
+            store_diagnostics.append(_diagnostic(
+                "build_skipped_lock_busy",
+                f"SQLite store maintenance skipped — a build is running ({exc}). Retry once "
+                f"wave_index_build_status reports lock.held false.",
+                recovery_tools=["wave_index_build_status"],
+                recovery_usage="wave_index_build_status()",
+            ))
+        else:
+            store_diagnostics.append(_diagnostic(
+                "state_store_maintenance_failed", f"SQLite store maintenance failed: {exc}",
+            ))
     if not results:
         return _response(
             "ok",
             {"content": content_s, "operation": "optimize", "tables": {},
+             "stores": stores_out,
+             "total_reclaimed_bytes": stores_reclaimed,
+             "total_reclaimed": _human_bytes(stores_reclaimed),
              "note": "No matching Lance tables present to optimize."},
+            diagnostics=store_diagnostics,
             next_tools=["wave_index_health"],
             usage="wave_index_health()",
         )
@@ -7196,7 +7428,7 @@ def _wave_index_optimize_response(
             needs_rebuild.append(t)
     if cache:
         cache.invalidate()
-    diagnostics = []
+    diagnostics = list(store_diagnostics)
     rebuilt: list[str] = []
     if needs_rebuild and rebuild_if_needed:
         # Tier 3: a table was unreadable for a rewrite. The build lock is released now (optimize_index_tables
@@ -7228,13 +7460,14 @@ def _wave_index_optimize_response(
             recovery_tools=["wave_index_build"],
             recovery_usage=f"wave_index_build(content='{needs_rebuild[0]}', mode='rebuild')",
         ))
-    total_reclaimed = max(0, total_before - total_after)
+    total_reclaimed = max(0, total_before - total_after) + stores_reclaimed
     return _response(
         "ok",
         {
             "content": content_s,
             "operation": "optimize",
             "tables": tables_out,
+            "stores": stores_out,
             "total_reclaimed_bytes": total_reclaimed,
             "total_reclaimed": _human_bytes(total_reclaimed),
             "needs_rebuild": needs_rebuild,
@@ -18359,11 +18592,17 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         minutes-long full re-embed a `wave_index_build(mode='rebuild')` costs. It also runs automatically
         at the end of `setup` (install) and `upgrade`.
 
-        Response: per-table `{tier, rows, size_before, size_after, reclaimed}`, a `total_reclaimed`, plus
+        **Unified maintenance verb (wave 1rsh9):** alongside the Lance pass, every reachable SQLite
+        store — the index-state store (`index-state.sqlite`) and the graph state store — gets WAL
+        checkpoint/truncate, `VACUUM`, `PRAGMA optimize`, and a full integrity check, under the same
+        index-build lock. One command maintains every index.
+
+        Response: per-table `{tier, rows, size_before, size_after, reclaimed}`, per-store equivalents
+        under `stores` (with an `integrity` verdict each), a `total_reclaimed`, plus
         `needs_rebuild`/`rebuild_spawned` for any Tier-3 table. Reads `lock`-busy via `wave_index_build_status`.
 
         Args:
-            content: `docs`, `code`, or `all` (the graph index is not reclaimed this way).
+            content: `docs`, `code`, or `all` — selects the Lance tables; the SQLite stores are always maintained.
             rebuild_if_needed: when a table is unreadable (Tier 3), spawn a full background rebuild for it.
         """
         bad = _ensure_no_extra_args("wave_index_optimize", kwargs)
@@ -19395,6 +19634,12 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
                 pass
         else:
             lines.append("Run `wave_index_build(content='docs', mode='update')` to build.\n")
+        # Index-state store (wave 1rsh9 / 1rq4h)
+        state = _state_store_health_summary(_root)
+        lines.append(f"\n## Index-State Store\n\n**Present:** {'yes' if state.get('present') else 'no'}\n")
+        if state.get("present"):
+            lines.append(f"**Schema version:** {state.get('schema_version') or 'unknown'}\n")
+            lines.append(f"**Integrity:** {state.get('integrity') or 'unknown'}\n")
         # Graph index
         graph_payload = _load_graph_query().load_graph(_root, layer="project")
         graph_present = graph_payload.get("present", False)

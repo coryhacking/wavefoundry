@@ -3326,23 +3326,18 @@ class LanceIndexCleanupTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def test_streaming_finalize_rebuilds_fts_replace_true_and_optimizes(self):
-        # AC-1 + AC-3 (white-box): _finalize_inner uses replace=True for the FTS index and calls
-        # _optimize_lance_table on the table after building the indices.
+    def test_streaming_finalize_optimizes_and_builds_no_lance_fts(self):
+        # Wave 1rsh9 (1sauc): the Lance/Tantivy FTS is retired — finalize
+        # compacts the table but creates NO Lance FTS index (the lexical layer
+        # is the index-state store's FTS5 tables).
         w = self.bi._StreamingLayerWriter.__new__(self.bi._StreamingLayerWriter)
         w.table = MagicMock()
         w.table_name = "docs"
         w.written = self.bi.LANCEDB_INDEX_THRESHOLD + 1
-        with patch.object(self.bi, "_create_fts_index") as fts, \
-             patch.object(self.bi, "_optimize_lance_table") as opt:
+        with patch.object(self.bi, "_optimize_lance_table") as opt:
             w._finalize_inner(verbose=False)
-        fts.assert_called_once()
-        # replace=True, whether passed positionally (3rd arg) or by keyword.
-        replace = fts.call_args.kwargs.get("replace")
-        if replace is None and len(fts.call_args.args) >= 3:
-            replace = fts.call_args.args[2]
-        self.assertIs(replace, True, "FTS must use replace=True")
         opt.assert_called_once_with(w.table)
+        w.table.create_fts_index.assert_not_called()
 
     def test_streaming_finalize_none_table_is_noop(self):
         w = self.bi._StreamingLayerWriter.__new__(self.bi._StreamingLayerWriter)
@@ -3367,26 +3362,37 @@ class LanceIndexCleanupTests(unittest.TestCase):
             self.bi.build_index(self.root, full=True, content="all", verbose=False)
         self.assertTrue(opt.called, "a full rebuild must run the compaction/cleanup at finalize")
 
-    def test_incremental_change_rebuilds_fts(self):
-        # AC-2 (integration): an incremental pass that actually changes a table rebuilds the FTS
-        # index (replace=True) so the new rows are searchable. The rebuild is gated on real change —
-        # a no-op pass does not re-materialize an identical index (churn reduction).
+    def test_no_lance_fts_created_anywhere(self):
+        # Wave 1rsh9 (1sauc): source-assertion removal lock — no build path
+        # creates or refreshes a Lance FTS index. The only permitted
+        # `create_fts_index` mention is inside the legacy-cleanup helper's
+        # detection logic or comments; the call itself must be gone.
+        src = (Path(self.bi.__file__)).read_text(encoding="utf-8")
+        self.assertNotIn("_create_fts_index", src)
+        self.assertNotIn(".create_fts_index(", src)
+        # The legacy drop helper exists and is wired into the reclaim path.
+        self.assertIn("def _drop_legacy_fts_indices(", src)
+        reclaim_pos = src.index("def reclaim_lance_table(")
+        drop_pos = src.index("_drop_legacy_fts_indices(table, table_name)", reclaim_pos)
+        self.assertGreater(drop_pos, reclaim_pos)
+
+    def test_incremental_change_creates_no_lance_fts(self):
+        # Wave 1rsh9 (1sauc): an incremental pass that changes a table must
+        # NOT create/rebuild a Lance FTS index (the 1p95j rebuild is retired).
         _make_repo(self.root, {"docs/g.md": "## A\n\nhello docs.\n"})
         docs_mock = _make_embedder_mock(dim=4)
         code_mock = _make_embedder_mock(dim=4)
         with patch.object(self.bi, "_get_embedder", side_effect=[docs_mock, code_mock]):
             self.bi.build_index(self.root, full=True, content="all", verbose=False)
         (self.root / "docs" / "g.md").write_text("## A\n\nchanged content now.\n", encoding="utf-8")
-        with patch.object(self.bi, "_create_fts_index") as fts, \
-             patch.object(self.bi, "_get_embedder", return_value=_make_embedder_mock(dim=4)):
+        with patch.object(self.bi, "_get_embedder", return_value=_make_embedder_mock(dim=4)):
             self.bi.build_index(self.root, full=False, content="docs", verbose=False)
-        self.assertTrue(fts.called, "an incremental change must rebuild the FTS index")
-        # every incremental FTS rebuild uses replace=True (never stacks a second copy)
-        for call in fts.call_args_list:
-            replace = call.kwargs.get("replace")
-            if replace is None and len(call.args) >= 3:
-                replace = call.args[2]
-            self.assertIs(replace, True, "incremental FTS rebuild must use replace=True")
+        import lancedb
+        db = lancedb.connect(str(self.root / ".wavefoundry" / "index"))
+        table = db.open_table("docs")
+        fts_indices = [i for i in (table.list_indices() or [])
+                       if "FTS" in str(getattr(i, "index_type", "")).upper()]
+        self.assertEqual(fts_indices, [], "no Lance FTS index may exist after builds")
 
 
 class LanceDbAutoInstallTlsTests(unittest.TestCase):
@@ -3499,6 +3505,8 @@ class _ReclaimFakeTable:
         self.optimize_ok = optimize_ok
         self.arrow_ok = arrow_ok
         self.created_indices = []
+        self.existing_indices = []
+        self.dropped_indices = []
 
     def optimize(self, cleanup_older_than=None):
         if not self.optimize_ok:
@@ -3518,6 +3526,12 @@ class _ReclaimFakeTable:
 
     def create_fts_index(self, *a, **kw):
         self.created_indices.append(("fts", kw))
+
+    def list_indices(self):
+        return list(self.existing_indices)
+
+    def drop_index(self, name):
+        self.dropped_indices.append(name)
 
 
 class _ReclaimFakeDB:
@@ -3575,9 +3589,9 @@ class IndexReclaimTests(unittest.TestCase):
         self.assertFalse(db.rename_called, "reclaim must never call rename_table (unsupported in OSS)")
         kinds = [k for k, _ in db._table.created_indices]
         self.assertIn("vector", kinds)  # rows >= threshold
-        self.assertIn("fts", kinds)
+        self.assertNotIn("fts", kinds)  # wave 1rsh9 (1sauc): Lance FTS retired
 
-    def test_tier2_below_threshold_skips_vector_index_but_builds_fts(self):
+    def test_tier2_below_threshold_skips_vector_index_and_builds_no_fts(self):
         t = _ReclaimFakeTable(rows=5, optimize_ok=False, arrow_ok=True)
         db = _ReclaimFakeDB(t)
         res = self.bi.reclaim_lance_table(db, "docs")
@@ -3585,18 +3599,27 @@ class IndexReclaimTests(unittest.TestCase):
         self.assertFalse(res["needs_rebuild"])
         kinds = [k for k, _ in db._table.created_indices]
         self.assertNotIn("vector", kinds)  # below LANCEDB_INDEX_THRESHOLD -> flat scan
-        self.assertIn("fts", kinds)
+        self.assertNotIn("fts", kinds)  # wave 1rsh9 (1sauc): Lance FTS retired
 
-    def test_create_fts_index_disables_positions(self):
-        table = _ReclaimFakeTable(rows=10)
-        self.bi._create_fts_index(table, "docs", replace=True)
-        self.assertEqual(len(table.created_indices), 1)
-        kind, kwargs = table.created_indices[0]
-        self.assertEqual(kind, "fts")
-        self.assertFalse(kwargs.get("with_position"))
-        self.assertEqual(kwargs.get("base_tokenizer"), "simple")
-        self.assertFalse(kwargs.get("stem"))
-        self.assertFalse(kwargs.get("remove_stop_words"))
+    def test_reclaim_drops_legacy_fts_indices(self):
+        # Wave 1rsh9 (1sauc): a field repo carrying the retired Lance FTS index
+        # sheds it on the reclaim path (drop_index fires, versions become
+        # GC-able by the optimize cleanup); a repo without one is a no-op.
+        class _Idx:
+            def __init__(self, name, index_type):
+                self.name = name
+                self.index_type = index_type
+        t = _ReclaimFakeTable(rows=100, optimize_ok=True, arrow_ok=True)
+        t.existing_indices = [_Idx("text_idx", "FTS"), _Idx("vector_idx", "IvfHnswSq")]
+        db = _ReclaimFakeDB(t)
+        res = self.bi.reclaim_lance_table(db, "docs")
+        self.assertEqual(res["tier"], 1)
+        self.assertEqual(t.dropped_indices, ["text_idx"])
+        # No legacy index -> nothing dropped.
+        clean = _ReclaimFakeTable(rows=100, optimize_ok=True, arrow_ok=True)
+        db2 = _ReclaimFakeDB(clean)
+        self.bi.reclaim_lance_table(db2, "docs")
+        self.assertEqual(clean.dropped_indices, [])
 
     def test_tier3_only_on_read_failure_not_optimize_failure(self):
         # AC-3: a full rebuild (needs_rebuild) fires ONLY when to_arrow() raises, never for a mere
@@ -3642,12 +3665,11 @@ class IndexReclaimTests(unittest.TestCase):
         w.written = self.bi.LANCEDB_INDEX_THRESHOLD + 1
         new_table = MagicMock()
         with patch.object(self.bi, "_optimize_lance_table", return_value=False), \
-             patch.object(self.bi, "_compact_by_rewrite", return_value=new_table) as rewrite, \
-             patch.object(self.bi, "_create_fts_index") as fts:
+             patch.object(self.bi, "_compact_by_rewrite", return_value=new_table) as rewrite:
             result = w._finalize_inner(verbose=False)
         rewrite.assert_called_once_with(w.db, "docs")
         self.assertIs(w.table, new_table)
-        fts.assert_not_called()
+        new_table.create_fts_index.assert_not_called()  # wave 1rsh9 (1sauc): Lance FTS retired
         self.assertEqual(result, w.written)
 
     def test_finalize_reclaim_failure_falls_through_and_does_not_raise(self):
@@ -3659,10 +3681,9 @@ class IndexReclaimTests(unittest.TestCase):
         w.table_name = "docs"
         w.written = self.bi.LANCEDB_INDEX_THRESHOLD + 1
         with patch.object(self.bi, "_optimize_lance_table", return_value=False), \
-             patch.object(self.bi, "_compact_by_rewrite", side_effect=RuntimeError("rewrite boom")), \
-             patch.object(self.bi, "_create_fts_index") as fts:
+             patch.object(self.bi, "_compact_by_rewrite", side_effect=RuntimeError("rewrite boom")):
             result = w._finalize_inner(verbose=False)  # must not raise
-        fts.assert_called_once()  # fell through to the normal FTS build
+        w.table.create_fts_index.assert_not_called()  # wave 1rsh9 (1sauc): Lance FTS retired
         self.assertEqual(result, w.written)
 
     def test_optimize_index_tables_fails_fast_under_lock_contention(self):

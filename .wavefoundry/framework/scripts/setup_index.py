@@ -561,6 +561,32 @@ def _optimize_after_build(root: Path) -> None:
                 f"({before:,} -> {after:,} bytes, tier {res.get('tier')})",
                 flush=True,
             )
+    # Wave 1rsh9 (1rq4h): the unified maintenance verb also covers the SQLite
+    # stores (index-state store + graph state store) — WAL checkpoint/truncate,
+    # VACUUM, PRAGMA optimize, integrity check — under the same build lock.
+    # Best-effort, same posture as the Lance pass above.
+    try:
+        import importlib.util as _ilu
+        _iss_path = SCRIPTS_DIR / "index_state_store.py"
+        if _iss_path.exists():
+            _spec = _ilu.spec_from_file_location("wavefoundry_iss_for_setup", _iss_path)
+            _iss = _ilu.module_from_spec(_spec)
+            assert _spec.loader is not None
+            _spec.loader.exec_module(_iss)
+            with mod._index_build_lock(index_dir):
+                store_results = _iss.optimize_state_stores(index_dir, full_vacuum=True, deep_integrity=True)
+            for name, res in (store_results or {}).items():
+                if not res.get("present"):
+                    continue
+                reclaimed = int(res.get("reclaimed_bytes") or 0)
+                verdict = res.get("integrity") or "unknown"
+                print(
+                    f"index optimize: sqlite store '{name}' — integrity {verdict}, "
+                    f"reclaimed {reclaimed:,} bytes",
+                    flush=True,
+                )
+    except Exception as exc:  # noqa: BLE001 - store maintenance is best-effort
+        print(f"sqlite store optimize skipped: {exc}", flush=True)
 
 
 @contextlib.contextmanager

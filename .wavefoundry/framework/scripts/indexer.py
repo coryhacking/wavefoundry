@@ -1499,10 +1499,9 @@ class _StreamingLayerWriter:
                     f"build_index: LanceDB index creation for '{self.table_name}' skipped ({exc})",
                     file=sys.stderr,
                 )
-        # replace=True (was False) — a full rebuild over a non-empty dir replaces the FTS index
-        # rather than stacking a second ~40 MB copy. Built AFTER the compaction so it indexes the
-        # final compacted data.
-        _create_fts_index(self.table, self.table_name, replace=True)
+        # Wave 1rsh9 (1sauc): no Lance FTS index is built here anymore — the
+        # lexical layer is the index-state store's FTS5 tables, maintained by
+        # the chunk-delta sync + end-of-build reconcile.
         return self.written
 
 
@@ -1606,7 +1605,8 @@ def _compact_by_rewrite(db, table_name: str):
     them to a fresh table via ``create_table(mode="overwrite")``: a fresh write recomputes the
     list-column offsets from the clean in-memory Arrow data, sidestepping the append-time offset-rebasing
     bug (this is why the rewrite reclaims — proven ``docs.lance`` 1.6 GB → 55 MB, zero re-embed — where
-    ``optimize()`` cannot). Then rebuild the vector + FTS indices and compact.
+    ``optimize()`` cannot). Then rebuild the vector index and compact (wave 1rsh9/1sauc: no Lance FTS —
+    the lexical layer lives in the index-state store's FTS5 tables).
 
     The swap uses ``create_table(mode="overwrite")`` and **never** ``db.rename_table`` — the latter raises
     ``NotImplementedError: rename_table is not supported in LanceDB OSS``, and a drop-then-rename would
@@ -1626,7 +1626,6 @@ def _compact_by_rewrite(db, table_name: str):
                 f"build_index: reclaim vector-index rebuild for '{table_name}' skipped ({exc})",
                 file=sys.stderr,
             )
-    _create_fts_index(new_table, table_name, replace=True)
     _optimize_lance_table(new_table)
     return new_table
 
@@ -1647,6 +1646,11 @@ def reclaim_lance_table(db, table_name: str) -> dict:
         result["needs_rebuild"] = True
         result["error"] = f"open failed: {exc}"
         return result
+    # Wave 1rsh9 (1sauc): drop retired Lance/Tantivy FTS indices BEFORE the
+    # optimize pass, so its cleanup can GC the now-unreferenced FTS versions
+    # that accumulated under `_indices/` (the leak class the fragment-gated
+    # optimize could never reclaim). One-time per field repo, then a no-op.
+    _drop_legacy_fts_indices(table, table_name)
     if _optimize_lance_table(table):
         result["tier"] = 1
         try:
@@ -1713,54 +1717,37 @@ def optimize_index_tables(index_dir: Path, tables: "tuple[str, ...]" = ("docs", 
     return results
 
 
-def _create_fts_index(table, table_name: str, replace: bool = False) -> None:
-    """Create (or rebuild) a lance-index full-text search index on the 'text' column.
+def _drop_legacy_fts_indices(table, table_name: str) -> int:
+    """Drop retired Lance/Tantivy FTS indices from a table (wave 1rsh9 / 1sauc).
 
-    ``replace=True`` should be used after incremental writes so that newly
-    added rows are included in the FTS index.  ``optimize()`` alone does NOT
-    refresh Tantivy indexes; an explicit rebuild is required.
-
-    Tokenizer: ``simple`` (splits on whitespace and punctuation) with stemming
-    and stop-word removal disabled, ``max_token_length=80``, and
-    ``with_position=False``.
-
-    Why ``simple``:  punctuation like ``.`` and ``(`` acts as a token boundary,
-    so ``build_pack.version`` indexes as ``build_pack`` and ``version`` — both
-    independently searchable.  ``whitespace`` would keep the whole dotted string
-    as one token (bad for component matching); ``raw`` treats the entire text as
-    a single token (useless for search).
-
-    Why ``stem=False, remove_stop_words=False``:  stemming mangles identifiers
-    (``chunks`` → ``chunk``); stop-word removal silently drops name components
-    like ``is`` or ``a`` that legitimately appear in variable names.
-    ``lower_case=True`` preserves case-insensitive query matching.
-
-    Note: underscores are punctuation under ``simple``, so compound identifiers
-    (``SORT_WINDOW_SIZE``) are indexed as individual tokens (``sort``, ``window``,
-    ``size``).  The dense retrieval path compensates: exact identifier queries
-    that produce noisy BM25 hits are rescored by the cross-encoder reranker.
-
-    Why ``with_position=False``: Wavefoundry uses FTS for candidate recall in
-    hybrid docs/code retrieval, not exact phrase/proximity search. Dropping
-    positions substantially reduces FTS storage; server-side query shaping must
-    avoid phrase queries that require positions.
+    The lexical layer moved to the index-state store's FTS5 tables; the Lance
+    FTS is no longer created anywhere. Field repos still carry the legacy
+    index (and its un-GC-able ``_indices/`` version accumulation — the class
+    the fragment-gated optimize could never reclaim without ``pylance``).
+    Dropping the index de-references those versions so the reclaim pass's
+    cleanup can GC them. Runs on the reclaim path (``wave_index_optimize``,
+    on demand and automatically at setup/upgrade). Best-effort: returns the
+    number of indices dropped; any error just leaves cleanup for next time.
     """
+    dropped = 0
     try:
-        table.create_fts_index(
-            "text",
-            replace=replace,
-            base_tokenizer="simple",
-            stem=False,
-            remove_stop_words=False,
-            lower_case=True,
-            max_token_length=80,
-            with_position=False,
-        )
-    except Exception as exc:
+        for index in table.list_indices() or []:
+            index_type = str(getattr(index, "index_type", "") or "")
+            name = str(getattr(index, "name", "") or "")
+            if "FTS" in index_type.upper() or name == "text_idx":
+                table.drop_index(name)
+                dropped += 1
+                print(
+                    f"build_index: dropped legacy Lance FTS index '{name}' on "
+                    f"'{table_name}' (lexical layer is FTS5 in the index-state store)",
+                    flush=True,
+                )
+    except Exception as exc:  # noqa: BLE001 - cleanup is best-effort
         print(
-            f"build_index: FTS index creation for '{table_name}' skipped ({exc})",
+            f"build_index: legacy FTS index cleanup for '{table_name}' skipped ({exc})",
             file=sys.stderr,
         )
+    return dropped
 
 
 def _lance_fragment_count(table) -> int:
@@ -2227,8 +2214,16 @@ def _lance_incremental_write(
     build_docs: bool,
     build_code: bool,
     verbose: bool = False,
+    skip_exempt: "set[str] | None" = None,
 ) -> None:
-    """Apply incremental row deltas, embedding only changed/new chunks."""
+    """Apply incremental row deltas, embedding only changed/new chunks.
+
+    ``skip_exempt``: paths the registry-backed unchanged-file skip must NOT
+    apply to — drift-flagged paths, where Lance rows vanished out-of-band and
+    the registry (synced from the PRE-drift Lance state) would wrongly report
+    them unchanged, silently defeating the drift repair (Lance is the
+    authority; the skip is an optimization only).
+    """
     db = _get_lance_db(db_path)
     for table_name, build_flag, chunks, embedder, label in (
         ("docs", build_docs, new_doc_chunks, docs_embedder, "doc"),
@@ -2238,12 +2233,24 @@ def _lance_incremental_write(
             continue
         table_dir = db_path / f"{table_name}.lance"
         with _table_lock(table_dir):
+            _iss = _get_index_state_store()
             if not table_dir.is_dir():
                 # Table absent — create with new rows only (shouldn't happen after upgrade guard).
                 vecs = _embed_chunks_for_incremental(label, chunks, embedder) if chunks else None
                 if chunks and vecs is not None:
-                    tbl = db.create_table(table_name, data=_make_lance_rows(chunks, vecs), mode="create")
-                    _create_fts_index(tbl, table_name, replace=False)
+                    _created_rows = _make_lance_rows(chunks, vecs)
+                    tbl = db.create_table(table_name, data=_created_rows, mode="create")
+                    # Wave 1rsh9 (1rrr0): derived chunk state (FTS + registry)
+                    # commits AFTER the Lance write (ordered consistency).
+                    if _iss is not None:
+                        try:
+                            _iss.apply_chunk_deltas(db_path, table_name, add_rows=_created_rows)
+                        except Exception as exc:  # noqa: BLE001 - reconcile self-heals
+                            print(
+                                f"build_index: chunk-index sync for '{table_name}' skipped "
+                                f"({exc}) — reconciliation will repair",
+                                file=sys.stderr,
+                            )
                     chunks_by_path: dict[str, list[dict]] = {}
                     for chunk in chunks:
                         chunks_by_path.setdefault(str(chunk.get("path") or ""), []).append(chunk)
@@ -2258,7 +2265,35 @@ def _lance_incremental_write(
             chunks_by_path: dict[str, list[dict]] = {}
             for chunk in chunks:
                 chunks_by_path.setdefault(str(chunk.get("path") or ""), []).append(chunk)
-            existing_rows = _read_lance_rows_for_paths(db_path, table_name, stale)
+            # Wave 1rsh9 (1rrr0): registry-backed unchanged-file skip. A stale
+            # path whose freshly-chunked {id: chunk_hash} map EXACTLY matches
+            # the chunk registry is provably a no-op for this table (id covers
+            # path/position; chunk_hash covers kind/language/section/text/tags),
+            # so its Lance rows — vectors included — are never read. Biggest
+            # win on rechunk-all passes where most chunks are content-identical.
+            # Equivalence is proven by the registry differential harness; the
+            # env kill switch restores the pure Lance-read path.
+            registry_skipped: dict[str, int] = {}
+            lance_read_paths = set(stale)
+            if _iss is not None and not os.environ.get("WAVEFOUNDRY_DISABLE_REGISTRY_INCREMENTAL"):
+                try:
+                    _reg_maps = _iss.registry_map_for_paths(db_path, table_name, stale)
+                except Exception:  # noqa: BLE001 - skip is an optimization only
+                    _reg_maps = {}
+                for file_path in stale:
+                    if skip_exempt and file_path in skip_exempt:
+                        continue  # drift repair must read Lance (the authority)
+                    path_chunks = chunks_by_path.get(file_path, [])
+                    if not path_chunks:
+                        continue
+                    new_map = {
+                        str(c.get("id") or ""): _chunk_hash(c)
+                        for c in path_chunks if c.get("id")
+                    }
+                    if new_map and _reg_maps.get(file_path) == new_map:
+                        registry_skipped[file_path] = len(new_map)
+                        lance_read_paths.discard(file_path)
+            existing_rows = _read_lance_rows_for_paths(db_path, table_name, lance_read_paths)
             existing_by_path: dict[str, list[dict]] = {}
             for row in existing_rows:
                 existing_by_path.setdefault(str(row.get("path") or ""), []).append(row)
@@ -2267,7 +2302,13 @@ def _lance_incremental_write(
             ids_to_delete: set[str] = set()
             fallback_paths: set[str] = set()
 
-            for file_path in stale:
+            for file_path, skipped_count in sorted(registry_skipped.items()):
+                _log_semantic_file_delta(
+                    file_path,
+                    table_name,
+                    {"written": 0, "removed": 0, "unchanged": skipped_count},
+                )
+            for file_path in lance_read_paths:
                 path_existing = existing_by_path.get(file_path, [])
                 path_chunks = chunks_by_path.get(file_path, [])
                 delete_ids, add_rows, fallback_required, stats = _plan_lance_delta_rows(
@@ -2342,19 +2383,75 @@ def _lance_incremental_write(
                                 f"build_index: LanceDB index rebuild for '{table_name}' skipped ({exc})",
                                 file=sys.stderr,
                             )
-            # Wave 1p95j: only rebuild the FTS index when this table actually changed. Previously the
-            # FTS index (~40 MB) was rebuilt (replace=True) on EVERY incremental pass — even a no-op
-            # pass that produced no adds/deletes for this table (e.g. the post-edit hook firing for a
-            # file in the OTHER layer) — needlessly re-materializing an identical index and churning
-            # artifacts. Gating on real change removes that waste, cutting the reindex rate that
-            # drove the observed `_indices/` growth. (A cleanup is NOT run here: `optimize` recompacts
-            # the data, which would invalidate this just-built FTS and force a duplicate whose stale
-            # copy can't be GC'd without `pylance` — the fragment-gated `optimize` above already
-            # compacts BEFORE the indexes when it fires, which is the correct order.)
+            # Wave 1rsh9 (1sauc): the Lance/Tantivy FTS is retired — no Lance
+            # FTS index is rebuilt here (the 1p95j change-gated rebuild and its
+            # un-GC-able `_indices/` version accumulation are gone with it).
+            # The lexical layer is the index-state store's FTS5 tables, kept in
+            # sync by the chunk-delta transaction below.
             table_changed = bool(rows_to_add) or bool(ids_to_delete) or bool(fallback_paths)
-            if table_changed and not reclaimed:
-                # When reclaimed above, _compact_by_rewrite already rebuilt the FTS index.
-                _create_fts_index(table, table_name, replace=True)
+            # Wave 1rsh9 (1rrr0): derived chunk state (SQLite FTS5 + chunk
+            # registry) commits in one store transaction ordered AFTER the
+            # Lance writes above (Lance authoritative). A failure here never
+            # fails the build — the end-of-build reconciliation pass repairs
+            # any missed sync from Lance.
+            if _iss is not None and table_changed:
+                try:
+                    _iss.apply_chunk_deltas(
+                        db_path,
+                        table_name,
+                        delete_ids=ids_to_delete,
+                        delete_paths=fallback_paths,
+                        add_rows=rows_to_add,
+                    )
+                except Exception as exc:  # noqa: BLE001 - reconcile self-heals
+                    print(
+                        f"build_index: chunk-index sync for '{table_name}' skipped "
+                        f"({exc}) — reconciliation will repair",
+                        file=sys.stderr,
+                    )
+
+
+def _sync_chunk_derived_state(index_dir: Path, *, expected: bool = False, verbose: bool = False) -> None:
+    """Wave 1rsh9 (1rrr0): reconcile FTS/registry with Lance (crash-window repair).
+
+    Ordered-consistency safety net: compares the chunk-id set per table between
+    Lance (authoritative) and the index-state store; on mismatch the derived
+    tables are rebuilt from Lance rows (id/path/kind/lines/text/chunk_hash —
+    vectors never read). Runs at the end of every build; ``expected=True``
+    marks a full rebuild / cold store so the rebuild is not logged as a repair.
+    Never raises — a failure just leaves the reconcile for the next build.
+    """
+    iss = _get_index_state_store()
+    if iss is None:
+        return
+    for table_name in ("docs", "code"):
+        table_dir = index_dir / f"{table_name}.lance"
+        if not table_dir.is_dir():
+            continue
+        try:
+            db = _get_lance_db(index_dir)
+            table = db.open_table(table_name)
+            id_rows = table.search().select(["id"]).limit(None).to_arrow().to_pylist()
+            lance_ids = {str(r.get("id") or "") for r in id_rows}
+
+            def _fetch_rows(_table=table):
+                cols = ["id", "path", "kind", "language", "tags", "lines", "text", "chunk_hash"]
+                return _table.search().select(cols).limit(None).to_arrow().to_pylist()
+
+            result = iss.reconcile_chunk_index(
+                index_dir, table_name, lance_ids, _fetch_rows, expected=expected
+            )
+            if verbose and result.get("reconciled"):
+                print(
+                    f"build_index: chunk-index for '{table_name}' rebuilt from Lance "
+                    f"({result.get('rows_written', 0)} rows)",
+                    flush=True,
+                )
+        except Exception as exc:  # noqa: BLE001 - derived state must never fail a build
+            print(
+                f"build_index: chunk-index reconcile for '{table_name}' skipped ({exc})",
+                file=sys.stderr,
+            )
 
 
 # Wave 1p99o: `struct flock` field order differs between Linux and macOS/BSD; there is no portable
@@ -2743,6 +2840,7 @@ _chunker_mod = None
 _graph_indexer_mod = None
 _graph_cluster_mod = None
 _secrets_scanner_mod = None
+_index_state_store_mod = None
 
 def _get_chunker():
     global _chunker_mod
@@ -2796,6 +2894,26 @@ def _get_secrets_scanner():
         spec.loader.exec_module(mod)
         _secrets_scanner_mod = mod
     return _secrets_scanner_mod
+
+
+def _get_index_state_store():
+    """Load the index-state store module (wave 1rsh9 / 1rq4h) — cached, optional.
+
+    Returns None when the module file is absent (older extracted pack) so the
+    build degrades to no-freshness-sidecar without errors.
+    """
+    global _index_state_store_mod
+    if _index_state_store_mod is None:
+        import importlib.util
+        store_path = Path(__file__).resolve().parent / "index_state_store.py"
+        if not store_path.exists():
+            return None
+        spec = importlib.util.spec_from_file_location("index_state_store", store_path)
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules["index_state_store"] = mod
+        spec.loader.exec_module(mod)
+        _index_state_store_mod = mod
+    return _index_state_store_mod
 
 
 def _build_graph_artifacts(
@@ -3119,6 +3237,11 @@ def _build_index_locked(
                 )
             full = True
             old_file_meta = {}
+
+    # Drift-flagged paths (populated by the incremental change-detection branch
+    # below). Consumed by the registry-skip exemption in the incremental write
+    # (wave 1rsh9): drift repair must always read Lance, the authority.
+    drifted: set[str] = set()
 
     if files is None:
         # Walk repo
@@ -3553,6 +3676,11 @@ def _build_index_locked(
                 # the secrets scan still runs concurrently as its own future.
                 pass
             else:
+                # Wave 1rsh9: drift-flagged paths are exempt from the registry
+                # skip inside the incremental write — their registry rows
+                # mirror the PRE-drift Lance state and would wrongly report
+                # "unchanged", silently defeating the drift repair.
+                _skip_exempt = set(drifted)
                 if build_docs:
                     def _write_docs_incr(
                         _db_path=lance_db_path,
@@ -3561,9 +3689,10 @@ def _build_index_locked(
                         _docs_emb=docs_embedder,
                         _verbose=verbose,
                         _elapsed=_docs_elapsed,
+                        _exempt=_skip_exempt,
                     ) -> None:
                         _t0 = time.monotonic()
-                        _lance_incremental_write(_db_path, _stale, _doc_chunks, _docs_emb, [], None, True, False, _verbose)
+                        _lance_incremental_write(_db_path, _stale, _doc_chunks, _docs_emb, [], None, True, False, _verbose, skip_exempt=_exempt)
                         _elapsed.append(time.monotonic() - _t0)
                     futures.append(executor.submit(_write_docs_incr))
                 if build_code:
@@ -3574,9 +3703,10 @@ def _build_index_locked(
                         _code_emb=code_embedder,
                         _verbose=verbose,
                         _elapsed=_code_elapsed,
+                        _exempt=_skip_exempt,
                     ) -> None:
                         _t0 = time.monotonic()
-                        _lance_incremental_write(_db_path, _stale, [], None, _code_chunks, _code_emb, False, True, _verbose)
+                        _lance_incremental_write(_db_path, _stale, [], None, _code_chunks, _code_emb, False, True, _verbose, skip_exempt=_exempt)
                         _elapsed.append(time.monotonic() - _t0)
                     futures.append(executor.submit(_write_code_incr))
             # Secrets scan runs as a future (project layer) — concurrent with graph.
@@ -3709,7 +3839,21 @@ def _build_index_locked(
         "content": sorted(available_content),
         "file_meta": current_file_meta,
     }
-    _save_meta(index_dir, new_meta)
+    # Wave 1rsh9 (1rrr0): the index-state store is the working source of truth
+    # for per-path build state; meta.json is generated from it as an exported,
+    # reader-contract-compatible snapshot (same atomic-swap/Windows-retry
+    # machinery via _save_meta). Any store failure falls back to writing
+    # new_meta directly — readers keep their contract either way.
+    _state_store = _get_index_state_store()
+    _meta_snapshot = None
+    if _state_store is not None:
+        try:
+            _state_store.write_build_bookkeeping(index_dir, new_meta)
+            _meta_snapshot = _state_store.export_meta_snapshot(index_dir)
+        except Exception as exc:  # noqa: BLE001 - snapshot export is fail-safe
+            print(f"build_index: bookkeeping store write skipped ({exc})", file=sys.stderr)
+            _meta_snapshot = None
+    _save_meta(index_dir, _meta_snapshot if _meta_snapshot is not None else new_meta)
 
     # Reap LanceDB rows whose path is no longer in the current eligible set.
     # Runs on every incremental update across both tables — the workflow-
@@ -3718,7 +3862,8 @@ def _build_index_locked(
     # directly. Reaping both tables regardless of ``content`` arg keeps the
     # cross-content failure mode closed: a docs-only update reaps code-table
     # orphans (and vice versa). Full rebuilds drop the tables entirely so
-    # this pass is a no-op there.
+    # this pass is a no-op there. Runs BEFORE the chunk-index reconcile below
+    # so the FTS/registry never retain reaped (excluded) content between builds.
     stranded_rows_reaped = 0
     stranded_rows_reaped_by_table: dict[str, int] = {"docs": 0, "code": 0, "total": 0}
     if not full:
@@ -3730,6 +3875,27 @@ def _build_index_locked(
         )
         stranded_rows_reaped_by_table = reap_result
         stranded_rows_reaped = reap_result.get("total", 0)
+
+    # Wave 1rsh9 (1rrr0): ordered-consistency reconciliation — repair any
+    # crash window between the Lance writes and the store's FTS/registry
+    # transaction, and absorb the reap above. Expected (quiet) after a full
+    # rebuild, where the derived tables are rebuilt from fresh Lance state
+    # by design.
+    _sync_chunk_derived_state(
+        index_dir,
+        expected=bool(full or rechunk_all or stranded_rows_reaped),
+        verbose=verbose,
+    )
+
+    # Wave 1rsh9 (1rq4h): refresh the index-state store's freshness/attribution
+    # tables in one transaction per build pass — still inside the index-build
+    # lock. Zero-change builds skip on the git-HEAD + path-set fingerprint;
+    # end-of-build maintenance (WAL truncate + incremental vacuum) keeps the
+    # store bounded under the long-lived MCP server. Never fails the build.
+    if _state_store is not None:
+        _state_store.update_freshness_from_build(
+            root, index_dir, current_file_meta.keys(), verbose=verbose
+        )
 
     summary = {
         "files_indexed": len(files_to_index),

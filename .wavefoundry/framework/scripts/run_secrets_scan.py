@@ -37,7 +37,11 @@ cli_stdio.configure_utf8_stdio()
 _PARALLEL_THRESHOLD = 50
 _WORKERS_ENV = "WAVEFOUNDRY_SCAN_PARALLEL_WORKERS"
 _SCAN_STATE_RELPATH = ".wavefoundry/index/scan/scan-state.json"
-_RULES_RELPATHS = (".wavefoundry/scan-rules.toml", "docs/scan-rules.toml")
+# Wave 1rsh9 (1rsha): framework rules live at `.wavefoundry/framework/scan-rules.toml`
+# (the previous first entry pointed at a never-existing path, so framework-rules
+# changes silently missed the full-re-scan escalation). Kept in sync with
+# scan_secrets._RULES_RELPATHS.
+_RULES_RELPATHS = (".wavefoundry/framework/scan-rules.toml", "docs/scan-rules.toml")
 
 
 def _physical_perf_core_count() -> int | None:
@@ -135,14 +139,55 @@ def main() -> int:
     scan_state = _load_scan_state(root)
     rules_changed = scan_state.get("rules_hash") != current_rules_hash
 
+    # Wave 1rsh9 (1rsha): the per-file content+rules cache replaces the
+    # git-changed-only gate for incremental scans — candidates are ALL tracked
+    # files, and the cache's content-addressed skip decides what actually
+    # scans (precise across branch switches, whitespace-only touches, and
+    # touch-and-revert; decoupled from git status). A rules change makes every
+    # cached fingerprint mismatch, preserving the full re-scan escalation by
+    # construction (and instrumenting it). --mode full bypasses the skip
+    # entirely. Any cache problem fails toward scanning everything.
     scan_all = args.mode == "full" or rules_changed
-    files = get_scan_files(root, scan_all)
-    max_workers = _auto_max_workers(len(files))
+    files = get_scan_files(root, True)
+    rel_paths = [str(p.relative_to(root)).replace("\\", "/") for p in files]
+    files_skipped = 0
+    content_hashes: dict = {}
+    index_dir = root / ".wavefoundry" / "index"
+    iss = None
+    try:
+        import scan_secrets
+        iss = scan_secrets._load_state_store()
+    except Exception:
+        iss = None
+    if iss is not None and not scan_all:
+        try:
+            rel_paths, files_skipped, content_hashes = iss.secret_scan_filter(
+                index_dir, root, rel_paths, current_rules_hash
+            )
+        except Exception as exc:  # noqa: BLE001 - fail toward scanning
+            print(f"secrets scan cache filter skipped ({exc})", file=sys.stderr)
+    scan_files = [root / p for p in rel_paths]
+    max_workers = _auto_max_workers(len(scan_files))
     t0 = time.monotonic()
-    failures = check_hardcoded_secrets(root, files=files, max_workers=max_workers)
+    failures = check_hardcoded_secrets(root, files=scan_files, max_workers=max_workers)
+    if iss is not None and rel_paths:
+        try:
+            iss.secret_scan_record(
+                index_dir,
+                root,
+                scanned_rel_paths=rel_paths,
+                rules_fingerprint=current_rules_hash,
+                findings_by_file=scan_secrets._findings_by_file(root),
+                content_hashes=content_hashes,
+                rule_catalog=scan_secrets._rule_catalog(root),
+            )
+        except Exception as exc:  # noqa: BLE001 - record failure = re-scan next time
+            print(f"secrets scan cache record skipped ({exc})", file=sys.stderr)
     _save_rules_hash(root, current_rules_hash)
     print(json.dumps({
         "failures": failures,
+        "files_scanned": len(scan_files),
+        "files_skipped": files_skipped,
         "rules_hash_changed": rules_changed,
         "escalated_to_full": rules_changed and args.mode != "full",
         "elapsed_s": round(time.monotonic() - t0, 3),

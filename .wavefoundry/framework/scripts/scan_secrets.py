@@ -98,7 +98,15 @@ def _auto_max_workers(file_count: int) -> int:
     return cap
 
 
-_RULES_RELPATHS = (".wavefoundry/scan-rules.toml", "docs/scan-rules.toml")
+# Wave 1rsh9 (1rsha): the framework ruleset lives at
+# `.wavefoundry/framework/scan-rules.toml` (see wave_lint_lib.constants
+# SCAN_RULES_FRAMEWORK_PATH) — the previous first entry
+# (`.wavefoundry/scan-rules.toml`) pointed at a path that never exists, so a
+# framework-rules change silently failed to trigger the promised full
+# re-scan. Fixed alongside the cache's rules fingerprint, which must cover
+# the real ruleset. (One-time effect on upgrade: the hash changes → one full
+# re-scan.)
+_RULES_RELPATHS = (".wavefoundry/framework/scan-rules.toml", "docs/scan-rules.toml")
 
 
 def _compute_rules_hash(root: Path) -> str:
@@ -114,6 +122,68 @@ def _compute_rules_hash(root: Path) -> str:
         h.update(p.read_bytes() if p.exists() else b"")
         h.update(b"\x00")
     return h.hexdigest()
+
+
+_state_store_mod = None
+
+
+def _load_state_store():
+    """Load index_state_store (wave 1rsh9) — cached, optional (None if absent)."""
+    global _state_store_mod
+    if _state_store_mod is None:
+        import importlib.util
+        store_path = Path(__file__).resolve().parent / "index_state_store.py"
+        if not store_path.exists():
+            return None
+        spec = importlib.util.spec_from_file_location("index_state_store", store_path)
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules.setdefault("index_state_store", mod)
+        spec.loader.exec_module(mod)
+        _state_store_mod = mod
+    return _state_store_mod
+
+
+def _rule_catalog(root: Path) -> dict:
+    """Tier-2-ready per-rule hash catalog, derived by parse/hash only (1rsha Req 4).
+
+    Uses the same merged ruleset the scanner runs (framework + project merge,
+    disabled-rule filtering) so rule identity matches execution; each rule's
+    hash is the SHA-256 of its canonical-JSON dict. No per-rule execution.
+    """
+    try:
+        from wave_lint_lib.secrets_validators import load_merged_ruleset
+        rules, _policy, errors = load_merged_ruleset(root)
+        if errors:
+            return {}
+        catalog = {}
+        for rule in rules:
+            rid = str(rule.get("id") or "")
+            if not rid:
+                continue
+            payload = json.dumps(rule, sort_keys=True, separators=(",", ":"), default=str)
+            catalog[rid] = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+        return catalog
+    except Exception:
+        return {}
+
+
+def _findings_by_file(root: Path) -> dict:
+    """Group current scan-findings.json entries by file (derived refs for cache rows)."""
+    try:
+        from wave_lint_lib.constants import SCAN_FINDINGS_PATH
+        path = root / SCAN_FINDINGS_PATH
+        if not path.exists():
+            return {}
+        entries = json.loads(path.read_text(encoding="utf-8"))
+        result: dict = {}
+        if isinstance(entries, list):
+            for e in entries:
+                if isinstance(e, dict) and e.get("file"):
+                    ref = {k: e.get(k) for k in ("rule_id", "line", "status") if k in e}
+                    result.setdefault(str(e["file"]), []).append(ref)
+        return result
+    except Exception:
+        return {}
 
 
 def _scan_state_path(scan_dir: Path) -> Path:
@@ -178,6 +248,17 @@ def update_secrets_scan(
 
     t0 = time.monotonic()
 
+    # Wave 1rsh9 (1rsha): per-file content+rules scan cache on the index-state
+    # store. A skip optimization only — a file is skipped when its content
+    # hash AND the rules fingerprint both match its cached row; any cache
+    # problem fails toward scanning. mode=full / rules-change / scanner-version
+    # escalations bypass the skip (real full scan) and repopulate the cache.
+    iss = _load_state_store()
+    index_dir = scan_dir.parent if scan_dir.name == "scan" else root / ".wavefoundry" / "index"
+    files_skipped = 0
+    scanned_rel: list[str] = []
+    content_hashes: dict = {}
+
     if full:
         if verbose:
             reason = "rules changed" if rules_changed else "full rebuild"
@@ -189,29 +270,58 @@ def update_secrets_scan(
         failures = check_hardcoded_secrets(root, scan_all=True, max_workers=max_workers)
         scan_type = "full"
         files_scanned = -1
+        if iss is not None:
+            from wave_lint_lib.secrets_validators import get_scan_files
+            scanned_rel = [
+                str(p.relative_to(root)).replace("\\", "/")
+                for p in get_scan_files(root, True)
+            ]
     else:
         if not changed and not removed:
             if verbose:
                 print("build_index: secrets scan — nothing changed", flush=True)
-            return {"files_scanned": 0, "failures": 0, "up_to_date": True}
+            return {"files_scanned": 0, "files_skipped": 0, "failures": 0, "up_to_date": True}
+        candidate_rel = [p for p in sorted(changed) if (root / p).is_file()]
+        if iss is not None:
+            try:
+                candidate_rel, files_skipped, content_hashes = iss.secret_scan_filter(
+                    index_dir, root, candidate_rel, current_rules_hash
+                )
+            except Exception as exc:  # noqa: BLE001 - fail toward scanning
+                print(f"build_index: secrets scan cache filter skipped ({exc})",
+                      file=sys.stderr)
         if verbose:
             print(
                 f"build_index: secrets scan — incremental "
-                f"({len(changed)} changed, {len(removed)} removed)",
+                f"({len(candidate_rel)} to scan, {files_skipped} cache-skipped, "
+                f"{len(removed)} removed)",
                 flush=True,
             )
         # Pass the specific changed-file set. Removed files are handled by the
         # deleted-file sweep inside check_hardcoded_secrets.
-        files = [root / p for p in sorted(changed) if (root / p).is_file()]
+        files = [root / p for p in candidate_rel]
         max_workers = _auto_max_workers(len(files))
         failures = check_hardcoded_secrets(root, files=files, max_workers=max_workers)
         scan_type = "incremental"
         files_scanned = len(files)
+        scanned_rel = candidate_rel
+
+    if iss is not None and scanned_rel:
+        iss.secret_scan_record(
+            index_dir,
+            root,
+            scanned_rel_paths=scanned_rel,
+            rules_fingerprint=current_rules_hash,
+            findings_by_file=_findings_by_file(root),
+            content_hashes=content_hashes,
+            removed_rel_paths=sorted(removed or ()),
+            rule_catalog=_rule_catalog(root),
+        )
 
     elapsed = time.monotonic() - t0
     print(
         f"build_index: secrets scan complete ({scan_type}) — "
-        f"{len(failures)} finding(s) in {elapsed:.1f}s",
+        f"{len(failures)} finding(s), {files_skipped} cache-skipped, in {elapsed:.1f}s",
         flush=True,
     )
 
@@ -220,11 +330,15 @@ def update_secrets_scan(
         "scanner_version": SCANNER_VERSION,
         "scan_type": scan_type,
         "files_scanned": files_scanned,
+        "files_skipped": files_skipped,
+        "rules_change_escalation": rules_changed,
         "rules_hash": current_rules_hash,
     })
 
     return {
         "files_scanned": files_scanned,
+        "files_skipped": files_skipped,
+        "rules_change_escalation": rules_changed,
         "failures": len(failures),
         "up_to_date": False,
     }

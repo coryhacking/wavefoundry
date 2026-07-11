@@ -21,7 +21,8 @@ _FINDINGS_RELPATH = "docs/scan-findings.json"
 def _make_root(tmp: Path) -> None:
     (tmp / ".wavefoundry").mkdir(parents=True, exist_ok=True)
     (tmp / "docs").mkdir(parents=True, exist_ok=True)
-    (tmp / ".wavefoundry/scan-rules.toml").write_text(
+    (tmp / ".wavefoundry/framework").mkdir(parents=True, exist_ok=True)
+    (tmp / ".wavefoundry/framework/scan-rules.toml").write_text(
         "[policy]\nfalse_positive_confirmations_required = 2\n", encoding="utf-8"
     )
     (tmp / _FINDINGS_RELPATH).write_text("[]", encoding="utf-8")
@@ -75,7 +76,7 @@ class TestComputeRulesHash(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
             _make_root(root)
-            fw = root / ".wavefoundry/scan-rules.toml"
+            fw = root / ".wavefoundry/framework/scan-rules.toml"
             h1 = scan_secrets._compute_rules_hash(root)
             fw.write_text("[policy]\nfalse_positive_confirmations_required = 3\n", encoding="utf-8")
             h2 = scan_secrets._compute_rules_hash(root)
@@ -117,7 +118,7 @@ class TestComputeRulesHash(unittest.TestCase):
             root = Path(d)
             _make_root(root)
             # Remove framework file so both are absent
-            (root / ".wavefoundry/scan-rules.toml").unlink()
+            (root / ".wavefoundry/framework/scan-rules.toml").unlink()
             h = scan_secrets._compute_rules_hash(root)
             self.assertIsInstance(h, str)
             self.assertEqual(len(h), 64)  # SHA-256 hex
@@ -213,7 +214,7 @@ class TestUpdateSecretsScanEscalation(unittest.TestCase):
                 "rules_hash": old_hash,
             })
             # Change the framework rules
-            (root / ".wavefoundry/scan-rules.toml").write_text(
+            (root / ".wavefoundry/framework/scan-rules.toml").write_text(
                 "[policy]\nfalse_positive_confirmations_required = 3\n", encoding="utf-8"
             )
             calls_round1: list = []
@@ -368,9 +369,15 @@ class TestRunSecretsScanMainEscalation(unittest.TestCase):
             root = self._setup_root(Path(d))
             run_secrets_scan._save_rules_hash(root, run_secrets_scan._compute_rules_hash(root))
             result = self._run_main(root, "incremental")
-            self.assertFalse(result["_captured_scan_all"][0], "should not escalate")
+            # Wave 1rsh9 (1rsha): candidates are now ALWAYS all tracked files
+            # (get_scan_files(root, True)) — the content-addressed cache skip
+            # replaced the git-changed-only gate — so the captured scan_all
+            # arg is True either way; "no escalation" is asserted via the
+            # escalation flags instead.
             self.assertFalse(result["rules_hash_changed"])
             self.assertFalse(result["escalated_to_full"])
+            self.assertIn("files_scanned", result)
+            self.assertIn("files_skipped", result)
 
     def test_explicit_full_mode_not_flagged_as_escalated(self):
         with tempfile.TemporaryDirectory() as d:

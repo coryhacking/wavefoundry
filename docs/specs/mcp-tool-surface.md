@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-05
+Last verified: 2026-07-11
 
 Behavioral contract for the Wavefoundry local MCP server. This spec covers the
 tool names, response conventions, safety rules, and compatibility expectations that
@@ -81,10 +81,10 @@ Initial core set:
 | `wave_validate`      | Run docs validation and return structured results                                               |
 | `wave_garden`        | Run docs gardening and report changed files                                                     |
 | `wave_sync_surfaces` | Regenerate agent/platform surfaces                                                              |
-| `wave_index_health`  | Check semantic index health and surface stale/missing layers; also returns a `size` object (`total_bytes`, `total_human`, and a per-component `components` map — `docs.lance`/`code.lance`/`graph`/…) for the on-disk index, so growth/bloat is visible without `du` |
+| `wave_index_health`  | Check semantic index health and surface stale/missing layers; also returns a `size` object (`total_bytes`, `total_human`, and a per-component `components` map — `docs.lance`/`code.lance`/`graph`/…) for the on-disk index, so growth/bloat is visible without `du`, plus a `state_store` object (wave 1rsh9: `present`, `schema_version`, `integrity` — `ok`/`structural-fail`/`stale-fingerprint` from the two-layer probe, `size_bytes`) for the index-state store |
 | `wave_index_build_status` | Poll a detached background index refresh; also returns a `lock` object (`held`, `present`, `owner_pid`, `owner_cmdline`, `started_at`, `ended_at`, `note`) — the **authoritative** "is a build running" signal, where `held` is determined by **testing the real OS lock** (POSIX `fcntl` `F_GETLK` / Windows momentary `msvcrt`), not the file's presence. `ended_at` distinguishes a clean finish from an interrupted build. Read `lock.held`, never the file. |
 | `wave_index_build`   | Run a synchronous index build: `**mode='update'**` (incremental) or `**mode='rebuild'**` (full) |
-| `wave_index_optimize` | Reclaim on-disk index bloat by compacting the Lance tables — tiered optimize → copy-and-replace rewrite → rebuild-if-needed, **no re-embed** in the common case. Also runs automatically at the end of install/upgrade |
+| `wave_index_optimize` | The unified maintenance verb for EVERY index (wave 1rsh9): compacts the Lance tables (tiered optimize → copy-and-replace rewrite → rebuild-if-needed, **no re-embed** in the common case) AND maintains every reachable SQLite store — the index-state store and the graph state store — with WAL checkpoint/truncate, `VACUUM`, `PRAGMA optimize`, FTS5 segment optimize, and a full integrity check, all under the index-build lock. Also runs automatically at the end of install/upgrade |
 | `wave_gpu_doctor`    | Embedding-provider / GPU capability diagnostic — platform, onnxruntime, GPU detection (nvidia/apple), available ONNX providers, the provider Wavefoundry would select (+ reason/remediation + `decision_provenance`: `setup-cache` when honoring the setup-recorded decision, `fresh-probe` for an in-process probe, or `operator-request` when `WAVEFOUNDRY_EMBED_PROVIDER` forced the selection), CUDA 12/13 ABI-gap. Read-only (no index build) but runs the bounded model-loading provider probe — the same probe setup uses; same report as the `wf gpu-doctor` dispatcher subcommand and `setup-wavefoundry --check-gpu` |
 
 
@@ -426,8 +426,9 @@ not rely on `status` to signal index absence.
 
 - Reclaims on-disk **index bloat** by compacting the Lance tables — **no re-embedding** in the common case (the cheap alternative to `wave_index_build(mode='rebuild')`). Proven: `docs.lance` 1.6 GB → 55 MB.
 - Runs a tiered ladder under the index-build lock: (1) **optimize** (compact fragments/versions in place); (2) **copy-and-replace rewrite** when in-place optimize fails on the Lance list-offset corruption (`Max offset … exceeds length of values`, lance #7538) — the table is rewritten fresh via `create_table(mode="overwrite")` (which recomputes offsets from clean in-memory data; **never** `rename_table`, unsupported in LanceDB OSS) and its vector + FTS indices rebuilt, still with no re-embed; (3) **full rebuild** only when a table is entirely unreadable — spawned in the background when `rebuild_if_needed`.
-- `content` must be one of `docs`, `code`, or `all` (the graph index is not reclaimed this way).
-- Response `data`: per-table `{tier, rows, size_before, size_after, reclaimed}` plus `total_reclaimed`, `needs_rebuild`, and `rebuild_spawned`. A lock-busy call returns a `build_skipped_lock_busy` diagnostic pointing at `wave_index_build_status`.
+- `content` must be one of `docs`, `code`, or `all` — it selects the **Lance tables**; the SQLite stores are always maintained alongside whichever Lance selection runs.
+- **Unified maintenance (wave 1rsh9):** after the Lance pass, every reachable SQLite store — the index-state store (`index-state.sqlite`) and the graph state store (`graph/project-graph-state.sqlite`) — gets `wal_checkpoint(TRUNCATE)`, full `VACUUM`, `PRAGMA optimize`, FTS5 `'integrity-check'` + `'optimize'` (when FTS tables exist), and a full `integrity_check`, under the same index-build lock. On-demand only — the graph store's build path is never altered.
+- Response `data`: per-table `{tier, rows, size_before, size_after, reclaimed}` plus per-store equivalents under `stores` (each with an `integrity` verdict), `total_reclaimed` (Lance + stores), `needs_rebuild`, and `rebuild_spawned`. A lock-busy call returns a `build_skipped_lock_busy` diagnostic pointing at `wave_index_build_status`.
 - Also runs **automatically at the end of `setup` (install) and `upgrade`** (reclaim-only), so accumulated bloat is reclaimed without an explicit call.
 - New tool ⇒ a one-time MCP reconnect is needed after upgrade for it to appear (FastMCP).
 

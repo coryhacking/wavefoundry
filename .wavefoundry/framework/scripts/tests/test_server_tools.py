@@ -10425,7 +10425,7 @@ class MaxPerFileFilterDirectTests(unittest.TestCase):
              patch.object(index, "_embed_query", return_value=None), \
              patch.object(index, "_indexer_constant", return_value="model"), \
              patch.object(index, "_lance_search", return_value=raw), \
-             patch.object(index, "_lance_fts_search", return_value=[]), \
+             patch.object(index, "_fts5_lexical_search", return_value=[]), \
              patch.object(index, "_get_reranker", return_value=None):
             results, _ = index.search_code("query", max_per_file=2, top_n=10)
         auth_results = [r for r in results if r["path"] == "src/auth.py"]
@@ -10450,7 +10450,7 @@ class MaxPerFileFilterDirectTests(unittest.TestCase):
              patch.object(index, "_embed_query", return_value=None), \
              patch.object(index, "_indexer_constant", return_value="model"), \
              patch.object(index, "_lance_search", return_value=raw), \
-             patch.object(index, "_lance_fts_search", return_value=[]), \
+             patch.object(index, "_fts5_lexical_search", return_value=[]), \
              patch.object(index, "_get_reranker", return_value=None):
             results, _ = index.search_code("query", max_per_file=1, top_n=10)
         self.assertEqual(len(results), 1)
@@ -21099,6 +21099,144 @@ class IndexOptimizeToolTests(unittest.TestCase):
                 resp = self.srv._wave_index_optimize_response(Path(tmp), content="all")
         self.assertEqual(resp["status"], "ok")
         self.assertEqual(resp["data"]["tables"], {})
+
+
+class StateStoreOptimizeAndHealthTests(unittest.TestCase):
+    """Wave 1rsh9 (1rq4h): unified SQLite-store maintenance in wave_index_optimize
+    and index-state store reporting in wave_index_health."""
+
+    def setUp(self):
+        import server_impl
+        self.srv = server_impl
+
+    def _fake_modules(self, lance_results, store_results=None, lock_raises=None):
+        from contextlib import contextmanager
+        from types import SimpleNamespace
+
+        class _AlreadyRunning(RuntimeError):
+            pass
+
+        @contextmanager
+        def _index_build_lock(index_dir):
+            if lock_raises == "busy":
+                raise _AlreadyRunning("a build is already running")
+            yield
+
+        idx = SimpleNamespace(
+            optimize_index_tables=lambda index_dir, tables=("docs", "code"): lance_results,
+            IndexBuildAlreadyRunning=_AlreadyRunning,
+            _index_build_lock=_index_build_lock,
+        )
+        iss = SimpleNamespace(
+            optimize_state_stores=lambda index_dir, full_vacuum=True, deep_integrity=True: (
+                store_results or {}
+            ),
+        )
+
+        def load(name):
+            return {"indexer": idx, "index_state_store": iss}[name]
+
+        return load
+
+    def test_optimize_reports_sqlite_stores_and_adds_reclaim_to_total(self):
+        lance = {"docs": {"tier": 1, "rows": 10, "needs_rebuild": False, "error": None,
+                          "bytes_before": 1000, "bytes_after": 400}}
+        stores = {
+            "index-state": {"present": True, "integrity": "ok",
+                            "size_before_bytes": 5000, "size_after_bytes": 2000,
+                            "reclaimed_bytes": 3000, "error": None},
+            "graph-state": {"present": False, "integrity": None,
+                            "size_before_bytes": 0, "size_after_bytes": 0,
+                            "reclaimed_bytes": 0, "error": None},
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.object(self.srv, "_load_script",
+                              side_effect=self._fake_modules(lance, stores)):
+                resp = self.srv._wave_index_optimize_response(Path(tmp), content="all")
+        self.assertEqual(resp["status"], "ok")
+        data = resp["data"]
+        self.assertEqual(data["stores"]["index-state"]["reclaimed_bytes"], 3000)
+        self.assertEqual(data["stores"]["index-state"]["integrity"], "ok")
+        self.assertFalse(data["stores"]["graph-state"]["present"])
+        # 600 Lance + 3000 store
+        self.assertEqual(data["total_reclaimed_bytes"], 3600)
+
+    def test_optimize_runs_store_pass_even_with_no_lance_tables(self):
+        stores = {
+            "index-state": {"present": True, "integrity": "ok",
+                            "size_before_bytes": 500, "size_after_bytes": 500,
+                            "reclaimed_bytes": 0, "error": None},
+            "graph-state": {"present": True, "integrity": "ok",
+                            "size_before_bytes": 900, "size_after_bytes": 300,
+                            "reclaimed_bytes": 600, "error": None},
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.object(self.srv, "_load_script",
+                              side_effect=self._fake_modules({}, stores)):
+                resp = self.srv._wave_index_optimize_response(Path(tmp), content="all")
+        self.assertEqual(resp["status"], "ok")
+        data = resp["data"]
+        self.assertEqual(data["tables"], {})
+        self.assertEqual(data["stores"]["graph-state"]["reclaimed_bytes"], 600)
+        self.assertEqual(data["total_reclaimed_bytes"], 600)
+
+    def test_store_lock_busy_keeps_lance_results_with_diagnostic(self):
+        lance = {"docs": {"tier": 1, "rows": 10, "needs_rebuild": False, "error": None,
+                          "bytes_before": 1000, "bytes_after": 400}}
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.object(self.srv, "_load_script",
+                              side_effect=self._fake_modules(lance, lock_raises="busy")):
+                resp = self.srv._wave_index_optimize_response(Path(tmp), content="all")
+        self.assertEqual(resp["status"], "ok")
+        self.assertEqual(resp["data"]["tables"]["docs"]["reclaimed_bytes"], 600)
+        codes = [d.get("code") for d in resp.get("diagnostics", [])]
+        self.assertIn("build_skipped_lock_busy", codes)
+
+    def test_store_structural_fail_emits_diagnostic(self):
+        stores = {
+            "index-state": {"present": True, "integrity": "structural-fail",
+                            "size_before_bytes": 100, "size_after_bytes": 100,
+                            "reclaimed_bytes": 0, "error": "database disk image is malformed"},
+            "graph-state": {"present": False, "integrity": None,
+                            "size_before_bytes": 0, "size_after_bytes": 0,
+                            "reclaimed_bytes": 0, "error": None},
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.object(self.srv, "_load_script",
+                              side_effect=self._fake_modules({}, stores)):
+                resp = self.srv._wave_index_optimize_response(Path(tmp), content="all")
+        codes = [d.get("code") for d in resp.get("diagnostics", [])]
+        self.assertIn("state_store_structural_fail", codes)
+
+    def test_health_summary_absent_store_is_normal(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            summary = self.srv._state_store_health_summary(Path(tmp))
+        self.assertEqual(summary["present"], False)
+        self.assertIsNone(summary["integrity"])
+        self.assertIsNone(summary["schema_version"])
+
+    def test_health_summary_reports_present_store(self):
+        import importlib.util as ilu
+        iss_path = Path(self.srv.__file__).resolve().parent / "index_state_store.py"
+        spec = ilu.spec_from_file_location("_iss_health_test", iss_path)
+        iss = ilu.module_from_spec(spec)
+        spec.loader.exec_module(iss)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            index_dir = root / ".wavefoundry" / "index"
+            store = iss.IndexStateStore(index_dir)
+            store.close()
+            summary = self.srv._state_store_health_summary(root)
+        self.assertTrue(summary["present"])
+        self.assertEqual(summary["schema_version"], iss.STATE_STORE_SCHEMA_VERSION)
+        self.assertEqual(summary["integrity"], "ok")
+        self.assertGreater(summary["size_bytes"], 0)
+
+    def test_health_response_wires_state_store_block(self):
+        src = Path(self.srv.__file__).read_text(encoding="utf-8")
+        fn_pos = src.index("def wave_index_health_response(")
+        wired_pos = src.index('health["state_store"] = _state_store_health_summary(', fn_pos)
+        self.assertGreater(wired_pos, fn_pos)
 
 
 class CloseTimeOptimizeTests(unittest.TestCase):
