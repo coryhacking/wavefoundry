@@ -1461,5 +1461,123 @@ class InheritancePathCostTierTests(unittest.TestCase):
         )
 
 
+_EXTERNAL_SUPERTYPE_FIXTURE = {
+    "schema_version": "1",
+    "builder_version": "1",
+    "layer": "project",
+    "present": True,
+    "nodes": [
+        {"id": "src/Shop.java", "label": "Shop", "kind": "class", "source_file": "src/Shop.java", "layer": "project"},
+        {"id": "src/Sail.java", "label": "Sail", "kind": "class", "source_file": "src/Sail.java", "layer": "project"},
+        {"id": "src/Jdbc.java", "label": "Jdbc", "kind": "class", "source_file": "src/Jdbc.java", "layer": "project"},
+        {"id": "src/Local.java", "label": "LocalIface", "kind": "class", "source_file": "src/Local.java", "layer": "project"},
+        {"id": "src/LocalImpl.java", "label": "LocalImpl", "kind": "class", "source_file": "src/LocalImpl.java", "layer": "project"},
+        # Project class whose SIMPLE NAME collides with an external supertype
+        # declared elsewhere — project must win resolution (shadowing rule).
+        {"id": "src/Node.java", "label": "Node", "kind": "class", "source_file": "src/Node.java", "layer": "project"},
+        {"id": "src/UsesShop.java", "label": "UsesShop", "kind": "class", "source_file": "src/UsesShop.java", "layer": "project"},
+    ],
+    "edges": [
+        # Two implementors of ONE external interface (simple-name declaration).
+        {"source": "src/Shop.java", "target": "external::TypeInstrumentation", "relation": "implements", "confidence": "EXTRACTED"},
+        {"source": "src/Sail.java", "target": "external::TypeInstrumentation", "relation": "implements", "confidence": "EXTRACTED"},
+        # extends of an external class, declared FULLY QUALIFIED.
+        {"source": "src/Jdbc.java", "target": "external::io.otel.InstrumentationModule", "relation": "extends", "confidence": "EXTRACTED"},
+        # A DIFFERENT external supertype sharing the simple name `InstrumentationModule`
+        # (declared with a different qualification) — the distinct-id grouping case.
+        {"source": "src/Sail.java", "target": "external::com.vendor.InstrumentationModule", "relation": "extends", "confidence": "EXTRACTED"},
+        # Project-internal inheritance (control).
+        {"source": "src/LocalImpl.java", "target": "src/Local.java", "relation": "implements", "confidence": "RECEIVER_RESOLVED"},
+        # A project class implements an external supertype named like a project node.
+        {"source": "src/UsesShop.java", "target": "external::Node", "relation": "implements", "confidence": "EXTRACTED"},
+        # External CALL target — must NOT become a resolvable supertype.
+        {"source": "src/Shop.java", "target": "external::Logger.log", "relation": "calls", "confidence": "EXTRACTED"},
+        # Dependent of an implementor (hop-2 blast radius from the interface).
+        {"source": "src/UsesShop.java", "target": "src/Shop.java", "relation": "calls", "confidence": "RECEIVER_RESOLVED"},
+    ],
+    "counts": {"files": 7, "nodes": 7, "edges": 8},
+}
+
+
+class ExternalSupertypeVisibilityTests(unittest.TestCase):
+    """Wave 1sbfi (1sbfh): external `implements`/`extends` visibility — the
+    field-reported blind spot where a class implementing an external interface
+    showed zero edges and the external interface resolved to nothing."""
+
+    def setUp(self):
+        self.mod = load_graph_query()
+        self.index = self.mod.GraphQueryIndex(dict(_EXTERNAL_SUPERTYPE_FIXTURE))
+
+    def test_external_supertype_resolves_by_simple_name(self):
+        self.assertEqual(
+            self.index.resolve_symbol("TypeInstrumentation"),
+            "external::TypeInstrumentation",
+        )
+
+    def test_external_supertype_resolves_by_declared_qualified_name(self):
+        self.assertEqual(
+            self.index.resolve_symbol("io.otel.InstrumentationModule"),
+            "external::io.otel.InstrumentationModule",
+        )
+        self.assertEqual(
+            self.index.resolve_symbol("external::io.otel.InstrumentationModule"),
+            "external::io.otel.InstrumentationModule",
+        )
+
+    def test_project_symbol_shadows_external_supertype(self):
+        # `Node` exists as a project class AND as an external supertype name —
+        # resolution must return the project node (externals never shadow).
+        self.assertEqual(self.index.resolve_symbol("Node"), "src/Node.java")
+
+    def test_distinct_external_ids_sharing_a_simple_name_stay_unmerged(self):
+        # Two different external supertypes share the simple name — conservative
+        # non-resolution + the grouped breakdown (council amendment).
+        self.assertIsNone(self.index.resolve_symbol("InstrumentationModule"))
+        groups = self.index.external_supertype_group("InstrumentationModule")
+        self.assertEqual(
+            [g["id"] for g in groups],
+            ["external::com.vendor.InstrumentationModule", "external::io.otel.InstrumentationModule"],
+        )
+        self.assertEqual({g["subtype_count"] for g in groups}, {1})
+
+    def test_external_call_targets_are_not_supertype_resolvable(self):
+        # Only implements/extends targets join the index — external CALL
+        # targets stay unresolvable by design.
+        self.assertIsNone(self.index.resolve_symbol("Logger.log"))
+        self.assertEqual(self.index.external_supertype_matches("Logger.log"), [])
+
+    def test_graph_impact_from_external_interface_returns_implementors(self):
+        impact = self.index.graph_impact("TypeInstrumentation", max_hops=2)
+        self.assertTrue(impact["resolved"])
+        self.assertEqual(impact["node_id"], "external::TypeInstrumentation")
+        affected_ids = {a["node_id"] for a in impact["affected"]}
+        # Hop 1: both implementors; hop 2: the implementor's dependent.
+        self.assertEqual(
+            affected_ids, {"src/Shop.java", "src/Sail.java", "src/UsesShop.java"}
+        )
+
+    def test_supertype_summary_splits_project_and_external_with_counts(self):
+        summary = self.index.supertype_summary("src/Sail.java")
+        self.assertEqual(
+            [e["id"] for e in summary["external"]],
+            ["external::TypeInstrumentation", "external::com.vendor.InstrumentationModule"],
+        )
+        self.assertEqual(summary["external_implements_count"], 1)
+        self.assertEqual(summary["external_extends_count"], 1)
+        local = self.index.supertype_summary("src/LocalImpl.java")
+        self.assertEqual([e["id"] for e in local["project"]], ["src/Local.java"])
+        self.assertEqual(local["external_implements_count"], 0)
+
+    def test_supertype_summary_absent_for_supertype_free_nodes(self):
+        self.assertIsNone(self.index.supertype_summary("src/Local.java"))
+
+    def test_report_main_sections_stay_free_of_external_rows(self):
+        # Regression pin: external supertype visibility must not leak external
+        # rows into the report's main sections.
+        report = self.index.report()
+        blob = json.dumps(report)
+        self.assertNotIn("external::TypeInstrumentation", blob)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1106,6 +1106,9 @@ class GraphQueryIndex:
     __slots__ = (
         "layer", "present", "builder_version", "nodes", "edges",
         "_out", "_in", "_node_by_id",
+        # Wave 1sbfi (1sbfh): declared-name → distinct external supertype ids
+        # (implements/extends targets only) for the resolution fallback.
+        "_external_supertypes",
         # Wave 131bt (131e2): when load_graph fired a synchronous rebuild
         # for a stale GRAPH_BUILDER_VERSION, the diagnostic propagates here
         # so consumer tools can echo it into their MCP response.
@@ -1140,6 +1143,29 @@ class GraphQueryIndex:
                 continue
             self._out.setdefault(src, []).append(edge)
             self._in.setdefault(tgt, []).append(edge)
+        # Wave 1sbfi (1sbfh): external-supertype index. `implements`/`extends`
+        # edges keep unresolved supertypes as dangling `external::<Name>`
+        # targets (name exactly as declared, never guessed) — the extractor
+        # emits them but no node exists, so name resolution could never reach
+        # them and the blast-radius query ("what implements this external
+        # interface?") was unanswerable. Index the distinct external supertype
+        # ids by declared name and last dotted segment so `resolve_symbol` can
+        # fall back to them (project-shadowed) and consumers can group
+        # distinct ids sharing a simple name (never silently merged).
+        self._external_supertypes: dict[str, set[str]] = {}
+        for edge in self.edges:
+            if edge.get("relation") not in ("implements", "extends"):
+                continue
+            tgt = edge.get("target")
+            if not isinstance(tgt, str) or not tgt.startswith("external::"):
+                continue
+            declared = tgt[len("external::"):]
+            if not declared:
+                continue
+            self._external_supertypes.setdefault(declared, set()).add(tgt)
+            simple = declared.rsplit(".", 1)[-1]
+            if simple and simple != declared:
+                self._external_supertypes.setdefault(simple, set()).add(tgt)
 
     @classmethod
     def from_root(cls, root: Path, *, layer: str = "project") -> GraphQueryIndex:
@@ -1192,7 +1218,92 @@ class GraphQueryIndex:
             callables = self._prefer_callable_ids(by_label, only_callables=True)
             if len(callables) == 1:
                 return callables[0]
+        # Wave 1sbfi (1sbfh): external-supertype fallback — LAST, so an
+        # external name can never shadow a project symbol (every project tier
+        # above already returned, or there was no project match at all). A
+        # single distinct external supertype id resolves; multiple distinct
+        # ids sharing the queried name stay unresolved here (conservative) —
+        # consumers surface the grouped breakdown via
+        # ``external_supertype_matches`` instead of silently merging them.
+        ext_matches = self.external_supertype_matches(symbol)
+        if len(ext_matches) == 1:
+            return ext_matches[0]
         return None
+
+    def external_supertype_matches(self, symbol: str) -> list[str]:
+        """Distinct external supertype ids matching a name (wave 1sbfi / 1sbfh).
+
+        Matches an exact ``external::`` id, the declared name (as extracted —
+        simple or dotted), or the last dotted segment. Sorted for determinism.
+        Only ids that appear as ``implements``/``extends`` targets are
+        considered — external CALL targets are out of scope by design.
+        """
+        symbol = symbol.strip()
+        if not symbol:
+            return []
+        if symbol.startswith("external::"):
+            declared = symbol[len("external::"):]
+            ids = self._external_supertypes.get(declared) or set()
+            return sorted(i for i in ids if i == symbol)
+        return sorted(self._external_supertypes.get(symbol) or ())
+
+    def supertype_summary(self, node_id: str) -> dict[str, Any] | None:
+        """The node's declared supertypes, split project/external (wave 1sbfi / 1sbfh).
+
+        Returns ``{project: [{id, relation, confidence}], external: [{id,
+        name, relation, confidence}], external_implements_count,
+        external_extends_count}`` — or None when the node declares no
+        supertypes (so responses stay clean for the common case). External
+        entries carry the name exactly as declared; counts are always present
+        when the summary exists, so suppression is never silent.
+        """
+        project: list[dict[str, Any]] = []
+        external: list[dict[str, Any]] = []
+        counts = {"implements": 0, "extends": 0}
+        for edge in self._out.get(node_id, []):
+            rel = edge.get("relation")
+            if rel not in ("implements", "extends"):
+                continue
+            tgt = str(edge.get("target") or "")
+            entry = {"id": tgt, "relation": rel, "confidence": edge.get("confidence")}
+            if tgt.startswith("external::"):
+                entry["name"] = tgt[len("external::"):]
+                external.append(entry)
+                counts[str(rel)] += 1
+            else:
+                project.append(entry)
+        if not project and not external:
+            return None
+        return {
+            "project": sorted(project, key=lambda e: e["id"]),
+            "external": sorted(external, key=lambda e: e["id"]),
+            "external_implements_count": counts["implements"],
+            "external_extends_count": counts["extends"],
+        }
+
+    def external_supertype_group(self, symbol: str) -> list[dict[str, Any]]:
+        """Grouped breakdown for a name matching multiple distinct external ids.
+
+        Each entry: ``{id, name, implementor_count, subtype_count}`` (direct
+        ``implements``/``extends`` sources of that exact id). Used by response
+        layers to present the council-mandated distinct-id breakdown instead
+        of a silently merged implementor list.
+        """
+        groups: list[dict[str, Any]] = []
+        for ext_id in self.external_supertype_matches(symbol) or []:
+            impl = sub = 0
+            for edge in self._in.get(ext_id, []):
+                if edge.get("relation") == "implements":
+                    impl += 1
+                elif edge.get("relation") == "extends":
+                    sub += 1
+            groups.append({
+                "id": ext_id,
+                "name": ext_id[len("external::"):],
+                "implementor_count": impl,
+                "subtype_count": sub,
+            })
+        return groups
 
     def _prefer_callable_ids(self, ids: list[str], *, only_callables: bool = False) -> list[str]:
         """Wave 1p4ls: of a multi-match set, the callable (function/method) node ids — or, when no

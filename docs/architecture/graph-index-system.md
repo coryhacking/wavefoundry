@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-06
+Last verified: 2026-07-11
 
 Architecture reference for Wavefoundry's code and documentation graph index: how it is generated, stored, traversed, clustered, and surfaced through MCP tools.
 
@@ -76,7 +76,7 @@ Three boolean annotations are written directly onto module-level node dicts duri
 | `doc` | Markdown and plain-text doc files |
 | `seed` | Files under `.wavefoundry/framework/seeds/` |
 
-External symbols (imported from outside the repo) are represented as nodes with ids prefixed `external::` (e.g. `external::pathlib.Path`). There is no explicit `kind` field for external nodes; they are identified and filtered by the `external::` id prefix.
+External symbols (imported from outside the repo) are represented as nodes with ids prefixed `external::` (e.g. `external::pathlib.Path`). There is no explicit `kind` field for external nodes; they are identified and filtered by the `external::` id prefix. External SUPERTYPES (`implements`/`extends` targets, wave 1sbfi) are additionally name-resolvable at the query layer: `resolve_symbol` falls back to the distinct external supertype ids (project symbols always win a name tie), `code_impact` on an external interface returns its project implementors/subtypes as the blast radius (labeled `external_target`), a simple name matching multiple distinct external ids returns a grouped `external_candidates` breakdown (never silently merged), and node-side `supertypes` summaries carry always-on `external_implements_count`/`external_extends_count`. Pure query-layer machinery — the emitted payload and `GRAPH_BUILDER_VERSION` are unchanged.
 
 ### Edge Fields
 

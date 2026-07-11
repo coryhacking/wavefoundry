@@ -13877,6 +13877,122 @@ class TestCodeGraphTools(unittest.TestCase):
         self.assertIn("fan_in", result["data"])
 
 
+class ExternalSupertypeServerTests(unittest.TestCase):
+    """Wave 1sbfi (1sbfh): external `implements`/`extends` visibility on the
+    server surfaces — code_impact external seeds + grouped ambiguity, and the
+    supertypes section with calls-parity include_external gating."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        self.srv = type(self).srv
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _write_graph(self, nodes: list, edges: list) -> None:
+        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
+        graph_dir.mkdir(parents=True, exist_ok=True)
+        import json
+        (graph_dir / "project-graph.json").write_text(
+            json.dumps({"schema_version": "1", "layer": "project", "nodes": nodes, "edges": edges}),
+            encoding="utf-8",
+        )
+
+    def _standard_graph(self):
+        self._write_graph(
+            nodes=[
+                {"id": "src/Shop.java", "label": "Shop", "kind": "class", "source_file": "src/Shop.java"},
+                {"id": "src/Sail.java", "label": "Sail", "kind": "class", "source_file": "src/Sail.java"},
+            ],
+            edges=[
+                {"source": "src/Shop.java", "target": "external::TypeInstrumentation",
+                 "relation": "implements", "confidence": "EXTRACTED"},
+                {"source": "src/Sail.java", "target": "external::TypeInstrumentation",
+                 "relation": "implements", "confidence": "EXTRACTED"},
+            ],
+        )
+
+    def test_impact_on_external_interface_returns_labeled_implementors(self):
+        self._standard_graph()
+        resp = self.srv.code_impact_response(self.root, symbol="TypeInstrumentation", max_hops=2)
+        self.assertEqual(resp["status"], "ok")
+        data = resp["data"]
+        self.assertTrue(data.get("external_target"))
+        self.assertEqual(data.get("external_name"), "TypeInstrumentation")
+        affected = {a["node_id"] for a in data.get("affected", [])}
+        self.assertEqual(affected, {"src/Shop.java", "src/Sail.java"})
+
+    def test_impact_ambiguous_external_name_returns_grouped_breakdown(self):
+        self._write_graph(
+            nodes=[
+                {"id": "src/A.java", "label": "A", "kind": "class", "source_file": "src/A.java"},
+                {"id": "src/B.java", "label": "B", "kind": "class", "source_file": "src/B.java"},
+            ],
+            edges=[
+                {"source": "src/A.java", "target": "external::io.otel.Module",
+                 "relation": "extends", "confidence": "EXTRACTED"},
+                {"source": "src/B.java", "target": "external::com.vendor.Module",
+                 "relation": "extends", "confidence": "EXTRACTED"},
+            ],
+        )
+        resp = self.srv.code_impact_response(self.root, symbol="Module", max_hops=2)
+        self.assertEqual(resp["status"], "ok")
+        data = resp["data"]
+        self.assertFalse(data.get("resolved"))
+        candidates = data.get("external_candidates") or []
+        self.assertEqual(
+            [c["id"] for c in candidates],
+            ["external::com.vendor.Module", "external::io.otel.Module"],
+        )
+        codes = [d.get("code") for d in resp.get("diagnostics", [])]
+        self.assertIn("external_supertype_ambiguous", codes)
+        # Re-querying with the exact id resolves.
+        resp2 = self.srv.code_impact_response(self.root, symbol="external::io.otel.Module", max_hops=1)
+        self.assertEqual(resp2["status"], "ok")
+        self.assertTrue(resp2["data"].get("external_target"))
+        self.assertEqual({a["node_id"] for a in resp2["data"]["affected"]}, {"src/A.java"})
+
+    def test_impact_on_implementor_surfaces_supertypes(self):
+        self._standard_graph()
+        resp = self.srv.code_impact_response(self.root, symbol="Shop", max_hops=1)
+        self.assertEqual(resp["status"], "ok")
+        supers = resp["data"].get("supertypes")
+        self.assertIsNotNone(supers, "a class with only-external supertypes must not read as no-edges")
+        self.assertEqual(supers["external_implements_count"], 1)
+        self.assertEqual(
+            [e["name"] for e in supers["external"]], ["TypeInstrumentation"]
+        )
+
+    def test_callhierarchy_supertypes_respect_include_external_gate(self):
+        self._standard_graph()
+        gated = self.srv.code_callhierarchy_response(self.root, "Shop", include_external=False)
+        self.assertEqual(gated["status"], "ok")
+        supers = gated["data"].get("supertypes")
+        self.assertIsNotNone(supers)
+        self.assertNotIn("external", supers, "external list must be gated off by default")
+        self.assertEqual(supers["external_implements_count"], 1, "counts must ALWAYS be present")
+        full = self.srv.code_callhierarchy_response(self.root, "Shop", include_external=True)
+        supers_full = full["data"].get("supertypes")
+        self.assertEqual(
+            [e["id"] for e in supers_full.get("external", [])],
+            ["external::TypeInstrumentation"],
+        )
+
+    def test_supertype_free_symbol_has_no_supertypes_section(self):
+        self._write_graph(
+            nodes=[{"id": "src/x.py::plain", "label": "plain", "kind": "function", "source_file": "src/x.py"}],
+            edges=[],
+        )
+        resp = self.srv.code_callhierarchy_response(self.root, "plain")
+        self.assertEqual(resp["status"], "ok")
+        self.assertNotIn("supertypes", resp["data"])
+
+
 class TestCodeCallhierarchy(unittest.TestCase):
     """12nax-enh code-callhierarchy: code_callhierarchy_response tests."""
 

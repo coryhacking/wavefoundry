@@ -6,6 +6,25 @@ the individual wave records under [`docs/waves/`](docs/waves/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.12.0] - 2026-07-11
+
+### Added
+
+- **Ranked code search gains a real lexical signal, fused with semantic retrieval.** A new SQLite FTS5 full-text layer indexes every docs and code chunk and feeds BM25 candidates into ranked retrieval before the cross-encoder rerank, closing the documented weak spots of dense-only search — exact identifiers, rare tokens, and error strings. Compound identifiers stay whole search tokens, results found by both passes carry a multi-source agreement marker, hostile query syntax degrades safely to semantic-only, and interpreters whose SQLite lacks FTS5 keep working unchanged. Codebase Q&A (`code_ask`) and code search both use it; exact keyword search is untouched.
+- **A transactional state store now backs the semantic index.** One derived-only SQLite sidecar carries per-file freshness/churn data (extracted from local git history in one batched pass per build), per-path build bookkeeping with the index metadata file preserved as an exported snapshot for existing readers, a chunk registry that lets incremental builds skip reading unchanged rows entirely, and the new full-text tables. Everything in it rebuilds from the repository, git, or the vector store — a missing, corrupt, or out-of-date store is repaired automatically with no data loss, and schema upgrades never require migration steps.
+- **Secret scanning remembers what it already scanned.** A per-file cache keyed on content and ruleset fingerprints skips files whose exact bytes were already scanned clean under the exact same rules — precise across branch switches, whitespace-only touches, and touch-and-revert — while a differential harness proves the cached path reports findings identical to a full scan, and any cache problem falls back to scanning everything. A repo-wide re-check that took seconds now completes in well under a tenth of one.
+- **The graph tools now see classes that implement or extend third-party types.** A class whose only supertypes are external (for example an SDK interface) previously showed no inheritance relationships at all, with no signal that any existed. Impact analysis can now resolve an external interface by name and return every project class that implements or extends it as the blast radius; the implementor side reports its declared supertypes with always-on external counts; and a name shared by several distinct external types returns a grouped breakdown instead of a merged guess. Works against existing graphs immediately — no re-extraction needed.
+- **One command now maintains every index.** The index-optimize tool covers the vector tables and both SQLite stores in a single pass — compaction, space reclamation, planner statistics, full-text segment merging, and a two-layer integrity check (structural soundness plus staleness against each store's source of truth) — and still runs automatically at install and upgrade. Index health reporting shows the state store's presence, schema version, and integrity verdict.
+
+### Fixed
+
+- **Ruleset changes now actually trigger the promised full secret re-scan.** The scanner's change detector hashed a rules path that never exists, leaving the primary framework ruleset outside the fingerprint entirely — so a rules update (including one delivered by upgrade) silently kept stale per-file scan decisions. The fingerprint now covers the real ruleset locations; the first scan after upgrading performs one full pass, then returns to incremental.
+- **A large on-disk search-index leak is closed at its source.** The previous full-text index rebuilt itself wholesale on every build that changed a table and accumulated superseded copies that ordinary compaction could never reclaim — over a hundred megabytes of dead index data on an active repository. That engine is retired: the new lexical layer maintains itself incrementally with no version accumulation, code search's lexical half reads it directly with identical result quality on the recorded evaluation set, and upgrade automatically drops the legacy indexes and reclaims their space.
+
+### Changed
+
+- **Incremental index builds got faster and more crash-consistent.** Provably-unchanged files skip their vector-store reads entirely during re-chunking passes (with drift-repair paths explicitly exempted so out-of-band data loss is still healed), all derived index state commits transactionally ordered after the vector-store writes with an end-of-build reconciliation that repairs any crash window, and first builds after install or upgrade log a calm provisioning note instead of a repair warning.
+
 ## [1.11.2] - 2026-07-06
 
 ### Fixed

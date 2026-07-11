@@ -6,31 +6,31 @@ Last verified: 2026-07-11
 
 ## Current State
 
-**Wave `1rsh9 sqlite-index-substrate` — CLOSED 2026-07-11 (operator-approved) and committed to `main` as `241b350e`. NOT yet released.**
+**Two waves ready for the 1.12 release:**
 
-Four changes delivered (three on 2026-07-10; `1sauc` late-admitted by operator direction on 2026-07-11):
+1. **Wave `1rsh9 sqlite-index-substrate` — CLOSED, committed as `a62d612a`** (4 changes: state store, FTS5 hybrid lexical, secret-scan cache, Tantivy retirement; details in the wave record and memory).
+2. **Wave `1sbfi external-supertype-visibility` — IMPLEMENTED, delivery-reviewed, CLOSE-READY (awaiting operator close), UNCOMMITTED.** Operator-directed pre-1.12 work. `1sbfh`: the field-reported blind spot (class implements an external interface → invisible, unlike `calls`) is closed at the query/server layer — the census proved extraction already emitted the edges. Shipped: external-supertype name resolution (project-shadowed; distinct-id grouping, never merged), `code_impact` external seeds labeled with implementor blast radius + `external_candidates` ambiguity breakdown, `supertypes` sections with always-on external counts on `code_impact`/`code_callhierarchy` (include_external gate, calls parity). **No `GRAPH_BUILDER_VERSION` bump** — field graphs light up on upgrade without re-extraction. 14 new tests; suite 4,832 OK; `wave_validate` clean; `wave_close` dry-run PASSES; seeds 211/180 + tool docstrings + graph-index-system/mcp-tool-surface/feedback docs updated.
 
-- `1rq4h-enh sqlite-index-state-store` — `index_state_store.py` substrate (graph store untouched), freshness/attribution tables + `freshness_for_path` read primitive, maintenance primitives, unified `wave_index_optimize` (Lance + both SQLite stores), two-layer integrity probe in `wave_index_health`.
-- `1rrr0-enh sqlite-fts5-and-index-internals` — contentful FTS5 tables (`unicode61 tokenchars '_'`, detail=full kept deliberately), ordered-consistency sync + reconcile, BM25 fusion pre-rerank in `search_combined` (default ON; eval improved=1/regressed=0/unchanged=11), `meta.json` exported snapshot, registry-backed incremental skip (0.14s vs 1.68s per table).
-- `1rsha-enh incremental-secret-scan-cache` — per-file content+rules scan cache (differential equivalence proven with the real scanner; fail-toward-full-scan; 6.7s full vs 0.07s warm live); fixed the latent rules-hash bug (framework ruleset was outside the fingerprint).
-- `1sauc-enh retire-lance-tantivy-fts` — Lance/Tantivy FTS fully retired: no Lance FTS created anywhere (source-locked), `search_code`'s lexical half reads the FTS5 tables (filter parity; store schema v4), legacy indices dropped by the reclaim path at upgrade. LIVE: 148 MB reclaimed (docs.lance 163→51 MB, code.lance 73→37 MB). Eval: 0 regressed / 10 unchanged.
-
-**Verification at close:** full suite 4,818 tests OK bytecode-free; `wave_validate` clean; readiness extension + delivery council (incl. `1sauc` addendum) recorded in the wave record; ADR `1s5u9-adr`. The live MCP server on this repo was hot-reloaded 2026-07-11 (`wave_mcp_reload`) — fusion, FTS5-backed `code_search`, and the `state_store` health block are serving.
+**Companion finding:** the other planned pre-1.12 item (corp-TLS cluster) was verified ALREADY SHIPPED (uv scrub 1.9.7 via 1p8tg; launcher CA coverage 1.10.0 via 1p939; host-agent CA vars in the ladder) — memory corrected, no work needed.
 
 ## Next Steps
 
-1. **Release when ready** — the next version bundles wave `1rsh9` (CHANGELOG section written at release time; commit-style bullets, no build numbers/wave IDs; `build_pack.py --release` needs a clean tree and the `## [X]` CHANGELOG section; gh account `coryhacking`).
-2. Field-upgrade behavior to expect: store provisions/backfills with the calm cold-provisioning note; legacy Tantivy indices dropped + reclaimed automatically; one-time full secret scan (cold cache + corrected rules hash); `wave_mcp_reload` needed for running servers.
-3. Wave `1ro44` (agent memory + churn decay) is READIED and now unblocked — `1ro43` consumes the freshness tables shipped here as-is.
+1. **Operator decision: close wave `1sbfi`** (dry-run passes) and commit it.
+2. **Release 1.12.0** — bundles waves `1rsh9` + `1sbfi` (CHANGELOG section at release time; commit-style bullets, no build numbers/wave IDs; `build_pack.py --release` needs a clean tree + the `## [X]` section; gh account `coryhacking`). Post-upgrade note for field repos: `wave_mcp_reload` for running servers; the graph tools' new signals work against existing graphs immediately.
+3. Wave `1ro44` (agent memory + churn decay) remains READIED and unblocked — natural next wave after the release.
 
 ## Follow-ups recorded (not blocking)
 
-- Retire the `1rycf` close-time bloat gate once field data confirms the leak source is gone (it band-aided the Tantivy `_indices/` leak `1sauc` removed at the source; harmless meanwhile).
-- Stale-content Lance drift class (file_meta current but rows predate an edit): candidate detection via a freshness-store cross-check.
-- Tier 2 rule-delta secret scanning (spike: partially viable; needs an additive rules-subset param + a rule_id-keyed ledger-sweep decision re confirmation history).
-- `meta.json` reader migration to the store (explicitly deferred by 1rrr0).
-- Graph store automatic build-path maintenance (on-demand only this wave, per AC-7).
+- Retire the `1rycf` close-time bloat gate once field data confirms (Tantivy leak source removed by 1rsh9/1sauc).
+- Stale-content Lance drift detection via a freshness-store cross-check.
+- Tier 2 rule-delta secret scanning (spike: partially viable).
+- `meta.json` reader migration; graph build-path auto-maintenance (deferred per 1rq4h AC-7).
+- Extraction-side: qualification-via-import-facts for unqualified external supertype declarations (census note in `1sbfh` — would let two unqualified same-name externals separate; extraction modeling, needs its own change).
 
 ## Session Notes
 
 - The pre-edit hook fails when the shell cwd is inside `.wavefoundry/framework/scripts/` — `cd` back to repo root before Edit calls.
+
+## Current Session
+
+**Active wave:** *(none)*

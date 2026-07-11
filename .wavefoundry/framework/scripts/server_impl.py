@@ -13914,6 +13914,21 @@ def code_callhierarchy_response(
         "parser_used": "graph",
     }
 
+    # Wave 1sbfi (1sbfh): declared supertypes, calls-parity external handling —
+    # project supertypes always listed; external supertype entries gated on
+    # ``include_external`` with ALWAYS-ON suppressed counts (a class whose only
+    # supertypes are external must never read as "no relationships" with no
+    # signal). Absent entirely when the node declares no supertypes.
+    try:
+        _supers = index.supertype_summary(node_id)
+    except AttributeError:
+        _supers = None
+    if _supers:
+        _supers_out = dict(_supers)
+        if not include_external:
+            _supers_out.pop("external", None)
+        data["supertypes"] = _supers_out
+
     community_lookup = _load_cluster_lookup_with_ids(root)
 
     def _node_entry(nid: str) -> dict[str, Any]:
@@ -15311,6 +15326,34 @@ def _code_impact_graph_response(
             index = new_index
             impact = index.graph_impact(symbol, max_hops=max(1, max_hops), relations=relations)
     if not impact.get("resolved"):
+        # Wave 1sbfi (1sbfh): a simple name matching MULTIPLE distinct external
+        # supertype ids stays unresolved by design (never silently merged) —
+        # surface the grouped breakdown so the caller can re-query with the
+        # exact ``external::`` id (council amendment: distinct-id grouping).
+        ext_groups = []
+        try:
+            ext_groups = index.external_supertype_group(symbol)
+        except AttributeError:
+            pass  # older loaded index module without the helper
+        if len(ext_groups) > 1:
+            return _response(
+                "ok",
+                {
+                    "symbol": symbol,
+                    "resolved": False,
+                    "method": "graph",
+                    "layer": layer_value,
+                    "external_candidates": ext_groups,
+                },
+                diagnostics=[_diagnostic(
+                    "external_supertype_ambiguous",
+                    f"'{symbol}' matches {len(ext_groups)} distinct external supertypes "
+                    f"(declared with different qualifications). Re-query with the exact id, "
+                    f"e.g. code_impact(symbol={ext_groups[0]['id']!r}).",
+                )],
+                next_tools=["code_impact"],
+                usage=f"code_impact(symbol={ext_groups[0]['id']!r}, max_hops=2)",
+            )
         suggestions = _suggest_near_symbols(index, symbol)
         return _response(
             "error",
@@ -15348,6 +15391,23 @@ def _code_impact_graph_response(
     edges_total = len(impact_edges)
     edges_truncated = edges_total > max_results
     response_edges = impact_edges[:max_results]
+    # Wave 1sbfi (1sbfh): external-supertype visibility. When the resolved
+    # seed IS an external supertype (blast radius = its project implementors/
+    # subtypes + their dependents), label it so consumers never mistake it
+    # for a project node. On any seed, surface the node's declared supertypes
+    # (project + external, with always-on external counts) — a class whose
+    # only supertypes are external no longer reads as "no edges".
+    _resolved_id = str(impact.get("node_id") or "")
+    _extra: dict[str, Any] = {}
+    if _resolved_id.startswith("external::"):
+        _extra["external_target"] = True
+        _extra["external_name"] = _resolved_id[len("external::"):]
+    try:
+        _supers = index.supertype_summary(_resolved_id)
+    except AttributeError:
+        _supers = None
+    if _supers:
+        _extra["supertypes"] = _supers
     return _attach_auto_rebuild_diag(
         _response(
             "ok",
@@ -15357,6 +15417,7 @@ def _code_impact_graph_response(
                 # came back null (field report). At the OK path the symbol is resolved.
                 "resolved": True,
                 "node_id": impact.get("node_id"),
+                **_extra,
                 "layer": layer_value,
                 "method": "graph",
                 "max_hops": max_hops,
@@ -17622,6 +17683,21 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         - truncated: true when affected nodes or edges were capped at max_results
         - include_tests: whether test-path nodes were included
         - suggestions: near-match candidates when the symbol is not found in the graph
+        - external_target / external_name: present when the resolved seed is an EXTERNAL
+          supertype (e.g. a third-party interface project classes implement). The blast
+          radius is then its project implementors/subtypes plus their dependents — so
+          "what implements this external interface?" is a first-class query. External
+          names never shadow project symbols (a project node with the same name wins).
+        - external_candidates: returned instead of a resolution when a simple name
+          matches MULTIPLE distinct external supertypes (declared with different
+          qualifications) — grouped ``{id, name, implementor_count, subtype_count}``
+          entries, never a silently merged list; re-query with the exact ``external::``
+          id from the group.
+        - supertypes: present when the resolved node declares supertypes —
+          ``{project: [...], external: [{id, name, relation, confidence}],
+          external_implements_count, external_extends_count}``. A class whose only
+          supertypes are external no longer reads as "no relationships": the counts
+          are always present.
 
         Response fields (heuristic mode — path=):
         - path: the queried file path
@@ -19227,6 +19303,12 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
           community id of each caller (stable across graph rebuilds, unlike Leiden numbering).
         - external_outgoing_count, external_incoming_count: number of external (non-project) entries
           suppressed from the lists (wave 130ol). Set ``include_external=True`` to surface them inline.
+        - supertypes: present when the symbol's class declares supertypes —
+          ``{project: [...], external_implements_count, external_extends_count}`` always, plus the
+          ``external`` entry list (``{id, name, relation, confidence}``) when ``include_external=True``.
+          Counts are ALWAYS present, so a class implementing only external interfaces (e.g. a
+          third-party SDK interface) is never silently invisible. To get the reverse view — every
+          project class implementing an external interface — call ``code_impact(symbol=<name>)``.
         - context: (when context_depth > 0) one-hop expansion from all immediate callers/callees;
           each entry is {id, label, kind, source_file, community_id, community, relation}
         - suggestions: near-match candidates when the symbol is not found in the graph

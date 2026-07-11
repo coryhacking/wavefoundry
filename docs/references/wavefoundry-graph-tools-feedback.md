@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-06
+Last verified: 2026-07-11
 
 A standing log of field observations about the code-graph tools (`code_impact`, `code_callhierarchy`, `code_callgraph`, `code_graph_path`, `code_risk_score`, `wave_graph_report`, …) gathered from real target-repo smoke tests. Findings here are candidates for a graph-extractor enhancement wave (cf. the prior `graph-tools-field-feedback` rounds: `130rj`, `13129`, `1p41l`). Not defects unless noted — most are modeling gaps or missing signals.
 
@@ -23,4 +23,6 @@ A standing log of field observations about the code-graph tools (`code_impact`, 
 
 **Not a regression** from the 1.11.0 upgrade — `implements`/`extends` simply have never had external-target modeling, in contrast to `calls`.
 
-**Candidate fix direction:** give `implements`/`extends` the same external-target treatment `calls` already has — mint/resolve `external::<FQN>` supertype nodes (or at minimum surface an `external_implements_count` / suppressed-count signal) so a class-implementing-an-external-interface is visible in blast-radius and hierarchy queries. Sizing + design belongs in a graph-extractor enhancement wave, not a hotfix.
+**ADDRESSED (2026-07-11, wave `1sbfi external-supertype-visibility`):** the census showed extraction already emitted the edges (`external::` targets, faithful as-declared) — the gap was query-layer. Shipped: external-supertype name resolution (`code_impact(symbol="TypeInstrumentation")` now returns the implementor blast radius, labeled external), always-on `external_implements_count`/`external_extends_count` + a `supertypes` section on `code_impact`/`code_callhierarchy` (external entries gated on `include_external`, calls parity), and a grouped `external_candidates` breakdown when one simple name matches several distinct external types. No `GRAPH_BUILDER_VERSION` bump — existing field graphs light up on upgrade without re-extraction.
+
+**Original candidate fix direction:** give `implements`/`extends` the same external-target treatment `calls` already has — mint/resolve `external::<FQN>` supertype nodes (or at minimum surface an `external_implements_count` / suppressed-count signal) so a class-implementing-an-external-interface is visible in blast-radius and hierarchy queries. Sizing + design belongs in a graph-extractor enhancement wave, not a hotfix.
