@@ -504,6 +504,8 @@ Never present an inferred conclusion as a confirmed fact. A qualified answer is 
 
 To query the lexical layer directly — BM25-ranked exact-token search over the same indexed corpus, or verifying whether a chunk is actually in the FTS layer — use **`code_lexical(query, table="code"|"docs"|"both", kind=..., limit=...)`**. It ranks indexed chunks (unlike `code_keyword`, which matches live files unranked), reports per-table lexical coverage, and warns when the searched table is under-covered so zero results on an unhealed store are never mistaken for corpus absence.
 
+**Reading `code_lexical` rankings on multi-identifier queries:** BM25's length normalization rewards short chunks containing all query tokens, so symbol/namespace **summary chunks routinely outrank body chunks** when the query names several identifiers (e.g. `typeInstrumentations transform`). That is honest lexical ranking — the summary IS the most token-dense match — not a miss: treat the top summary hit as the pointer and follow through with `code_read` on its path and line range to reach the implementation body. Field-verified behavior; expect it rather than re-querying.
+
 ## Operator Q&A
 
 Guru may ask the operator clarifying questions when:
