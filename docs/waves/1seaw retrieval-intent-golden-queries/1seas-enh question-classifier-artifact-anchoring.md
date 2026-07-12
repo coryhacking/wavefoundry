@@ -5,7 +5,7 @@ Change Status: `planned`
 Owner: Engineering
 Status: planned
 Last verified: 2026-07-12
-Wave: TBD
+Wave: `1seaw retrieval-intent-golden-queries`
 
 ## Rationale
 

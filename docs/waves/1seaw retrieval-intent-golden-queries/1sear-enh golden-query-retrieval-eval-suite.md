@@ -5,7 +5,7 @@ Change Status: `planned`
 Owner: Engineering
 Status: planned
 Last verified: 2026-07-12
-Wave: TBD
+Wave: `1seaw retrieval-intent-golden-queries`
 
 ## Rationale
 
@@ -17,9 +17,11 @@ This change builds the suite; `1seas` (classifier/ranking improvements) is gated
 
 1. **Golden-query corpus, versioned in-repo:** known-answer queries against THIS repo's indexed content, each with expected top-hit path(s)/symbol(s) and question-type expectations. Seed classes (from live evidence): architecture/review intent ("where are the biggest gaps in X"), known-symbol navigational, constant-value lookup, exact-identifier lexical, error-string lookup, enumeration ("which X are…"), direct ignore-file/manifest questions (the ONLY class where low-information paths are the right answer), and abstention cases (absent topics must return low confidence, not fabrication).
 2. **Metrics:** Recall@k and nDCG@k against expected hits; abstention correctness on the negative controls; p95 latency and response size per tool (`code_ask`, `code_search`, `docs_search`, `code_lexical`). Cached-model runs only (no network).
-3. **Runnable locally in one command** (a `run_tests.py`-adjacent entry or `wf` verb), producing a comparable scored report artifact; deterministic enough to diff across runs on the same index.
-4. **Baseline recorded:** the current scores land in the change doc / a report artifact as the reference line `1seas` must beat-or-hold.
-5. **Gate wiring:** documented (contributing/review docs) as the required evidence for future ranking/classification/chunking-relevance changes — the standing replacement for bespoke gates.
+3. **Frozen evaluation environment (plan-review addition):** before/after comparisons run against a FROZEN index state — the runner snapshots (or verifies unchanged) the index meta signature across the run and disables/defers the background staleness monitor and hook refreshes for its duration; a signature change mid-run invalidates the report. The report records model names/versions, execution provider, and hardware; p95 latency is computed from repeated samples after a documented warm-up (never from a cold first call).
+4. **Calibration/holdout split (plan-review addition):** the corpus separates CALIBRATION cases (visible during `1seas` tuning — includes the verbatim misranked queries) from WITHHELD validation cases (paraphrases/novel instances of each class, not consulted during tuning); the gate verdict weighs the holdout set, so the classifier cannot be tuned to the exact queries that declare success.
+5. **Runnable locally in one command** (a `run_tests.py`-adjacent entry or `wf` verb), producing a comparable scored report artifact; deterministic enough to diff across runs on the same index.
+6. **Baseline recorded:** the current scores land in the change doc / a report artifact as the reference line `1seas` must beat-or-hold.
+7. **Gate wiring:** documented (contributing/review docs) as the required evidence for future ranking/classification/chunking-relevance changes — the standing replacement for bespoke gates.
 
 ## Scope
 
@@ -32,7 +34,8 @@ This change builds the suite; `1seas` (classifier/ranking improvements) is gated
 
 - [ ] AC-1: The suite runs in one local command against the current index with cached models and emits a scored report (Recall@k, nDCG@k, abstention, p95 latency, response size) per tool.
 - [ ] AC-2: The corpus covers all eight seeded query classes, including the review session's misranked queries and at least two abstention controls.
-- [ ] AC-3: The baseline run is recorded and reproducible (two consecutive runs on the same index agree within a documented tolerance).
+- [ ] AC-3: The baseline run is recorded and reproducible (two consecutive runs on the same FROZEN index agree within a documented tolerance), with environment (models, provider, hardware) recorded and the monitor/hook-refresh freeze proven by an unchanged meta signature across the run.
+- [ ] AC-6: The corpus is split calibration vs holdout (every class represented in both), and the gate verdict is computed on the holdout set.
 - [ ] AC-4: The gate is documented in the contributing/review surfaces as required evidence for ranking-behavior changes.
 - [ ] AC-5: Full suite bytecode-free + docs validation (the eval itself is NOT part of the default test run — it needs the built index).
 
@@ -80,6 +83,7 @@ This change builds the suite; `1seas` (classifier/ranking improvements) is gated
 
 | Date | Update | Evidence |
 | ---- | ------ | -------- |
+| 2026-07-12 | Plan-review revision (external, validated): evaluation isolation was underspecified — implementing `1seas` edits indexed framework code while background refreshes mutate the signature mid-run. Added the frozen-environment requirement (signature-verified, monitor/hook deferred, env recorded, warm-up + repeated samples for p95) and the calibration/holdout split so the classifier cannot be tuned to its own verdict queries. | Plan review. |
 | 2026-07-12 | Drafted from the external code review (P1 CI/eval finding, the retrieval-eval kernel) + accumulated quality-log anecdotes that should be executable cases (session-8 constant ranking, review-session ignore-file misranking, multi-token summary-first). Positioned as the gate `1seas` requires. | Review report; quality-log memory; AC-8/AC-10 gate precedents (1p41o gate-out, 1p4hj recall comparison). |
 
 

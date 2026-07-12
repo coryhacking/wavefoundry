@@ -34,7 +34,7 @@ Change `1p6lo` (foundation): a unified skill registry + `SKILL.md` emitter; migr
 
 ## Review Evidence
 
-- operator-signoff: approved when operator confirms closure
+- operator-signoff: <approved when operator confirms closure>
 
 ## Dependencies
 

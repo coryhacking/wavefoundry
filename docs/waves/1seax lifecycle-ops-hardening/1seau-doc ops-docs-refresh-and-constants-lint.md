@@ -5,7 +5,7 @@ Change Status: `planned`
 Owner: Engineering
 Status: planned
 Last verified: 2026-07-12
-Wave: TBD
+Wave: `1seax lifecycle-ops-hardening`
 
 ## Rationale
 
@@ -17,8 +17,10 @@ Second half: the review's suggestion of lint assertions binding documented facts
 
 1. **RELIABILITY.md refresh:** current failure modes and postures — derived-only stores with drop-and-rebuild, the build lock + `lock.held` contract, fail-soft search degradation, the persisted store log, per-layer freshness and the heal, secrets-scan cache posture. Remove future-work framing for shipped systems.
 2. **performance-budget.md refresh:** real budgets from measured evidence — full rebuild (~6 min documented elsewhere), incremental hook build (zero-change ~1.2s / docs ~4s / code-edit ~12s measured in 1sc7c), heal pass (38s/1,330 files), FTS derived rebuild (~3.4s), `code_ask` latency components (vector/rerank ms), reranker cold-load; identify the ACTUAL hotspots (embedding, reranker session init, O(corpus) walks) and their guards.
-3. **Docs-constants lint check:** a declarative docs-lint check asserting named documented facts match code constants — model names (`DOCS_MODEL`/`CODE_MODEL`/`RERANKER_MODEL`), `CHUNKER_VERSION`/`WALKER_VERSION`/`GRAPH_BUILDER_VERSION`/`STATE_STORE_SCHEMA_VERSION` mentions in operational docs, `wave_index_build` content values, and the `index_freshness` state set. Declarative mapping (doc pattern → constant), same shape as existing config-driven checks; failures name the doc line and the constant.
-4. **Scope discipline:** docs-only plus the lint check — no behavior changes; the lint check lands with the mappings for the two refreshed docs plus the spec's content values (extensible later).
+3. **Canonical public-contract constants FIRST (plan-review revision):** the lint's source of truth is ambiguous today — `indexer.CONTENT_CHOICES` is `docs/code/all/graph` while the public MCP handler also accepts `map` and `fts` (two truths). Define canonical public-contract constants (build content values, `index_freshness` states, `search_mode`/`fallback_reason` vocabularies) in one shared module consumed by BOTH the handlers and the lint check — never regex-parse scattered string literals. (Code-touching; coordinates with `1seat` in the same wave.)
+4. **Docs-constants lint check:** a declarative docs-lint check asserting named documented facts match code constants — model names (`DOCS_MODEL`/`CODE_MODEL`/`RERANKER_MODEL`), `CHUNKER_VERSION`/`WALKER_VERSION`/`GRAPH_BUILDER_VERSION`/`STATE_STORE_SCHEMA_VERSION` mentions in operational docs, `wave_index_build` content values, and the `index_freshness` state set. Declarative mapping (doc pattern → constant), same shape as existing config-driven checks; failures name the doc line and the constant.
+5. **Scaffolding-quality lint rules (council amendment):** two rules from the plan-review round — (a) reject unbracketed pre-approval signoff phrasing in wave records (the bracketed placeholder is the load-bearing convention for the close gate); (b) reject `Wave: TBD` or a wave reference that mismatches the containing wave directory on ADMITTED change docs. Fixtures use this session's actual defects.
+6. **Scope discipline:** docs-only plus the lint check — no behavior changes; the lint check lands with the mappings for the two refreshed docs plus the spec's content values (extensible later).
 
 ## Scope
 
@@ -31,7 +33,8 @@ Second half: the review's suggestion of lint assertions binding documented facts
 
 - [ ] AC-1: RELIABILITY.md describes the shipped reliability posture (stores, locks, degradation, logs, heal) with no future-work framing for shipped systems.
 - [ ] AC-2: performance-budget.md carries measured budgets and the real hotspot list with guards.
-- [ ] AC-3: The docs-constants lint check fails on a seeded drift fixture (wrong model name in a doc) and passes on the refreshed docs; wired into the standard docs gate.
+- [ ] AC-3: The docs-constants lint check fails on a seeded drift fixture (wrong model name in a doc) and passes on the refreshed docs; wired into the standard docs gate; the checked vocabularies come from the canonical public-contract constants module (single source of truth, consumed by the handlers too).
+- [ ] AC-5: Admitted change docs with `Wave: TBD`/mismatched wave references fail lint; wave records with unbracketed pre-approval signoff phrasing fail lint (fixtures = this session's actual defects).
 - [ ] AC-4: Full docs validation + framework tests pass (the lint check's own unit fixtures included).
 
 ## Tasks
@@ -76,6 +79,7 @@ Second half: the review's suggestion of lint assertions binding documented facts
 
 | Date | Update | Evidence |
 | ---- | ------ | -------- |
+| 2026-07-12 | Plan-review revision (external, validated) + council amendment: canonical public-contract constants required before the lint (two-truths verified: `CONTENT_CHOICES` at indexer.py:150 lacks `map`/`fts` that the server accepts); two scaffolding-quality lint rules adopted (signoff-placeholder phrasing, admitted-doc `Wave:` integrity) with this session's defects as fixtures. | Plan review; constants source reads. |
 | 2026-07-12 | Drafted from the external code review (P2), staleness validated by direct read ("None currently; all operations are local file I/O with small data volumes"). Measured budget inputs already exist from the 1sc7c design pass and 1sbfk/1seiz live probes. | Review report; doc reads; 1sc7c hook-cost measurements. |
 
 

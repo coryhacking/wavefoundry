@@ -5,7 +5,7 @@ Change Status: `planned`
 Owner: Engineering
 Status: planned
 Last verified: 2026-07-12
-Wave: TBD
+Wave: `1seav search-freshness-degraded-retrieval`
 
 ## Rationale
 
@@ -19,7 +19,7 @@ The cheap correct substrate now exists (wave 1sc7c): per-layer last-embedded has
 
 ## Requirements
 
-1. **Cheap freshness signal:** replace the per-call `_layer_health` with a stat-fast-path check (`project_index_inputs_stale()` or an equivalent read over per-layer state) — no per-call corpus hashing. Keep the chunker-version-mismatch check (it is a valid *distinct* staleness cause) via a cheap meta read, not the full health walk.
+1. **Cheap freshness signal with the CORRECT authority:** replace the per-call `_layer_health` with a check that combines the stat-fast-path walk with **each layer's last-embedded hashes** (`layer_path_state`) — NOT `project_index_inputs_stale()` alone, which compares against broad `meta.json` `file_meta` and therefore reads `current` while a layer is stale (broad meta is stamped by ANY build; that cross-layer distinction is exactly what 1sc7c introduced per-layer state to preserve). Keep the chunker-version-mismatch check (a valid distinct staleness cause) via a cheap meta read. No per-call corpus hashing.
 2. **Three honest states:** `index_freshness ∈ {"current", "stale", "unknown"}` — an exception or undeterminable state returns `"unknown"`, never silently `"current"`. Consumers (seed-211 guidance documents `index_freshness`) updated for the third state.
 3. **Short-lived cache:** the freshness verdict may be cached briefly (seconds-scale TTL or invalidation keyed on the index meta signature / build `ended_at`) so bursts of `code_ask` calls don't repeat even the cheap check; the cache must invalidate on build completion.
 4. **Regression tests:** modified-path staleness (touch a file → `stale`), missing/unreadable metadata (→ `unknown`), health-check exception (→ `unknown`), chunker-mismatch (existing case, kept), and freshness-cache invalidation on build completion. The existing test coverage is chunker-mismatch ONLY (`test_server_tools.py` ~10281).
@@ -35,7 +35,7 @@ The cheap correct substrate now exists (wave 1sc7c): per-layer last-embedded has
 ## Acceptance Criteria
 
 - [ ] AC-1: `code_ask` no longer calls `_layer_health` (or any O(corpus) walk) per invocation — source-pinned, plus before/after timing evidence on this repo.
-- [ ] AC-2: A modified indexed file makes `index_freshness` report `stale` (the review's live-repro case, fixture-pinned); chunker mismatch still reports `stale`.
+- [ ] AC-2: The LAYER-CROSSING regression is fixture-pinned: edit a code file; run a docs-only build that also processes a docs change (broad meta now stamps the code file's hash) → `code_ask` reports `stale`; rebuild docs only → still `stale`; rebuild code/all → `current`. Plus the simple case (modified file → `stale`) and chunker mismatch → `stale`.
 - [ ] AC-3: Freshness-check exceptions and undeterminable states report `unknown` — never `current` — fixture-pinned.
 - [ ] AC-4: The cached verdict invalidates on build completion (fixture: stale → build → current without server restart).
 - [ ] AC-5: Full suite bytecode-free + docs validation; seed-211/spec document the three-state contract.
@@ -83,6 +83,7 @@ The cheap correct substrate now exists (wave 1sc7c): per-layer last-embedded has
 
 | Date | Update | Evidence |
 | ---- | ------ | -------- |
+| 2026-07-12 | Plan-review revision (external, validated): `project_index_inputs_stale()` DISALLOWED as the sole signal — it compares broad `meta.json` `file_meta` (verified `indexer.py:1215`), which any build stamps; the helper must consult per-layer `layer_path_state`. AC-2 rewritten to the exact layer-crossing regression (code edit → docs-only build stamps meta → must still read stale until a code/all build). | Plan review; `project_index_inputs_stale` source read. |
 | 2026-07-12 | Drafted from the external code review (P0-1), every claim validated against `2952df8f`: `_layer_health` per call at ~17305 (contradicting its own docstring), chunker-only staleness at ~17306-08, `except → current` at ~17309-11; reviewer live-reproduced `current`-while-stale. Fix substrate (per-layer state, `project_index_inputs_stale`) shipped in wave 1sc7c. | Review report; source reads; `_layer_health` docstring (~639). |
 
 

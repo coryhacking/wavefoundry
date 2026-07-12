@@ -5,7 +5,7 @@ Change Status: `planned`
 Owner: Engineering
 Status: planned
 Last verified: 2026-07-12
-Wave: TBD
+Wave: `1seav search-freshness-degraded-retrieval`
 
 ## Rationale
 
@@ -21,8 +21,10 @@ Also folds in the valid kernel of the review's exception-handling finding: calle
 1. **FTS-first degraded fallback for `code_search`:** when query embedding is unavailable, serve BM25 results from `fts_code` (the `code_lexical` machinery), preserving `kind` (in-query), `language` (row-carried post-filter), `max_per_file`, and `tags` semantics; the response is `status: ok` with degraded-mode signals, never an error, whenever the derived store can serve.
 2. **FTS-first degraded fallback for `docs_search`:** replace the per-call live walk with `fts_docs`, preserving the tag filter; the live filesystem walk remains ONLY as the last resort when the derived store is absent/corrupt (fresh clone before first build), and says so.
 3. **Typed degradation contract, uniform across `docs_search`/`code_search`/`code_ask`:** `search_mode` (`semantic` | `hybrid` | `lexical_fallback` | `live_fallback`), `fallback_reason` (`model_unavailable` | `index_missing` | `store_absent` | `query_failed` | none), plus coverage status (reuse the 1sbfj `chunk_index` compare) and recovery guidance in a diagnostic. Fail-soft posture unchanged — degraded results flow, but the reason is in-band and persisted where the store log applies.
-4. **Zero-hit honesty:** a lexical-fallback zero-hit response carries the token-semantics note (compound identifiers, `code_pattern`/`code_keyword` routing) mirroring `code_lexical`.
-5. **Regression tests:** model-unavailable → lexical results with preserved filters (both tools); store-absent → live fallback (docs) / structured unavailable (code); tag/kind/language/max_per_file preservation fixtures; contract-field assertions; a pin that the live walk is NOT reachable while the store is healthy.
+4. **`code_ask` degrades too (plan-review addition):** when query embedding is unavailable, `code_ask` constructs its citations from FTS docs+code results (the same serving path) rather than returning empty results with a generic gap — the current behavior (`server_impl.py` ~17322: all search exceptions collapse to "search index unavailable") is replaced by the typed contract. The `answer` pointer and confidence semantics reflect the degraded mode (confidence capped, `search_mode: lexical_fallback`).
+5. **Tool-docstring contract parity (council amendment):** the `docs_search`/`code_search`/`code_ask` registration docstrings carry the new `search_mode`/`fallback_reason` (and three-state `index_freshness`) wording in the same change — docstrings are public contract.
+6. **Zero-hit honesty:** a lexical-fallback zero-hit response carries the token-semantics note (compound identifiers, `code_pattern`/`code_keyword` routing) mirroring `code_lexical`.
+7. **Regression tests:** model-unavailable → lexical results with preserved filters (both tools); store-absent → live fallback (docs) / structured unavailable (code); tag/kind/language/max_per_file preservation fixtures; contract-field assertions; a pin that the live walk is NOT reachable while the store is healthy.
 
 ## Scope
 
@@ -37,6 +39,7 @@ Also folds in the valid kernel of the review's exception-handling finding: calle
 - [ ] AC-2: With the embedder patched unavailable, `docs_search` serves from `fts_docs` with the tag filter preserved; the live walk fires only when the derived store is absent (both fixture-pinned).
 - [ ] AC-3: `docs_search`/`code_search`/`code_ask` responses carry the uniform `search_mode` + `fallback_reason` contract in every mode (semantic path included: `search_mode: semantic|hybrid`, `fallback_reason` absent/none).
 - [ ] AC-4: Degraded zero-hit responses are distinguishable from healthy zero-hits (typed reason + coverage block + note) — fixture-pinned.
+- [ ] AC-6: With the embedder patched unavailable, `code_ask` returns FTS-built citations (`search_mode: lexical_fallback`, confidence capped) instead of empty results + a generic gap — fixture-pinned.
 - [ ] AC-5: Full suite bytecode-free + docs validation; spec + seed-211 document the contract; live probe on this repo with the embedder disabled serves real lexical results.
 
 ## Tasks
@@ -84,6 +87,7 @@ Also folds in the valid kernel of the review's exception-handling finding: calle
 
 | Date | Update | Evidence |
 | ---- | ------ | -------- |
+| 2026-07-12 | Plan-review revision (external, validated): `code_ask` was envelope-only in the original plan — inconsistent with the wave objective; Requirement 4 + AC-6 now require FTS-built citations on model-unavailable (replacing the ~17322 generic-gap collapse). Council amendment added Requirement 5 (docstring contract parity). | Plan review; `code_ask` exception-collapse source read. |
 | 2026-07-12 | Drafted from the external code review (P1 degraded-search + the valid kernel of P1 exception-typing), validated against `2952df8f`: embed-first at ~1670 (error path ~4411), `_live_docs_chunks` per-call walk at ~766 with its own hot-path warning, tag-filter loss at ~836. Enabled by 1sbfk (FTS trustworthy) + 1sc7c (FTS fresh) + `code_lexical` (the serving machinery already exists). Correlation IDs explicitly rejected during validation. | Review report; source reads; `code_lexical_response` as the reusable serving path. |
 
 
