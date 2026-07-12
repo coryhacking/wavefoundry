@@ -1220,12 +1220,18 @@ class IncrementalBuildTests(unittest.TestCase):
         self.assertRegex(output, r"semantic file update path=src/tools\.py table=code written=1 removed=1 unchanged=2")
 
     def test_incremental_line_window_shift_reembeds_affected_chunks(self):
+        # 1sek8: the file must be CODE-CORPUS-ELIGIBLE under the unified
+        # membership rule (source extensions + known extensionless code
+        # names) — the former `.custom` fixture rode content=all's
+        # unfiltered corpus, which no longer exists. Jenkinsfile is
+        # line-window chunked by name, preserving the shift semantics
+        # this test pins.
         source = "\n".join(f"line {i}" for i in range(1, 151)) + "\n"
-        _make_repo(self.root, {"notes.custom": source})
+        _make_repo(self.root, {"Jenkinsfile": source})
         self._run_build(full=True)
 
         shifted = "inserted line\n" + source
-        (self.root / "notes.custom").write_text(shifted, encoding="utf-8")
+        (self.root / "Jenkinsfile").write_text(shifted, encoding="utf-8")
 
         doc_calls: list[list[str]] = []
         code_calls: list[list[str]] = []
@@ -1248,7 +1254,7 @@ class IncrementalBuildTests(unittest.TestCase):
         self.assertEqual(embedded_doc_texts, [])
 
         rows = _read_index_chunks(self.root / ".wavefoundry" / "index", "code")
-        shifted_rows = [row for row in rows if row["path"] == "notes.custom"]
+        shifted_rows = [row for row in rows if row["path"] == "Jenkinsfile"]
         self.assertTrue(any(row["lines"][0] > 1 for row in shifted_rows))
         self.assertTrue(all(row.get("chunk_hash") for row in shifted_rows))
 
@@ -3312,6 +3318,194 @@ class IncrementalGpuRoutingTests(unittest.TestCase):
         self.assertTrue(seen, "a full build must load at least one embedder")
         for model, n in seen:
             self.assertIsNone(n, f"full rebuild must pass n_chunks=None, got {n!r} for {model}")
+
+
+class ContentScopeFreshnessTests(unittest.TestCase):
+    """Wave 1sc7c (1sek8): per-layer change detection, corpus unification,
+    hook coverage, and the heal path for the content-scope staleness cluster."""
+
+    def setUp(self):
+        self.bi = load_build_index()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.index_dir = self.root / ".wavefoundry" / "index"
+
+    def _build(self, content: str = "all", full: bool = False, **kw) -> dict:
+        docs_mock = _make_embedder_mock(dim=4)
+        code_mock = _make_embedder_mock(dim=4)
+
+        def _emb(model, n_chunks=None):
+            return docs_mock if model == self.bi.DOCS_MODEL else code_mock
+        with patch.object(self.bi, "_get_embedder", side_effect=_emb):
+            with contextlib.redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                return self.bi.build_index(self.root, full=full, content=content, verbose=False, **kw)
+
+    def _code_paths(self) -> set:
+        return {r["path"] for r in _read_index_chunks(self.index_dir, "code")}
+
+    def _code_texts(self) -> str:
+        return "\n".join(r.get("text") or "" for r in _read_index_chunks(self.index_dir, "code"))
+
+    def test_poison_scenario_docs_build_cannot_freeze_code_layer(self):
+        # AC-1: the exact field sequence — code + docs edits interleaved, the
+        # docs build runs first (the hook's historic behavior), then a code
+        # build. Pre-1sek8 the docs build stamped the code file's fresh hash
+        # and the code build said "up to date" forever.
+        _make_repo(self.root, {
+            "src/app.py": "def alpha():\n    return 1\n",
+            "docs/guide.md": "## Guide\n\nOriginal.\n",
+        })
+        self._build(full=True)
+        (self.root / "src" / "app.py").write_text(
+            "def alpha():\n    return 'freshness_sentinel_token'\n", encoding="utf-8")
+        (self.root / "docs" / "guide.md").write_text("## Guide\n\nEdited.\n", encoding="utf-8")
+        self._build(content="docs")
+        self.assertNotIn("freshness_sentinel_token", self._code_texts())  # docs build didn't touch code
+        result = self._build(content="code")
+        self.assertFalse(result.get("up_to_date", False))
+        self.assertIn("freshness_sentinel_token", self._code_texts())
+
+    def test_dual_output_file_coherent_under_content_all(self):
+        # A .py edit updates BOTH its code chunks and its docstring doc chunks
+        # in one automatic-path (content=all) build.
+        _make_repo(self.root, {
+            "src/mod.py": '"""Module doc original."""\n\ndef f():\n    return 1\n',
+        })
+        self._build(full=True)
+        (self.root / "src" / "mod.py").write_text(
+            '"""Module doc updated_sentinel."""\n\ndef f():\n    return "code_updated_sentinel"\n',
+            encoding="utf-8")
+        self._build(content="all")
+        docs_text = "\n".join(r.get("text") or "" for r in _read_index_chunks(self.index_dir, "docs"))
+        self.assertIn("updated_sentinel", docs_text)
+        self.assertIn("code_updated_sentinel", self._code_texts())
+
+    def test_scoped_build_leaves_other_layer_queued_not_erased(self):
+        # A code-only build after a dual-output edit updates the code table
+        # and leaves the DOCS layer stale-but-queued: the next docs build
+        # picks the docstring change up.
+        _make_repo(self.root, {
+            "src/mod.py": '"""Doc one."""\n\ndef f():\n    return 1\n',
+            "docs/guide.md": "## G\n\nBody.\n",
+        })
+        self._build(full=True)
+        (self.root / "src" / "mod.py").write_text(
+            '"""Doc two_sentinel."""\n\ndef f():\n    return "two_code_sentinel"\n', encoding="utf-8")
+        self._build(content="code")
+        self.assertIn("two_code_sentinel", self._code_texts())
+        docs_text = "\n".join(r.get("text") or "" for r in _read_index_chunks(self.index_dir, "docs"))
+        self.assertNotIn("two_sentinel", docs_text)  # docs layer not built yet
+        self._build(content="docs")
+        docs_text = "\n".join(r.get("text") or "" for r in _read_index_chunks(self.index_dir, "docs"))
+        self.assertIn("two_sentinel", docs_text)  # ...and not erased, queued
+
+    def test_corpus_membership_identical_across_content_scopes(self):
+        # AC-3: content=all and content=code agree — tests/generated excluded
+        # under both (unless --include-tests), extensionless code names kept.
+        files = {
+            "src/foo.py": "def f(): pass\n",
+            "tests/test_foo.py": "def test_f(): pass\n",
+            "Jenkinsfile": "stage one\n" * 30,
+        }
+        _make_repo(self.root, files)
+        self._build(content="all", full=True)
+        all_paths = self._code_paths()
+        import shutil
+        shutil.rmtree(self.index_dir)
+        self._build(content="code", full=True)
+        code_paths = self._code_paths()
+        self.assertEqual(all_paths, code_paths)
+        self.assertIn("src/foo.py", all_paths)
+        self.assertIn("Jenkinsfile", all_paths)
+        self.assertNotIn("tests/test_foo.py", all_paths)
+        shutil.rmtree(self.index_dir)
+        self._build(content="all", full=True, include_tests=True)
+        self.assertIn("tests/test_foo.py", self._code_paths())
+
+    def test_empty_layer_state_heals_poisoned_repo(self):
+        # The migration IS the heal: a pre-1sek8 repo arrives with hash-current
+        # meta, stale Lance content, and NO layer state (the v5 bump reset the
+        # store) — the first build re-chunks everything eligible and converges.
+        _make_repo(self.root, {"src/app.py": "def f():\n    return 'old_content'\n"})
+        self._build(full=True)
+        # Simulate the poisoned arrival: newer file content, meta stamped
+        # current (as a pre-fix docs build would have done), layer state absent.
+        (self.root / "src" / "app.py").write_text(
+            "def f():\n    return 'healed_content_sentinel'\n", encoding="utf-8")
+        meta_path = self.index_dir / "meta.json"
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        import hashlib as _h
+        fresh = (self.root / "src" / "app.py").read_bytes()
+        entry = meta["file_meta"]["src/app.py"]
+        entry["hash"] = _h.sha256(fresh).hexdigest()
+        st = (self.root / "src" / "app.py").stat()
+        entry["mtime"] = st.st_mtime; entry["size"] = st.st_size
+        entry["inode"] = getattr(st, "st_ino", 0)
+        meta_path.write_text(json.dumps(meta), encoding="utf-8")
+        # Wipe layer state (what a schema-bump reset / pre-1sek8 store looks like).
+        import sqlite3 as _sq
+        con = _sq.connect(self.index_dir / "index-state.sqlite")
+        with con:
+            con.execute("DELETE FROM layer_path_state")
+        con.close()
+        self.assertNotIn("healed_content_sentinel", self._code_texts())
+        result = self._build(content="code")
+        self.assertFalse(result.get("up_to_date", False))
+        self.assertIn("healed_content_sentinel", self._code_texts())
+
+    def test_healthy_zero_change_build_keeps_fast_exit(self):
+        # No perpetual churn: with layer state populated, a zero-change build
+        # (ineligible test files present) takes the up-to-date fast path.
+        _make_repo(self.root, {
+            "src/foo.py": "def f(): pass\n",
+            "tests/test_foo.py": "def test_f(): pass\n",
+        })
+        self._build(full=True)
+        self._build(content="all")  # first incremental populates nothing new
+        result = self._build(content="all")
+        self.assertTrue(result.get("up_to_date", False))
+
+    def test_corpus_narrowing_reap_cleans_layer_state_and_logs(self):
+        # Migration reap: a code table carrying test-file rows (the old
+        # content=all corpus) gets them reaped on the next default build,
+        # loudly (store log) — and the layer state follows, so re-widening
+        # via --include-tests re-indexes them.
+        _make_repo(self.root, {
+            "src/foo.py": "def f(): pass\n",
+            "tests/test_foo.py": "def test_marker_token(): pass\n",
+        })
+        self._build(content="all", full=True, include_tests=True)
+        self.assertIn("tests/test_foo.py", self._code_paths())
+        result = self._build(content="all")  # default: tests excluded now
+        self.assertNotIn("tests/test_foo.py", self._code_paths())
+        log_path = self.index_dir.parent / "logs" / "index-state.log"
+        self.assertTrue(log_path.is_file())
+        self.assertIn("reaper code", log_path.read_text(encoding="utf-8"))
+        # Layer state cleaned: re-widening re-indexes the unchanged test file.
+        self._build(content="all", include_tests=True)
+        self.assertIn("tests/test_foo.py", self._code_paths())
+
+    def test_hook_spawns_all_content_reindex(self):
+        # AC-2 pin: the rendered hook template and this repo's live hooks
+        # spawn the indexer with --content all.
+        render_src = (SCRIPTS_ROOT / "render_platform_surfaces.py").read_text(encoding="utf-8")
+        self.assertIn('str(indexer), "--root", str(REPO_ROOT), "--content", "all"', render_src)
+        self.assertIn('str(indexer_path), "--root", str(root), "--content", "all"', render_src)
+        repo_root = SCRIPTS_ROOT.parents[2]
+        hook = repo_root / ".claude" / "hooks" / "post-edit.py"
+        if hook.is_file():
+            self.assertIn('"--content", "all"', hook.read_text(encoding="utf-8"))
+
+    def test_extensionless_code_names_stay_synced_with_chunker(self):
+        import importlib.util as ilu
+        spec = ilu.spec_from_file_location("chunker", SCRIPTS_ROOT / "chunker.py")
+        ch = ilu.module_from_spec(spec)
+        spec.loader.exec_module(ch)
+        self.assertEqual(
+            self.bi.CODE_EXTENSIONLESS_SOURCE_NAMES,
+            set(ch.CODE_EXTENSIONLESS_NAMES) | set(ch.MAKEFILE_NAMES),
+        )
 
 
 class LanceIndexCleanupTests(unittest.TestCase):

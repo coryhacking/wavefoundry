@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-11
+Last verified: 2026-07-12
 
 Behavioral contract for the Wavefoundry local MCP server. This spec covers the
 tool names, response conventions, safety rules, and compatibility expectations that
@@ -84,7 +84,7 @@ Initial core set:
 | `wave_sync_surfaces` | Regenerate agent/platform surfaces                                                              |
 | `wave_index_health`  | Check semantic index health and surface stale/missing layers; also returns a `size` object (`total_bytes`, `total_human`, and a per-component `components` map — `docs.lance`/`code.lance`/`graph`/…) for the on-disk index, so growth/bloat is visible without `du`, plus a `state_store` object (wave 1rsh9: `present`, `schema_version`, `integrity` — `ok`/`structural-fail`/`stale-fingerprint` from the two-layer probe, `size_bytes`; wave 1sbfk adds `chunk_index` — per-table `{lance_rows, registry_rows, covered}` coverage of the derived FTS/registry vs Lance, with a `chunk_index_undercovered` diagnostic when a table is materially behind, since structural `integrity: ok` says nothing about coverage) for the index-state store |
 | `wave_index_build_status` | Poll a detached background index refresh; also returns a `lock` object (`held`, `present`, `owner_pid`, `owner_cmdline`, `started_at`, `ended_at`, `note`) — the **authoritative** "is a build running" signal, where `held` is determined by **testing the real OS lock** (POSIX `fcntl` `F_GETLK` / Windows momentary `msvcrt`), not the file's presence. `ended_at` distinguishes a clean finish from an interrupted build. Read `lock.held`, never the file. |
-| `wave_index_build`   | Run a synchronous index build: `**mode='update'**` (incremental) or `**mode='rebuild'**` (full) |
+| `wave_index_build`   | Run a synchronous index build: `**mode='update'**` (incremental) or `**mode='rebuild'**` (full); `content="fts"` (wave 1sc7c) rebuilds only the derived lexical layer (FTS5 + registry) from Lance — embedding-free, seconds, the `chunk_index_undercovered` recovery |
 | `wave_index_optimize` | The unified maintenance verb for EVERY index (wave 1rsh9): compacts the Lance tables (tiered optimize → copy-and-replace rewrite → rebuild-if-needed, **no re-embed** in the common case) AND maintains every reachable SQLite store — the index-state store and the graph state store — with WAL checkpoint/truncate, `VACUUM`, `PRAGMA optimize`, FTS5 segment optimize, and a full integrity check, all under the index-build lock. Also runs automatically at the end of install/upgrade |
 | `wave_gpu_doctor`    | Embedding-provider / GPU capability diagnostic — platform, onnxruntime, GPU detection (nvidia/apple), available ONNX providers, the provider Wavefoundry would select (+ reason/remediation + `decision_provenance`: `setup-cache` when honoring the setup-recorded decision, `fresh-probe` for an in-process probe, or `operator-request` when `WAVEFOUNDRY_EMBED_PROVIDER` forced the selection), CUDA 12/13 ABI-gap. Read-only (no index build) but runs the bounded model-loading provider probe — the same probe setup uses; same report as the `wf gpu-doctor` dispatcher subcommand and `setup-wavefoundry --check-gpu` |
 

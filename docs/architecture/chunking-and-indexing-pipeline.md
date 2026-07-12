@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-06
+Last verified: 2026-07-12
 
 This document describes how Wavefoundry builds and maintains its search indexes. It covers
 every stage of the pipeline: file discovery, change detection, chunking, embedding, and
@@ -239,6 +239,42 @@ From `changed_paths` and the old metadata keys, two further sets are derived:
 
 - **`added`** = `changed_paths` minus the set of previously known paths (new files)
 - **`updated`** = `changed_paths` intersected with the set of previously known paths
+
+### Per-layer change detection (wave 1sc7c)
+
+The stat cache and hash walk above produce the WALK state (`meta.json`), but since
+wave 1sc7c the walk hash is not what decides semantic re-processing. Each semantic
+layer (docs, code) keeps its own **last-embedded hash per path** in the index-state
+store's `layer_path_state` table, and a build re-processes a path for a layer only
+when the current walk hash differs from that layer's own record — scoped to the
+layer's eligibility set.
+
+Why: content-scoped builds share one walk, so a docs-only build used to stamp a
+changed code file's fresh hash into `meta.json` without embedding it, and every
+later code build then saw "unchanged" — the code index froze at the last full build
+on any repo whose automatic reindex was docs-scoped (all hook-enabled repos were).
+With per-layer records, a scoped build can never erase another layer's change
+signal, so any `--content` scope is correct by construction.
+
+**Eligibility per layer** (one corpus definition under every scope): the code layer
+covers files under the code include-prefixes that pass the source filter
+(tests/generated excluded unless `--include-tests`/`--include-generated`; known
+extensionless code names like `Makefile`/`Dockerfile` included). The docs layer
+covers the docs include-prefixes **plus the entire code corpus** — every code
+chunker emits `kind="doc"` docstring/comment chunks that live in the docs table
+(dual-output files), so a changed code file is a docs-layer change too. A
+dual-output file changed for only one layer updates only that layer; the other
+stays queued, never erased.
+
+**Commit ordering and healing:** a layer's hashes commit only after its LanceDB
+write block completes (a failed write leaves the layer stale — the next build
+retries; vectors are reused by chunk content hash). An EMPTY layer state — fresh
+store, store schema bump, or a repo upgraded from before this scheme — reads as
+"everything eligible is stale": the first build runs one rechunk pass with vector
+reuse and converges, which is also the automatic heal for repos whose code index
+was frozen by the old behavior. Reaped paths (eligibility narrowing, corpus
+migration) drop their layer records so re-widening re-indexes them; reaps are
+recorded in the persisted store log.
 
 ### Forced full rebuild
 

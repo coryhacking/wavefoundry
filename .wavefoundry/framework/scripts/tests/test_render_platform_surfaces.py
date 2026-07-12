@@ -183,7 +183,13 @@ class RenderPlatformSurfacesScriptTests(unittest.TestCase):
                 )
                 self.assertNotIn("reexec_into_tool_venv", body, f"{path.name} still calls the removed re-exec")
                 self.assertIn("import venv_bootstrap", body, f"{path.name} is missing the venv_bootstrap import")
-            self.assertIn("[python_exec, str(indexer), \"--root\", str(REPO_ROOT)]", post_edit)
+            # 1sek8: the automatic reindex spawn covers ALL content — pin the
+            # argument so a regression to the docs-only default (the historic
+            # code-staleness vector) fails loudly.
+            self.assertIn(
+                "[python_exec, str(indexer), \"--root\", str(REPO_ROOT), \"--content\", \"all\"]",
+                post_edit,
+            )
             cursor_after = (repo_root / ".cursor" / "hooks" / "after-file-edit.py").read_text(encoding="utf-8")
             self.assertNotIn("_venv_python_path", cursor_after)
             # Wave 1p8pe: cursor gate spawns resolve the interpreter via hook_python() (windowless pythonw

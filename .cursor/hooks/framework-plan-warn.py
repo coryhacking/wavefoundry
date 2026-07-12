@@ -275,8 +275,12 @@ def _spawn_reindex() -> None:
         )
     else:
         _detach_kwargs["start_new_session"] = True
+    # 1sek8: the automatic reindex covers ALL content — the bare spawn
+    # defaulted to docs-only, which never embedded code edits (their
+    # freshness now heals via per-layer state, but the automatic path
+    # must keep BOTH semantic layers + dual-output files current).
     subprocess.Popen(
-        [python_exec, str(indexer), "--root", str(REPO_ROOT)],
+        [python_exec, str(indexer), "--root", str(REPO_ROOT), "--content", "all"],
         stdin=subprocess.DEVNULL,  # wave 1p8gu: detached child never inherits a blocking stdin
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,

@@ -21421,6 +21421,64 @@ class StateStoreOptimizeAndHealthTests(unittest.TestCase):
         self.assertIn("covered = abs(lance_rows - registry_rows)", src)
 
 
+class FtsRebuildContentTests(unittest.TestCase):
+    """Wave 1sc7c (1sek8): wave_index_build(content='fts') — from-scratch
+    rebuild of the derived lexical layer off the Lance tables."""
+
+    def setUp(self):
+        import server_impl
+        self.srv = server_impl
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name)
+        self.index_dir = self.root / ".wavefoundry" / "index"
+
+    def test_fts_rebuild_from_scratch_off_lance(self):
+        try:
+            import lancedb
+        except Exception:  # pragma: no cover - lancedb ships in the tool venv
+            self.skipTest("lancedb unavailable")
+        rows = [
+            {"id": f"c{i}", "path": f"f{i}.py", "kind": "code", "language": "python",
+             "lines": [1, 5], "section": "", "text": f"def fn_{i}(): pass",
+             "chunk_hash": f"h{i}", "vector": [0.0, 0.0, 0.0, 0.0]}
+            for i in range(12)
+        ]
+        lancedb.connect(str(self.index_dir)).create_table("code", rows, mode="overwrite")
+        resp = self.srv.run_index_rebuild(self.root, content="fts")
+        self.assertTrue(resp["passed"])
+        self.assertEqual(resp["index_scope"], "derived_chunk_state_only")
+        self.assertEqual(resp["tables"]["code"]["rows_written"], 12)
+        # And it is a from-scratch recovery: corrupt the FTS, rebuild again.
+        import importlib.util as ilu
+        iss_path = Path(self.srv.__file__).resolve().parent / "index_state_store.py"
+        spec = ilu.spec_from_file_location("_iss_fts_rebuild", iss_path)
+        iss = ilu.module_from_spec(spec)
+        spec.loader.exec_module(iss)
+        store = iss.IndexStateStore(self.index_dir)
+        try:
+            store._conn.execute("DELETE FROM fts_code")
+            store._conn.commit()
+        finally:
+            store.close()
+        self.assertEqual(iss.fts_search(self.index_dir, "code", "fn_7"), [])
+        resp2 = self.srv.run_index_rebuild(self.root, content="fts")
+        self.assertTrue(resp2["passed"])
+        self.assertTrue(iss.fts_search(self.index_dir, "code", "fn_7"))
+
+    def test_fts_content_accepted_and_lock_guarded(self):
+        src = Path(self.srv.__file__).read_text(encoding="utf-8")
+        self.assertIn('"docs", "code", "all", "graph", "map", "fts"', src)
+        pos = src.index('if content == "fts":')
+        block = src[pos:pos + 2200]
+        self.assertIn("_index_build_lock(index_dir)", block)
+        self.assertIn("IndexBuildAlreadyRunning", block)
+
+    def test_undercoverage_diagnostics_point_at_fts_rebuild(self):
+        src = Path(self.srv.__file__).read_text(encoding="utf-8")
+        self.assertEqual(src.count("recovery_usage=\"wave_index_build(content='fts')\""), 2)
+
+
 class CodeLexicalToolTests(unittest.TestCase):
     """Wave 1sbfk (1seiz): the `code_lexical` direct BM25 exact-token search tool."""
 

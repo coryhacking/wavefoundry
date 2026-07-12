@@ -3909,7 +3909,7 @@ def run_index_rebuild(
     """
     import subprocess
     import time
-    if content not in {"docs", "code", "all", "graph", "map"}:
+    if content not in {"docs", "code", "all", "graph", "map", "fts"}:
         raise ValueError(f"Unsupported content '{content}'.")
     # Wave 1p4ww: single project index — the framework layer is folded in.
     if layer != "project":
@@ -3942,6 +3942,53 @@ def run_index_rebuild(
                 else "Codebase map refresh skipped (no artifacts yet or generator unavailable)."
             ),
             "map_path": out_rel,
+        }
+
+    # Wave 1sc7c (1sek8): content="fts" — from-scratch rebuild of the DERIVED
+    # chunk state (FTS5 lexical tables + chunk registry) from the
+    # authoritative Lance tables. Embedding-free and in-process (seconds):
+    # the clean recovery for an under-covered/corrupt lexical layer without a
+    # semantic build. Runs under the whole-index build lock.
+    if content == "fts":
+        idx_mod = _load_script("indexer")
+        index_dir = root / ".wavefoundry" / "index"
+        _fts_busy = {
+            "passed": True,
+            "already_running": True,
+            "content": "fts",
+            "mode": "derived-rebuild",
+            "index_scope": "derived_chunk_state_only",
+            "layer": layer,
+            "notice": "Another build holds the index lock — retry when it finishes.",
+        }
+        if _index_build_active(root, layer):
+            return _fts_busy
+        _fts_t0 = time.monotonic()
+        try:
+            with idx_mod._index_build_lock(index_dir):
+                tables = idx_mod.rebuild_derived_chunk_state(index_dir)
+        except idx_mod.IndexBuildAlreadyRunning:
+            return _fts_busy
+        _fts_ms = round((time.monotonic() - _fts_t0) * 1000)
+        rows = {k: v.get("rows_written") for k, v in tables.items() if isinstance(v, dict)}
+        errors = {k: v.get("error") for k, v in tables.items()
+                  if isinstance(v, dict) and v.get("error")}
+        return {
+            "passed": not errors,
+            "already_running": False,
+            "content": "fts",
+            "full": True,
+            "mode": "derived-rebuild",
+            "index_scope": "derived_chunk_state_only",
+            "layer": layer,
+            "tables": tables,
+            "duration_ms": _fts_ms,
+            "notice": (
+                "Derived chunk state (FTS5 + registry) rebuilt from Lance: "
+                + ", ".join(f"{k}={v}" for k, v in rows.items())
+                if rows and not errors else
+                "FTS rebuild completed with issues — see tables."
+            ),
         }
 
     if _index_build_active(root, layer):
@@ -6793,10 +6840,11 @@ def wave_index_health_response(index: WaveIndex) -> dict[str, Any]:
                 "chunk_index_undercovered",
                 "The derived chunk index (FTS/registry) covers materially less than the "
                 "Lance tables: " + "; ".join(sorted(_uncovered)) + ". Lexical (BM25) "
-                "retrieval is running partially blind until it heals. Trigger a build to "
-                "backfill from Lance: wave_index_build(content='all', mode='update').",
+                "retrieval is running partially blind until it heals. Rebuild the derived "
+                "lexical layer directly (embedding-free, seconds): "
+                "wave_index_build(content='fts') — or any ordinary build backfills it.",
                 recovery_tools=["wave_index_build", "wave_index_build_status"],
-                recovery_usage="wave_index_build(content='all', mode='update')",
+                recovery_usage="wave_index_build(content='fts')",
             )
         )
 
@@ -11463,10 +11511,10 @@ def code_lexical_response(
             diagnostics.append(_diagnostic(
                 "chunk_index_undercovered",
                 "The lexical index for " + ", ".join(sorted(uncovered)) + " covers materially "
-                "less than the Lance tables — results may be partial until the next build "
-                "backfills it (zero-change builds heal too).",
+                "less than the Lance tables — results may be partial until it heals. "
+                "Rebuild it directly (embedding-free, seconds): wave_index_build(content='fts').",
                 recovery_tools=["wave_index_build", "wave_index_health"],
-                recovery_usage="wave_index_build(content='all', mode='update')",
+                recovery_usage="wave_index_build(content='fts')",
             ))
     except Exception:  # noqa: BLE001 - advisory only
         pass
@@ -18809,6 +18857,12 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
           no full index rebuild, fail-safe, and change-only (a no-op when nothing changed).
           The map also regenerates automatically on every other rebuild path. New MCP
           resources/tool options require a **server reconnect** to appear (FastMCP limitation).
+        - ``fts`` — rebuild **only the derived lexical layer** (the index-state store's FTS5
+          tables + chunk registry) from scratch off the authoritative Lance tables (wave 1sc7c).
+          Embedding-free and in-process — seconds. The clean recovery when
+          ``wave_index_health`` reports ``chunk_index_undercovered`` or the lexical layer is
+          suspected corrupt/stale; no semantic re-embed, vectors untouched. ``mode`` is
+          ignored (always from-scratch).
 
         Response fields:
         - ``mode`` — the resolved build mode (``update`` or ``rebuild``).

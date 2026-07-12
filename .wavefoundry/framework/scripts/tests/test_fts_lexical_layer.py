@@ -194,6 +194,34 @@ class OrderedConsistencyTests(_StoreCase):
             )
         self.assertIn("crash-window reconciliation", stderr2.getvalue())
 
+    def test_force_rebuild_ignores_in_sync_state(self):
+        # 1sek8: wave_index_build(content='fts') path — force=True rebuilds
+        # even when the id-sets match (the whole point of a from-scratch
+        # operator recovery), with calm operator-requested messaging.
+        import contextlib
+        rows = _rows(("c1", "a.py", "def alpha(): pass"))
+        self.iss.apply_chunk_deltas(self.index_dir, "code", add_rows=rows)
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.iss.reconcile_chunk_index(self.index_dir, "code", {"c1"}, lambda: rows)
+        # Corrupt the FTS content without touching the registry id-set: the
+        # ordinary reconcile would read in-sync and skip.
+        store = self.iss.IndexStateStore(self.index_dir)
+        try:
+            store._conn.execute("DELETE FROM fts_code")
+            store._conn.commit()
+        finally:
+            store.close()
+        self.assertEqual(self.iss.fts_search(self.index_dir, "code", "alpha"), [])
+        stderr, stdout = io.StringIO(), io.StringIO()
+        with redirect_stderr(stderr), contextlib.redirect_stdout(stdout):
+            result = self.iss.reconcile_chunk_index(
+                self.index_dir, "code", {"c1"}, lambda: rows, force=True
+            )
+        self.assertTrue(result["reconciled"])
+        self.assertIn("operator-requested", stdout.getvalue())
+        self.assertEqual(stderr.getvalue(), "")  # never a crash-window warning
+        self.assertTrue(self.iss.fts_search(self.index_dir, "code", "alpha"))
+
     def test_expected_rebuild_is_quiet(self):
         rows = _rows(("c1", "a.py", "def alpha(): pass"))
         stderr = io.StringIO()

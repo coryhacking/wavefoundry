@@ -1160,6 +1160,17 @@ def _is_framework_test_path(rel_path: str) -> bool:
     return rel_path.startswith(FRAMEWORK_TEST_PREFIXES)
 
 
+# 1sek8: extensionless files the chunker code-chunks by NAME. Duplicated from
+# chunker.CODE_EXTENSIONLESS_NAMES + MAKEFILE_NAMES rather than imported (the
+# filter runs before the chunker module loads); a wiring test keeps them in
+# sync. Without this, unifying the code corpus on _filter_code_files would
+# silently drop Makefiles/Dockerfiles that content=all builds always indexed.
+CODE_EXTENSIONLESS_SOURCE_NAMES = {
+    "Jenkinsfile", "Makefile", "GNUmakefile", "Dockerfile", "Vagrantfile",
+    "Brewfile", "Fastfile", "Appfile", "Podfile", "Gemfile", "Procfile",
+}
+
+
 def _filter_code_files(
     files: list[Path],
     root: Path,
@@ -1170,7 +1181,8 @@ def _filter_code_files(
     result: list[Path] = []
     for path in files:
         rel = str(path.relative_to(root)).replace("\\", "/")
-        if path.suffix.lower() not in SOURCE_CODE_EXTENSIONS:
+        _known_extensionless = not path.suffix and path.name in CODE_EXTENSIONLESS_SOURCE_NAMES
+        if path.suffix.lower() not in SOURCE_CODE_EXTENSIONS and not _known_extensionless:
             continue
         if _is_framework_test_path(rel):
             continue
@@ -1519,6 +1531,8 @@ def _run_streaming_full_rebuild(
     verbose: bool,
     docs_elapsed: list,
     code_elapsed: list,
+    docs_eligible_rel: "set[str] | None" = None,
+    code_eligible_rel: "set[str] | None" = None,
 ) -> None:
     """Wave 1p5ch: full rebuild as a bounded-buffer stream. Chunks each file ONCE (recording
     ``chunks_emitted_by_file``), routes doc/code chunks to per-layer buffers, and flushes a buffer
@@ -1547,6 +1561,22 @@ def _run_streaming_full_rebuild(
             except OSError:
                 continue
             dc, cc = _chunks_for_file(rel, source_text)
+            # 1sek8: per-layer eligibility gates the routing — one corpus
+            # definition per table under every content scope (a test file
+            # reachable through the docs walk must not feed the code table).
+            # The emitted count is recorded AFTER gating so the drift
+            # detector never sees a claimed-but-ineligible contribution.
+            if docs_eligible_rel is not None and rel not in docs_eligible_rel:
+                dc = []
+            if code_eligible_rel is not None and rel not in code_eligible_rel:
+                cc = []
+            # A layer this rebuild is not writing must not be CLAIMED either
+            # (a docs-only full build recording code-chunk counts would
+            # drift-flag every code file until a code build ran).
+            if not build_docs:
+                dc = []
+            if not build_code:
+                cc = []
             chunks_emitted_by_file[rel] = len(dc) + len(cc)
             if build_docs and dc:
                 docs_buf.extend(dc)
@@ -2023,7 +2053,8 @@ def _reap_stranded_lance_rows(
     *,
     tables: tuple[str, ...] = ("docs", "code"),
     verbose: bool = False,
-) -> dict[str, int]:
+    eligible_by_table: "dict[str, set[str]] | None" = None,
+) -> dict:
     """Delete LanceDB rows whose ``path`` is not in the current eligible set.
 
     Closes the workflow-config-evolution blind spot: when ``workflow-config.json``
@@ -2041,6 +2072,8 @@ def _reap_stranded_lance_rows(
     Returns ``{"docs": N, "code": M, "total": N+M}`` row counts reaped per table.
     """
     reaped: dict[str, int] = {"docs": 0, "code": 0, "total": 0}
+    reaped_paths: dict[str, set[str]] = {"docs": set(), "code": set()}
+    reaped["paths_by_table"] = reaped_paths
     if not (db_path / "docs.lance").is_dir() and not (db_path / "code.lance").is_dir():
         return reaped
     try:
@@ -2057,7 +2090,13 @@ def _reap_stranded_lance_rows(
             # Pull just the path column to keep the read cheap on large tables.
             path_arrow = table.to_arrow().column("path")
             lance_paths = {p for p in path_arrow.to_pylist() if p}
-            stranded = lance_paths - eligible_paths
+            # 1sek8: per-table eligibility when provided — one corpus
+            # definition per table (the migration reap of previously-included
+            # test chunks flows through here, loudly).
+            _eligible = eligible_paths
+            if eligible_by_table is not None and table_name in eligible_by_table:
+                _eligible = eligible_by_table[table_name]
+            stranded = lance_paths - _eligible
             if not stranded:
                 continue
             # Count rows-to-delete (not unique paths) for accurate operator signal.
@@ -2071,17 +2110,49 @@ def _reap_stranded_lance_rows(
             reaped_here = max(count_pre - count_post, 0)
             reaped[table_name] = reaped_here
             reaped["total"] += reaped_here
+            reaped_paths[table_name] = set(stranded)
             if verbose:
                 print(
                     f"build_index: reaper {table_name} — {len(stranded)} stranded path(s), "
                     f"{reaped_here} row(s) reaped",
                     flush=True,
                 )
+            if reaped_here:
+                # 1sek8: persist the reap — corpus-migration reaps (e.g.
+                # previously-included test chunks after unification) must be
+                # auditable after the build process exits.
+                _store_log_safe(
+                    db_path,
+                    f"build_index: reaper {table_name} — {len(stranded)} stranded path(s), "
+                    f"{reaped_here} row(s) reaped",
+                )
         except Exception as exc:
             if verbose:
                 print(f"build_index: reaper {table_name} failed ({exc})", flush=True)
             continue
     return reaped
+
+
+def _cleanup_layer_state_for_reaped(index_dir: Path, reaped_paths: "dict[str, set[str]]") -> None:
+    """Drop layer-state rows for paths whose Lance rows were just reaped (1sek8).
+
+    Without this, a path reaped by eligibility narrowing that later becomes
+    eligible again with an UNCHANGED hash would compare current against its
+    stale layer state and be skipped — indexed-per-state but rowless-in-Lance.
+    Best-effort: a miss is caught by the drift detector on a later build.
+    """
+    if not reaped_paths:
+        return
+    iss = _get_index_state_store()
+    if iss is None:
+        return
+    for layer, paths in reaped_paths.items():
+        if not paths:
+            continue
+        try:
+            iss.update_layer_hashes(index_dir, layer, remove_paths=paths)
+        except Exception:  # noqa: BLE001 - drift detection is the backstop
+            pass
 
 
 def _embed_chunks_for_incremental(label: str, chunks: list[dict], embedder) -> "Optional[np.ndarray]":
@@ -2232,14 +2303,26 @@ def _lance_incremental_write(
     build_code: bool,
     verbose: bool = False,
     skip_exempt: "set[str] | None" = None,
+    written_paths: "dict[str, set[str]] | None" = None,
 ) -> None:
     """Apply incremental row deltas, embedding only changed/new chunks.
+
+    ``stale`` is THIS CALL's layer-scoped stale set (1sek8): each table's
+    writer treats a stale path with zero new chunks as "the file no longer
+    produces chunks for this table" and deletes its rows, so callers must
+    never pass another layer's changes here.
 
     ``skip_exempt``: paths the registry-backed unchanged-file skip must NOT
     apply to — drift-flagged paths, where Lance rows vanished out-of-band and
     the registry (synced from the PRE-drift Lance state) would wrongly report
     them unchanged, silently defeating the drift repair (Lance is the
     authority; the skip is an optimization only).
+
+    ``written_paths`` (1sek8): when provided, each table records the stale
+    set it fully processed under its name AFTER its write block completes —
+    the caller commits those paths' walk hashes to the per-layer state, so a
+    write failure (block aborts, name never recorded) leaves the layer stale
+    and the next build retries.
     """
     db = _get_lance_db(db_path)
     for table_name, build_flag, chunks, embedder, label in (
@@ -2277,6 +2360,8 @@ def _lance_incremental_write(
                             table_name,
                             {"written": len(path_chunks), "removed": 0, "unchanged": 0},
                         )
+                if written_paths is not None:
+                    written_paths[table_name] = set(stale)
                 continue
             table = db.open_table(table_name)
             chunks_by_path: dict[str, list[dict]] = {}
@@ -2430,6 +2515,25 @@ def _lance_incremental_write(
                         _iss.store_log(db_path, msg)  # 1sbfj: persist skip reason
                     except Exception:
                         pass
+            # 1sek8: this table's write block completed — record the stale set
+            # it processed so the caller commits these paths' walk hashes to
+            # the per-layer state. Placement matters: any exception above
+            # skips this line, the layer stays stale, the next build retries.
+            if written_paths is not None:
+                written_paths[table_name] = set(stale)
+
+
+def rebuild_derived_chunk_state(index_dir: Path, verbose: bool = False) -> dict:
+    """Force-rebuild the derived chunk state (FTS5 + registry) from Lance (1sek8).
+
+    The operator-facing from-scratch recovery behind
+    ``wave_index_build(content='fts')``: drops and repopulates each table's
+    FTS/registry rows from the authoritative Lance tables using the
+    schema-tolerant projection, records fresh sync counts, and clears the
+    cold flag. Derived-only and embedding-free — seconds, not minutes.
+    Caller holds the index-build lock.
+    """
+    return _sync_chunk_derived_state(index_dir, expected=True, verbose=verbose, force=True)
 
 
 def _chunk_index_needs_heal(index_dir: Path) -> bool:
@@ -2481,7 +2585,9 @@ def _chunk_index_needs_heal(index_dir: Path) -> bool:
     return False
 
 
-def _sync_chunk_derived_state(index_dir: Path, *, expected: bool = False, verbose: bool = False) -> None:
+def _sync_chunk_derived_state(
+    index_dir: Path, *, expected: bool = False, verbose: bool = False, force: bool = False
+) -> dict:
     """Wave 1rsh9 (1rrr0): reconcile FTS/registry with Lance (crash-window repair).
 
     Ordered-consistency safety net: compares the chunk-id set per table between
@@ -2491,9 +2597,10 @@ def _sync_chunk_derived_state(index_dir: Path, *, expected: bool = False, verbos
     marks a full rebuild / cold store so the rebuild is not logged as a repair.
     Never raises — a failure just leaves the reconcile for the next build.
     """
+    stats: dict = {}
     iss = _get_index_state_store()
     if iss is None:
-        return
+        return stats
     for table_name in ("docs", "code"):
         table_dir = index_dir / f"{table_name}.lance"
         if not table_dir.is_dir():
@@ -2526,8 +2633,9 @@ def _sync_chunk_derived_state(index_dir: Path, *, expected: bool = False, verbos
 
             result = iss.reconcile_chunk_index(
                 index_dir, table_name, lance_ids, _fetch_rows, expected=expected,
-                raw_rows=len(id_rows),
+                raw_rows=len(id_rows), force=force,
             )
+            stats[table_name] = result
             if verbose and result.get("reconciled"):
                 print(
                     f"build_index: chunk-index for '{table_name}' rebuilt from Lance "
@@ -2537,12 +2645,14 @@ def _sync_chunk_derived_state(index_dir: Path, *, expected: bool = False, verbos
         except Exception as exc:  # noqa: BLE001 - derived state must never fail a build
             msg = f"build_index: chunk-index reconcile for '{table_name}' skipped ({exc})"
             print(msg, file=sys.stderr)
+            stats[table_name] = {"reconciled": False, "error": str(exc)}
             # 1sbfj: persist the skip reason — this exact message was
             # stdout-only in the field and cost an investigation hours.
             try:
                 iss.store_log(index_dir, msg)
             except Exception:
                 pass
+    return stats
 
 
 # Wave 1p99o: `struct flock` field order differs between Linux and macOS/BSD; there is no portable
@@ -3429,10 +3539,52 @@ def _build_index_locked(
             include_tests=include_tests,
             include_generated=include_generated,
         )
+    # --- 1sek8: per-layer eligibility (ONE corpus definition per table) ---
+    # Each semantic table's membership is computed the same way under EVERY
+    # content scope: the layer's effective include-prefixes, plus (code only)
+    # the tests/generated source filter. Previously `content=all` skipped
+    # `_filter_code_files` entirely, so the code table's membership depended
+    # on which content flag last ran (setup's `all` builds chunked test files
+    # that `content=code` builds then reaped).
+    _docs_includes = _effective_project_include_prefixes(root, index_dir, "docs", project_include_prefixes)
+    docs_eligible_rel: set[str] = {
+        str(f.relative_to(root)).replace("\\", "/")
+        for f in _filter_project_index_excludes(
+            files_for_meta, root, include_prefixes, project_include_prefixes=_docs_includes
+        )
+    }
+    _code_includes = _effective_project_include_prefixes(root, index_dir, "code", project_include_prefixes)
+    code_eligible_rel: set[str] = {
+        str(f.relative_to(root)).replace("\\", "/")
+        for f in _filter_code_files(
+            _filter_project_index_excludes(
+                files_for_meta, root, include_prefixes, project_include_prefixes=_code_includes
+            ),
+            root,
+            include_tests=include_tests,
+            include_generated=include_generated,
+        )
+    }
+    # Dual-output files (live-verified on this repo, 1sek8): every code
+    # chunker emits kind="doc" docstring/comment chunks that route to the
+    # DOCS table, so the docs layer's eligibility is the UNION of the docs
+    # prefixes and the code corpus — prefix-only docs eligibility would (and
+    # briefly did) reap every code file's docstring rows from the docs table
+    # and leave their doc chunks permanently unmaintained. The PRE-union
+    # prefix set is kept separately: drift candidacy and the emitted-count
+    # claims stay prefix-scoped (a docs-only build must not drift-flag code
+    # files whose code rows it cannot write — the 1rmaf contract; dual-output
+    # docstring drift was never detectable pre-1sek8 either, a documented
+    # limitation, not a regression).
+    docs_prefix_eligible_rel: set[str] = set(docs_eligible_rel)
+    docs_eligible_rel |= code_eligible_rel
     # Hash the broad file set so meta.json captures every walkable file regardless
-    # of which content type (docs/code/graph) this run is building.  Then scope
-    # changed/removed/stale to the content-type-filtered walk so LanceDB operations
-    # only touch chunks that belong to the current run's scope.
+    # of which content type (docs/code/graph) this run is building. meta.json is
+    # the WALK-STATE snapshot (stat cache, graph/reap/freshness input) — since
+    # 1sek8 it is no longer the semantic layers' change-detection authority:
+    # each layer compares the walk hash against its own last-embedded hash in
+    # the index-state store, so a scoped build can never erase another layer's
+    # change signal by stamping a hash it did not embed.
     if full:
         # Full rebuild: hash everything, populate stat cache for future incremental updates
         current_file_meta = {}
@@ -3469,9 +3621,15 @@ def _build_index_locked(
         # distinctly from the idle reap's `eligible_paths` (the wider meta
         # union) — see _detect_lance_drift's docstring.
         if build_docs or build_code:
-            chunk_eligible_rel_paths = {
-                str(f.relative_to(root)).replace("\\", "/") for f in files_for_content
-            }
+            # 1sek8: drift candidacy = the PRE-union eligibility of the layers
+            # being BUILT — a docs-only build can only repair docs-prefix
+            # files (it cannot write code rows, so a zero-code-row code file
+            # must not flag), and code-ineligible test files that content=all
+            # used to include must not flag once the corpus is unified.
+            chunk_eligible_rel_paths = (
+                (docs_prefix_eligible_rel if build_docs else set())
+                | (code_eligible_rel if build_code else set())
+            )
             drifted = _detect_lance_drift(
                 index_dir,
                 current_file_meta,
@@ -3512,15 +3670,56 @@ def _build_index_locked(
     # vectors for content-unchanged chunks; only genuinely new/changed chunks re-embed.
     if rechunk_all:
         changed_broad |= set(current_file_meta.keys())
-    # changed: scope to the content-type-filtered walk — don't re-embed files that
-    # are outside this run's scope (e.g. framework scripts for a docs-only run).
     # removed: use the broad result directly — a file absent from files_for_meta is
     # truly deleted from disk (not merely filtered out), so its chunks must be evicted
     # regardless of which content type's run discovers the deletion.
     files_rel = {str(f.relative_to(root)).replace("\\", "/") for f in files}
-    changed = changed_broad & files_rel
     files_for_graph_rel = {str(f.relative_to(root)).replace("\\", "/") for f in files_for_graph}
     changed_for_graph = changed_broad & files_for_graph_rel
+    # --- 1sek8: per-layer change detection ---
+    # Each SEMANTIC layer compares the current walk hash against the hash it
+    # last embedded (index-state store `layer_path_state`), scoped to its own
+    # eligibility set. The broad meta hash is no longer the semantic change
+    # signal — a docs-only build stamping a changed code file's fresh hash
+    # (the 1sek8 poison: docs+code edits interleaved, then `content=code`
+    # reported "up to date" forever) cannot erase the code layer's staleness,
+    # because the code layer never embedded that hash. An EMPTY layer state
+    # (fresh store, schema bump, pre-1sek8 repo) makes everything eligible
+    # stale — one rechunk pass with chunk-hash vector reuse converges it,
+    # which is also the heal for previously poisoned repos.
+    _iss_layer = _get_index_state_store()
+    layer_stale: dict[str, set[str]] = {"docs": set(), "code": set()}
+    if not full:
+        for _layer, _flag, _eligible in (
+            ("docs", build_docs, docs_eligible_rel),
+            ("code", build_code, code_eligible_rel),
+        ):
+            if not _flag:
+                continue
+            if _iss_layer is None:
+                # Store module unavailable (older extracted pack): legacy
+                # broad-meta detection for this layer — degraded, no worse
+                # than the pre-1sek8 behavior.
+                layer_stale[_layer] = changed_broad & _eligible
+                continue
+            # Unreadable/absent/pre-1sek8 store state reads as EMPTY (not
+            # legacy): everything eligible is stale, one rechunk pass with
+            # vector reuse converges — the migration heal runs on the FIRST
+            # post-upgrade build, not the second.
+            _state = _iss_layer.layer_hashes(index_dir, _layer) or {}
+            if rechunk_all:
+                layer_stale[_layer] = set(_eligible)
+                continue
+            _stale_set: set[str] = set()
+            for _rel in _eligible:
+                _cur = current_file_meta.get(_rel, {}).get("hash")
+                if _cur is None or _cur != _state.get(_rel):
+                    _stale_set.add(_rel)
+            # Drift-flagged paths re-process regardless of layer-hash match
+            # (Lance rows vanished out-of-band; Lance is the authority).
+            _stale_set |= drifted & _eligible
+            layer_stale[_layer] = _stale_set
+    changed = (changed_broad & files_rel) if full else (layer_stale["docs"] | layer_stale["code"])
     removed = removed_broad
     added = changed - set(old_file_meta.keys()) if not full else changed
     updated = changed & set(old_file_meta.keys()) if not full else set()
@@ -3545,7 +3744,10 @@ def _build_index_locked(
             set(current_file_meta.keys()),
             tables=("docs", "code"),
             verbose=verbose,
+            eligible_by_table={"docs": docs_eligible_rel, "code": code_eligible_rel},
         )
+        _reap_idle_paths = reap_idle.pop("paths_by_table", {})
+        _cleanup_layer_state_for_reaped(index_dir, _reap_idle_paths)
         # 1sbfj: an under-covered or cold derived chunk index must still heal
         # on zero-change builds — the field-retest scenario is upgrade-then-
         # idle, and without this fall-through the store stays broken until the
@@ -3632,8 +3834,12 @@ def _build_index_locked(
     # Chunk new/changed files
     new_doc_chunks: list[dict] = []
     new_code_chunks: list[dict] = []
+    # 1sek8: iterate the BROAD walk filtered by the per-layer stale union —
+    # eligibility is already encoded in each layer's stale set, and a path can
+    # be stale for one layer while current for the other (dual-output files,
+    # overlapping prefixes).
     files_to_index = [
-        f for f in files_for_content
+        f for f in files_for_meta
         if str(f.relative_to(root)).replace("\\", "/") in changed
     ] if not full else files_for_content
 
@@ -3655,10 +3861,22 @@ def _build_index_locked(
             except OSError:
                 continue
             dc, cc = _chunks_for_file(rel, source_text)
-            chunks_emitted_by_file[rel] = len(dc) + len(cc)
-            if build_docs:
+            # 1sek8: the emitted count reflects what the file CAN contribute
+            # under the corpus definition — a code-ineligible file (e.g. a
+            # test without --include-tests) contributes zero code chunks, so
+            # counting its raw output would make the drift detector flag it
+            # as claimed-but-empty forever.
+            chunks_emitted_by_file[rel] = (
+                (len(dc) if rel in docs_prefix_eligible_rel else 0)
+                + (len(cc) if rel in code_eligible_rel else 0)
+            )
+            # 1sek8: route each chunk kind ONLY to the layer that is stale for
+            # this path — a dual-output file changed for one layer must not
+            # rewrite the other layer's rows (and its other-layer stale set
+            # entry, if any, keeps it queued for that layer's next build).
+            if build_docs and rel in layer_stale["docs"]:
                 new_doc_chunks.extend(dc)
-            if build_code:
+            if build_code and rel in layer_stale["code"]:
                 new_code_chunks.extend(cc)
 
     # Wave 1p5ch: chunks_emitted_by_file is persisted into current_file_meta AFTER the write block
@@ -3781,32 +3999,41 @@ def _build_index_locked(
                 # mirror the PRE-drift Lance state and would wrongly report
                 # "unchanged", silently defeating the drift repair.
                 _skip_exempt = set(drifted)
+                # 1sek8: each table's writer receives ITS layer's stale set
+                # (plus removals) — a stale path with zero new chunks means
+                # "delete this path's rows in this table", so handing one
+                # layer's changes to the other's writer would destroy content.
+                # _layer_written collects per-table completion for the
+                # end-of-build layer-hash commit.
+                _layer_written: dict[str, set[str]] = {}
                 if build_docs:
                     def _write_docs_incr(
                         _db_path=lance_db_path,
-                        _stale=stale,
+                        _stale=(layer_stale["docs"] | removed),
                         _doc_chunks=new_doc_chunks,
                         _docs_emb=docs_embedder,
                         _verbose=verbose,
                         _elapsed=_docs_elapsed,
                         _exempt=_skip_exempt,
+                        _written=_layer_written,
                     ) -> None:
                         _t0 = time.monotonic()
-                        _lance_incremental_write(_db_path, _stale, _doc_chunks, _docs_emb, [], None, True, False, _verbose, skip_exempt=_exempt)
+                        _lance_incremental_write(_db_path, _stale, _doc_chunks, _docs_emb, [], None, True, False, _verbose, skip_exempt=_exempt, written_paths=_written)
                         _elapsed.append(time.monotonic() - _t0)
                     futures.append(executor.submit(_write_docs_incr))
                 if build_code:
                     def _write_code_incr(
                         _db_path=lance_db_path,
-                        _stale=stale,
+                        _stale=(layer_stale["code"] | removed),
                         _code_chunks=new_code_chunks,
                         _code_emb=code_embedder,
                         _verbose=verbose,
                         _elapsed=_code_elapsed,
                         _exempt=_skip_exempt,
+                        _written=_layer_written,
                     ) -> None:
                         _t0 = time.monotonic()
-                        _lance_incremental_write(_db_path, _stale, [], None, _code_chunks, _code_emb, False, True, _verbose, skip_exempt=_exempt)
+                        _lance_incremental_write(_db_path, _stale, [], None, _code_chunks, _code_emb, False, True, _verbose, skip_exempt=_exempt, written_paths=_written)
                         _elapsed.append(time.monotonic() - _t0)
                     futures.append(executor.submit(_write_code_incr))
             # Secrets scan runs as a future (project layer) — concurrent with graph.
@@ -3850,6 +4077,8 @@ def _build_index_locked(
                     verbose=verbose,
                     docs_elapsed=_docs_elapsed,
                     code_elapsed=_code_elapsed,
+                    docs_eligible_rel=docs_eligible_rel if build_docs else None,
+                    code_eligible_rel=code_eligible_rel if build_code else None,
                 )
             # Wave 1p2q3 (1p2wd post-ship 1.3.22 / Bug 4 part 2): graph
             # extraction runs synchronously on the main thread, concurrently
@@ -3972,9 +4201,45 @@ def _build_index_locked(
             set(current_file_meta.keys()),
             tables=("docs", "code"),
             verbose=verbose,
+            eligible_by_table={"docs": docs_eligible_rel, "code": code_eligible_rel},
         )
+        _reap_paths_by_table = reap_result.pop("paths_by_table", {})
         stranded_rows_reaped_by_table = reap_result
         stranded_rows_reaped = reap_result.get("total", 0)
+        _cleanup_layer_state_for_reaped(index_dir, _reap_paths_by_table)
+
+    # --- 1sek8: commit each layer's last-embedded hashes ---
+    # Ordered AFTER the Lance writes (same posture as the chunk deltas): a
+    # layer records a path's walk hash only once its table's write block
+    # completed this build, so a failed write leaves the layer stale and the
+    # next build retries. Full rebuilds replace the whole layer state from
+    # the eligibility set. Never fails the build — a skipped commit just
+    # means re-processing next build (idempotent, vectors reused).
+    if _state_store is not None:
+        try:
+            if full:
+                for _layer, _flag, _eligible in (
+                    ("docs", build_docs, docs_eligible_rel),
+                    ("code", build_code, code_eligible_rel),
+                ):
+                    if not _flag:
+                        continue
+                    _state_store.replace_layer_hashes(
+                        index_dir, _layer,
+                        {r: current_file_meta[r]["hash"] for r in _eligible if r in current_file_meta},
+                    )
+            else:
+                for _layer, _written in _layer_written.items():
+                    _state_store.update_layer_hashes(
+                        index_dir, _layer,
+                        set_hashes={
+                            r: current_file_meta[r]["hash"]
+                            for r in _written if r in current_file_meta
+                        },
+                        remove_paths=removed_broad,
+                    )
+        except Exception as exc:  # noqa: BLE001 - layer state is self-healing
+            print(f"build_index: layer-state commit skipped ({exc}) — next build re-detects", file=sys.stderr)
 
     # Wave 1rsh9 (1rrr0): ordered-consistency reconciliation — repair any
     # crash window between the Lance writes and the store's FTS/registry

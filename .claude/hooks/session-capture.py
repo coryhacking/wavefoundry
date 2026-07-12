@@ -160,7 +160,7 @@ def _flush_reindex_if_pending(root: Path) -> None:
         else:
             _detach["start_new_session"] = True
         subprocess.Popen(
-            [py, str(indexer_path), "--root", str(root)],
+            [py, str(indexer_path), "--root", str(root), "--content", "all"],  # 1sek8: all-content flush
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,

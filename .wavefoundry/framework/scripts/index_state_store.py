@@ -62,8 +62,12 @@ STATE_STORE_FILENAME = "index-state.sqlite"
 # tables + per-path bookkeeping + chunk registry); 1rsha bumped to "3"
 # (per-file secret-scan cache + Tier-2-ready rule catalog); 1sauc bumped to
 # "4" (FTS tables gain language/tags UNINDEXED columns for the code_search
-# filter-parity contract after the Lance/Tantivy FTS retirement).
-STATE_STORE_SCHEMA_VERSION = "4"
+# filter-parity contract after the Lance/Tantivy FTS retirement); 1sek8
+# bumped to "5" (per-layer last-embedded hash state — the content-scope
+# change-detection substrate; the reset this bump forces is intentionally
+# also the fleet-wide freshness heal, since empty layer state reads as
+# all-stale and the first build reconverges with vector reuse).
+STATE_STORE_SCHEMA_VERSION = "5"
 
 # Freshness extraction tuning (1ro43 Req 1: "commit count touching the file
 # over a trailing window, normalized"; window + normalization are named
@@ -429,6 +433,26 @@ class IndexStateStore:
                 "rule_id TEXT NOT NULL, "
                 "rule_hash TEXT NOT NULL, "
                 "PRIMARY KEY (rules_fingerprint, rule_id))"
+            )
+            # --- Per-layer last-embedded hash state (1sek8) ---
+            # The change-detection source of truth for each SEMANTIC layer
+            # ("docs"/"code"): the walk hash a layer last successfully
+            # embedded per path. Content-scoped builds previously shared one
+            # broad hash (meta.json file_meta), so a docs-only build stamped
+            # a changed code file's fresh hash without embedding it and the
+            # next code build skipped it forever. Comparing each layer
+            # against ITS OWN state makes any build scope correct by
+            # construction. An empty table (fresh store, post-bump reset, or
+            # pre-1sek8 upgrade) reads as "everything stale for this layer" —
+            # one rechunk pass with chunk-hash vector reuse converges it,
+            # which is also the fleet-wide heal for previously poisoned
+            # repos. Derived-only: rebuildable from the repo + a build pass.
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS layer_path_state ("
+                "layer TEXT NOT NULL, "
+                "path TEXT NOT NULL, "
+                "hash TEXT NOT NULL, "
+                "PRIMARY KEY (layer, path))"
             )
             if self._get_meta(conn, "store_schema_version") is None:
                 conn.execute(
@@ -1085,6 +1109,88 @@ def registry_chunk_ids(index_dir: Path, table_name: str) -> Optional[set[str]]:
             pass
 
 
+def layer_hashes(index_dir: Path, layer: str) -> Optional[dict[str, str]]:
+    """The last-embedded walk hash per path for one semantic layer (1sek8).
+
+    ``None`` when the store is absent/unreadable (callers treat that the same
+    as an empty layer: everything in scope is stale). An EMPTY dict is the
+    normal cold state — fresh store, post-bump reset, or a pre-1sek8 repo —
+    and means the layer's first build re-chunks everything in scope (vectors
+    reused by chunk content hash), which is also the poisoned-repo heal.
+    """
+    conn = open_read_only(index_dir)
+    if conn is None:
+        return None
+    try:
+        rows = conn.execute(
+            "SELECT path, hash FROM layer_path_state WHERE layer = ?", (layer,)
+        ).fetchall()
+        return {str(p): str(h) for p, h in rows}
+    except sqlite3.Error:
+        return None
+    finally:
+        try:
+            conn.close()
+        except sqlite3.Error:
+            pass
+
+
+def update_layer_hashes(
+    index_dir: Path,
+    layer: str,
+    *,
+    set_hashes: "dict[str, str] | None" = None,
+    remove_paths: Iterable[str] = (),
+) -> None:
+    """Commit one build pass's layer-state deltas in a single transaction (1sek8).
+
+    Called AFTER the layer's Lance writes succeed (same ordered-consistency
+    posture as the chunk deltas): ``set_hashes`` records the walk hash each
+    written path was embedded at; ``remove_paths`` drops deleted/no-longer-
+    eligible paths. Never raises to the build loop — a missed update just
+    means the next build re-processes those paths (idempotent, vectors
+    reused).
+    """
+    set_hashes = set_hashes or {}
+    remove_list = [str(p) for p in remove_paths]
+    if not set_hashes and not remove_list:
+        return
+    store = IndexStateStore(index_dir)
+    try:
+        store.ensure_current()
+        conn = store._conn
+        with conn:
+            if remove_list:
+                conn.executemany(
+                    "DELETE FROM layer_path_state WHERE layer = ? AND path = ?",
+                    [(layer, p) for p in remove_list],
+                )
+            if set_hashes:
+                conn.executemany(
+                    "INSERT INTO layer_path_state (layer, path, hash) VALUES (?, ?, ?) "
+                    "ON CONFLICT(layer, path) DO UPDATE SET hash=excluded.hash",
+                    [(layer, str(p), str(h)) for p, h in set_hashes.items()],
+                )
+    finally:
+        store.close()
+
+
+def replace_layer_hashes(index_dir: Path, layer: str, hashes: dict[str, str]) -> None:
+    """Full replacement of one layer's state (full-rebuild path, 1sek8)."""
+    store = IndexStateStore(index_dir)
+    try:
+        store.ensure_current()
+        conn = store._conn
+        with conn:
+            conn.execute("DELETE FROM layer_path_state WHERE layer = ?", (layer,))
+            conn.executemany(
+                "INSERT INTO layer_path_state (layer, path, hash) VALUES (?, ?, ?)",
+                [(layer, str(p), str(h)) for p, h in hashes.items()],
+            )
+    finally:
+        store.close()
+
+
 def registry_chunk_count(index_dir: Path, table_name: str) -> Optional[int]:
     """Cheap read-only registry row count for one table (1sbfj).
 
@@ -1187,6 +1293,7 @@ def reconcile_chunk_index(
     *,
     expected: bool = False,
     raw_rows: Optional[int] = None,
+    force: bool = False,
 ) -> dict[str, Any]:
     """Chunk-id set comparison between Lance (authoritative) and the store.
 
@@ -1210,14 +1317,27 @@ def reconcile_chunk_index(
                 conn.close()
             except sqlite3.Error:
                 pass
-    if store_ids is not None and store_ids == lance_ids:
+    if force:
+        # Operator-requested from-scratch rebuild of the derived state
+        # (wave_index_build content='fts', 1sek8): skip the in-sync early
+        # return AND the crash-window messaging — this is intentional
+        # maintenance, not a repair.
+        msg = (
+            f"index-state-store: rebuilding derived chunk index for '{table_name}' "
+            f"from Lance ({len(lance_ids)} chunks — operator-requested)"
+        )
+        print(msg, flush=True)
+        store_log(index_dir, msg)
+    elif store_ids is not None and store_ids == lance_ids:
         # In sync — record the sync-time counts (and clear a cold flag left
         # by e.g. the full-rebuild path having already repopulated everything).
         _record_chunk_sync_counts(
             index_dir, table_name, raw_rows, len(store_ids), clear_cold=cold
         )
         return {"reconciled": False, "in_sync": True}
-    if cold or not store_ids:
+    if force:
+        pass  # message already printed above
+    elif cold or not store_ids:
         # Cold start: a just-created or just-reset store (install, upgrade,
         # schema bump) is EXPECTED to need the backfill from Lance — routine
         # provisioning, not a crash repair, even when partial in-build deltas
