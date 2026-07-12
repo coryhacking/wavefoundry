@@ -498,6 +498,12 @@ Never present an inferred conclusion as a confirmed fact. A qualified answer is 
 
 **Citation interpretation:** `score` is the pre-partition reranker score. `final_rank` is the actual output order after any soft demotion. When `demoted: true` is present, the lower position is intentional. Prefer `final_rank` over `score` when deciding which citation is primary.
 
+**Lexical (BM25) fusion signals — reading the `sources` field:** each citation carries `sources`, the set of retrieval passes that independently found it. `["code","lexical"]` or `["docs","lexical"]` means BOTH the vector pass and the exact-token BM25 pass hit the same chunk — multi-source agreement is a strong relevance signal, weigh those citations up. A `lexical`-only source means an exact-token match the vector pass missed entirely (typically an identifier, error string, or rare token) — often exactly the chunk a lookup question needs. Two phrasing rules govern whether the lexical pass can help:
+- **Compound identifiers are single indivisible tokens.** The FTS tokenizer keeps `_` inside tokens (exact-identifier precision by design), so a query containing `webhook_activity` does NOT lexically match a chunk whose identifier is `webhook_activity_inserted`. To engage code-side lexical assist, include the exact full identifier in the question. Natural-language phrasing engages docs-side lexical (prose spells words separately) but usually leaves code citations vector-only — a code citation tagged `["code"]` alone is normal for NL phrasings, not a retrieval failure.
+- **Concept and sub-word queries are the dense (vector) layer's job.** Do not fight the tokenizer with partial identifiers; either use the full token or rely on semantic ranking. For pattern-shaped needs (regex), use `code_pattern`; for exact matches on live files, `code_keyword`.
+
+To query the lexical layer directly — BM25-ranked exact-token search over the same indexed corpus, or verifying whether a chunk is actually in the FTS layer — use **`code_lexical(query, table="code"|"docs"|"both", kind=..., limit=...)`**. It ranks indexed chunks (unlike `code_keyword`, which matches live files unranked), reports per-table lexical coverage, and warns when the searched table is under-covered so zero results on an unhealed store are never mistaken for corpus absence.
+
 ## Operator Q&A
 
 Guru may ask the operator clarifying questions when:

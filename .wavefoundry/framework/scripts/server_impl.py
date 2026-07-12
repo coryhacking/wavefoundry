@@ -3650,9 +3650,21 @@ def _state_store_health_summary(root: Path) -> dict[str, Any]:
     source-fingerprint binding). Shape:
         {"present": bool, "schema_version": str | None,
          "integrity": "ok" | "structural-fail" | "stale-fingerprint" | None,
-         "size_bytes": int}
+         "size_bytes": int,
+         "chunk_index": {table: {"lance_rows": int, "registry_rows": int,
+                                 "covered": bool}}}
     Absence of the store (or of the module in an older pack) reports
     ``present: False`` with no diagnostics — a normal not-yet-built state.
+
+    ``chunk_index`` (1sbfj): registry coverage vs Lance per table. The field
+    defect left the FTS/registry near-empty (lexical retrieval silently
+    blind) while ``integrity`` read ``ok`` — structural soundness says
+    nothing about coverage, so coverage is now reported and diagnosed
+    explicitly. ``covered`` mirrors the zero-change heal probe: exact match
+    against the counts recorded at the last successful reconcile when
+    available (Lance ids are not unique, so a raw-vs-registry compare
+    misreads duplicate-id rows as under-coverage), else the proportional
+    ``max(8, lance_rows // 50)`` gap.
     """
     index_dir = root / ".wavefoundry" / "index"
     summary: dict[str, Any] = {
@@ -3671,6 +3683,31 @@ def _state_store_health_summary(root: Path) -> dict[str, Any]:
         probe = iss.probe_state_store(root, index_dir, deep=False)
         summary["integrity"] = probe.get("status")
         summary["schema_version"] = probe.get("schema_version")
+    except Exception:
+        pass
+    try:
+        coverage: dict[str, Any] = {}
+        import lancedb  # local import: keep module import cheap and optional
+        db = lancedb.connect(str(index_dir))
+        for table_name in ("docs", "code"):
+            if not (index_dir / f"{table_name}.lance").is_dir():
+                continue
+            lance_rows = int(db.open_table(table_name).count_rows())
+            registry_rows = iss.registry_chunk_count(index_dir, table_name)
+            if registry_rows is None:
+                continue
+            synced_raw, synced_unique = iss.chunk_sync_counts(index_dir, table_name)
+            if synced_raw is not None and synced_unique is not None:
+                covered = lance_rows == synced_raw and registry_rows == synced_unique
+            else:
+                covered = abs(lance_rows - registry_rows) <= max(8, lance_rows // 50)
+            coverage[table_name] = {
+                "lance_rows": lance_rows,
+                "registry_rows": int(registry_rows),
+                "covered": covered,
+            }
+        if coverage:
+            summary["chunk_index"] = coverage
     except Exception:
         pass
     return summary
@@ -6738,6 +6775,28 @@ def wave_index_health_response(index: WaveIndex) -> dict[str, Any]:
                 "or run wave_index_optimize() to verify and reclaim now.",
                 recovery_tools=["wave_index_optimize", "wave_index_build"],
                 recovery_usage="wave_index_optimize()",
+            )
+        )
+    # 1sbfj: coverage advisory — a structurally-sound store whose chunk
+    # registry/FTS covers materially less than Lance means lexical retrieval
+    # is running partially blind (the field defect read as `integrity: ok`).
+    # The next index build heals it (the reconcile backfills from Lance,
+    # including on zero-change builds).
+    _uncovered = [
+        f"{t} (registry {c.get('registry_rows')} of {c.get('lance_rows')} Lance rows)"
+        for t, c in (health["state_store"].get("chunk_index") or {}).items()
+        if c.get("covered") is False
+    ]
+    if _uncovered:
+        diagnostics.append(
+            _diagnostic(
+                "chunk_index_undercovered",
+                "The derived chunk index (FTS/registry) covers materially less than the "
+                "Lance tables: " + "; ".join(sorted(_uncovered)) + ". Lexical (BM25) "
+                "retrieval is running partially blind until it heals. Trigger a build to "
+                "backfill from Lance: wave_index_build(content='all', mode='update').",
+                recovery_tools=["wave_index_build", "wave_index_build_status"],
+                recovery_usage="wave_index_build(content='all', mode='update')",
             )
         )
 
@@ -11300,6 +11359,131 @@ def _apply_keyword_limit(
     if limit > 0 and total > limit:
         return results[:limit], True, total
     return results, False, total
+
+
+CODE_LEXICAL_MAX_LIMIT = 50    # hard cap on returned results
+CODE_LEXICAL_TEXT_CAP = 700    # per-result chunk-text cap (chars)
+
+
+def code_lexical_response(
+    root: Path,
+    query: str = "",
+    table: str = "both",
+    kind: str = "",
+    limit: int = 20,
+) -> dict[str, Any]:
+    """Direct BM25 exact-token search over the index-state store's FTS5 tables (1seiz).
+
+    A ranked view of the SAME lexical corpus ``code_search``/``code_ask`` fuse
+    (``fts_code``/``fts_docs``) — for exact-identifier lookups and lexical-layer
+    verification. Every whitespace token is matched as a literal (the fusion
+    path's safe expression builder); FTS operators never reach the engine.
+    Degrades to ``ok`` + empty results + a recovery diagnostic on an absent
+    store or FTS-less interpreter, and warns when a searched table is
+    under-covered so zero results on a broken store never read as
+    "absent from the corpus".
+    """
+    query = str(query or "").strip()
+    if not query:
+        return _response(
+            "error", {"query": query},
+            diagnostics=[_diagnostic("invalid_arguments", "query must be a non-empty string.")],
+            next_tools=["code_lexical"], usage="code_lexical(query='exact_identifier')",
+        )
+    table = str(table or "both").strip().lower()
+    if table not in ("code", "docs", "both"):
+        return _response(
+            "error", {"query": query, "table": table},
+            diagnostics=[_diagnostic("invalid_arguments", "table must be 'code', 'docs', or 'both'.")],
+            next_tools=["code_lexical"], usage="code_lexical(query='...', table='code')",
+        )
+    try:
+        limit = int(limit)
+    except (TypeError, ValueError):
+        limit = 20
+    limit = max(1, min(limit if limit > 0 else 20, CODE_LEXICAL_MAX_LIMIT))
+    kind = str(kind or "").strip()
+    tables = ("code", "docs") if table == "both" else (table,)
+    index_dir = root / ".wavefoundry" / "index"
+    data: dict[str, Any] = {
+        "query": query, "table": table, "kind": kind or None, "limit": limit,
+        "results": [], "result_count": 0,
+    }
+    diagnostics: list[dict[str, Any]] = []
+    try:
+        iss = _load_script("index_state_store")
+    except Exception:
+        iss = None
+    if iss is None or not iss.state_store_path(index_dir).exists():
+        diagnostics.append(_diagnostic(
+            "lexical_layer_unavailable",
+            "The index-state store is absent — the lexical layer has not been built. "
+            "Run a build to provision it.",
+            recovery_tools=["wave_index_build", "wave_index_health"],
+            recovery_usage="wave_index_build(content='all', mode='update')",
+        ))
+        return _response("ok", data, diagnostics=diagnostics,
+                         next_tools=["wave_index_build"], usage="wave_index_build(content='all', mode='update')")
+    hits: list[dict[str, Any]] = []
+    for t in tables:
+        try:
+            rows = iss.fts_search(index_dir, t, query, limit=limit, kind=(kind or None))
+        except Exception:  # noqa: BLE001 - degrade, never crash
+            rows = []
+        for r in rows:
+            r["table"] = t
+            hits.append(r)
+    # sqlite bm25() is smaller-is-better (negative); best-first ascending.
+    hits.sort(key=lambda h: h.get("bm25", 0.0))
+    results: list[dict[str, Any]] = []
+    for h in hits[:limit]:
+        text = str(h.get("text") or "")
+        truncated = len(text) > CODE_LEXICAL_TEXT_CAP
+        results.append({
+            "id": h.get("id", ""),
+            "path": str(h.get("path", "")).replace("\\", "/"),
+            "kind": h.get("kind") or "",
+            "language": h.get("language") or "",
+            "lines": list(h.get("lines") or []),
+            "text": text[:CODE_LEXICAL_TEXT_CAP],
+            "text_truncated": truncated,
+            "bm25": h.get("bm25"),
+            "table": h.get("table"),
+        })
+    data["results"] = results
+    data["result_count"] = len(results)
+    # Coverage tie-in (1sbfj): a zero/thin result on an under-covered table is
+    # a store problem, not corpus absence — same compare wave_index_health uses.
+    try:
+        coverage = (_state_store_health_summary(root).get("chunk_index") or {})
+        uncovered = [t for t in tables if coverage.get(t, {}).get("covered") is False]
+        if coverage:
+            data["coverage"] = {t: coverage[t] for t in tables if t in coverage}
+        if uncovered:
+            diagnostics.append(_diagnostic(
+                "chunk_index_undercovered",
+                "The lexical index for " + ", ".join(sorted(uncovered)) + " covers materially "
+                "less than the Lance tables — results may be partial until the next build "
+                "backfills it (zero-change builds heal too).",
+                recovery_tools=["wave_index_build", "wave_index_health"],
+                recovery_usage="wave_index_build(content='all', mode='update')",
+            ))
+    except Exception:  # noqa: BLE001 - advisory only
+        pass
+    if not results and not diagnostics:
+        # Healthy store, no hits: remind about token semantics — the common
+        # miss is a partial compound identifier.
+        data["note"] = (
+            "No exact-token matches. FTS tokens keep '_' inside identifiers, so partial "
+            "compound identifiers do not match (query 'webhook_activity' will not match "
+            "'webhook_activity_inserted'). Use the full identifier, code_pattern for regex, "
+            "code_keyword for live-file substring match, or code_search for concepts."
+        )
+    return _response(
+        "ok", data, diagnostics=diagnostics,
+        next_tools=["code_read", "code_keyword"],
+        usage="code_read(path='...', start_line=N, end_line=M)",
+    )
 
 
 def code_keyword_response(
@@ -19063,6 +19247,51 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             tool_key="code_keyword", graph=graph, graph_limit=graph_limit, layer=layer,
         )
         return _inject_timing(result, t_start, "code_keyword")
+
+    @mcp.tool(annotations=_READONLY_TOOL)
+    def code_lexical(
+        query: str = "",
+        table: str = "both",
+        kind: str = "",
+        limit: int = 20,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        """BM25-ranked exact-token search over the indexed lexical layer (FTS5).
+
+        Searches the SAME corpus the hybrid retrieval fuses (`fts_code`/`fts_docs` in the
+        index-state store) and returns chunks ranked by BM25 — use it for exact-identifier
+        lookups (compound identifiers, error strings, rare tokens) and to verify what the
+        lexical layer actually holds (e.g. when a `code_ask` citation lacks the "lexical"
+        source tag and you want to know whether the chunk is indexed).
+
+        Routing: this is NOT regex (`code_pattern` does regex over live files), NOT live-file
+        substring match (`code_keyword`), and NOT concept search (`code_search`/`docs_search`).
+        Tokens are matched as literals; FTS operators in the query are treated as plain text.
+        The tokenizer keeps `_` inside tokens, so compound identifiers are single indivisible
+        tokens — `webhook_activity` does NOT match `webhook_activity_inserted`; query the full
+        identifier.
+
+        Args:
+            query: Whitespace-separated tokens, each matched as an exact literal token
+                (OR-joined for BM25 recall). Required.
+            table: "code", "docs", or "both" (default) — which FTS table(s) to search;
+                "both" merges best-first by BM25.
+            kind: Optional exact chunk-kind filter (e.g. "code", "doc", "seed").
+            limit: Max results (default 20, hard cap 50).
+
+        Response fields:
+        - results: [{id, path, kind, language, lines, text, text_truncated, bm25, table}]
+          ordered best-first (BM25 is smaller-is-better; already sorted).
+        - coverage: per-table lexical coverage vs Lance (present when the store reports it).
+        - A `chunk_index_undercovered` diagnostic when a searched table is materially behind —
+          zero results on an under-covered store mean "store not healed yet", not "absent".
+        """
+        bad = _ensure_no_extra_args("code_lexical", kwargs)
+        if bad is not None:
+            return bad
+        t_start = time.monotonic()
+        result = code_lexical_response(get_handler().root, query, table=table, kind=kind, limit=limit)
+        return _inject_timing(result, t_start, "code_lexical")
 
     @mcp.tool(annotations=_READONLY_TOOL)
     def code_constants(symbols: list[str], glob: str = "", **kwargs: Any) -> dict[str, Any]:

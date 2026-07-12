@@ -1630,7 +1630,7 @@ def _compact_by_rewrite(db, table_name: str):
     return new_table
 
 
-def reclaim_lance_table(db, table_name: str) -> dict:
+def reclaim_lance_table(db, table_name: str, index_dir: "Optional[Path]" = None) -> dict:
     """Tiered reclaim of a bloated LanceDB table. Wave 1p9aj.
 
     Tier 1: ``optimize()`` in place (the normal, non-corrupt case). Tier 2 (on an ``optimize()``
@@ -1650,7 +1650,7 @@ def reclaim_lance_table(db, table_name: str) -> dict:
     # optimize pass, so its cleanup can GC the now-unreferenced FTS versions
     # that accumulated under `_indices/` (the leak class the fragment-gated
     # optimize could never reclaim). One-time per field repo, then a no-op.
-    _drop_legacy_fts_indices(table, table_name)
+    _drop_legacy_fts_indices(table, table_name, index_dir=index_dir)
     if _optimize_lance_table(table):
         result["tier"] = 1
         try:
@@ -1710,14 +1710,14 @@ def optimize_index_tables(index_dir: Path, tables: "tuple[str, ...]" = ("docs", 
         for t in existing:
             tdir = index_dir / _LANCE_TABLE_FILES[t]
             before = _lance_dir_bytes(tdir)
-            res = reclaim_lance_table(db, t)
+            res = reclaim_lance_table(db, t, index_dir=index_dir)
             res["bytes_before"] = before
             res["bytes_after"] = _lance_dir_bytes(tdir)
             results[t] = res
     return results
 
 
-def _drop_legacy_fts_indices(table, table_name: str) -> int:
+def _drop_legacy_fts_indices(table, table_name: str, index_dir: "Optional[Path]" = None) -> int:
     """Drop retired Lance/Tantivy FTS indices from a table (wave 1rsh9 / 1sauc).
 
     The lexical layer moved to the index-state store's FTS5 tables; the Lance
@@ -1737,17 +1737,34 @@ def _drop_legacy_fts_indices(table, table_name: str) -> int:
             if "FTS" in index_type.upper() or name == "text_idx":
                 table.drop_index(name)
                 dropped += 1
-                print(
+                msg = (
                     f"build_index: dropped legacy Lance FTS index '{name}' on "
-                    f"'{table_name}' (lexical layer is FTS5 in the index-state store)",
-                    flush=True,
+                    f"'{table_name}' (lexical layer is FTS5 in the index-state store)"
                 )
+                print(msg, flush=True)
+                _store_log_safe(index_dir, msg)  # 1sbfj: persist one-time drop
     except Exception as exc:  # noqa: BLE001 - cleanup is best-effort
-        print(
-            f"build_index: legacy FTS index cleanup for '{table_name}' skipped ({exc})",
-            file=sys.stderr,
-        )
+        msg = f"build_index: legacy FTS index cleanup for '{table_name}' skipped ({exc})"
+        print(msg, file=sys.stderr)
+        _store_log_safe(index_dir, msg)
     return dropped
+
+
+def _store_log_safe(index_dir: "Optional[Path]", message: str) -> None:
+    """Persist a build diagnostic to the index-state store log (1sbfj).
+
+    Best-effort wrapper: silently a no-op when ``index_dir`` is unknown at the
+    call site or the store module is unavailable — persistence is additive,
+    the stdout/stderr print remains the primary channel.
+    """
+    if index_dir is None:
+        return
+    try:
+        iss = _get_index_state_store()
+        if iss is not None:
+            iss.store_log(index_dir, message)
+    except Exception:  # noqa: BLE001 - logging must never fail the caller
+        pass
 
 
 def _lance_fragment_count(table) -> int:
@@ -2404,11 +2421,64 @@ def _lance_incremental_write(
                         add_rows=rows_to_add,
                     )
                 except Exception as exc:  # noqa: BLE001 - reconcile self-heals
-                    print(
+                    msg = (
                         f"build_index: chunk-index sync for '{table_name}' skipped "
-                        f"({exc}) — reconciliation will repair",
-                        file=sys.stderr,
+                        f"({exc}) — reconciliation will repair"
                     )
+                    print(msg, file=sys.stderr)
+                    try:
+                        _iss.store_log(db_path, msg)  # 1sbfj: persist skip reason
+                    except Exception:
+                        pass
+
+
+def _chunk_index_needs_heal(index_dir: Path) -> bool:
+    """Cheap coverage probe: does the derived chunk index need a reconcile? (1sbfj)
+
+    Guards the zero-change fall-through in ``build_index``: the up-to-date
+    early return previously exited before the end-of-build reconcile, so an
+    under-covered store (the field defect: reconcile failing silently for
+    months) could never heal on an idle repo — exactly the upgrade-then-retest
+    scenario. Cost is bounded to metadata reads: the cold flag, one SQLite
+    ``count(*)`` and one Lance ``count_rows()`` per table. The reconcile
+    itself only runs when this returns True. Material gap = more than
+    ``max(8, lance_rows // 50)`` rows in either direction (proportional, so
+    legitimately-small repos still heal and a 1-row crash window can wait for
+    the next changed build). Never raises; any probe error reads as healthy
+    (the end-of-build reconcile on the next changed build still owns repair).
+    """
+    iss = _get_index_state_store()
+    if iss is None:
+        return False
+    try:
+        if iss.chunk_index_is_cold(index_dir):
+            return True
+        for table_name in ("docs", "code"):
+            if not (index_dir / f"{table_name}.lance").is_dir():
+                continue
+            lance_rows = _get_lance_db(index_dir).open_table(table_name).count_rows()
+            registry_rows = iss.registry_chunk_count(index_dir, table_name)
+            if registry_rows is None:
+                continue  # store absent/unreadable — nothing to heal into
+            # Exact-first: compare against the counts recorded at the last
+            # successful reconcile. Lance ids are NOT unique (duplicate-id
+            # rows from incremental churn inflate ``count_rows`` above the
+            # registry's unique count — observed live: +294 on this repo), so
+            # a raw-vs-registry threshold misreads a fully-synced store as
+            # under-covered and re-reconciles it every build. Any drift from
+            # the recorded counts is genuine divergence — heal it.
+            synced_raw, synced_unique = iss.chunk_sync_counts(index_dir, table_name)
+            if synced_raw is not None and synced_unique is not None:
+                if lance_rows != synced_raw or registry_rows != synced_unique:
+                    return True
+                continue
+            # Fallback (store never reconciled under this code): proportional
+            # material-gap threshold, dup-margin tolerant by looseness.
+            if abs(lance_rows - registry_rows) > max(8, lance_rows // 50):
+                return True
+    except Exception:  # noqa: BLE001 - probe is advisory
+        return False
+    return False
 
 
 def _sync_chunk_derived_state(index_dir: Path, *, expected: bool = False, verbose: bool = False) -> None:
@@ -2435,11 +2505,28 @@ def _sync_chunk_derived_state(index_dir: Path, *, expected: bool = False, verbos
             lance_ids = {str(r.get("id") or "") for r in id_rows}
 
             def _fetch_rows(_table=table):
-                cols = ["id", "path", "kind", "language", "tags", "lines", "text", "chunk_hash"]
+                # 1sbfj: project only columns present in the table's ACTUAL
+                # schema — Lance raises on absent columns, and production
+                # tables have never had `tags` (the chunker doesn't emit it,
+                # so schema inference never creates the column; only test
+                # fixtures did). The store's row coercion defaults missing
+                # keys, so absent optional columns come back empty. Only
+                # id/path/text are load-bearing: a table without those is
+                # genuinely unreadable and takes the fail-safe skip path.
+                wanted = ["id", "path", "kind", "language", "tags", "lines", "text", "chunk_hash"]
+                present = {f.name for f in _table.schema}
+                missing_required = [c for c in ("id", "path", "text") if c not in present]
+                if missing_required:
+                    raise ValueError(
+                        f"table schema missing required columns {missing_required} "
+                        f"(present: {sorted(present)})"
+                    )
+                cols = [c for c in wanted if c in present]
                 return _table.search().select(cols).limit(None).to_arrow().to_pylist()
 
             result = iss.reconcile_chunk_index(
-                index_dir, table_name, lance_ids, _fetch_rows, expected=expected
+                index_dir, table_name, lance_ids, _fetch_rows, expected=expected,
+                raw_rows=len(id_rows),
             )
             if verbose and result.get("reconciled"):
                 print(
@@ -2448,10 +2535,14 @@ def _sync_chunk_derived_state(index_dir: Path, *, expected: bool = False, verbos
                     flush=True,
                 )
         except Exception as exc:  # noqa: BLE001 - derived state must never fail a build
-            print(
-                f"build_index: chunk-index reconcile for '{table_name}' skipped ({exc})",
-                file=sys.stderr,
-            )
+            msg = f"build_index: chunk-index reconcile for '{table_name}' skipped ({exc})"
+            print(msg, file=sys.stderr)
+            # 1sbfj: persist the skip reason — this exact message was
+            # stdout-only in the field and cost an investigation hours.
+            try:
+                iss.store_log(index_dir, msg)
+            except Exception:
+                pass
 
 
 # Wave 1p99o: `struct flock` field order differs between Linux and macOS/BSD; there is no portable
@@ -3455,6 +3546,15 @@ def _build_index_locked(
             tables=("docs", "code"),
             verbose=verbose,
         )
+        # 1sbfj: an under-covered or cold derived chunk index must still heal
+        # on zero-change builds — the field-retest scenario is upgrade-then-
+        # idle, and without this fall-through the store stays broken until the
+        # repo's next real edit. Cheap probe first; the reconcile only runs on
+        # a detected gap, so the post-edit-hook hot path keeps its fast exit.
+        if _chunk_index_needs_heal(index_dir):
+            _sync_chunk_derived_state(
+                index_dir, expected=bool(reap_idle.get("total", 0)), verbose=verbose
+            )
         if verbose:
             print("build_index: index is up to date", flush=True)
         return {

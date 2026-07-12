@@ -3373,7 +3373,10 @@ class LanceIndexCleanupTests(unittest.TestCase):
         # The legacy drop helper exists and is wired into the reclaim path.
         self.assertIn("def _drop_legacy_fts_indices(", src)
         reclaim_pos = src.index("def reclaim_lance_table(")
-        drop_pos = src.index("_drop_legacy_fts_indices(table, table_name)", reclaim_pos)
+        drop_pos = src.index(
+            "_drop_legacy_fts_indices(table, table_name, index_dir=index_dir)",
+            reclaim_pos,
+        )
         self.assertGreater(drop_pos, reclaim_pos)
 
     def test_incremental_change_creates_no_lance_fts(self):

@@ -21354,6 +21354,214 @@ class StateStoreOptimizeAndHealthTests(unittest.TestCase):
         wired_pos = src.index('health["state_store"] = _state_store_health_summary(', fn_pos)
         self.assertGreater(wired_pos, fn_pos)
 
+    def _load_iss(self):
+        import importlib.util as ilu
+        iss_path = Path(self.srv.__file__).resolve().parent / "index_state_store.py"
+        spec = ilu.spec_from_file_location("_iss_health_test", iss_path)
+        iss = ilu.module_from_spec(spec)
+        spec.loader.exec_module(iss)
+        return iss
+
+    def _make_lance_code_table(self, index_dir, n):
+        import lancedb
+        rows = [
+            {"id": f"c{i}", "path": f"f{i}.py", "kind": "code", "language": "python",
+             "lines": [1, 5], "section": "", "text": f"def fn_{i}(): pass",
+             "chunk_hash": f"h{i}", "vector": [0.0, 0.0, 0.0, 0.0]}
+            for i in range(n)
+        ]
+        lancedb.connect(str(index_dir)).create_table("code", rows, mode="overwrite")
+
+    def test_health_summary_reports_chunk_index_coverage(self):
+        # 1sbfj AC-5: the field defect — a near-empty registry beside a
+        # populated Lance table — must surface as covered: False (it used to
+        # hide behind integrity: ok, which is structural only).
+        try:
+            import lancedb  # noqa: F401
+        except Exception:  # pragma: no cover - lancedb ships in the tool venv
+            self.skipTest("lancedb unavailable")
+        iss = self._load_iss()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            index_dir = root / ".wavefoundry" / "index"
+            self._make_lance_code_table(index_dir, 60)
+            # Store exists but carries only one delta-written row.
+            iss.apply_chunk_deltas(
+                index_dir, "code",
+                add_rows=[{"id": "c0", "path": "f0.py", "kind": "code",
+                           "lines": [1, 5], "text": "def fn_0(): pass",
+                           "chunk_hash": "h0"}],
+            )
+            summary = self.srv._state_store_health_summary(root)
+            self.assertEqual(summary["integrity"], "ok")  # structural says ok...
+            cov = summary["chunk_index"]["code"]
+            self.assertEqual(cov["lance_rows"], 60)
+            self.assertEqual(cov["registry_rows"], 1)
+            self.assertFalse(cov["covered"])  # ...coverage says blind
+            # After the backfill, coverage reads healthy.
+            iss.rebuild_chunk_index(
+                index_dir, "code",
+                [{"id": f"c{i}", "path": f"f{i}.py", "kind": "code",
+                  "lines": [1, 5], "text": f"def fn_{i}(): pass",
+                  "chunk_hash": f"h{i}"} for i in range(60)],
+            )
+            summary = self.srv._state_store_health_summary(root)
+            self.assertTrue(summary["chunk_index"]["code"]["covered"])
+
+    def test_health_response_diagnoses_undercovered_chunk_index(self):
+        # The advisory wiring: covered: False must produce a visible
+        # chunk_index_undercovered diagnostic in wave_index_health.
+        src = Path(self.srv.__file__).read_text(encoding="utf-8")
+        fn_pos = src.index("def wave_index_health_response(")
+        diag_pos = src.index('"chunk_index_undercovered"', fn_pos)
+        self.assertGreater(diag_pos, fn_pos)
+        # And the summary helper computes the covered flag exact-first
+        # (sync-time counts), with the proportional compare as fallback.
+        self.assertIn("chunk_sync_counts(index_dir, table_name)", src)
+        self.assertIn("covered = abs(lance_rows - registry_rows)", src)
+
+
+class CodeLexicalToolTests(unittest.TestCase):
+    """Wave 1sbfk (1seiz): the `code_lexical` direct BM25 exact-token search tool."""
+
+    def setUp(self):
+        import server_impl
+        self.srv = server_impl
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name)
+        self.index_dir = self.root / ".wavefoundry" / "index"
+
+    def _load_iss(self):
+        import importlib.util as ilu
+        iss_path = Path(self.srv.__file__).resolve().parent / "index_state_store.py"
+        spec = ilu.spec_from_file_location("_iss_lexical_test", iss_path)
+        iss = ilu.module_from_spec(spec)
+        spec.loader.exec_module(iss)
+        return iss
+
+    def _seed_store(self, iss):
+        iss.apply_chunk_deltas(
+            self.index_dir, "code",
+            add_rows=[
+                {"id": "c1", "path": "src/hooks.py", "kind": "code", "language": "python",
+                 "lines": [1, 20], "text": "def webhook_activity_inserted(row): dispatch(row)",
+                 "chunk_hash": "h1"},
+                {"id": "c2", "path": "src/util.py", "kind": "code", "language": "python",
+                 "lines": [5, 9], "text": "def unrelated_helper(): pass",
+                 "chunk_hash": "h2"},
+                {"id": "c3", "path": "src/big.py", "kind": "code", "language": "python",
+                 "lines": [1, 400],
+                 "text": "def giant_block():\n" + ("    x = 'filler line'\n" * 100)
+                         + "    return webhook_activity_inserted",
+                 "chunk_hash": "h3"},
+            ],
+        )
+        iss.apply_chunk_deltas(
+            self.index_dir, "docs",
+            add_rows=[
+                {"id": "d1", "path": "docs/webhooks.md", "kind": "doc",
+                 "lines": [1, 12], "text": "webhook activity is recorded when inserted",
+                 "chunk_hash": "hd1"},
+            ],
+        )
+
+    def test_ranked_results_shape_merge_and_token_semantics(self):
+        iss = self._load_iss()
+        self._seed_store(iss)
+        # Exact compound identifier: hits the code chunks that carry the token.
+        resp = self.srv.code_lexical_response(self.root, "webhook_activity_inserted")
+        data = resp["data"]
+        self.assertEqual(resp["status"], "ok")
+        self.assertGreaterEqual(data["result_count"], 2)
+        top = data["results"][0]
+        for field in ("id", "path", "kind", "language", "lines", "text",
+                      "text_truncated", "bm25", "table"):
+            self.assertIn(field, top)
+        self.assertTrue(all(r["table"] in ("code", "docs") for r in data["results"]))
+        # BM25 best-first (smaller-is-better, ascending).
+        bm25s = [r["bm25"] for r in data["results"]]
+        self.assertEqual(bm25s, sorted(bm25s))
+        # Token semantics: the partial identifier does NOT match the compound
+        # token in code, but DOES match the separate words in docs prose.
+        resp2 = self.srv.code_lexical_response(self.root, "webhook", table="code")
+        self.assertEqual(resp2["data"]["result_count"], 0)
+        resp3 = self.srv.code_lexical_response(self.root, "webhook", table="docs")
+        self.assertEqual([r["id"] for r in resp3["data"]["results"]], ["d1"])
+
+    def test_kind_filter_limit_cap_and_text_cap(self):
+        iss = self._load_iss()
+        self._seed_store(iss)
+        resp = self.srv.code_lexical_response(
+            self.root, "webhook_activity_inserted", kind="doc"
+        )
+        self.assertEqual(resp["data"]["result_count"], 0)  # exact kind filter
+        # limit is hard-capped.
+        resp2 = self.srv.code_lexical_response(self.root, "filler", limit=5000)
+        self.assertEqual(resp2["data"]["limit"], self.srv.CODE_LEXICAL_MAX_LIMIT)
+        # Oversized chunk text is capped and flagged.
+        resp3 = self.srv.code_lexical_response(self.root, "giant_block")
+        big = [r for r in resp3["data"]["results"] if r["id"] == "c3"]
+        self.assertTrue(big and big[0]["text_truncated"])
+        self.assertLessEqual(len(big[0]["text"]), self.srv.CODE_LEXICAL_TEXT_CAP)
+
+    def test_hostile_queries_and_invalid_args(self):
+        iss = self._load_iss()
+        self._seed_store(iss)
+        for hostile in ('NEAR( "unclosed', "a AND OR NOT", '"unbalanced', "((("):
+            resp = self.srv.code_lexical_response(self.root, hostile)
+            self.assertEqual(resp["status"], "ok")  # literals, never an engine error
+        self.assertEqual(self.srv.code_lexical_response(self.root, "  ")["status"], "error")
+        self.assertEqual(
+            self.srv.code_lexical_response(self.root, "x", table="nope")["status"], "error"
+        )
+
+    def test_absent_store_degrades_with_recovery_diagnostic(self):
+        resp = self.srv.code_lexical_response(self.root, "anything")
+        self.assertEqual(resp["status"], "ok")
+        self.assertEqual(resp["data"]["results"], [])
+        codes = [d["code"] for d in resp.get("diagnostics", [])]
+        self.assertIn("lexical_layer_unavailable", codes)
+
+    def test_undercovered_table_warns_partial_results(self):
+        try:
+            import lancedb  # noqa: F401
+        except Exception:  # pragma: no cover - lancedb ships in the tool venv
+            self.skipTest("lancedb unavailable")
+        iss = self._load_iss()
+        # Lance holds 60 rows; the store holds ONE delta row (the field defect shape).
+        import lancedb
+        rows = [
+            {"id": f"c{i}", "path": f"f{i}.py", "kind": "code", "language": "python",
+             "lines": [1, 5], "section": "", "text": f"def fn_{i}(): pass",
+             "chunk_hash": f"h{i}", "vector": [0.0, 0.0, 0.0, 0.0]}
+            for i in range(60)
+        ]
+        lancedb.connect(str(self.index_dir)).create_table("code", rows, mode="overwrite")
+        iss.apply_chunk_deltas(
+            self.index_dir, "code",
+            add_rows=[{"id": "c0", "path": "f0.py", "kind": "code",
+                       "lines": [1, 5], "text": "def fn_0(): pass", "chunk_hash": "h0"}],
+        )
+        resp = self.srv.code_lexical_response(self.root, "fn_59", table="code")
+        self.assertEqual(resp["data"]["result_count"], 0)  # not in the store yet...
+        codes = [d["code"] for d in resp.get("diagnostics", [])]
+        self.assertIn("chunk_index_undercovered", codes)  # ...and the response says WHY
+
+    def test_healthy_zero_hit_carries_token_semantics_note(self):
+        iss = self._load_iss()
+        self._seed_store(iss)
+        resp = self.srv.code_lexical_response(self.root, "definitely_absent_token")
+        self.assertEqual(resp["data"]["result_count"], 0)
+        self.assertIn("compound identifiers", resp["data"].get("note", ""))
+
+    def test_mcp_tool_is_registered_readonly(self):
+        src = Path(self.srv.__file__).read_text(encoding="utf-8")
+        pos = src.index("def code_lexical(")
+        deco = src.rindex("@mcp.tool(annotations=_READONLY_TOOL)", 0, pos)
+        self.assertGreater(pos - deco, 0)
+        self.assertLess(pos - deco, 120)
+
 
 class CloseTimeOptimizeTests(unittest.TestCase):
     """Wave 1rycf: bloat-gated, tier-1-only index optimize at wave close (interim FTS-leak reclaim).

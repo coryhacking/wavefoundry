@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-02
+Last verified: 2026-07-11
 
 ## Verification Commands
 
@@ -116,7 +116,8 @@ The tool-venv dependency check is **version-aware**: when a pack pins a new vers
 | `wave_index_health` reports `index_stale` | **Update:** `wave_index_build(content="docs", mode="update")` |
 | `wave_index_health` reports `index_missing` | **Update (creates index):** `wave_index_build(content="docs", mode="update")` or `wf update-indexes` |
 | `wave_index_health` reports `chunker_version_mismatch` after a pack upgrade | **Full rebuild required** — file hashes alone won't detect the version change. See *Upgrade rebuild requirement* above |
-| Code navigation (`code_search`, `code_read`) feels stale or was never built | **Code update:** `wave_index_build(content="code", mode="update")` — or `wf update-indexes` |
+| `wave_index_health` reports `chunk_index_undercovered` (lexical FTS/registry materially behind Lance) | **Update:** `wave_index_build(content="all", mode="update")` — the reconcile backfills the derived chunk index from Lance, including on zero-change builds; no full rebuild needed |
+| Code navigation (`code_search`, `code_read`) feels stale or was never built | **Code rechunk:** `python3 .wavefoundry/framework/scripts/indexer.py --root . --content code --rechunk` (re-chunks everything, re-embeds only changed content). A plain `content="code"` update can be a NO-OP here even when code genuinely changed: content-scoped builds (including the post-edit hook's docs-default reindex) stamp fresh file hashes for code files they never embed, erasing the change signal — see the open ticket `1sek8` for the underlying defect. `wf update-indexes` (full foreground) also works |
 | Framework seeds changed in the Wavefoundry source repo itself | **Project docs update:** `wave_index_build(content="docs", mode="update")`; framework seeds are folded into the project docs index |
 | First install / clean environment | `wf setup` (docs, code, and graph foreground) |
 | CI deterministic full build | `wf setup --include-code` (~6 min, explicit docs and code synchronous form) |
@@ -126,6 +127,8 @@ The tool-venv dependency check is **version-aware**: when a pack pins a new vers
 After an ordinary upgrade, if search still looks missing or stale, stop and verify that the upgraded MCP server has been restarted before rebuilding anything. There is a single semantic index — the project index at `.wavefoundry/index/` — and framework seeds fold into that project docs index at setup/upgrade; there is no separate framework index to rebuild.
 
 If `docs_search` falls back to lexical mode and you need to know whether the semantic index is stale or missing, call `wave_index_health` explicitly. In clients that do not execute the post-edit hook path, assume manual reindexing is required after meaningful docs changes.
+
+When diagnosing index-state store anomalies (missing lexical results, unexpected reconciles, provisioning questions), check the persisted store log first: `.wavefoundry/logs/index-state.log` records the one-time diagnostics — cold-store provisioning, crash-window reconciliation, reconcile skip reasons, and legacy-FTS drops — that previously appeared only on the build process's raw stdout/stderr (wave 1sbfk). It is bounded and best-effort; the absence of a line is not proof an event didn't happen, but a present line is authoritative.
 
 Wavefoundry MCP doc-mutating tools also request a detached background docs-index refresh after successful writes. That improves freshness in non-hook environments such as Codex, but it is best-effort and non-blocking; use `wave_index_health` when you need an explicit health verdict or run `wave_index_build` for a deterministic result.
 

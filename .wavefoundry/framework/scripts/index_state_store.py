@@ -109,6 +109,24 @@ META_FTS_FINGERPRINT_PREFIX = "fts_fingerprint_"  # + table_name → chunk-id-se
 # rebuild-from-Lance as expected provisioning (install/upgrade/schema bump),
 # not a crash repair — even when partial in-build deltas preceded it.
 META_CHUNK_INDEX_COLD = "chunk_index_cold"
+# Recorded at every successful reconcile (1sbfj): the Lance RAW row count and
+# the registry's unique-id count at sync time, per table. Lance ids are not
+# unique (incremental churn leaves duplicate-id rows), so a raw-vs-registry
+# compare misreads a fully-synced store as under-covered; exact comparison
+# against these sync-time counts is both cheaper and correct. Absent on
+# stores that have not reconciled under this code yet — consumers fall back
+# to the proportional raw-vs-registry threshold.
+META_CHUNK_SYNC_RAW_PREFIX = "chunk_sync_raw_"        # + table_name
+META_CHUNK_SYNC_UNIQUE_PREFIX = "chunk_sync_unique_"  # + table_name
+
+# --- Persisted store log (1sbfj) ---
+# The store's one-time diagnostics (cold-store provisioning, crash-window
+# reconciliation, reconcile skips, legacy-FTS drops) previously went to raw
+# stdout/stderr only — unrecoverable once the build process exited, which
+# blinded a field investigation twice. They are now ALSO appended here,
+# best-effort and bounded. Lives beside upgrade.log under .wavefoundry/logs/.
+STORE_LOG_FILENAME = "index-state.log"
+STORE_LOG_MAX_BYTES = 512 * 1024
 
 # Path of the graph state store relative to the index dir. Duplicated from
 # graph_indexer's GRAPH_DIRNAME/GRAPH_STORE_FILENAMES rather than imported —
@@ -121,6 +139,40 @@ _VERSION_KEYS = ("store_schema_version",)
 
 def state_store_path(index_dir: Path) -> Path:
     return Path(index_dir) / STATE_STORE_FILENAME
+
+
+def store_log_path(index_dir: Path) -> Path:
+    """Persisted store-log path: ``.wavefoundry/logs/index-state.log``."""
+    return Path(index_dir).parent / "logs" / STORE_LOG_FILENAME
+
+
+def store_log(index_dir: Path, message: str) -> None:
+    """Append one timestamped line to the persisted store log (1sbfj).
+
+    Best-effort by contract: never raises, never fails a build. Bounded:
+    when the log exceeds ``STORE_LOG_MAX_BYTES`` the newest half is kept
+    (truncate-and-continue — concurrent writers at worst interleave lines,
+    they cannot fail each other). Callers keep their stdout/stderr prints;
+    this is the persistence layer, not a replacement.
+    """
+    try:
+        log_path = store_log_path(index_dir)
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            if log_path.is_file() and log_path.stat().st_size > STORE_LOG_MAX_BYTES:
+                tail = log_path.read_bytes()[-(STORE_LOG_MAX_BYTES // 2):]
+                # Cut at a line boundary so the kept tail starts clean.
+                newline = tail.find(b"\n")
+                if 0 <= newline < len(tail) - 1:
+                    tail = tail[newline + 1:]
+                log_path.write_bytes(tail)
+        except OSError:
+            pass
+        stamp = time.strftime("%Y-%m-%dT%H:%M:%S%z")
+        with open(log_path, "a", encoding="utf-8") as fh:
+            fh.write(f"{stamp} {message}\n")
+    except Exception:  # noqa: BLE001 - logging must never fail the caller
+        pass
 
 
 _FTS5_AVAILABLE: Optional[bool] = None
@@ -1033,6 +1085,100 @@ def registry_chunk_ids(index_dir: Path, table_name: str) -> Optional[set[str]]:
             pass
 
 
+def registry_chunk_count(index_dir: Path, table_name: str) -> Optional[int]:
+    """Cheap read-only registry row count for one table (1sbfj).
+
+    ``None`` when the store is absent/unreadable — distinct from 0 (an empty
+    registry on an existing store, the field defect's signature). One
+    ``count(*)`` against the PK index; used by the zero-change coverage probe
+    and the health summary, so it must stay cheap.
+    """
+    conn = open_read_only(index_dir)
+    if conn is None:
+        return None
+    try:
+        row = conn.execute(
+            "SELECT count(*) FROM chunk_registry WHERE table_name = ?", (table_name,)
+        ).fetchone()
+        return int(row[0]) if row else 0
+    except sqlite3.Error:
+        return None
+    finally:
+        try:
+            conn.close()
+        except sqlite3.Error:
+            pass
+
+
+def chunk_index_is_cold(index_dir: Path) -> bool:
+    """Read-only probe of the cold-provisioning flag (1sbfj).
+
+    True when the store was created/reset and the first reconcile has not yet
+    completed — the zero-change build path uses this to fall through to the
+    reconcile instead of taking the fast exit.
+    """
+    conn = open_read_only(index_dir)
+    if conn is None:
+        return False
+    try:
+        return IndexStateStore._get_meta(conn, META_CHUNK_INDEX_COLD) == "1"
+    except sqlite3.Error:
+        return False
+    finally:
+        try:
+            conn.close()
+        except sqlite3.Error:
+            pass
+
+
+def chunk_sync_counts(index_dir: Path, table_name: str) -> "tuple[Optional[int], Optional[int]]":
+    """Read-only ``(raw_rows, unique_ids)`` recorded at the last successful
+    reconcile for one table, or ``(None, None)`` when never recorded (1sbfj).
+
+    The exact-comparison basis for the zero-change heal probe and the health
+    coverage flag: Lance ids are not unique, so live raw-vs-registry compares
+    misread duplicate-id rows as under-coverage.
+    """
+    conn = open_read_only(index_dir)
+    if conn is None:
+        return None, None
+    try:
+        raw = IndexStateStore._get_meta(conn, META_CHUNK_SYNC_RAW_PREFIX + table_name)
+        unique = IndexStateStore._get_meta(conn, META_CHUNK_SYNC_UNIQUE_PREFIX + table_name)
+        return (
+            int(raw) if raw is not None else None,
+            int(unique) if unique is not None else None,
+        )
+    except (sqlite3.Error, ValueError):
+        return None, None
+    finally:
+        try:
+            conn.close()
+        except sqlite3.Error:
+            pass
+
+
+def _record_chunk_sync_counts(
+    index_dir: Path, table_name: str, raw_rows: Optional[int], unique_ids: int,
+    *, clear_cold: bool = False,
+) -> None:
+    """Persist the sync-time counts (and optionally clear the cold flag) in
+    one store open. Best-effort — a failure just leaves the fallback compare."""
+    try:
+        store = IndexStateStore(index_dir)
+        try:
+            values = {META_CHUNK_SYNC_UNIQUE_PREFIX + table_name: str(int(unique_ids))}
+            if raw_rows is not None:
+                values[META_CHUNK_SYNC_RAW_PREFIX + table_name] = str(int(raw_rows))
+            if clear_cold:
+                values[META_CHUNK_INDEX_COLD] = "0"
+            store.set_meta(values)
+        finally:
+            store.close()
+    except Exception:
+        pass
+
+
 def reconcile_chunk_index(
     index_dir: Path,
     table_name: str,
@@ -1040,6 +1186,7 @@ def reconcile_chunk_index(
     fetch_rows,
     *,
     expected: bool = False,
+    raw_rows: Optional[int] = None,
 ) -> dict[str, Any]:
     """Chunk-id set comparison between Lance (authoritative) and the store.
 
@@ -1047,6 +1194,10 @@ def reconcile_chunk_index(
     ``fetch_rows()`` (full Lance row fetch, vectors excluded by the caller).
     ``expected=True`` marks a rebuild that is anticipated (fresh store, full
     rebuild) so the diagnostic is informational rather than a repair warning.
+    ``raw_rows`` is the Lance RAW row count when the caller has it (the id
+    fetch's row total, dup-id rows included) — recorded with the unique count
+    at every successful reconcile as the exact-comparison basis for the
+    zero-change heal probe and the health coverage flag (1sbfj).
     """
     store_ids = registry_chunk_ids(index_dir, table_name)
     cold = False
@@ -1060,17 +1211,11 @@ def reconcile_chunk_index(
             except sqlite3.Error:
                 pass
     if store_ids is not None and store_ids == lance_ids:
-        if cold:
-            # In-sync on a cold store (e.g. full-rebuild path already
-            # repopulated everything): just clear the flag.
-            try:
-                store = IndexStateStore(index_dir)
-                try:
-                    store.set_meta({META_CHUNK_INDEX_COLD: "0"})
-                finally:
-                    store.close()
-            except Exception:
-                pass
+        # In sync — record the sync-time counts (and clear a cold flag left
+        # by e.g. the full-rebuild path having already repopulated everything).
+        _record_chunk_sync_counts(
+            index_dir, table_name, raw_rows, len(store_ids), clear_cold=cold
+        )
         return {"reconciled": False, "in_sync": True}
     if cold or not store_ids:
         # Cold start: a just-created or just-reset store (install, upgrade,
@@ -1079,30 +1224,35 @@ def reconcile_chunk_index(
         # already populated some rows. Say so calmly; the loud crash-window
         # diagnostic below is reserved for a warm store that genuinely
         # diverged from Lance.
-        print(
+        msg = (
             f"build_index: building derived chunk index for '{table_name}' from Lance "
-            f"({len(lance_ids)} chunks — provisioning this store)",
-            flush=True,
+            f"({len(lance_ids)} chunks — provisioning this store)"
         )
+        print(msg, flush=True)
+        store_log(index_dir, msg)
     elif not expected:
-        print(
+        msg = (
             f"index-state-store: chunk-index for '{table_name}' out of sync with Lance "
             f"(store={len(store_ids)} ids, "
             f"lance={len(lance_ids)} ids) — rebuilding derived tables from Lance "
-            f"(crash-window reconciliation)",
-            file=sys.stderr,
-            flush=True,
+            f"(crash-window reconciliation)"
         )
+        print(msg, file=sys.stderr, flush=True)
+        store_log(index_dir, msg)
     written = rebuild_chunk_index(index_dir, table_name, fetch_rows())
-    if cold:
-        try:
-            store = IndexStateStore(index_dir)
-            try:
-                store.set_meta({META_CHUNK_INDEX_COLD: "0"})
-            finally:
-                store.close()
-        except Exception:
-            pass
+    store_log(
+        index_dir,
+        f"index-state-store: chunk-index for '{table_name}' rebuilt from Lance "
+        f"({written} rows written)",
+    )
+    # A successful rebuild-from-Lance IS provisioning complete — clear the
+    # cold flag unconditionally and record the sync-time counts (1sbfj).
+    # The prior ``if cold:`` guard leaked a permanently-cold store when the
+    # reconcile itself CREATED the store: the flag was read before the store
+    # existed (False), set during creation inside the rebuild, and then never
+    # cleared — so every later divergence logged as calm provisioning and the
+    # zero-change heal probe re-reconciled a healthy store once per build.
+    _record_chunk_sync_counts(index_dir, table_name, raw_rows, written, clear_cold=True)
     return {"reconciled": True, "in_sync": False, "rows_written": written}
 
 

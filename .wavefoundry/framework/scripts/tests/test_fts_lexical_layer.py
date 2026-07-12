@@ -684,5 +684,279 @@ class SecretPostureTests(_StoreCase):
         )
 
 
+def load_indexer_module():
+    spec = importlib.util.spec_from_file_location("indexer", SCRIPTS_ROOT / "indexer.py")
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules["indexer"] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+# The REAL production Lance column set (1sbfj) — verified identical on field
+# repos and this repo. Critically there is NO `tags` column: the chunker never
+# emits one, so schema inference never creates it. Fixtures that hand-build
+# tables WITH `tags` are the divergence that let a never-worked reconcile
+# projection ship green — the primary fixtures here use this set.
+PRODUCTION_LANCE_COLUMNS = [
+    "id", "path", "kind", "language", "lines", "section", "text", "chunk_hash", "vector",
+]
+
+
+def _production_lance_rows(*specs):
+    rows = []
+    for chunk_id, path, text in specs:
+        rows.append({
+            "id": chunk_id, "path": path, "kind": "code", "language": "python",
+            "lines": [1, 10], "section": "", "text": text,
+            "chunk_hash": f"h-{chunk_id}", "vector": [0.0, 0.0, 0.0, 0.0],
+        })
+    return rows
+
+
+class SchemaTolerantBackfillTests(_StoreCase):
+    """1sbfj AC-1/AC-2/AC-3: the reconcile's Lance projection must work against
+    REAL production schemas (no `tags` column) — end-to-end through
+    ``_sync_chunk_derived_state`` with an actual Lance table, the coverage the
+    original fixtures never had (every prior reconcile test passed a
+    ``lambda: rows`` fetcher, so the projection itself was never exercised)."""
+
+    def setUp(self):
+        super().setUp()
+        try:
+            import lancedb  # noqa: F401
+        except Exception:  # pragma: no cover - lancedb ships in the tool venv
+            self.skipTest("lancedb unavailable")
+        self.bi = load_indexer_module()
+        self.index_dir.mkdir(parents=True, exist_ok=True)
+
+    def _create_lance_table(self, table_name, rows):
+        import lancedb
+        db = lancedb.connect(str(self.index_dir))
+        db.create_table(table_name, rows, mode="overwrite")
+        return db.open_table(table_name)
+
+    def test_production_schema_table_backfills_end_to_end(self):
+        # AC-1: the exact field precondition — a tag-less production table.
+        rows = _production_lance_rows(
+            ("c1", "a.py", "def alpha(): pass"),
+            ("c2", "b.py", "def beta_handler(): raise ValueError"),
+        )
+        table = self._create_lance_table("code", rows)
+        # Pin fixture fidelity (AC-2): the table genuinely has NO tags column.
+        self.assertEqual(
+            [f.name for f in table.schema], PRODUCTION_LANCE_COLUMNS
+        )
+        import contextlib
+        stderr, stdout = io.StringIO(), io.StringIO()
+        with redirect_stderr(stderr), contextlib.redirect_stdout(stdout):
+            self.bi._sync_chunk_derived_state(self.index_dir)
+        # The verbatim field failure ("No field named tags" → skipped) must be gone.
+        self.assertNotIn("skipped", stderr.getvalue() + stdout.getvalue())
+        self.assertEqual(
+            self.iss.registry_chunk_ids(self.index_dir, "code"), {"c1", "c2"}
+        )
+        hits = self.iss.fts_search(self.index_dir, "code", "beta_handler")
+        self.assertEqual([h["id"] for h in hits], ["c2"])
+        # Absent optional column defaults empty — never invented.
+        self.assertEqual(hits[0]["tags"], "")
+
+    def test_with_tags_table_still_backfills(self):
+        # Secondary variant: a table that DOES carry tags (older fixtures'
+        # shape) keeps working, with tags carried through.
+        rows = _production_lance_rows(("c1", "a.py", "def alpha(): pass"))
+        rows[0]["tags"] = "framework"
+        self._create_lance_table("code", rows)
+        self.bi._sync_chunk_derived_state(self.index_dir)
+        hits = self.iss.fts_search(self.index_dir, "code", "alpha")
+        self.assertEqual([h["id"] for h in hits], ["c1"])
+        self.assertEqual(hits[0]["tags"], "framework")
+
+    def test_missing_required_column_takes_skip_path_and_persists_reason(self):
+        # AC-3: a table without a load-bearing column (text) is genuinely
+        # unreadable — fail-safe skip, no crash, no partial write, and the
+        # skip reason is now recoverable from the persisted log.
+        rows = [
+            {"id": "c1", "path": "a.py", "kind": "code",
+             "chunk_hash": "h-c1", "vector": [0.0, 0.0, 0.0, 0.0]},
+        ]
+        self._create_lance_table("code", rows)
+        stderr = io.StringIO()
+        with redirect_stderr(stderr):
+            self.bi._sync_chunk_derived_state(self.index_dir)
+        self.assertIn("reconcile for 'code' skipped", stderr.getvalue())
+        self.assertIn("required columns", stderr.getvalue())
+        # No partial write: the registry stayed empty.
+        self.assertFalse(self.iss.registry_chunk_ids(self.index_dir, "code"))
+        # Persisted: the reason survives the process (the field gap).
+        log_text = self.iss.store_log_path(self.index_dir).read_text(encoding="utf-8")
+        self.assertIn("reconcile for 'code' skipped", log_text)
+        self.assertIn("required columns", log_text)
+
+
+class ZeroChangeHealProbeTests(_StoreCase):
+    """1sbfj AC-6: the cheap coverage probe behind the zero-change build
+    fall-through — an under-covered or cold store must read as needing heal;
+    a covered store must keep the fast exit."""
+
+    def setUp(self):
+        super().setUp()
+        try:
+            import lancedb  # noqa: F401
+        except Exception:  # pragma: no cover
+            self.skipTest("lancedb unavailable")
+        self.bi = load_indexer_module()
+        self.index_dir.mkdir(parents=True, exist_ok=True)
+
+    def _create_code_table(self, n):
+        import lancedb
+        db = lancedb.connect(str(self.index_dir))
+        rows = _production_lance_rows(
+            *[(f"c{i}", f"f{i}.py", f"def fn_{i}(): pass") for i in range(n)]
+        )
+        db.create_table("code", rows, mode="overwrite")
+
+    def test_undercovered_store_needs_heal_then_heals_then_fast_path(self):
+        self._create_code_table(30)
+        # Store exists but is near-empty (the field signature).
+        self.iss.apply_chunk_deltas(
+            self.index_dir, "code", add_rows=_rows(("c0", "f0.py", "def fn_0(): pass"))
+        )
+        # Clear the cold flag so this exercises the COVERAGE branch (a warm
+        # store that silently diverged), not the cold shortcut.
+        store = self.iss.IndexStateStore(self.index_dir)
+        try:
+            store.set_meta({self.iss.META_CHUNK_INDEX_COLD: "0"})
+        finally:
+            store.close()
+        self.assertTrue(self.bi._chunk_index_needs_heal(self.index_dir))
+        with redirect_stderr(io.StringIO()):
+            self.bi._sync_chunk_derived_state(self.index_dir)
+        # Healed: full coverage → the probe now keeps the fast exit.
+        self.assertEqual(
+            len(self.iss.registry_chunk_ids(self.index_dir, "code")), 30
+        )
+        self.assertFalse(self.bi._chunk_index_needs_heal(self.index_dir))
+
+    def test_cold_store_needs_heal(self):
+        self._create_code_table(3)
+        # Touch the store so it exists with the creation-time cold flag set.
+        self.iss.apply_chunk_deltas(self.index_dir, "code", add_rows=[])
+        self.assertTrue(self.iss.chunk_index_is_cold(self.index_dir))
+        self.assertTrue(self.bi._chunk_index_needs_heal(self.index_dir))
+
+    def test_exact_tracking_heals_even_small_drift(self):
+        # Once a reconcile has recorded its sync-time counts, ANY drift from
+        # them is genuine divergence (a crash window) — even 1 row heals on
+        # the next zero-change build. The proportional threshold only applies
+        # to stores that never reconciled under this code.
+        self._create_code_table(600)
+        with redirect_stderr(io.StringIO()):
+            self.bi._sync_chunk_derived_state(self.index_dir)
+        self.assertFalse(self.bi._chunk_index_needs_heal(self.index_dir))
+        store = self.iss.IndexStateStore(self.index_dir)
+        try:
+            store._conn.execute(
+                "DELETE FROM chunk_registry WHERE table_name='code' AND chunk_id='c1'"
+            )
+            store._conn.commit()
+        finally:
+            store.close()
+        self.assertTrue(self.bi._chunk_index_needs_heal(self.index_dir))
+
+    def test_duplicate_lance_ids_do_not_read_as_undercoverage(self):
+        # Lance ids are NOT unique — incremental churn leaves duplicate-id
+        # rows (observed live: +294 on the framework repo), inflating raw
+        # ``count_rows`` above the registry's unique count. A fully-synced
+        # store must keep the fast exit; a raw-vs-registry compare would
+        # re-reconcile it on every zero-change build forever.
+        import lancedb
+        db = lancedb.connect(str(self.index_dir))
+        rows = _production_lance_rows(
+            *[(f"c{i}", f"f{i}.py", f"def fn_{i}(): pass") for i in range(20)]
+        )
+        # 30 raw rows, 20 unique ids: c0..c9 duplicated.
+        db.create_table("code", rows + rows[:10], mode="overwrite")
+        with redirect_stderr(io.StringIO()):
+            self.bi._sync_chunk_derived_state(self.index_dir)
+        self.assertEqual(
+            len(self.iss.registry_chunk_ids(self.index_dir, "code")), 20
+        )
+        self.assertEqual(
+            self.iss.chunk_sync_counts(self.index_dir, "code"), (30, 20)
+        )
+        self.assertFalse(self.bi._chunk_index_needs_heal(self.index_dir))
+
+    def test_absent_store_reads_healthy(self):
+        # Nothing to heal into: the probe never invents work (and never raises).
+        self._create_code_table(3)
+        self.assertFalse(self.bi._chunk_index_needs_heal(self.index_dir))
+
+    def test_up_to_date_early_return_runs_the_probe(self):
+        # Wiring pin: the zero-change early return in build_index must consult
+        # the probe (and reconcile on a hit) BEFORE returning — the field-retest
+        # scenario is upgrade-then-idle. Source-order assertion, matching the
+        # reap-before-reconcile pin in test_index_state_store.
+        src = (SCRIPTS_ROOT / "indexer.py").read_text(encoding="utf-8")
+        upto = src.index('"up_to_date": True')
+        probe = src.index("_chunk_index_needs_heal(index_dir)")
+        self.assertLess(
+            probe, upto,
+            "the up-to-date early return must run the coverage probe first",
+        )
+        block = src[probe:upto]
+        self.assertIn("_sync_chunk_derived_state(", block)
+
+
+class StoreLogTests(_StoreCase):
+    """1sbfj AC-4: the persisted store log — bounded, best-effort, and fed by
+    the one-time diagnostics that used to be stdout/stderr-only."""
+
+    def test_appends_timestamped_lines(self):
+        self.iss.store_log(self.index_dir, "hello one")
+        self.iss.store_log(self.index_dir, "hello two")
+        text = self.iss.store_log_path(self.index_dir).read_text(encoding="utf-8")
+        lines = text.strip().splitlines()
+        self.assertEqual(len(lines), 2)
+        self.assertTrue(lines[0].endswith("hello one"))
+        self.assertTrue(lines[1].endswith("hello two"))
+        # Lives beside upgrade.log under .wavefoundry/logs/.
+        self.assertEqual(
+            self.iss.store_log_path(self.index_dir).parent.name, "logs"
+        )
+
+    def test_log_is_bounded(self):
+        log_path = self.iss.store_log_path(self.index_dir)
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        filler = ("x" * 200 + "\n") * ((self.iss.STORE_LOG_MAX_BYTES // 200) + 50)
+        log_path.write_text(filler, encoding="utf-8")
+        self.iss.store_log(self.index_dir, "newest line")
+        size = log_path.stat().st_size
+        self.assertLessEqual(size, self.iss.STORE_LOG_MAX_BYTES)
+        self.assertIn("newest line", log_path.read_text(encoding="utf-8"))
+
+    def test_provisioning_and_crash_window_messages_are_persisted(self):
+        import contextlib
+        rows = _rows(("c1", "a.py", "def alpha(): pass"))
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.iss.reconcile_chunk_index(self.index_dir, "code", {"c1"}, lambda: rows)
+        log_text = self.iss.store_log_path(self.index_dir).read_text(encoding="utf-8")
+        self.assertIn("provisioning this store", log_text)
+        self.assertIn("rebuilt from Lance", log_text)
+        # Warm divergence → the crash-window line is persisted too.
+        lance_now = rows + _rows(("c2", "b.py", "def beta(): pass"))
+        with redirect_stderr(io.StringIO()):
+            self.iss.reconcile_chunk_index(
+                self.index_dir, "code", {"c1", "c2"}, lambda: lance_now
+            )
+        log_text = self.iss.store_log_path(self.index_dir).read_text(encoding="utf-8")
+        self.assertIn("crash-window reconciliation", log_text)
+
+    def test_store_log_never_raises(self):
+        # A file blocking the logs DIRECTORY path: mkdir fails → silent no-op.
+        (self.index_dir.parent).mkdir(parents=True, exist_ok=True)
+        (self.index_dir.parent / "logs").write_text("not a dir", encoding="utf-8")
+        self.iss.store_log(self.index_dir, "should not raise")
+
+
 if __name__ == "__main__":
     unittest.main()
