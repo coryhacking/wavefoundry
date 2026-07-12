@@ -10,6 +10,16 @@ Last verified: 2026-07-12
 
 **Uncommitted (operator-directed, post-release):** a small guidance addition to seed-211 + rendered `docs/agents/guru.md` — "multi-identifier `code_lexical` queries surface summary chunks first (BM25 length normalization); follow through with `code_read`", from the field smoke report. **Stage-gate waiver:** operator explicitly directed this docs/seed prose edit outside a wave (2026-07-12, "make that guidance to the guru now"); no behavioral code touched; docs-lint clean. Include in the next commit.
 
+## Review-Derived Waves (READIED 2026-07-12, external code review — all claims source-validated)
+
+Three waves stood up from the validated 2026-07-12 external code review; all READIED (council-passed), none OPEN:
+
+1. **`1seav search-freshness-degraded-retrieval`** — `1sbxq` (code_ask freshness: per-call O(corpus) walk removed, three honest states incl. `unknown`, build-invalidated cache) + `1seaq` (FTS-first degraded fallback for code_search/docs_search with preserved filters, live walk demoted to store-absent-only, typed `search_mode`/`fallback_reason` contract). Highest value; 1.12.1 fold candidate with `1sbfl`.
+2. **`1seaw retrieval-intent-golden-queries`** — `1sear` (standing golden-query eval suite: 8 classes, verbatim misranked queries, baseline + tolerance) then `1seas` (classifier artifact-anchoring, assessment intent, low-information-path penalty) BLOCKED on the recorded baseline. Ranking changes are eval-gated, period.
+3. **`1seax lifecycle-ops-hardening`** — `1seat` (advisory lifecycle-mutation lock, forward-recoverability audit + idempotent-retry fixtures, selective subprocess bounds; the review's transaction-journal proposal REJECTED as disproportionate, recorded with escalation path) + `1seau` (RELIABILITY/performance-budget evidence-based rewrite + docs-vs-code-constants lint).
+
+Review findings NOT adopted: correlation IDs, blanket subprocess deadlines, transaction journal/rollback (all recorded with rationale in the change docs). CI adoption = separate operator infra decision (the eval suite is CI-invocable by design).
+
 ## Next Steps
 
 1. **Wave `1sek8` (content-scoped builds poison code-index freshness)** — the priority fast-follow. Plan doc at `docs/plans/1sek8-…` with full evidence: broad meta stamping erases the other content type's change signal; the post-edit hook's bare spawn defaults to docs-content (code indexes frozen at last full build fleet-wide); `content=all` vs `content=code` corpus divergence. Needs a design pass first — the three defects interact. Interim field recovery documented in `build-and-verification.md` (rechunk, not a plain code update).
