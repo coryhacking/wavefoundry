@@ -43,7 +43,7 @@ Repository files
           Index build          -- HNSW vector index + FTS (BM25)
                 |
                 v
-          meta.json update
+          store bookkeeping update
 ```
 
 ---
@@ -216,8 +216,8 @@ detection step determines which files actually need to be re-processed.
 
 ### Stat cache (cheap)
 
-For each file, the OS-level metadata is compared against the values stored in `meta.json`
-from the previous build: `mtime` (modification time), `size`, and `inode` number. If all
+For each file, the OS-level metadata is compared against the values stored in the index-state
+store's build bookkeeping (wave 1sed7 — formerly `meta.json`) from the previous build: `mtime` (modification time), `size`, and `inode` number. If all
 three match, the file is considered unchanged and is skipped without reading its contents.
 
 ### SHA-256 hash (on cache miss)
@@ -242,7 +242,7 @@ From `changed_paths` and the old metadata keys, two further sets are derived:
 
 ### Per-layer change detection (wave 1sc7c)
 
-The stat cache and hash walk above produce the WALK state (`meta.json`), but since
+The stat cache and hash walk above produce the WALK state (the store's build bookkeeping), but since
 wave 1sc7c the walk hash is not what decides semantic re-processing. Each semantic
 layer (docs, code) keeps its own **last-embedded hash per path** in the index-state
 store's `layer_path_state` table, and a build re-processes a path for a layer only
@@ -250,7 +250,7 @@ when the current walk hash differs from that layer's own record — scoped to th
 layer's eligibility set.
 
 Why: content-scoped builds share one walk, so a docs-only build used to stamp a
-changed code file's fresh hash into `meta.json` without embedding it, and every
+changed code file's fresh hash into the walk state without embedding it, and every
 later code build then saw "unchanged" — the code index froze at the last full build
 on any repo whose automatic reindex was docs-scoped (all hook-enabled repos were).
 With per-layer records, a scoped build can never erase another layer's change
@@ -279,7 +279,7 @@ recorded in the persisted store log.
 ### Forced full rebuild
 
 A full rebuild is triggered automatically when any of the following values differ from
-the stored `meta.json`:
+the stored build state:
 
 - The embedding model name or version
 - `CHUNKER_VERSION` (currently `"29"`) — bumped whenever the chunk format changes
@@ -484,7 +484,7 @@ separate models are used — one per content type — both producing 768-dimensi
 
 Both tables currently share the same symmetric model. Planned wave `12pn3` changes may swap
 the code table to a code-specific model (e.g. `jina-embeddings-v2-base-code`) and/or upgrade
-the docs model; when `CODE_MODEL` or `DOCS_MODEL` in `indexer.py` changes, `meta.json`
+the docs model; when `CODE_MODEL` or `DOCS_MODEL` in `indexer.py` changes, the stored
 `model_versions` mismatch forces a full re-embed.
 
 Docstrings and other `kind="doc"` chunks from source files are embedded with the **docs**
@@ -645,7 +645,7 @@ build_index: finished code — 3 added, 1 updated, 0 removed | chunks: 12 added,
 The file-level counts (`3 added, 1 updated`) reflect source files processed. The chunk-level
 counts reflect rows written to or removed from LanceDB.
 
-`meta.json` is then updated with:
+The store's build bookkeeping (wave 1sed7 — the sole state surface; no `meta.json`) is then updated with:
 
 | Field              | Contents                                              |
 |--------------------|-------------------------------------------------------|

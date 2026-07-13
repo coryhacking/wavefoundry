@@ -1,8 +1,8 @@
 # 1s5u9-adr — Derived-Only SQLite Index-State Substrate (with FTS5 Lexical Layer)
 
 Owner: Engineering
-Status: accepted
-Last verified: 2026-07-10
+Status: accepted (amended)
+Last verified: 2026-07-12
 
 ## Context
 
@@ -12,11 +12,13 @@ The graph subsystem had already proven the embedded-SQLite pattern (wave 1p9q3):
 
 ## Decision
 
-One derived-only SQLite store per project index — `.wavefoundry/index/index-state.sqlite` — is the substrate for all semantic-index relational sidecar state, with resident schemas added under a single sequenced schema version: freshness/attribution tables, contentful FTS5 lexical tables fused into ranked retrieval pre-rerank, per-path build bookkeeping + chunk registry (with `meta.json` demoted to an exported reader-contract-compatible snapshot), and the per-file secret-scan cache.
+One derived-only SQLite store per project index — `.wavefoundry/index/index-state.sqlite` — is the substrate for all semantic-index relational sidecar state, with resident schemas added under a single sequenced schema version: freshness/attribution tables, contentful FTS5 lexical tables fused into ranked retrieval pre-rerank, per-path build bookkeeping + chunk registry, and the per-file secret-scan cache.
+
+**Amendment (2026-07-12, wave `1sed7`):** the store is now the SOLE semantic-index state authority — `meta.json` is retired entirely. The original decision demoted `meta.json` to an exported reader-contract-compatible snapshot; that dual surface allowed a JSON-success/SQLite-failure mode in which a build could publish JSON state the store could not serve. Now no `meta.json` is written or read at all — not even by the upgrade's version probes (an absent/empty store reads as unknown, forcing convergence; a legacy file is removed after the first successful convergence), a store write failure is a structured build failure (never a silent JSON fallback), and readiness is published exclusively through a FULL-durable build epoch: a `building` fence committed before the first Lance/FTS mutation and an attempt-ID compare-and-set completion that alone advances the build generation. Readers validate the complete-epoch token before and after every indexed operation and fail closed on any incomplete or changed state.
 
 The load-bearing rules:
 
-- **Derived-only:** every table rebuilds from git, Lance, the repo, or `meta.json`; corruption or version mismatch is a loud drop-and-rebuild, never data loss.
+- **Derived-only:** every table rebuilds from git, Lance, and the repo itself; corruption or version mismatch is a loud drop-and-rebuild, never data loss. (Since the `1sed7` amendment a whole-store reset also erases build/readiness state, so recovery is mandatory all-layer convergence — re-chunk with vector reuse — never a manufactured per-layer state.)
 - **Ordered consistency with Lance:** Lance is authoritative for chunk existence; store transactions commit after the corresponding Lance writes; an end-of-build chunk-id reconciliation repairs any crash window. Cross-engine atomicity is explicitly not claimed.
 - **Extract-alongside, not refactor:** the store module (`index_state_store.py`) generalizes the graph store's proven posture without touching `graph_indexer.py` — the graph store's reviewed build path stays byte-identical.
 - **One maintenance verb:** `wave_index_optimize` maintains every index — Lance compaction plus SQLite WAL checkpoint/truncate, `VACUUM`, `PRAGMA optimize`, FTS5 segment optimize, and a two-layer integrity check (structural pragmas + source-fingerprint staleness binding) — across the index-state store and the graph state store, under the index-build lock, on demand and at setup/upgrade.
@@ -47,7 +49,7 @@ The load-bearing rules:
 |-------------|----------------|
 | Reuse the graph state store file | Couples two subsystems' schema lifecycles and crash semantics for no shared-data benefit. |
 | Per-concern store files (freshness.sqlite, fts.sqlite, …) | Multiplies recovery/versioning/locking surfaces without isolation benefits WAL doesn't already give. |
-| Widen Lance rows / grow meta.json | Unchanged-row rewrites defeat `chunk_hash` reuse; whole-file JSON rewrite and parse costs grow with the repo. |
+| Widen Lance rows / grow the legacy meta.json | Unchanged-row rewrites defeat `chunk_hash` reuse; whole-file JSON rewrite and parse costs grow with the repo. |
 | Lexical scoring inside LanceDB | No BM25; hand-rolled term scoring bolted onto a vector store. |
 | External lexical engine (tantivy-class) | New dependency and a second index lifecycle for capability FTS5 already provides. |
 | Refactor GraphStateStore onto the shared helper now | Touches landed, reviewed build-path machinery scoped to stay untouched; a future follow-up if posture drift ever bites. |
@@ -55,6 +57,7 @@ The load-bearing rules:
 ## References
 
 - `docs/waves/1rsh9 sqlite-index-substrate/` — wave record and the three change docs (full decision logs and evidence)
+- `docs/waves/1sed7 sqlite-only-index-state/` — the SQLite-only amendment: meta.json retirement, build epoch, fail-closed readers
 - `.wavefoundry/framework/scripts/index_state_store.py` — the substrate module
 - `docs/architecture/search-architecture.md` — hybrid lexical layer and index format
 - `docs/architecture/data-and-control-flow.md` — build-path store passes and state ownership

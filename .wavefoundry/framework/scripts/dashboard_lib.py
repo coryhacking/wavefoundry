@@ -86,7 +86,7 @@ def _read_json(path: Path, default: Any) -> Any:
         raw = path.read_bytes()
         # Wave 1p9q3 (1p9py): graph artifacts are gzip-compressed compact JSON;
         # sniff the magic bytes so this shared reader handles both formats
-        # (plain JSON files — workflow-config, meta.json, … — are unaffected).
+        # (plain JSON files — workflow-config, index-build-stats, … — are unaffected).
         if raw[:2] == b"\x1f\x8b":
             raw = gzip.decompress(raw)
         return json.loads(raw.decode("utf-8"))
@@ -94,42 +94,46 @@ def _read_json(path: Path, default: Any) -> Any:
         return default
 
 
-def _lance_table_stats(index_dir: Path | None) -> tuple[int, int, set[str]]:
-    """Return (doc_chunks, code_chunks, files) from Lance tables when available."""
+def _read_store_build_meta(index_dir: Path) -> dict:
+    """1sed6: the build-state snapshot from the index-state store (meta.json retired)."""
+    try:
+        import importlib.util as _ilu
+        _spec = _ilu.spec_from_file_location(
+            "index_state_store", Path(__file__).resolve().parent / "index_state_store.py"
+        )
+        _mod = _ilu.module_from_spec(_spec)
+        _spec.loader.exec_module(_mod)
+        # Review fix: bounded summary (scalars + COUNT), never the per-file rows.
+        return _mod.read_build_summary(index_dir) or {}
+    except Exception:
+        return {}
+
+
+def _lance_table_stats(index_dir: Path | None) -> tuple[int, int]:
+    """Return (doc_chunks, code_chunks) via Lance row-count metadata reads.
+
+    1sed6 review fix: bounded — never materializes table contents. The
+    files-indexed count comes from the store's bounded ``file_count``
+    summary, not from scanning Lance paths.
+    """
     if index_dir is None:
-        return 0, 0, set()
+        return 0, 0
     doc_chunks = 0
     code_chunks = 0
-    files: set[str] = set()
     docs_lance = index_dir / "docs.lance"
     code_lance = index_dir / "code.lance"
     if not docs_lance.is_dir() and not code_lance.is_dir():
-        return 0, 0, set()
+        return 0, 0
     try:
         import lancedb
         db = lancedb.connect(str(index_dir))
         if docs_lance.is_dir():
-            docs = db.open_table("docs")
-            doc_chunks = docs.count_rows()
-            try:
-                docs_df = docs.to_pandas()
-                if "path" in docs_df:
-                    files.update(str(path) for path in docs_df["path"].tolist() if path)
-            except Exception:
-                pass
+            doc_chunks = db.open_table("docs").count_rows()
         if code_lance.is_dir():
-            code = db.open_table("code")
-            code_chunks = code.count_rows()
-            try:
-                code_df = code.to_pandas()
-                if "path" in code_df:
-                    files.update(str(path) for path in code_df["path"].tolist() if path)
-            except Exception:
-                pass
+            code_chunks = db.open_table("code").count_rows()
     except Exception:
-        return 0, 0, set()
-    files.discard("")
-    return doc_chunks, code_chunks, files
+        return 0, 0
+    return doc_chunks, code_chunks
 
 
 def read_workflow_config(root: Path) -> dict[str, Any]:
@@ -1137,7 +1141,7 @@ def collect_activity(root: Path, change_sets: dict[str, list[dict[str, Any]]]) -
 
 
 def _index_stats(meta: Any, build_stats: Any, index_dir: "Path | None" = None) -> dict[str, Any]:
-    """Merge meta.json + index-build-stats.json into a flat stats dict.
+    """Merge the store build snapshot + index-build-stats.json into a flat stats dict.
 
     Files and chunk counts are read from the actual chunk data when index_dir is
     provided. The pack now ships Lance tables directly (`docs.lance` / `code.lance`),
@@ -1149,13 +1153,16 @@ def _index_stats(meta: Any, build_stats: Any, index_dir: "Path | None" = None) -
 
     doc_chunks = 0
     code_chunks = 0
-    files: set[str] = set()
     if index_dir is not None:
-        lance_doc_chunks, lance_code_chunks, lance_files = _lance_table_stats(index_dir)
-        doc_chunks = lance_doc_chunks
-        code_chunks = lance_code_chunks
-        files.update(lance_files)
-    files_indexed = len(files) or int(s.get("files_indexed", 0) or len(m.get("file_meta") or {}) or (doc_chunks + code_chunks))
+        doc_chunks, code_chunks = _lance_table_stats(index_dir)
+    # Files-indexed: the store's bounded file_count (review fix), then the
+    # build-stats sidecar, then chunk totals as the last resort.
+    files_indexed = int(
+        m.get("file_count", 0)
+        or s.get("files_indexed", 0)
+        or len(m.get("file_meta") or {})
+        or (doc_chunks + code_chunks)
+    )
     if not doc_chunks:
         doc_chunks = int(s.get("doc_chunks", 0))
     if not code_chunks:
@@ -1180,7 +1187,7 @@ def _index_stats(meta: Any, build_stats: Any, index_dir: "Path | None" = None) -
 def collect_health(root: Path, wave_count: int, change_sets: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
     # Wave 1p4ww: single project index — the framework layer is folded in.
     index_dir        = root / ".wavefoundry" / "index"
-    index_meta       = _read_json(index_dir    / "meta.json", {})
+    index_meta       = _read_store_build_meta(index_dir)  # 1sed6: bounded store summary (scalars + file_count)
     index_stats      = _read_json(index_dir    / "index-build-stats.json", {})
     project_graph    = read_graph_payload(root, "project")
     project_build    = server.wave_index_build_status_response(root, layer="project").get("data", {})

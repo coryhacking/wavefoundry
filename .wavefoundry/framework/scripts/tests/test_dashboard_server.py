@@ -179,6 +179,25 @@ Owner: Engineering
     )
 
 
+def _seed_index_store(root: Path, payload: dict, *, complete: bool = True) -> None:
+    """1sed6: seed the index-state store (sole state authority; meta.json retired).
+    ``complete=False`` writes bookkeeping without a completed build epoch —
+    the store-level analogue of the old empty-``built_at`` meta."""
+    import importlib.util as _ilu
+
+    index_dir = root / ".wavefoundry" / "index"
+    index_dir.mkdir(parents=True, exist_ok=True)
+    spec = _ilu.spec_from_file_location(
+        "index_state_store", SCRIPTS_ROOT / "index_state_store.py"
+    )
+    iss = _ilu.module_from_spec(spec)
+    spec.loader.exec_module(iss)
+    iss.write_build_bookkeeping(index_dir, payload)
+    if complete:
+        attempt = iss.begin_build_epoch(index_dir, "test:seed")
+        iss.finalize_build_epoch(index_dir, attempt)
+
+
 def _write_dashboard_lance_index(root: Path, *, docs_chunks: list[dict] | None = None, code_chunks: list[dict] | None = None) -> None:
     try:
         import lancedb
@@ -197,7 +216,7 @@ def _write_dashboard_lance_index(root: Path, *, docs_chunks: list[dict] | None =
         meta["content"].append("docs")
     if code_chunks is not None:
         meta["content"].append("code")
-    (index_dir / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+    _seed_index_store(root, meta)
     db = lancedb.connect(str(index_dir))
     if docs_chunks:
         db.create_table("docs", data=[{**chunk, "vector": [0.0, 0.0, 0.0, 0.0]} for chunk in docs_chunks], mode="overwrite")
@@ -3058,22 +3077,14 @@ class IndexStalenessTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def _write_meta(self, built_at: str, layer: str = "project") -> None:
-        meta_path = (
-            self.root / ".wavefoundry" / "index" / "meta.json"
-            if layer == "project"
-            else self.root / ".wavefoundry" / "framework" / "index" / "meta.json"
-        )
-        meta_path.parent.mkdir(parents=True, exist_ok=True)
-        meta_path.write_text(json.dumps({"built_at": built_at}), encoding="utf-8")
+        # 1sed6: seed the store; an empty built_at maps to "no completed
+        # build epoch" (the store-level never-built state).
+        assert layer == "project"
+        _seed_index_store(self.root, {"built_at": built_at}, complete=bool(built_at))
 
     def _write_meta_payload(self, payload: dict[str, Any], layer: str = "project") -> None:
-        meta_path = (
-            self.root / ".wavefoundry" / "index" / "meta.json"
-            if layer == "project"
-            else self.root / ".wavefoundry" / "framework" / "index" / "meta.json"
-        )
-        meta_path.parent.mkdir(parents=True, exist_ok=True)
-        meta_path.write_text(json.dumps(payload), encoding="utf-8")
+        assert layer == "project"
+        _seed_index_store(self.root, payload)
 
     def test_stale_when_meta_missing(self):
         self.assertTrue(self.srv._index_is_stale(self.root))

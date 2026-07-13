@@ -575,19 +575,36 @@ def _read_version_constant(file_path: Path, constant_name: str) -> str:
     return m.group(1) if m else ""
 
 
+def _read_index_build_meta(root: Path) -> dict:
+    """1sed6 (review-hardened): build-state read is STORE-ONLY — a legacy
+    ``meta.json`` is never read, not even for version comparison. An absent or
+    empty store returns {} = UNKNOWN, and every caller treats unknown as
+    stale/needs-convergence, so a pre-1sed6 consumer converges by
+    reconstruction (empty layer state → one re-chunk pass with vector reuse)
+    rather than letting stale JSON claims skip required work. Bounded read —
+    summary scalars only, no per-file rows."""
+    index_dir = root / ".wavefoundry" / "index"
+    try:
+        import importlib.util as _ilu
+        _spec = _ilu.spec_from_file_location(
+            "index_state_store", SCRIPTS_DIR / "index_state_store.py"
+        )
+        _mod = _ilu.module_from_spec(_spec)
+        _spec.loader.exec_module(_mod)
+        summary = _mod.read_build_summary(index_dir)
+        return summary if isinstance(summary, dict) else {}
+    except Exception:
+        return {}
+
+
 # Backwards-compatible name (1p3ho v1 callers; kept for the existing test surface).
 def _snapshot_pre_extract_chunker_versions(root: Path) -> dict[str, str]:
-    """Read the consumer's pre-existing index meta.json and return its
-    chunker_versions mapping. Handles both modern per-layer dict and legacy
-    scalar `chunker_version` key. Empty dict when meta.json absent or unreadable."""
-    meta_path = root / ".wavefoundry" / "index" / "meta.json"
-    if not meta_path.is_file():
-        return {}
-    try:
-        data = json.loads(meta_path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
-    if not isinstance(data, dict):
+    """Read the consumer's pre-existing per-layer ``chunker_versions`` from
+    the index-state store (1sed6: store-only — a legacy meta.json is never
+    read). Empty dict when the store is absent/unreadable = unknown, which
+    every caller treats as needing convergence."""
+    data = _read_index_build_meta(root)
+    if not data:
         return {}
     versions = data.get("chunker_versions")
     if isinstance(versions, dict):
@@ -692,21 +709,16 @@ def _snapshot_pre_extract_versions(root: Path) -> dict[str, str]:
     `chunker_docs`, `chunker_code`, `walker`, `graph_builder` (any subset
     when the corresponding state isn't present)."""
     out: dict[str, str] = {}
-    # Chunker + walker live in .wavefoundry/index/meta.json
+    # Chunker + walker live in the index-state store's build snapshot
     chunker_versions = _snapshot_pre_extract_chunker_versions(root)
     if "docs" in chunker_versions:
         out["chunker_docs"] = chunker_versions["docs"]
     if "code" in chunker_versions:
         out["chunker_code"] = chunker_versions["code"]
-    meta_path = root / ".wavefoundry" / "index" / "meta.json"
-    if meta_path.is_file():
-        try:
-            data = json.loads(meta_path.read_text(encoding="utf-8"))
-            walker = data.get("walker_version")
-            if isinstance(walker, (str, int)) and str(walker).strip():
-                out["walker"] = str(walker)
-        except (OSError, ValueError):
-            pass
+    _bm = _read_index_build_meta(root)
+    walker = _bm.get("walker_version")
+    if isinstance(walker, (str, int)) and str(walker).strip():
+        out["walker"] = str(walker)
     # Wave 1rvfx: graph builder version lives in the INSTALLED project graph state
     # (.wavefoundry/index/graph/), read via _read_installed_graph_builder_version. The old read pointed
     # at the retired framework-graph layer's dead path, so this transition never fired in production.
@@ -769,12 +781,8 @@ def _verify_chunker_rebuild_succeeded(root: Path) -> bool:
     version. Backwards-compat helper retained for the existing test surface;
     no longer load-bearing in the upgrade flow (operator's direction: trust
     the indexer, just log)."""
-    meta_path = root / ".wavefoundry" / "index" / "meta.json"
-    if not meta_path.is_file():
-        return True
-    try:
-        data = json.loads(meta_path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+    data = _read_index_build_meta(root)
+    if not data:
         return True
     stored = data.get("chunker_versions") or {}
     if not isinstance(stored, dict) or "docs" not in stored:
@@ -1682,10 +1690,8 @@ def _warn_if_background_code_incomplete(root: Path) -> None:
     """H1 (Phase 4b reliability): warn when the BACKGROUND code re-embed left the code layer behind the
     (synchronously-built) docs layer — the silent-failure case (status 'idle', code chunker stale) the
     JS/TS team hit on p4g3/p4su. A stale code layer must not be mistaken for a finished upgrade."""
-    import json as _json
-    try:
-        meta = _json.loads((root / ".wavefoundry" / "index" / "meta.json").read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+    meta = _read_index_build_meta(root)
+    if not meta:
         return
     cv = meta.get("chunker_versions") or {}
     docs_v, code_v = cv.get("docs"), cv.get("code")

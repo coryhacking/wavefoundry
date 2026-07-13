@@ -16,7 +16,8 @@ landed, reviewed machinery whose build-path behavior must stay untouched
 invalidation, and reset-and-recreate on a corrupted open.
 
 **Derived-only rule (the operational safety property):** every table must be
-rebuildable from git, Lance, the repo, or ``meta.json``. A missing, corrupt,
+rebuildable from git, Lance, and the repo itself (1sed6: the store IS the
+sole build-state authority — there is no meta.json). A missing, corrupt,
 or schema-mismatched store is a rebuild with a loud diagnostic — never data
 loss, never a hard failure, never silent data invention.
 
@@ -66,8 +67,12 @@ STATE_STORE_FILENAME = "index-state.sqlite"
 # bumped to "5" (per-layer last-embedded hash state — the content-scope
 # change-detection substrate; the reset this bump forces is intentionally
 # also the fleet-wide freshness heal, since empty layer state reads as
-# all-stale and the first build reconverges with vector reuse).
-STATE_STORE_SCHEMA_VERSION = "5"
+# all-stale and the first build reconverges with vector reuse); 1sed6
+# bumped to "6" (build_state epoch row — the SQLite-only authority contract:
+# attempt-ID fenced builds, completed-generation reader tokens; the reset
+# doubles as legacy convergence since an uninitialized epoch fails readers
+# closed until the first completed build).
+STATE_STORE_SCHEMA_VERSION = "6"
 
 # Freshness extraction tuning (1ro43 Req 1: "commit count touching the file
 # over a trailing window, normalized"; window + normalization are named
@@ -358,7 +363,7 @@ class IndexStateStore:
             )
             # --- Per-path bookkeeping + chunk registry resident schema (1rrr0) ---
             # The store is the working source of truth for per-path build
-            # state; ``meta.json`` is generated from these tables as an
+            # state; the snapshot readers reconstruct the dict shape from
             # exported, reader-contract-compatible snapshot.
             conn.execute(
                 "CREATE TABLE IF NOT EXISTS build_file_meta ("
@@ -438,7 +443,7 @@ class IndexStateStore:
             # The change-detection source of truth for each SEMANTIC layer
             # ("docs"/"code"): the walk hash a layer last successfully
             # embedded per path. Content-scoped builds previously shared one
-            # broad hash (meta.json file_meta), so a docs-only build stamped
+            # broad walk-state hash (the historical meta.json file_meta), so a docs-only build stamped
             # a changed code file's fresh hash without embedding it and the
             # next code build skipped it forever. Comparing each layer
             # against ITS OWN state makes any build scope correct by
@@ -453,6 +458,31 @@ class IndexStateStore:
                 "path TEXT NOT NULL, "
                 "hash TEXT NOT NULL, "
                 "PRIMARY KEY (layer, path))"
+            )
+            # --- Build-state epoch (1sed6) ---
+            # THE semantic-index readiness authority: a single typed row.
+            # Fresh/reset store starts `uninitialized` (readers fail closed);
+            # `begin_build_epoch` durably marks `building` BEFORE the first
+            # Lance/FTS mutation (FULL-synchronous fence — a crash can never
+            # leave partially mutated Lance data behind an apparently valid
+            # completed generation); only `finalize_build_epoch`'s attempt-ID
+            # compare-and-set advances `generation` and restores `complete`.
+            # A `building` row whose owning build lock is gone reads as
+            # interrupted/dirty — derived at read time, never stored as a
+            # separate authority.
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS build_state ("
+                "id INTEGER PRIMARY KEY CHECK (id = 1), "
+                "attempt_id TEXT NOT NULL DEFAULT '', "
+                "scope TEXT NOT NULL DEFAULT '', "
+                "status TEXT NOT NULL DEFAULT 'uninitialized' "
+                "CHECK (status IN ('uninitialized', 'building', 'complete')), "
+                "generation INTEGER NOT NULL DEFAULT 0, "
+                "started_at REAL, "
+                "completed_at REAL)"
+            )
+            conn.execute(
+                "INSERT OR IGNORE INTO build_state (id) VALUES (1)"
             )
             if self._get_meta(conn, "store_schema_version") is None:
                 conn.execute(
@@ -519,7 +549,22 @@ class IndexStateStore:
         Drop-and-recreate (rather than per-table DELETEs) so a version bump
         that changes table SHAPES converges to the new schema; virtual (FTS)
         tables drop first so their shadow tables go with them.
+
+        1sed6 note: since the build epoch is a resident, a reset ERASES any
+        in-flight fence — a build whose store is reset underneath it fails
+        its finalization CAS (fail-closed, heals on the next run). Every
+        reset is therefore persisted to the store log with a traceback-tail
+        so a field CAS-miss is diagnosable after the fact.
         """
+        import traceback
+        _caller = "".join(traceback.format_stack(limit=6)[:-1]).strip().splitlines()
+        _caller_tail = " <- ".join(
+            ln.strip().split(",")[1].strip() for ln in _caller if ln.strip().startswith("File")
+        )[-300:]
+        store_log(
+            self.index_dir,
+            f"store RESET (drop-and-recreate all residents; any in-flight build fence is erased) [{_caller_tail}]",
+        )
         with self._conn:
             rows = self._conn.execute(
                 "SELECT name, sql FROM sqlite_master "
@@ -1624,19 +1669,146 @@ def secret_rule_catalog_for(index_dir: Path, rules_fingerprint: str) -> dict[str
 
 
 # ---------------------------------------------------------------------------
-# Per-path build bookkeeping + meta.json snapshot export (1rrr0)
+# Per-path build bookkeeping + snapshot readers (1rrr0; sole authority since 1sed6)
 # ---------------------------------------------------------------------------
 
 _LAYER_META_JSON_KEYS = ("model_versions", "chunker_versions", "content")
 _LAYER_META_STR_KEYS = ("built_at", "walker_version")
 
 
-def write_build_bookkeeping(index_dir: Path, meta: dict[str, Any]) -> None:
-    """Persist one build's ``meta.json``-shaped state into the store.
+def _full_durable_connection(index_dir: Path) -> "sqlite3.Connection":
+    """A dedicated connection with FULL synchronous semantics (1sed6).
 
-    The store is the working source of truth for per-path build state
-    (1rrr0 Req 6); ``meta.json`` is exported from it afterwards via
-    ``export_meta_snapshot``. One transaction.
+    Used ONLY for the two safety-critical boundary commits of a mutating
+    build — the pre-mutation `building` fence and the finalization CAS. The
+    store's ordinary ``synchronous=NORMAL`` can lose the most recent commit
+    on power failure, which for the fence would recreate exactly the
+    false-ready window the epoch exists to close. Everything else keeps
+    NORMAL (performance posture unchanged).
+    """
+    path = state_store_path(index_dir)
+    conn = sqlite3.connect(path.as_posix(), timeout=10.0)
+    conn.execute("PRAGMA busy_timeout=10000")
+    conn.execute("PRAGMA synchronous=FULL")
+    return conn
+
+
+def begin_build_epoch(index_dir: Path, scope: str) -> str:
+    """Durably mark the store `building` BEFORE the first index mutation (1sed6).
+
+    Returns the attempt id the caller must present to finalize. NOT
+    fail-soft: a failure here must fail the build visibly (raising is the
+    contract — the caller may not mutate Lance/FTS without the fence).
+    Committed with FULL-synchronous durability so a power failure cannot
+    lose the fence. Ensures the store exists/current first (creation or a
+    version-gated reset both land `uninitialized`, which this immediately
+    transitions).
+    """
+    store = IndexStateStore(index_dir)
+    try:
+        store.ensure_current()
+    finally:
+        store.close()
+    import uuid
+    attempt_id = uuid.uuid4().hex
+    conn = _full_durable_connection(index_dir)
+    try:
+        with conn:
+            conn.execute(
+                "UPDATE build_state SET attempt_id = ?, scope = ?, status = 'building', "
+                "started_at = ?, completed_at = NULL WHERE id = 1",
+                (attempt_id, str(scope or ""), time.time()),
+            )
+    finally:
+        conn.close()
+    return attempt_id
+
+
+def finalize_build_epoch(index_dir: Path, attempt_id: str) -> bool:
+    """Attempt-ID compare-and-set completion: advance generation, mark complete.
+
+    One FULL-durable transaction. Returns False when the CAS misses (a newer
+    attempt superseded this build, or the epoch is not `building` for this
+    attempt) — the caller must treat that as a failed publication, never as
+    success. Only this function may advance `generation`.
+    """
+    conn = _full_durable_connection(index_dir)
+    try:
+        with conn:
+            cur = conn.execute(
+                "UPDATE build_state SET status = 'complete', generation = generation + 1, "
+                "completed_at = ? WHERE id = 1 AND attempt_id = ? AND status = 'building'",
+                (time.time(), str(attempt_id)),
+            )
+            return cur.rowcount == 1
+    finally:
+        conn.close()
+
+
+def read_build_state(index_dir: Path) -> Optional[dict[str, Any]]:
+    """Read-only build-state row: ``{attempt_id, scope, status, generation,
+    started_at, completed_at}``; ``None`` when the store/row is absent or
+    unreadable (readers treat None as fail-closed / not ready)."""
+    conn = open_read_only(index_dir)
+    if conn is None:
+        return None
+    try:
+        row = conn.execute(
+            "SELECT attempt_id, scope, status, generation, started_at, completed_at "
+            "FROM build_state WHERE id = 1"
+        ).fetchone()
+        if row is None:
+            return None
+        return {
+            "attempt_id": str(row[0]), "scope": str(row[1]), "status": str(row[2]),
+            "generation": int(row[3]), "started_at": row[4], "completed_at": row[5],
+        }
+    except sqlite3.Error:
+        return None
+    finally:
+        try:
+            conn.close()
+        except sqlite3.Error:
+            pass
+
+
+def build_epoch_state_token(index_dir: Path) -> Optional[tuple[str, str, int]]:
+    """The ABA-proof consistency token (1sed6 review fix): ``(attempt_id,
+    status, generation)`` of the build-state row in ANY state, ``None`` only
+    when the store/row is absent or unreadable. Unlike ``build_epoch_token``
+    (complete-only; used for readiness gating), this token distinguishes
+    different incomplete attempts — ``building A`` vs ``building B`` — so a
+    reader that sanctions a degraded not-ready path can still detect that a
+    publication (or a new fence) happened underneath the operation. Every
+    state transition changes it: ``begin_build_epoch`` mints a fresh attempt
+    id and ``finalize_build_epoch`` advances the generation.
+    """
+    state = read_build_state(index_dir)
+    if state is None:
+        return None
+    return (state["attempt_id"], state["status"], state["generation"])
+
+
+def build_epoch_token(index_dir: Path) -> Optional[tuple[str, int]]:
+    """The reader validation token: ``(attempt_id, generation)`` — ONLY when
+    the epoch is `complete`; ``None`` for uninitialized/building/absent/
+    unreadable states (fail closed). Readers capture this before an indexed
+    operation and re-read after; a changed or None token discards results.
+    Cheap: one short read-only query, no state held across the operation.
+    """
+    state = read_build_state(index_dir)
+    if state is None or state.get("status") != "complete":
+        return None
+    return (state["attempt_id"], state["generation"])
+
+
+def write_build_bookkeeping(index_dir: Path, meta: dict[str, Any]) -> None:
+    """Persist one build's canonical state into the store. One transaction.
+
+    The store is the SOLE source of truth for per-path build state (1rrr0
+    Req 6; exclusive since 1sed6 — nothing is exported to disk). Readers
+    reconstruct the legacy dict shape via ``export_meta_snapshot`` /
+    ``read_build_summary``.
     """
     file_meta = meta.get("file_meta") or {}
     store = IndexStateStore(index_dir)
@@ -1679,12 +1851,13 @@ def write_build_bookkeeping(index_dir: Path, meta: dict[str, Any]) -> None:
 
 
 def export_meta_snapshot(index_dir: Path) -> Optional[dict[str, Any]]:
-    """Reconstruct the ``meta.json`` dict from the store's bookkeeping tables.
+    """Reconstruct the full per-path build-state dict from the bookkeeping tables.
 
-    Reader-contract compatible (readiness-council amendment): parsed content
-    is semantically identical to what the legacy writer produced; key order
-    and formatting may differ. Returns None when the store is absent or the
-    bookkeeping tables are empty (caller falls back to the direct write).
+    The dict shape matches what the retired meta.json used to carry (so
+    every migrated consumer kept its parsing). Returns None when the store
+    is absent or the bookkeeping tables are empty — callers treat that as
+    not-built (there is no fallback surface). Use ``read_build_summary``
+    unless the caller genuinely needs the per-file rows.
     """
     conn = open_read_only(index_dir)
     if conn is None:
@@ -1720,6 +1893,43 @@ def export_meta_snapshot(index_dir: Path) -> Optional[dict[str, Any]]:
         ordered_keys = ["built_at", "model_versions", "chunker_versions",
                         "walker_version", "content", "file_meta"]
         return {k: snapshot[k] for k in ordered_keys if k in snapshot}
+    except sqlite3.Error:
+        return None
+    finally:
+        try:
+            conn.close()
+        except sqlite3.Error:
+            pass
+
+
+def read_build_summary(index_dir: Path) -> Optional[dict[str, Any]]:
+    """Bounded build-state summary (1sed6 review fix): the snapshot scalars
+    plus a COUNT of tracked files — never the per-file rows. This is the
+    dashboard/status read; use ``export_meta_snapshot`` only when the caller
+    genuinely needs per-path state (the indexer's own change detection).
+    """
+    conn = open_read_only(index_dir)
+    if conn is None:
+        return None
+    try:
+        layer = dict(conn.execute("SELECT key, value FROM build_layer_meta").fetchall())
+        if not layer:
+            return None
+        summary: dict[str, Any] = {}
+        if "built_at" in layer:
+            summary["built_at"] = str(layer["built_at"])
+        for key in _LAYER_META_JSON_KEYS:
+            if key in layer:
+                try:
+                    summary[key] = json.loads(layer[key])
+                except Exception:
+                    return None
+        if "walker_version" in layer:
+            summary["walker_version"] = str(layer["walker_version"])
+        summary["file_count"] = int(
+            conn.execute("SELECT COUNT(*) FROM build_file_meta").fetchone()[0]
+        )
+        return summary
     except sqlite3.Error:
         return None
     finally:

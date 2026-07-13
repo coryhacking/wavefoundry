@@ -64,6 +64,26 @@ def _read_index_chunks(index_dir: Path, table_name: str) -> list[dict]:
     return []
 
 
+def _store_mod():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "index_state_store", SCRIPTS_ROOT / "index_state_store.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _read_meta_store(index_dir: Path) -> dict:
+    """1sed6: build-state reads go through the store (meta.json retired)."""
+    return _store_mod().export_meta_snapshot(index_dir) or {}
+
+
+def _seed_meta_store(index_dir: Path, meta: dict) -> None:
+    """1sed6: seed prior-build state the way production records it."""
+    _store_mod().write_build_bookkeeping(index_dir, meta)
+
+
 def _make_repo(tmp: Path, files: dict[str, str]) -> None:
     """Write files into a temp repo with a minimal workflow-config.json."""
     (tmp / "docs").mkdir(parents=True, exist_ok=True)
@@ -593,7 +613,7 @@ class ProjectIndexInputsStaleTests(unittest.TestCase):
 
     def test_loads_meta_from_disk_when_not_passed(self):
         meta = self._build_meta()
-        (self.index_dir / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+        _seed_meta_store(self.index_dir, meta)
         self.assertFalse(self.bi.project_index_inputs_stale(self.root))
         (self.root / "docs" / "guide.md").write_text("# Guide\n\nChanged.\n", encoding="utf-8")
         self.assertTrue(self.bi.project_index_inputs_stale(self.root))
@@ -891,7 +911,9 @@ class IncrementalBuildTests(unittest.TestCase):
         })
         result = self._run_build(full=True)
         index_dir = self.root / ".wavefoundry" / "index"
-        self.assertTrue((index_dir / "meta.json").exists())
+        # 1sed6: SQLite is the only state authority — no meta.json is written.
+        self.assertFalse((index_dir / "meta.json").exists())
+        self.assertTrue(_read_meta_store(index_dir).get("file_meta"))
         # Index may be stored as LanceDB tables or legacy JSON files.
         has_index = (
             (index_dir / "docs.lance").is_dir() or (index_dir / "docs.json").exists()
@@ -982,9 +1004,9 @@ class IncrementalBuildTests(unittest.TestCase):
         _make_repo(self.root, {"src/foo.py": "def f():\n    return 1\n\ndef g():\n    return 2\n"})
         self._run_build(full=True)
         index_dir = self.root / ".wavefoundry" / "index"
-        meta = json.loads((index_dir / "meta.json").read_text())
+        meta = _read_meta_store(index_dir)
         meta.setdefault("chunker_versions", {})["code"] = "old-chunker-version"  # simulate a bump
-        (index_dir / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+        _seed_meta_store(index_dir, meta)
 
         code_calls: list[list[str]] = []
         spy = _make_embedder_mock(dim=4, calls=code_calls)
@@ -994,7 +1016,7 @@ class IncrementalBuildTests(unittest.TestCase):
         embedded = [t for batch in code_calls for t in batch]
         self.assertEqual(embedded, [], "chunker-only bump must reuse vectors, not re-embed")
         # the bump is recorded (so it doesn't re-trigger)
-        meta2 = json.loads((index_dir / "meta.json").read_text())
+        meta2 = _read_meta_store(index_dir)
         self.assertEqual(meta2["chunker_versions"]["code"], self.bi._get_chunker().CHUNKER_VERSION)
 
     def test_model_version_bump_reembeds_all_no_reuse(self):
@@ -1003,9 +1025,9 @@ class IncrementalBuildTests(unittest.TestCase):
         _make_repo(self.root, {"src/foo.py": "def f():\n    return 1\n"})
         self._run_build(full=True)
         index_dir = self.root / ".wavefoundry" / "index"
-        meta = json.loads((index_dir / "meta.json").read_text())
+        meta = _read_meta_store(index_dir)
         meta.setdefault("model_versions", {})["code"] = "old-model"
-        (index_dir / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+        _seed_meta_store(index_dir, meta)
 
         code_calls: list[list[str]] = []
         spy = _make_embedder_mock(dim=4, calls=code_calls)
@@ -1039,7 +1061,7 @@ class IncrementalBuildTests(unittest.TestCase):
         self.assertIn("docs/guide.md", paths, "project docs must still be indexed")
 
         # The folded seed/README must also be tracked in meta.json file_meta (staleness).
-        meta = json.loads((self.root / ".wavefoundry" / "index" / "meta.json").read_text())
+        meta = _read_meta_store(self.root / ".wavefoundry" / "index")
         file_meta = meta.get("file_meta") or meta.get("file_hashes") or {}
         self.assertIn(".wavefoundry/framework/seeds/100-install.prompt.md", file_meta)
         self.assertIn(".wavefoundry/framework/README.md", file_meta)
@@ -1055,12 +1077,12 @@ class IncrementalBuildTests(unittest.TestCase):
         })
         self._run_build(full=True)
         index_dir = self.root / ".wavefoundry" / "index"
-        meta = json.loads((index_dir / "meta.json").read_text())
+        meta = _read_meta_store(index_dir)
         # Simulate the docs-model upgrade: the index was built under an old docs model;
         # the code model still matches the current CODE_MODEL.
         meta.setdefault("model_versions", {})["docs"] = "old-docs-model"
         meta["model_versions"]["code"] = self.bi.CODE_MODEL
-        (index_dir / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+        _seed_meta_store(index_dir, meta)
 
         # Snapshot the code table before the docs re-embed.
         code_lance = index_dir / "code.lance"
@@ -1079,7 +1101,7 @@ class IncrementalBuildTests(unittest.TestCase):
         self.assertTrue(any("Wave lifecycle" in t for t in embedded),
                         "docs-model change must re-embed the docs layer")
         # meta now records the current docs model; code model untouched.
-        meta_after = json.loads((index_dir / "meta.json").read_text())
+        meta_after = _read_meta_store(index_dir)
         # Wave 1p936: model_versions now carries a precision-class suffix ("@full" or "@int8"). The
         # class is machine-dependent (a CPU-bound box with the INT8 export cached records "@int8";
         # a GPU box or a box without the INT8 source records "@full"), so assert the MODEL-NAME
@@ -1261,7 +1283,7 @@ class IncrementalBuildTests(unittest.TestCase):
     def test_meta_records_file_meta(self):
         _make_repo(self.root, {"src/foo.py": "def f(): pass\n"})
         self._run_build(full=True)
-        meta = json.loads((self.root / ".wavefoundry" / "index" / "meta.json").read_text())
+        meta = _read_meta_store(self.root / ".wavefoundry" / "index")
         self.assertIn("file_meta", meta)
         self.assertIn("src/foo.py", meta["file_meta"])
         self.assertNotIn("file_hashes", meta)
@@ -1269,7 +1291,7 @@ class IncrementalBuildTests(unittest.TestCase):
     def test_meta_records_file_meta_with_stat_fields(self):
         _make_repo(self.root, {"src/foo.py": "def f(): pass\n"})
         self._run_build(full=True)
-        meta = json.loads((self.root / ".wavefoundry" / "index" / "meta.json").read_text())
+        meta = _read_meta_store(self.root / ".wavefoundry" / "index")
         self.assertIn("file_meta", meta)
         entry = meta["file_meta"].get("src/foo.py")
         self.assertIsNotNone(entry)
@@ -1281,7 +1303,7 @@ class IncrementalBuildTests(unittest.TestCase):
     def test_meta_records_model_versions(self):
         _make_repo(self.root, {"src/foo.py": "def f(): pass\n"})
         self._run_build(full=True)
-        meta = json.loads((self.root / ".wavefoundry" / "index" / "meta.json").read_text())
+        meta = _read_meta_store(self.root / ".wavefoundry" / "index")
         self.assertIn("docs", meta["model_versions"])
         self.assertIn("code", meta["model_versions"])
 
@@ -1353,7 +1375,7 @@ class IncrementalBuildTests(unittest.TestCase):
                 verbose=False,
             )
 
-        meta = json.loads((index_dir / "meta.json").read_text())
+        meta = _read_meta_store(index_dir)
         self.assertIn("framework/seeds/example.md", meta["file_meta"])
         self.assertNotIn("framework/index/stale.json", meta["file_meta"])
 
@@ -1374,7 +1396,7 @@ class IncrementalBuildTests(unittest.TestCase):
             self.bi.build_index(self.root, full=True, content="docs", verbose=False)
 
         index_dir = self.root / ".wavefoundry" / "index"
-        meta = json.loads((index_dir / "meta.json").read_text())
+        meta = _read_meta_store(index_dir)
         chunks = _read_index_chunks(index_dir, "docs")
         chunk_paths = {c["path"] for c in chunks}
         self.assertIn("docs/guide.md", meta["file_meta"])
@@ -1403,7 +1425,7 @@ class IncrementalBuildTests(unittest.TestCase):
         with patch.object(self.bi, "_get_embedder", return_value=docs_mock):
             self.bi.build_index(self.root, full=True, content="docs", verbose=False)
         index_dir = self.root / ".wavefoundry" / "index"
-        meta = json.loads((index_dir / "meta.json").read_text())
+        meta = _read_meta_store(index_dir)
         fold_allowed = {".wavefoundry/framework/seeds/100.md"}
         for path in meta["file_meta"]:
             if path in fold_allowed:
@@ -1433,7 +1455,7 @@ class IncrementalBuildTests(unittest.TestCase):
                 verbose=False,
             )
 
-        meta = json.loads((index_dir / "meta.json").read_text())
+        meta = _read_meta_store(index_dir)
         chunks = _read_index_chunks(index_dir, "docs")
         self.assertIn(".wavefoundry/framework/README.md", meta["file_meta"])
         self.assertNotIn(".wavefoundry/framework/MANIFEST", meta["file_meta"])
@@ -1457,7 +1479,7 @@ class IncrementalBuildTests(unittest.TestCase):
             )
 
         index_dir = self.root / ".wavefoundry" / "index"
-        meta = json.loads((index_dir / "meta.json").read_text())
+        meta = _read_meta_store(index_dir)
         chunks = _read_index_chunks(index_dir, "docs")
         self.assertIn(".wavefoundry/framework/README.md", meta["file_meta"])
         self.assertTrue(any(c["path"] == ".wavefoundry/framework/README.md" for c in chunks))
@@ -1481,7 +1503,7 @@ class IncrementalBuildTests(unittest.TestCase):
             )
 
         index_dir = self.root / ".wavefoundry" / "index"
-        meta = json.loads((index_dir / "meta.json").read_text())
+        meta = _read_meta_store(index_dir)
         code_chunks = _read_index_chunks(index_dir, "code")
         self.assertIn(".wavefoundry/framework/scripts/server.py", meta["file_meta"])
         self.assertTrue(any(c["path"] == ".wavefoundry/framework/scripts/server.py" for c in code_chunks))
@@ -1512,7 +1534,7 @@ class IncrementalBuildTests(unittest.TestCase):
         # Run 1: docs only.
         with patch.object(self.bi, "_get_embedder", return_value=_make_embedder_mock(dim=4)):
             self.bi.build_index(self.root, full=True, content="docs", verbose=False)
-        meta_after_docs = json.loads((index_dir / "meta.json").read_text())["file_meta"]
+        meta_after_docs = _read_meta_store(index_dir)["file_meta"]
 
         # Only the FOLDED framework docs appear — not MANIFEST or scripts.
         framework_in_meta = {p for p in meta_after_docs if p.startswith(".wavefoundry/framework/")}
@@ -1523,7 +1545,7 @@ class IncrementalBuildTests(unittest.TestCase):
         # Run 2: code only — incremental, on top of the docs meta
         with patch.object(self.bi, "_get_embedder", side_effect=[_make_embedder_mock(dim=4), _make_embedder_mock(dim=4)]):
             self.bi.build_index(self.root, full=False, content="code", verbose=False)
-        meta_after_code = json.loads((index_dir / "meta.json").read_text())["file_meta"]
+        meta_after_code = _read_meta_store(index_dir)["file_meta"]
 
         # Still only the folded framework docs in project meta after the code run.
         framework_in_meta = {p for p in meta_after_code if p.startswith(".wavefoundry/framework/")}
@@ -1568,7 +1590,7 @@ class IncrementalBuildTests(unittest.TestCase):
                 verbose=False,
             )
 
-        meta = json.loads((index_dir / "meta.json").read_text())["file_meta"]
+        meta = _read_meta_store(index_dir)["file_meta"]
         docs_chunks = {c["path"] for c in _read_index_chunks(index_dir, "docs")}
 
         # The forwarded code prefix is honored...
@@ -1641,7 +1663,7 @@ class IncrementalBuildTests(unittest.TestCase):
                 verbose=False,
             )
         index_dir = self.root / ".wavefoundry" / "index"
-        meta = json.loads((index_dir / "meta.json").read_text())
+        meta = _read_meta_store(index_dir)
         code_chunks = _read_index_chunks(index_dir, "code")
         self.assertIn(".wavefoundry/framework/scripts/server.py", meta["file_meta"])
         self.assertTrue(
@@ -1669,7 +1691,7 @@ class IncrementalBuildTests(unittest.TestCase):
                 verbose=False,
             )
         index_dir = self.root / ".wavefoundry" / "index"
-        meta = json.loads((index_dir / "meta.json").read_text())
+        meta = _read_meta_store(index_dir)
         self.assertIn(".wavefoundry/framework/scripts/server.py", meta["file_meta"])
 
     def test_workflow_config_evolution_reaps_orphaned_lance_rows(self):
@@ -1696,7 +1718,6 @@ class IncrementalBuildTests(unittest.TestCase):
         self._run_build(full=True)
 
         index_dir = self.root / ".wavefoundry" / "index"
-        meta_path = index_dir / "meta.json"
 
         # Confirm starting state: lib/ paths are in LanceDB.
         code_chunks_before = _read_index_chunks(index_dir, "code")
@@ -1710,12 +1731,12 @@ class IncrementalBuildTests(unittest.TestCase):
         #    subsequent run dropped them from meta, but earlier eviction failed
         #    to remove the LanceDB rows). This is the silent-orphan condition
         #    every operator with an evolving workflow-config accumulates.
-        meta = json.loads(meta_path.read_text())
+        meta = _read_meta_store(index_dir)
         meta["file_meta"] = {
             k: v for k, v in meta["file_meta"].items()
             if not k.startswith("lib/")
         }
-        meta_path.write_text(json.dumps(meta), encoding="utf-8")
+        _seed_meta_store(index_dir, meta)
         (self.root / "lib" / "helper.py").unlink()
         (self.root / "lib" / "another.py").unlink()
 
@@ -1808,15 +1829,12 @@ class StatCacheTests(unittest.TestCase):
         _make_repo(self.root, {"src/foo.py": "def f(): pass\n"})
         index_dir = self.root / ".wavefoundry" / "index"
         index_dir.mkdir(parents=True, exist_ok=True)
-        (index_dir / "meta.json").write_text(
-            json.dumps({
+        _seed_meta_store(index_dir, {
                 "model_versions": {"docs": self.bi.DOCS_MODEL, "code": self.bi.CODE_MODEL},
                 "chunker_version": "",
-            }),
-            encoding="utf-8",
-        )
+            })
         result = self._run_build(full=False)
-        meta = json.loads((index_dir / "meta.json").read_text())
+        meta = _read_meta_store(index_dir)
         self.assertIn("file_meta", meta)
         entry = meta["file_meta"].get("src/foo.py")
         self.assertIsNotNone(entry)
@@ -1846,13 +1864,10 @@ class ModelVersionChangeTests(unittest.TestCase):
         index_dir = self.root / ".wavefoundry" / "index"
         index_dir.mkdir(parents=True, exist_ok=True)
         # Write stale meta with old model name
-        (index_dir / "meta.json").write_text(
-            json.dumps({
+        _seed_meta_store(index_dir, {
                 "model_versions": {"docs": "old-model", "code": "old-model"},
                 "file_meta": {},
-            }),
-            encoding="utf-8",
-        )
+            })
         docs_mock = _make_embedder_mock(dim=4)
         code_mock = _make_embedder_mock(dim=4)
         with patch.object(self.bi, "_get_embedder", side_effect=[docs_mock, code_mock]):
@@ -1867,8 +1882,7 @@ class ModelVersionChangeTests(unittest.TestCase):
         index_dir.mkdir(parents=True, exist_ok=True)
         current_cv = self.bi._get_chunker().CHUNKER_VERSION
         # Simulate: code layer was built with an old chunker; docs layer is current
-        (index_dir / "meta.json").write_text(
-            json.dumps({
+        _seed_meta_store(index_dir, {
                 "model_versions": {
                     "docs": self.bi.DOCS_MODEL,
                     "code": self.bi.CODE_MODEL,
@@ -1879,16 +1893,14 @@ class ModelVersionChangeTests(unittest.TestCase):
                 },
                 "content": ["docs", "code"],
                 "file_meta": {},
-            }),
-            encoding="utf-8",
-        )
+            })
         # A code-only update must detect the stale chunker and force a full rebuild
         docs_mock = _make_embedder_mock(dim=4)
         with patch.object(self.bi, "_get_embedder", return_value=docs_mock):
             result = self.bi.build_index(self.root, full=False, content="code", verbose=False)
         self.assertFalse(result.get("up_to_date", False))
         # After the build, the code layer must record the current chunker version
-        meta = json.loads((index_dir / "meta.json").read_text())
+        meta = _read_meta_store(index_dir)
         self.assertEqual(meta["chunker_versions"]["code"], current_cv)
 
     def test_legacy_chunker_version_scalar_migrated(self):
@@ -1898,8 +1910,7 @@ class ModelVersionChangeTests(unittest.TestCase):
         index_dir.mkdir(parents=True, exist_ok=True)
         current_cv = self.bi._get_chunker().CHUNKER_VERSION
         # Legacy format: single scalar, not per-layer
-        (index_dir / "meta.json").write_text(
-            json.dumps({
+        _seed_meta_store(index_dir, {
                 "model_versions": {
                     "docs": self.bi.DOCS_MODEL,
                     "code": self.bi.CODE_MODEL,
@@ -1907,16 +1918,14 @@ class ModelVersionChangeTests(unittest.TestCase):
                 "chunker_version": "old-chunker",
                 "content": ["docs", "code"],
                 "file_meta": {},
-            }),
-            encoding="utf-8",
-        )
+            })
         docs_mock = _make_embedder_mock(dim=4)
         with patch.object(self.bi, "_get_embedder", return_value=docs_mock):
             result = self.bi.build_index(self.root, full=False, content="docs", verbose=False)
         # Must trigger a rebuild since old-chunker != current
         self.assertFalse(result.get("up_to_date", False))
         # New meta must use chunker_versions dict, not scalar
-        meta = json.loads((index_dir / "meta.json").read_text())
+        meta = _read_meta_store(index_dir)
         self.assertIn("chunker_versions", meta)
         self.assertEqual(meta["chunker_versions"]["docs"], current_cv)
 
@@ -1927,8 +1936,7 @@ class ModelVersionChangeTests(unittest.TestCase):
         index_dir = self.root / ".wavefoundry" / "index"
         index_dir.mkdir(parents=True, exist_ok=True)
         current_cv = self.bi._get_chunker().CHUNKER_VERSION
-        (index_dir / "meta.json").write_text(
-            json.dumps({
+        _seed_meta_store(index_dir, {
                 "model_versions": {
                     "docs": self.bi.DOCS_MODEL,
                     "code": self.bi.CODE_MODEL,
@@ -1940,11 +1948,9 @@ class ModelVersionChangeTests(unittest.TestCase):
                 "walker_version": self.bi.WALKER_VERSION,
                 "content": ["docs", "code"],
                 "file_meta": {},
-            }),
-            encoding="utf-8",
-        )
+            })
         self.bi.build_index(self.root, full=True, content="graph", verbose=False)
-        meta = json.loads((index_dir / "meta.json").read_text())
+        meta = _read_meta_store(index_dir)
         self.assertEqual(meta.get("chunker_versions", {}).get("docs"), current_cv)
         self.assertEqual(meta.get("chunker_versions", {}).get("code"), current_cv)
         self.assertIn("docs", meta.get("content", []))
@@ -2005,16 +2011,13 @@ class PrecisionClassVersionTests(unittest.TestCase):
     def _write_meta(self, docs_value: str) -> Path:
         index_dir = self.root / ".wavefoundry" / "index"
         index_dir.mkdir(parents=True, exist_ok=True)
-        (index_dir / "meta.json").write_text(
-            json.dumps({
+        _seed_meta_store(index_dir, {
                 "model_versions": {"docs": docs_value},
                 "chunker_versions": {"docs": self.bi._get_chunker().CHUNKER_VERSION},
                 "walker_version": self.bi.WALKER_VERSION,
                 "content": ["docs"],
                 "file_meta": {},
-            }),
-            encoding="utf-8",
-        )
+            })
         return index_dir
 
     def test_precision_class_change_forces_reembed(self):
@@ -2030,7 +2033,7 @@ class PrecisionClassVersionTests(unittest.TestCase):
         self.assertFalse(result.get("up_to_date", False), "class change must force a rebuild")
         embedded = [t for batch in docs_calls for t in batch]
         self.assertTrue(any("Wave lifecycle" in t for t in embedded), "must re-embed on class change")
-        meta = json.loads((self.root / ".wavefoundry" / "index" / "meta.json").read_text())
+        meta = _read_meta_store(self.root / ".wavefoundry" / "index")
         self.assertEqual(meta["model_versions"]["docs"], f"{self.bi.DOCS_MODEL}@full")
 
     def _make_docs_only_repo(self) -> None:
@@ -2060,10 +2063,10 @@ class PrecisionClassVersionTests(unittest.TestCase):
         with patch.object(self.bi, "_predicted_precision_class", return_value="full"), \
              patch.object(self.bi, "_get_embedder", return_value=docs_mock):
             self.bi.build_index(self.root, full=True, content="docs", verbose=False)
-            meta_path = self.root / ".wavefoundry" / "index" / "meta.json"
-            meta = json.loads(meta_path.read_text())
+            _idx = self.root / ".wavefoundry" / "index"
+            meta = _read_meta_store(_idx)
             meta["model_versions"]["docs"] = self.bi.DOCS_MODEL  # legacy bare name, no @class
-            meta_path.write_text(json.dumps(meta), encoding="utf-8")
+            _seed_meta_store(_idx, meta)
             result = self.bi.build_index(self.root, full=False, content="docs", verbose=False)
         self.assertTrue(result.get("up_to_date", False), "legacy bare-name (== full) must not rebuild")
 
@@ -2093,7 +2096,7 @@ class WalkerVersionTests(unittest.TestCase):
             "file_meta": {},
         }
         base.update(extra)
-        (index_dir / "meta.json").write_text(json.dumps(base), encoding="utf-8")
+        _seed_meta_store(index_dir, base)
         return index_dir
 
     def test_legacy_index_missing_walker_version_triggers_rebuild(self):
@@ -2104,7 +2107,7 @@ class WalkerVersionTests(unittest.TestCase):
         with patch.object(self.bi, "_get_embedder", return_value=docs_mock):
             result = self.bi.build_index(self.root, full=False, content="docs", verbose=False)
         self.assertFalse(result.get("up_to_date", False))
-        meta = json.loads((self.root / ".wavefoundry" / "index" / "meta.json").read_text())
+        meta = _read_meta_store(self.root / ".wavefoundry" / "index")
         self.assertEqual(meta["walker_version"], self.bi.WALKER_VERSION)
 
     def test_stale_walker_version_triggers_rebuild(self):
@@ -2115,7 +2118,7 @@ class WalkerVersionTests(unittest.TestCase):
         with patch.object(self.bi, "_get_embedder", return_value=docs_mock):
             result = self.bi.build_index(self.root, full=False, content="docs", verbose=False)
         self.assertFalse(result.get("up_to_date", False))
-        meta = json.loads((self.root / ".wavefoundry" / "index" / "meta.json").read_text())
+        meta = _read_meta_store(self.root / ".wavefoundry" / "index")
         self.assertEqual(meta["walker_version"], self.bi.WALKER_VERSION)
 
     def test_current_walker_version_does_not_force_rebuild(self):
@@ -2126,7 +2129,7 @@ class WalkerVersionTests(unittest.TestCase):
         docs_mock = _make_embedder_mock(dim=4)
         with patch.object(self.bi, "_get_embedder", return_value=docs_mock):
             result = self.bi.build_index(self.root, full=False, content="docs", verbose=False)
-        meta = json.loads((self.root / ".wavefoundry" / "index" / "meta.json").read_text())
+        meta = _read_meta_store(self.root / ".wavefoundry" / "index")
         self.assertEqual(meta["walker_version"], current_wv)
 
 
@@ -2762,9 +2765,7 @@ class LanceDriftEligibilityBuildTests(unittest.TestCase):
         return result, err.getvalue(), out.getvalue()
 
     def _meta(self) -> dict:
-        return json.loads(
-            (self.root / ".wavefoundry" / "index" / "meta.json").read_text(encoding="utf-8")
-        )
+        return _read_meta_store(self.root / ".wavefoundry" / "index")
 
     def _neutralize_per_kind_residual(self) -> None:
         """Pin ``docs/workflow-config.json``'s ``chunks_emitted`` to 0 after a
@@ -2780,7 +2781,7 @@ class LanceDriftEligibilityBuildTests(unittest.TestCase):
         entry = meta["file_meta"].get("docs/workflow-config.json")
         if entry is not None:
             entry["chunks_emitted"] = 0
-            (index_dir / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+            _seed_meta_store(index_dir, meta)
 
     def test_ac1_docs_mode_excluded_zero_row_file_field_absent_never_flagged(self):
         """AC-1 (field absent): meta-tracked + chunking-excluded + zero rows →
@@ -2810,7 +2811,7 @@ class LanceDriftEligibilityBuildTests(unittest.TestCase):
         index_dir = self.root / ".wavefoundry" / "index"
         meta = self._meta()
         meta["file_meta"][rel]["chunks_emitted"] = 7  # stale positive
-        (index_dir / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+        _seed_meta_store(index_dir, meta)
         for i in (1, 2):
             result, err, _ = self._build(full=False, content="docs")
             self.assertNotIn("repairing", err,
@@ -3433,8 +3434,7 @@ class ContentScopeFreshnessTests(unittest.TestCase):
         # current (as a pre-fix docs build would have done), layer state absent.
         (self.root / "src" / "app.py").write_text(
             "def f():\n    return 'healed_content_sentinel'\n", encoding="utf-8")
-        meta_path = self.index_dir / "meta.json"
-        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        meta = _read_meta_store(self.index_dir)
         import hashlib as _h
         fresh = (self.root / "src" / "app.py").read_bytes()
         entry = meta["file_meta"]["src/app.py"]
@@ -3442,7 +3442,7 @@ class ContentScopeFreshnessTests(unittest.TestCase):
         st = (self.root / "src" / "app.py").stat()
         entry["mtime"] = st.st_mtime; entry["size"] = st.st_size
         entry["inode"] = getattr(st, "st_ino", 0)
-        meta_path.write_text(json.dumps(meta), encoding="utf-8")
+        _seed_meta_store(self.index_dir, meta)
         # Wipe layer state (what a schema-bump reset / pre-1sek8 store looks like).
         import sqlite3 as _sq
         con = _sq.connect(self.index_dir / "index-state.sqlite")
@@ -3842,6 +3842,11 @@ class IndexReclaimTests(unittest.TestCase):
             index_dir = Path(td)
             (index_dir / "docs.lance").mkdir()  # docs present; code.lance absent
             (index_dir / "docs.lance" / "data.bin").write_bytes(b"x" * 1024)
+            # 1sed6 review fix: optimize is restore-only — it requires a
+            # completed build epoch before it may run.
+            iss = _store_mod()
+            iss.write_build_bookkeeping(index_dir, {"built_at": "x"})
+            iss.finalize_build_epoch(index_dir, iss.begin_build_epoch(index_dir, "seed"))
             db = _ReclaimFakeDB(_ReclaimFakeTable(rows=2000, optimize_ok=True))
             with patch.object(self.bi, "_get_lance_db", return_value=db):
                 results = self.bi.optimize_index_tables(index_dir, ("docs", "code"))
@@ -4009,91 +4014,390 @@ class DocsLintHookTimeoutTests(unittest.TestCase):
         )
 
 
-class AtomicWriteWindowsShareRetryTests(unittest.TestCase):
-    """Wave 1p9iw — `_atomic_write_text`'s os.replace swap gets a bounded Windows-only sharing-violation
-    retry (WinError 5/32) so a concurrent meta.json reader can't abort _save_meta mid-build. POSIX and
-    non-{5,32} errors are single-call, immediate-reraise. Windows is simulated by forcing os.name and
-    injecting a PermissionError with .winerror set, so the branch is exercised platform-independently."""
+class _EpochBuildCase(unittest.TestCase):
+    """Shared harness for the 1sed6 epoch/convergence fixtures."""
 
     def setUp(self):
         self.bi = load_build_index()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.index_dir = self.root / ".wavefoundry" / "index"
+        self.iss = _store_mod()
 
-    def test_retries_then_succeeds_on_sharing_violation(self):
-        # AC-1: first attempt raises WinError 32 (sharing violation), retry succeeds, content lands.
-        with tempfile.TemporaryDirectory() as tmp:
-            target = Path(tmp) / "meta.json"
-            real_replace = os.replace
-            calls = {"n": 0}
+    def tearDown(self):
+        self.tmp.cleanup()
 
-            def flaky(src, dst):
-                calls["n"] += 1
-                if calls["n"] == 1:
-                    exc = PermissionError("sharing violation")
-                    exc.winerror = 32
-                    raise exc
-                return real_replace(src, dst)
+    def _run_build(self, full: bool = False, content: str = "all") -> dict:
+        docs_mock = _make_embedder_mock(dim=4)
+        code_mock = _make_embedder_mock(dim=4)
+        with patch.object(self.bi, "_get_embedder", side_effect=[docs_mock, code_mock]):
+            return self.bi.build_index(self.root, full=full, content=content, verbose=False)
 
-            with patch.object(self.bi.os, "name", "nt"), \
-                 patch.object(self.bi.os, "replace", side_effect=flaky), \
-                 patch.object(self.bi.time, "sleep", return_value=None):
-                self.bi._atomic_write_text(target, "final-content")
+    def _generation(self) -> int:
+        state = self.iss.read_build_state(self.index_dir)
+        return state["generation"] if state else -1
 
-            self.assertEqual(calls["n"], 2)
-            self.assertEqual(target.read_text(encoding="utf-8"), "final-content")
 
-    def test_persistent_sharing_violation_reraises_after_bound(self):
-        # AC-2: every attempt raises WinError 5 → the last exception is re-raised (not swallowed).
-        with tempfile.TemporaryDirectory() as tmp:
-            target = Path(tmp) / "meta.json"
-            calls = {"n": 0}
+class LegacyConvergenceTests(_EpochBuildCase):
+    """AC-6: a legacy installation (Lance + meta.json, no state store)
+    converges by reconstruction — legacy JSON is never authoritative input
+    and is removed only after a successful completed epoch."""
 
-            def always(src, dst):
-                calls["n"] += 1
-                exc = PermissionError("access denied")
-                exc.winerror = 5
-                raise exc
+    def test_legacy_json_is_never_authority_and_removed_after_convergence(self):
+        _make_repo(self.root, {
+            "src/foo.py": "def f(): return 1\n",
+            "docs/guide.md": "## Intro\n\nHello.\n",
+        })
+        first = self._run_build(full=True)
+        self.assertFalse(first.get("failed"))
+        # Fabricate the legacy layout: the store's snapshot exported to
+        # meta.json (so the JSON claims every file is current), store gone.
+        snapshot = _read_meta_store(self.index_dir)
+        self.assertTrue(snapshot.get("file_meta"))
+        (self.index_dir / "meta.json").write_text(json.dumps(snapshot), encoding="utf-8")
+        for suffix in ("", "-wal", "-shm"):
+            p = self.index_dir / f"index-state.sqlite{suffix}"
+            if p.exists():
+                p.unlink()
+        # An ordinary incremental build must treat the empty store — not the
+        # JSON — as the state authority: everything re-indexes.
+        result = self._run_build(full=False)
+        self.assertFalse(result.get("failed"))
+        self.assertGreater(result["files_indexed"], 0,
+                           "legacy meta.json must not satisfy freshness")
+        # Converged: completed epoch, repopulated state, legacy JSON removed.
+        self.assertIsNotNone(self.iss.build_epoch_token(self.index_dir))
+        self.assertTrue(_read_meta_store(self.index_dir).get("file_meta"))
+        self.assertFalse((self.index_dir / "meta.json").exists())
 
-            with patch.object(self.bi.os, "name", "nt"), \
-                 patch.object(self.bi.os, "replace", side_effect=always), \
-                 patch.object(self.bi.time, "sleep", return_value=None):
-                with self.assertRaises(PermissionError):
-                    self.bi._atomic_write_text(target, "x")
+    def test_legacy_json_survives_a_failed_convergence(self):
+        """Removal happens ONLY after success: a build that fails before
+        finalization leaves the legacy file (and no complete epoch) behind."""
+        _make_repo(self.root, {"src/foo.py": "def f(): return 1\n"})
+        self._run_build(full=True)
+        (self.index_dir / "meta.json").write_text("{}", encoding="utf-8")
+        store = self.bi._get_index_state_store()
+        (self.root / "src" / "foo.py").write_text("def f(): return 2\n", encoding="utf-8")
+        with patch.object(store, "write_build_bookkeeping", side_effect=RuntimeError("disk full")):
+            result = self._run_build(full=False)
+        self.assertTrue(result.get("failed"))
+        self.assertTrue((self.index_dir / "meta.json").exists(),
+                        "legacy JSON must not be removed before convergence")
+        self.assertIsNone(self.iss.build_epoch_token(self.index_dir))
 
-        self.assertEqual(calls["n"], self.bi._META_REPLACE_MAX_ATTEMPTS)
 
-    def test_non_share_winerror_reraises_immediately(self):
-        # AC-3: a winerror outside {5,32} is re-raised on the FIRST call with no retry.
-        with tempfile.TemporaryDirectory() as tmp:
-            target = Path(tmp) / "meta.json"
-            calls = {"n": 0}
+class EpochOrderingAndFaultTests(_EpochBuildCase):
+    """AC-3/AC-7 core matrix: fence-first ordering, structured no-fallback
+    failures at every mandatory boundary, generation semantics, and the
+    standalone FTS-rebuild/optimize writers."""
 
-            def wrong(src, dst):
-                calls["n"] += 1
-                exc = PermissionError("some other error")
-                exc.winerror = 13
-                raise exc
+    def test_true_noop_never_opens_the_epoch(self):
+        _make_repo(self.root, {"src/foo.py": "def f(): pass\n"})
+        self._run_build(full=True)
+        gen = self._generation()
+        tok = self.iss.build_epoch_token(self.index_dir)
+        result = self.bi.build_index(self.root, full=False, content="all", verbose=False)
+        self.assertTrue(result["up_to_date"])
+        self.assertEqual(self._generation(), gen,
+                         "a proven true no-op must leave the generation unchanged")
+        self.assertEqual(self.iss.build_epoch_token(self.index_dir), tok)
 
-            with patch.object(self.bi.os, "name", "nt"), \
-                 patch.object(self.bi.os, "replace", side_effect=wrong), \
-                 patch.object(self.bi.time, "sleep", return_value=None) as sleep:
-                with self.assertRaises(PermissionError):
-                    self.bi._atomic_write_text(target, "x")
+    def test_fence_failure_is_a_structured_build_failure(self):
+        _make_repo(self.root, {"src/foo.py": "def f(): pass\n"})
+        store = self.bi._get_index_state_store()
+        with patch.object(store, "begin_build_epoch", side_effect=RuntimeError("fence write failed")):
+            result = self._run_build(full=True)
+        self.assertTrue(result.get("failed"))
+        self.assertIn("could not open the build epoch", result["failure"])
+        self.assertIsNone(self.iss.build_epoch_token(self.index_dir))
 
-        self.assertEqual(calls["n"], 1)
-        sleep.assert_not_called()
+    def test_bookkeeping_failure_leaves_epoch_incomplete(self):
+        _make_repo(self.root, {"src/foo.py": "def f(): pass\n"})
+        store = self.bi._get_index_state_store()
+        with patch.object(store, "write_build_bookkeeping", side_effect=RuntimeError("locked")):
+            result = self._run_build(full=True)
+        self.assertTrue(result.get("failed"))
+        self.assertIn("canonical build-state write failed", result["failure"])
+        state = self.iss.read_build_state(self.index_dir)
+        self.assertEqual(state["status"], "building",
+                         "a swallowed mandatory-resident failure must not publish")
+        self.assertIsNone(self.iss.build_epoch_token(self.index_dir))
 
-    def test_posix_single_replace_call_on_success(self):
-        # AC-4: POSIX success path calls os.replace exactly once (no retry wrapper active).
-        with tempfile.TemporaryDirectory() as tmp:
-            target = Path(tmp) / "meta.json"
-            real_replace = os.replace
+    def test_mandatory_reconcile_failure_blocks_publication(self):
+        _make_repo(self.root, {"src/foo.py": "def f(): pass\n"})
+        with patch.object(self.bi, "_sync_chunk_derived_state",
+                          return_value={"code": {"error": "fts write failed"}}):
+            result = self._run_build(full=True)
+        self.assertTrue(result.get("failed"))
+        self.assertIsNone(self.iss.build_epoch_token(self.index_dir))
 
-            with patch.object(self.bi.os, "name", "posix"), \
-                 patch.object(self.bi.os, "replace", side_effect=real_replace) as replace:
-                self.bi._atomic_write_text(target, "hello")
+    def test_finalize_cas_miss_is_a_failed_publication(self):
+        _make_repo(self.root, {"src/foo.py": "def f(): pass\n"})
+        store = self.bi._get_index_state_store()
+        with patch.object(store, "finalize_build_epoch", return_value=False):
+            result = self._run_build(full=True)
+        self.assertTrue(result.get("failed"))
+        self.assertIsNone(self.iss.build_epoch_token(self.index_dir))
 
-            self.assertEqual(replace.call_count, 1)
-            self.assertEqual(target.read_text(encoding="utf-8"), "hello")
+    def test_recovery_after_failure_heals_idempotently(self):
+        """Bounded retry contract: after an injected failure the NEXT ordinary
+        build converges — no manual repair step, no false completion left over."""
+        _make_repo(self.root, {"src/foo.py": "def f(): pass\n"})
+        store = self.bi._get_index_state_store()
+        with patch.object(store, "write_build_bookkeeping", side_effect=RuntimeError("locked")):
+            self._run_build(full=True)
+        self.assertIsNone(self.iss.build_epoch_token(self.index_dir))
+        result = self._run_build(full=False)
+        self.assertFalse(result.get("failed"))
+        self.assertIsNotNone(self.iss.build_epoch_token(self.index_dir))
+
+    def test_standalone_fts_rebuild_holds_its_own_epoch(self):
+        _make_repo(self.root, {"src/foo.py": "def f(): pass\n"})
+        self._run_build(full=True)
+        gen = self._generation()
+        with contextlib.redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            stats = self.bi.rebuild_derived_chunk_state(self.index_dir, verbose=False)
+        self.assertNotIn("error", stats)
+        self.assertEqual(self._generation(), gen + 1)
+        self.assertIsNotNone(self.iss.build_epoch_token(self.index_dir))
+
+    def test_optimize_holds_its_own_epoch(self):
+        _make_repo(self.root, {"src/foo.py": "def f(): pass\n"})
+        self._run_build(full=True)
+        gen = self._generation()
+        with contextlib.redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            results = self.bi.optimize_index_tables(self.index_dir)
+        self.assertNotIn("error", results)
+        self.assertNotIn("finalize", results)
+        self.assertEqual(self._generation(), gen + 1)
+        self.assertIsNotNone(self.iss.build_epoch_token(self.index_dir))
+
+
+    def test_scoped_build_escalates_after_store_reset(self):
+        """Review refutation: a scoped build over a reset store (Lance tables
+        present, no provenance) must escalate to all-layer convergence — it
+        may not publish `complete` around the unprovenanced table."""
+        _make_repo(self.root, {
+            "src/foo.py": "def f(): return 1\n",
+            "docs/guide.md": "## Intro\n\nHello.\n",
+        })
+        self._run_build(full=True)
+        for suffix in ("", "-wal", "-shm"):
+            p = self.index_dir / f"index-state.sqlite{suffix}"
+            if p.exists():
+                p.unlink()
+        # Scoped docs request over the reset store.
+        docs_mock = _make_embedder_mock(dim=4)
+        code_mock = _make_embedder_mock(dim=4)
+        with redirect_stderr(io.StringIO()) as err, \
+             patch.object(self.bi, "_get_embedder", side_effect=[docs_mock, code_mock]):
+            result = self.bi.build_index(self.root, full=False, content="docs", verbose=False)
+        self.assertFalse(result.get("failed"))
+        self.assertIn("escalating content='docs' to all-layer convergence", err.getvalue())
+        snapshot = _read_meta_store(self.index_dir)
+        self.assertTrue((snapshot.get("model_versions") or {}).get("docs"))
+        self.assertTrue((snapshot.get("model_versions") or {}).get("code"),
+                        "escalation must restore the code layer's provenance")
+        self.assertIsNotNone(self.iss.build_epoch_token(self.index_dir))
+
+    def test_schema_bumped_store_converges_before_decisions(self):
+        """Review reproduction (reset-after-front-gate): a store on an OLD
+        schema version still exposes its pre-reset provenance to read-only
+        loads, so the lazily-triggered reset used to fire AFTER the front
+        gate and staleness reads — a scoped build idled to a complete epoch
+        over freshly-erased state. The build must settle store currency
+        FIRST, so the reset store presents empty provenance (escalation) and
+        empty layer state (all stale)."""
+        _make_repo(self.root, {
+            "src/foo.py": "def f(): return 1\n",
+            "docs/guide.md": "## Intro\n\nHello.\n",
+        })
+        self._run_build(full=True)
+        # Force the review's exact pre-state: old schema version + no build_state.
+        import sqlite3
+        conn = sqlite3.connect(str(self.index_dir / "index-state.sqlite"))
+        with conn:
+            conn.execute("UPDATE meta SET value = '5' WHERE key = 'store_schema_version'")
+            conn.execute("DROP TABLE build_state")
+        conn.close()
+        docs_mock = _make_embedder_mock(dim=4)
+        code_mock = _make_embedder_mock(dim=4)
+        with redirect_stderr(io.StringIO()) as err, \
+             patch.object(self.bi, "_get_embedder", side_effect=[docs_mock, code_mock]):
+            result = self.bi.build_index(self.root, full=False, content="docs", verbose=False)
+        self.assertFalse(result.get("failed"))
+        self.assertFalse(result.get("up_to_date"),
+                         "a version-reset store must never idle to up_to_date")
+        self.assertIn("escalating content='docs' to all-layer convergence", err.getvalue())
+        state = self.iss.read_build_state(self.index_dir)
+        self.assertEqual(state["status"], "complete")
+        self.assertNotIn("idle-maintenance", state["scope"])
+        snapshot = _read_meta_store(self.index_dir)
+        self.assertTrue((snapshot.get("model_versions") or {}).get("docs"))
+        self.assertTrue((snapshot.get("model_versions") or {}).get("code"),
+                        "all-layer convergence must restore both provenances")
+
+    def test_completion_rear_guard_is_wired_before_finalize(self):
+        """Source pin for the rear guard: the unprovenanced-table verification
+        sits between the bookkeeping write and the finalize CAS."""
+        src = (SCRIPTS_ROOT / "indexer.py").read_text(encoding="utf-8")
+        bookkeeping = src.index("write_build_bookkeeping(index_dir, new_meta)")
+        guard = src.index("_unprovenanced_at_publish", bookkeeping)
+        finalize = src.index("finalize_build_epoch(index_dir, _build_attempt)", guard)
+        self.assertGreater(finalize, guard)
+
+    def test_fts_rebuild_refuses_without_completed_epoch(self):
+        """Review refutation (empty-FTS false completion): the derived rebuild
+        may only RESTORE readiness — on an uninitialized or building store it
+        refuses and never manufactures a complete epoch."""
+        self.index_dir.mkdir(parents=True, exist_ok=True)
+        stats = self.bi.rebuild_derived_chunk_state(self.index_dir, verbose=False)
+        self.assertIn("no completed build epoch", stats.get("error", ""))
+        self.assertIsNone(self.iss.build_epoch_token(self.index_dir))
+        # Same over a mid-build (building) store.
+        self.iss.begin_build_epoch(self.index_dir, "in-flight")
+        stats2 = self.bi.rebuild_derived_chunk_state(self.index_dir, verbose=False)
+        self.assertIn("no completed build epoch", stats2.get("error", ""))
+        self.assertIsNone(self.iss.build_epoch_token(self.index_dir))
+
+    def test_optimize_refuses_without_completed_epoch(self):
+        with tempfile.TemporaryDirectory() as td:
+            index_dir = Path(td)
+            (index_dir / "docs.lance").mkdir()
+            results = self.bi.optimize_index_tables(index_dir, ("docs",))
+            self.assertIn("no completed build epoch", results.get("error", ""))
+            self.assertIsNone(self.iss.build_epoch_token(index_dir))
+
+    def test_optimize_error_does_not_finalize_readiness(self):
+        """Review refutation: a Tier-3/error reclaim result leaves the epoch
+        un-finalized — readers fail closed instead of trusting an in-place
+        rewrite that ended in unknown state."""
+        _make_repo(self.root, {"src/foo.py": "def f(): pass\n"})
+        self._run_build(full=True)
+        gen = self._generation()
+
+        class _BrokenTable:
+            def count_rows(self):
+                raise RuntimeError("unreadable")
+            def to_arrow(self):
+                raise RuntimeError("unreadable")
+
+        class _BrokenDB:
+            def open_table(self, name):
+                raise RuntimeError("unreadable")
+
+        with patch.object(self.bi, "_get_lance_db", return_value=_BrokenDB()):
+            results = self.bi.optimize_index_tables(self.index_dir)
+        self.assertIn("finalize", results)
+        self.assertIn("NOT finalized", results["finalize"]["error"])
+        # Fail-closed: no complete token, generation not advanced.
+        self.assertIsNone(self.iss.build_epoch_token(self.index_dir))
+        self.assertEqual(self._generation(), gen)
+        # And an ordinary rebuild restores readiness afterwards.
+        (self.root / "src" / "foo.py").write_text("def f(): return 2\n", encoding="utf-8")
+        recover = self._run_build(full=False)
+        self.assertFalse(recover.get("failed"))
+        self.assertIsNotNone(self.iss.build_epoch_token(self.index_dir))
+
+    def test_unchanged_retry_heals_a_dirty_epoch(self):
+        """Review refutation (dirty-epoch unchanged-retry lockout): zero
+        changes + a `building` epoch must run recovery and republish — never
+        report up_to_date over a permanently failed-closed store."""
+        _make_repo(self.root, {"src/foo.py": "def f(): pass\n"})
+        self._run_build(full=True)
+        gen = self._generation()
+        # Simulate a builder that died between fence and finalize.
+        self.iss.begin_build_epoch(self.index_dir, "code:crashed")
+        self.assertIsNone(self.iss.build_epoch_token(self.index_dir))
+        with redirect_stderr(io.StringIO()) as err:
+            result = self.bi.build_index(self.root, full=False, content="all", verbose=False)
+        self.assertTrue(result["up_to_date"])
+        self.assertIn("zero-change recovery", err.getvalue())
+        # Readiness restored: complete token, generation advanced past the crash.
+        self.assertIsNotNone(self.iss.build_epoch_token(self.index_dir))
+        self.assertGreater(self._generation(), gen)
+        # A second unchanged run over the now-complete epoch is a TRUE no-op.
+        gen2 = self._generation()
+        result2 = self.bi.build_index(self.root, full=False, content="all", verbose=False)
+        self.assertTrue(result2["up_to_date"])
+        self.assertEqual(self._generation(), gen2)
+
+    def test_recovery_refuses_when_claimed_table_is_missing(self):
+        """Independent-review F1: zero-change recovery must not republish a
+        canonical state that claims a layer whose Lance table is gone — it
+        resets that layer's state and fails visibly; the next ordinary build
+        reconstructs the table and only then restores readiness."""
+        _make_repo(self.root, {
+            "src/foo.py": "def f(): return 1\n",
+            "docs/guide.md": "## Intro\n\nHello.\n",
+        })
+        self._run_build(full=True)
+        # Crash simulation + out-of-band table loss for a layer with
+        # registry rows. Scoped content='code' is the reviewer's exact
+        # reproduction: docs drift-candidacy is out of scope there, so only
+        # the recovery guard stands between the loss and republication.
+        self.iss.begin_build_epoch(self.index_dir, "code:crashed")
+        import shutil
+        shutil.rmtree(self.index_dir / "docs.lance")
+        with redirect_stderr(io.StringIO()):
+            result = self.bi.build_index(self.root, full=False, content="code", verbose=False)
+        self.assertTrue(result.get("failed"))
+        self.assertIn("Lance table is missing", result["failure"])
+        self.assertIsNone(self.iss.build_epoch_token(self.index_dir),
+                          "recovery must not publish over a missing claimed table")
+        # The reset layer state makes the next ordinary build reconstruct.
+        docs_mock = _make_embedder_mock(dim=4)
+        code_mock = _make_embedder_mock(dim=4)
+        with redirect_stderr(io.StringIO()), \
+             patch.object(self.bi, "_get_embedder", side_effect=[docs_mock, code_mock]):
+            recover = self.bi.build_index(self.root, full=False, content="all", verbose=False)
+        self.assertFalse(recover.get("failed"))
+        self.assertTrue((self.index_dir / "docs.lance").is_dir())
+        self.assertIsNotNone(self.iss.build_epoch_token(self.index_dir))
+
+    def test_cli_exits_nonzero_on_structured_failure(self):
+        """Review refutation: a {failed: true} build must exit 1 through the
+        CLI so setup/MCP subprocess callers see the failure."""
+        _make_repo(self.root, {"src/foo.py": "def f(): pass\n"})
+        with patch.object(self.bi, "build_index",
+                          return_value={"failed": True, "failure": "injected"}), \
+             redirect_stderr(io.StringIO()) as err:
+            rc = self.bi.main(["--root", str(self.root), "--content", "all"])
+        self.assertEqual(rc, 1)
+        self.assertIn("injected", err.getvalue())
+        with patch.object(self.bi, "build_index", return_value={"up_to_date": True}):
+            self.assertEqual(self.bi.main(["--root", str(self.root), "--content", "all"]), 0)
+
+    def test_fresh_process_kill_between_fence_and_finalize_fails_closed(self):
+        """AC-7/AC-9 kill fixture: a builder killed after the durable fence
+        leaves building/no-token for a FRESH process; the next ordinary build
+        restores readiness."""
+        _make_repo(self.root, {"src/foo.py": "def f(): pass\n"})
+        self._run_build(full=True)
+        gen = self._generation()
+        script = (
+            "import sys, os\n"
+            "from pathlib import Path\n"
+            "import importlib.util\n"
+            f"spec = importlib.util.spec_from_file_location('iss', {str(SCRIPTS_ROOT / 'index_state_store.py')!r})\n"
+            "mod = importlib.util.module_from_spec(spec)\n"
+            "spec.loader.exec_module(mod)\n"
+            f"mod.begin_build_epoch(Path({str(self.index_dir)!r}), 'kill:test')\n"
+            "os._exit(9)\n"
+        )
+        proc = subprocess.run([sys.executable, "-c", script], capture_output=True)
+        self.assertEqual(proc.returncode, 9)
+        # Fresh reader view: interrupted build = building + fail-closed token.
+        state = self.iss.read_build_state(self.index_dir)
+        self.assertEqual(state["status"], "building")
+        self.assertIsNone(self.iss.build_epoch_token(self.index_dir))
+        # Ordinary recovery: the next mutating build supersedes the dead
+        # attempt and publishes a fresh complete epoch.
+        (self.root / "src" / "foo.py").write_text("def f(): return 9\n", encoding="utf-8")
+        result = self._run_build(full=False)
+        self.assertFalse(result.get("failed"))
+        self.assertIsNotNone(self.iss.build_epoch_token(self.index_dir))
+        self.assertGreater(self._generation(), gen)
 
 
 if __name__ == "__main__":

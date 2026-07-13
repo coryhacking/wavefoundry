@@ -154,7 +154,7 @@ def _project_index_inputs_stale(root: Path, meta: dict[str, Any]) -> bool | None
 
 
 def _index_is_stale(root: Path, layer: str = "project") -> bool:
-    """Return True if the selected index layer is missing or its inputs differ from meta.json.
+    """Return True if the selected index layer is missing or its inputs differ from the store snapshot.
 
     Staleness is derived from the index ``file_meta`` snapshot (and related meta fields),
     not from git history or working-tree dirtiness. Uncommitted or committed git changes
@@ -162,14 +162,24 @@ def _index_is_stale(root: Path, layer: str = "project") -> bool:
     """
     if layer not in _INDEX_LAYERS:
         raise ValueError(f"Unsupported index layer: {layer}")
-    meta_path = root / ".wavefoundry" / "index" / "meta.json"
-    if not meta_path.exists():
-        return True
+    # 1sed6: readiness = the store's completed build epoch; state = the
+    # store snapshot (meta.json retired).
+    index_dir = root / ".wavefoundry" / "index"
     try:
-        meta = json.loads(meta_path.read_text(encoding="utf-8"))
-        if not meta.get("built_at", ""):
+        import importlib.util as _ilu
+        _spec = _ilu.spec_from_file_location(
+            "index_state_store",
+            Path(__file__).resolve().parent / "index_state_store.py",
+        )
+        _iss = _ilu.module_from_spec(_spec)
+        _spec.loader.exec_module(_iss)
+        if _iss.build_epoch_token(index_dir) is None:
             return True
-    except (OSError, json.JSONDecodeError, ValueError):
+        # Full per-file snapshot is REQUIRED here (bounded-read exception):
+        # this IS the staleness compare against current file inputs, and it
+        # runs on the daemon's periodic timer, never the HTTP request path.
+        meta = _iss.export_meta_snapshot(index_dir) or {}
+    except Exception:
         return True
 
     project_file_meta_stale = _project_index_inputs_stale(root, meta)

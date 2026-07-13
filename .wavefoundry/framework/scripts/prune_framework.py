@@ -49,7 +49,10 @@ def _read_manifest(path: Path) -> set[str]:
 def _prune_meta_json(framework_dir: Path, removed: set[str], *, dry_run: bool = False) -> bool:
     """Remove pruned paths from framework index meta.json.
 
-    Returns True when the file was updated.
+    LEGACY-ONLY (1sed6): the separately indexed framework layer was retired
+    (1p4xx) and live indexes no longer write meta.json at all — this runs
+    only against a leftover pre-retirement framework index dir and is a
+    no-op everywhere else. Returns True when the file was updated.
     """
     if not removed:
         return False

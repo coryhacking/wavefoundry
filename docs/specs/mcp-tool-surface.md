@@ -207,6 +207,28 @@ those conditions is `semantic_model_unavailable_offline` or `index_not_ready`.
 - `index_missing` and `index_stale` diagnostics are not emitted by `docs_search`; call
 `wave_index_health` explicitly to check whether an index layer is stale or absent
 before deciding whether to run `wf update-indexes`.
+- **Epoch seqlock (wave 1sed7, review-hardened):** `docs_search`, `code_search`,
+`code_ask`, `code_lexical`, and `seed_get` validate the store's complete build-epoch
+token before and after the indexed operation, and the post-compare is UNCONDITIONAL —
+any change (including a build publishing mid-operation, None → complete) discards
+results and returns a structured `index_not_ready` error rather than a mixed-epoch
+result set. `code_search`, `code_ask`, and `code_lexical` also refuse up front when no
+complete epoch exists (indexed code retrieval has no sanctioned degraded path — this
+also prevents keyword/graph stages from surfacing citations labeled current over a
+not-ready index). `docs_search`'s live-filesystem walk and `seed_get`'s on-disk seed
+read remain the two sanctioned degraded paths, valid only under a STABLE None token.
+- **Graph builds on a reset store (wave 1sed7):** `wave_index_build(content='graph')`
+normally touches only the structural graph (no semantic embedding). The one exception:
+on a store whose canonical state lost provenance for a present Lance table (whole-store
+reset or legacy install), ANY scoped build — including graph — escalates to all-layer
+convergence first, because graph builds publish a completion epoch and completing around
+an unprovenanced table would break the global `complete` contract. This is a one-time
+integrity-over-latency trade after a reset; the build log states the escalation reason.
+- **Build status epoch (wave 1sed7):** `wave_index_build_status` carries an `epoch`
+object (`status`, `generation`, `scope`, `interrupted`) on every response, and reports
+`state: "interrupted"` — never `idle` — when the store records a `building` epoch with
+no live builder (a crashed build; readers are failed closed until an ordinary
+`wave_index_build` run heals the epoch, which an unchanged retry does automatically).
 - `kind` is returned as an empty string `""` in the response (not `null`) when no filter
 is applied.
 - Returns path, section, score, excerpt, trust label, stable result ID, and the
@@ -392,8 +414,10 @@ All tools: on apply/create, request a background docs-index refresh for the new 
 
 - Returns the semantic index health for the single project index (the project `docs` and `code` tables; framework seeds and the top-level `README` are folded into the project `docs` table at setup/upgrade).
 - Each layer object includes `readiness`: `missing` (sources exist but index artifacts absent),
-`stale` (hash drift vs `meta.json`), `current` (metadata and `docs.json` present and not stale),
-or `idle` (no tracked sources for that layer).
+`stale` (hash drift vs the store's build snapshot), `current` (a completed build epoch exists and
+inputs are not stale), or `idle` (no tracked sources for that layer). All state comes from
+`index-state.sqlite` (wave 1sed7 — there is no `meta.json`); "metadata present" means the store
+has a completed build epoch, and a `building`/interrupted epoch reads as not ready.
 - Top-level `readiness_overview` summarizes the whole index: `incomplete` (any missing layer),
 `needs_update` (any stale layer), `degraded` (metadata present but merged chunks did not load),
 `absent` (no layer has index metadata), or `ready` (aligned with `semantic_ready` true).

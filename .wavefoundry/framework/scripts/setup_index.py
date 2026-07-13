@@ -552,7 +552,12 @@ def _optimize_after_build(root: Path) -> None:
     except Exception as exc:  # noqa: BLE001 - reclaim is best-effort
         print(f"index optimize skipped: {exc}", flush=True)
         return
+    if isinstance((results or {}).get("error"), str):
+        print(f"index optimize skipped: {results['error']}", flush=True)
+        return
     for name, res in (results or {}).items():
+        if not isinstance(res, dict):
+            continue
         before = int(res.get("bytes_before") or 0)
         after = int(res.get("bytes_after") or 0)
         if before and after < before:
@@ -2118,6 +2123,17 @@ def main(argv: list[str] | None = None) -> int:
         # Stall watchdog abort: exit clean with the stage-named message, matching the
         # venv/deps/model-warm deadline convention (no raw traceback, exit code 2).
         print(str(exc), file=sys.stderr)
+        return 2
+    except subprocess.CalledProcessError as exc:
+        # 1sed6 review F6: the indexer subprocess now exits non-zero on a
+        # structured build failure (epoch left incomplete on purpose). Exit
+        # clean with the stage-named message instead of a raw traceback.
+        print(
+            f"index build failed (exit {exc.returncode}) — the build epoch was left "
+            "incomplete and search readers fail closed. See the build output above; "
+            "rerun setup (or wave_index_build) after fixing the cause.",
+            file=sys.stderr,
+        )
         return 2
     # Wave 1p9aj: reclaim any accumulated table bloat now that the synchronous build has released the
     # build lock and before the background code build (if any) is spawned — so it never races a build.

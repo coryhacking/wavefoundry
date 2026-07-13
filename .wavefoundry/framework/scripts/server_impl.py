@@ -640,7 +640,7 @@ class WaveIndex:
         """Compute health metadata for the project index layer.
 
         Walks the repo and hashes every indexed file, then compares the result
-        against the hashes stored in ``meta.json``.  Paths where the digest
+        against the store's recorded build hashes (1sed6).  Paths where the digest
         differs (or that are present in one set but not the other) are reported
         as ``stale_paths``.  This is an O(total-indexed-bytes) operation — call
         it only via the explicit ``wave_index_health`` MCP tool, never on the
@@ -648,7 +648,6 @@ class WaveIndex:
         """
         layer = "project"
         index_dir = self.index_dir
-        meta_path = index_dir / "meta.json"
         docs_lance_path = index_dir / "docs.lance"
         meta = self._meta.get(layer) if self._loaded else {}
         if not isinstance(meta, dict):
@@ -680,7 +679,7 @@ class WaveIndex:
         )
         stale_paths = sorted(set(modified_paths) | set(added_paths) | set(removed_paths))
         docs_present = docs_lance_path.is_dir()
-        meta_present = meta_path.exists()
+        meta_present = _store_has_completed_build(index_dir)  # 1sed6: epoch, not a file
         raw_chunker_versions = meta.get("chunker_versions", {})
         indexed_chunker_versions: dict[str, str] = (
             raw_chunker_versions if isinstance(raw_chunker_versions, dict) else {}
@@ -846,27 +845,39 @@ class WaveIndex:
         ranked.sort(key=lambda chunk: (-float(chunk["score"]), str(chunk.get("path") or ""), str(chunk.get("section") or "")))
         return ranked[:top_n]
 
-    def _index_meta_signature(self, index_dir: Path) -> tuple[int, int] | None:
-        meta_path = index_dir / "meta.json"
+    def _index_meta_signature(self, index_dir: Path) -> "tuple[str, int] | None":
+        """1sed6: the reload-invalidation signal is the store's build epoch
+        token ``(attempt_id, generation)`` — complete builds only. ``None``
+        means not ready / building / interrupted (readers fail closed);
+        SQLite file mtime is never consulted (WAL makes it meaningless)."""
         try:
-            st = meta_path.stat()
-        except OSError:
+            iss = _load_script("index_state_store")
+        except Exception:
             return None
-        return (int(getattr(st, "st_mtime_ns", 0) or 0), int(getattr(st, "st_size", 0) or 0))
+        try:
+            return iss.build_epoch_token(index_dir)
+        except Exception:
+            return None
 
     def _ensure_loaded(self) -> None:
         if self._loaded:
-            # Invalidate if the index has been rebuilt since we last loaded.
+            # Invalidate if the index has been rebuilt since we last loaded
+            # (generation advanced) or the epoch is no longer complete.
             project_signature = self._index_meta_signature(self.index_dir)
-            if project_signature != self._loaded_meta_signature.get("project"):
+            if project_signature is None or project_signature != self._loaded_meta_signature.get("project"):
                 self._loaded = False
         if self._loaded:
             return
 
-        if not (self.index_dir / "meta.json").exists():
+        _token = self._index_meta_signature(self.index_dir)
+        if _token is None:
+            # 1sed6 fail-closed contract: no completed build epoch — the
+            # store is absent, uninitialized, mid-build, or interrupted.
             raise IndexNotReadyError(
-                f"Index not found at {self.index_dir}. "
-                "Run: python3 .wavefoundry/framework/scripts/setup_wavefoundry.py"
+                f"Index state at {self.index_dir} has no completed build epoch "
+                "(absent, building, or interrupted). "
+                "Run: python3 .wavefoundry/framework/scripts/setup_wavefoundry.py "
+                "or wave_index_build(content='all', mode='update')."
             )
 
         def _load_lance_table(index_dir: Path, table_name: str):
@@ -908,19 +919,18 @@ class WaveIndex:
                 self._lance_available.add(("project", kind))
 
         def _load_meta_only(index_dir: Path) -> dict:
-            meta_path = index_dir / "meta.json"
-            if meta_path.exists():
-                try:
-                    return json.loads(meta_path.read_text(encoding="utf-8"))
-                except (json.JSONDecodeError, OSError):
-                    return {}
-            return {}
+            # 1sed6: build-state snapshot from the store (meta.json retired).
+            try:
+                iss = _load_script("index_state_store")
+                return iss.export_meta_snapshot(index_dir) or {}
+            except Exception:
+                return {}
 
         self._meta = {
             "project": _load_meta_only(self.index_dir),
         }
         self._loaded_meta_signature = {
-            "project": self._index_meta_signature(self.index_dir),
+            "project": _token,
         }
         self._loaded = True
 
@@ -2117,8 +2127,8 @@ class WaveIndex:
         return difflib.get_close_matches(name, stems, n=limit, cutoff=0.4)
 
     def is_stale(self) -> bool:
-        """Return True if the index may be out of date (no meta or missing files)."""
-        return not (self.index_dir / "meta.json").exists()
+        """Return True if the index may be out of date (no completed build epoch)."""
+        return not _store_has_completed_build(self.index_dir)
 
 
 # ---------------------------------------------------------------------------
@@ -3505,17 +3515,82 @@ def _index_dir_for_layer(root: Path, layer: str = "project") -> Path:
     raise ValueError(f"Unsupported layer '{layer}'.")
 
 
+def _store_build_meta(index_dir: Path) -> dict[str, Any]:
+    """1sed6: the build-state snapshot from the index-state store — the only
+    build-metadata read path (meta.json retired). Empty dict when the store
+    is absent/unreadable (callers treat as no prior state)."""
+    try:
+        iss = _load_script("index_state_store")
+        return iss.export_meta_snapshot(index_dir) or {}
+    except Exception:
+        return {}
+
+
+def _epoch_token(root: Path) -> "tuple[str, int] | None":
+    """The reader epoch token (1sed6): ``(attempt_id, generation)`` of the
+    COMPLETE build epoch, or None when the index is not servable (absent,
+    uninitialized, mid-build, interrupted, unreadable). Cheap: one short
+    read-only query, never held across the operation."""
+    try:
+        iss = _load_script("index_state_store")
+        return iss.build_epoch_token(root / ".wavefoundry" / "index")
+    except Exception:
+        return None
+
+
+def _epoch_state(root: Path) -> "tuple[str, str, int] | None":
+    """The ABA-proof consistency token (1sed6 review fix): the full build-state
+    row ``(attempt_id, status, generation)`` in ANY state; None only when the
+    store is absent/unreadable. Used for the pre/post seqlock compare at every
+    tool — unlike the complete-only ``_epoch_token``, it distinguishes
+    ``building A`` from ``building B``, so an operation that straddled a
+    finalize + re-fence (both endpoints "not ready") is still discarded."""
+    try:
+        iss = _load_script("index_state_store")
+        return iss.build_epoch_state_token(root / ".wavefoundry" / "index")
+    except Exception:
+        return None
+
+
+def _index_rebuilding_response(tool: str, payload: dict) -> dict[str, Any]:
+    """Structured not-ready/rebuilding result (1sed6 AC-4): the index has no
+    complete epoch, or it changed while the operation ran — results (if any)
+    were discarded rather than served as current."""
+    return _response(
+        "error", payload,
+        diagnostics=[_diagnostic(
+            "index_not_ready",
+            "The semantic index has no completed build epoch (building, interrupted, "
+            "or not yet built) or it changed while this query ran — results were "
+            "discarded rather than served from a mixed index state. Check "
+            "wave_index_build_status; retry after the build completes.",
+            recovery_tools=["wave_index_build_status", "wave_index_build"],
+            recovery_usage="wave_index_build_status()",
+        )],
+        next_tools=["wave_index_build_status"],
+        usage="wave_index_build_status()",
+    )
+
+
+def _store_has_completed_build(index_dir: Path) -> bool:
+    """True when the store's build epoch is `complete` (1sed6 readiness)."""
+    try:
+        iss = _load_script("index_state_store")
+        return iss.build_epoch_token(index_dir) is not None
+    except Exception:
+        return False
+
+
 def _read_index_rebuild_stats(root: Path, layer: str) -> dict[str, Any]:
     index_dir = _index_dir_for_layer(root, layer)
-    meta_path = index_dir / "meta.json"
 
     meta: dict[str, Any] = {}
     doc_chunks = 0
     code_chunks = 0
 
-    if meta_path.is_file():
+    if True:
         try:
-            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            meta = _store_build_meta(index_dir)
         except (OSError, json.JSONDecodeError):
             meta = {}
 
@@ -3549,7 +3624,7 @@ def _index_is_up_to_date(root: Path, layer: str, content: str = "docs") -> bool:
     import subprocess
     scripts_dir = Path(__file__).resolve().parent
     index_dir = _index_dir_for_layer(root, layer)
-    if not (index_dir / "meta.json").exists():
+    if not _store_has_completed_build(index_dir):
         return False
     if layer == "project" and content in {"all", "graph"}:
         # setup_index.py (all) and graph-only mode don't support --dry-run; treat as always stale
@@ -3970,6 +4045,21 @@ def run_index_rebuild(
         except idx_mod.IndexBuildAlreadyRunning:
             return _fts_busy
         _fts_ms = round((time.monotonic() - _fts_t0) * 1000)
+        # Independent-review N1: the restore-only refusal is a TOP-LEVEL
+        # {"error": str} — it must fail this response, not slip past the
+        # dict-only comprehensions as passed=True.
+        if isinstance(tables.get("error"), str):
+            return {
+                "passed": False,
+                "already_running": False,
+                "content": "fts",
+                "mode": "derived-rebuild",
+                "index_scope": "derived_chunk_state_only",
+                "layer": layer,
+                "error": tables["error"],
+                "duration_ms": _fts_ms,
+                "notice": tables["error"],
+            }
         rows = {k: v.get("rows_written") for k, v in tables.items() if isinstance(v, dict)}
         errors = {k: v.get("error") for k, v in tables.items()
                   if isinstance(v, dict) and v.get("error")}
@@ -4039,38 +4129,18 @@ def run_index_rebuild(
     if not full and not rechunk and _index_is_up_to_date(root, layer, content):
         # Wave 1p31b (1p312): even when files are up-to-date, LanceDB rows for
         # paths now excluded by workflow-config narrowing must be reaped. The
-        # bug is invisible to ``_index_is_up_to_date`` (meta.json was already
+        # bug is invisible to ``_index_is_up_to_date`` (the build state was already
         # cleaned of the dropped paths) but the LanceDB rows persist until a
         # full rebuild. Run the reaper directly here — no subprocess spawn
         # needed; the reaper is O(LanceDB row count) and finishes in <100ms
         # on tables up to ~5K rows.
-        index_dir_uptd = _index_dir_for_layer(root, layer)
+        # 1sed6: the former in-process reaper here was a WRITER BYPASS — it
+        # mutated Lance without the build lock or epoch. Reaping now lives
+        # exclusively in the indexer's zero-change maintenance path (read-only
+        # plan → fenced execute), which every real build (including the
+        # content=all hook builds) runs; the short-circuit response no longer
+        # mutates anything.
         reaped_uptd: dict[str, int] = {"docs": 0, "code": 0, "total": 0}
-        try:
-            from indexer import _reap_stranded_lance_rows  # late import: heavy module
-            meta_uptd_path = index_dir_uptd / "meta.json"
-            if meta_uptd_path.exists():
-                try:
-                    meta_uptd = json.loads(meta_uptd_path.read_text(encoding="utf-8"))
-                except Exception:
-                    meta_uptd = {}
-                eligible_uptd = {
-                    p for p in (meta_uptd.get("file_meta") or {}).keys() if isinstance(p, str)
-                }
-                # Reap both tables regardless of ``content`` arg: a docs-only
-                # update must still reap code-table orphans (and vice versa).
-                # See indexer._reap_stranded_lance_rows for rationale.
-                if eligible_uptd:
-                    reaped_uptd = _reap_stranded_lance_rows(
-                        index_dir_uptd,
-                        eligible_uptd,
-                        tables=("docs", "code"),
-                    )
-        except Exception:
-            # Reaper is best-effort on the up-to-date hot path; never block a
-            # successful response on a reaper failure. The next non-up-to-date
-            # build will retry via the subprocess path.
-            pass
         return {
             "passed": True,
             "already_running": False,
@@ -6646,10 +6716,15 @@ def _maybe_optimize_index_on_close(root: Path) -> Optional[dict[str, Any]]:
                         "ratios": {t: round(ratios[t], 2) for t in bloated}}
             return {"ran": False, "skipped": "optimize_error", "error": str(exc),
                     "bloated_tables": bloated}
+        if isinstance((results or {}).get("error"), str):
+            return {"ran": False, "skipped": "index_not_ready", "error": results["error"],
+                    "bloated_tables": bloated}
         reclaimed_total = 0
         deferred_rebuild: list[str] = []
         tables_out: dict[str, Any] = {}
         for t, res in (results or {}).items():
+            if not isinstance(res, dict):
+                continue
             before = int(res.get("bytes_before") or 0)
             after = int(res.get("bytes_after") or 0)
             reclaimed = max(0, before - after)
@@ -6676,7 +6751,7 @@ def _maybe_optimize_index_on_close(root: Path) -> Optional[dict[str, Any]]:
 def wave_index_health_response(index: WaveIndex) -> dict[str, Any]:
     """Return structured health status for the project index layer.
 
-    Runs file-hash comparison against meta.json and reports missing, stale, or
+    Runs file-hash comparison against the store's recorded build hashes and reports missing, stale, or
     ready state.  Wave 1p4ww folded the framework docs into this single project
     index.  Intended as an explicit diagnostic tool; not on the search hot path.
     """
@@ -7509,11 +7584,31 @@ def _wave_index_optimize_response(
             next_tools=["wave_index_health"],
             usage="wave_index_health()",
         )
+    # Independent-review N2: the restore-only refusal is a top-level
+    # {"error": str}; iterating it as per-table dicts raised AttributeError.
+    if isinstance(results.get("error"), str):
+        return _response(
+            "error",
+            {"error": results["error"]},
+            diagnostics=[_diagnostic(
+                "index_not_ready",
+                results["error"],
+                recovery_tools=["wave_index_build"],
+                recovery_usage="wave_index_build(content='all')",
+            )],
+            next_tools=["wave_index_build"],
+            usage="wave_index_build(content='all')",
+        )
+    # 1sed6: a dirty optimize deliberately leaves the epoch un-finalized —
+    # surface that as a diagnostic instead of listing "finalize" as a table.
+    _finalize_note = results.pop("finalize", None) if isinstance(results, dict) else None
     tables_out: dict[str, Any] = {}
     needs_rebuild: list[str] = []
     total_before = 0
     total_after = 0
     for t, res in results.items():
+        if not isinstance(res, dict):
+            continue
         before = int(res.get("bytes_before") or 0)
         after = int(res.get("bytes_after") or 0)
         total_before += before
@@ -7536,6 +7631,13 @@ def _wave_index_optimize_response(
     if cache:
         cache.invalidate()
     diagnostics = list(store_diagnostics)
+    if isinstance(_finalize_note, dict) and _finalize_note.get("error"):
+        diagnostics.append(_diagnostic(
+            "index_epoch_not_finalized",
+            f"{_finalize_note['error']} Readers fail closed until a build restores readiness.",
+            recovery_tools=["wave_index_build"],
+            recovery_usage="wave_index_build(content='all')",
+        ))
     rebuilt: list[str] = []
     if needs_rebuild and rebuild_if_needed:
         # Tier 3: a table was unreadable for a rewrite. The build lock is released now (optimize_index_tables
@@ -7786,11 +7888,52 @@ def _index_build_lock_info(root: Path) -> dict[str, Any]:
 
 def wave_index_build_status_response(root: Path, layer: str = "project") -> dict[str, Any]:
     """Wrapper (wave 1p99o): attach the authoritative ``lock`` object to every return path so callers
-    ask the classifier, not the by-design-persistent lock file, whether a build is running."""
+    ask the classifier, not the by-design-persistent lock file, whether a build is running.
+
+    1sed6 review fix: also attach the store's build ``epoch`` on every return
+    path, and never report ``idle`` over a non-complete epoch — a builder that
+    died between fence and finalize is ``interrupted`` (readers are failed
+    closed), which callers must see to know a rebuild is required.
+    """
     resp = _wave_index_build_status_response_inner(root, layer=layer)
     data = resp.get("data")
     if isinstance(data, dict):
-        data["lock"] = _index_build_lock_info(root)
+        # Read order matters (review F5): epoch state FIRST, lock second, and
+        # a positive interrupted classification re-reads the state — so a
+        # build finalizing (or starting) between the two reads cannot yield a
+        # one-poll false "interrupted".
+        def _read_epoch() -> dict[str, Any]:
+            out: dict[str, Any] = {"status": "absent", "generation": None, "scope": ""}
+            try:
+                iss = _load_script("index_state_store")
+                state = iss.read_build_state(root / ".wavefoundry" / "index")
+                if state is not None:
+                    out = {
+                        "status": state.get("status"),
+                        "generation": state.get("generation"),
+                        "scope": state.get("scope", ""),
+                    }
+            except Exception:
+                pass
+            return out
+        epoch = _read_epoch()
+        lock_info = _index_build_lock_info(root)
+        data["lock"] = lock_info
+        held = bool(lock_info.get("held")) if isinstance(lock_info, dict) else False
+        if epoch.get("status") == "building" and not held:
+            epoch = _read_epoch()  # double-check: rule out a finalize between reads
+        epoch["interrupted"] = epoch.get("status") == "building" and not held
+        data["epoch"] = epoch
+        if data.get("state") == "idle" and epoch["interrupted"]:
+            data["state"] = "interrupted"
+            resp.setdefault("diagnostics", []).append(_diagnostic(
+                "index_build_interrupted",
+                "The store records a `building` epoch but no build holds the lock — a prior "
+                "builder died between fence and finalize. Readers are failed closed; run "
+                "wave_index_build to recover (an unchanged retry heals the epoch).",
+                recovery_tools=["wave_index_build"],
+                recovery_usage="wave_index_build(content='all')",
+            ))
     return resp
 
 
@@ -17761,7 +17904,21 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         bad = _ensure_no_extra_args("docs_search", kwargs)
         if bad is not None:
             return bad
-        return docs_search_response(get_handler().index, query, kind, limit=limit, tags=tags or None)
+        # 1sed6 seqlock read: capture the complete epoch token before the
+        # whole operation; discard results if it changed underneath. A None
+        # pre-token is allowed here — docs_search's live-filesystem fallback
+        # is the explicitly degraded path for a not-ready index.
+        _tok = _epoch_state(get_handler().root)
+        result = docs_search_response(get_handler().index, query, kind, limit=limit, tags=tags or None)
+        # Review fix (ABA-hardened): the post-compare is UNCONDITIONAL and
+        # uses the FULL state row. A stable pair (same attempt/status/
+        # generation — including a stable not-ready store) is the sanctioned
+        # degraded live-walk; ANY transition — publish mid-operation, or
+        # building A → complete → building B (invisible to the complete-only
+        # token, both endpoints None) — discards the results.
+        if _epoch_state(get_handler().root) != _tok:
+            return _index_rebuilding_response("docs_search", {"query": query})
+        return result
 
     @mcp.tool(annotations=_READONLY_TOOL)
     def code_search(query: str, language: str = "", kind: str = "", max_per_file: int = 0, tags: list = [], limit: int = 7, graph: bool = True, graph_limit: int = 5, layer: str = "project", **kwargs: Any) -> dict[str, Any]:
@@ -17807,7 +17964,21 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         if bad is not None:
             return bad
         t_start = time.monotonic()
+        # 1sed6 seqlock read (review-hardened): strict pre-gate — indexed code
+        # search has NO sanctioned degraded path, so a missing complete epoch
+        # refuses up front (deterministic, and immune to a mid-operation
+        # publication racing the index load) — plus an unconditional
+        # post-compare.
+        # ONE state-token capture (review fix: a separate complete-probe +
+        # state-capture pair left a between-reads window where a writer could
+        # fence and the unchanged building==building post-check passed). The
+        # completeness gate checks the CAPTURED token's own status.
+        _tok = _epoch_state(get_handler().root)
+        if _tok is None or _tok[1] != "complete":
+            return _index_rebuilding_response("code_search", {"query": query})
         result = code_search_response(get_handler().index, query, language, limit=limit, kind=kind or None, max_per_file=max_per_file or None, tags=tags or None)
+        if _epoch_state(get_handler().root) != _tok:
+            return _index_rebuilding_response("code_search", {"query": query})
         result = _augment_with_graph_neighbors_if_enabled(
             result, get_handler().root,
             tool_key="code_search", graph=graph, graph_limit=graph_limit, layer=layer,
@@ -17826,7 +17997,14 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         bad = _ensure_no_extra_args("seed_get", kwargs)
         if bad is not None:
             return bad
-        return seed_get_response(get_handler().index, name)
+        # 1sed6 seqlock read (review fix): seed_get reads indexed chunks (with
+        # a sanctioned disk fallback), so it takes the same whole-operation
+        # fence as docs_search — unconditional post-compare, None pre allowed.
+        _tok = _epoch_state(get_handler().root)
+        result = seed_get_response(get_handler().index, name)
+        if _epoch_state(get_handler().root) != _tok:
+            return _index_rebuilding_response("seed_get", {"name": name})
+        return result
 
     @mcp.tool(annotations=_READONLY_TOOL)
     def code_dependencies(path: str, **kwargs: Any) -> dict[str, Any]:
@@ -18294,7 +18472,19 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         bad = _ensure_no_extra_args("code_ask", kwargs)
         if bad is not None:
             return bad
-        return code_ask_response(get_handler().index, get_handler().root, question, rerank=rerank)
+        # 1sed6 seqlock read (review-hardened): strict pre-gate + unconditional
+        # post-compare around the complete combined operation (vector + FTS +
+        # graph + rerank). Without the pre-gate, a not-ready index let the
+        # keyword/graph stages return citations labeled current.
+        # ONE state-token capture; completeness gate on the captured token
+        # (review fix — no separate probe pair, no between-reads window).
+        _tok = _epoch_state(get_handler().root)
+        if _tok is None or _tok[1] != "complete":
+            return _index_rebuilding_response("code_ask", {"question": question})
+        result = code_ask_response(get_handler().index, get_handler().root, question, rerank=rerank)
+        if _epoch_state(get_handler().root) != _tok:
+            return _index_rebuilding_response("code_ask", {"question": question})
+        return result
 
     # --- Wave inspection ---
 
@@ -19344,7 +19534,17 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         if bad is not None:
             return bad
         t_start = time.monotonic()
+        # 1sed6: FTS is derived from Lance — mid-build/uninitialized state is
+        # mixed and never served as current. Fail closed on a missing epoch,
+        # and discard on a mid-operation change.
+        # ONE state-token capture; completeness gate on the captured token
+        # (review fix — no separate probe pair, no between-reads window).
+        _tok = _epoch_state(get_handler().root)
+        if _tok is None or _tok[1] != "complete":
+            return _index_rebuilding_response("code_lexical", {"query": query})
         result = code_lexical_response(get_handler().root, query, table=table, kind=kind, limit=limit)
+        if _epoch_state(get_handler().root) != _tok:
+            return _index_rebuilding_response("code_lexical", {"query": query})
         return _inject_timing(result, t_start, "code_lexical")
 
     @mcp.tool(annotations=_READONLY_TOOL)
@@ -19987,12 +20187,12 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         _root = get_handler().root
         lines: list[str] = ["# Index Status\n"]
         # Semantic index
-        sem_meta = _root / ".wavefoundry" / "index" / "meta.json"
-        sem_present = sem_meta.exists()
+        _sem_index_dir = _root / ".wavefoundry" / "index"
+        sem_present = _store_has_completed_build(_sem_index_dir)
         lines.append(f"## Semantic Index\n\n**Present:** {'yes' if sem_present else 'no'}\n")
         if sem_present:
             try:
-                meta = json.loads(sem_meta.read_text(encoding="utf-8"))
+                meta = _store_build_meta(_sem_index_dir)
                 files_count = len(meta.get("file_meta") or meta.get("file_hashes") or {})
                 lines.append(f"**Tracked files:** {files_count}\n")
             except Exception:

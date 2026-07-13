@@ -45,4 +45,4 @@ Two review-derived changes: honest, cheap `code_ask` freshness (three states, no
 
 ## Dependencies
 
-- No external wave dependencies. Builds on the shipped 1sbfk (trustworthy FTS) + 1sc7c (fresh FTS, per-layer state). Release candidate: fold into 1.12.1 with `1sbfl`.
+- DEPENDS on wave `1sed7 sqlite-only-index-state` (operator-decided order, 2026-07-12): `1sbxq`'s freshness helper consumes 1sed7's store API (build-state row + generation-keyed invalidation; zero meta.json reads). Builds on the shipped 1sbfk (trustworthy FTS) + 1sc7c (fresh FTS, per-layer state). Release planning updated accordingly.

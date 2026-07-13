@@ -437,21 +437,22 @@ class IndexerWiringTests(unittest.TestCase):
     """Source-assertion wiring locks: the build path calls the store update."""
 
     def test_build_index_locked_wires_store_flow_after_meta_build(self):
-        """Build-end order: bookkeeping write → snapshot export → _save_meta →
-        stranded-row reap → chunk-index reconcile → freshness update (all
-        inside the build lock; the reap precedes the reconcile so FTS/registry
-        never retain reaped content between builds)."""
+        """1sed6 build-end order: bookkeeping write (sole state authority; no
+        meta.json write) → stranded-row reap → chunk-index reconcile →
+        freshness update → attempt-ID-matched epoch finalize → legacy
+        meta.json removal (all inside the build lock; the reap precedes the
+        reconcile so FTS/registry never retain reaped content between
+        builds, and the legacy JSON disappears only after a verified
+        complete epoch)."""
         src = (SCRIPTS_ROOT / "indexer.py").read_text(encoding="utf-8")
         bookkeeping_pos = src.index("write_build_bookkeeping(index_dir, new_meta)")
-        snapshot_pos = src.index("export_meta_snapshot(index_dir)", bookkeeping_pos)
-        save_meta_pos = src.index(
-            "_save_meta(index_dir, _meta_snapshot if _meta_snapshot is not None else new_meta)",
-            snapshot_pos,
-        )
-        reap_pos = src.index("_reap_stranded_lance_rows(\n            lance_db_path", save_meta_pos)
+        reap_pos = src.index("_reap_stranded_lance_rows(\n            lance_db_path", bookkeeping_pos)
         reconcile_pos = src.index("_sync_chunk_derived_state(", reap_pos)
         update_pos = src.index("update_freshness_from_build(", reconcile_pos)
-        self.assertGreater(update_pos, reconcile_pos)
+        finalize_pos = src.index("finalize_build_epoch(index_dir, _build_attempt)", update_pos)
+        legacy_pos = src.index("_remove_legacy_meta_json(index_dir)", finalize_pos)
+        self.assertGreater(legacy_pos, finalize_pos)
+        self.assertNotIn("def _save_meta(", src)
         loader_pos = src.index("def _get_index_state_store()")
         self.assertGreater(loader_pos, 0)
 
@@ -460,6 +461,140 @@ class IndexerWiringTests(unittest.TestCase):
         lance_pos = src.index("optimize_index_tables(index_dir)")
         store_pos = src.index("optimize_state_stores(", lance_pos)
         self.assertGreater(store_pos, lance_pos)
+
+
+class BuildEpochTests(_TempRepoCase):
+    """1sed6: the build-epoch state machine — FULL-durable pre-mutation fence,
+    attempt-ID compare-and-set finalization, fail-closed reader token."""
+
+    def setUp(self):
+        super().setUp()
+        self.iss = load_store_module()
+        self.index_dir = self.root / ".wavefoundry" / "index"
+        self.index_dir.mkdir(parents=True, exist_ok=True)
+
+    def test_absent_store_fails_closed(self):
+        self.assertIsNone(self.iss.read_build_state(self.index_dir))
+        self.assertIsNone(self.iss.build_epoch_token(self.index_dir))
+
+    def test_fresh_store_is_uninitialized_and_not_ready(self):
+        self.iss.write_build_bookkeeping(self.index_dir, {"built_at": "x"})
+        state = self.iss.read_build_state(self.index_dir)
+        self.assertEqual(state["status"], "uninitialized")
+        self.assertEqual(state["generation"], 0)
+        # Bookkeeping alone never publishes readiness (fail closed).
+        self.assertIsNone(self.iss.build_epoch_token(self.index_dir))
+
+    def test_begin_marks_building_and_token_stays_none(self):
+        attempt = self.iss.begin_build_epoch(self.index_dir, "code:test")
+        state = self.iss.read_build_state(self.index_dir)
+        self.assertEqual(state["status"], "building")
+        self.assertEqual(state["attempt_id"], attempt)
+        self.assertEqual(state["scope"], "code:test")
+        self.assertIsNotNone(state["started_at"])
+        self.assertIsNone(state["completed_at"])
+        # An in-flight (or crashed) build is never a servable epoch.
+        self.assertIsNone(self.iss.build_epoch_token(self.index_dir))
+
+    def test_finalize_cas_advances_generation_exactly_once(self):
+        attempt = self.iss.begin_build_epoch(self.index_dir, "all")
+        self.assertTrue(self.iss.finalize_build_epoch(self.index_dir, attempt))
+        state = self.iss.read_build_state(self.index_dir)
+        self.assertEqual(state["status"], "complete")
+        self.assertEqual(state["generation"], 1)
+        self.assertIsNotNone(state["completed_at"])
+        self.assertEqual(
+            self.iss.build_epoch_token(self.index_dir), (attempt, 1)
+        )
+        # Re-presenting the same attempt after completion is a CAS miss —
+        # only a `building` row for this attempt can complete.
+        self.assertFalse(self.iss.finalize_build_epoch(self.index_dir, attempt))
+        self.assertEqual(self.iss.read_build_state(self.index_dir)["generation"], 1)
+
+    def test_wrong_attempt_never_publishes(self):
+        self.iss.begin_build_epoch(self.index_dir, "docs")
+        self.assertFalse(self.iss.finalize_build_epoch(self.index_dir, "not-the-attempt"))
+        state = self.iss.read_build_state(self.index_dir)
+        self.assertEqual(state["status"], "building")
+        self.assertEqual(state["generation"], 0)
+        self.assertIsNone(self.iss.build_epoch_token(self.index_dir))
+
+    def test_superseded_attempt_loses_the_cas(self):
+        first = self.iss.begin_build_epoch(self.index_dir, "code")
+        second = self.iss.begin_build_epoch(self.index_dir, "code")
+        # The superseded build must not publish over the newer fence.
+        self.assertFalse(self.iss.finalize_build_epoch(self.index_dir, first))
+        self.assertIsNone(self.iss.build_epoch_token(self.index_dir))
+        self.assertTrue(self.iss.finalize_build_epoch(self.index_dir, second))
+        self.assertEqual(
+            self.iss.build_epoch_token(self.index_dir), (second, 1)
+        )
+
+    def test_token_changes_across_generations(self):
+        a1 = self.iss.begin_build_epoch(self.index_dir, "all")
+        self.iss.finalize_build_epoch(self.index_dir, a1)
+        tok1 = self.iss.build_epoch_token(self.index_dir)
+        a2 = self.iss.begin_build_epoch(self.index_dir, "all")
+        # Seqlock window: token vanishes while building...
+        self.assertIsNone(self.iss.build_epoch_token(self.index_dir))
+        self.iss.finalize_build_epoch(self.index_dir, a2)
+        tok2 = self.iss.build_epoch_token(self.index_dir)
+        # ...and never repeats after completion.
+        self.assertNotEqual(tok1, tok2)
+        self.assertEqual(tok2[1], tok1[1] + 1)
+
+    def test_bookkeeping_and_reconcile_never_advance_generation(self):
+        attempt = self.iss.begin_build_epoch(self.index_dir, "all")
+        self.iss.finalize_build_epoch(self.index_dir, attempt)
+        before = self.iss.read_build_state(self.index_dir)["generation"]
+        self.iss.write_build_bookkeeping(self.index_dir, {"built_at": "y", "file_meta": {}})
+        import contextlib
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.iss.reconcile_chunk_index(self.index_dir, "code", set(), lambda: [])
+        self.assertEqual(
+            self.iss.read_build_state(self.index_dir)["generation"], before,
+            "only finalize_build_epoch may advance the generation",
+        )
+
+    def test_interrupted_build_survives_process_restart_as_not_ready(self):
+        """Crash simulation: fence committed, process dies before finalize —
+        a FRESH module load (new connections) still sees building/None."""
+        self.iss.begin_build_epoch(self.index_dir, "code:crashed")
+        fresh = load_store_module()
+        state = fresh.read_build_state(self.index_dir)
+        self.assertEqual(state["status"], "building")
+        self.assertIsNone(fresh.build_epoch_token(self.index_dir))
+
+    def test_read_build_summary_is_bounded(self):
+        """Review fix: the dashboard/status read returns scalars + file COUNT,
+        never per-file rows."""
+        self.iss.write_build_bookkeeping(self.index_dir, {
+            "built_at": "2026-07-12T00:00:00Z",
+            "model_versions": {"docs": "m@full"},
+            "chunker_versions": {"docs": "31"},
+            "walker_version": "6",
+            "content": ["docs"],
+            "file_meta": {f"f{i}.md": {"hash": "h", "mtime": 1.0, "size": 1, "inode": i}
+                          for i in range(50)},
+        })
+        summary = self.iss.read_build_summary(self.index_dir)
+        self.assertEqual(summary["file_count"], 50)
+        self.assertEqual(summary["built_at"], "2026-07-12T00:00:00Z")
+        self.assertEqual(summary["model_versions"], {"docs": "m@full"})
+        self.assertNotIn("file_meta", summary)
+        self.assertIsNone(self.iss.read_build_summary(self.index_dir / "nope"))
+
+    def test_boundary_commits_are_full_durable(self):
+        """Structural durability pin: both safety-critical boundary commits
+        (fence + CAS) go through the dedicated FULL-synchronous connection;
+        the store's ordinary NORMAL posture is unchanged elsewhere."""
+        src = STORE_PATH.read_text(encoding="utf-8")
+        helper = src.index("def _full_durable_connection(")
+        self.assertIn("PRAGMA synchronous=FULL", src[helper:helper + 800])
+        begin = src.index("def begin_build_epoch(")
+        self.assertIn("_full_durable_connection(", src[begin:src.index("def finalize_build_epoch(")])
+        fin = src.index("def finalize_build_epoch(")
+        self.assertIn("_full_durable_connection(", src[fin:src.index("def read_build_state(")])
 
 
 if __name__ == "__main__":

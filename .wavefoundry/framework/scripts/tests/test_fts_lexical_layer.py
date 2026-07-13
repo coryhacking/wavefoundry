@@ -469,12 +469,15 @@ class SnapshotContractTests(_StoreCase):
     def test_snapshot_absent_store_returns_none(self):
         self.assertIsNone(self.iss.export_meta_snapshot(self.index_dir))
 
-    def test_indexer_falls_back_to_direct_write_on_store_failure(self):
+    def test_indexer_fails_structured_on_store_failure(self):
+        """1sed6: the store is the sole authority — a bookkeeping-write
+        failure is a structured build failure, never a silent JSON fallback
+        (the old JSON-success/SQLite-failure mode is the retired defect)."""
         src = (SCRIPTS_ROOT / "indexer.py").read_text(encoding="utf-8")
-        self.assertIn(
-            "_save_meta(index_dir, _meta_snapshot if _meta_snapshot is not None else new_meta)",
-            src,
-        )
+        pos = src.index("_state_store.write_build_bookkeeping(index_dir, new_meta)")
+        failure_pos = src.index("canonical build-state write failed", pos)
+        self.assertGreater(failure_pos, pos)
+        self.assertNotIn("def _save_meta(", src)
 
 
 class RegistryDifferentialTests(_StoreCase):
@@ -931,8 +934,13 @@ class ZeroChangeHealProbeTests(_StoreCase):
             probe, upto,
             "the up-to-date early return must run the coverage probe first",
         )
-        block = src[probe:upto]
+        # 1sed6 Req 8 reshaped the block: a true no-op (no reap, no heal)
+        # returns without opening the build epoch; on a probe hit the
+        # reconcile runs inside an epoch before the SECOND up-to-date return.
+        second_upto = src.index('"up_to_date": True', upto + 1)
+        block = src[probe:second_upto]
         self.assertIn("_sync_chunk_derived_state(", block)
+        self.assertIn("begin_build_epoch(", block)
 
 
 class StoreLogTests(_StoreCase):

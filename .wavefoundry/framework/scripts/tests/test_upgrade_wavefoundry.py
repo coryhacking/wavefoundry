@@ -2427,9 +2427,16 @@ class ChunkerVersionBumpDetectionTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def _write_meta(self, content: dict) -> None:
-        (self.root / ".wavefoundry" / "index" / "meta.json").write_text(
-            json.dumps(content), encoding="utf-8",
+        # 1sed6 review-hardened contract: upgrade probes read the STORE ONLY.
+        import importlib.util as _ilu
+        index_dir = self.root / ".wavefoundry" / "index"
+        spec = _ilu.spec_from_file_location(
+            "index_state_store",
+            Path(__file__).resolve().parents[1] / "index_state_store.py",
         )
+        iss = _ilu.module_from_spec(spec)
+        spec.loader.exec_module(iss)
+        iss.write_build_bookkeeping(index_dir, content)
 
     def _write_chunker(self, version: str) -> None:
         (self.root / ".wavefoundry" / "framework" / "scripts" / "chunker.py").write_text(
@@ -2443,11 +2450,18 @@ class ChunkerVersionBumpDetectionTests(unittest.TestCase):
         snap = self.mod._snapshot_pre_extract_chunker_versions(self.root)
         self.assertEqual(snap, {"docs": "22", "code": "22"})
 
-    def test_snapshot_falls_back_to_legacy_scalar(self) -> None:
-        """AC-13: legacy `chunker_version` scalar key is mapped to per-layer dict."""
-        self._write_meta({"chunker_version": "21"})
+    def test_legacy_meta_json_is_ignored_entirely(self) -> None:
+        """1sed6 review-hardened: a legacy meta.json is NEVER read — not even
+        for version comparison. Empty snapshot = unknown = the upgrade treats
+        the consumer as needing convergence (safe), instead of letting stale
+        JSON claims skip required re-chunk work."""
+        (self.root / ".wavefoundry" / "index" / "meta.json").write_text(
+            json.dumps({"chunker_versions": {"docs": "22", "code": "22"},
+                        "chunker_version": "22"}),
+            encoding="utf-8",
+        )
         snap = self.mod._snapshot_pre_extract_chunker_versions(self.root)
-        self.assertEqual(snap, {"docs": "21", "code": "21"})
+        self.assertEqual(snap, {})
 
     def test_snapshot_empty_when_meta_absent(self) -> None:
         """Fresh install with no prior meta.json → empty snapshot, no bump detection."""
@@ -2494,10 +2508,10 @@ class ChunkerVersionBumpDetectionTests(unittest.TestCase):
         self.assertFalse(bumped)
         self.assertIsNone(transition)
 
-    def test_legacy_scalar_bump_detected(self) -> None:
-        """AC-13: legacy `chunker_version` scalar correctly triggers bump detection
-        when the new version differs."""
-        self._write_meta({"chunker_version": "20"})
+    def test_store_recorded_bump_detected(self) -> None:
+        """Bump detection reads the store's per-layer versions (the only
+        surviving version source post-1sed6)."""
+        self._write_meta({"chunker_versions": {"docs": "20", "code": "20"}})
         snap = self.mod._snapshot_pre_extract_chunker_versions(self.root)
         bumped, transition = self.mod._detect_chunker_version_bump(snap, "23")
         self.assertTrue(bumped)
@@ -2556,9 +2570,16 @@ class MultiVersionTransitionDetectionTests(unittest.TestCase):
         )
 
     def _write_meta(self, content: dict) -> None:
-        (self.root / ".wavefoundry" / "index" / "meta.json").write_text(
-            json.dumps(content), encoding="utf-8",
+        # 1sed6 review-hardened contract: upgrade probes read the STORE ONLY.
+        import importlib.util as _ilu
+        index_dir = self.root / ".wavefoundry" / "index"
+        spec = _ilu.spec_from_file_location(
+            "index_state_store",
+            Path(__file__).resolve().parents[1] / "index_state_store.py",
         )
+        iss = _ilu.module_from_spec(spec)
+        spec.loader.exec_module(iss)
+        iss.write_build_bookkeeping(index_dir, content)
 
     def _write_graph_state(self, content: dict) -> None:
         # Wave 1rvfx: the installed graph state lives in the REAL project graph dir — the legacy JSON
@@ -2811,8 +2832,18 @@ class BackgroundCodeIncompleteWarningTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def _meta(self, docs, code):
-        (self.root / ".wavefoundry" / "index" / "meta.json").write_text(
-            json.dumps({"chunker_versions": {"docs": docs, "code": code}}), encoding="utf-8")
+        # 1sed6: the warning reads the store's build summary, not meta.json.
+        import importlib.util as _ilu
+        spec = _ilu.spec_from_file_location(
+            "index_state_store",
+            Path(__file__).resolve().parents[1] / "index_state_store.py",
+        )
+        iss = _ilu.module_from_spec(spec)
+        spec.loader.exec_module(iss)
+        iss.write_build_bookkeeping(
+            self.root / ".wavefoundry" / "index",
+            {"chunker_versions": {"docs": docs, "code": code}},
+        )
 
     def _run_capturing(self):
         lines: list[str] = []

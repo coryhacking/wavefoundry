@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-11
+Last verified: 2026-07-12
 
 ## Runtime Topology
 
@@ -79,12 +79,13 @@ setup_wavefoundry.py --root .
         ├── docs.lance/ / code.lance/  (LanceDB chunk + vector tables; vector index only —
         │              the Lance/Tantivy FTS was retired in wave 1rsh9, legacy indices
         │              dropped by the reclaim path at upgrade)
-        ├── meta.json  (exported snapshot of the store's bookkeeping — file hashes,
-        │              model/chunker/walker versions for incremental rebuild)
-        ├── index-state.sqlite  (wave 1rsh9 — derived-only relational sidecar: freshness/
-        │              attribution tables, FTS5 lexical tables, per-path bookkeeping +
-        │              chunk registry, per-file secret-scan cache; WAL, schema-versioned,
-        │              drop-and-rebuild recovery; maintained by wave_index_optimize)
+        ├── index-state.sqlite  (waves 1rsh9/1sed7 — the SOLE semantic-index state
+        │              authority: per-path build bookkeeping + chunk registry, the
+        │              build_state readiness epoch, freshness/attribution tables, FTS5
+        │              lexical tables, per-file secret-scan cache; WAL, schema-versioned,
+        │              drop-and-rebuild recovery; maintained by wave_index_optimize.
+        │              There is NO meta.json — a legacy file is removed after the
+        │              first successful post-upgrade build)
         └── graph/  (graph artifacts + project-graph-state.sqlite merge store)
 
 build_pack.py

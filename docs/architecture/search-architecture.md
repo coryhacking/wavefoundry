@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-11
+Last verified: 2026-07-12
 
 ## The Problem
 
@@ -75,7 +75,7 @@ The vector retrieval layer uses **LanceDB** — an Apache 2.0 embedded in-proces
 **Lifecycle:**
 
 - `_build_lance_tables` writes `docs` and `code` tables under `index_dir/lancedb/`.
-- On full rebuild (`--full`), `_cleanup_legacy_index_files` verifies the Lance tables are non-empty and then deletes `docs.npy`, `docs.json`, `code.npy`, `code.json`. `meta.json` is never deleted.
+- On full rebuild (`--full`), `_cleanup_legacy_index_files` verifies the Lance tables are non-empty and then deletes `docs.npy`, `docs.json`, `code.npy`, `code.json`. A legacy `meta.json` is removed only after a successful build finalizes its epoch (wave `1sed7`).
 - During incremental updates, the indexer reads existing rows for stale paths, compares `chunk_hash` values against freshly generated chunks, reuses unchanged vectors, embeds only changed/new chunks, deletes removed or replaced row ids, and appends current rows. `_optimize_lance_table` compacts the table when the fragment count exceeds `LANCEDB_COMPACT_THRESHOLD = 20`.
 - If lancedb is not installed (e.g. CI without the extra dep), the numpy files are written and the numpy fallback path in `WaveIndex._ensure_loaded` is used transparently.
 
@@ -325,15 +325,17 @@ Wave 1rsh9 added the retrieval-quality lever the project's own findings kept poi
  the Lance/Tantivy FTS was retired in wave 1rsh9; legacy
  indices are dropped by the reclaim path at upgrade)
  code.lance/ LanceDB table: code chunks + vectors
- meta.json { model_versions, chunker_versions, walker_version, content, file_meta, built_at }
- index-state.sqlite semantic-index state store (wave 1rsh9) — derived-only relational
- sidecar: freshness/attribution tables, FTS5 lexical tables
- (fts_docs/fts_code), per-path build bookkeeping + chunk registry,
- per-file secret-scan cache. WAL journaling; schema-versioned;
- drop-and-rebuild on corruption or version mismatch.
+ index-state.sqlite semantic-index state store (waves 1rsh9/1sed7) — the SOLE state
+ authority: per-path build bookkeeping + chunk registry, the
+ build_state epoch row, freshness/attribution tables, FTS5 lexical
+ tables (fts_docs/fts_code), per-file secret-scan cache. WAL
+ journaling; schema-versioned; drop-and-rebuild on corruption or
+ version mismatch.
 ```
 
-`meta.json` is now an **exported snapshot**: the store's bookkeeping tables are the working source of truth for per-path build state, and `meta.json` is generated from them at the end of each build (reader-contract compatible — every existing reader keeps working unchanged; the atomic-swap/Windows-retry write machinery is retained).
+There is **no `meta.json`** (wave `1sed7`): the store's bookkeeping tables are the only source of per-path build state, and every consumer — indexer change detection, `WaveIndex` loading, MCP health/status, dashboard, upgrade version probes — reads the store (`export_meta_snapshot` provides the same dict shape the JSON used to carry). A store write failure is a structured build failure, never a silent fallback. A legacy `meta.json` left by a pre-`1sed7` install is never read by anything — including the upgrade's version probes (an absent/empty store reads as unknown, which forces convergence) — and is removed after the first successful build.
+
+**Readiness — the build epoch (wave `1sed7`):** the store's `build_state` row is a small state machine (`uninitialized` → `building` → `complete`). A mutating build commits a FULL-durable `building` fence BEFORE the first Lance/FTS mutation and publishes completion with an attempt-ID compare-and-set transaction — the only operation that advances the build `generation`. Readers (`docs_search`, `code_search`, `code_ask`, `code_lexical`) capture the complete-epoch token `(attempt_id, generation)` before the operation and re-validate it after: a missing or changed token means the result set could span two index states, so results are discarded and a structured `index_not_ready` response is returned. `WaveIndex` reload uses the same token as its freshness signature, so a completed build invalidates cached handles without a server restart. `docs_search`'s live-filesystem walk is the one sanctioned degraded path when no complete epoch exists; `code_lexical` refuses outright (FTS is derived from Lance and mid-build state is mixed). A `building` epoch whose build lock is gone reads as *interrupted* — still fail-closed, healed by the next ordinary build superseding the dead attempt (a zero-change retry performs this recovery explicitly: reconcile, bookkeeping refresh, finalize). Completion is globally gated: a scoped build over a reset store (a Lance table present with no provenance in the canonical state) escalates to all-layer convergence before it may publish, a rear guard refuses finalization if any present table would publish unprovenanced, and the derived-FTS/optimize maintenance verbs are restore-only — they refuse on a store with no completed epoch and never manufacture `complete`.
 
 **Chunk schema:**
 

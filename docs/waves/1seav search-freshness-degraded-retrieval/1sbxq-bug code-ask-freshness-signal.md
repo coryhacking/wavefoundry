@@ -19,6 +19,7 @@ The cheap correct substrate now exists (wave 1sc7c): per-layer last-embedded has
 
 ## Requirements
 
+0. **(Reconciliation with wave `1sed7`, operator-directed 2026-07-12) Store-first, meta.json-free:** this change implements AFTER wave `1sed7 sqlite-only-index-state` and consumes ONLY the index-state store — per-layer hashes (`layer_path_state`), the canonical build-state row (chunker/model versions), and the build GENERATION as the cache-invalidation key. No `meta.json` reads: `1sed7` retires that file entirely, and any meta-based helper written here would be dead on arrival.
 1. **Cheap freshness signal with the CORRECT authority:** replace the per-call `_layer_health` with a check that combines the stat-fast-path walk with **each layer's last-embedded hashes** (`layer_path_state`) — NOT `project_index_inputs_stale()` alone, which compares against broad `meta.json` `file_meta` and therefore reads `current` while a layer is stale (broad meta is stamped by ANY build; that cross-layer distinction is exactly what 1sc7c introduced per-layer state to preserve). Keep the chunker-version-mismatch check (a valid distinct staleness cause) via a cheap meta read. No per-call corpus hashing.
 2. **Three honest states:** `index_freshness ∈ {"current", "stale", "unknown"}` — an exception or undeterminable state returns `"unknown"`, never silently `"current"`. Consumers (seed-211 guidance documents `index_freshness`) updated for the third state.
 3. **Short-lived cache:** the freshness verdict may be cached briefly (seconds-scale TTL or invalidation keyed on the index meta signature / build `ended_at`) so bursts of `code_ask` calls don't repeat even the cheap check; the cache must invalidate on build completion.
@@ -59,6 +60,7 @@ The cheap correct substrate now exists (wave 1sc7c): per-layer last-embedded has
 ## Serialization Points
 
 - Shares `server_impl.py` response-envelope territory with `1seaq` (same wave) — coordinate the envelope fields once.
+- DEPENDS on wave `1sed7 sqlite-only-index-state` (operator-decided order 2026-07-12): the freshness helper consumes its store API (build-state row, generation signal); implement after 1sed7 lands.
 
 ## Affected Architecture Docs
 
@@ -83,6 +85,7 @@ The cheap correct substrate now exists (wave 1sc7c): per-layer last-embedded has
 
 | Date | Update | Evidence |
 | ---- | ------ | -------- |
+| 2026-07-12 | Reconciled with wave `1sed7` (operator-directed): Requirement 0 added — store-first, zero meta.json reads, cache keyed on 1sed7's build generation; this change now implements AFTER 1sed7. | Operator ordering decision; 1sed6 store API (build-state row + generation). |
 | 2026-07-12 | Plan-review revision (external, validated): `project_index_inputs_stale()` DISALLOWED as the sole signal — it compares broad `meta.json` `file_meta` (verified `indexer.py:1215`), which any build stamps; the helper must consult per-layer `layer_path_state`. AC-2 rewritten to the exact layer-crossing regression (code edit → docs-only build stamps meta → must still read stale until a code/all build). | Plan review; `project_index_inputs_stale` source read. |
 | 2026-07-12 | Drafted from the external code review (P0-1), every claim validated against `2952df8f`: `_layer_health` per call at ~17305 (contradicting its own docstring), chunker-only staleness at ~17306-08, `except → current` at ~17309-11; reviewer live-reproduced `current`-while-stale. Fix substrate (per-layer state, `project_index_inputs_stale`) shipped in wave 1sc7c. | Review report; source reads; `_layer_health` docstring (~639). |
 

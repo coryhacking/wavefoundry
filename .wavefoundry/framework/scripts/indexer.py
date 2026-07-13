@@ -499,7 +499,7 @@ FRAMEWORK_TEST_PREFIXES = (
 FRAMEWORK_PACK_ARTIFACT_NAMES = {"MANIFEST", "VERSION"}
 FRAMEWORK_PACK_ARTIFACT_PREFIXES = ("MANIFEST.pre-",)
 # Transient/runtime artifact extensions excluded from the framework layer's
-# walk so they never appear in framework meta.json (and never get shipped via
+# walk so they never appear in framework build state (and never get shipped via
 # build_pack — which applies an equivalent filter in build_pack.py).
 FRAMEWORK_TRANSIENT_ARTIFACT_EXTENSIONS = (".lock", ".log", ".bak", ".swp", ".tmp", ".orig", ".rej")
 # Dev-only framework paths not shipped in the distribution zip.
@@ -1199,17 +1199,63 @@ def _filter_code_files(
 # ---------------------------------------------------------------------------
 
 def _load_meta(index_dir: Path) -> dict:
+    """Build-state read — SQLITE ONLY (1sed6).
+
+    Reconstructs the build-state dict (file_meta, model/chunker/walker
+    versions, content) from the index-state store's bookkeeping tables.
+    A legacy ``meta.json`` on disk is NEVER read as authority: an
+    installation with JSON but no current store converges by full
+    reconstruction from repository/git/Lance (empty dict here means
+    "everything is new" — the derived-only convergence path), and the stale
+    file is removed after the next successful build.
+    """
+    iss = _get_index_state_store()
+    if iss is None:
+        return {}
+    try:
+        snapshot = iss.export_meta_snapshot(index_dir)
+    except Exception:  # noqa: BLE001 - unreadable store == no prior state
+        return {}
+    return snapshot or {}
+
+
+def _build_failed_result(files: list, reason: str) -> dict:
+    """Structured build failure (1sed6 Req 2): the build did NOT complete —
+    the epoch stays un-finalized (readers fail closed) and the caller must
+    not treat the index as current. Printed loudly and store-logged where
+    possible."""
+    print(f"build_index: FAILED — {reason}", file=sys.stderr, flush=True)
+    return {
+        "files_indexed": 0,
+        "files_total": len(files or []),
+        "up_to_date": False,
+        "failed": True,
+        "failure": reason,
+    }
+
+
+def _remove_legacy_meta_json(index_dir: Path) -> bool:
+    """Delete a stale legacy ``meta.json`` AFTER a verified successful build
+    (1sed6 Req 7). Non-fatal but LOUD on failure (review fix): a surviving
+    legacy file must be visible — stderr plus the persisted store log — so a
+    permissions problem cannot silently leave a second state surface on disk.
+    Returns True when a file was removed."""
     meta_path = index_dir / META_JSON
-    if meta_path.is_file():
+    try:
+        if meta_path.is_file():
+            meta_path.unlink()
+            return True
+    except OSError as exc:
+        msg = (f"legacy meta.json could not be removed ({exc}) — it is IGNORED as state "
+               "but remove it manually; SQLite is the only authority")
+        print(f"build_index: WARNING — {msg}", file=sys.stderr, flush=True)
         try:
-            return json.loads(meta_path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
+            iss = _get_index_state_store()
+            if iss is not None:
+                iss.store_log(index_dir, msg)
+        except Exception:
             pass
-    return {}
-
-
-def _save_meta(index_dir: Path, meta: dict) -> None:
-    _atomic_write_text(index_dir / META_JSON, json.dumps(meta, indent=2))
+    return False
 
 
 def project_index_inputs_stale(root: Path, meta: dict | None = None) -> bool | None:
@@ -1263,46 +1309,6 @@ def project_index_inputs_stale(root: Path, meta: dict | None = None) -> bool | N
         return bool(changed or removed)
     except Exception:  # noqa: BLE001
         return None
-
-
-# ---------------------------------------------------------------------------
-# Atomic file write helper
-# ---------------------------------------------------------------------------
-
-# Wave 1p9iw: bounded retry for the atomic meta.json swap on native Windows. Only the os.replace
-# (a MoveFileEx rename) can sharing-violate — WinError 32 (ERROR_SHARING_VIOLATION) or WinError 5
-# (ERROR_ACCESS_DENIED) — when a concurrent framework reader (wave_index_health,
-# wave_index_build_status, an MCP freshness check, or the dashboard watcher) has meta.json open at the
-# instant of the swap. A small fixed bound covers that brief read window; on genuine persistence the
-# last exception re-raises (the failure surface is unchanged, not masked).
-_META_REPLACE_MAX_ATTEMPTS = 5
-_META_REPLACE_BACKOFF_SECONDS = 0.1
-
-
-def _atomic_write_text(path: Path, text: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    tmp.write_text(text, encoding="utf-8")
-    # Wave 1p9iw: Windows-only bounded retry-with-backoff around the os.replace swap. Mirrors the
-    # "Windows-only, bounded retry, POSIX untouched" shape of setup_index._rmtree_clearing_readonly /
-    # _clear_readonly_and_retry (waves 1p9hk / 1p6d6): retry ONLY the WinError 5/32 sharing-violation
-    # transient on ``os.name == "nt"``, re-raise the last exception once the small bound is exhausted so
-    # a persistent lock still surfaces (mirrors the setup_index caller-checks-afterward discipline), and
-    # re-raise any other error immediately so a genuinely different failure is not masked or delayed.
-    # On POSIX os.replace is atomic and never sharing-violates, so this reduces to a single call — the
-    # original path is behaviorally unchanged there.
-    for attempt in range(_META_REPLACE_MAX_ATTEMPTS):
-        try:
-            os.replace(tmp, path)
-            return
-        except OSError as exc:  # PermissionError is an OSError subclass — both are covered
-            if (
-                os.name != "nt"
-                or getattr(exc, "winerror", None) not in (5, 32)
-                or attempt >= _META_REPLACE_MAX_ATTEMPTS - 1
-            ):
-                raise
-            time.sleep(_META_REPLACE_BACKOFF_SECONDS)
 
 
 # ---------------------------------------------------------------------------
@@ -1736,14 +1742,50 @@ def optimize_index_tables(index_dir: Path, tables: "tuple[str, ...]" = ("docs", 
     if not existing:
         return results
     with _index_build_lock(index_dir):
-        db = _get_lance_db(index_dir)
-        for t in existing:
-            tdir = index_dir / _LANCE_TABLE_FILES[t]
-            before = _lance_dir_bytes(tdir)
-            res = reclaim_lance_table(db, t, index_dir=index_dir)
-            res["bytes_before"] = before
-            res["bytes_after"] = _lance_dir_bytes(tdir)
-            results[t] = res
+        # 1sed6: optimize/compact/rewrite mutate Lance storage — fence first,
+        # finalize after, so a crash mid-rewrite reads as interrupted rather
+        # than current. Module-absent store = refuse (same posture as builds).
+        _iss = _get_index_state_store()
+        if _iss is None:
+            return {"error": "index-state store module unavailable"}
+        # Review fix: optimize is restore-only maintenance — refuse on a store
+        # with no completed epoch rather than manufacturing one.
+        _prior = _iss.read_build_state(index_dir)
+        if not _prior or _prior.get("status") != "complete":
+            return {"error": (
+                "no completed build epoch — optimize can only run over a "
+                "published index; run a build first (wave_index_build)"
+            )}
+        _attempt = _iss.begin_build_epoch(index_dir, "optimize")
+        try:
+            db = _get_lance_db(index_dir)
+            for t in existing:
+                tdir = index_dir / _LANCE_TABLE_FILES[t]
+                before = _lance_dir_bytes(tdir)
+                res = reclaim_lance_table(db, t, index_dir=index_dir)
+                res["bytes_before"] = before
+                res["bytes_after"] = _lance_dir_bytes(tdir)
+                results[t] = res
+        except Exception as exc:  # noqa: BLE001 - epoch stays un-finalized (fail closed), but structured
+            results["error"] = f"optimize failed mid-mutation: {exc} — epoch NOT finalized; run wave_index_build to restore readiness"
+            return results
+        # Review fix: a reclaim error or Tier-3 (unreadable) table means the
+        # in-place rewrite left UNKNOWN state — readiness must not re-publish
+        # over it. Leave the epoch un-finalized: readers fail closed and the
+        # next real build (or table rebuild) restores readiness.
+        _dirty_tables = {
+            t: {"error": r.get("error"), "needs_rebuild": bool(r.get("needs_rebuild"))}
+            for t, r in results.items()
+            if isinstance(r, dict) and (r.get("error") or r.get("needs_rebuild"))
+        }
+        if _dirty_tables:
+            results["finalize"] = {
+                "error": "optimize left unreadable/errored tables — epoch NOT finalized; "
+                         "readers fail closed until a build restores readiness",
+                "dirty_tables": _dirty_tables,
+            }
+        elif not _iss.finalize_build_epoch(index_dir, _attempt):
+            results["finalize"] = {"error": "epoch finalization CAS miss"}
     return results
 
 
@@ -1937,7 +1979,7 @@ def _detect_lance_drift(
     zero chunks AND paths that are not chunk-eligible under the current
     build's content filters.
 
-    These paths are "drifted" — ``meta.json`` claims they're indexed at a
+    These paths are "drifted" — the build snapshot claims they're indexed at a
     known hash, but the Lance chunks table has no rows for them. The
     incremental indexer's skip-on-hash-match optimization perpetuates the
     missing state indefinitely until something forces the file's mtime to
@@ -1945,7 +1987,7 @@ def _detect_lance_drift(
     them through the re-chunk + re-embed path.
 
     Chunk-eligibility precondition (1rmaf): drift candidacy only makes sense
-    for paths the current build can actually re-chunk. ``meta.json`` tracks
+    for paths the current build can actually re-chunk. The build snapshot tracks
     the full walked set (``files_for_meta``), but the repair path can only
     reach files that pass the content filters (``files_for_content``), so a
     meta-tracked path outside ``chunk_eligible_rel_paths`` must never be
@@ -2054,12 +2096,14 @@ def _reap_stranded_lance_rows(
     tables: tuple[str, ...] = ("docs", "code"),
     verbose: bool = False,
     eligible_by_table: "dict[str, set[str]] | None" = None,
+    plan_only: bool = False,
+    precomputed_stranded: "dict[str, set[str]] | None" = None,
 ) -> dict:
     """Delete LanceDB rows whose ``path`` is not in the current eligible set.
 
     Closes the workflow-config-evolution blind spot: when ``workflow-config.json``
     narrows include-prefixes, the next incremental update drops the now-ineligible
-    paths from ``meta.json`` (via ``_detect_changes``), but only paths that were
+    paths from the build snapshot (via ``_detect_changes``), but only paths that were
     *still in old_meta when the narrowing was detected* get evicted from LanceDB.
     Subsequent incrementals never see those paths in ``old_meta`` again, so their
     LanceDB rows orphan silently until a full rebuild.
@@ -2087,17 +2131,28 @@ def _reap_stranded_lance_rows(
             continue
         try:
             table = db.open_table(table_name)
-            # Pull just the path column to keep the read cheap on large tables.
-            path_arrow = table.to_arrow().column("path")
-            lance_paths = {p for p in path_arrow.to_pylist() if p}
-            # 1sek8: per-table eligibility when provided — one corpus
-            # definition per table (the migration reap of previously-included
-            # test chunks flows through here, loudly).
-            _eligible = eligible_paths
-            if eligible_by_table is not None and table_name in eligible_by_table:
-                _eligible = eligible_by_table[table_name]
-            stranded = lance_paths - _eligible
+            if precomputed_stranded is not None:
+                # 1sed6: execute a previously planned reap without re-scanning
+                # (the zero-change path plans read-only FIRST, opens the build
+                # epoch only when work exists, then executes).
+                stranded = set(precomputed_stranded.get(table_name) or set())
+            else:
+                # Pull just the path column to keep the read cheap on large tables.
+                path_arrow = table.to_arrow().column("path")
+                lance_paths = {p for p in path_arrow.to_pylist() if p}
+                # 1sek8: per-table eligibility when provided — one corpus
+                # definition per table (the migration reap of previously-included
+                # test chunks flows through here, loudly).
+                _eligible = eligible_paths
+                if eligible_by_table is not None and table_name in eligible_by_table:
+                    _eligible = eligible_by_table[table_name]
+                stranded = lance_paths - _eligible
             if not stranded:
+                continue
+            if plan_only:
+                # Read-only preflight (1sed6 Req 8): report what WOULD reap;
+                # no deletion, no epoch required.
+                reaped_paths[table_name] = set(stranded)
                 continue
             # Count rows-to-delete (not unique paths) for accurate operator signal.
             count_pre = table.count_rows()
@@ -2533,7 +2588,32 @@ def rebuild_derived_chunk_state(index_dir: Path, verbose: bool = False) -> dict:
     cold flag. Derived-only and embedding-free — seconds, not minutes.
     Caller holds the index-build lock.
     """
-    return _sync_chunk_derived_state(index_dir, expected=True, verbose=verbose, force=True)
+    iss = _get_index_state_store()
+    if iss is None:
+        return {"error": "index-state store module unavailable"}
+    # Review fix: this is a derived-state maintenance verb — it may only
+    # restore readiness a real build already published. On an uninitialized,
+    # building, or reset store, finalizing here would manufacture a
+    # `complete` epoch around empty/unknown canonical state (the reproduced
+    # empty-FTS false completion). Refuse; a real build owns first readiness.
+    _prior = iss.read_build_state(index_dir)
+    if not _prior or _prior.get("status") != "complete":
+        return {"error": (
+            "no completed build epoch — the derived FTS rebuild can only run over "
+            "a published index; run a build first (wave_index_build)"
+        )}
+    attempt = iss.begin_build_epoch(index_dir, "fts:derived-rebuild")
+    stats = _sync_chunk_derived_state(index_dir, expected=True, verbose=verbose, force=True)
+    errors = {k: v.get("error") for k, v in stats.items() if isinstance(v, dict) and v.get("error")}
+    if errors:
+        # Leave the epoch un-finalized: readers fail closed rather than
+        # trusting a half-rebuilt derived layer (1sed6 Req 2).
+        return stats
+    if not iss.finalize_build_epoch(index_dir, attempt):
+        stats["finalize"] = {"error": "epoch finalization CAS miss"}
+        return stats
+    _remove_legacy_meta_json(index_dir)
+    return stats
 
 
 def _chunk_index_needs_heal(index_dir: Path) -> bool:
@@ -3343,11 +3423,70 @@ def _build_index_locked(
     if content not in CONTENT_CHOICES:
         raise ValueError(f"content must be one of: {', '.join(CONTENT_CHOICES)}")
 
+    # --- 1sed6 review fix (reset-before-decisions): settle store schema
+    # currency FIRST. The version-gated reset used to fire lazily at the
+    # first WRITE (begin_build_epoch), i.e. AFTER the front gate and
+    # staleness reads had already consumed the outdated store's (readable)
+    # pre-reset state — so a schema-bumped store skipped mandatory all-layer
+    # convergence and idled straight to a complete epoch over erased state.
+    # Forcing ensure_current here makes every decision below read the
+    # POST-reset truth: an actually-reset store presents empty provenance
+    # (front gate escalates) and empty layer state (everything stale).
+    # Dry runs skip it — they must not mutate the store.
+    if not dry_run:
+        _iss_pre = _get_index_state_store()
+        if _iss_pre is not None:
+            try:
+                _pre_store = _iss_pre.IndexStateStore(index_dir)
+                try:
+                    _pre_store.ensure_current()
+                finally:
+                    _pre_store.close()
+            except Exception as exc:  # noqa: BLE001 - store must be decidable before any mutation
+                return _build_failed_result(
+                    files or [], f"index-state store could not be brought current: {exc}"
+                )
+
+    # Load existing state first: graph-only and content-scoped runs preserve
+    # the other layers' chunker_versions/model_versions/content provenance;
+    # only a full ALL-layer rebuild starts from a clean slate. (Review fix:
+    # a full scoped build previously erased the untouched layer's provenance
+    # and still published a complete epoch over its surviving Lance table.)
+    meta = {} if (full and content == "all") else _load_meta(index_dir)
+
+    # --- 1sed6 reset escalation (Req 8 / review fix) ---
+    # After a whole-store reset (or on any store that lost its bookkeeping),
+    # a Lance table can exist with NO provenance in the canonical state. A
+    # scoped build must not publish `complete` around that hole: escalate to
+    # all-layer convergence. Cost is reset-shape-dependent: a whole-store
+    # reset (content list empty too) converges as one re-chunk pass with
+    # vector reuse, while a partial wipe that leaves a layer listed in
+    # `content` trips the model-changed full rebuild — a full re-embed, which
+    # is the SAFE posture (vectors from an unknown model must not be reused).
+    # A fresh install (no tables) is NOT a reset and stays scoped. This also
+    # applies to graph-only runs (they publish a completion epoch): on a
+    # reset store a graph refresh first converges semantic state — a
+    # deliberate integrity-over-latency trade, documented in the tool spec.
+    if content != "all" and index_dir is not None:
+        _known_models = meta.get("model_versions") or {}
+        _unprovenanced = [
+            layer for layer in ("docs", "code")
+            if (index_dir / f"{layer}.lance").is_dir()
+            and not _known_models.get(layer)
+            and not (content == layer)  # this run rebuilds that layer's provenance itself
+        ]
+        if _unprovenanced:
+            print(
+                "build_index: canonical state is missing provenance for "
+                f"{', '.join(_unprovenanced)} (store reset or legacy install) — "
+                f"escalating content={content!r} to all-layer convergence",
+                file=sys.stderr,
+                flush=True,
+            )
+            content = "all"
+
     build_docs = content in ("docs", "all")
     build_code = content in ("code", "all")
-    # Graph-only runs always load existing meta so docs/code chunker_versions,
-    # model_versions, and content fields are preserved across graph rebuilds.
-    meta = _load_meta(index_dir) if content == "graph" else ({} if full else _load_meta(index_dir))
     old_file_meta: dict[str, dict] = meta.get("file_meta", {})
     old_model_versions: dict[str, str] = meta.get("model_versions", {})
     # chunker_versions tracks per-content-layer chunker version so that a
@@ -3453,9 +3592,9 @@ def _build_index_locked(
             files = _filter_framework_pack_artifacts(files, root)
         # files_for_meta must be stable across docs-run and code-run on the same layer
         # (otherwise consecutive runs alternately add/remove each other's files in
-        # meta.json — the original 93-files-added / 93-files-removed cycle this block
+        # build state — the original 93-files-added / 93-files-removed cycle this block
         # was introduced to prevent).  For the project layer we still must keep
-        # framework-prefixed files out of the project layer's meta.json — those belong
+        # framework-prefixed files out of the project layer's build state — those belong
         # to the framework layer's meta — so we filter by the docs+code UNION from
         # workflow-config.json, not by the per-run content type's include set.
         graph_layer = _graph_layer_for_index_dir(index_dir)
@@ -3578,8 +3717,8 @@ def _build_index_locked(
     # limitation, not a regression).
     docs_prefix_eligible_rel: set[str] = set(docs_eligible_rel)
     docs_eligible_rel |= code_eligible_rel
-    # Hash the broad file set so meta.json captures every walkable file regardless
-    # of which content type (docs/code/graph) this run is building. meta.json is
+    # Hash the broad file set so the build snapshot captures every walkable file regardless
+    # of which content type (docs/code/graph) this run is building. The snapshot is
     # the WALK-STATE snapshot (stat cache, graph/reap/freshness input) — since
     # 1sek8 it is no longer the semantic layers' change-detection authority:
     # each layer compares the walk hash against its own last-embedded hash in
@@ -3727,7 +3866,7 @@ def _build_index_locked(
 
     if not full and not stale:
         # Even when no files changed, LanceDB rows for paths now excluded by
-        # workflow-config narrowing must still be reaped — meta.json drift is
+        # workflow-config narrowing must still be reaped — build-state drift is
         # invisible to ``stale`` once a prior build dropped those paths from
         # ``old_file_meta``. Reaping here ensures post-edit-hook triggers
         # (which fire incrementals with zero changes) still close the orphan
@@ -3739,24 +3878,129 @@ def _build_index_locked(
         # table has accumulated stranded rows. ``current_file_meta`` is the
         # union of all eligible paths for this layer, so checking both
         # tables against it is correct.
-        reap_idle = _reap_stranded_lance_rows(
+        # 1sed6: read-only preflight FIRST — a true no-op must not open the
+        # build epoch or advance the generation (Req 8); mutations (reap,
+        # heal) require the durable fence before they touch Lance/FTS.
+        _reap_plan = _reap_stranded_lance_rows(
             index_dir,
             set(current_file_meta.keys()),
             tables=("docs", "code"),
             verbose=verbose,
             eligible_by_table={"docs": docs_eligible_rel, "code": code_eligible_rel},
+            plan_only=True,
         )
-        _reap_idle_paths = reap_idle.pop("paths_by_table", {})
-        _cleanup_layer_state_for_reaped(index_dir, _reap_idle_paths)
+        _planned_stranded = _reap_plan.get("paths_by_table", {})
+        _needs_reap = any(_planned_stranded.get(k) for k in ("docs", "code"))
         # 1sbfj: an under-covered or cold derived chunk index must still heal
         # on zero-change builds — the field-retest scenario is upgrade-then-
-        # idle, and without this fall-through the store stays broken until the
-        # repo's next real edit. Cheap probe first; the reconcile only runs on
-        # a detected gap, so the post-edit-hook hot path keeps its fast exit.
-        if _chunk_index_needs_heal(index_dir):
-            _sync_chunk_derived_state(
+        # idle. Cheap probe; the reconcile only runs on a detected gap.
+        _needs_heal = _chunk_index_needs_heal(index_dir)
+        # Review fix (dirty-epoch unchanged-retry lockout): a true no-op may
+        # short-circuit ONLY over a completed epoch. If a prior builder died
+        # between fence and finalize, the walk can legitimately see zero
+        # changes (per-layer hashes committed before the crash) while readers
+        # are failed closed on `building` — an unchanged retry must repair
+        # that epoch (reconcile + refreshed bookkeeping + finalize), not
+        # report up_to_date over a permanently dirty store.
+        _iss_epoch = _get_index_state_store()
+        if _iss_epoch is None:
+            return _build_failed_result(files, "index-state store module unavailable — refusing idle maintenance without the build epoch")
+        _prior_state = _iss_epoch.read_build_state(index_dir)
+        _epoch_dirty = not (_prior_state and _prior_state.get("status") == "complete")
+        if not _needs_reap and not _needs_heal and not _epoch_dirty:
+            if verbose:
+                print("build_index: index is up to date", flush=True)
+            return {
+                "files_indexed": 0,
+                "files_total": len(files),
+                "up_to_date": True,
+                "stranded_rows_reaped": 0,
+                "stranded_rows_reaped_by_table": {"docs": 0, "code": 0, "total": 0},
+            }
+        if _epoch_dirty:
+            print(
+                "build_index: prior build epoch is incomplete "
+                f"(status={(_prior_state or {}).get('status', 'absent')!r}) — running "
+                "zero-change recovery (reconcile + bookkeeping refresh + finalize)",
+                file=sys.stderr,
+                flush=True,
+            )
+        # Recovery guard (independent-review F1 — the inverse of the
+        # publication rear guard): a dirty-epoch recovery may only republish
+        # state it can actually serve. A layer whose chunk REGISTRY holds
+        # rows (content was published) but whose Lance table is gone cannot
+        # be repaired here — recovery never re-embeds. Checked BEFORE the
+        # reap/heal (which would resync the registry down to the absent table
+        # and erase the loss signal), keyed on the registry rather than bare
+        # provenance so a legitimately empty layer (zero chunks, no table)
+        # never trips it. Reset the lost layer's last-embedded hashes so the
+        # next ordinary build sees everything stale and reconstructs the
+        # table; fail this run visibly (epoch stays incomplete, readers stay
+        # closed).
+        if _epoch_dirty:
+            _claimed_missing = []
+            for _layer in ("docs", "code"):
+                if (index_dir / f"{_layer}.lance").is_dir():
+                    continue
+                _reg_rows = _iss_epoch.registry_chunk_count(index_dir, _layer)
+                if _reg_rows:
+                    _claimed_missing.append(_layer)
+            if _claimed_missing:
+                for _layer in _claimed_missing:
+                    try:
+                        _iss_epoch.replace_layer_hashes(index_dir, _layer, {})
+                    except Exception:
+                        pass
+                return _build_failed_result(
+                    files,
+                    "zero-change recovery cannot republish: the chunk registry holds rows for "
+                    f"layer(s) {', '.join(_claimed_missing)} but the Lance table is missing — "
+                    "layer state reset; run wave_index_build(content='all') to reconstruct",
+                )
+        try:
+            _idle_attempt = _iss_epoch.begin_build_epoch(index_dir, f"{content}:idle-maintenance")
+        except Exception as exc:  # noqa: BLE001 - fence failure fails the build
+            return _build_failed_result(files, f"could not open the build epoch: {exc}")
+        reap_idle = {"docs": 0, "code": 0, "total": 0}
+        if _needs_reap:
+            reap_idle = _reap_stranded_lance_rows(
+                index_dir,
+                set(current_file_meta.keys()),
+                tables=("docs", "code"),
+                verbose=verbose,
+                precomputed_stranded=_planned_stranded,
+            )
+            _reap_idle_paths = reap_idle.pop("paths_by_table", {})
+            _cleanup_layer_state_for_reaped(index_dir, _reap_idle_paths)
+        _idle_heal_stats: dict = {}
+        if _needs_heal or _epoch_dirty or reap_idle.get("total", 0):
+            _idle_heal_stats = _sync_chunk_derived_state(
                 index_dir, expected=bool(reap_idle.get("total", 0)), verbose=verbose
             )
+        if _epoch_dirty:
+            # Refresh the walk-state bookkeeping under the recovery epoch: the
+            # crashed build never wrote its own, so the stat cache and
+            # provenance scalars are re-recorded from the CURRENT walk merged
+            # over the surviving snapshot scalars.
+            _recovery_meta = {
+                "built_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                "model_versions": meta.get("model_versions", {}),
+                "chunker_versions": meta.get("chunker_versions", {}),
+                "walker_version": meta.get("walker_version", "") or WALKER_VERSION,
+                "content": meta.get("content", []),
+                "file_meta": current_file_meta,
+            }
+            try:
+                _iss_epoch.write_build_bookkeeping(index_dir, _recovery_meta)
+            except Exception as exc:  # noqa: BLE001 - converted to a structured failure
+                return _build_failed_result(files, f"zero-change recovery bookkeeping write failed: {exc}")
+        _idle_errors = {k: v.get("error") for k, v in _idle_heal_stats.items()
+                        if isinstance(v, dict) and v.get("error")}
+        if _idle_errors:
+            return _build_failed_result(files, f"idle-maintenance reconcile failed: {_idle_errors}")
+        if not _iss_epoch.finalize_build_epoch(index_dir, _idle_attempt):
+            return _build_failed_result(files, "idle-maintenance epoch finalization CAS miss")
+        _remove_legacy_meta_json(index_dir)
         if verbose:
             print("build_index: index is up to date", flush=True)
         return {
@@ -3938,6 +4182,19 @@ def _build_index_locked(
         doc_chunks_removed_net = 0
         code_chunks_removed_net = 0
 
+    # --- 1sed6: durable pre-mutation fence ---
+    # Every path past this point mutates Lance/FTS/derived state; the FULL-
+    # durable `building` epoch must exist FIRST so a crash can never leave
+    # partially mutated data behind an apparently valid completed generation.
+    # Readers fail closed (no complete token) until finalization.
+    _iss_epoch = _get_index_state_store()
+    if _iss_epoch is None:
+        return _build_failed_result(files, "index-state store module unavailable — refusing to mutate without the build epoch")
+    try:
+        _build_attempt = _iss_epoch.begin_build_epoch(index_dir, f"{content}{':full' if full else ''}")
+    except Exception as exc:  # noqa: BLE001 - fence failure fails the build
+        return _build_failed_result(files, f"could not open the build epoch: {exc}")
+
     try:
         import numpy as _np
         graph_layer = _graph_layer_for_index_dir(index_dir)
@@ -4104,7 +4361,7 @@ def _build_index_locked(
         # rebuild the streaming pass populated chunks_emitted_by_file during the write (the
         # incremental path populated it earlier). The cache-hit path in _detect_changes preserves
         # prior counts for unchanged files; this populates every file just chunked so the next
-        # incremental drift check sees the truth once meta.json is written below.
+        # incremental drift check sees the truth once the bookkeeping is written below.
         for rel, count in chunks_emitted_by_file.items():
             entry = current_file_meta.get(rel)
             if isinstance(entry, dict):
@@ -4168,25 +4425,27 @@ def _build_index_locked(
         "content": sorted(available_content),
         "file_meta": current_file_meta,
     }
-    # Wave 1rsh9 (1rrr0): the index-state store is the working source of truth
-    # for per-path build state; meta.json is generated from it as an exported,
-    # reader-contract-compatible snapshot (same atomic-swap/Windows-retry
-    # machinery via _save_meta). Any store failure falls back to writing
-    # new_meta directly — readers keep their contract either way.
+    # Wave 1rsh9 (1rrr0) established the store as the working source of truth
+    # for per-path build state; 1sed6 made it the ONLY truth (meta.json retired).
+    # --- 1sed6: canonical build metadata is a MANDATORY store resident ---
+    # No JSON export, no fallback: a bookkeeping failure fails the build
+    # visibly (the epoch is never finalized, readers stay failed-closed, and
+    # the next build retries from durable state). The silent
+    # JSON-success/SQLite-failure mode this replaced could publish an index
+    # state the system cannot actually serve.
     _state_store = _get_index_state_store()
-    _meta_snapshot = None
-    if _state_store is not None:
-        try:
-            _state_store.write_build_bookkeeping(index_dir, new_meta)
-            _meta_snapshot = _state_store.export_meta_snapshot(index_dir)
-        except Exception as exc:  # noqa: BLE001 - snapshot export is fail-safe
-            print(f"build_index: bookkeeping store write skipped ({exc})", file=sys.stderr)
-            _meta_snapshot = None
-    _save_meta(index_dir, _meta_snapshot if _meta_snapshot is not None else new_meta)
+    if _state_store is None:
+        return _build_failed_result(
+            files, "index-state store module unavailable — cannot record canonical build state"
+        )
+    try:
+        _state_store.write_build_bookkeeping(index_dir, new_meta)
+    except Exception as exc:  # noqa: BLE001 - converted to a structured failure
+        return _build_failed_result(files, f"canonical build-state write failed: {exc}")
 
     # Reap LanceDB rows whose path is no longer in the current eligible set.
     # Runs on every incremental update across both tables — the workflow-
-    # config-evolution blind spot is invisible from meta.json alone (the
+    # config-evolution blind spot is invisible from the build snapshot alone (the
     # narrowing already updated meta), so the reaper must reconcile LanceDB
     # directly. Reaping both tables regardless of ``content`` arg keeps the
     # cross-content failure mode closed: a docs-only update reaps code-table
@@ -4238,19 +4497,30 @@ def _build_index_locked(
                         },
                         remove_paths=removed_broad,
                     )
-        except Exception as exc:  # noqa: BLE001 - layer state is self-healing
-            print(f"build_index: layer-state commit skipped ({exc}) — next build re-detects", file=sys.stderr)
+        except Exception as exc:  # noqa: BLE001 - converted to structured failure (1sed6)
+            # Per-layer hashes are a mandatory resident: a failed commit
+            # must not finalize the epoch (the un-committed layer would
+            # read current-by-generation while carrying stale hashes).
+            return _build_failed_result(files, f"layer-state commit failed: {exc}")
 
     # Wave 1rsh9 (1rrr0): ordered-consistency reconciliation — repair any
     # crash window between the Lance writes and the store's FTS/registry
     # transaction, and absorb the reap above. Expected (quiet) after a full
     # rebuild, where the derived tables are rebuilt from fresh Lance state
     # by design.
-    _sync_chunk_derived_state(
+    _reconcile_stats = _sync_chunk_derived_state(
         index_dir,
         expected=bool(full or rechunk_all or stranded_rows_reaped),
         verbose=verbose,
     )
+    _reconcile_errors = {k: v.get("error") for k, v in _reconcile_stats.items()
+                         if isinstance(v, dict) and v.get("error")}
+    if _reconcile_errors:
+        # 1sed6 Req 2: chunk registry + FTS are mandatory residents — a
+        # failed reconcile leaves the epoch un-finalized (readers stay
+        # failed-closed) instead of publishing an index the lexical layer
+        # cannot serve.
+        return _build_failed_result(files, f"chunk-index reconcile failed: {_reconcile_errors}")
 
     # Wave 1rsh9 (1rq4h): refresh the index-state store's freshness/attribution
     # tables in one transaction per build pass — still inside the index-build
@@ -4261,6 +4531,32 @@ def _build_index_locked(
         _state_store.update_freshness_from_build(
             root, index_dir, current_file_meta.keys(), verbose=verbose
         )
+
+    # --- 1sed6: finalize the build epoch (attempt-ID compare-and-set) ---
+    # Every mandatory resident succeeded above (canonical bookkeeping, layer
+    # hashes, chunk registry + FTS via the gated reconcile); freshness/
+    # attribution is the enumerated OPTIONAL resident (its consumer is
+    # ranking decay, not readiness). Only this CAS advances the generation
+    # readers trust; a miss means a newer attempt superseded this build.
+    # Rear guard (review fix): completion may only publish when every PRESENT
+    # Lance table has provenance in the canonical state just written. The
+    # front gate escalates scoped builds around the hole; this catches any
+    # path that slipped through so `complete` can be trusted globally.
+    _unprovenanced_at_publish = [
+        layer for layer in ("docs", "code")
+        if (index_dir / f"{layer}.lance").is_dir()
+        and not (new_meta.get("model_versions") or {}).get(layer)
+    ]
+    if _unprovenanced_at_publish:
+        return _build_failed_result(
+            files,
+            "refusing to publish completion: no provenance recorded for present "
+            f"table(s): {', '.join(_unprovenanced_at_publish)} — run wave_index_build(content='all')",
+        )
+    if not _iss_epoch.finalize_build_epoch(index_dir, _build_attempt):
+        return _build_failed_result(files, "build epoch finalization CAS miss (superseded attempt)")
+    if _remove_legacy_meta_json(index_dir) and verbose:
+        print("build_index: removed legacy meta.json (SQLite is the state authority)", flush=True)
 
     summary = {
         "files_indexed": len(files_to_index),
@@ -4430,7 +4726,7 @@ def main(argv: list[str] | None = None) -> int:
             watch_index(root, verbose=args.verbose)
             return 0
 
-        build_index(
+        result = build_index(
             root,
             full=args.full,
             rechunk=args.rechunk,
@@ -4444,6 +4740,12 @@ def main(argv: list[str] | None = None) -> int:
             verbose=args.verbose,
             dry_run=args.dry_run,
         )
+        # Review fix: a structured build failure must reach subprocess callers
+        # (setup, MCP wave_index_build, hooks) as a non-zero exit — the epoch
+        # was deliberately left incomplete and success reporting would mask it.
+        if isinstance(result, dict) and result.get("failed"):
+            print(f"build_index: exiting 1 — {result.get('failure', 'build failed')}", file=sys.stderr, flush=True)
+            return 1
         return 0
     except IndexBuildAlreadyRunning as exc:
         print(f"build_index: {exc}", file=sys.stderr)

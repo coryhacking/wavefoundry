@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-11
+Last verified: 2026-07-12
 
 Reference doc for how target repositories declare custom data sources, port preferences, terminology, and file-activity scope for the local dashboard. The dashboard is a generic Wave Framework feature; this doc defines the knobs available to any seeded repo without forking the core UI or server.
 
@@ -64,7 +64,7 @@ The dashboard reads exclusively from Wave Framework doc conventions. There are n
 | Agent / persona / specialist info | `docs/agents/personas/`, `docs/agents/specialists/`, `docs/agents/journals/` | `collect_agents` |
 | Prompt count | `docs/prompts/prompt-surface-manifest.json` | `collect_dashboard_snapshot` |
 | Framework version | `.wavefoundry/framework/VERSION` | `collect_dashboard_snapshot` |
-| Index health | `.wavefoundry/index/meta.json` | `collect_dashboard_snapshot` |
+| Index health | `.wavefoundry/index/index-state.sqlite` (build snapshot; wave 1sed7) | `collect_dashboard_snapshot` |
 | File activity | Repo mtime scan, scoped by `include_dirs` | `count_files_updated_since` |
 
 ### Extending File Activity Scope
@@ -96,7 +96,7 @@ Every reader is written to tolerate missing, empty, or partially-written files. 
 | `docs/agents/session-handoff.md` missing | Handoff pill is absent from wave cards |
 | `docs/prompts/prompt-surface-manifest.json` missing | Prompt count shown as `—` |
 | `.wavefoundry/framework/VERSION` missing | Framework version shown as `—` |
-| `.wavefoundry/index/meta.json` missing | Index tile shows `unknown` |
+| No completed build epoch in `index-state.sqlite` | Index tile shows `unknown` |
 | Any file mid-write during snapshot | JSON parse errors are caught per-file; the remainder of the snapshot is served normally |
 
 Repos that do not use Wave Framework wave/plan conventions will see an empty dashboard rather than an error. The dashboard does not fabricate numbers.

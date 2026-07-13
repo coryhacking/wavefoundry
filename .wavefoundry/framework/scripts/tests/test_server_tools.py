@@ -871,14 +871,36 @@ def _prepare_council_verdict_line(
     )
 
 
+def _store_read_meta(index_dir: Path) -> dict:
+    """1sed6: read the build-state snapshot back from the store."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "index_state_store", Path(__file__).resolve().parents[1] / "index_state_store.py"
+    )
+    iss = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(iss)
+    return iss.export_meta_snapshot(index_dir) or {}
+
+
+def _seed_store_state(index_dir: Path, meta: dict) -> None:
+    """1sed6: fixtures record build state the way production does — store
+    bookkeeping plus a COMPLETED build epoch (readers fail closed without one)."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "index_state_store", Path(__file__).resolve().parents[1] / "index_state_store.py"
+    )
+    iss = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(iss)
+    iss.write_build_bookkeeping(index_dir, meta)
+    attempt = iss.begin_build_epoch(index_dir, "fixture")
+    assert iss.finalize_build_epoch(index_dir, attempt)
+
+
 def _write_index_layer(root: Path, chunks: list[dict], vectors, *, model: str = "test-model") -> None:
     import numpy as np
     import lancedb
     root.mkdir(parents=True, exist_ok=True)
-    (root / "meta.json").write_text(
-        json.dumps({"model_versions": {"docs": model}, "content": ["docs"], "file_hashes": {}}),
-        encoding="utf-8",
-    )
+    _seed_store_state(root, {"model_versions": {"docs": model}, "content": ["docs"], "file_hashes": {}})
     if not chunks:
         return
     vecs = np.array(vectors, dtype=np.float32)
@@ -919,7 +941,7 @@ def _write_lance_index(root: Path, *, docs_chunks: list[dict] | None = None, doc
     if code_chunks is not None:
         meta["model_versions"]["code"] = model
         meta["content"].append("code")
-    (root / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+    _seed_store_state(root, meta)
 
     db = lancedb.connect(str(root))
 
@@ -3996,11 +4018,14 @@ class RunIndexRebuildTests(unittest.TestCase):
             code_chunks=code_rows,
             code_vectors=code_vecs,
         )
-        meta_path = index_dir / "meta.json"
-        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        meta = _store_read_meta(index_dir)
         meta["built_at"] = built_at
-        meta["file_hashes"] = file_hashes or {"docs/a.md": "h1"}
-        meta_path.write_text(json.dumps(meta), encoding="utf-8")
+        # 1sed6: the store persists file_meta (the legacy file_hashes key does
+        # not round-trip — census disposition: obsolete).
+        meta["file_meta"] = {
+            path: {"hash": h} for path, h in (file_hashes or {"docs/a.md": "h1"}).items()
+        }
+        _seed_store_state(index_dir, meta)
 
     def _run(
         self,
@@ -8068,7 +8093,9 @@ class SemanticEmbeddingRegressionTests(unittest.TestCase):
                 project_idx = root / ".wavefoundry" / "index"
                 project_idx.mkdir(parents=True, exist_ok=True)
                 import shutil
-                shutil.copy(str(idx_dir / "meta.json"), str(project_idx / "meta.json"))
+                # 1sed6: the index-state store (with its completed epoch) IS
+                # the state authority — copy it, not a meta.json.
+                shutil.copy(str(idx_dir / "index-state.sqlite"), str(project_idx / "index-state.sqlite"))
                 shutil.copytree(str(idx_dir / "docs.lance"), str(project_idx / "docs.lance"))
 
                 index = self.srv.WaveIndex(root)
@@ -8893,7 +8920,7 @@ class LayerHealthFileMetaTests(unittest.TestCase):
             "walker_version": "3",
             "file_meta": self._file_meta_for_root(root),
         }
-        (idx_dir / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+        _seed_store_state(idx_dir, meta)
         wave_idx = self.server.WaveIndex(root)
         wave_idx._loaded = True
         wave_idx._meta = {"project": meta}
@@ -8948,7 +8975,7 @@ class LayerHealthFileMetaTests(unittest.TestCase):
             "walker_version": "3",
             "file_meta": self._file_meta_for_root(root),
         }
-        (idx_dir / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+        _seed_store_state(idx_dir, meta)
 
         wave_idx = self.server.WaveIndex(root)
         wave_idx._loaded = True
@@ -8974,7 +9001,7 @@ class LayerHealthFileMetaTests(unittest.TestCase):
             "walker_version": "3",
             "file_meta": self._file_meta_for_root(root),
         }
-        (idx_dir / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+        _seed_store_state(idx_dir, meta)
 
         wave_idx = self.server.WaveIndex(root)
         wave_idx._loaded = True
@@ -9009,7 +9036,7 @@ class LayerHealthFileMetaTests(unittest.TestCase):
             "walker_version": "3",
             "file_hashes": file_hashes,
         }
-        (idx_dir / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+        _seed_store_state(idx_dir, meta)
 
         wave_idx = self.server.WaveIndex(root)
         wave_idx._loaded = True
@@ -9295,11 +9322,17 @@ class WaveIndexAutoReloadTests(unittest.TestCase):
         payload = {"built_at": built_at, "content": ["docs"], "model_versions": {"docs": "test-model"}, "chunker_versions": {}}
         if extra:
             payload.update(extra)
-        (index_dir / "meta.json").write_text(json.dumps(payload), encoding="utf-8")
+        _seed_store_state(index_dir, payload)
 
-    def _meta_signature(self, index_dir: Path) -> tuple[int, int]:
-        st = (index_dir / "meta.json").stat()
-        return (getattr(st, "st_mtime_ns", 0), st.st_size)
+    def _meta_signature(self, index_dir: Path):
+        # 1sed6: the reload signal is the store's build epoch token.
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "index_state_store", Path(__file__).resolve().parents[1] / "index_state_store.py"
+        )
+        iss = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(iss)
+        return iss.build_epoch_token(index_dir)
 
     def test_ensure_loaded_reloads_when_project_meta_signature_changes(self):
         """_ensure_loaded re-reads index when project meta.json signature changes."""
@@ -9316,7 +9349,7 @@ class WaveIndexAutoReloadTests(unittest.TestCase):
             "framework": self._meta_signature(framework_idx),
         }
 
-        # Simulate a rebuild by changing the meta file size without changing built_at.
+        # Simulate a rebuild: a new completed epoch advances the generation.
         self._make_index(project_idx, "2026-01-01T00:00:00Z", extra={"refresh_marker": "project"})
 
         idx._ensure_loaded()
@@ -20136,6 +20169,302 @@ class GraphSignalTests(unittest.TestCase):
         self.assertFalse(gate(None))
 
 
+class EpochSeqlockConcurrencyTests(unittest.TestCase):
+    """1sed6 AC-4: the reader seqlock at the MCP tool boundary — a writer
+    fencing the build epoch while a search is in flight means the results
+    are discarded (structured not-ready), never served as current."""
+
+    def setUp(self):
+        load_server()
+        self.runner = load_thin_runner()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+        self.index_dir = self.root / ".wavefoundry" / "index"
+        self.index_dir.mkdir(parents=True, exist_ok=True)
+        _seed_store_state(self.index_dir, {"content": ["docs", "code"], "file_meta": {}})
+        try:
+            self.mcp = self.runner.build_server(self.root)
+        except ImportError:
+            self.skipTest("mcp package not installed")
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "index_state_store", Path(__file__).resolve().parents[1] / "index_state_store.py"
+        )
+        self.iss = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.iss)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _tool_fn(self, name: str):
+        return self.mcp._tool_manager._tools[name].fn
+
+    def _with_hijacked_response(self, fn, response_name: str, replacement):
+        """Swap the response function in the tool closure's own module
+        globals (robust across module-instance reloads), returning a restore
+        callable."""
+        g = fn.__globals__
+        original = g[response_name]
+        g[response_name] = replacement
+        return lambda: g.__setitem__(response_name, original)
+
+    def test_docs_search_discards_results_when_epoch_changes_mid_search(self):
+        fn = self._tool_fn("docs_search")
+
+        def racing_writer(index, query, kind, limit=7, tags=None):
+            # A build fences the epoch UNDER the in-flight search.
+            self.iss.begin_build_epoch(self.index_dir, "concurrent-build")
+            return {"status": "ok", "data": {"results": [{"id": "mixed-epoch-chunk"}]}}
+
+        restore = self._with_hijacked_response(fn, "docs_search_response", racing_writer)
+        try:
+            result = fn("anything")
+        finally:
+            restore()
+        self.assertEqual(result["status"], "error")
+        self.assertEqual(result["diagnostics"][0]["code"], "index_not_ready")
+        self.assertNotIn("mixed-epoch-chunk", json.dumps(result),
+                         "no mixed-epoch result may escape the seqlock")
+
+    def test_docs_search_serves_results_when_epoch_is_stable(self):
+        fn = self._tool_fn("docs_search")
+        stable = {"status": "ok", "data": {"results": [{"id": "stable-chunk"}]}}
+        restore = self._with_hijacked_response(
+            fn, "docs_search_response", lambda *a, **k: stable
+        )
+        try:
+            result = fn("anything")
+        finally:
+            restore()
+        self.assertEqual(result["status"], "ok")
+        self.assertIn("stable-chunk", json.dumps(result))
+
+    def test_code_search_discards_results_when_epoch_changes_mid_search(self):
+        fn = self._tool_fn("code_search")
+
+        def racing_writer(*args, **kwargs):
+            self.iss.begin_build_epoch(self.index_dir, "concurrent-build")
+            return {"status": "ok", "data": {"results": [{"id": "mixed-epoch-chunk"}]}}
+
+        restore = self._with_hijacked_response(fn, "code_search_response", racing_writer)
+        try:
+            result = fn("anything")
+        finally:
+            restore()
+        self.assertEqual(result["status"], "error")
+        self.assertEqual(result["diagnostics"][0]["code"], "index_not_ready")
+        self.assertNotIn("mixed-epoch-chunk", json.dumps(result))
+
+
+    def test_docs_search_discards_when_epoch_publishes_mid_search(self):
+        """Review refutation (initial-None escape): a None pre-token must not
+        bypass the post-check — a build PUBLISHING mid-operation (None →
+        complete) discards results just like a mid-operation rebuild."""
+        # Reset to a token-less store: bookkeeping only, no completed epoch.
+        import shutil
+        shutil.rmtree(self.index_dir)
+        self.index_dir.mkdir(parents=True)
+        fn = self._tool_fn("docs_search")
+
+        def publishing_writer(index, query, kind, limit=7, tags=None):
+            attempt = self.iss.begin_build_epoch(self.index_dir, "publishing")
+            assert self.iss.finalize_build_epoch(self.index_dir, attempt)
+            return {"status": "ok", "data": {"results": [{"id": "mixed-epoch-chunk"}]}}
+
+        restore = self._with_hijacked_response(fn, "docs_search_response", publishing_writer)
+        try:
+            result = fn("anything")
+        finally:
+            restore()
+        self.assertEqual(result["status"], "error")
+        self.assertEqual(result["diagnostics"][0]["code"], "index_not_ready")
+        self.assertNotIn("mixed-epoch-chunk", json.dumps(result))
+
+
+    def test_docs_search_discards_on_aba_building_to_building_transition(self):
+        """Review reproduction (initial-None ABA): building A → complete A →
+        building B entirely within one docs_search. Both endpoints are "not
+        ready" (the complete-only token is None at both), but the state-row
+        token distinguishes the attempts — the results MUST be discarded."""
+        import shutil
+        shutil.rmtree(self.index_dir)
+        self.index_dir.mkdir(parents=True)
+        # Pre-state: building A.
+        attempt_a = self.iss.begin_build_epoch(self.index_dir, "A")
+        fn = self._tool_fn("docs_search")
+
+        def aba_writer(index, query, kind, limit=7, tags=None):
+            assert self.iss.finalize_build_epoch(self.index_dir, attempt_a)
+            self.iss.begin_build_epoch(self.index_dir, "B")
+            return {"status": "ok", "data": {"results": [{"id": "escaped-aba"}]}}
+
+        restore = self._with_hijacked_response(fn, "docs_search_response", aba_writer)
+        try:
+            result = fn("anything")
+        finally:
+            restore()
+        self.assertEqual(result["status"], "error")
+        self.assertEqual(result["diagnostics"][0]["code"], "index_not_ready")
+        self.assertNotIn("escaped-aba", json.dumps(result))
+
+    def test_docs_search_stable_building_state_serves_degraded_path(self):
+        """Control: a STABLE building state (no transition at all) is the
+        sanctioned degraded path — same attempt before and after serves."""
+        import shutil
+        shutil.rmtree(self.index_dir)
+        self.index_dir.mkdir(parents=True)
+        self.iss.begin_build_epoch(self.index_dir, "stable")
+        fn = self._tool_fn("docs_search")
+        degraded = {"status": "ok", "data": {"results": [{"id": "degraded-ok"}]}}
+        restore = self._with_hijacked_response(fn, "docs_search_response", lambda *a, **k: degraded)
+        try:
+            result = fn("anything")
+        finally:
+            restore()
+        self.assertEqual(result["status"], "ok")
+        self.assertIn("degraded-ok", json.dumps(result))
+
+    def test_docs_search_stable_none_token_serves_degraded_path(self):
+        """The sanctioned degraded live-walk: a STABLE None token (no build
+        activity at all) still serves."""
+        import shutil
+        shutil.rmtree(self.index_dir)
+        self.index_dir.mkdir(parents=True)
+        fn = self._tool_fn("docs_search")
+        degraded = {"status": "ok", "data": {"results": [{"id": "live-walk-chunk"}]}}
+        restore = self._with_hijacked_response(fn, "docs_search_response", lambda *a, **k: degraded)
+        try:
+            result = fn("anything")
+        finally:
+            restore()
+        self.assertEqual(result["status"], "ok")
+        self.assertIn("live-walk-chunk", json.dumps(result))
+
+
+    def test_strict_tools_use_exactly_one_state_capture(self):
+        """Review reproduction (between-probes window): a separate complete-
+        probe followed by a state capture let a writer fence BETWEEN the two
+        reads — the post-check then compared building==building and served.
+        Structural pin: each strict tool's registration captures ONE
+        `_epoch_state` token, gates completeness on the CAPTURED token's own
+        status field, and has NO separate `_epoch_token` pre-read."""
+        import inspect
+        srv_path = Path(load_server().__file__)
+        src = srv_path.read_text(encoding="utf-8")
+        for tool in ("code_search", "code_ask", "code_lexical"):
+            reg = src.index(f"    def {tool}(")
+            end = src.index("    @mcp.tool", reg)
+            body = src[reg:end]
+            self.assertEqual(body.count("_epoch_state(get_handler().root)"), 2,
+                             f"{tool}: exactly one capture + one post-compare")
+            self.assertIn('_tok[1] != "complete"', body,
+                          f"{tool}: completeness gate must check the captured token")
+            self.assertNotIn("_epoch_token(", body,
+                             f"{tool}: no separate complete-probe read (between-reads window)")
+
+    def test_code_search_refuses_on_building_pre_state_via_captured_token(self):
+        """The captured token's own status gates: a BUILDING pre-state (not
+        just an absent store) refuses before the response fn runs."""
+        self.iss.begin_build_epoch(self.index_dir, "between-probes")
+        fn = self._tool_fn("code_search")
+        called = []
+        restore = self._with_hijacked_response(
+            fn, "code_search_response",
+            lambda *a, **k: called.append(1) or {"status": "ok", "data": {"results": [{"id": "escaped-between-probes"}]}},
+        )
+        try:
+            result = fn("anything")
+        finally:
+            restore()
+        self.assertEqual(result["status"], "error")
+        self.assertEqual(result["diagnostics"][0]["code"], "index_not_ready")
+        self.assertEqual(called, [], "a building pre-state must refuse up front")
+        self.assertNotIn("escaped-between-probes", json.dumps(result))
+
+    def test_code_search_and_code_ask_refuse_up_front_without_epoch(self):
+        """Review refutation: strict pre-gate — with no complete epoch the
+        response functions are never invoked, so keyword/graph stages cannot
+        surface citations labeled current."""
+        import shutil
+        shutil.rmtree(self.index_dir)
+        self.index_dir.mkdir(parents=True)
+        for tool, response_name in (("code_search", "code_search_response"),
+                                    ("code_ask", "code_ask_response")):
+            fn = self._tool_fn(tool)
+            called = []
+            restore = self._with_hijacked_response(
+                fn, response_name,
+                lambda *a, **k: called.append(1) or {"status": "ok", "data": {}},
+            )
+            try:
+                result = fn("anything")
+            finally:
+                restore()
+            self.assertEqual(result["status"], "error", tool)
+            self.assertEqual(result["diagnostics"][0]["code"], "index_not_ready", tool)
+            self.assertEqual(called, [], f"{tool} must not run over a token-less store")
+
+    def test_seed_get_discards_results_when_epoch_changes_mid_operation(self):
+        fn = self._tool_fn("seed_get")
+
+        def racing_writer(index, name):
+            self.iss.begin_build_epoch(self.index_dir, "concurrent-build")
+            return {"status": "ok", "data": {"seed": {"content": "mixed-epoch-seed"}}}
+
+        restore = self._with_hijacked_response(fn, "seed_get_response", racing_writer)
+        try:
+            result = fn("020-run-contract")
+        finally:
+            restore()
+        self.assertEqual(result["status"], "error")
+        self.assertEqual(result["diagnostics"][0]["code"], "index_not_ready")
+        self.assertNotIn("mixed-epoch-seed", json.dumps(result))
+
+
+    def test_optimize_response_surfaces_refusal_as_structured_error(self):
+        """Independent-review N2: the optimize tool must return the structured
+        index_not_ready envelope on the restore-only refusal, not crash."""
+        srv = load_server()
+        with tempfile.TemporaryDirectory() as td:
+            root = _make_repo(Path(td))
+            index_dir = root / ".wavefoundry" / "index"
+            (index_dir / "docs.lance").mkdir(parents=True)
+            resp = srv._wave_index_optimize_response(root)
+            self.assertEqual(resp["status"], "error")
+            codes = [d.get("code") for d in resp.get("diagnostics", [])]
+            self.assertIn("index_not_ready", codes)
+
+    def test_build_status_reports_interrupted_not_idle_over_building_epoch(self):
+        """Review refutation: a `building` epoch with no live builder must
+        surface as `interrupted` (with the epoch object), never `idle`."""
+        srv = load_server()
+        self.iss.begin_build_epoch(self.index_dir, "crashed-builder")
+        resp = srv.wave_index_build_status_response(self.root)
+        data = resp["data"]
+        self.assertEqual(data["state"], "interrupted")
+        self.assertEqual(data["epoch"]["status"], "building")
+        self.assertTrue(data["epoch"]["interrupted"])
+        codes = [d.get("code") for d in resp.get("diagnostics", [])]
+        self.assertIn("index_build_interrupted", codes)
+
+    def test_build_status_idle_over_complete_epoch_carries_epoch_object(self):
+        srv = load_server()
+        resp = srv.wave_index_build_status_response(self.root)
+        data = resp["data"]
+        self.assertEqual(data["state"], "idle")
+        self.assertEqual(data["epoch"]["status"], "complete")
+        self.assertFalse(data["epoch"]["interrupted"])
+
+    def test_code_lexical_fails_closed_without_a_complete_epoch(self):
+        # Strict pre-gate: mid-build (building status) FTS state is mixed and
+        # never served — the tool refuses BEFORE touching the store.
+        self.iss.begin_build_epoch(self.index_dir, "in-flight-build")
+        fn = self._tool_fn("code_lexical")
+        result = fn("anything")
+        self.assertEqual(result["status"], "error")
+        self.assertEqual(result["diagnostics"][0]["code"], "index_not_ready")
+
+
 if __name__ == "__main__":
     unittest.main()
 
@@ -20420,8 +20749,14 @@ class SeedGetDiskFallbackTests(unittest.TestCase):
         shutil.rmtree(self._tmp, ignore_errors=True)
 
     def _make_empty_index_stub(self):
+        # 1sed6: _ensure_loaded revalidates the epoch token even when loaded —
+        # seed a completed (empty) build so the stub survives revalidation and
+        # get_seed exercises its DISK fallback (no seed chunks in Lance).
+        _seed_store_state(self.root / ".wavefoundry" / "index",
+                          {"model_versions": {}, "content": [], "file_meta": {}})
         idx = self.srv.WaveIndex(self.root)
         idx._loaded = True
+        idx._loaded_meta_signature = {"project": idx._index_meta_signature(idx.index_dir)}
         idx._proj_docs_lance_table = None
         idx._fw_docs_lance_table = None
         return idx
@@ -21426,12 +21761,20 @@ class FtsRebuildContentTests(unittest.TestCase):
     rebuild of the derived lexical layer off the Lance tables."""
 
     def setUp(self):
-        import server_impl
-        self.srv = server_impl
+        self.srv = load_server()
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
         self.root = Path(self._tmp.name)
         self.index_dir = self.root / ".wavefoundry" / "index"
+
+
+    def test_fts_rebuild_refusal_reports_failed_not_passed(self):
+        """Independent-review N1: the restore-only refusal (top-level error
+        string) must surface as passed=False — never as a success envelope."""
+        # No completed epoch: the derived rebuild refuses.
+        resp = self.srv.run_index_rebuild(self.root, content="fts")
+        self.assertFalse(resp["passed"])
+        self.assertIn("no completed build epoch", resp["error"])
 
     def test_fts_rebuild_from_scratch_off_lance(self):
         try:
@@ -21445,6 +21788,9 @@ class FtsRebuildContentTests(unittest.TestCase):
             for i in range(12)
         ]
         lancedb.connect(str(self.index_dir)).create_table("code", rows, mode="overwrite")
+        # 1sed6 review fix: the derived rebuild is restore-only — it requires
+        # a completed build epoch (a real build published this index).
+        _seed_store_state(self.index_dir, {"model_versions": {"code": "m@full"}, "content": ["code"]})
         resp = self.srv.run_index_rebuild(self.root, content="fts")
         self.assertTrue(resp["passed"])
         self.assertEqual(resp["index_scope"], "derived_chunk_state_only")
