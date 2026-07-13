@@ -4038,6 +4038,119 @@ class _EpochBuildCase(unittest.TestCase):
         return state["generation"] if state else -1
 
 
+class ProjectLayerFreshnessTests(_EpochBuildCase):
+    """1seav / 1sbxq AC-2: the cheap per-layer freshness signal — layer-
+    crossing regressions in BOTH directions, added/deleted paths, empty
+    layers, chunker mismatch, and the honesty rule (unknown, never silently
+    current)."""
+
+    def _freshness(self):
+        return self.bi.project_layer_freshness(self.root)
+
+    def _seed(self):
+        _make_repo(self.root, {
+            "src/foo.py": "def f(): return 1\n",
+            "docs/guide.md": "## Intro\n\nHello.\n",
+        })
+        self._run_build(full=True)
+
+    def test_current_after_full_build(self):
+        self._seed()
+        v = self._freshness()
+        self.assertIs(v["stale"], False)
+        self.assertEqual(v["reason"], "current")
+
+    def test_simple_edit_reads_stale(self):
+        self._seed()
+        (self.root / "src" / "foo.py").write_text("def f(): return 2\n", encoding="utf-8")
+        self.assertIs(self._freshness()["stale"], True)
+
+    def test_layer_crossing_code_edit_survives_docs_only_build(self):
+        """The 1sek8 poison direction: edit a code file, run a docs-only
+        build that also processes a docs change (the broad snapshot stamps
+        the code file's fresh hash) — freshness must STILL read stale until
+        a code/all build embeds it."""
+        self._seed()
+        (self.root / "src" / "foo.py").write_text("def f(): return 2\n", encoding="utf-8")
+        (self.root / "docs" / "guide.md").write_text("## Intro\n\nChanged.\n", encoding="utf-8")
+        docs_mock = _make_embedder_mock(dim=4)
+        with patch.object(self.bi, "_get_embedder", side_effect=[docs_mock]):
+            self.bi.build_index(self.root, full=False, content="docs", verbose=False)
+        v = self._freshness()
+        self.assertIs(v["stale"], True, "broad snapshot stamped the code hash; the code layer is behind")
+        self.assertIs(v["layers"]["code"], True)
+        # A second docs-only build cannot clear it...
+        docs_mock2 = _make_embedder_mock(dim=4)
+        with patch.object(self.bi, "_get_embedder", side_effect=[docs_mock2]):
+            self.bi.build_index(self.root, full=False, content="docs", verbose=False)
+        self.assertIs(self._freshness()["stale"], True)
+        # ...a code/all build does.
+        with patch.object(self.bi, "_get_embedder",
+                          side_effect=[_make_embedder_mock(dim=4), _make_embedder_mock(dim=4)]):
+            self.bi.build_index(self.root, full=False, content="all", verbose=False)
+        self.assertIs(self._freshness()["stale"], False)
+
+    def test_layer_crossing_inverse_docs_edit_survives_code_only_build(self):
+        """The inverse direction (code_ask searches BOTH layers): edit a
+        docs file, run a code-only build that also processes a code change —
+        stale until a docs/all build."""
+        self._seed()
+        (self.root / "docs" / "guide.md").write_text("## Intro\n\nChanged.\n", encoding="utf-8")
+        (self.root / "src" / "foo.py").write_text("def f(): return 3\n", encoding="utf-8")
+        with patch.object(self.bi, "_get_embedder", side_effect=[_make_embedder_mock(dim=4)]):
+            self.bi.build_index(self.root, full=False, content="code", verbose=False)
+        v = self._freshness()
+        self.assertIs(v["stale"], True)
+        self.assertIs(v["layers"]["docs"], True)
+        with patch.object(self.bi, "_get_embedder",
+                          side_effect=[_make_embedder_mock(dim=4), _make_embedder_mock(dim=4)]):
+            self.bi.build_index(self.root, full=False, content="all", verbose=False)
+        self.assertIs(self._freshness()["stale"], False)
+
+    def test_added_and_deleted_paths_read_stale(self):
+        self._seed()
+        (self.root / "src" / "bar.py").write_text("def g(): pass\n", encoding="utf-8")
+        self.assertIs(self._freshness()["stale"], True, "added path")
+        with patch.object(self.bi, "_get_embedder",
+                          side_effect=[_make_embedder_mock(dim=4), _make_embedder_mock(dim=4)]):
+            self.bi.build_index(self.root, full=False, content="all", verbose=False)
+        self.assertIs(self._freshness()["stale"], False)
+        (self.root / "src" / "bar.py").unlink()
+        self.assertIs(self._freshness()["stale"], True, "deleted path")
+
+    def test_legitimately_empty_layer_reads_current(self):
+        """A repo with no docs corpus: the empty docs layer is current, not
+        stale/unknown."""
+        _make_repo(self.root, {"src/foo.py": "def f(): return 1\n"})
+        self._run_build(full=True)
+        v = self._freshness()
+        self.assertIs(v["stale"], False)
+
+    def test_chunker_mismatch_reads_stale(self):
+        self._seed()
+        store = self.bi._get_index_state_store()
+        snapshot = store.read_build_summary(self.index_dir)
+        stale_meta = dict(snapshot)
+        stale_meta["chunker_versions"] = {"docs": "0", "code": "0"}
+        stale_meta["file_meta"] = self.bi._load_meta(self.index_dir).get("file_meta", {})
+        store.write_build_bookkeeping(self.index_dir, stale_meta)
+        v = self._freshness()
+        self.assertIs(v["stale"], True)
+        self.assertIs(v["chunker_stale"], True)
+
+    def test_no_store_reads_unknown_never_current(self):
+        _make_repo(self.root, {"src/foo.py": "def f(): pass\n"})
+        v = self._freshness()
+        self.assertIsNone(v["stale"], "no snapshot = unknown, never current")
+
+    def test_helper_exception_reads_unknown(self):
+        self._seed()
+        with patch.object(self.bi, "project_index_inputs_stale", side_effect=RuntimeError("boom")):
+            v = self._freshness()
+        self.assertIsNone(v["stale"])
+        self.assertIn("error", v["reason"])
+
+
 class LegacyConvergenceTests(_EpochBuildCase):
     """AC-6: a legacy installation (Lance + meta.json, no state store)
     converges by reconstruction — legacy JSON is never authoritative input

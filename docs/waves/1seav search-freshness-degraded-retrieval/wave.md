@@ -1,8 +1,8 @@
 # Wave Record
 
 Owner: Engineering
-Status: planned
-Last verified: 2026-07-12
+Status: implementing
+Last verified: 2026-07-13
 
 wave-id: `1seav search-freshness-degraded-retrieval`
 Title: Search Freshness Degraded Retrieval
@@ -14,10 +14,10 @@ Land the two highest-value findings from the 2026-07-12 external code review, bo
 ## Changes
 
 Change ID: `1sbxq-bug code-ask-freshness-signal`
-Change Status: `planned`
+Change Status: `implementing`
 
 Change ID: `1seaq-enh fts-first-degraded-search-fallback`
-Change Status: `planned`
+Change Status: `implementing`
 
 ## Wave Summary
 
@@ -40,6 +40,7 @@ Two review-derived changes: honest, cheap `code_ask` freshness (three states, no
 
 ## Review Evidence
 
+- **Pre-implementation plan review (external, 2026-07-13): BLOCKED → REPAIRED.** The automated gates passed but the substantive review found two P0 plan gaps (both post-dating the original council: wave `1sed7` shipped between readying and implementation): (1) `1seaq` left incomplete-epoch behavior undefined and its live-walk restriction conflicted with the shipped SQLite-only reader contract — repaired with a full per-state behavior table (Requirement 2a: absent/uninitialized/building/interrupted/unreadable/transition, per tool), FTS serving bound to the CAPTURED complete token under 1sed7's single-capture discipline, the strict code-tool lockout preserved verbatim, `index_not_ready` + always-present `fallback_reason: null` + `search_mode: exact` added to the typed contract, a typed `{available, failure_reason, results, coverage}` shared-serving result (replacing the exception-to-`[]` collapse), a concrete per-layer filter contract with independent FTS/live-walk fixtures, AC-6/AC-7 added to the priority table and tasks, and deduplicated store-log persistence (P2); (2) `1sbxq`'s cache clause permitted generation-only invalidation, which is blind to source edits — repaired to require BOTH a root-scoped seconds-scale TTL and build-generation invalidation, with AC-4 pinning each axis independently, plus the inverse layer-crossing regression and added/deleted/empty-layer freshness coverage. Both change docs carry the full repair rationale in their progress logs.
 - wave-council-readiness: approved 2026-07-12 — prepare council synthesis verdict READY: both changes are source-validated repairs with the enabling substrate already shipped (1sbfk/1sc7c/`code_lexical`), the fixture matrices are enumerated in the ACs, and the one accepted trade (stat-fast-path false negatives) is contained by authority separation plus the `unknown` state. Seats unanimous; full synthesis in Review Checkpoints.
 - operator-signoff: <approved when operator confirms closure>
 

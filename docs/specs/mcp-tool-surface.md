@@ -201,9 +201,19 @@ recovery tool rather than silently duplicating work.
 - Optional `tags`: pre-filter the search space before semantic ranking. Current tags: `wave`, `agent`, `journal`, `lifecycle`, `reference`, `prompt`, `seed`, `framework`, `test`, `config`.
 - Optional `limit`: number of results to return, default `5`, clamped `[1, 20]`.
 - Query-time embedding must run offline-only once the local model cache exists.
-- When the semantic model cache is unavailable or the index is not ready, the tool must
-degrade to lexical fallback instead of crashing. The hot-path diagnostic code for
-those conditions is `semantic_model_unavailable_offline` or `index_not_ready`.
+- **Degradation contract (wave 1seav):** every `docs_search`/`code_search`/`code_ask`
+response carries `search_mode` and an ALWAYS-present `fallback_reason` (`null` when
+healthy). Modes: `semantic`/`hybrid` (normal), `exact` (`code_ask`'s artifact-anchored
+exact-first pass — healthy), `lexical_fallback` (semantic path unavailable over a
+PUBLISHED index — BM25 results from the FTS layer with the requested filters
+preserved), `live_fallback` (`docs_search` only: no published index; live filesystem
+walk). Reasons: `model_unavailable`, `index_missing`, `store_absent`,
+`index_not_ready`, `query_failed` (infrastructure failure — distinguishable from a
+genuine zero-hit, which carries a token-semantics note instead). FTS serves ONLY from
+the captured complete build epoch (the 1sed7 single-capture token, threaded from the
+tool registration); the strict code-tool lockout during builds is unchanged — code
+retrieval has no degraded path on a not-ready index. Degradation transitions persist
+to the store log once per `(tool, reason)` change, never per query.
 - `index_missing` and `index_stale` diagnostics are not emitted by `docs_search`; call
 `wave_index_health` explicitly to check whether an index layer is stale or absent
 before deciding whether to run `wf update-indexes`.

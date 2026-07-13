@@ -1311,6 +1311,82 @@ def project_index_inputs_stale(root: Path, meta: dict | None = None) -> bool | N
         return None
 
 
+def project_layer_freshness(root: Path) -> "dict[str, Any]":
+    """Cheap per-layer freshness signal for the search hot path (wave 1seav / 1sbxq).
+
+    Combines TWO cheap comparisons — no per-call corpus hashing:
+
+    1. **Stat-fast-path walk** vs the store's broad ``file_meta`` snapshot
+       (``_detect_changes``: mtime+size+inode pre-filter, hashing only on stat
+       mismatch) — catches edits/additions/deletions since the LAST BUILD of
+       any kind.
+    2. **Per-layer last-embedded hashes** (``layer_path_state``) vs the broad
+       snapshot's current hashes — catches the layer-crossing case the broad
+       snapshot alone cannot see: a docs-only build stamps a changed code
+       file's fresh hash into ``file_meta`` while the code layer never
+       embedded it (the 1sek8 poison); the layer's own hash still differs.
+
+    Returns ``{"stale": bool | None, "layers": {"docs": bool|None, "code":
+    bool|None}, "chunker_stale": bool | None, "reason": str}`` where ``None``
+    means undeterminable (store absent/unreadable/no snapshot) — callers map
+    that to an honest "unknown", never "current".
+    """
+    try:
+        index_dir = root / ".wavefoundry" / "index"
+        iss = _get_index_state_store()
+        if iss is None:
+            return {"stale": None, "layers": {}, "chunker_stale": None, "reason": "store module unavailable"}
+        summary = iss.read_build_summary(index_dir)
+        meta = _load_meta(index_dir)
+        file_meta = meta.get("file_meta") if isinstance(meta, dict) else None
+        if not summary or not isinstance(file_meta, dict) or not file_meta:
+            return {"stale": None, "layers": {}, "chunker_stale": None, "reason": "no build snapshot"}
+
+        # Chunker-version mismatch: a distinct staleness cause, kept from the
+        # legacy check (cheap: two store scalars vs the module constant).
+        current_cv = str(getattr(_get_chunker(), "CHUNKER_VERSION", ""))
+        stored_cv = summary.get("chunker_versions") or {}
+        chunker_stale = bool(stored_cv) and any(
+            str(v) != current_cv for v in stored_cv.values()
+        )
+
+        # Pass 1: stat-fast-path walk vs the broad snapshot (edits since the
+        # last build). Reuses project_index_inputs_stale's filter discipline.
+        walk_stale = project_index_inputs_stale(root, meta)
+
+        # Pass 2: per-layer hash compare — pure store reads, no filesystem.
+        layers: dict = {}
+        for layer in ("docs", "code"):
+            state = iss.layer_hashes(index_dir, layer)
+            if state is None:
+                layers[layer] = None
+                continue
+            layer_stale = False
+            for rel, embedded_hash in state.items():
+                entry = file_meta.get(rel)
+                if entry is None:
+                    layer_stale = True  # deleted (or excluded) since the layer embedded it
+                    break
+                if str(entry.get("hash", "")) != str(embedded_hash):
+                    layer_stale = True  # the layer never embedded the current content
+                    break
+            layers[layer] = layer_stale
+
+        determinable = walk_stale is not None or any(v is not None for v in layers.values())
+        if not determinable and chunker_stale is None:
+            return {"stale": None, "layers": layers, "chunker_stale": None, "reason": "undeterminable"}
+        stale = bool(walk_stale) or any(v for v in layers.values() if v) or chunker_stale
+        reason = (
+            "chunker version mismatch" if chunker_stale
+            else "inputs changed since last build" if walk_stale
+            else "layer behind broad snapshot" if any(v for v in layers.values() if v)
+            else "current"
+        )
+        return {"stale": stale, "layers": layers, "chunker_stale": chunker_stale, "reason": reason}
+    except Exception as exc:  # noqa: BLE001 - honesty rule: undeterminable, never silently current
+        return {"stale": None, "layers": {}, "chunker_stale": None, "reason": f"error: {exc}"}
+
+
 # ---------------------------------------------------------------------------
 # LanceDB vector index helpers
 # ---------------------------------------------------------------------------

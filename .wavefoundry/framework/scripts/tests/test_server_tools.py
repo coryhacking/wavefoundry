@@ -1736,11 +1736,13 @@ class GuidedContractTests(unittest.TestCase):
             "score": 3.0,
         }]
 
-        result = self.srv.docs_search_response(index, "agent catalog", "doc")
+        # 1seaq: model-unavailable with NO published epoch → live walk (the
+        # FTS fallback requires a captured complete epoch).
+        result = self.srv.docs_search_response(index, "agent catalog", "doc", epoch_state=None)
 
         self.assertEqual(result["status"], "ok")
-        self.assertEqual(result["data"]["search_mode"], "lexical_fallback")
-        self.assertEqual(result["diagnostics"][0]["code"], "semantic_model_unavailable_offline")
+        self.assertEqual(result["data"]["search_mode"], "live_fallback")
+        self.assertEqual(result["data"]["fallback_reason"], "store_absent")
         index.search_docs_lexical.assert_called_once_with("agent catalog", kind="doc", top_n=7)
         index.docs_health.assert_not_called()
 
@@ -1764,8 +1766,9 @@ class GuidedContractTests(unittest.TestCase):
         index.search_docs.assert_called_once_with("agent catalog", kind="doc", top_n=7, tags=None)
         index.docs_health.assert_not_called()
 
-    def test_docs_search_falls_back_to_lexical_on_index_not_ready(self):
-        # When the index cannot be loaded, IndexNotReadyError triggers lexical fallback.
+    def test_docs_search_live_walk_on_index_not_ready_without_store(self):
+        # 1seaq state table: IndexNotReadyError with NO published epoch
+        # (store absent) → the live-filesystem walk, honestly labeled.
         index = MagicMock()
         index.search_docs.side_effect = self.srv.IndexNotReadyError("index missing")
         index.search_docs_lexical.return_value = [{
@@ -1778,13 +1781,26 @@ class GuidedContractTests(unittest.TestCase):
             "score": 2.0,
         }]
 
-        result = self.srv.docs_search_response(index, "agent catalog", "doc")
+        result = self.srv.docs_search_response(index, "agent catalog", "doc", epoch_state=None)
 
         self.assertEqual(result["status"], "ok")
-        self.assertEqual(result["data"]["search_mode"], "lexical_fallback")
-        self.assertEqual(result["diagnostics"][0]["code"], "index_not_ready")
+        self.assertEqual(result["data"]["search_mode"], "live_fallback")
+        self.assertEqual(result["data"]["fallback_reason"], "store_absent")
         index.search_docs_lexical.assert_called_once_with("agent catalog", kind="doc", top_n=7)
         index.docs_health.assert_not_called()
+
+    def test_docs_search_live_walk_on_building_epoch(self):
+        # 1seaq state table: a stable building/interrupted epoch → live walk
+        # with fallback_reason index_not_ready (no published FTS to serve).
+        index = MagicMock()
+        index.search_docs.side_effect = self.srv.IndexNotReadyError("mid-build")
+        index.search_docs_lexical.return_value = []
+        result = self.srv.docs_search_response(
+            index, "agent catalog", "doc", epoch_state=("attempt-a", "building", 3)
+        )
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["data"]["search_mode"], "live_fallback")
+        self.assertEqual(result["data"]["fallback_reason"], "index_not_ready")
 
     def test_code_search_response_handles_index_not_ready(self):
         index = MagicMock()
@@ -10311,19 +10327,37 @@ class CodeAskTests(unittest.TestCase):
         self.assertIsNone(srv._extract_question_symbol("how does search work?"))
         self.assertIsNone(srv._extract_question_symbol("what is the purpose of this?"))
 
-    def test_index_freshness_current_when_no_mismatch(self):
+    def test_code_ask_never_calls_layer_health_source_pin(self):
+        """1sbxq AC-1 source pin: code_ask_response contains no _layer_health
+        call (the O(corpus) walk its own docstring forbids on the hot path)."""
+        src_path = Path(load_server().__file__)
+        src = src_path.read_text(encoding="utf-8")
+        start = src.index("def code_ask_response(")
+        end = src.index("\ndef ", start + 10)
+        body = src[start:end]
+        self.assertNotIn("._layer_health(", body,
+                         "no _layer_health CALL on the hot path (comments may mention it)")
+        self.assertIn("_index_freshness_verdict", body)
+
+    def test_index_freshness_envelope_carries_verdict_states(self):
+        """1sbxq: code_ask's envelope carries the cached verdict's state —
+        all three states pass through; the O(corpus) _layer_health call is
+        gone (it is never invoked on the hot path)."""
+        for state in ("current", "stale", "unknown"):
+            index = self._make_index(code_results=[self._fake_code_chunk()])
+            with patch.object(self.srv, "_index_freshness_verdict",
+                              return_value={"state": state, "reason": "test"}):
+                result = self.srv.code_ask_response(index, self.root, "billing?")
+            self.assertEqual(result["data"]["index_freshness"], state)
+            index._layer_health.assert_not_called()
+
+    def test_index_freshness_unknown_on_bare_repo(self):
+        """Honesty rule: a repo with no store cannot claim current — the
+        real (unpatched) verdict path reports unknown."""
+        self.srv._FRESHNESS_CACHE.clear()
         index = self._make_index(code_results=[self._fake_code_chunk()])
         result = self.srv.code_ask_response(index, self.root, "billing?")
-        self.assertEqual(result["data"]["index_freshness"], "current")
-
-    def test_index_freshness_stale_when_mismatch(self):
-        index = self._make_index()
-        index._layer_health.return_value = {
-            "indexed_chunker_versions": {"docs": "16", "code": "16"},
-            "current_chunker_version": "17",
-        }
-        result = self.srv.code_ask_response(index, self.root, "billing?")
-        self.assertEqual(result["data"]["index_freshness"], "stale")
+        self.assertEqual(result["data"]["index_freshness"], "unknown")
 
     # --- validation_required and dynamic next_tools (12q8t) ---
 
@@ -20169,6 +20203,294 @@ class GraphSignalTests(unittest.TestCase):
         self.assertFalse(gate(None))
 
 
+class DegradedFtsFallbackTests(unittest.TestCase):
+    """1seav / 1seaq AC-1/2/4/6/7: the FTS-first degraded fallbacks — real
+    store, real FTS rows, epoch gating per the Requirement 2a state table,
+    typed query_failed, filter preservation, zero-hit honesty, log dedup."""
+
+    COMPLETE = None  # set per-instance after seeding
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = _make_repo(Path(self.tmp.name))
+        self.index_dir = self.root / ".wavefoundry" / "index"
+        self.index_dir.mkdir(parents=True)
+        import importlib.util as ilu
+        spec = ilu.spec_from_file_location(
+            "index_state_store", Path(__file__).resolve().parents[1] / "index_state_store.py")
+        self.iss = ilu.module_from_spec(spec)
+        spec.loader.exec_module(self.iss)
+        # Seed FTS rows for both tables + a completed epoch.
+        code_rows = [
+            {"id": "c1", "path": "src/alpha.py", "kind": "code", "language": "python",
+             "lines": [1, 5], "section": "", "tags": "", "chunk_hash": "h1",
+             "text": "def alpha_handler(): pass"},
+            {"id": "c2", "path": "src/beta.ts", "kind": "code", "language": "typescript",
+             "lines": [1, 5], "section": "", "tags": "", "chunk_hash": "h2",
+             "text": "function alpha_handler() {}"},
+            {"id": "c3", "path": "src/alpha.py", "kind": "code", "language": "python",
+             "lines": [6, 9], "section": "", "tags": "", "chunk_hash": "h3",
+             "text": "def alpha_handler_two(): pass"},
+        ]
+        docs_rows = [
+            {"id": "d1", "path": "docs/guide.md", "kind": "doc", "language": "",
+             "lines": [1, 4], "section": "Intro", "tags": "reference", "chunk_hash": "h4",
+             "text": "alpha_handler guide entry"},
+            {"id": "d2", "path": "docs/other.md", "kind": "doc", "language": "",
+             "lines": [1, 4], "section": "Other", "tags": "journal", "chunk_hash": "h5",
+             "text": "alpha_handler journal entry"},
+        ]
+        import contextlib, io as _io
+        with contextlib.redirect_stdout(_io.StringIO()), contextlib.redirect_stderr(_io.StringIO()):
+            self.iss.reconcile_chunk_index(self.index_dir, "code", {r["id"] for r in code_rows}, lambda: code_rows)
+            self.iss.reconcile_chunk_index(self.index_dir, "docs", {r["id"] for r in docs_rows}, lambda: docs_rows)
+        self.iss.write_build_bookkeeping(self.index_dir, {"content": ["docs", "code"]})
+        attempt = self.iss.begin_build_epoch(self.index_dir, "fixture")
+        assert self.iss.finalize_build_epoch(self.index_dir, attempt)
+        self.COMPLETE = self.iss.build_epoch_state_token(self.index_dir)
+        self.srv._DEGRADED_LOG_STATE.clear()
+        self.addCleanup(self.srv._DEGRADED_LOG_STATE.clear)
+
+    def _mock_index(self, exc):
+        index = MagicMock()
+        index.root = self.root
+        index.search_code.side_effect = exc
+        index.search_docs.side_effect = exc
+        index.search_combined.side_effect = exc
+        return index
+
+    # --- AC-1: code_search FTS fallback with preserved filters ---
+
+    def test_code_search_serves_fts_on_model_unavailable(self):
+        index = self._mock_index(self.srv.SemanticModelUnavailableOfflineError("offline"))
+        result = self.srv.code_search_response(index, "alpha_handler", epoch_state=self.COMPLETE)
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["data"]["search_mode"], "lexical_fallback")
+        self.assertEqual(result["data"]["fallback_reason"], "model_unavailable")
+        paths = [r["path"] for r in result["data"]["results"]]
+        self.assertIn("src/alpha.py", paths)
+
+    def test_code_search_fts_fallback_preserves_language_filter(self):
+        index = self._mock_index(self.srv.SemanticModelUnavailableOfflineError("offline"))
+        result = self.srv.code_search_response(index, "alpha_handler", language="typescript", epoch_state=self.COMPLETE)
+        langs = {r["language"] for r in result["data"]["results"]}
+        self.assertEqual(langs, {"typescript"})
+
+    def test_code_search_fts_fallback_preserves_max_per_file(self):
+        index = self._mock_index(self.srv.SemanticModelUnavailableOfflineError("offline"))
+        result = self.srv.code_search_response(index, "alpha_handler", max_per_file=1, epoch_state=self.COMPLETE)
+        paths = [r["path"] for r in result["data"]["results"]]
+        self.assertEqual(len([p for p in paths if p == "src/alpha.py"]), 1)
+
+    def test_code_search_refuses_fallback_without_complete_epoch(self):
+        """AC-7: FTS never serves from a non-complete captured epoch."""
+        index = self._mock_index(self.srv.SemanticModelUnavailableOfflineError("offline"))
+        for state in (None, ("a", "building", 1), ("a", "uninitialized", 0)):
+            result = self.srv.code_search_response(index, "alpha_handler", epoch_state=state)
+            self.assertEqual(result["status"], "error", state)
+            self.assertIn(result["data"]["fallback_reason"], ("index_not_ready", "store_absent"))
+            self.assertEqual(result["data"]["results"], [])
+
+    # --- AC-2: docs_search FTS-first with tag preservation ---
+
+    def test_docs_search_serves_fts_with_tag_filter_on_model_unavailable(self):
+        index = self._mock_index(self.srv.SemanticModelUnavailableOfflineError("offline"))
+        result = self.srv.docs_search_response(index, "alpha_handler", tags=["journal"], epoch_state=self.COMPLETE)
+        self.assertEqual(result["data"]["search_mode"], "lexical_fallback")
+        self.assertEqual(result["data"]["fallback_reason"], "model_unavailable")
+        paths = [r["path"] for r in result["data"]["results"]]
+        self.assertEqual(paths, ["docs/other.md"], "tag filter must survive the fallback")
+        index.search_docs_lexical.assert_not_called()
+
+    def test_docs_search_live_walk_not_reachable_with_healthy_store(self):
+        """The Req 7 pin: with a published (complete) store, the live walk is
+        NOT reachable — the FTS layer serves."""
+        index = self._mock_index(self.srv.IndexNotReadyError("tables missing"))
+        result = self.srv.docs_search_response(index, "alpha_handler", epoch_state=self.COMPLETE)
+        self.assertEqual(result["data"]["search_mode"], "lexical_fallback")
+        self.assertEqual(result["data"]["fallback_reason"], "index_missing")
+        index.search_docs_lexical.assert_not_called()
+
+    # --- AC-4 / P1: typed query_failed vs zero hits ---
+
+    def test_query_failed_is_typed_not_silent_zero(self):
+        index = self._mock_index(self.srv.SemanticModelUnavailableOfflineError("offline"))
+        with patch.object(self.iss.__class__ if False else self.srv, "_fts_degraded_serve",
+                          return_value={"available": False, "failure_reason": "query_failed",
+                                        "results": [], "coverage": {}}):
+            result = self.srv.docs_search_response(index, "alpha_handler", epoch_state=self.COMPLETE)
+        self.assertEqual(result["data"]["fallback_reason"], "query_failed")
+        codes = [d.get("code") for d in result.get("diagnostics", [])]
+        self.assertIn("lexical_fallback_failed", codes)
+
+    def test_degraded_zero_hit_carries_token_semantics_note(self):
+        index = self._mock_index(self.srv.SemanticModelUnavailableOfflineError("offline"))
+        result = self.srv.docs_search_response(index, "zz_no_such_token_zz", epoch_state=self.COMPLETE)
+        self.assertEqual(result["data"]["results"], [])
+        codes = [d.get("code") for d in result.get("diagnostics", [])]
+        self.assertIn("lexical_fallback_zero_hits", codes)
+
+    # --- AC-6: code_ask degrades with FTS-built citations ---
+
+    def test_code_ask_builds_fts_citations_on_model_unavailable(self):
+        index = self._mock_index(self.srv.SemanticModelUnavailableOfflineError("offline"))
+        index._layer_health = MagicMock()
+        result = self.srv.code_ask_response(index, self.root, "alpha_handler?", epoch_state=self.COMPLETE)
+        data = result["data"]
+        self.assertEqual(data["search_mode"], "lexical_fallback")
+        self.assertEqual(data["fallback_reason"], "model_unavailable")
+        self.assertTrue(data["citations"], "degraded mode must still cite")
+        self.assertIn(data["confidence"], ("low", "none"))
+
+    def test_code_ask_generic_exception_is_typed_query_failed(self):
+        index = self._mock_index(RuntimeError("boom"))
+        result = self.srv.code_ask_response(index, self.root, "alpha_handler?", epoch_state=self.COMPLETE)
+        self.assertEqual(result["data"]["fallback_reason"], "query_failed")
+        self.assertTrue(any("query_failed" in g for g in result["data"]["gaps"]))
+
+    def test_healthy_paths_carry_null_fallback_reason(self):
+        """AC-3 shape: fallback_reason is ALWAYS present, null when healthy."""
+        index = MagicMock()
+        index.root = self.root
+        index.search_docs.return_value = ([{"id": "d1", "path": "docs/guide.md", "kind": "doc",
+                                            "section": "Intro", "lines": [1, 4],
+                                            "text": "x", "score": 0.9}], True)
+        result = self.srv.docs_search_response(index, "alpha", epoch_state=self.COMPLETE)
+        self.assertIn("fallback_reason", result["data"])
+        self.assertIsNone(result["data"]["fallback_reason"])
+        self.assertEqual(result["data"]["search_mode"], "semantic")
+
+    # --- P2: store-log dedup ---
+
+    def test_fallback_across_build_transition_before_during_after(self):
+        """AC-7 transition matrix at the fallback: BEFORE a build (complete →
+        FTS serves), DURING (building captured state → no FTS; docs live-walks,
+        code refuses), AFTER (new complete epoch → FTS serves again)."""
+        index = self._mock_index(self.srv.SemanticModelUnavailableOfflineError("offline"))
+        index.search_docs_lexical.return_value = []
+        # BEFORE: complete epoch serves FTS.
+        r1 = self.srv.docs_search_response(index, "alpha_handler", epoch_state=self.COMPLETE)
+        self.assertEqual(r1["data"]["search_mode"], "lexical_fallback")
+        self.assertTrue(r1["data"]["results"])
+        # DURING: a build fences; the captured token is building.
+        attempt = self.iss.begin_build_epoch(self.index_dir, "transition")
+        during = self.iss.build_epoch_state_token(self.index_dir)
+        self.assertEqual(during[1], "building")
+        r2 = self.srv.docs_search_response(index, "alpha_handler", epoch_state=during)
+        self.assertEqual(r2["data"]["search_mode"], "live_fallback")
+        self.assertEqual(r2["data"]["fallback_reason"], "index_not_ready")
+        r2c = self.srv.code_search_response(index, "alpha_handler", epoch_state=during)
+        self.assertEqual(r2c["status"], "error")
+        self.assertEqual(r2c["data"]["fallback_reason"], "index_not_ready")
+        # AFTER: the build publishes; the new complete token serves FTS again.
+        self.assertTrue(self.iss.finalize_build_epoch(self.index_dir, attempt))
+        after = self.iss.build_epoch_state_token(self.index_dir)
+        self.assertEqual(after[1], "complete")
+        r3 = self.srv.code_search_response(index, "alpha_handler", epoch_state=after)
+        self.assertEqual(r3["status"], "ok")
+        self.assertEqual(r3["data"]["search_mode"], "lexical_fallback")
+        self.assertTrue(r3["data"]["results"])
+
+    def test_degradation_log_dedupes_per_reason_transition(self):
+        index = self._mock_index(self.srv.SemanticModelUnavailableOfflineError("offline"))
+        for _ in range(5):
+            self.srv.docs_search_response(index, "alpha_handler", epoch_state=self.COMPLETE)
+        log_path = self.iss.store_log_path(self.index_dir)
+        text = log_path.read_text(encoding="utf-8") if log_path.exists() else ""
+        events = [ln for ln in text.splitlines() if "search degradation" in ln]
+        self.assertEqual(len(events), 1,
+                         "N degraded queries must persist ONE event per reason transition")
+        # Recovery closes the episode with exactly one more event.
+        index.search_docs.side_effect = None
+        index.search_docs.return_value = ([{"id": "d1", "path": "docs/guide.md", "kind": "doc",
+                                            "section": "Intro", "lines": [1, 4],
+                                            "text": "x", "score": 0.9}], True)
+        self.srv.docs_search_response(index, "alpha", epoch_state=self.COMPLETE)
+        text = log_path.read_text(encoding="utf-8")
+        events = [ln for ln in text.splitlines() if "search degradation" in ln]
+        self.assertEqual(len(events), 2)
+        self.assertIn("recovered", events[-1])
+
+
+class FreshnessCacheAxesTests(unittest.TestCase):
+    """1sbxq AC-4 (P0 plan repair): BOTH cache invalidation axes, pinned
+    independently — the TTL axis (edit detection between builds; the
+    generation cannot see edits) and the epoch axis (immediate refresh on a
+    build transition, without waiting out the TTL)."""
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.srv._FRESHNESS_CACHE.clear()
+        self.addCleanup(self.srv._FRESHNESS_CACHE.clear)
+
+    def _with_underlying(self, verdicts: list):
+        """Patch the indexer helper to pop successive verdicts (each entry a
+        bool-or-None `stale` value); count calls."""
+        calls = []
+        def fake_freshness(root):
+            calls.append(1)
+            stale = verdicts[min(len(calls) - 1, len(verdicts) - 1)]
+            return {"stale": stale, "layers": {}, "chunker_stale": False,
+                    "reason": "test"}
+        fake_indexer = type("FakeIdx", (), {"project_layer_freshness": staticmethod(fake_freshness)})
+        return calls, patch.object(self.srv, "_load_script", return_value=fake_indexer)
+
+    def test_ttl_axis_detects_edit_with_generation_unchanged(self):
+        """current → (source edit; generation does NOT change) → stale once
+        the TTL elapses. Generation-only invalidation would cache `current`
+        forever here — the reproduced P0."""
+        stable_token = ("attempt-a", "complete", 7)
+        calls, ctx = self._with_underlying([False, True])  # current, then stale
+        with ctx, patch.object(self.srv, "_epoch_state", return_value=stable_token):
+            v1 = self.srv._index_freshness_verdict(self.root)
+            self.assertEqual(v1["state"], "current")
+            # Within the TTL, same token: cached — the underlying check runs once.
+            v2 = self.srv._index_freshness_verdict(self.root)
+            self.assertEqual(v2["state"], "current")
+            self.assertEqual(len(calls), 1)
+            # TTL expiry (simulate by aging the cache entry), token UNCHANGED:
+            key = str(self.root)
+            expires_at, tok, verdict = self.srv._FRESHNESS_CACHE[key]
+            self.srv._FRESHNESS_CACHE[key] = (0.0, tok, verdict)
+            v3 = self.srv._index_freshness_verdict(self.root)
+            self.assertEqual(v3["state"], "stale",
+                             "the TTL axis must re-detect an edit the generation cannot see")
+            self.assertEqual(len(calls), 2)
+
+    def test_epoch_axis_refreshes_immediately_on_build_transition(self):
+        """stale → completed build (epoch token changes) → current
+        IMMEDIATELY, without waiting out the TTL."""
+        calls, ctx = self._with_underlying([True, False])  # stale, then current
+        with ctx:
+            with patch.object(self.srv, "_epoch_state", return_value=("attempt-a", "complete", 7)):
+                v1 = self.srv._index_freshness_verdict(self.root)
+                self.assertEqual(v1["state"], "stale")
+            # Build publishes: generation advances. The cache entry is still
+            # well inside its TTL — the token change alone must invalidate.
+            with patch.object(self.srv, "_epoch_state", return_value=("attempt-b", "complete", 8)):
+                v2 = self.srv._index_freshness_verdict(self.root)
+            self.assertEqual(v2["state"], "current",
+                             "the epoch axis must refresh without waiting out the TTL")
+            self.assertEqual(len(calls), 2)
+
+    def test_unknown_states_pass_through(self):
+        calls, ctx = self._with_underlying([None])
+        with ctx, patch.object(self.srv, "_epoch_state", return_value=None):
+            v = self.srv._index_freshness_verdict(self.root)
+        self.assertEqual(v["state"], "unknown")
+
+    def test_helper_exception_reads_unknown(self):
+        with patch.object(self.srv, "_load_script", side_effect=RuntimeError("boom")), \
+             patch.object(self.srv, "_epoch_state", return_value=None):
+            v = self.srv._index_freshness_verdict(self.root)
+        self.assertEqual(v["state"], "unknown")
+
+
 class EpochSeqlockConcurrencyTests(unittest.TestCase):
     """1sed6 AC-4: the reader seqlock at the MCP tool boundary — a writer
     fencing the build epoch while a search is in flight means the results
@@ -20211,7 +20533,7 @@ class EpochSeqlockConcurrencyTests(unittest.TestCase):
     def test_docs_search_discards_results_when_epoch_changes_mid_search(self):
         fn = self._tool_fn("docs_search")
 
-        def racing_writer(index, query, kind, limit=7, tags=None):
+        def racing_writer(index, query, kind, limit=7, tags=None, **kwargs):
             # A build fences the epoch UNDER the in-flight search.
             self.iss.begin_build_epoch(self.index_dir, "concurrent-build")
             return {"status": "ok", "data": {"results": [{"id": "mixed-epoch-chunk"}]}}
@@ -20266,7 +20588,7 @@ class EpochSeqlockConcurrencyTests(unittest.TestCase):
         self.index_dir.mkdir(parents=True)
         fn = self._tool_fn("docs_search")
 
-        def publishing_writer(index, query, kind, limit=7, tags=None):
+        def publishing_writer(index, query, kind, limit=7, tags=None, **kwargs):
             attempt = self.iss.begin_build_epoch(self.index_dir, "publishing")
             assert self.iss.finalize_build_epoch(self.index_dir, attempt)
             return {"status": "ok", "data": {"results": [{"id": "mixed-epoch-chunk"}]}}
@@ -20293,7 +20615,7 @@ class EpochSeqlockConcurrencyTests(unittest.TestCase):
         attempt_a = self.iss.begin_build_epoch(self.index_dir, "A")
         fn = self._tool_fn("docs_search")
 
-        def aba_writer(index, query, kind, limit=7, tags=None):
+        def aba_writer(index, query, kind, limit=7, tags=None, **kwargs):
             assert self.iss.finalize_build_epoch(self.index_dir, attempt_a)
             self.iss.begin_build_epoch(self.index_dir, "B")
             return {"status": "ok", "data": {"results": [{"id": "escaped-aba"}]}}

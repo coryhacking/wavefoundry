@@ -3552,6 +3552,40 @@ def _epoch_state(root: Path) -> "tuple[str, str, int] | None":
         return None
 
 
+_FRESHNESS_TTL_SECONDS = 5.0
+_FRESHNESS_CACHE: "dict[str, tuple[float, object, dict]]" = {}
+
+
+def _index_freshness_verdict(root: Path) -> dict[str, Any]:
+    """Cheap cached three-state freshness verdict (wave 1seav / 1sbxq).
+
+    ``{"state": "current" | "stale" | "unknown", "reason": str}`` — replaces
+    code_ask's per-call ``_layer_health`` O(corpus) hash walk. The cache has
+    BOTH invalidation axes (P0 plan repair): a root-scoped seconds-scale TTL
+    (the build generation only advances at finalization, so TTL bounds
+    edit-detection latency between builds) AND the 1sed7 epoch state token
+    (any build transition — publish, fence — refreshes immediately without
+    waiting out the TTL). Exceptions and undeterminable states are "unknown",
+    never silently "current" (the 1sbfj honesty rule).
+    """
+    key = str(root)
+    now = time.monotonic()
+    tok = _epoch_state(root)
+    cached = _FRESHNESS_CACHE.get(key)
+    if cached is not None and now < cached[0] and cached[1] == tok:
+        return cached[2]
+    try:
+        idx = _load_script("indexer")
+        result = idx.project_layer_freshness(root)
+        stale = result.get("stale")
+        state = "unknown" if stale is None else ("stale" if stale else "current")
+        verdict = {"state": state, "reason": str(result.get("reason", ""))}
+    except Exception as exc:  # noqa: BLE001 - honesty rule
+        verdict = {"state": "unknown", "reason": f"freshness check failed: {exc}"}
+    _FRESHNESS_CACHE[key] = (now + _FRESHNESS_TTL_SECONDS, tok, verdict)
+    return verdict
+
+
 def _index_rebuilding_response(tool: str, payload: dict) -> dict[str, Any]:
     """Structured not-ready/rebuilding result (1sed6 AC-4): the index has no
     complete epoch, or it changed while the operation ran — results (if any)
@@ -4347,7 +4381,7 @@ def run_index_rebuild(
     }
 
 
-def docs_search_response(index: WaveIndex, query: str, kind: str = "", limit: int = 7, tags: Optional[list] = None) -> dict[str, Any]:
+def docs_search_response(index: WaveIndex, query: str, kind: str = "", limit: int = 7, tags: Optional[list] = None, epoch_state: Any = "__compute__") -> dict[str, Any]:
     k = (kind or "").strip().lower()
     n = max(1, min(int(limit), 20))  # clamp to [1, 20]
     if k and k not in DOCS_SEARCH_KINDS:
@@ -4369,83 +4403,124 @@ def docs_search_response(index: WaveIndex, query: str, kind: str = "", limit: in
     diagnostics: list[dict[str, Any]] = []
     search_mode = "semantic"
     results: list[dict[str, Any]] = []
-    fallback_reason = ""
+    fallback_reason: "str | None" = None
     reranked = False
-    try:
-        # Attempt semantic search; exception handlers below switch to lexical fallback.
-        results, reranked = index.search_docs(query, kind=k or None, top_n=n, tags=tags or None)
-    except SemanticModelUnavailableOfflineError as exc:
-        search_mode = "lexical_fallback"
-        fallback_reason = "semantic_model_unavailable_offline"
-        diagnostics.append(
-            _diagnostic(
-                "semantic_model_unavailable_offline",
-                str(exc),
-                recovery_tools=["wave_help"],
-                recovery_usage="python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --root .",
-            )
-        )
-        results = index.search_docs_lexical(query, kind=k or None, top_n=n)
-    except IndexNotReadyError as exc:
-        search_mode = "lexical_fallback"
-        fallback_reason = "index_not_ready"
-        diagnostics.append(
-            _diagnostic(
-                "index_not_ready",
-                str(exc),
-                recovery_tools=["wave_help"],
-                recovery_usage="python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --root .",
-            )
-        )
+    coverage: dict[str, Any] = {}
+    # 1seaq state discipline: the serve decision is made on the CAPTURED
+    # 1sed7 state token (passed in by the tool registration — no second
+    # read); a direct caller without one computes it once here.
+    if epoch_state == "__compute__":
+        epoch_state = _epoch_state(index.root)
+    _epoch_complete = epoch_state is not None and epoch_state[1] == "complete"
+
+    def _live_walk(reason: str, exc_msg: str) -> None:
+        nonlocal search_mode, fallback_reason, results
+        search_mode = "live_fallback"
+        fallback_reason = reason
+        diagnostics.append(_diagnostic(
+            reason if reason in ("index_not_ready",) else "store_absent",
+            f"{exc_msg} Serving the live-filesystem walk (per-call re-chunk; "
+            "slow on large repos) — the only state with no published FTS to serve.",
+            recovery_tools=["wave_index_build", "wave_index_build_status"],
+            recovery_usage="wave_index_build(content='all', mode='update')",
+        ))
         try:
             results = index.search_docs_lexical(query, kind=k or None, top_n=n)
         except Exception:
             results = []
+
+    def _fts_fallback(reason: str, exc_msg: str) -> None:
+        nonlocal search_mode, fallback_reason, results, coverage
+        serve = _fts_degraded_serve(index.root, ("docs",), query, n, kind=(k or None), tags=tags)
+        coverage = serve.get("coverage") or {}
+        if serve["available"]:
+            search_mode = "lexical_fallback"
+            fallback_reason = reason
+            results = serve["results"]
+            diagnostics.append(_diagnostic(
+                "semantic_model_unavailable_offline" if reason == "model_unavailable" else reason,
+                f"{exc_msg} Serving BM25 results from the published FTS layer "
+                "(exact-token recall; semantic recall returns when the cause clears).",
+                recovery_tools=["wave_help"],
+                recovery_usage="python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --root .",
+            ))
+        else:
+            search_mode = "lexical_fallback"
+            fallback_reason = serve["failure_reason"]
+            results = []
+            diagnostics.append(_diagnostic(
+                "lexical_fallback_failed",
+                f"{exc_msg} The FTS fallback also failed ({serve['failure_reason']}) — "
+                "this is an infrastructure failure, NOT an empty corpus.",
+                recovery_tools=["wave_index_health", "wave_index_build"],
+                recovery_usage="wave_index_health()",
+            ))
+
+    try:
+        # Attempt semantic search; handlers below route per the 1seaq
+        # epoch-state table (FTS only from a captured complete epoch; the
+        # live walk only where no published FTS exists).
+        results, reranked = index.search_docs(query, kind=k or None, top_n=n, tags=tags or None)
+    except SemanticModelUnavailableOfflineError as exc:
+        if _epoch_complete:
+            _fts_fallback("model_unavailable", str(exc))
+        else:
+            _live_walk("store_absent" if epoch_state is None else "index_not_ready", str(exc))
+    except IndexNotReadyError as exc:
+        if _epoch_complete:
+            # Published epoch but the semantic tables cannot serve (e.g. a
+            # missing Lance table): the FTS layer is still the published one.
+            _fts_fallback("index_missing", str(exc))
+        else:
+            _live_walk("store_absent" if epoch_state is None else "index_not_ready", str(exc))
+    _log_degradation_transition(index.root, "docs_search", fallback_reason)
     if not results:
         if search_mode == "lexical_fallback":
-            diagnostics.append(
-                _diagnostic(
-                    "no_results",
-                    f"No document results found for query '{query}' in lexical fallback mode.",
-                    recovery_tools=["wave_help"],
-                    recovery_usage="wave_help(goal='search_docs')",
-                )
-            )
+            diagnostics.append(_lexical_zero_hit_note())
         else:
             diagnostics.append(
                 _diagnostic(
                     "no_results",
-                    f"No document results found for query '{query}'.",
+                    f"No document results found for query '{query}'"
+                    + (" in live-fallback mode." if search_mode == "live_fallback" else "."),
                     recovery_tools=["wave_help"],
                     recovery_usage="wave_help(goal='search_docs')",
                 )
             )
         _mode = "lexical" if search_mode != "semantic" else "semantic"
+        _zero_data: dict[str, Any] = {"query": query, "kind": k, "mode": _mode, "search_mode": search_mode,
+                                      "fallback_reason": fallback_reason, "reranked": reranked, "results": []}
+        if coverage:
+            _zero_data["coverage"] = coverage
         return _response(
             "ok",
-            {"query": query, "kind": k, "mode": _mode, "search_mode": search_mode, "reranked": reranked, "results": []},
+            _zero_data,
             diagnostics=diagnostics,
             next_tools=["wave_help"],
             usage=f"docs_search(query={query!r})",
         )
     _mode = "lexical" if search_mode != "semantic" else "semantic"
+    _data_out: dict[str, Any] = {
+        "query": query,
+        "kind": k,
+        "mode": _mode,
+        "search_mode": search_mode,
+        "fallback_reason": fallback_reason,
+        "reranked": reranked,
+        "results": [_search_result("doc", result) for result in results],
+    }
+    if coverage:
+        _data_out["coverage"] = coverage
     return _response(
         "ok",
-        {
-            "query": query,
-            "kind": k,
-            "mode": _mode,
-            "search_mode": search_mode,
-            "reranked": reranked,
-            "results": [_search_result("doc", result) for result in results],
-        },
+        _data_out,
         diagnostics=diagnostics,
         next_tools=["seed_get", "wave_get_prompt"],
         usage=f"seed_get(name={results[0]['path']!r})" if results[0].get("kind") == "seed" else "",
     )
 
 
-def code_search_response(index: WaveIndex, query: str, language: str = "", limit: int = 7, kind: Optional[str] = None, max_per_file: Optional[int] = None, tags: Optional[list] = None) -> dict[str, Any]:
+def code_search_response(index: WaveIndex, query: str, language: str = "", limit: int = 7, kind: Optional[str] = None, max_per_file: Optional[int] = None, tags: Optional[list] = None, epoch_state: Any = "__compute__") -> dict[str, Any]:
     n = max(1, min(int(limit), 20))  # clamp to [1, 20]
 
     # Resolve language input → either a category (set of langs) or a single canonical name.
@@ -4479,6 +4554,62 @@ def code_search_response(index: WaveIndex, query: str, language: str = "", limit
         return d
 
     reranked = False
+    search_mode = "hybrid"
+    fallback_reason: "str | None" = None
+    coverage: dict[str, Any] = {}
+    diagnostics: list[dict[str, Any]] = []
+    # 1seaq state discipline: serve decisions on the CAPTURED 1sed7 token.
+    if epoch_state == "__compute__":
+        epoch_state = _epoch_state(index.root)
+    _epoch_complete = epoch_state is not None and epoch_state[1] == "complete"
+
+    def _fts_fallback(reason: str, exc_msg: str) -> "list | None":
+        """FTS fallback (complete epoch only). Returns results or None when
+        the fallback itself is unavailable (caller emits the typed error)."""
+        nonlocal search_mode, fallback_reason, coverage
+        lang_set = category_langs if category_langs is not None else (
+            frozenset({language}) if language else None
+        )
+        serve = _fts_degraded_serve(
+            index.root, ("code",), query, n,
+            kind=kind, tags=tags, language_names=lang_set, max_per_file=max_per_file,
+        )
+        coverage = serve.get("coverage") or {}
+        if not serve["available"]:
+            fallback_reason = serve["failure_reason"]
+            return None
+        search_mode = "lexical_fallback"
+        fallback_reason = reason
+        diagnostics.append(_diagnostic(
+            "semantic_model_unavailable_offline" if reason == "model_unavailable" else reason,
+            f"{exc_msg} Serving BM25 results from the published FTS layer with the "
+            "requested filters (exact-token recall; semantic recall returns when the cause clears).",
+            recovery_tools=["wave_help"],
+            recovery_usage="python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --root . --include-code",
+        ))
+        return serve["results"]
+
+    def _degraded_error(reason: str, code: str, exc_msg: str) -> dict[str, Any]:
+        d = _data([])
+        d["search_mode"] = search_mode
+        d["fallback_reason"] = reason
+        if coverage:
+            d["coverage"] = coverage
+        return _response(
+            "error",
+            d,
+            diagnostics=[
+                _diagnostic(
+                    code,
+                    exc_msg,
+                    recovery_tools=["wave_help"],
+                    recovery_usage="python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --root . --include-code",
+                )
+            ],
+            next_tools=["wave_help"],
+            usage="wave_help(goal='search_code')",
+        )
+
     try:
         if category_langs is not None:
             # Fetch unfiltered results then post-filter to the category set.
@@ -4487,53 +4618,57 @@ def code_search_response(index: WaveIndex, query: str, language: str = "", limit
         else:
             results, reranked = index.search_code(query, language=language or None, top_n=n, kind=kind, max_per_file=max_per_file, tags=tags or None)
     except SemanticModelUnavailableOfflineError as exc:
-        return _response(
-            "error",
-            _data([]),
-            diagnostics=[
-                _diagnostic(
-                    "semantic_model_unavailable_offline",
-                    str(exc),
-                    recovery_tools=["wave_help"],
-                    recovery_usage="python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --root . --include-code",
-                )
-            ],
-            next_tools=["wave_help"],
-            usage="wave_help(goal='search_code')",
-        )
+        results = _fts_fallback("model_unavailable", str(exc)) if _epoch_complete else None
+        if results is None:
+            _log_degradation_transition(index.root, "code_search", fallback_reason or "index_not_ready")
+            return _degraded_error(
+                fallback_reason or ("index_not_ready" if epoch_state is not None else "store_absent"),
+                "semantic_model_unavailable_offline", str(exc),
+            )
     except IndexNotReadyError as exc:
-        return _response(
-            "error",
-            _data([]),
-            diagnostics=[
-                _diagnostic(
-                    "index_not_ready",
-                    str(exc),
-                    recovery_tools=["wave_help"],
-                    recovery_usage="python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --root . --include-code",
-                )
-            ],
-            next_tools=["wave_help"],
-            usage="wave_help(goal='search_code')",
-        )
+        # A complete epoch with unservable semantic tables (e.g. missing
+        # code.lance): the published FTS layer is still the honest source.
+        results = _fts_fallback("index_missing", str(exc)) if _epoch_complete else None
+        if results is None:
+            _log_degradation_transition(index.root, "code_search", fallback_reason or "index_not_ready")
+            return _degraded_error(
+                fallback_reason or ("index_not_ready" if epoch_state is not None else "store_absent"),
+                "index_not_ready", str(exc),
+            )
+    _log_degradation_transition(index.root, "code_search", fallback_reason)
     if not results:
-        return _response(
-            "ok",
-            _data([], reranked=reranked),
-            diagnostics=[
+        if search_mode == "lexical_fallback":
+            diagnostics.append(_lexical_zero_hit_note())
+        else:
+            diagnostics.append(
                 _diagnostic(
                     "no_results",
                     f"No code results found for query '{query}'.",
                     recovery_tools=["wave_help"],
                     recovery_usage="wave_help(goal='search_code')",
                 )
-            ],
+            )
+        d = _data([], reranked=reranked)
+        d["search_mode"] = search_mode
+        d["fallback_reason"] = fallback_reason
+        if coverage:
+            d["coverage"] = coverage
+        return _response(
+            "ok",
+            d,
+            diagnostics=diagnostics,
             next_tools=["wave_help"],
             usage=f"code_search(query={query!r})",
         )
+    d = _data([_search_result("code", result) for result in results], reranked=reranked)
+    d["search_mode"] = search_mode
+    d["fallback_reason"] = fallback_reason
+    if coverage:
+        d["coverage"] = coverage
     return _response(
         "ok",
-        _data([_search_result("code", result) for result in results], reranked=reranked),
+        d,
+        diagnostics=diagnostics,
         next_tools=["wave_help"],
         usage=f"code_search(query={query!r}, language={language!r})" if language else "",
     )
@@ -11556,6 +11691,126 @@ CODE_LEXICAL_MAX_LIMIT = 50    # hard cap on returned results
 CODE_LEXICAL_TEXT_CAP = 700    # per-result chunk-text cap (chars)
 
 
+_DEGRADED_LOG_STATE: "dict[tuple[str, str], str]" = {}
+
+
+def _log_degradation_transition(root: Path, tool: str, fallback_reason: "str | None") -> None:
+    """Persist search degradation to the store log ONCE per (tool, reason)
+    TRANSITION — never per query (1seaq P2: an outage must not flood the
+    bounded log). Recovery (reason back to None) is logged too, closing the
+    episode. In-band response diagnostics remain the primary signal."""
+    key = (str(root), tool)
+    current = fallback_reason or ""
+    if _DEGRADED_LOG_STATE.get(key, "") == current:
+        return
+    _DEGRADED_LOG_STATE[key] = current
+    try:
+        iss = _load_script("index_state_store")
+        index_dir = root / ".wavefoundry" / "index"
+        msg = (
+            f"search degradation: {tool} entered fallback_reason={current}"
+            if current else f"search degradation: {tool} recovered (healthy path)"
+        )
+        iss.store_log(index_dir, msg)
+    except Exception:
+        pass
+
+
+def _fts_degraded_serve(
+    root: Path,
+    tables: "tuple[str, ...]",
+    query: str,
+    top_n: int,
+    kind: "str | None" = None,
+    tags: "list | None" = None,
+    language_names: "frozenset | None" = None,
+    max_per_file: "int | None" = None,
+) -> dict[str, Any]:
+    """The shared typed FTS serving path (wave 1seav / 1seaq).
+
+    Serves BM25 results from the index-state store's FTS5 tables for the
+    degraded-search fallbacks, with the FULL filter contract: ``kind`` is
+    applied inside the FTS query, ``tags`` row-carried (any-of), ``language``
+    as a row-carried post-filter (single name or category set), and
+    ``max_per_file`` as a post-group cap. Returns a TYPED result —
+    ``{"available": bool, "failure_reason": None | "store_absent" |
+    "query_failed", "results": [...], "coverage": {...}}`` — so a caught
+    exception maps to ``query_failed`` and is distinguishable from a genuine
+    zero-hit (replacing the old collapse-to-``[]`` at this seam).
+
+    Epoch discipline: callers decide WHETHER to serve from the CAPTURED
+    1sed7 state token; this function never reads the epoch itself.
+    """
+    index_dir = root / ".wavefoundry" / "index"
+    coverage: dict[str, Any] = {}
+    try:
+        iss = _load_script("index_state_store")
+    except Exception:
+        return {"available": False, "failure_reason": "store_absent", "results": [], "coverage": coverage}
+    try:
+        if not iss.state_store_path(index_dir).exists():
+            return {"available": False, "failure_reason": "store_absent", "results": [], "coverage": coverage}
+    except Exception:
+        return {"available": False, "failure_reason": "store_absent", "results": [], "coverage": coverage}
+    hits: list[dict[str, Any]] = []
+    try:
+        fetch_n = max(top_n * (3 if (language_names or max_per_file) else 1), top_n)
+        for table in tables:
+            rows = iss.fts_search(
+                index_dir, table, query, limit=fetch_n,
+                kind=(kind or None), tags_any=(tags or None),
+            )
+            for r in rows:
+                hits.append({
+                    "id": r.get("id", ""),
+                    "path": str(r.get("path", "")).replace("\\", "/"),
+                    "kind": r.get("kind") or "",
+                    "language": r.get("language") or "",
+                    "section": r.get("section") or "",
+                    "lines": list(r.get("lines") or []),
+                    "text": r.get("text", ""),
+                    # bm25 is smaller-is-better; negate for the house best-first order.
+                    "score": -float(r.get("bm25", 0.0)),
+                })
+        for table in tables:
+            try:
+                lance_rows, registry_rows = iss.chunk_sync_counts(index_dir, table)
+                if registry_rows is not None:
+                    coverage[table] = {"lance_rows": lance_rows, "registry_rows": registry_rows}
+            except Exception:
+                pass
+    except Exception as exc:  # noqa: BLE001 - typed, never a silent zero-hit
+        return {"available": False, "failure_reason": "query_failed",
+                "results": [], "coverage": coverage, "detail": str(exc)}
+    if language_names:
+        hits = [h for h in hits if h.get("language") in language_names]
+    hits.sort(key=lambda h: -float(h.get("score", 0.0)))
+    if max_per_file and max_per_file > 0:
+        per_file: dict[str, int] = {}
+        capped = []
+        for h in hits:
+            c = per_file.get(h["path"], 0)
+            if c < max_per_file:
+                capped.append(h)
+                per_file[h["path"]] = c + 1
+        hits = capped
+    return {"available": True, "failure_reason": None, "results": hits[:top_n], "coverage": coverage}
+
+
+def _lexical_zero_hit_note() -> dict[str, Any]:
+    """The token-semantics honesty note for lexical-fallback zero hits
+    (mirrors code_lexical): compound identifiers are indivisible tokens."""
+    return _diagnostic(
+        "lexical_fallback_zero_hits",
+        "Zero hits in LEXICAL fallback mode — tokens are matched as exact literals "
+        "(compound identifiers like foo_bar are single indivisible tokens; substrings "
+        "do not match). Try the full identifier, code_keyword (live substring), or "
+        "code_pattern (regex); semantic recall returns when the model/index recovers.",
+        recovery_tools=["code_keyword", "code_pattern"],
+        recovery_usage="code_keyword(pattern='<exact_token>')",
+    )
+
+
 def code_lexical_response(
     root: Path,
     query: str = "",
@@ -17418,7 +17673,7 @@ def _definition_match_boost(query_terms: set[str], candidate: dict) -> float:
     return 1.0
 
 
-def code_ask_response(index: "WaveIndex", root: Path, question: str, rerank: str = "agent") -> dict[str, Any]:
+def code_ask_response(index: "WaveIndex", root: Path, question: str, rerank: str = "agent", epoch_state: Any = "__compute__") -> dict[str, Any]:
     """Mechanical routing: broad retrieval pass → targeted pass → assemble structured response.
 
     Wave 1p4hj: ``rerank`` selects the candidate pipeline. ``"agent"`` (default) skips
@@ -17443,15 +17698,11 @@ def code_ask_response(index: "WaveIndex", root: Path, question: str, rerank: str
     gaps: list[str] = []
     citations: list[dict] = []
 
-    # Check index freshness
-    try:
-        health = index._layer_health("project")
-        chunker_versions = health.get("indexed_chunker_versions", {})
-        current_cv = health.get("current_chunker_version", "")
-        is_stale = bool(chunker_versions) and any(v != current_cv for v in chunker_versions.values())
-    except Exception:
-        is_stale = False
-    index_freshness = "stale" if is_stale else "current"
+    # Index freshness (wave 1seav / 1sbxq): the cheap cached three-state
+    # verdict — per-layer last-embedded hashes + stat-fast-path walk +
+    # chunker check, NEVER the O(corpus) `_layer_health` hash walk its own
+    # docstring forbids on the hot path. "unknown" on any indeterminacy.
+    index_freshness = _index_freshness_verdict(root)["state"]
 
     # Broad pass: combined semantic search with reranking
     combined_reranked = False
@@ -17462,10 +17713,45 @@ def code_ask_response(index: "WaveIndex", root: Path, question: str, rerank: str
     second_hop_symbols: list[str] = []
     symbol_extraction_method: str = "none"
     graph_related: Optional[dict] = None
+    # 1seaq typed degradation contract: search_mode/fallback_reason are part
+    # of code_ask's envelope in EVERY mode; the serve decision uses the
+    # CAPTURED 1sed7 token (passed by the registration; computed once for
+    # direct callers).
+    search_mode = "hybrid"
+    fallback_reason: "str | None" = None
+    if epoch_state == "__compute__":
+        epoch_state = _epoch_state(root)
+    _epoch_complete = epoch_state is not None and epoch_state[1] == "complete"
+
+    def _degraded_citation_pass(reason: str, exc_msg: str) -> list:
+        """FTS-built citations for the degraded mode (complete epoch only)."""
+        nonlocal search_mode, fallback_reason, gaps
+        if not _epoch_complete:
+            fallback_reason = "index_not_ready" if epoch_state is not None else "store_absent"
+            gaps.append(f"search index unavailable ({fallback_reason}): {exc_msg}")
+            return []
+        serve = _fts_degraded_serve(root, ("docs", "code"), question, 7)
+        if not serve["available"]:
+            fallback_reason = serve["failure_reason"]
+            gaps.append(f"search infrastructure failure ({serve['failure_reason']}): {exc_msg}")
+            return []
+        search_mode = "lexical_fallback"
+        fallback_reason = reason
+        gaps.append(
+            f"semantic retrieval unavailable ({reason}) — citations are BM25 exact-token "
+            "matches from the published FTS layer, not semantic recall; confidence is capped"
+        )
+        return serve["results"]
+
     try:
         combined_results, combined_reranked, vector_ms, rerank_ms, definition_boosted, second_hop_symbols, symbol_extraction_method, graph_related = index.search_combined(
             question, top_n=7, question_type=question_type, rerank=rerank
         )
+        # 1seaq: classify the exact-first artifact short-circuit honestly —
+        # it returns keyword matches BEFORE semantic retrieval (a healthy
+        # mode, not a fallback).
+        if definition_boosted == ["artifact_anchored"]:
+            search_mode = "exact"
         # Detect whether the scaffolding-layer partition fired (explanatory questions only)
         if question_type == "explanatory" and combined_reranked and combined_results:
             infra_paths = {
@@ -17473,9 +17759,15 @@ def code_ask_response(index: "WaveIndex", root: Path, question: str, rerank: str
                 if any(seg in Path(r.get("path", "")).parts for seg in INFRASTRUCTURE_PATH_SEGMENTS)
             }
             infrastructure_demoted = bool(infra_paths)
-    except Exception:
+    except SemanticModelUnavailableOfflineError as exc:
+        combined_results = _degraded_citation_pass("model_unavailable", str(exc))
+    except IndexNotReadyError as exc:
+        combined_results = _degraded_citation_pass("index_missing", str(exc))
+    except Exception as exc:  # noqa: BLE001 - typed, never a bare generic gap
         combined_results = []
-        gaps.append("search index unavailable")
+        fallback_reason = "query_failed"
+        gaps.append(f"search infrastructure failure (query_failed): {exc}")
+    _log_degradation_transition(root, "code_ask", fallback_reason)
 
     def _to_citation(r: dict) -> dict:
         path = r.get("path", "")
@@ -17591,6 +17883,10 @@ def code_ask_response(index: "WaveIndex", root: Path, question: str, rerank: str
         )
 
     confidence = _heuristic_confidence(citations, combined_reranked)
+    # 1seaq: degraded (lexical-fallback) citations are exact-token matches,
+    # not cross-encoder-ranked semantic recall — cap the confidence.
+    if search_mode == "lexical_fallback" and confidence in ("high", "medium"):
+        confidence = "low"
 
     # Assemble answer text from top citations
     if citations:
@@ -17612,6 +17908,8 @@ def code_ask_response(index: "WaveIndex", root: Path, question: str, rerank: str
         "confidence": confidence,
         "gaps": gaps,
         "index_freshness": index_freshness,
+        "search_mode": search_mode,
+        "fallback_reason": fallback_reason,
         "reranked": combined_reranked,
         # Wave 1p52p: code_ask has a single ranking path — agent selection with a rerank-FIRST
         # cross-encoder. ``rerank_mode`` is always "agent"; the ``reranked`` bool tells whether the
@@ -17886,7 +18184,14 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
 
         Prefer when: searching by concept, intent, or natural language across project and framework documentation.
         Use code_keyword instead when the exact text is known.
-        Degrades to lexical fallback when the semantic model or index is unavailable.
+        Degrades per the 1seaq state table: with a PUBLISHED index (complete build epoch)
+        but an unavailable semantic model, serves BM25 results from the FTS layer
+        (search_mode: lexical_fallback); with no published index at all, serves the
+        live-filesystem walk (search_mode: live_fallback). Every response carries
+        search_mode (semantic | lexical_fallback | live_fallback) and fallback_reason
+        (null when healthy; else model_unavailable | index_missing | store_absent |
+        index_not_ready | query_failed — query_failed means infrastructure failure,
+        NOT an empty corpus).
 
         Tags pre-filter the search space before cosine ranking. Use to scope results to a specific doc category.
         Tag vocabulary: wave, agent, lifecycle, reference, journal, prompt, seed, framework, test, config.
@@ -17909,7 +18214,9 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         # pre-token is allowed here — docs_search's live-filesystem fallback
         # is the explicitly degraded path for a not-ready index.
         _tok = _epoch_state(get_handler().root)
-        result = docs_search_response(get_handler().index, query, kind, limit=limit, tags=tags or None)
+        # The CAPTURED token drives the fallback serve decisions inside the
+        # response fn (1seaq single-capture discipline — no second read).
+        result = docs_search_response(get_handler().index, query, kind, limit=limit, tags=tags or None, epoch_state=_tok)
         # Review fix (ABA-hardened): the post-compare is UNCONDITIONAL and
         # uses the FULL state row. A stable pair (same attempt/status/
         # generation — including a stable not-ready store) is the sanctioned
@@ -17928,6 +18235,12 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         Use code_keyword instead when the exact token, symbol, or string is known — always available, deterministic.
         Use docs_search instead when the answer is in a spec, architecture doc, or prompt rather than source code.
         When the code index is absent: returns status='error' with a diagnostic — does not crash.
+        Degrades per the 1seaq state table: with a PUBLISHED index (complete build epoch) but an
+        unavailable semantic model, serves BM25 results from the FTS layer with the requested
+        filters preserved (search_mode: lexical_fallback, exact-token recall). With no published
+        index there is NO degraded path — the tool refuses (index_not_ready). Every response
+        carries search_mode (hybrid | lexical_fallback) and fallback_reason (null when healthy;
+        else model_unavailable | index_missing | store_absent | index_not_ready | query_failed).
 
         Orientation pass (Guru): use kind="code-summary" with max_per_file=1 for a fast file-level survey before targeted retrieval.
 
@@ -17976,7 +18289,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         _tok = _epoch_state(get_handler().root)
         if _tok is None or _tok[1] != "complete":
             return _index_rebuilding_response("code_search", {"query": query})
-        result = code_search_response(get_handler().index, query, language, limit=limit, kind=kind or None, max_per_file=max_per_file or None, tags=tags or None)
+        result = code_search_response(get_handler().index, query, language, limit=limit, kind=kind or None, max_per_file=max_per_file or None, tags=tags or None, epoch_state=_tok)
         if _epoch_state(get_handler().root) != _tok:
             return _index_rebuilding_response("code_search", {"query": query})
         result = _augment_with_graph_neighbors_if_enabled(
@@ -18456,7 +18769,13 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
           code_read in next_tools is a REQUIRED continuation — not optional. A spec citation is
           the starting point, not the answer; read the implementation file named in the spec's
           source metadata before synthesizing.
-        - index_freshness: "current" | "stale"
+        - index_freshness: "current" | "stale" | "unknown" (unknown = the check could not
+          determine freshness — treat results as potentially stale, verify with wave_index_health)
+        - search_mode: "hybrid" (normal), "exact" (the artifact-anchored exact-first pass answered
+          before semantic retrieval — a healthy mode), or "lexical_fallback" (semantic retrieval
+          unavailable; citations are BM25 exact-token matches, confidence capped)
+        - fallback_reason: null when healthy; else model_unavailable | index_missing |
+          store_absent | index_not_ready | query_failed (infrastructure failure, not zero hits)
         - vector_ms: milliseconds spent on vector retrieval across all indexes.
         - rerank_ms: milliseconds spent on cross-encoder reranking (0 when reranked=false).
         - total_ms: wall-clock milliseconds for the full code_ask call.
@@ -18481,7 +18800,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         _tok = _epoch_state(get_handler().root)
         if _tok is None or _tok[1] != "complete":
             return _index_rebuilding_response("code_ask", {"question": question})
-        result = code_ask_response(get_handler().index, get_handler().root, question, rerank=rerank)
+        result = code_ask_response(get_handler().index, get_handler().root, question, rerank=rerank, epoch_state=_tok)
         if _epoch_state(get_handler().root) != _tok:
             return _index_rebuilding_response("code_ask", {"question": question})
         return result
