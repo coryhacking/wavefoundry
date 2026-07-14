@@ -81,6 +81,29 @@ class DocsGardenerTests(unittest.TestCase):
         self.assertIn("Last verified: 2020-06-01", tracked.read_text(encoding="utf-8"))
         self.assertIn("Last verified: 2000-01-01", other.read_text(encoding="utf-8"))
 
+    def test_verification_stamp_is_untouched_by_gardener_runs(self) -> None:
+        # 1ro43 AC-11: the gardener's only edit is the `Last verified:` date
+        # substitution — a `Verified against:` stamp line must survive a
+        # stamping run byte-identical (stamp-field invariance, not whole-file
+        # identity: newline handling may differ across platforms).
+        stamp_line = "Verified against: abc1234def5678"
+        p = self.root / "docs" / "stamped.md"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(
+            "# T\n\nOwner: Engineering\nStatus: draft\n"
+            f"Last verified: 2000-01-01\n{stamp_line}\n\nBody prose.\n",
+            encoding="utf-8",
+        )
+        self._minimal_manifest()
+        code, _ = dg.gardener_run(
+            self.root,
+            dg.parse_args(["--date", "2020-06-01", "--paths", "docs/stamped.md"]),
+        )
+        self.assertEqual(code, 0)
+        text = p.read_text(encoding="utf-8")
+        self.assertIn("Last verified: 2020-06-01", text)  # the date DID move
+        self.assertIn(f"\n{stamp_line}\n", text)          # the stamp did not
+
     def test_paths_updates_target_only(self) -> None:
         a = self._write_doc("docs/a.md", "2000-01-01")
         b = self._write_doc("docs/b.md", "2000-01-01")

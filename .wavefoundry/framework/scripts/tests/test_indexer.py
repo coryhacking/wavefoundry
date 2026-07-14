@@ -5,6 +5,8 @@ import contextlib
 import io
 import json
 import os
+import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -19,6 +21,20 @@ from unittest.mock import MagicMock, patch
 
 SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
 INDEXER_PATH = SCRIPTS_ROOT / "indexer.py"
+
+
+def _rmtree_git(path: Path) -> None:
+    """Windows-safe ``rmtree`` for a ``.git`` tree: git marks loose objects and
+    pack files read-only, so a plain ``shutil.rmtree`` raises ``PermissionError``
+    on Windows. Clear the read-only bit and retry; a no-op on POSIX."""
+    def _clear(func, p, _exc):
+        try:
+            os.chmod(p, stat.S_IWRITE)
+            func(p)
+        except OSError:
+            pass
+    kw = {"onexc": _clear} if sys.version_info >= (3, 12) else {"onerror": _clear}
+    shutil.rmtree(path, **kw)
 
 
 def load_build_index():
@@ -3632,10 +3648,6 @@ class LanceDbAutoInstallTlsTests(unittest.TestCase):
                 self.bi._auto_install_lancedb()
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class IndexBuildLockHeldTests(unittest.TestCase):
     """Wave 1p99o: the build lock is a fcntl record lock (POSIX) on a sentinel byte, probed
     non-destructively via F_GETLK; `ended_at` is written best-effort on clean exit."""
@@ -4118,6 +4130,26 @@ class ProjectLayerFreshnessTests(_EpochBuildCase):
         (self.root / "src" / "bar.py").unlink()
         self.assertIs(self._freshness()["stale"], True, "deleted path")
 
+    def test_unreadable_modified_file_reads_unknown_not_current(self):
+        """Review fix (honesty): a stat-mismatched file whose hash read fails
+        (permissions/AV lock) makes the walk pass undeterminable — the
+        verdict must be unknown, never current, even though the layer hashes
+        alone still match."""
+        import os, stat
+        self._seed()
+        target = self.root / "src" / "foo.py"
+        target.write_text("def f(): return 99\n", encoding="utf-8")
+        os.chmod(target, 0)
+        try:
+            v = self._freshness()
+        finally:
+            os.chmod(target, stat.S_IRUSR | stat.S_IWUSR)
+        self.assertIsNone(v["stale"],
+                          "an undeterminable walk must not read current")
+        self.assertIn("undeterminable", v["reason"])
+        # Once readable again, the truth surfaces.
+        self.assertIs(self._freshness()["stale"], True)
+
     def test_legitimately_empty_layer_reads_current(self):
         """A repo with no docs corpus: the empty docs layer is current, not
         stale/unknown."""
@@ -4145,10 +4177,44 @@ class ProjectLayerFreshnessTests(_EpochBuildCase):
 
     def test_helper_exception_reads_unknown(self):
         self._seed()
-        with patch.object(self.bi, "project_index_inputs_stale", side_effect=RuntimeError("boom")):
+        # The walk seam raising → undeterminable walk → unknown.
+        with patch.object(self.bi, "_detect_changes", side_effect=RuntimeError("boom")):
             v = self._freshness()
         self.assertIsNone(v["stale"])
-        self.assertIn("error", v["reason"])
+        self.assertIn("undeterminable", v["reason"])
+        # A failure OUTSIDE the walk (e.g. the store read) → unknown too.
+        with patch.object(self.bi, "walk_repo", side_effect=RuntimeError("boom")):
+            v2 = self._freshness()
+        self.assertIsNone(v2["stale"])
+        self.assertIn("error", v2["reason"])
+
+    def test_added_code_file_survives_docs_only_build(self):
+        """Review reproduction (P1): full build → ADD a code file → docs-only
+        build (stamps the new file into the broad snapshot) → must read
+        stale until a code/all build processes it."""
+        self._seed()
+        (self.root / "src" / "bar.py").write_text("def g(): pass\n", encoding="utf-8")
+        (self.root / "docs" / "guide.md").write_text("## Intro\n\nChanged.\n", encoding="utf-8")
+        with patch.object(self.bi, "_get_embedder", side_effect=[_make_embedder_mock(dim=4)]):
+            self.bi.build_index(self.root, full=False, content="docs", verbose=False)
+        v = self._freshness()
+        self.assertIs(v["stale"], True,
+                      "an added code file stamped by a docs-only build must read stale")
+        self.assertIs(v["layers"]["code"], True)
+        with patch.object(self.bi, "_get_embedder",
+                          side_effect=[_make_embedder_mock(dim=4), _make_embedder_mock(dim=4)]):
+            self.bi.build_index(self.root, full=False, content="all", verbose=False)
+        self.assertIs(self._freshness()["stale"], False)
+
+    def test_unreadable_required_layer_state_reads_unknown(self):
+        """Review fix: layer_hashes returning None for a layer with a
+        non-empty eligible set → unknown, never current."""
+        self._seed()
+        store = self.bi._get_index_state_store()
+        with patch.object(store, "layer_hashes", return_value=None):
+            v = self._freshness()
+        self.assertIsNone(v["stale"])
+        self.assertIn("unreadable", v["reason"])
 
 
 class LegacyConvergenceTests(_EpochBuildCase):
@@ -4511,6 +4577,439 @@ class EpochOrderingAndFaultTests(_EpochBuildCase):
         self.assertFalse(result.get("failed"))
         self.assertIsNotNone(self.iss.build_epoch_token(self.index_dir))
         self.assertGreater(self._generation(), gen)
+
+
+class MemoryGenerationGateTests(unittest.TestCase):
+    """Round-4 P2: the memory-generation bump is gated on changed/removed
+    memory records, not on any record existing in the build."""
+
+    def setUp(self):
+        self.bi = load_build_index()
+
+    def test_only_changed_or_removed_memory_records_trigger(self):
+        f = self.bi._memory_record_touched
+        # No memory path in the changed/removed sets → no bump.
+        self.assertFalse(f({"src/a.py", "docs/guide.md"}, set()))
+        self.assertFalse(f(set(), set()))
+        # The schema README is not a record.
+        self.assertFalse(f({"docs/agents/memory/README.md"}, {"docs/agents/memory/README.md"}))
+        # A changed record → bump.
+        self.assertTrue(f({"docs/agents/memory/mem-x.md"}, set()))
+        # A removed record → bump (delete coverage).
+        self.assertTrue(f(set(), {"docs/agents/memory/mem-y.md"}))
+        # Windows-style separators normalize.
+        self.assertTrue(f({"docs\\agents\\memory\\mem-z.md"}, set()))
+
+
+class MemoryInvalidationBuildTailTests(unittest.TestCase):
+    """Round-4 re-review P1 evidence gap: exercise memory invalidation through
+    the REAL ``build_index`` path (not the helper/manual primitive) across the
+    add / edit / delete / no-op / unrelated / README matrix, plus the forced
+    late-failure and forced advance-failure (fail-closed) cases."""
+
+    _REC = (
+        "# Lesson\n\nOwner: Engineering\nStatus: active\nLast verified: 2026-07-13\n\n"
+        "Memory ID: `mem-a`\nKind: `decision`\nConfidence: 0.7\n"
+        "Created: 2026-07-13\nUpdated: 2026-07-13\n\n"
+        "## Summary\n\n{body}\n\n## Evidence\n\n- `1x`\n\n## Targets\n\n- `src/foo.py`\n"
+    )
+
+    def setUp(self):
+        self.bi = load_build_index()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.index_dir = self.root / ".wavefoundry" / "index"
+        self.rec = self.root / "docs" / "agents" / "memory" / "mem-a.md"
+        self.rec_rel = "docs/agents/memory/mem-a.md"
+
+    def _run_build(self, full: bool = False):
+        docs_mock = _make_embedder_mock(dim=4)
+        code_mock = _make_embedder_mock(dim=4)
+        with patch.object(self.bi, "_get_embedder", side_effect=[docs_mock, code_mock]):
+            return self.bi.build_index(self.root, full=full, content="all", verbose=False)
+
+    def _generation(self) -> int:
+        state = _store_mod().read_memory_state(self.index_dir)
+        return int(state["generation"]) if state else 0
+
+    def _seed(self, body: str = "First body."):
+        _make_repo(self.root, {
+            "src/foo.py": "def f():\n    return 1\n",
+            "docs/agents/memory/README.md": "# Memory records\n\nSchema doc.\n",
+        })
+        self.rec.parent.mkdir(parents=True, exist_ok=True)
+        self.rec.write_text(self._REC.format(body=body), encoding="utf-8")
+        self._run_build(full=True)  # first build advances (record is 'added')
+
+    def test_edit_advances_generation(self):
+        self._seed()
+        before = self._generation()
+        self.rec.write_text(self._REC.format(body="Edited body."), encoding="utf-8")
+        self._run_build()
+        self.assertGreater(self._generation(), before, "a record edit must advance the generation")
+
+    def test_delete_advances_generation(self):
+        self._seed()
+        before = self._generation()
+        self.rec.unlink()
+        self._run_build()
+        self.assertGreater(self._generation(), before, "a record delete must advance the generation")
+
+    def test_add_advances_generation(self):
+        # Seed WITHOUT the record, then add it on an incremental build.
+        _make_repo(self.root, {"src/foo.py": "def f():\n    return 1\n"})
+        self._run_build(full=True)
+        before = self._generation()
+        self.rec.parent.mkdir(parents=True, exist_ok=True)
+        self.rec.write_text(self._REC.format(body="New."), encoding="utf-8")
+        self._run_build()
+        self.assertGreater(self._generation(), before, "a new record must advance the generation")
+
+    def test_noop_build_does_not_advance(self):
+        self._seed()
+        before = self._generation()
+        result = self.bi.build_index(self.root, full=False, content="all", verbose=False)
+        self.assertTrue(result["up_to_date"])
+        self.assertEqual(self._generation(), before, "a true no-op must not advance the generation")
+
+    def test_unrelated_change_does_not_advance(self):
+        self._seed()
+        before = self._generation()
+        (self.root / "src" / "foo.py").write_text("def f():\n    return 2\n", encoding="utf-8")
+        self._run_build()
+        self.assertEqual(self._generation(), before, "an unrelated code change must not advance memory")
+
+    def test_readme_change_does_not_advance(self):
+        self._seed()
+        before = self._generation()
+        (self.root / "docs" / "agents" / "memory" / "README.md").write_text(
+            "# Memory records\n\nSchema doc, revised.\n", encoding="utf-8")
+        self._run_build()
+        self.assertEqual(self._generation(), before, "the schema README is not a record")
+
+    def test_late_build_failure_still_invalidates(self):
+        # memory_invalidate runs BEFORE the semantic build; a later embedder
+        # failure that aborts the build must not leave the generation un-advanced.
+        self._seed()
+        before = self._generation()
+        self.rec.write_text(self._REC.format(body="Edited before crash."), encoding="utf-8")
+
+        reached = {"embedder": False}
+
+        def boom(*a, **k):
+            reached["embedder"] = True
+            raise RuntimeError("forced late build failure")
+
+        with patch.object(self.bi, "_get_embedder", side_effect=boom):
+            # Whether build_index re-raises or returns an error result, the
+            # semantic work did NOT complete — the generation must still be
+            # advanced (memory_invalidate ran before the embedder).
+            try:
+                self.bi.build_index(self.root, full=False, content="all", verbose=False)
+            except Exception:
+                pass
+        self.assertTrue(reached["embedder"], "the test must actually reach the late embedder step")
+        self.assertGreater(self._generation(), before,
+                           "invalidation must be independent of later semantic-build success")
+
+    def test_advance_failure_fails_build_before_bookkeeping(self):
+        # Round-4 re-review P1: when the generation cannot advance, the build
+        # must FAIL before recording file metadata — so the old file_meta is
+        # preserved and the recovered retry re-detects the edit. A best-effort
+        # fence also makes readers bypass in the meantime.
+        self._seed()
+        before_meta = dict(_read_meta_store(self.index_dir).get("file_meta", {}))
+        iss = self.bi._get_index_state_store()
+        self.rec.write_text(self._REC.format(body="Edited, advance will fail."), encoding="utf-8")
+        real_adv = iss.memory_advance
+        iss.memory_advance = lambda *a, **k: None
+        try:
+            result = self.bi.build_index(self.root, full=False, content="all", verbose=False)
+        finally:
+            iss.memory_advance = real_adv
+        self.assertTrue(result.get("failed"), "a wedged memory seqlock must fail the build")
+        self.assertFalse(result.get("up_to_date"))
+        # file_meta preserved (bookkeeping never ran) → the retry re-detects.
+        after_meta = _read_meta_store(self.index_dir).get("file_meta", {})
+        self.assertEqual(after_meta.get(self.rec_rel), before_meta.get(self.rec_rel),
+                         "the edited record's file_meta must NOT be advanced on a failed build")
+        # Best-effort fence set → readers bypass in the window.
+        self.assertEqual(_store_mod().read_memory_state(self.index_dir)["dirty"], 1)
+        # Recovery: advance works again → the retry advances the generation.
+        gen_before_retry = self._generation()
+        self._run_build()
+        self.assertGreater(self._generation(), gen_before_retry,
+                           "the recovered retry must re-detect the edit and advance")
+
+
+class NoOpDriftClearFailureBuildTests(unittest.TestCase):
+    """Round-4 re-review (3) P1: a true no-op build whose confirmed git→non-git
+    drift clear FAILS must return a structured FAILED build (not up_to_date),
+    preserve the stale drift, and let a later retry clear it. Exercised through
+    the REAL ``build_index`` no-op path, not the helper."""
+
+    def setUp(self):
+        self.bi = load_build_index()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.index_dir = self.root / ".wavefoundry" / "index"
+
+    def _git(self, *args, ts=None):
+        env = dict(os.environ)
+        if ts is not None:
+            env["GIT_AUTHOR_DATE"] = env["GIT_COMMITTER_DATE"] = f"{ts} +0000"
+        subprocess.run(["git", "-C", str(self.root), *args], check=True, env=env)
+
+    def _run_build(self, full=False):
+        docs_mock = _make_embedder_mock(dim=4)
+        code_mock = _make_embedder_mock(dim=4)
+        with patch.object(self.bi, "_get_embedder", side_effect=[docs_mock, code_mock]):
+            return self.bi.build_index(self.root, full=full, content="all", verbose=False)
+
+    def _seed_drift_then_drop_git(self):
+        import shutil
+        subprocess.run(["git", "init", "-q", str(self.root)], check=True)
+        self._git("config", "user.email", "t@t")
+        self._git("config", "user.name", "t")
+        _make_repo(self.root, {
+            "src/foo.py": "x = 1\n",
+            "docs/g.md": "Status: active\n\nSee `src/foo.py`.\n",
+        })
+        self._git("add", "-A")
+        self._git("commit", "-qm", "c1", ts=1700000000)
+        for i in range(3):
+            (self.root / "src" / "foo.py").write_text(f"x = {i + 2}\n", encoding="utf-8")
+            self._git("add", "-A")
+            self._git("commit", "-qm", f"churn{i}", ts=1700000000 + (i + 1) * 1000)
+        self._run_build(full=True)  # derives + records drift
+        iss = self.bi._get_index_state_store()
+        self.assertTrue(iss.doc_drift_for_path(self.index_dir, "docs/g.md"))
+        _rmtree_git(self.root / ".git")  # git authority disappears
+        return iss
+
+    def test_noop_clear_failure_fails_build_and_retry_recovers(self):
+        iss = self._seed_drift_then_drop_git()
+        real_ctor = iss.IndexStateStore
+
+        class _BoomStore(real_ctor):
+            def clear_attribution_and_drift(self):
+                raise RuntimeError("forced clear failure")
+
+        iss.IndexStateStore = _BoomStore
+        try:
+            result = self.bi.build_index(self.root, full=False, content="all", verbose=False)
+        finally:
+            iss.IndexStateStore = real_ctor
+        self.assertTrue(result.get("failed"),
+                        "a no-op whose confirmed-non-git clear fails must fail the build")
+        self.assertFalse(result.get("up_to_date"))
+        # Stale drift preserved (nothing cleared) — not served behind up_to_date.
+        self.assertTrue(iss.doc_drift_for_path(self.index_dir, "docs/g.md"),
+                        "the stale drift must survive the failed clear")
+        # Retry: clear works → build succeeds and the drift is gone.
+        retry = self.bi.build_index(self.root, full=False, content="all", verbose=False)
+        self.assertFalse(retry.get("failed"))
+        self.assertIsNone(iss.doc_drift_for_path(self.index_dir, "docs/g.md"),
+                          "the recovered retry must clear the stale drift")
+
+    def test_noop_clear_success_reports_up_to_date(self):
+        # The happy path: a confirmed transition clears cleanly and the no-op
+        # still reports up_to_date (no spurious failure).
+        iss = self._seed_drift_then_drop_git()
+        result = self.bi.build_index(self.root, full=False, content="all", verbose=False)
+        self.assertFalse(result.get("failed"))
+        self.assertTrue(result.get("up_to_date"))
+        self.assertIsNone(iss.doc_drift_for_path(self.index_dir, "docs/g.md"))
+
+    def test_changed_build_clear_failure_fails_and_retry_recovers(self):
+        # Round-4 re-review (4) P1: a CHANGED build (reaches the build-tail drift
+        # pass, not the no-op path) whose confirmed-non-git clear FAILS must also
+        # fail the build BEFORE epoch finalization, preserve the stale drift, and
+        # recover on retry.
+        iss = self._seed_drift_then_drop_git()
+        # Make the build a CHANGED build (edit an unrelated code file).
+        (self.root / "src" / "foo.py").write_text("x = 999\n", encoding="utf-8")
+        real_ctor = iss.IndexStateStore
+
+        class _BoomStore(real_ctor):
+            def clear_attribution_and_drift(self):
+                raise RuntimeError("forced clear failure")
+
+        iss.IndexStateStore = _BoomStore
+        try:
+            result = self._run_build()  # changed build → build-tail drift pass
+        finally:
+            iss.IndexStateStore = real_ctor
+        self.assertTrue(result.get("failed"),
+                        "a changed build whose confirmed-non-git clear fails must fail")
+        self.assertFalse(result.get("up_to_date"))
+        self.assertTrue(iss.doc_drift_for_path(self.index_dir, "docs/g.md"),
+                        "the stale drift must survive the failed clear")
+        # Retry (clear works) succeeds and clears.
+        retry = self._run_build()
+        self.assertFalse(retry.get("failed"))
+        self.assertIsNone(iss.doc_drift_for_path(self.index_dir, "docs/g.md"))
+
+    def test_ordinary_drift_compute_failure_stays_optional(self):
+        # Contract guard: an ordinary drift COMPUTATION failure (not a confirmed
+        # transition clear) must remain OPTIONAL — the build still succeeds.
+        import shutil
+        subprocess.run(["git", "init", "-q", str(self.root)], check=True)
+        self._git("config", "user.email", "t@t")
+        self._git("config", "user.name", "t")
+        _make_repo(self.root, {
+            "src/foo.py": "x = 1\n",
+            "docs/g.md": "Status: active\n\nSee `src/foo.py`.\n",
+        })
+        self._git("add", "-A")
+        self._git("commit", "-qm", "c1", ts=1700000000)
+        self._run_build(full=True)
+        iss = self.bi._get_index_state_store()
+        # Force the history walk to fail (a compute failure, git still present).
+        real = iss._collect_git_history
+        iss._collect_git_history = lambda *a, **k: (False, [])
+        (self.root / "src" / "foo.py").write_text("x = 2\n", encoding="utf-8")
+        try:
+            result = self._run_build()
+        finally:
+            iss._collect_git_history = real
+        self.assertFalse(result.get("failed"),
+                         "an optional drift-compute failure must not fail the build")
+
+
+class AmbientGitEnvBuildIsolationTests(unittest.TestCase):
+    """Round-4 re-review (6) P1: the FULL build_index derivation (freshness +
+    drift + history) must match a clean-environment control EXACTLY even when a
+    repository-local git env var (GIT_SHALLOW_FILE) is ambiently set."""
+
+    def setUp(self):
+        self.bi = load_build_index()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.index_dir = self.root / ".wavefoundry" / "index"
+
+    def _git(self, *args, ts=None):
+        env = dict(os.environ)
+        if ts is not None:
+            env["GIT_AUTHOR_DATE"] = env["GIT_COMMITTER_DATE"] = f"{ts} +0000"
+        subprocess.run(["git", "-C", str(self.root), *args], check=True, env=env)
+
+    def _run_build(self, full=False):
+        docs_mock = _make_embedder_mock(dim=4)
+        code_mock = _make_embedder_mock(dim=4)
+        with patch.object(self.bi, "_get_embedder", side_effect=[docs_mock, code_mock]):
+            return self.bi.build_index(self.root, full=full, content="all", verbose=False)
+
+    def _seed(self):
+        subprocess.run(["git", "init", "-q", str(self.root)], check=True)
+        self._git("config", "user.email", "t@t")
+        self._git("config", "user.name", "t")
+        _make_repo(self.root, {
+            "src/foo.py": "x = 1\n",
+            "docs/g.md": "Status: active\n\nSee `src/foo.py`.\n",
+        })
+        self._git("add", "-A")
+        self._git("commit", "-qm", "c1", ts=1700000000)
+        for i in range(3):
+            (self.root / "src" / "foo.py").write_text(f"x = {i + 2}\n", encoding="utf-8")
+            self._git("add", "-A")
+            self._git("commit", "-qm", f"churn{i}", ts=1700000000 + (i + 1) * 1000)
+
+    def _drift_and_freshness(self):
+        iss = self.bi._get_index_state_store()
+        row = iss.doc_drift_for_path(self.index_dir, "docs/g.md")
+        fresh = iss.freshness_for_paths(self.index_dir, ["src/foo.py", "docs/g.md"])
+        return row, fresh
+
+    def test_full_build_matches_clean_control_under_git_shallow_file(self):
+        # Clean control build.
+        self._seed()
+        self._run_build(full=True)
+        clean_row, clean_fresh = self._drift_and_freshness()
+        self.assertEqual(clean_row["commits_since"], 3)
+        # Determine a mid-history boundary and set GIT_SHALLOW_FILE ambiently.
+        iss = self.bi._get_index_state_store()
+        ok, commits = iss._collect_git_history(self.root)
+        self.assertTrue(ok)
+        shas = [c["sha"] for c in commits]
+        shallow = self.root.parent / "shallow-boundary"
+        shallow.write_text(shas[len(shas) // 2] + "\n", encoding="utf-8")
+        saved = os.environ.get("GIT_SHALLOW_FILE")
+        os.environ["GIT_SHALLOW_FILE"] = str(shallow)
+        try:
+            # A FULL rebuild recomputes everything under the ambient var.
+            self._run_build(full=True)
+            amb_row, amb_fresh = self._drift_and_freshness()
+        finally:
+            if saved is None:
+                os.environ.pop("GIT_SHALLOW_FILE", None)
+            else:
+                os.environ["GIT_SHALLOW_FILE"] = saved
+        self.assertEqual(amb_row["commits_since"], clean_row["commits_since"],
+                         "drift must match the clean control under GIT_SHALLOW_FILE")
+        self.assertEqual(amb_row["drifted"], clean_row["drifted"])
+        self.assertEqual(amb_fresh, clean_fresh,
+                         "freshness must match the clean control under GIT_SHALLOW_FILE")
+
+    def _seed_with_rename(self):
+        # Like _seed but the doc points at a RENAMED file, so an ambient
+        # diff.renames=false (global config) would change its derived path
+        # history / freshness — making the clean-vs-ambient control non-vacuous.
+        subprocess.run(["git", "init", "-q", str(self.root)], check=True)
+        self._git("config", "user.email", "t@t")
+        self._git("config", "user.name", "t")
+        _make_repo(self.root, {
+            "src/old_name.py": "x = 1\nx = 2\nx = 3\nx = 4\nx = 5\n",
+            "docs/g.md": "Status: active\n\nSee `src/new_name.py`.\n",
+        })
+        self._git("add", "-A")
+        self._git("commit", "-qm", "c1", ts=1700000000)
+        subprocess.run(["git", "-C", str(self.root), "mv",
+                        "src/old_name.py", "src/new_name.py"], check=True)
+        self._git("commit", "-qm", "rename", ts=1700001000)
+
+    def test_full_build_matches_clean_control_under_git_config_global(self):
+        # Clean control build (git default diff.renames=true).
+        self._seed_with_rename()
+        self._run_build(full=True)
+        iss = self.bi._get_index_state_store()
+        clean_hist = [c["files"] for c in iss._collect_git_history(self.root)[1]]
+        clean_fresh = iss.freshness_for_paths(
+            self.index_dir, ["src/new_name.py", "docs/g.md"])
+        clean_row = iss.doc_drift_for_path(self.index_dir, "docs/g.md")
+        # Guard: an ambient global diff.renames=false MUST perturb raw git.
+        gc = self.root.parent / "gitconfig-global"
+        gc.write_text("[diff]\n\trenames = false\n", encoding="utf-8")
+        raw = subprocess.run(
+            ["git", "-C", str(self.root), "log", "-1", "--name-only", "--format="],
+            capture_output=True, text=True,
+            env=dict(os.environ, GIT_CONFIG_GLOBAL=str(gc)))
+        raw_files = {f.strip() for f in raw.stdout.split() if f.strip()}
+        self.assertEqual(raw_files, {"src/old_name.py", "src/new_name.py"},
+                         "ambient GIT_CONFIG_GLOBAL must split the rename in raw git")
+        # Full rebuild under the ambient global config → identical derivation.
+        saved = os.environ.get("GIT_CONFIG_GLOBAL")
+        os.environ["GIT_CONFIG_GLOBAL"] = str(gc)
+        try:
+            self._run_build(full=True)
+            amb_hist = [c["files"] for c in iss._collect_git_history(self.root)[1]]
+            amb_fresh = iss.freshness_for_paths(
+                self.index_dir, ["src/new_name.py", "docs/g.md"])
+            amb_row = iss.doc_drift_for_path(self.index_dir, "docs/g.md")
+        finally:
+            if saved is None:
+                os.environ.pop("GIT_CONFIG_GLOBAL", None)
+            else:
+                os.environ["GIT_CONFIG_GLOBAL"] = saved
+        self.assertEqual(amb_hist, clean_hist,
+                         "history must match the clean control under GIT_CONFIG_GLOBAL")
+        self.assertEqual(amb_fresh, clean_fresh,
+                         "freshness must match the clean control under GIT_CONFIG_GLOBAL")
+        self.assertEqual(amb_row["commits_since"], clean_row["commits_since"])
+        self.assertEqual(amb_row["drifted"], clean_row["drifted"])
 
 
 if __name__ == "__main__":

@@ -54,6 +54,40 @@ class DocsLintFixtureTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("docs-lint: ok", result.stdout)
 
+    def test_verification_stamp_valid_forms_pass(self) -> None:
+        # 1ro43 AC-11: the stamp is optional and accepted when well-formed
+        # (full or abbreviated hex) — no registration or whitelist needed.
+        root = self.copy_fixture()
+        doc = root / "docs" / "stamped.md"
+        doc.write_text(
+            "# Stamped\n\nOwner: Engineering\nStatus: active\n"
+            "Last verified: 2026-07-13\nVerified against: abc1234\n\nBody.\n",
+            encoding="utf-8",
+        )
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_verification_stamp_malformed_sha_fails(self) -> None:
+        # 1ro43 AC-11: a malformed stamp silently degrades drift to the
+        # content anchor while LOOKING stamped — docs-lint must flag it.
+        root = self.copy_fixture()
+        doc = root / "docs" / "stamped.md"
+        for bad in ("not-a-sha", "12345", "<commit-sha>"):
+            doc.write_text(
+                "# Stamped\n\nOwner: Engineering\nStatus: active\n"
+                f"Last verified: 2026-07-13\nVerified against: {bad}\n\nBody.\n",
+                encoding="utf-8",
+            )
+            result = self.run_docs_lint(root)
+            if result.returncode != 1:
+                shutil.rmtree(root)
+                self.fail(f"malformed stamp {bad!r} passed lint")
+            self.assertIn("malformed `Verified against` stamp", result.stderr)
+        shutil.rmtree(root)
+
     def test_closed_wave_id_requires_date_slug_and_wave_suffix(self) -> None:
         root = self.copy_fixture()
         wave_doc = root / self.WAVE_DOC_PATH
@@ -2656,3 +2690,158 @@ class LifecyclePrefixWidthPatternTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MemoryRecordLintTests(DocsLintFixtureTests):
+    """1p8gy AC-1: memory record schema validation — required fields, known
+    kinds/statuses, evidence/target refs, supersession integrity, forbidden
+    content. Per-kind fixtures per the readiness-council guidance."""
+
+    ALL_KINDS = (
+        "failed_attempt", "successful_pattern", "review_finding",
+        "operator_preference", "environment_gotcha", "fragile_file",
+        "decision", "dependency_gotcha",
+    )
+
+    @staticmethod
+    def _record(memory_id: str, kind: str, *, status: str = "active",
+                confidence: str = "0.8", extra: str = "",
+                evidence: str = "- `1abcd-bug some-change` — learned during review",
+                targets: str = "- `src/module.py`") -> str:
+        return (
+            f"# Lesson {memory_id}\n\n"
+            f"Owner: Engineering\nStatus: {status}\nLast verified: 2026-07-13\n\n"
+            f"Memory ID: `{memory_id}`\nKind: `{kind}`\nConfidence: {confidence}\n"
+            f"Created: 2026-07-13\nUpdated: 2026-07-13\n{extra}\n"
+            f"## Summary\n\nA durable lesson body.\n\n"
+            f"## Evidence\n\n{evidence}\n\n"
+            f"## Targets\n\n{targets}\n"
+        )
+
+    def _write_record(self, root: Path, memory_id: str, content: str) -> None:
+        mem_dir = root / "docs" / "agents" / "memory"
+        mem_dir.mkdir(parents=True, exist_ok=True)
+        (mem_dir / f"{memory_id}.md").write_text(content, encoding="utf-8")
+
+    def test_wellformed_records_of_every_kind_pass(self):
+        root = self.copy_fixture()
+        for i, kind in enumerate(self.ALL_KINDS):
+            mid = f"mem-{kind.replace('_', '-')}"
+            self._write_record(root, mid, self._record(mid, kind))
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_schema_violations_fail_loudly(self):
+        cases = [
+            ("unknown kind", self._record("mem-a", "vibes"), "unknown memory kind"),
+            ("bad status", self._record("mem-a", "decision", status="maybe"),
+             "memory `Status` must be one of"),
+            ("bad confidence", self._record("mem-a", "decision", confidence="9"),
+             "`Confidence` must be a number in [0.0, 1.0]"),
+            ("id/filename mismatch", self._record("mem-b", "decision"),
+             "must match the filename stem"),
+            ("refless evidence", self._record("mem-a", "decision",
+                                              evidence="- learned it somewhere"),
+             "must carry backticked refs"),
+            ("superseded without link",
+             self._record("mem-a", "decision", status="superseded"),
+             "must carry a backticked `Superseded by:`"),
+            ("secret content", self._record(
+                "mem-a", "environment_gotcha",
+                evidence="- `x.py` — set api_key: sk-live-1234 to reproduce"),
+             "secrets, raw transcript content, or personal facts"),
+        ]
+        for label, content, expected in cases:
+            root = self.copy_fixture()
+            self._write_record(root, "mem-a", content)
+            result = self.run_docs_lint(root)
+            shutil.rmtree(root)
+            self.assertEqual(result.returncode, 1, f"{label}: lint passed unexpectedly")
+            self.assertIn(expected, result.stderr, label)
+
+    def test_superseded_with_link_passes(self):
+        root = self.copy_fixture()
+        self._write_record(root, "mem-old", self._record(
+            "mem-old", "decision", status="superseded",
+            extra="Superseded by: `mem-new`\n"))
+        self._write_record(root, "mem-new", self._record("mem-new", "decision"))
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+
+class MemoryRecordSchemaCompletenessTests(MemoryRecordLintTests):
+    """Delivery-review P1: lint must REQUIRE every schema field — a
+    status-less (or otherwise incomplete) record must fail, not pass."""
+
+    def test_missing_status_line_fails(self):
+        root = self.copy_fixture()
+        # A record with no `Status:` line at all.
+        content = (
+            "# Lesson\n\nOwner: Engineering\nLast verified: 2026-07-13\n\n"
+            "Memory ID: `mem-nostatus`\nKind: `decision`\nConfidence: 0.8\n"
+            "Created: 2026-07-13\nUpdated: 2026-07-13\n\n"
+            "## Summary\n\nBody.\n\n## Evidence\n\n- `1x`\n\n## Targets\n\n- `src/a.py`\n"
+        )
+        self._write_record(root, "mem-nostatus", content)
+        result = self.run_docs_lint(root)
+        shutil.rmtree(root)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("missing `Status:` line", result.stderr)
+
+    def test_empty_summary_fails(self):
+        root = self.copy_fixture()
+        content = (
+            "# Lesson\n\nOwner: Engineering\nStatus: active\nLast verified: 2026-07-13\n\n"
+            "Memory ID: `mem-empty`\nKind: `decision`\nConfidence: 0.8\n"
+            "Created: 2026-07-13\nUpdated: 2026-07-13\n\n"
+            "## Summary\n\n## Evidence\n\n- `1x`\n\n## Targets\n\n- `src/a.py`\n"
+        )
+        self._write_record(root, "mem-empty", content)
+        result = self.run_docs_lint(root)
+        shutil.rmtree(root)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("`## Summary` must not be empty", result.stderr)
+
+
+class MemoryRecordValueParityLintTests(MemoryRecordLintTests):
+    """Adversarial-pass: lint value grammars — `*` bullets fail, float
+    confidence passes, impossible dates fail (calendar-validated)."""
+
+    def test_star_bullets_fail(self):
+        root = self.copy_fixture()
+        self._write_record(root, "mem-star", self._record(
+            "mem-star", "decision", evidence="* `1abcd-bug some-change` star bullet"))
+        result = self.run_docs_lint(root)
+        shutil.rmtree(root)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("must include at least one bullet", result.stderr)
+
+    def test_impossible_date_fails(self):
+        root = self.copy_fixture()
+        content = (
+            "# T\n\nOwner: Engineering\nStatus: active\nLast verified: 2026-07-13\n\n"
+            "Memory ID: `mem-baddate`\nKind: `decision`\nConfidence: 0.8\n"
+            "Created: 2020-13-40\nUpdated: 2026-07-13\n\n"
+            "## Summary\n\nBody.\n\n## Evidence\n\n- `1x`\n\n## Targets\n\n- `src/a.py`\n"
+        )
+        self._write_record(root, "mem-baddate", content)
+        result = self.run_docs_lint(root)
+        shutil.rmtree(root)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("not a valid calendar date", result.stderr)
+
+    def test_float_confidence_passes(self):
+        root = self.copy_fixture()
+        content = self._record("mem-sci", "decision").replace("Confidence: 0.8", "Confidence: 1e-1")
+        self._write_record(root, "mem-sci", content)
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

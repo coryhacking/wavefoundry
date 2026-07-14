@@ -1,10 +1,10 @@
 # `code_ask` Freshness Is Hot-Path-Expensive and Wrong (Ignores Stale Paths, Maps Errors to "current")
 
 Change ID: `1sbxq-bug code-ask-freshness-signal`
-Change Status: `implementing`
+Change Status: `implemented`
 Owner: Engineering
-Status: planned
-Last verified: 2026-07-12
+Status: implemented
+Last verified: 2026-07-14
 Wave: `1seav search-freshness-degraded-retrieval`
 
 ## Rationale
@@ -39,14 +39,14 @@ The cheap correct substrate now exists (wave 1sc7c): per-layer last-embedded has
 - [x] AC-2: The LAYER-CROSSING regression is fixture-pinned in BOTH directions (`code_ask` searches both layers): (a) edit a code file; run a docs-only build that also processes a docs change → `stale`; rebuild docs only → still `stale`; rebuild code/all → `current`; (b) the INVERSE — edit a docs file; run a code-only build → `stale` until a docs/all build. Plus the simple case (modified file → `stale`), chunker mismatch → `stale`, an ADDED path → `stale`, a DELETED path → `stale`, and a legitimately EMPTY layer (zero eligible files) reading `current`, never `stale`/`unknown`.
 - [x] AC-3: Freshness-check exceptions and undeterminable states report `unknown` — never `current` — fixture-pinned.
 - [x] AC-4: BOTH cache axes are fixture-pinned: `current` → source edit → `stale` after the TTL elapses (generation unchanged — proves the TTL axis); and `stale` → completed build → `current` IMMEDIATELY on the generation change, without waiting out the TTL (proves the epoch axis); both without server restart.
-- [ ] AC-5: Full suite bytecode-free + docs validation; seed-211/spec document the three-state contract.
+- [x] AC-5: Full suite bytecode-free + docs validation; seed-211/spec document the three-state contract.
 
 ## Tasks
 
 - [x] Shared cheap-freshness helper (stat-fast-path + per-layer `layer_path_state` + chunker-version store read; cache with BOTH axes — root-scoped seconds-scale TTL and 1sed7 build-generation invalidation). (`indexer.project_layer_freshness` + `server_impl._index_freshness_verdict`, TTL 5 s + `_epoch_state` token.)
 - [x] Wire into `code_ask_response`; remove the `_layer_health` call. (Source-pinned; docstring three-state contract updated.)
 - [x] Fixtures per AC-2 (both layer-crossing directions + added/deleted/empty-layer) /3/4 (both cache axes); keep the chunker-mismatch case. (`ProjectLayerFreshnessTests` 9 fixtures; `FreshnessCacheAxesTests` 4; CodeAsk envelope tests migrated.)
-- [ ] Seed-211 + `mcp-tool-surface.md` three-state wording; suite + validate.
+- [x] Seed-211 + `mcp-tool-surface.md` three-state wording; suite + validate. (Suite 4,940 OK; wave_validate green; rendered guru.md synced.)
 
 ## Agent Execution Graph
 
@@ -85,6 +85,8 @@ The cheap correct substrate now exists (wave 1sc7c): per-layer last-embedded has
 
 | Date | Update | Evidence |
 | ---- | ------ | -------- |
+| 2026-07-13 | CLOSE-READINESS REVIEW (external, executed): AC-2/AC-3 reopened and re-met. Reproduced false-current: (a) full build → ADD code file → docs-only build (the broad snapshot stamps the new file; my layer compare only iterated recorded paths) and (b) unreadable `layer_hashes` → current. FIXED: `project_layer_freshness` rewritten around ONE walk with the build's own per-layer eligibility sets — the layer compare is now SYMMETRIC (recorded-path drift/deletion AND eligible-path-never-processed), layer hashes compare against the CURRENT walk hashes, and an unreadable REQUIRED layer (non-empty eligible set) reads unknown. Fixtures: `test_added_code_file_survives_docs_only_build` (the reviewer's exact reproduction + recovery), `test_unreadable_required_layer_state_reads_unknown`, exception-seam fixtures updated to the real seams. AC-5 gap closed: `mcp-tool-surface.md` now defines the three-state `index_freshness` contract. | Reviewer relay; indexer diff; ProjectLayerFreshnessTests 12/12. |
+| 2026-07-13 | INDEPENDENT DELIVERY VERIFICATION (fresh-context adversarial agent, executed probes on scratch stores): epoch discipline, cache axes (no stale-after-finalize window — verdict flipped 0.12 s after a real build inside the TTL), root isolation, 8-thread concurrency hammer, symlink/permission/missing-config edge cases all CLEAN. ONE finding (MEDIUM, executed repro): a modified-but-unreadable file (perm change/AV lock mid-walk) made the walk pass return None, which the verdict coerced to `current` via the determinable layer-hash pass — the honesty rule violated one level below the caller's unknown-mapping. FIXED same-session: `current` now requires the walk pass to have POSITIVELY determined no changes (`walk_stale is False`); an undeterminable walk reads unknown. Regression fixture `test_unreadable_modified_file_reads_unknown_not_current` (chmod-000 repro + truth-after-restore). | Verifier report; indexer diff; ProjectLayerFreshnessTests 10/10. |
 | 2026-07-13 | IMPLEMENTED (helper + wiring + cache + fixtures): `indexer.project_layer_freshness` combines the stat-fast-path walk (edits since any build) with per-layer `layer_path_state` hash compare against the broad snapshot (the layer-crossing signal — pure store reads) plus the chunker-version check; store-only, meta.json-free (Req 0). `server_impl._index_freshness_verdict` caches with BOTH axes (5 s root-scoped TTL + `_epoch_state` token). `code_ask_response` freshness = the verdict's three-state; `_layer_health` call removed (source-pinned) and docstring updated. Fixtures: `ProjectLayerFreshnessTests` (current-after-build, simple edit, BOTH layer-crossing directions with the second-scoped-build persistence check, added+deleted paths, empty-layer control, chunker mismatch, no-store→unknown, exception→unknown) 9/9; `FreshnessCacheAxesTests` (TTL axis with generation pinned unchanged; epoch axis without TTL wait; unknown passthrough; exception→unknown) 4/4; envelope passthrough + hot-path source pin in CodeAskTests. AC-1 latency evidence (live, this repo): OLD per-call `_layer_health` walk 457.1 ms → NEW 292.8 ms cold (at most once per TTL window/build transition) and 0.32 ms cached median — and the cold verdict honestly read `stale` against the uncommitted working tree. | Diffs; fixture runs; timing transcript. |
 | 2026-07-13 | PRE-IMPLEMENTATION PLAN REVIEW (external) — P0 repair: Requirement 3's "TTL OR generation-keyed" wording permitted generation-only invalidation, which cannot detect source edits (the generation advances only at build finalization — an edit between builds would read `current` indefinitely). Now BOTH axes are required: root-scoped seconds-scale TTL (bounds edit-detection latency) AND build-generation invalidation (immediate post-build refresh); AC-4 rewritten to pin both sides independently. P1 repair: AC-2 freshness coverage was asymmetric — added the inverse docs-edit/code-only-build regression (code_ask searches both layers), added/deleted-path cases, and the legitimately-empty-layer control. | Plan review relay; `finalize_build_epoch` (sole generation advance) source ref. |
 | 2026-07-12 | Reconciled with wave `1sed7` (operator-directed): Requirement 0 added — store-first, zero meta.json reads, cache keyed on 1sed7's build generation; this change now implements AFTER 1sed7. | Operator ordering decision; 1sed6 store API (build-state row + generation). |

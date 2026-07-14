@@ -1,47 +1,51 @@
 # Session Handoff
 
 Owner: Engineering
-Status: active
-Last verified: 2026-07-12
+Status: generated
+Last verified: 2026-07-14
 
-## Current State
+## Current State (2026-07-14)
 
-**Wave `1sed7 sqlite-only-index-state` CLOSED + committed `b49fbd94` (2026-07-13, NOT yet released/pushed)** — `meta.json` retired; `index-state.sqlite` (schema v6) is the sole semantic-index state authority with a FULL-durable build epoch (pre-mutation fence + attempt-ID CAS completion = the only generation advance), globally-gated completion (reset-before-decisions + scoped-build escalation + publication rear guard + restore-only FTS/optimize maintenance + optimize errors fail closed), zero-change recovery for interrupted epochs (registry-keyed lost-table guard), CLI failure propagation, and fail-closed readers using a SINGLE-capture `(attempt_id, status, generation)` state token at all five search tools (strict tools gate completeness on the captured token — closes complete-probe/state-capture TOCTOU and the initial-None ABA). Bounded dashboard/status reads; every store reset persisted to the store log with caller context. Hardened across FOUR external close-readiness review cycles; every finding independently re-verified with exact attack replays. Suite 4,910 OK (known load-flaky timing test only). Follow-ups: mutation-coordinator centralization refactor candidate; CoreML isolated-run SIGSEGV field watch item; unattributed live v5-store trigger (now diagnosable via reset logging).
+- **Wave `1ro44 agent-memory-and-retrieval-decay` — CLOSED 2026-07-14 (operator-directed).** Delivered `1p8gy` graph-backed agent memory (13 ACs) + `1ro43` churn-aware retrieval decay (14 ACs). `wave-council-delivery: approved` (operator decision, superseding the round 4–7 withdrawals — every reproduced P1 was repaired with regression coverage) + `operator-signoff: approved`; close lint/garden clean. `GRAPH_BUILDER_VERSION` 43→44; no `STATE_STORE_SCHEMA_VERSION`/`CHUNKER_VERSION` bump; drift partition default-OFF; ADRs `1sihk` + `1sk58`. Final round-7 note: the interim global/system git-config NEUTRALIZATION was ruled operator overreach (broke `safe.directory` on shared/CI/WSL checkouts) and REVERTED — protected config passes through, rename determinism is pinned via `--no-renames` command flags instead; the git-config-determinism scope is intentionally CLOSED (no watch item). Suite 5,418 OK; UNCOMMITTED (operator commits).
+- **Non-git support hardened both directions and against transient/ambiguous/corrupt states.** Fresh non-git skips cleanly; a CONFIRMED git→non-git transition (positive fatal + no `.git` marker) clears stale drift on BOTH the build-tail and no-op paths, and a failed clear FAILS the build on both; a probe FAILURE — timeout, dubious ownership, permission, corrupt `.git`, broken pointer, bad env — PRESERVES last-good drift; unborn-HEAD is git. Covered by `NonGitProjectTests`, `GitAuthorityTypedStateTests`, `NoOpBuildDriftReconcileTests`, `NoOpDriftClearFailureBuildTests`.
+- **Every git subprocess in the derivation chain reads the TARGET repo only** — one `_run_git` chokepoint strips all repository-local git env vars that REDIRECT/REPLACE repo/history state (authoritative `--local-env-vars` census + fallback: `GIT_DIR`/`GIT_WORK_TREE`/`GIT_COMMON_DIR`/`GIT_SHALLOW_FILE`/`GIT_GRAFT_FILE`/replace-ref/object+index overrides). Protected global/system config PASSES THROUGH (safe.directory), and rename detection is pinned via `--no-renames` command flags (not config neutralization). Covered by `AmbientGitDirIsolationTests` (decoy `GIT_DIR`, `GIT_SHALLOW_FILE`, `GIT_GRAFT_FILE`, census fixture, protected-config-passthrough + pinned-rename-determinism), `AmbientGitEnvBuildIsolationTests` (full `build_index` vs clean control under `GIT_SHALLOW_FILE` and `GIT_CONFIG_GLOBAL`), and a strengthened AST `GitSubprocessCensusTests`.
+- Test-suite counting: **run via `run_tests.py`** (canonical; per-file subprocess isolation) — the test files register shared `sys.modules` names, so a monolithic `unittest discover` collides them and under-counts. Current authoritative count **5,418 tests across 48 files, OK** bytecode-free. Docs validation and `git diff --check` clean. Windows: explicit `.git` removals in tests use a read-only-clearing `_rmtree_git` helper (git objects are read-only on Windows).
 
-**1.12.0 RELEASED** (2026-07-11, GitHub tag `v1.12.0`, artifact `wavefoundry-1.12.0.pblj.zip`) — bundles waves `1rsh9` (SQLite substrate + FTS5 hybrid lexical + scan cache + Tantivy retirement), `1sbfi` (external-supertype visibility), and `1sbfk` (chunk-index backfill repair + `code_lexical` tool + lexical-fusion guidance). Landing commit `5313af5b`, version bump `fce67748`, main in sync with origin. Field-verified pre-release on two downstream repos; post-release `code_lexical` smoke batteries 8/8 on both.
+## Delivery-review remediation history (all rounds in the wave record)
 
-**Uncommitted (operator-directed, post-release):** a small guidance addition to seed-211 + rendered `docs/agents/guru.md` — "multi-identifier `code_lexical` queries surface summary chunks first (BM25 length normalization); follow through with `code_read`", from the field smoke report. **Stage-gate waiver:** operator explicitly directed this docs/seed prose edit outside a wave (2026-07-12, "make that guidance to the guru now"); no behavioral code touched; docs-lint clean. Include in the next commit.
+- **Round 1 (traversal):** `../` memory-id escape → grammar + containment; MemoryIdTraversalTests.
+- **Round 2 (9 findings):** symlink-root escape, gardener-only committed anchor, fail-closed parse, atomic create, drift fingerprint, timestamp-topology, secret scan coverage, hot-path caches, exact wave matching.
+- **Round 3 (7 findings), all FIXED with regressions:**
+  1. Symlink boundary now covers READS + validates-before-mkdir via the single `canonical_memory_root` chokepoint (SymlinkReadAndMkdirTests).
+  2. Runtime `parse_memory_record` mirrors all load-bearing lint rules — superseded-link + section bullets (ParserLintParityTests).
+  3. `_gardener_only_pairs` returns typed `(ok, pairs)`; drift preserved on detector failure (GardenerDetectorFailClosedTests).
+  4. Normalization scoped to the canonical header `Last verified: <date>` line only (HeaderScopedNormalizationTests).
+  5. Churn counted over `anchor..HEAD` ancestry via the `%P` parent graph, merge-DAG correct (MergeDagAncestryTests, matches `git rev-list`).
+  6. Advisory cache keyed on a bounded monotonic memory generation (tool + indexer bumped) — no O(N) walk, no aliasing (GenerationCacheTests).
+  7. Centrality task checked + AC-5 warm-cache wording corrected; no unchecked `[ ]` remains.
+- **Round 4 re-verification (1) (3 P1s): superseded by re-review (2).** (1) `memory_invalidate` fail-closed; (2) `clear_attribution_and_drift` on the git→non-git path; (3) two-instance cache tests + real `build_index` matrix.
+- **Round 4 re-verification (2) (4 P1s): superseded by re-review (3).** fully-wedged invalidation fails before bookkeeping; writer-owned fence tokens; typed `_git_authority`; evidence reconciled.
+- **Round 4 re-verification (3) (2 P1s): superseded by re-review (4).** no-op drift-clear failure fails publicly; ambiguous git failures → probe_failed.
+- **Round 4 re-verification (4) (2 P1s): superseded by re-review (5).** corrupt-git states preserve; changed-build clear failure fails before finalize.
+- **Round 4 re-verification (5) (1 P1): superseded by re-review (6).** derived git state read the ambient `GIT_DIR` — every git subprocess in the derivation chain now routes through one sanitized `_run_git` wrapper.
+- **Round 4 re-verification (6) (1 P1): superseded by re-review (7).** strip-set is the authoritative `--local-env-vars` census + fallback (`GIT_SHALLOW_FILE`/graft covered).
+- **Round 4 re-verification (7): SCOPE-CORRECTED (operator decision), awaiting independent re-verification.** The interim config-neutralization was ruled overreach + a safe.directory breaker. REVERTED it (protected config passes through → safe.directory works); pinned rename detection via `--no-renames` command flags instead; git-config-determinism scope intentionally CLOSED (no watch item, revisit only on field evidence). Suite 5,418 via `run_tests.py`. See the newest wave checkpoint for the scope-correction rationale + evidence.
 
-## Review-Derived Waves (READIED 2026-07-12, external code review — all claims source-validated)
+## Implementation summary (uncommitted, still)
 
-Three waves stood up from the validated 2026-07-12 external code review; all READIED (council-passed), none OPEN:
-
-1. **`1seav search-freshness-degraded-retrieval`** — `1sbxq` (code_ask freshness: per-call O(corpus) walk removed, three honest states incl. `unknown`, build-invalidated cache) + `1seaq` (FTS-first degraded fallback for code_search/docs_search with preserved filters, live walk demoted to store-absent-only, typed `search_mode`/`fallback_reason` contract). Highest value; 1.12.1 fold candidate with `1sbfl`.
-2. **`1seaw retrieval-intent-golden-queries`** — `1sear` (standing golden-query eval suite: 8 classes, verbatim misranked queries, baseline + tolerance) then `1seas` (classifier artifact-anchoring, assessment intent, low-information-path penalty) BLOCKED on the recorded baseline. Ranking changes are eval-gated, period.
-3. **`1seax lifecycle-ops-hardening`** — `1seat` (advisory lifecycle-mutation lock, forward-recoverability audit + idempotent-retry fixtures, selective subprocess bounds; the review's transaction-journal proposal REJECTED as disproportionate, recorded with escalation path) + `1seau` (RELIABILITY/performance-budget evidence-based rewrite + docs-vs-code-constants lint).
-
-Review findings NOT adopted: correlation IDs, blanket subprocess deadlines, transaction journal/rollback (all recorded with rationale in the change docs). CI adoption = separate operator infra decision (the eval suite is CI-invocable by design).
+- `1ro43` churn-aware retrieval decay + `1p8gy` agent memory layer are implemented and their wave is CLOSED (all ACs `[x]`/`[~]`). `GRAPH_BUILDER_VERSION` 43→44; no canonical `STATE_STORE_SCHEMA_VERSION`/`CHUNKER_VERSION` bump. Memory invalidation uses a dedicated `.wavefoundry/index/memory-state.sqlite` store (writer-owned fence tokens), not a canonical-store meta key. ADRs `1sihk` + `1sk58`. Drift partition default-OFF. `wave_memory_*` tools live (reconnected). Uncommitted pending operator commit.
 
 ## Next Steps
 
-1. **Wave `1sek8` (content-scoped builds poison code-index freshness)** — the priority fast-follow. Plan doc at `docs/plans/1sek8-…` with full evidence: broad meta stamping erases the other content type's change signal; the post-edit hook's bare spawn defaults to docs-content (code indexes frozen at last full build fleet-wide); `content=all` vs `content=code` corpus divergence. Needs a design pass first — the three defects interact. Interim field recovery documented in `build-and-verification.md` (rechunk, not a plain code update).
-2. **Wave `1ro44` (agent memory + churn decay)** — readied and unblocked.
-3. **`1sbfl` (Java static-initializer chunker gap)** — needs a `CHUNKER_VERSION` bump; batch with other chunker work.
+1. **Commit `1ro44`** — CLOSED but uncommitted; the working tree carries 1seav + 1ro44. Commit when directed (operator-owned).
+2. **Release** — main 5 commits ahead of origin. When directed: commit → CHANGELOG (1.13.0 bundling 1sc7c + 1sed7 + 1seav + 1ro44) → `build_pack.py --version 1.13.0 --release`.
+3. **Queue:** `1skt1` (executable review evidence protocol; change `1siu0` admitted, readiness dry-run clean except required council signoff), `1shv4` (Java chunker `1sbfl`, CHUNKER_VERSION bump), `1seaw` (golden-query eval gate — required before drift-partition default-ON), `1seax`. Staged: `1rolq`, `1rppn`.
 
-## Follow-ups recorded (not blocking)
+## Standing rules (unchanged)
 
-- Retire the `1rycf` close-time bloat gate once field data confirms (Tantivy leak source removed by 1rsh9/1sauc).
-- Tier 2 rule-delta secret scanning (spike: partially viable).
-- `meta.json` reader migration; graph build-path auto-maintenance (deferred per 1rq4h AC-7).
-- Extraction-side: qualification-via-import-facts for unqualified external supertype declarations (census note in `1sbfh`).
-- `wave_scan_secrets` files_scanned/files_skipped response passthrough (field-noted shape gap).
-- Sub-token/camelCase FTS indexing: eval-gated consideration only (trades away the exact-identifier precision the tokenizer was chosen for; see quality-log memory).
-- Intermittent test_indexer full-suite flake observed twice while concurrent live index builds ran on this machine; never reproduced quiescent (5× clean); no traceback captured — watch item.
-
-## Session Notes
-
-- The pre-edit hook fails when the shell cwd is inside `.wavefoundry/framework/scripts/` — `cd` back to repo root before Edit calls.
-- Stale-code-navigation recovery on any repo until `1sek8` lands: `indexer.py --content code --rechunk` (a plain `content=code` update is a no-op on poisoned meta).
+- `git commit` and `wave_close(mode="create")` are operator-owned — explicit words in the current session only. Commit messages: no AI attribution, no Co-Authored-By.
+- Ranking changes are eval-gated, period.
+- Everything runs via `~/.wavefoundry/venv/bin/python3`; suite via `run_tests.py`.
 
 ## Current Session
 

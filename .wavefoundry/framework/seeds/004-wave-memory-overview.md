@@ -31,6 +31,16 @@ It typically includes:
 - **Idle handoff preserves recent history.** When no wave is active, `docs/agents/session-handoff.md` must record the last-closed wave ID and a one-line summary of what shipped so the next session has recent history without running `wave_list_waves`.
 - **Session-end capture is a safety net, not a substitute.** The rendered session-end hook (`.claude/hooks/session-capture`, Claude `Stop`) writes a capture summary to `.wavefoundry/logs/last-session-capture.md` — open wave + AC progress, uncommitted-work and handoff-staleness signals, and a nudge to record new quirks/decisions as **memory candidates**. It captures and nudges only: it never writes memory or commits, so the agent/operator still curates handoff and memory deliberately.
 
+## Relationship To The Agent Memory Layer
+
+“Wave Memory” (this doc) is the CONTINUITY model: wave records, session handoff, journals, and project-context
+memory — prose surfaces that carry working state and durable narrative across sessions. The **agent memory
+layer** is a separate, typed system: evidence-backed records under `docs/agents/memory/` (kinds like
+`fragile_file`, `failed_attempt`, `operator_preference`) served at action time through the `wave_memory_*` MCP
+tools and as capped advisories on read/impact tools. The two link but do not replace each other: journals stay
+role retrospectives, handoff stays session state, and memory records stay retrieval/action artifacts distilled
+from them at lifecycle checkpoints.
+
 ## Relationship To Other Framework Systems
 
 - Wave artifacts capture the current execution slice.

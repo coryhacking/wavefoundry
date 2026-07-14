@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-01
+Last verified: 2026-07-14
 
 How Wavefoundry ships a release. Single-maintainer project; the release happens from the maintainer's machine via `build_pack.py --release`.
 
@@ -21,9 +21,11 @@ What it does in order:
    - `gh auth status` must succeed
    - `CHANGELOG.md` must contain a `## [X.Y.Z]` section
 2. **Build** the source-only distribution zip (same as a normal `build_pack.py --version X.Y.Z` invocation) — runs the docs gate, stamps `.wavefoundry/framework/VERSION`, writes `INSTALL.md`, produces `~/.wavefoundry/dist/wavefoundry-X.Y.Z.<build-suffix>.zip`. The pack ships framework **source only**; there is no framework semantic index to build (framework seeds fold into each project's docs index at setup/upgrade).
-3. **Tag** the current `HEAD` with `vX.Y.Z`. Annotation message is derived from the most recent wave-close commit subject (e.g., `Close wave 1p347 and ship 1.4.0 → 1.4.1`), or `Release vX.Y.Z` as a fallback.
-4. **Push** the tag to `origin`.
-5. **Publish** a GitHub Release via `gh release create vX.Y.Z`. Title is the bare version. Notes are assembled by prepending `.wavefoundry/framework/install/install-block.md` (the `## Install` block — zip-at-root, shortcut phrase, supported hosts) to the `## [X.Y.Z]` section of `CHANGELOG.md`, so an agent or operator browsing the Releases page sees the install steps alongside the download link. The local zip is uploaded as the release asset. (Wave 1p35d / `1p35p` added the install-block prepend; before that the notes were the CHANGELOG section alone.)
+3. **Commit the stamp**: the VERSION/manifest/README-badge changes the build made are committed automatically (`git add -A && git commit`) so the tag points at the stamped tree.
+4. **Tag** the stamp commit locally with `vX.Y.Z`. Annotation message is derived from the most recent wave-close commit subject (e.g., `Close wave 1p347 and ship 1.4.0 → 1.4.1`), or `Release vX.Y.Z` as a fallback.
+5. **Push main**: `HEAD` is pushed to `origin/main` (the stamp commit lands on the default branch).
+6. **Push the tag** to `origin`.
+7. **Publish** a GitHub Release via `gh release create vX.Y.Z`. Title is the bare version. Notes are assembled by prepending `.wavefoundry/framework/install/install-block.md` (the `## Install` block — zip-at-root, shortcut phrase, supported hosts) to the `## [X.Y.Z]` section of `CHANGELOG.md`, so an agent or operator browsing the Releases page sees the install steps alongside the download link. The local zip is uploaded as the release asset. (Wave 1p35d / `1p35p` added the install-block prepend; before that the notes were the CHANGELOG section alone.)
 
 ## The non-release option (testing, local-only)
 
@@ -35,7 +37,7 @@ Bare invocation (no `--release`) builds the zip locally and exits without any gi
 
 ## Smoke-testing the release pipeline
 
-To walk the entire `--release` flow without producing any side effects (no tag, no push, no upload):
+To walk the entire `--release` flow without git or remote release mutations (no commit, no tag, no push, no upload) — note the LOCAL build still runs, producing the archive and stamping VERSION/manifest/README (the working tree is left dirty; restore the stamped files afterwards):
 
 ```bash
 python3 .wavefoundry/framework/scripts/build_pack.py --version <X.Y.Z> --release-dry-run
@@ -47,7 +49,7 @@ This validates pre-flight checks, builds the zip, and prints the `git`/`gh` comm
 
 Each step prints a recovery command in its error message. Common cases:
 
-- **Tag pushed but `gh release create` failed.** The tag is on `origin`; only step 3 remains. Re-run the upload manually:
+- **Tag pushed but `gh release create` failed.** The tag is on `origin`; only the publish step (step 7) remains. Re-run the upload manually:
   ```bash
   gh release create v<X.Y.Z> --title <X.Y.Z> \
     --notes-file <(awk '/^## \[<X.Y.Z>\]/{flag=1;next} /^## \[/{flag=0} flag' CHANGELOG.md) \

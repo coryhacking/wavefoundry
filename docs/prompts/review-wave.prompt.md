@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-03
+Last verified: 2026-07-14
 
 Shortcut: **`Review wave`**
 
@@ -47,3 +47,7 @@ Reviewers must not treat checked ACs or tasks as proof of completion. For every 
 ## Required Before Close
 
 All required lanes from readiness must be reconciled in `## Review checkpoints` before **Close wave** can proceed. When Wave Council is enabled, `wave-council-delivery` must also be present in `## Review Evidence`.
+
+## Memory Capture During Review
+
+Propose agent memory candidates from blocking findings, repeated fixes, and reviewer lessons via `wave_memory_add(status='candidate', ...)` — typed, evidence-backed records (never raw transcripts, secrets, or personal facts). `wave_review` responses surface `memory_advisories` relevant to the wave's change ids, including prior review findings and any fragile-file records flagged `needs_reverification`. Candidates are decided at the close-time distillation checkpoint, not during review.

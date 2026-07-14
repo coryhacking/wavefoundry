@@ -1743,7 +1743,7 @@ class GuidedContractTests(unittest.TestCase):
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["data"]["search_mode"], "live_fallback")
         self.assertEqual(result["data"]["fallback_reason"], "store_absent")
-        index.search_docs_lexical.assert_called_once_with("agent catalog", kind="doc", top_n=7)
+        index.search_docs_lexical.assert_called_once_with("agent catalog", kind="doc", top_n=7, tags=None)
         index.docs_health.assert_not_called()
 
     def test_docs_search_calls_semantic_search_directly_without_health_preflight(self):
@@ -1786,7 +1786,7 @@ class GuidedContractTests(unittest.TestCase):
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["data"]["search_mode"], "live_fallback")
         self.assertEqual(result["data"]["fallback_reason"], "store_absent")
-        index.search_docs_lexical.assert_called_once_with("agent catalog", kind="doc", top_n=7)
+        index.search_docs_lexical.assert_called_once_with("agent catalog", kind="doc", top_n=7, tags=None)
         index.docs_health.assert_not_called()
 
     def test_docs_search_live_walk_on_building_epoch(self):
@@ -20325,6 +20325,26 @@ class DegradedFtsFallbackTests(unittest.TestCase):
         codes = [d.get("code") for d in result.get("diagnostics", [])]
         self.assertIn("lexical_fallback_failed", codes)
 
+    def test_partial_store_corruption_types_query_failed_not_zero_hit(self):
+        """Review fix: a readable build_state with a BROKEN FTS virtual table
+        must type as query_failed — never a clean zero-hit with retry-the-
+        token advice (infrastructure failure masquerading as an empty corpus)."""
+        import sqlite3
+        conn = sqlite3.connect(str(self.iss.state_store_path(self.index_dir)))
+        with conn:
+            conn.execute("DROP TABLE fts_docs")
+        conn.close()
+        serve = self.srv._fts_degraded_serve(self.root, ("docs",), "alpha_handler", 5)
+        self.assertFalse(serve["available"])
+        self.assertEqual(serve["failure_reason"], "query_failed")
+        # Through the tool flow: typed diagnostic, not the zero-hit note.
+        index = self._mock_index(self.srv.SemanticModelUnavailableOfflineError("offline"))
+        result = self.srv.docs_search_response(index, "alpha_handler", epoch_state=self.COMPLETE)
+        self.assertEqual(result["data"]["fallback_reason"], "query_failed")
+        codes = [d.get("code") for d in result.get("diagnostics", [])]
+        self.assertIn("lexical_fallback_failed", codes)
+        self.assertNotIn("lexical_fallback_zero_hits", codes)
+
     def test_degraded_zero_hit_carries_token_semantics_note(self):
         index = self._mock_index(self.srv.SemanticModelUnavailableOfflineError("offline"))
         result = self.srv.docs_search_response(index, "zz_no_such_token_zz", epoch_state=self.COMPLETE)
@@ -20392,6 +20412,494 @@ class DegradedFtsFallbackTests(unittest.TestCase):
         self.assertEqual(r3["status"], "ok")
         self.assertEqual(r3["data"]["search_mode"], "lexical_fallback")
         self.assertTrue(r3["data"]["results"])
+
+    def test_live_walk_preserves_tags(self):
+        """Review reproduction (P1 — the ORIGINAL defect): the live-walk
+        fallback must apply the requested tag filter."""
+        index = self._mock_index(self.srv.IndexNotReadyError("no store"))
+        walk_chunks = [
+            {"id": "w1", "path": "docs/a.md", "kind": "doc", "section": "A",
+             "lines": [1, 2], "text": "alpha", "tags": "journal", "score": 2.0},
+            {"id": "w2", "path": "docs/b.md", "kind": "doc", "section": "B",
+             "lines": [1, 2], "text": "alpha", "tags": "reference", "score": 1.0},
+        ]
+        def walk(query, kind=None, top_n=5, tags=None):
+            tag_list = [str(x) for x in (tags or []) if x]
+            out = [c for c in walk_chunks
+                   if not tag_list or any(tg in c["tags"] for tg in tag_list)]
+            return out[:top_n]
+        index.search_docs_lexical.side_effect = walk
+        result = self.srv.docs_search_response(index, "alpha", tags=["journal"], epoch_state=None)
+        self.assertEqual(result["data"]["search_mode"], "live_fallback")
+        paths = [r["path"] for r in result["data"]["results"]]
+        self.assertEqual(paths, ["docs/a.md"], "tag filter must survive the live walk")
+        # And the REAL WaveIndex method accepts + applies tags (signature pin).
+        import inspect
+        sig = inspect.signature(self.srv.WaveIndex.search_docs_lexical)
+        self.assertIn("tags", sig.parameters)
+
+    def test_mixed_table_corruption_fails_the_whole_serve(self):
+        """Review reproduction (P1): broken fts_code beside a WORKING
+        fts_docs must fail a docs+code serve as query_failed — never a
+        partial docs-only result labeled available."""
+        import sqlite3
+        conn = sqlite3.connect(str(self.iss.state_store_path(self.index_dir)))
+        with conn:
+            conn.execute("DROP TABLE fts_code")
+        conn.close()
+        serve = self.srv._fts_degraded_serve(self.root, ("docs", "code"), "alpha_handler", 5)
+        self.assertFalse(serve["available"])
+        self.assertEqual(serve["failure_reason"], "query_failed")
+        # code_ask over both tables types it too (no partial citations).
+        index = self._mock_index(self.srv.SemanticModelUnavailableOfflineError("offline"))
+        index._layer_health = MagicMock()
+        result = self.srv.code_ask_response(index, self.root, "alpha_handler?", epoch_state=self.COMPLETE)
+        self.assertEqual(result["data"]["fallback_reason"], "query_failed")
+        self.assertEqual(result["data"]["citations"], [])
+
+    def test_unexpected_semantic_exception_is_typed_query_failed(self):
+        """Review fix (AC-3): raw exceptions never escape the search tools."""
+        for maker, call in (
+            (lambda: self._mock_index(RuntimeError("boom")),
+             lambda idx: self.srv.docs_search_response(idx, "q", epoch_state=self.COMPLETE)),
+            (lambda: self._mock_index(RuntimeError("boom")),
+             lambda idx: self.srv.code_search_response(idx, "q", epoch_state=self.COMPLETE)),
+        ):
+            idx = maker()
+            result = call(idx)
+            self.assertEqual(result["data"]["fallback_reason"], "query_failed", result["data"])
+
+    def test_live_walk_exception_is_typed_query_failed(self):
+        index = self._mock_index(self.srv.IndexNotReadyError("no store"))
+        index.search_docs_lexical.side_effect = RuntimeError("walk exploded")
+        result = self.srv.docs_search_response(index, "q", epoch_state=None)
+        self.assertEqual(result["data"]["fallback_reason"], "query_failed")
+        codes = [d.get("code") for d in result.get("diagnostics", [])]
+        self.assertIn("live_fallback_failed", codes)
+
+    def test_code_ask_fallback_never_mixes_live_keyword_citations(self):
+        """Review fix: the thin-citation keyword targeted pass is suppressed
+        in lexical fallback — every citation must be FTS-published data."""
+        import sqlite3
+        conn = sqlite3.connect(str(self.iss.state_store_path(self.index_dir)))
+        with conn:
+            conn.execute("DELETE FROM fts_code")
+            conn.execute("DELETE FROM fts_docs")
+            conn.execute("DELETE FROM chunk_registry")
+        conn.close()
+        index = self._mock_index(self.srv.SemanticModelUnavailableOfflineError("offline"))
+        index._layer_health = MagicMock()
+        with patch.object(self.srv, "code_keyword_response") as kw:
+            result = self.srv.code_ask_response(index, self.root, "alpha_handler?", epoch_state=self.COMPLETE)
+        kw.assert_not_called()
+        self.assertEqual(result["data"]["search_mode"], "lexical_fallback")
+        self.assertEqual(result["data"]["citations"], [])
+        # Working-lexical zero-hit: the token-semantics guidance is present.
+        self.assertTrue(any("exact literals" in gp for gp in result["data"]["gaps"]))
+
+    def test_code_ask_degraded_citations_carry_source_and_coverage(self):
+        index = self._mock_index(self.srv.SemanticModelUnavailableOfflineError("offline"))
+        index._layer_health = MagicMock()
+        result = self.srv.code_ask_response(index, self.root, "alpha_handler?", epoch_state=self.COMPLETE)
+        data = result["data"]
+        self.assertTrue(data["citations"])
+        self.assertTrue(all(c.get("source") in ("docs", "code") for c in data["citations"]),
+                        [c.get("source") for c in data["citations"]])
+        self.assertIn("coverage", data)
+
+    def test_recreated_empty_fts_table_is_not_live(self):
+        """Pre-release field review F1: after damage + reopen, CREATE VIRTUAL
+        TABLE IF NOT EXISTS leaves a QUERYABLE but EMPTY fts table beside a
+        populated registry — the probe must call that dead, so the fallback
+        types query_failed instead of serving an available zero-hit that
+        blames the query."""
+        import sqlite3
+        conn = sqlite3.connect(str(self.iss.state_store_path(self.index_dir)))
+        with conn:
+            conn.execute("DELETE FROM fts_code")  # empty table, registry intact
+        conn.close()
+        self.assertFalse(self.iss.fts_probe(self.index_dir, "code"))
+        # A legitimately empty layer (no registry rows either) stays live.
+        conn = sqlite3.connect(str(self.iss.state_store_path(self.index_dir)))
+        with conn:
+            conn.execute("DELETE FROM chunk_registry WHERE table_name = 'code'")
+        conn.close()
+        self.assertTrue(self.iss.fts_probe(self.index_dir, "code"))
+
+    def test_code_ask_infrastructure_failure_answer_never_reads_as_absence(self):
+        """Pre-release field review F2: a query_failed code_ask must not say
+        'No indexed evidence found' — the answer names the infrastructure
+        failure and a diagnostic is attached."""
+        import sqlite3
+        conn = sqlite3.connect(str(self.iss.state_store_path(self.index_dir)))
+        with conn:
+            conn.execute("DROP TABLE fts_code")
+        conn.close()
+        index = self._mock_index(self.srv.SemanticModelUnavailableOfflineError("offline"))
+        index._layer_health = MagicMock()
+        result = self.srv.code_ask_response(index, self.root, "alpha_handler?", epoch_state=self.COMPLETE)
+        data = result["data"]
+        self.assertEqual(data["fallback_reason"], "query_failed")
+        self.assertIn("infrastructure failure", data["answer"])
+        self.assertNotIn("No indexed evidence", data["answer"])
+        codes = [d.get("code") for d in result.get("diagnostics", [])]
+        self.assertIn("search_infrastructure_failure", codes)
+
+    def test_code_ask_fallback_suppresses_reranker_unavailable_gap(self):
+        """Pre-release contract audit M5: lexical fallback is BM25 by design —
+        the 'reranker unavailable / vector-only' gap would misdiagnose it."""
+        index = self._mock_index(self.srv.SemanticModelUnavailableOfflineError("offline"))
+        index._layer_health = MagicMock()
+        result = self.srv.code_ask_response(index, self.root, "alpha_handler?", epoch_state=self.COMPLETE)
+        self.assertTrue(result["data"]["citations"])
+        self.assertFalse(any("reranker unavailable" in gp for gp in result["data"]["gaps"]),
+                         result["data"]["gaps"])
+
+    def test_code_search_failed_fts_carries_infrastructure_diagnostic(self):
+        """Pre-release contract audit L2: cross-tool parity — code_search's
+        failed-FTS error path names the infrastructure failure."""
+        import sqlite3
+        conn = sqlite3.connect(str(self.iss.state_store_path(self.index_dir)))
+        with conn:
+            conn.execute("DROP TABLE fts_code")
+        conn.close()
+        index = self._mock_index(self.srv.SemanticModelUnavailableOfflineError("offline"))
+        result = self.srv.code_search_response(index, "alpha_handler", epoch_state=self.COMPLETE)
+        self.assertEqual(result["status"], "error")
+        self.assertEqual(result["data"]["fallback_reason"], "query_failed")
+        codes = [d.get("code") for d in result.get("diagnostics", [])]
+        self.assertIn("lexical_fallback_failed", codes)
+
+    def test_code_search_fts_fallback_preserves_kind_filter(self):
+        """Release review (round 2 — vacuity fixed): AC-1's kind filter must
+        return a NONEMPTY, exclusively-matching set from fts_code."""
+        import contextlib, io as _io
+        rows = [
+            {"id": "k1", "path": "src/alpha.py", "kind": "code", "language": "python",
+             "lines": [1, 5], "section": "", "tags": "", "chunk_hash": "k1",
+             "text": "def alpha_handler(): pass"},
+            {"id": "k2", "path": "src/alpha.py", "kind": "code-summary", "language": "python",
+             "lines": [1, 9], "section": "", "tags": "", "chunk_hash": "k2",
+             "text": "alpha_handler summary chunk"},
+        ]
+        with contextlib.redirect_stdout(_io.StringIO()), contextlib.redirect_stderr(_io.StringIO()):
+            self.iss.reconcile_chunk_index(self.index_dir, "code",
+                                           {r["id"] for r in rows}, lambda: rows)
+        index = self._mock_index(self.srv.SemanticModelUnavailableOfflineError("offline"))
+        result = self.srv.code_search_response(index, "alpha_handler", kind="code-summary",
+                                               epoch_state=self.COMPLETE)
+        kinds = [r["kind"] for r in result["data"]["results"]]
+        self.assertTrue(kinds, "the kind filter fixture must not be vacuous")
+        self.assertEqual(set(kinds), {"code-summary"}, kinds)
+
+    def test_code_search_fts_fallback_preserves_tags_filter(self):
+        """Release review: AC-1's tags filter, fixture-pinned on the fallback."""
+        # Give one code row a tag to filter on.
+        import contextlib, io as _io, sqlite3
+        rows = [{"id": "c9", "path": "src/tagged.py", "kind": "code", "language": "python",
+                 "lines": [1, 2], "section": "", "tags": "test", "chunk_hash": "h9",
+                 "text": "def alpha_handler_tagged(): pass"}]
+        existing = [
+            {"id": "c1", "path": "src/alpha.py", "kind": "code", "language": "python",
+             "lines": [1, 5], "section": "", "tags": "", "chunk_hash": "h1",
+             "text": "def alpha_handler(): pass"},
+        ]
+        with contextlib.redirect_stdout(_io.StringIO()), contextlib.redirect_stderr(_io.StringIO()):
+            self.iss.reconcile_chunk_index(self.index_dir, "code",
+                                           {r["id"] for r in existing + rows},
+                                           lambda: existing + rows)
+        index = self._mock_index(self.srv.SemanticModelUnavailableOfflineError("offline"))
+        result = self.srv.code_search_response(index, "alpha_handler alpha_handler_tagged",
+                                               tags=["test"], epoch_state=self.COMPLETE)
+        paths = {r["path"] for r in result["data"]["results"]}
+        self.assertEqual(paths, {"src/tagged.py"}, "tags filter must survive the fallback")
+
+    def test_code_ask_exact_mode_envelope(self):
+        """Release review: AC-3's exact-mode classification, fixture-pinned —
+        the artifact-anchored short-circuit reads search_mode 'exact' with a
+        null fallback_reason."""
+        index = MagicMock()
+        index.root = self.root
+        index.search_combined.return_value = (
+            [{"path": "src/alpha.py", "lines": [1, 5], "text": "def alpha(): pass",
+              "score": 0.9, "kind": "code", "source": "code"}],
+            True, 0, 5, ["artifact_anchored"], [], "none", None,
+        )
+        index._layer_health = MagicMock()
+        result = self.srv.code_ask_response(index, self.root, "where is alpha_handler defined?",
+                                            epoch_state=self.COMPLETE)
+        self.assertEqual(result["data"]["search_mode"], "exact")
+        self.assertIsNone(result["data"]["fallback_reason"])
+
+    def test_fts_probe_detects_docsize_and_content_shadow_damage(self):
+        """Release review round 2: the miss-token MATCH never evaluates
+        bm25's docsize dependency — dropped or truncated _docsize/_content
+        shadow tables must read dead via deterministic parity."""
+        import sqlite3
+        conn = sqlite3.connect(str(self.iss.state_store_path(self.index_dir)))
+        with conn:
+            conn.execute("DROP TABLE fts_code_docsize")
+        conn.close()
+        self.assertFalse(self.iss.fts_probe(self.index_dir, "code"),
+                         "dropped _docsize must read dead")
+        conn = sqlite3.connect(str(self.iss.state_store_path(self.index_dir)))
+        with conn:
+            conn.execute("DELETE FROM fts_docs_content WHERE rowid IN "
+                         "(SELECT rowid FROM fts_docs_content LIMIT 1)")
+        conn.close()
+        self.assertFalse(self.iss.fts_probe(self.index_dir, "docs"),
+                         "truncated _content must read dead")
+
+    def test_fts_probe_detects_truncation_and_shadow_damage(self):
+        """Release review P1: partial truncation (1 FTS row vs 3 registry) and
+        dropped shadow tables must both read dead — the probe exercises the
+        real MATCH path and enforces registry parity."""
+        import sqlite3
+        conn = sqlite3.connect(str(self.iss.state_store_path(self.index_dir)))
+        with conn:
+            # Truncate: delete some but not all FTS rows.
+            conn.execute("DELETE FROM fts_code WHERE rowid IN (SELECT rowid FROM fts_code LIMIT 1)")
+        conn.close()
+        self.assertFalse(self.iss.fts_probe(self.index_dir, "code"),
+                         "row-count divergence must read dead")
+        # Shadow-table damage on the docs side.
+        conn = sqlite3.connect(str(self.iss.state_store_path(self.index_dir)))
+        with conn:
+            conn.execute("DROP TABLE IF EXISTS fts_docs_idx")
+        conn.close()
+        self.assertFalse(self.iss.fts_probe(self.index_dir, "docs"),
+                         "MATCH-path damage must read dead")
+
+    def test_docs_infra_failure_emits_single_signal(self):
+        """Release review: a query_failed docs response carries the typed
+        failure diagnostic ONLY — never a no_results/token-tweak signal too."""
+        index = self._mock_index(self.srv.SemanticModelUnavailableOfflineError("offline"))
+        with patch.object(self.srv, "_fts_degraded_serve",
+                          return_value={"available": False, "failure_reason": "query_failed",
+                                        "results": [], "coverage": {}}):
+            result = self.srv.docs_search_response(index, "alpha", epoch_state=self.COMPLETE)
+        codes = [d.get("code") for d in result.get("diagnostics", [])]
+        self.assertIn("lexical_fallback_failed", codes)
+        self.assertNotIn("no_results", codes)
+        self.assertNotIn("lexical_fallback_zero_hits", codes)
+
+    def test_code_search_generic_failure_never_blames_fts(self):
+        """Release review + independent re-verifier convergence: a generic
+        semantic exception (FTS never attempted) must not claim the FTS
+        fallback failed."""
+        index = self._mock_index(RuntimeError("boom"))
+        result = self.srv.code_search_response(index, "alpha", epoch_state=self.COMPLETE)
+        self.assertEqual(result["data"]["fallback_reason"], "query_failed")
+        codes = [d.get("code") for d in result.get("diagnostics", [])]
+        self.assertNotIn("lexical_fallback_failed", codes,
+                         "FTS was never attempted — it must not be blamed")
+
+    def test_code_ask_infra_failure_never_masked_by_keyword_pass(self):
+        """Independent re-verifier Defect 1 (= review's masking cluster): with
+        a broken FTS and a live keyword match available, the envelope stays
+        honest — no keyword citations presented as indexed sources, the
+        infrastructure diagnostic present, no reranker misdirection."""
+        import sqlite3
+        conn = sqlite3.connect(str(self.iss.state_store_path(self.index_dir)))
+        with conn:
+            conn.execute("DROP TABLE fts_code")
+        conn.close()
+        (self.root / "src").mkdir(exist_ok=True)
+        (self.root / "src" / "mod.py").write_text("def alpha_handler(): pass\n", encoding="utf-8")
+        index = self._mock_index(self.srv.SemanticModelUnavailableOfflineError("offline"))
+        index._layer_health = MagicMock()
+        result = self.srv.code_ask_response(index, self.root, "alpha_handler purpose",
+                                            epoch_state=self.COMPLETE)
+        data = result["data"]
+        self.assertEqual(data["fallback_reason"], "query_failed")
+        self.assertEqual(data["citations"], [], "live keyword hits must not mask the outage")
+        self.assertIn("infrastructure failure", data["answer"])
+        codes = [d.get("code") for d in result.get("diagnostics", [])]
+        self.assertIn("search_infrastructure_failure", codes)
+        self.assertFalse(any("reranker unavailable" in gp for gp in data["gaps"]))
+
+    def test_code_ask_working_lexical_zero_hit_answer_is_honest(self):
+        """Release review: a working-lexical zero-hit answer must carry the
+        exact-token guidance, never 'may not be covered'."""
+        import sqlite3
+        conn = sqlite3.connect(str(self.iss.state_store_path(self.index_dir)))
+        with conn:
+            conn.execute("DELETE FROM fts_code")
+            conn.execute("DELETE FROM fts_docs")
+            conn.execute("DELETE FROM chunk_registry")
+        conn.close()
+        index = self._mock_index(self.srv.SemanticModelUnavailableOfflineError("offline"))
+        index._layer_health = MagicMock()
+        result = self.srv.code_ask_response(index, self.root, "zz_nothing_zz?",
+                                            epoch_state=self.COMPLETE)
+        data = result["data"]
+        self.assertEqual(data["search_mode"], "lexical_fallback")
+        self.assertIn("exact-token", data["answer"])
+        self.assertNotIn("may not be covered", data["answer"])
+
+    def test_degraded_envelopes_always_carry_coverage(self):
+        """Release review (round 2 — failure paths included): coverage is
+        REQUIRED on every degraded/failed envelope ({} = collection
+        unavailable) — available fallbacks, FAILED fallbacks, and the docs
+        live fallback alike."""
+        index = self._mock_index(self.srv.SemanticModelUnavailableOfflineError("offline"))
+        # Available fallback with empty coverage.
+        with patch.object(self.srv, "_fts_degraded_serve",
+                          return_value={"available": True, "failure_reason": None,
+                                        "results": [], "coverage": {}}):
+            r1 = self.srv.docs_search_response(index, "alpha", epoch_state=self.COMPLETE)
+            r2 = self.srv.code_search_response(index, "alpha", epoch_state=self.COMPLETE)
+        self.assertIn("coverage", r1["data"])
+        self.assertIn("coverage", r2["data"])
+        # FAILED fallback (collection failed too): coverage still present.
+        with patch.object(self.srv, "_fts_degraded_serve",
+                          return_value={"available": False, "failure_reason": "query_failed",
+                                        "results": [], "coverage": {}}):
+            r3 = self.srv.docs_search_response(index, "alpha", epoch_state=self.COMPLETE)
+            r4 = self.srv.code_search_response(index, "alpha", epoch_state=self.COMPLETE)
+            index2 = self._mock_index(self.srv.SemanticModelUnavailableOfflineError("offline"))
+            index2._layer_health = MagicMock()
+            r5 = self.srv.code_ask_response(index2, self.root, "alpha?", epoch_state=self.COMPLETE)
+        self.assertIn("coverage", r3["data"])
+        self.assertIn("coverage", r4["data"])
+        self.assertIn("coverage", r5["data"])
+        # Docs live fallback (no published epoch): coverage present.
+        index3 = self._mock_index(self.srv.IndexNotReadyError("no store"))
+        index3.search_docs_lexical.return_value = []
+        r6 = self.srv.docs_search_response(index3, "alpha", epoch_state=None)
+        self.assertIn("coverage", r6["data"])
+
+    def test_healthy_keyword_pass_citations_carry_source(self):
+        """Release review round 2: the thin-citation keyword pass labels its
+        citations with source, like every other citation path."""
+        (self.root / "src").mkdir(exist_ok=True)
+        (self.root / "src" / "kw.py").write_text("def kw_target_fn(): pass\n", encoding="utf-8")
+        index = MagicMock()
+        index.root = self.root
+        index.search_combined.return_value = ([], True, 0, 0, [], [], "none", None)
+        index._layer_health = MagicMock()
+        result = self.srv.code_ask_response(index, self.root, "kw_target_fn purpose",
+                                            epoch_state=self.COMPLETE)
+        kw_cits = [c for c in result["data"]["citations"] if c.get("kind") == "keyword"]
+        self.assertTrue(kw_cits, "fixture requires a keyword hit")
+        self.assertTrue(all(c.get("source") in ("docs", "code") for c in kw_cits), kw_cits)
+
+    def test_local_rerank_excerpts_match_agent_mode(self):
+        """Release review round 2: rerank='local' is a documented alias —
+        excerpts are NOT truncated to 300 chars."""
+        long_text = "x" * 900
+        index = MagicMock()
+        index.root = self.root
+        index.search_combined.return_value = (
+            [{"path": "src/alpha.py", "lines": [1, 5], "text": long_text,
+              "score": 0.9, "kind": "code", "source": "code"}],
+            True, 0, 5, [], [], "none", None,
+        )
+        index._layer_health = MagicMock()
+        result = self.srv.code_ask_response(index, self.root, "alpha?", rerank="local",
+                                            epoch_state=self.COMPLETE)
+        self.assertEqual(len(result["data"]["citations"][0]["excerpt"]), 900)
+
+    def test_local_rerank_citations_carry_source(self):
+        """Release review: rerank='local' is a documented alias — citations
+        carry the same source metadata."""
+        index = MagicMock()
+        index.root = self.root
+        index.search_combined.return_value = (
+            [{"path": "src/alpha.py", "lines": [1, 5], "text": "def alpha(): pass",
+              "score": 0.9, "kind": "code", "source": "code"}],
+            True, 0, 5, [], [], "none", None,
+        )
+        index._layer_health = MagicMock()
+        result = self.srv.code_ask_response(index, self.root, "alpha?", rerank="local",
+                                            epoch_state=self.COMPLETE)
+        self.assertEqual(result["data"]["citations"][0].get("source"), "code")
+
+    def test_degradation_log_persist_is_inside_the_lock(self):
+        """Release review round 2 (ordering): the persist call sits INSIDE the
+        critical section, so the log order matches the state order."""
+        src_path = Path(load_server().__file__)
+        src = src_path.read_text(encoding="utf-8")
+        start = src.index("def _log_degradation_transition(")
+        end = src.index("\ndef ", start + 10)
+        body = src[start:end]
+        lock_pos = body.index("with _DEGRADED_LOG_LOCK:")
+        persist_pos = body.index("iss.store_log(index_dir, msg)")
+        mark_pos = body.index("_DEGRADED_LOG_STATE[key] = current")
+        self.assertLess(lock_pos, persist_pos)
+        self.assertLess(persist_pos, mark_pos)
+
+    def test_failed_fts_mode_is_consistent_across_tools(self):
+        """Release review round 3: attempted-and-failed FTS reads
+        search_mode lexical_fallback at ALL three tools (docs already did;
+        code_search/code_ask now match)."""
+        import sqlite3
+        conn = sqlite3.connect(str(self.iss.state_store_path(self.index_dir)))
+        with conn:
+            conn.execute("DROP TABLE fts_code")
+        conn.close()
+        index = self._mock_index(self.srv.SemanticModelUnavailableOfflineError("offline"))
+        index._layer_health = MagicMock()
+        r_code = self.srv.code_search_response(index, "alpha_handler", epoch_state=self.COMPLETE)
+        r_ask = self.srv.code_ask_response(index, self.root, "alpha_handler?", epoch_state=self.COMPLETE)
+        self.assertEqual(r_code["data"]["search_mode"], "lexical_fallback")
+        self.assertEqual(r_ask["data"]["search_mode"], "lexical_fallback")
+        # Generic failures (FTS never attempted) keep the base mode.
+        index2 = self._mock_index(RuntimeError("boom"))
+        r_gen = self.srv.code_search_response(index2, "alpha", epoch_state=self.COMPLETE)
+        self.assertEqual(r_gen["data"]["search_mode"], "hybrid")
+
+    def test_degradation_log_unpersisted_failure_retries(self):
+        """Release review round 3 P2: store_log swallows filesystem errors —
+        the caller must gate on the durable-append return, so an obstructed
+        log path retries instead of being permanently deduped."""
+        self.srv._DEGRADED_LOG_STATE.clear()
+        log_path = self.iss.store_log_path(self.index_dir)
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        # Obstruct: make the log path a DIRECTORY so open(..., "a") fails
+        # inside store_log (which swallows and now returns False).
+        if log_path.exists():
+            log_path.unlink()
+        log_path.mkdir()
+        try:
+            self.srv._log_degradation_transition(self.root, "docs_search", "model_unavailable")
+            self.assertEqual(self.srv._DEGRADED_LOG_STATE, {},
+                             "a swallowed write failure must not mark the transition")
+        finally:
+            log_path.rmdir()
+        # Path clear: the retry persists exactly once.
+        self.srv._log_degradation_transition(self.root, "docs_search", "model_unavailable")
+        text = log_path.read_text(encoding="utf-8") if log_path.exists() else ""
+        events = [ln for ln in text.splitlines() if "search degradation" in ln]
+        self.assertEqual(len(events), 1)
+
+    def test_degradation_log_dedup_is_thread_safe(self):
+        """Release review P2: concurrent identical transitions persist once."""
+        import threading as _th
+        self.srv._DEGRADED_LOG_STATE.clear()
+        barrier = _th.Barrier(8)
+        def worker():
+            barrier.wait()
+            self.srv._log_degradation_transition(self.root, "docs_search", "model_unavailable")
+        threads = [_th.Thread(target=worker) for _ in range(8)]
+        for th in threads: th.start()
+        for th in threads: th.join()
+        log_path = self.iss.store_log_path(self.index_dir)
+        text = log_path.read_text(encoding="utf-8") if log_path.exists() else ""
+        events = [ln for ln in text.splitlines() if "search degradation" in ln]
+        self.assertEqual(len(events), 1, events)
+
+    def test_degradation_log_retries_after_write_failure(self):
+        """Review fix (P2): a failed persist must not permanently suppress
+        the transition — the state marks only after the write lands."""
+        index = self._mock_index(self.srv.SemanticModelUnavailableOfflineError("offline"))
+        log_path = self.iss.store_log_path(self.index_dir)
+        with patch.object(self.srv, "_load_script", side_effect=RuntimeError("io down")):
+            self.srv._log_degradation_transition(self.root, "docs_search", "model_unavailable")
+        self.assertEqual(self.srv._DEGRADED_LOG_STATE, {}, "failed persist must not mark the state")
+        self.srv._log_degradation_transition(self.root, "docs_search", "model_unavailable")
+        text = log_path.read_text(encoding="utf-8") if log_path.exists() else ""
+        self.assertEqual(sum(1 for ln in text.splitlines() if "search degradation" in ln), 1)
 
     def test_degradation_log_dedupes_per_reason_transition(self):
         index = self._mock_index(self.srv.SemanticModelUnavailableOfflineError("offline"))
@@ -20489,6 +20997,129 @@ class FreshnessCacheAxesTests(unittest.TestCase):
              patch.object(self.srv, "_epoch_state", return_value=None):
             v = self.srv._index_freshness_verdict(self.root)
         self.assertEqual(v["state"], "unknown")
+
+
+class GuruCitationContractRenderTests(unittest.TestCase):
+    """Release review round 6 P1: the code_ask citation-field block must stay
+    byte-identical between the canonical seed and the rendered guru surface,
+    and its load-bearing claims must match the implementation — so this
+    contract cannot silently diverge again."""
+
+    BLOCK_HEADER = "Citation fields in `code_ask` response:"
+
+    def _block(self, path: Path) -> str:
+        text = path.read_text(encoding="utf-8")
+        self.assertIn(self.BLOCK_HEADER, text, path)
+        start = text.index(self.BLOCK_HEADER)
+        end = text.index("\n\n", start)
+        return text[start:end]
+
+    def _repo_root(self) -> Path:
+        return Path(load_server().__file__).resolve().parents[3]
+
+    def test_seed_and_rendered_blocks_are_byte_identical(self):
+        repo = self._repo_root()
+        seed = repo / ".wavefoundry" / "framework" / "seeds" / "211-guru.prompt.md"
+        guru = repo / "docs" / "agents" / "guru.md"
+        if not seed.exists() or not guru.exists():
+            self.skipTest("seed/render surfaces not present")
+        self.assertEqual(self._block(seed), self._block(guru),
+                         "the rendered citation-field block diverged from the canonical seed")
+
+    def test_block_claims_match_the_implementation(self):
+        repo = self._repo_root()
+        seed = repo / ".wavefoundry" / "framework" / "seeds" / "211-guru.prompt.md"
+        if not seed.exists():
+            self.skipTest("seed not present")
+        block = self._block(seed)
+        # Excerpt claim: full chunk text, both rerank spellings — the
+        # implementation must carry no mode-conditional truncation.
+        self.assertIn("full matched chunk text", block)
+        self.assertNotIn("300 chars", block)
+        src = Path(load_server().__file__).read_text(encoding="utf-8")
+        start = src.index("def code_ask_response(")
+        body = src[start:src.index("\ndef ", start + 10)]
+        self.assertNotIn('full[:300]', body,
+                         "the excerpt truncation the block denies must not exist")
+        # Score claim: the two reranked=false cases are both stated.
+        self.assertIn("vector/coverage score on the healthy path", block)
+        self.assertIn("BM25 score in `lexical_fallback` mode", block)
+
+
+class SignoffLatestStateTests(unittest.TestCase):
+    """Release review rounds 3-4 P0: fail-closed structured signoff parsing —
+    exact keys, last-state-wins, explicit positive states only, prose never
+    authorizes lifecycle closure."""
+
+    def setUp(self):
+        self.srv = load_server()
+
+    def _check(self, evidence, lane):
+        return self.srv._lane_has_signoff_in_evidence(evidence, lane)
+
+    def test_full_attack_matrix(self):
+        cases = [
+            # explicit positive
+            ("- wave-council-delivery: approved 2026-07-13 — final.\n", "wave-council-delivery", True),
+            # approved then withdrawn → false
+            ("- wave-council-delivery: approved.\n- wave-council-delivery: withdrawn.\n", "wave-council-delivery", False),
+            # withdrawn then approved → true
+            ("- wave-council-delivery: withdrawn.\n- wave-council-delivery: approved 2026-07-13.\n", "wave-council-delivery", True),
+            # every negative/unknown state → false
+            ("- wave-council-delivery: not approved\n", "wave-council-delivery", False),
+            ("- wave-council-delivery: pending\n", "wave-council-delivery", False),
+            ("- wave-council-delivery: signoff pending\n", "wave-council-delivery", False),
+            ("- wave-council-delivery: blocked because previous checks passed\n", "wave-council-delivery", False),
+            ("- wave-council-delivery: rejected — approved earlier though\n", "wave-council-delivery", False),
+            ("- wave-council-delivery: denied\n", "wave-council-delivery", False),
+            ("- wave-council-delivery: failed\n", "wave-council-delivery", False),
+            ("- wave-council-delivery: withdrawn\n", "wave-council-delivery", False),
+            ("- wave-council-delivery: revoked\n", "wave-council-delivery", False),
+            ("- wave-council-delivery: rescinded\n", "wave-council-delivery", False),
+            ("- wave-council-delivery: <approved when ready>\n", "wave-council-delivery", False),
+            ("- wave-council-delivery: awaiting confirmation\n", "wave-council-delivery", False),
+            # superseded-only approval → false
+            ("- wave-council-delivery(superseded): approved 2026-07-12\n", "wave-council-delivery", False),
+            # withdrawn current followed by superseded approval → false
+            ("- wave-council-delivery: WITHDRAWN pending\n- wave-council-delivery(superseded): approved\n", "wave-council-delivery", False),
+            # approved current followed by superseded withdrawal → true
+            ("- wave-council-delivery: approved 2026-07-13\n- wave-council-delivery(superseded): withdrawn\n", "wave-council-delivery", True),
+            # lane-prefix collisions → false
+            ("- qa-reviewer: approved\n", "qa", False),
+            ("- operator-signoff-notes: approved\n", "operator", False),
+            ("- operator-signoff-notes: approved\n", "operator-signoff", False),
+            # operator authorization: state line only; prose never authorizes
+            ("- operator-signoff: approved 2026-07-13 — operator directed close.\n", "operator", True),
+            ("- operator-signoff: <approved when operator confirms closure>\n", "operator", False),
+            ("- the operator's review passed all gates and approved everything\n", "operator", False),
+            # reviewer-seat prose compatibility preserved (spaced descriptor is not historical)
+            ("- **red-team (delivery):** probes executed. Stance: approve. Signoff recorded.\n", "red-team", True),
+        ]
+        for ev, lane, expect in cases:
+            self.assertIs(self._check(ev, lane), expect, (lane, ev.splitlines()[0]))
+
+    def test_live_wave_records_parse_correctly(self):
+        """The real records: closed 1seav/1sed7/1sc7c all parse as approved
+        (1seav's final APPROVED verdict and operator closure direction were
+        recorded 2026-07-13; its earlier withdrawn rounds remain visible as
+        superseded lines and must not block)."""
+        repo = Path(load_server().__file__).resolve().parents[3]
+        for wave_dir, expect_delivery, expect_operator in (
+            ("docs/waves/1seav search-freshness-degraded-retrieval", True, True),
+            ("docs/waves/1sed7 sqlite-only-index-state", True, True),
+            ("docs/waves/1sc7c content-scope-freshness", True, True),
+        ):
+            path = repo / wave_dir / "wave.md"
+            if not path.exists():
+                path = Path(wave_dir) / "wave.md"
+            if not path.exists():
+                self.skipTest(f"wave record not found: {wave_dir}")
+            text = path.read_text(encoding="utf-8")
+            ev = self.srv._combined_review_evidence(text)
+            self.assertIs(self.srv._lane_has_signoff_in_evidence(ev, "wave-council-delivery"),
+                          expect_delivery, wave_dir)
+            self.assertIs(self.srv._lane_has_signoff_in_evidence(ev, "operator"),
+                          expect_operator, wave_dir)
 
 
 class EpochSeqlockConcurrencyTests(unittest.TestCase):
@@ -20776,6 +21407,71 @@ class EpochSeqlockConcurrencyTests(unittest.TestCase):
         self.assertEqual(data["state"], "idle")
         self.assertEqual(data["epoch"]["status"], "complete")
         self.assertFalse(data["epoch"]["interrupted"])
+
+    def test_code_search_discards_when_epoch_changes_during_graph_augmentation(self):
+        """Review reproduction (P0): the fence must close AFTER graph
+        augmentation — a build fencing during the augmentation read makes
+        the WHOLE result mixed and it must be discarded."""
+        fn = self._tool_fn("code_search")
+        g = fn.__globals__
+        stable = {"status": "ok", "data": {"results": [{"id": "pre-augment-chunk"}]}}
+        orig_augment = g["_augment_with_graph_neighbors_if_enabled"]
+
+        def fencing_augment(result, root, **kwargs):
+            self.iss.begin_build_epoch(self.index_dir, "augmentation-race")
+            return result
+
+        restore_resp = self._with_hijacked_response(fn, "code_search_response", lambda *a, **k: stable)
+        g["_augment_with_graph_neighbors_if_enabled"] = fencing_augment
+        try:
+            result = fn("anything")
+        finally:
+            restore_resp()
+            g["_augment_with_graph_neighbors_if_enabled"] = orig_augment
+        self.assertEqual(result["status"], "error")
+        self.assertEqual(result["diagnostics"][0]["code"], "index_not_ready")
+        self.assertNotIn("pre-augment-chunk", json.dumps(result))
+
+    def test_wave_map_discards_when_epoch_changes_mid_operation(self):
+        """Pre-release red-team P3: wave_map serves indexed chunk text with a
+        disk fallback — same fence class as seed_get."""
+        fn = self._tool_fn("wave_map")
+
+        def racing_map(root, address, index):
+            self.iss.begin_build_epoch(self.index_dir, "concurrent-build")
+            return {"status": "ok", "data": {"excerpt": "mixed-epoch-excerpt", "index_match": True}}
+
+        restore = self._with_hijacked_response(fn, "wave_map_response", racing_map)
+        try:
+            result = fn("doc:docs/README.md")
+        finally:
+            restore()
+        self.assertEqual(result["status"], "error")
+        self.assertEqual(result["diagnostics"][0]["code"], "index_not_ready")
+        self.assertNotIn("mixed-epoch-excerpt", json.dumps(result))
+
+    def test_rebuilding_response_carries_contract_fields(self):
+        """Review fix (AC-3): refusals carry the always-present contract."""
+        srv = load_server()
+        resp = srv._index_rebuilding_response("code_search", {"query": "q"})
+        self.assertIn("search_mode", resp["data"])
+        self.assertIsNone(resp["data"]["search_mode"])
+        self.assertEqual(resp["data"]["fallback_reason"], "index_not_ready")
+        self.assertEqual(resp["data"]["results"], [])
+
+    def test_search_tools_unknown_args_carry_contract_fields(self):
+        """Release review: unknown-argument rejections at the search tools
+        carry the always-present contract fields."""
+        for tool in ("docs_search", "code_search", "code_ask", "code_lexical", "seed_get"):
+            fn = self._tool_fn(tool)
+            kw = {"query": "q"} if tool != "code_ask" else {"question": "q"}
+            if tool == "seed_get":
+                kw = {"name": "q"}
+            result = fn(bogus_argument=1, **kw)
+            self.assertEqual(result["status"], "error", tool)
+            self.assertIn("search_mode", result["data"], tool)
+            self.assertIn("fallback_reason", result["data"], tool)
+
 
     def test_code_lexical_fails_closed_without_a_complete_epoch(self):
         # Strict pre-gate: mid-build (building status) FTS state is mixed and
@@ -22527,3 +23223,331 @@ class StalenessMonitorQuietPeriodTests(unittest.TestCase):
             )
             cfg = self.srv._read_monitor_config(root)
             self.assertEqual(cfg["quiet_period_seconds"], 30.0)  # floored up to the interval
+
+
+class FreshnessAnnotationAndDriftPartitionTests(unittest.TestCase):
+    """1ro43 AC-3/AC-4/AC-5: per-citation freshness annotation (batched,
+    silent absence, live-fallback omission), the evidence-gated drift
+    partition (default-OFF, kill switch, relevance-band guard, healthy-
+    reranked-path-only), and the zero-git query-path guarantee."""
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = _make_repo(Path(self.tmp.name))
+        self.index_dir = self.root / ".wavefoundry" / "index"
+        self.index_dir.mkdir(parents=True)
+        import importlib.util as ilu
+        spec = ilu.spec_from_file_location(
+            "index_state_store", Path(__file__).resolve().parents[1] / "index_state_store.py")
+        self.iss = ilu.module_from_spec(spec)
+        spec.loader.exec_module(self.iss)
+        self.srv._DEGRADED_LOG_STATE.clear()
+        self.addCleanup(self.srv._DEGRADED_LOG_STATE.clear)
+
+    def _seed_store(self, *, with_drift=True, finalize=True):
+        store = self.iss.IndexStateStore(self.index_dir)
+        try:
+            store.apply_freshness(rows={
+                "docs/stale.md": {"last_modified": 1700000000, "churn_score": 0.1,
+                                  "commit_count": 3, "source": "git"},
+                "docs/current.md": {"last_modified": 1700000000, "churn_score": 0.0,
+                                    "commit_count": 0, "source": "git"},
+                "src/alpha.py": {"last_modified": 1700000000, "churn_score": 0.5,
+                                 "commit_count": 15, "source": "git"},
+            })
+            if with_drift:
+                store.upsert_doc_drift({
+                    "docs/stale.md": {"drifted": True, "drift_refs": ["src/alpha.py"],
+                                      "commits_since": 9, "anchor_kind": "content"},
+                    "docs/current.md": {"drifted": False, "drift_refs": ["src/alpha.py"],
+                                        "commits_since": 0, "anchor_kind": "verification"},
+                })
+        finally:
+            store.close()
+        if finalize:
+            attempt = self.iss.begin_build_epoch(self.index_dir, "fixture")
+            assert self.iss.finalize_build_epoch(self.index_dir, attempt)
+
+    @staticmethod
+    def _doc_chunk(path, score, text="alpha guide"):
+        return {"path": path, "kind": "doc", "section": "S", "lines": [1, 4],
+                "text": text, "score": score}
+
+    def _healthy_docs_index(self, chunks, reranked=True):
+        index = MagicMock()
+        index.root = self.root
+        index.search_docs.return_value = (chunks, reranked)
+        return index
+
+    # --- AC-3: annotation present with metadata, cleanly absent without ---
+
+    def test_docs_search_results_carry_freshness_fields(self):
+        self._seed_store()
+        index = self._healthy_docs_index(
+            [self._doc_chunk("docs/stale.md", 0.9), self._doc_chunk("docs/current.md", 0.85)])
+        resp = self.srv.docs_search_response(index, "alpha")
+        results = resp["data"]["results"]
+        stale = next(r for r in results if r["path"] == "docs/stale.md")
+        self.assertTrue(stale["freshness"]["drifted"])
+        self.assertEqual(stale["freshness"]["commits_since_verified"], 9)
+        self.assertIn("age_days", stale["freshness"])
+        self.assertIn("churn_score", stale["freshness"])
+        current = next(r for r in results if r["path"] == "docs/current.md")
+        self.assertFalse(current["freshness"]["drifted"])
+
+    def test_metadata_free_store_omits_freshness_without_errors(self):
+        # No store at all: annotation is silently absent, response is intact.
+        index = self._healthy_docs_index([self._doc_chunk("docs/stale.md", 0.9)])
+        resp = self.srv.docs_search_response(index, "alpha")
+        self.assertEqual(resp["status"], "ok")
+        self.assertNotIn("freshness", resp["data"]["results"][0])
+        self.assertNotIn("drift_partition_applied", resp["data"])
+
+    def test_code_search_results_carry_freshness_but_never_drift(self):
+        self._seed_store()
+        index = MagicMock()
+        index.root = self.root
+        index.search_code.return_value = (
+            [{"path": "src/alpha.py", "kind": "code", "language": "python",
+              "section": "", "lines": [1, 5], "text": "def alpha(): pass", "score": 0.9}],
+            True,
+        )
+        with patch.dict(os.environ, {"WAVEFOUNDRY_ENABLE_DRIFT_PARTITION": "1"}):
+            resp = self.srv.code_search_response(index, "alpha")
+        result = resp["data"]["results"][0]
+        self.assertIn("churn_score", result["freshness"])
+        self.assertNotIn("drifted", result["freshness"])
+        self.assertNotIn("demoted", result)
+
+    # --- AC-4: partition default-OFF, opt-in, guard, kill switch, modes ---
+
+    def test_drift_partition_is_default_off(self):
+        self._seed_store()
+        index = self._healthy_docs_index(
+            [self._doc_chunk("docs/stale.md", 0.9), self._doc_chunk("docs/current.md", 0.85)])
+        resp = self.srv.docs_search_response(index, "alpha")
+        results = resp["data"]["results"]
+        self.assertEqual(results[0]["path"], "docs/stale.md")  # order untouched
+        self.assertNotIn("demoted", results[0])
+        self.assertNotIn("drift_partition_applied", resp["data"])
+
+    def test_drift_partition_moves_flagged_docs_when_enabled(self):
+        self._seed_store()
+        index = self._healthy_docs_index(
+            [self._doc_chunk("docs/stale.md", 0.9), self._doc_chunk("docs/current.md", 0.85)])
+        with patch.dict(os.environ, {"WAVEFOUNDRY_ENABLE_DRIFT_PARTITION": "1"}):
+            resp = self.srv.docs_search_response(index, "alpha")
+        results = resp["data"]["results"]
+        self.assertEqual([r["path"] for r in results],
+                         ["docs/current.md", "docs/stale.md"])
+        self.assertTrue(results[1]["demoted"])
+        self.assertEqual(results[1]["partition_reason"], "doc_code_drift")
+        self.assertNotIn("demoted", results[0])
+        self.assertTrue(resp["data"]["drift_partition_applied"])
+        self.assertEqual(resp["data"]["drift_demoted_count"], 1)
+
+    def test_relevance_band_guard_protects_the_only_good_answer(self):
+        self._seed_store()
+        # The drifted doc leads by MORE than the band — no comparable current
+        # alternative exists, so demoting it would bury the best answer.
+        index = self._healthy_docs_index(
+            [self._doc_chunk("docs/stale.md", 0.9),
+             self._doc_chunk("docs/current.md", 0.9 - self.srv.DRIFT_RELEVANCE_BAND - 0.05)])
+        with patch.dict(os.environ, {"WAVEFOUNDRY_ENABLE_DRIFT_PARTITION": "1"}):
+            resp = self.srv.docs_search_response(index, "alpha")
+        results = resp["data"]["results"]
+        self.assertEqual(results[0]["path"], "docs/stale.md")
+        self.assertNotIn("demoted", results[0])
+        self.assertNotIn("drift_partition_applied", resp["data"])
+
+    def test_kill_switch_wins_over_enable(self):
+        self._seed_store()
+        index = self._healthy_docs_index(
+            [self._doc_chunk("docs/stale.md", 0.9), self._doc_chunk("docs/current.md", 0.85)])
+        with patch.dict(os.environ, {"WAVEFOUNDRY_ENABLE_DRIFT_PARTITION": "1",
+                                     "WAVEFOUNDRY_DISABLE_DRIFT_PARTITION": "1"}):
+            resp = self.srv.docs_search_response(index, "alpha")
+        self.assertEqual(resp["data"]["results"][0]["path"], "docs/stale.md")
+        self.assertNotIn("drift_partition_applied", resp["data"])
+
+    def test_partition_suppressed_when_not_reranked(self):
+        self._seed_store()
+        index = self._healthy_docs_index(
+            [self._doc_chunk("docs/stale.md", 0.9), self._doc_chunk("docs/current.md", 0.85)],
+            reranked=False)
+        with patch.dict(os.environ, {"WAVEFOUNDRY_ENABLE_DRIFT_PARTITION": "1"}):
+            resp = self.srv.docs_search_response(index, "alpha")
+        results = resp["data"]["results"]
+        self.assertEqual(results[0]["path"], "docs/stale.md")
+        self.assertNotIn("demoted", results[0])
+        # Annotation itself still rides along (suppression is partition-only).
+        self.assertTrue(results[0]["freshness"]["drifted"])
+
+    def test_lexical_fallback_is_annotated_but_never_partitioned(self):
+        self._seed_store()
+        # Publish FTS rows so the degraded serve has something to return.
+        rows = [{"id": "d1", "path": "docs/stale.md", "kind": "doc", "language": "",
+                 "lines": [1, 4], "section": "Intro", "tags": "", "chunk_hash": "h1",
+                 "text": "alpha guide entry"}]
+        import contextlib, io as _io
+        with contextlib.redirect_stdout(_io.StringIO()), contextlib.redirect_stderr(_io.StringIO()):
+            self.iss.reconcile_chunk_index(self.index_dir, "docs", {"d1"}, lambda: rows)
+        attempt = self.iss.begin_build_epoch(self.index_dir, "fixture-2")
+        assert self.iss.finalize_build_epoch(self.index_dir, attempt)
+        index = MagicMock()
+        index.root = self.root
+        index.search_docs.side_effect = self.srv.SemanticModelUnavailableOfflineError("offline")
+        with patch.dict(os.environ, {"WAVEFOUNDRY_ENABLE_DRIFT_PARTITION": "1"}):
+            resp = self.srv.docs_search_response(index, "alpha")
+        self.assertEqual(resp["data"]["search_mode"], "lexical_fallback")
+        results = resp["data"]["results"]
+        self.assertTrue(results, "expected FTS-served results")
+        self.assertTrue(results[0]["freshness"]["drifted"])  # annotated
+        self.assertNotIn("demoted", results[0])              # never partitioned
+        self.assertNotIn("drift_partition_applied", resp["data"])
+
+    def test_live_fallback_omits_freshness_entirely(self):
+        # Populated freshness tables but NO completed epoch: the live walk
+        # serves, and stored metadata must not be attached to live content.
+        self._seed_store(finalize=False)
+        self.iss.begin_build_epoch(self.index_dir, "interrupted")  # building state
+        index = MagicMock()
+        index.root = self.root
+        index.search_docs.side_effect = self.srv.IndexNotReadyError("mid-build")
+        index.search_docs_lexical.return_value = [self._doc_chunk("docs/stale.md", 0.5)]
+        with patch.dict(os.environ, {"WAVEFOUNDRY_ENABLE_DRIFT_PARTITION": "1"}):
+            resp = self.srv.docs_search_response(index, "alpha")
+        self.assertEqual(resp["data"]["search_mode"], "live_fallback")
+        results = resp["data"]["results"]
+        self.assertTrue(results)
+        self.assertNotIn("freshness", results[0])
+        self.assertNotIn("drift_partition_applied", resp["data"])
+
+    def test_code_lexical_results_carry_freshness(self):
+        self._seed_store()
+        rows = [{"id": "c1", "path": "src/alpha.py", "kind": "code", "language": "python",
+                 "lines": [1, 5], "section": "", "tags": "", "chunk_hash": "h1",
+                 "text": "def alpha_handler(): pass"}]
+        import contextlib, io as _io
+        with contextlib.redirect_stdout(_io.StringIO()), contextlib.redirect_stderr(_io.StringIO()):
+            self.iss.reconcile_chunk_index(self.index_dir, "code", {"c1"}, lambda: rows)
+        resp = self.srv.code_lexical_response(self.root, "alpha_handler")
+        results = resp["data"]["results"]
+        self.assertTrue(results)
+        self.assertIn("churn_score", results[0]["freshness"])
+
+    # --- AC-5: zero git subprocesses on the query path ---
+
+    def test_query_path_spawns_no_git(self):
+        self._seed_store()
+        observed: list[list[str]] = []
+
+        def _record(cmd, *a, **k):
+            argv = [str(c) for c in (cmd if isinstance(cmd, (list, tuple)) else [cmd])]
+            observed.append(argv)
+            raise AssertionError(f"query path spawned a subprocess: {argv}")
+
+        docs_index = self._healthy_docs_index([self._doc_chunk("docs/stale.md", 0.9)])
+        code_index = MagicMock()
+        code_index.root = self.root
+        code_index.search_code.return_value = (
+            [{"path": "src/alpha.py", "kind": "code", "language": "python",
+              "section": "", "lines": [1, 5], "text": "def alpha(): pass", "score": 0.9}],
+            True,
+        )
+        with patch("subprocess.run", _record), \
+             patch("subprocess.Popen", _record), \
+             patch.object(self.iss.subprocess_util, "isolated_run", _record), \
+             patch.dict(os.environ, {"WAVEFOUNDRY_ENABLE_DRIFT_PARTITION": "1"}):
+            self.srv.docs_search_response(docs_index, "alpha")
+            self.srv.code_search_response(code_index, "alpha")
+            self.srv.code_lexical_response(self.root, "alpha_handler")
+        git_calls = [argv for argv in observed if "git" in argv[:2]]
+        self.assertEqual(git_calls, [])
+        self.assertEqual(observed, [])  # no subprocess of ANY kind on the query path
+
+    def test_code_ask_citations_annotated_and_partitioned_when_enabled(self):
+        self._seed_store()
+        index = MagicMock()
+        index.root = self.root
+        index.search_combined.return_value = (
+            [{"path": "docs/stale.md", "kind": "doc", "lines": [1, 4],
+              "text": "stale guide", "score": 0.9},
+             {"path": "docs/current.md", "kind": "doc", "lines": [1, 4],
+              "text": "current guide", "score": 0.85}],
+            True,   # reranked
+            5, 5,   # vector_ms, rerank_ms
+            [], [], "none", {},
+        )
+        with patch.dict(os.environ, {"WAVEFOUNDRY_ENABLE_DRIFT_PARTITION": "1"}):
+            resp = self.srv.code_ask_response(index, self.root, "how does alpha work?")
+        data = resp["data"]
+        citations = data["citations"]
+        self.assertEqual([c["path"] for c in citations],
+                         ["docs/current.md", "docs/stale.md"])
+        self.assertTrue(citations[1]["demoted"])
+        self.assertEqual(citations[1]["partition_reason"], "doc_code_drift")
+        self.assertTrue(citations[1]["freshness"]["drifted"])
+        # final_rank re-stamped to match the partitioned output order.
+        self.assertEqual([c["final_rank"] for c in citations], [1, 2])
+        self.assertTrue(data["drift_partition_applied"])
+        self.assertEqual(data["drift_demoted_count"], 1)
+        # The existing doc-type score-demotion flag is not overloaded.
+        self.assertIn("partition_applied", data)
+
+
+class DriftWorklistAuditSurfaceTests(unittest.TestCase):
+    """1ro43 Req 7 / AC-7: the drift worklist rides wave_audit's `doc_drift`
+    sub-object (the gardening landing tool), never blocks `ready`, and
+    excludes historical rows by construction."""
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = _make_repo(Path(self.tmp.name))
+        self.index_dir = self.root / ".wavefoundry" / "index"
+        self.index_dir.mkdir(parents=True)
+        import importlib.util as ilu
+        spec = ilu.spec_from_file_location(
+            "index_state_store", Path(__file__).resolve().parents[1] / "index_state_store.py")
+        self.iss = ilu.module_from_spec(spec)
+        spec.loader.exec_module(self.iss)
+
+    def test_wave_audit_carries_worklist_and_advisory(self):
+        store = self.iss.IndexStateStore(self.index_dir)
+        try:
+            store.upsert_doc_drift({
+                "docs/badly-drifted.md": {"drifted": True, "drift_refs": ["src/a.py"],
+                                          "commits_since": 12, "anchor_kind": "content"},
+                "docs/mildly-drifted.md": {"drifted": True, "drift_refs": ["src/b.py"],
+                                           "commits_since": 4, "anchor_kind": "verification"},
+                "docs/fine.md": {"drifted": False, "drift_refs": [], "commits_since": 0,
+                                 "anchor_kind": "content"},
+                "docs/waves/1aaaa w/wave.md": {"historical": True, "waves_behind": 5,
+                                               "commits_since": 40},
+            })
+        finally:
+            store.close()
+        resp = self.srv.wave_audit_response(self.root)
+        drift = resp["data"]["doc_drift"]
+        self.assertTrue(drift["available"])
+        self.assertEqual(drift["flagged_count"], 2)
+        # Contract: commits_since DESC, then path; historical rows absent.
+        self.assertEqual([e["path"] for e in drift["entries"]],
+                         ["docs/badly-drifted.md", "docs/mildly-drifted.md"])
+        self.assertEqual(drift["entries"][0]["commits_since"], 12)
+        self.assertEqual(drift["entries"][1]["anchor_kind"], "verification")
+        self.assertEqual(drift["entries"][0]["drift_refs"], ["src/a.py"])
+        codes = [d.get("code") for d in resp["diagnostics"]]
+        self.assertIn("doc_code_drift_flagged", codes)
+
+    def test_absent_store_degrades_and_never_blocks(self):
+        resp = self.srv.wave_audit_response(self.root)
+        drift = resp["data"]["doc_drift"]
+        self.assertFalse(drift["available"])
+        self.assertEqual(drift["entries"], [])
+        codes = [d.get("code") for d in resp["diagnostics"]]
+        self.assertNotIn("doc_code_drift_flagged", codes)

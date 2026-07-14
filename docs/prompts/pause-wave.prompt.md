@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-08
+Last verified: 2026-07-14
 
 Shortcut: **`Pause wave`**
 
@@ -51,3 +51,7 @@ At next session start, read `docs/agents/session-handoff.md` and the wave record
 - **Session handoff:** active blockers, next actions, temporary working-memory state
 - **Journals:** lessons, constraints, observations that survive beyond the current session
 - **Wave record:** coordination truth, admitted changes, review checkpoints
+
+## Memory Candidates at Pause
+
+Alongside parking working state in the handoff, consider proposing agent memory candidates for durable lessons discovered mid-wave (`wave_memory_add(status='candidate', ...)`) — a paused wave may resume in a different session, and typed, evidence-backed records survive where prose context does not. Optional and judgment-based; the close-time distillation checkpoint decides every candidate. Never store secrets, raw transcripts, or personal facts (docs-lint enforces this).

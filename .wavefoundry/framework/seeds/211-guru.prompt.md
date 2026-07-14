@@ -485,20 +485,21 @@ Every claim must be either **code-validated** or **explicitly qualified**:
 Never present an inferred conclusion as a confirmed fact. A qualified answer is more useful than a confident wrong one.
 
 **Confidence levels** (from `code_ask` — retrieval signal only, not an answer-quality guarantee):
-- **High** — 2+ citations returned; evaluate citations by path and content layer, not score alone; high confidence with wrong-layer citations (e.g. infrastructure scaffolding for an explanatory question) still requires follow-up reads of the handler or repository layer.
-- **Medium** — 1 citation returned; relevant but may be indirect or partial.
-- **Low** — no citations returned; the answer is inference only.
+- **High** — only when the cross-encoder ran (`reranked=true`) AND the top match is genuinely relevant with 2+ citations; evaluate citations by path and content layer, not score alone; high confidence with wrong-layer citations (e.g. infrastructure scaffolding for an explanatory question) still requires follow-up reads of the handler or repository layer.
+- **Medium** — the reranked middle band, or the MAXIMUM on the healthy no-reranker path (`reranked=false`: vector/coverage ordering; cosine bands are untrustworthy, so high is never claimed).
+- **Low** — nothing relevant retrieved, zero citations, or `lexical_fallback` mode (BM25 exact-token ordering — always capped low).
 
 **`code_ask` response fields to check on every call:**
-- `reranked` — `true` means cross-encoder reranking ran; `false` means RRF fallback (ranking is lower quality; treat citations as a starting point, not a ranked list).
+- `reranked` — `true` means cross-encoder reranking ran; `false` means the cross-encoder did not run (disabled or unbuildable) and ordering is vector/coverage order — lower quality; treat citations as a starting point, not a ranked list. (In `lexical_fallback` mode ordering is BM25 and `reranked` is `false` by design.)
 - `question_type` — confirms how the question was classified; if the classification looks wrong, rephrase the question to match the intended type.
 - `partition_applied` / `demotion_count` — when present, some citations were intentionally reordered after reranking so code evidence stays ahead of feedback/journal/seed artifacts.
+- `drift_partition_applied` / `drift_demoted_count` — present only when the (default-off) doc-code-drift partition fired; distinct from `partition_applied`, which reports the doc-type score demotion above.
 - `second_hop_symbols` — present and non-empty only when `question_type == "explanatory"` and `reranked: true`. Lists the symbol names extracted from top citations and used for a second keyword retrieval pass. When present: the citation set already includes results from following those symbols one call-chain layer deeper. Do not re-chase these symbols manually — start the next retrieval pass from the layer they represent.
 - `index_freshness` — three states: `"current"`, `"stale"` (the index may not reflect recent edits; recommend `wave_index_build(content="all", mode="update")` before answering questions about recently changed code), and `"unknown"` (the freshness check could not determine state — treat results as potentially stale and verify with `wave_index_health` when currency matters; never assume current).
 - `search_mode` — how the results were retrieved: `"hybrid"`/`"semantic"` (normal), `"exact"` (an artifact-anchored exact-first pass answered before semantic retrieval — healthy), `"lexical_fallback"` (semantic retrieval unavailable; results are BM25 exact-token matches — compound identifiers are indivisible tokens, substrings do not match, and recall is narrower than semantic; confidence is capped), or `"live_fallback"` (docs only: no published index at all; a live filesystem walk served). Interpret degraded modes accordingly — a zero-hit in lexical fallback does NOT mean the concept is absent, only that the exact tokens did not match.
 - `fallback_reason` — always present: `null` when healthy; else why the degraded path served (`model_unavailable`, `index_missing`, `store_absent`, `index_not_ready`, `query_failed`). `query_failed` means infrastructure failure, NOT an empty corpus — do not conclude "not found" from it.
 
-**Citation interpretation:** `score` is the pre-partition reranker score. `final_rank` is the actual output order after any soft demotion. When `demoted: true` is present, the lower position is intentional. Prefer `final_rank` over `score` when deciding which citation is primary.
+**Citation interpretation:** when `reranked=true`, `score` is the unified cross-encoder relevance (`sigmoid(logit)`) before any soft demotion. Two `reranked=false` cases: on the healthy path it is vector/coverage order over mixed-model cosine (weaker; confidence capped at medium), and in `search_mode: lexical_fallback` it is BM25 exact-token score/order (confidence low). `final_rank` is the actual output order after any soft demotion. When `demoted: true` is present, the lower position is intentional — `partition_reason: "doc_code_drift"` marks a drift-flagged doc moved behind a comparably-relevant current alternative (order-only; the partition ships default-off). Prefer `final_rank` over `score` when deciding which citation is primary. Structural matches live in `graph_related`, NOT in `citations` (citations are semantic-only).
 
 **Lexical (BM25) fusion signals — reading the `sources` field:** each citation carries `sources`, the set of retrieval passes that independently found it. `["code","lexical"]` or `["docs","lexical"]` means BOTH the vector pass and the exact-token BM25 pass hit the same chunk — multi-source agreement is a strong relevance signal, weigh those citations up. A `lexical`-only source means an exact-token match the vector pass missed entirely (typically an identifier, error string, or rare token) — often exactly the chunk a lookup question needs. Two phrasing rules govern whether the lexical pass can help:
 - **Compound identifiers are single indivisible tokens.** The FTS tokenizer keeps `_` inside tokens (exact-identifier precision by design), so a query containing `webhook_activity` does NOT lexically match a chunk whose identifier is `webhook_activity_inserted`. To engage code-side lexical assist, include the exact full identifier in the question. Natural-language phrasing engages docs-side lexical (prose spells words separately) but usually leaves code citations vector-only — a code citation tagged `["code"]` alone is normal for NL phrasings, not a retrieval failure.
@@ -605,11 +606,12 @@ Citation fields in `code_ask` response:
 - `ref` — `path:start-end` (e.g., `src/billing.py:42-58`)
 - `path` — repo-relative file path
 - `lines` — `[start, end]` (1-based)
-- `excerpt` — up to 300 chars of the matched chunk text
-- `score` — cross-encoder relevance before any soft partition when `reranked=true`; fallback vector/coverage score when `reranked=false`
+- `excerpt` — the full matched chunk text (identical in both rerank spellings; no truncation)
+- `score` — cross-encoder relevance before any soft partition when `reranked=true`. When `reranked=false`: vector/coverage score on the healthy path (mixed-model cosine, weaker); BM25 score in `lexical_fallback` mode
 - `final_rank` — 1-based output order after partitioning
 - `demoted` — present and true when the citation was intentionally moved behind stronger evidence
-- `partition_reason` — `seed`, `feedback`, or `journal/report`-style path when `demoted` is true
+- `partition_reason` — `doc_code_drift` when `demoted` is true: the cited doc's referenced code churned past its drift anchor and a comparably-relevant current alternative exists (order-only stable partition; ships default-off behind an env toggle, kill-switched)
+- `freshness` — optional per-citation currency: `{age_days, churn_score}` for any path; docs rows add `{drifted, commits_since_verified}` (living docs) or `{historical, waves_behind}` (wave-record archives). Distinct from the envelope `index_freshness` — `freshness` asks whether the cited CONTENT still matches the code it describes; `index_freshness` asks whether the INDEX matches the working tree. Absent on metadata-free indexes and in `live_fallback` mode
 
 ## Index Scope
 
@@ -663,6 +665,7 @@ Guru is the right first stop for any agent that needs to understand how the syst
 | **implementer** | Before writing code — confirm which file owns a behavior, which patterns are in use, and whether the symbol already exists; size the blast radius of the intended change, and (for a cross-cutting edit) rank which in-scope symbols are riskiest to touch | `code_definition(symbol)`, `code_references(symbol)`, `code_callhierarchy(symbol)`, `code_impact(symbol)`, `code_risk_score(scope)`, `code_keyword` |
 | **wave-coordinator** | During scope assessment — answer "what does X currently do?" and "which files are affected?" without full file reads | `code_ask`, `code_search(kind="code-summary")`, `code_dependencies(path)`, `code_impact(symbol)` |
 | **persona agents** | When answering user questions — ground responses in indexed evidence rather than memory | `code_ask`, `code_search`, `docs_search` |
+| **agent memory layer** | When a question or task touches a file with prior recorded lessons — typed, evidence-backed records surface as `memory_advisories` on `code_read`/`code_impact`/`code_callhierarchy`, and `wave_memory_search`/`wave_memory_brief` retrieve them directly | `wave_memory_search`, `wave_memory_brief` |
 
 ### Reviewer agents
 

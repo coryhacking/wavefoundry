@@ -21,6 +21,17 @@ from .constants import (
     ITEM_STATUS_PATTERN,
     JOURNAL_DISALLOWED_PATTERNS,
     JOURNAL_GOVERNANCE_MARKERS,
+    MEMORY_CONFIDENCE_PATTERN,
+    MEMORY_CREATED_PATTERN,
+    MEMORY_DISALLOWED_PATTERNS,
+    MEMORY_ID_PATTERN,
+    MEMORY_KIND_PATTERN,
+    MEMORY_KINDS,
+    MEMORY_RECORD_DIR,
+    MEMORY_REQUIRED_SECTIONS,
+    MEMORY_STATUSES,
+    MEMORY_SUPERSEDED_BY_PATTERN,
+    MEMORY_UPDATED_PATTERN,
     JOURNAL_SALIENCE_MARKERS,
     JOURNAL_SIGNAL_MARKERS,
     JOURNAL_PATH_PATTERN,
@@ -381,7 +392,7 @@ def _check_agent_role_metadata(root: Path, only: set[Path] | None = None, skip: 
     for path in sorted(agents_root.rglob("*.md")):
         if path in seen:
             continue
-        if path.name in _AGENT_ROLE_EXEMPT_NAMES or "journals" in path.parts:
+        if path.name in _AGENT_ROLE_EXEMPT_NAMES or "journals" in path.parts or "memory" in path.parts:
             continue
         if only is not None and path not in only:
             continue
@@ -403,7 +414,7 @@ def _check_agent_role_metadata(root: Path, only: set[Path] | None = None, skip: 
 
 
 def _expected_agent_category(path: Path) -> str | None:
-    if path.name in _CATEGORY_EXEMPT_NAMES or "journals" in path.parts:
+    if path.name in _CATEGORY_EXEMPT_NAMES or "journals" in path.parts or "memory" in path.parts:
         return None
     if path.stem.startswith("factor-") or "factor" in path.parts:
         return "factor"
@@ -429,7 +440,7 @@ def _check_agent_category_metadata(root: Path, only: set[Path] | None = None, sk
     if not agents_root.is_dir():
         return failures
     for path in sorted(agents_root.rglob("*.md")):
-        if path.name in _CATEGORY_EXEMPT_NAMES or "journals" in path.parts:
+        if path.name in _CATEGORY_EXEMPT_NAMES or "journals" in path.parts or "memory" in path.parts:
             continue
         if only is not None and path not in only:
             continue
@@ -1123,6 +1134,113 @@ def _build_wave_inventory(root: Path) -> tuple[dict[str, str], dict[str, str]]:
         {wave_id: record.path for wave_id, record in wave_state.items()},
         {item_id: record.path for item_id, record in item_state.items()},
     )
+
+
+def check_memory_docs(root: Path, only: set[Path] | None = None, skip: set[Path] | None = None) -> list[str]:
+    """Agent memory records (wave 1ro44 / 1p8gy AC-1): schema + forbidden content.
+
+    The lint contract is the schema contract — a record failing these checks
+    must never surface as an advisory. Same ``only``/``skip`` semantics as
+    ``check_journal_docs`` (incremental path + oversized-file guard).
+    """
+    failures: list[str] = []
+    memory_root = root / MEMORY_RECORD_DIR
+    status_line = re.compile(r"^Status:\s+(\S+)\s*$", re.MULTILINE)
+    for path in sorted(memory_root.rglob("*.md")):
+        rel = relative_to_root(root, path)
+        if path.name == "README.md":
+            continue
+        if only is not None and path not in only:
+            continue
+        if skip is not None and path in skip:
+            continue
+        text = read_text(path)
+        mem_id = MEMORY_ID_PATTERN.search(text)
+        if not mem_id:
+            failures.append(f"{rel}: missing backticked `Memory ID:` line")
+        elif mem_id.group(1) != path.stem:
+            failures.append(
+                f"{rel}: `Memory ID` {mem_id.group(1)!r} must match the filename stem {path.stem!r}"
+            )
+        kind = MEMORY_KIND_PATTERN.search(text)
+        if not kind:
+            failures.append(f"{rel}: missing backticked `Kind:` line")
+        elif kind.group(1) not in MEMORY_KINDS:
+            failures.append(
+                f"{rel}: unknown memory kind {kind.group(1)!r}; allowed: {', '.join(MEMORY_KINDS)}"
+            )
+        status = status_line.search(text)
+        if not status:
+            # Delivery-review finding: a missing Status must FAIL lint — the
+            # runtime parser no longer defaults it, and a status-less record
+            # must never pass the schema gate and surface as an advisory.
+            failures.append(
+                f"{rel}: missing `Status:` line (one of {', '.join(MEMORY_STATUSES)})"
+            )
+        elif status.group(1) not in MEMORY_STATUSES:
+            failures.append(
+                f"{rel}: memory `Status` must be one of {', '.join(MEMORY_STATUSES)} "
+                f"(got {status.group(1)!r})"
+            )
+        confidence = MEMORY_CONFIDENCE_PATTERN.search(text)
+        if not confidence:
+            failures.append(f"{rel}: missing `Confidence: <0.0-1.0>` line")
+        else:
+            try:
+                value = float(confidence.group(1))
+                if not 0.0 <= value <= 1.0:
+                    raise ValueError
+            except ValueError:
+                failures.append(f"{rel}: `Confidence` must be a number in [0.0, 1.0]")
+        # Created/Updated must be present AND a real calendar date — the
+        # runtime reader validates the calendar (strptime), so lint must too
+        # (delivery-review parity finding: `2020-13-40` must fail both, not
+        # pass lint while the record silently never surfaces).
+        import datetime as _dt
+        for label, pat in (("Created", MEMORY_CREATED_PATTERN), ("Updated", MEMORY_UPDATED_PATTERN)):
+            m = pat.search(text)
+            if not m:
+                failures.append(f"{rel}: missing `{label}: YYYY-MM-DD` line")
+                continue
+            try:
+                _dt.date.fromisoformat(m.group(1))
+            except ValueError:
+                failures.append(f"{rel}: `{label}` is not a valid calendar date ({m.group(1)})")
+        if status and status.group(1) == "superseded" and not MEMORY_SUPERSEDED_BY_PATTERN.search(text):
+            failures.append(
+                f"{rel}: a superseded record must carry a backticked `Superseded by:` memory-id "
+                "(history is preserved through supersession, never deletion)"
+            )
+        sections = _extract_sections(text)
+        for section in MEMORY_REQUIRED_SECTIONS:
+            if section not in text:
+                failures.append(f"{rel}: missing required section `{section}`")
+        summary_body = sections.get("## Summary")
+        if summary_body is not None and not summary_body.strip():
+            failures.append(f"{rel}: `## Summary` must not be empty")
+        for section in ("## Evidence", "## Targets"):
+            body = sections.get(section)
+            if body is not None:
+                if not _section_has_bullets(body):
+                    failures.append(f"{rel}: `{section}` must include at least one bullet")
+                elif "`" not in body:
+                    failures.append(
+                        f"{rel}: `{section}` bullets must carry backticked refs "
+                        "(paths, symbols, wave/change ids, or commit SHAs)"
+                    )
+        # Forbidden content: secrets, raw transcripts, personal facts — same
+        # prohibition-line exemption as journals (a line FORBIDDING content
+        # may name it).
+        for raw_line in text.splitlines():
+            if _line_forbids_content(raw_line):
+                continue
+            if any(pattern.search(raw_line) for pattern in MEMORY_DISALLOWED_PATTERNS):
+                failures.append(
+                    f"{rel}: memory record appears to capture secrets, raw transcript content, "
+                    f"or personal facts (forbidden by schema): {raw_line.strip()[:80]!r}"
+                )
+                break
+    return failures
 
 
 def check_journal_docs(root: Path, only: set[Path] | None = None, skip: set[Path] | None = None) -> list[str]:

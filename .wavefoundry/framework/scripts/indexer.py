@@ -1314,22 +1314,24 @@ def project_index_inputs_stale(root: Path, meta: dict | None = None) -> bool | N
 def project_layer_freshness(root: Path) -> "dict[str, Any]":
     """Cheap per-layer freshness signal for the search hot path (wave 1seav / 1sbxq).
 
-    Combines TWO cheap comparisons — no per-call corpus hashing:
+    ONE stat-fast-path walk (no per-call corpus hashing) feeding three cheap
+    comparisons:
 
-    1. **Stat-fast-path walk** vs the store's broad ``file_meta`` snapshot
-       (``_detect_changes``: mtime+size+inode pre-filter, hashing only on stat
-       mismatch) — catches edits/additions/deletions since the LAST BUILD of
-       any kind.
-    2. **Per-layer last-embedded hashes** (``layer_path_state``) vs the broad
-       snapshot's current hashes — catches the layer-crossing case the broad
-       snapshot alone cannot see: a docs-only build stamps a changed code
-       file's fresh hash into ``file_meta`` while the code layer never
-       embedded it (the 1sek8 poison); the layer's own hash still differs.
+    1. **Walk vs broad snapshot** (``_detect_changes``): edits, additions,
+       and deletions since the LAST BUILD of any kind.
+    2. **Per-layer hash compare, SYMMETRIC:** each layer's last-embedded
+       hashes (``layer_path_state``) against the CURRENT walk hashes — a
+       layer is stale when a recorded path's content moved past it (the
+       1sek8 layer-crossing case), when a recorded path is gone, **or when
+       an eligible path was never processed by the layer at all** (a file
+       ADDED and stamped into the broad snapshot by another layer's build).
+       Eligibility mirrors the build's own per-layer sets.
+    3. **Chunker-version mismatch** (store scalars vs the module constant).
 
-    Returns ``{"stale": bool | None, "layers": {"docs": bool|None, "code":
-    bool|None}, "chunker_stale": bool | None, "reason": str}`` where ``None``
-    means undeterminable (store absent/unreadable/no snapshot) — callers map
-    that to an honest "unknown", never "current".
+    Honesty rules: ``current`` requires the walk pass to have POSITIVELY
+    determined no changes; an undeterminable walk, an unreadable layer state
+    for a REQUIRED layer (non-empty eligible set), or any exception reads
+    ``None`` (= unknown), never ``False``.
     """
     try:
         index_dir = root / ".wavefoundry" / "index"
@@ -1342,46 +1344,97 @@ def project_layer_freshness(root: Path) -> "dict[str, Any]":
         if not summary or not isinstance(file_meta, dict) or not file_meta:
             return {"stale": None, "layers": {}, "chunker_stale": None, "reason": "no build snapshot"}
 
-        # Chunker-version mismatch: a distinct staleness cause, kept from the
-        # legacy check (cheap: two store scalars vs the module constant).
         current_cv = str(getattr(_get_chunker(), "CHUNKER_VERSION", ""))
         stored_cv = summary.get("chunker_versions") or {}
         chunker_stale = bool(stored_cv) and any(
             str(v) != current_cv for v in stored_cv.values()
         )
 
-        # Pass 1: stat-fast-path walk vs the broad snapshot (edits since the
-        # last build). Reuses project_index_inputs_stale's filter discipline.
-        walk_stale = project_index_inputs_stale(root, meta)
+        # --- ONE walk, the build's own filter discipline ---
+        files = walk_repo(root, respect_ignore=True)
+        files = [path for path in files if not _is_relative_to(path, index_dir)]
+        meta_includes = _project_meta_include_prefixes(root, ())
+        walk_files = _filter_project_index_excludes(files, root, (), project_include_prefixes=meta_includes)
+        walk_files = [
+            path for path in walk_files
+            if str(path.relative_to(root)).replace("\\", "/") not in _PROJECT_STALE_IGNORE_PATHS
+        ]
+        filtered_file_meta = {
+            rel: entry for rel, entry in file_meta.items()
+            if rel not in _PROJECT_STALE_IGNORE_PATHS
+        }
+        walk_stale: "bool | None"
+        try:
+            current_meta, changed, removed = _detect_changes(walk_files, root, filtered_file_meta)
+            walk_stale = bool(changed or removed)
+        except Exception:  # noqa: BLE001 - undeterminable, never current
+            current_meta = {}
+            walk_stale = None
 
-        # Pass 2: per-layer hash compare — pure store reads, no filesystem.
+        # --- Per-layer eligibility, mirroring the build ---
+        docs_includes = _effective_project_include_prefixes(root, index_dir, "docs", ())
+        docs_eligible: set[str] = {
+            str(f.relative_to(root)).replace("\\", "/")
+            for f in _filter_project_index_excludes(files, root, (), project_include_prefixes=docs_includes)
+        }
+        code_includes = _effective_project_include_prefixes(root, index_dir, "code", ())
+        code_eligible: set[str] = {
+            str(f.relative_to(root)).replace("\\", "/")
+            for f in _filter_code_files(
+                _filter_project_index_excludes(files, root, (), project_include_prefixes=code_includes),
+                root,
+                include_tests=False,
+                include_generated=False,
+            )
+        }
+        docs_eligible |= code_eligible  # 1sek8 dual-output union
+
         layers: dict = {}
-        for layer in ("docs", "code"):
+        required_layer_unreadable = False
+        for layer, eligible in (("docs", docs_eligible), ("code", code_eligible)):
             state = iss.layer_hashes(index_dir, layer)
             if state is None:
                 layers[layer] = None
+                if eligible:
+                    required_layer_unreadable = True
                 continue
             layer_stale = False
             for rel, embedded_hash in state.items():
-                entry = file_meta.get(rel)
+                entry = current_meta.get(rel) or filtered_file_meta.get(rel)
                 if entry is None:
-                    layer_stale = True  # deleted (or excluded) since the layer embedded it
+                    layer_stale = True  # recorded path gone (or excluded)
                     break
                 if str(entry.get("hash", "")) != str(embedded_hash):
-                    layer_stale = True  # the layer never embedded the current content
+                    layer_stale = True  # content moved past the layer
                     break
+            if not layer_stale:
+                # Symmetric direction (review fix): an eligible path the
+                # layer never processed — e.g. ADDED, then stamped into the
+                # broad snapshot by another layer's build.
+                for rel in eligible:
+                    if rel not in state:
+                        layer_stale = True
+                        break
             layers[layer] = layer_stale
 
-        determinable = walk_stale is not None or any(v is not None for v in layers.values())
-        if not determinable and chunker_stale is None:
-            return {"stale": None, "layers": layers, "chunker_stale": None, "reason": "undeterminable"}
-        stale = bool(walk_stale) or any(v for v in layers.values() if v) or chunker_stale
-        reason = (
-            "chunker version mismatch" if chunker_stale
-            else "inputs changed since last build" if walk_stale
-            else "layer behind broad snapshot" if any(v for v in layers.values() if v)
-            else "current"
-        )
+        if chunker_stale:
+            stale: "bool | None" = True
+            reason = "chunker version mismatch"
+        elif walk_stale:
+            stale = True
+            reason = "inputs changed since last build"
+        elif any(v for v in layers.values() if v):
+            stale = True
+            reason = "layer behind broad snapshot"
+        elif walk_stale is None:
+            stale = None
+            reason = "walk undeterminable"
+        elif required_layer_unreadable:
+            stale = None
+            reason = "required layer state unreadable"
+        else:
+            stale = False
+            reason = "current"
         return {"stale": stale, "layers": layers, "chunker_stale": chunker_stale, "reason": reason}
     except Exception as exc:  # noqa: BLE001 - honesty rule: undeterminable, never silently current
         return {"stale": None, "layers": {}, "chunker_stale": None, "reason": f"error: {exc}"}
@@ -3192,6 +3245,25 @@ def _is_docs_kind(kind: str) -> bool:
     return kind in ("doc", "seed", "prompt", "doc-summary")
 
 
+_MEMORY_RECORD_PREFIX = "docs/agents/memory/"
+
+
+def _memory_record_touched(changed: Iterable[str], removed: Iterable[str]) -> bool:
+    """True iff this build actually CHANGED or REMOVED an agent-memory record.
+
+    Gates the memory-generation bump (wave 1ro44 / 1p8gy) on the changed/
+    removed sets — never all indexed files — so unrelated or zero-change builds
+    do not needlessly advance the generation and force an advisory reparse
+    (delivery-review efficiency finding). The `docs/agents/memory/README.md`
+    schema doc is not a record and is ignored.
+    """
+    for p in list(changed) + list(removed):
+        s = str(p).replace("\\", "/")
+        if s.startswith(_MEMORY_RECORD_PREFIX) and not s.endswith("/README.md"):
+            return True
+    return False
+
+
 # We cache the chunker module after first load
 _chunker_mod = None
 _graph_indexer_mod = None
@@ -3885,6 +3957,40 @@ def _build_index_locked(
     # vectors for content-unchanged chunks; only genuinely new/changed chunks re-embed.
     if rechunk_all:
         changed_broad |= set(current_file_meta.keys())
+    # Wave 1ro44 (1p8gy) — memory invalidation FIRST (delivery-review round 4):
+    # advance the memory generation as soon as the changed/removed path sets are
+    # known, BEFORE any optional Lance / FTS / freshness / drift work, so a
+    # later structured build failure cannot leave a raw-edited memory record's
+    # advisory stale. Gated on actual changed/removed memory records.
+    #
+    # Round-4 re-review P1: a failed `memory_advance` must NOT be swallowed and
+    # the build must NOT proceed to record file metadata. A raw content edit
+    # leaves `dir_mtime` unchanged, so an un-advanced generation keeps warm
+    # readers in OTHER processes authoritative on the pre-edit advisory — and if
+    # this build then records the edited file's hash, the recovered retry sees
+    # "no change" and NEVER re-invalidates, permanently stranding the stale
+    # advisory. `memory_invalidate` returns True only when the generation
+    # DURABLY advanced; on failure it sets a best-effort short-lived bypass and
+    # returns False, and we FAIL THE BUILD BEFORE bookkeeping so the old
+    # file_meta is preserved and the next build re-detects the edit.
+    if _memory_record_touched(changed_broad, removed_broad):
+        _iss_mem = _get_index_state_store()
+        if _iss_mem is not None:
+            invalidated = False
+            try:
+                invalidated = _iss_mem.memory_invalidate(index_dir)
+            except Exception:
+                invalidated = False
+            if not invalidated:
+                return _build_failed_result(
+                    files,
+                    "memory record(s) changed but the durable memory seqlock "
+                    "could not advance the generation (memory-state.sqlite "
+                    "unwritable) — failing the build BEFORE bookkeeping so old "
+                    "file metadata is preserved and the next build retries "
+                    "invalidation (recorded a clean build would strand the stale "
+                    "advisory)",
+                )
     # removed: use the broad result directly — a file absent from files_for_meta is
     # truly deleted from disk (not merely filtered out), so its chunks must be evicted
     # regardless of which content type's run discovers the deletion.
@@ -3983,6 +4089,35 @@ def _build_index_locked(
             return _build_failed_result(files, "index-state store module unavailable — refusing idle maintenance without the build epoch")
         _prior_state = _iss_epoch.read_build_state(index_dir)
         _epoch_dirty = not (_prior_state and _prior_state.get("status") == "complete")
+        # Round-4 re-review P1: the tail drift pass is skipped on this no-op
+        # return, so an unchanged copied index — or a repo that lost .git with
+        # no other edits — would keep serving stale git-derived drift. Reconcile
+        # a CONFIRMED git→non-git transition here too (preserved on probe
+        # failure / real git). Cheap gate: only probe git when the store
+        # actually holds drift state, so a normal git repo pays nothing extra.
+        #
+        # The result MUST be captured: if the clear fails on a confirmed
+        # transition (`drift_clear_failed`/`error`, or a raised exception), a
+        # `up_to_date: True` return would report a clean build over a stale
+        # `drifted: true` row that no reader would ever re-clear on the next
+        # no-op. FAIL the build instead so the retry re-attempts the clear.
+        try:
+            if _iss_epoch.has_drift_state(index_dir):
+                _reconcile = _iss_epoch.reconcile_non_git_drift(
+                    root, index_dir, verbose=verbose
+                )
+                if _reconcile.get("drift_clear_failed") or _reconcile.get("error"):
+                    return _build_failed_result(
+                        files,
+                        "confirmed git→non-git transition could not clear stale "
+                        f"drift ({_reconcile.get('error', 'clear failed')}) — "
+                        "failing the build so the stale drift is not served behind "
+                        "an up_to_date result; the next build retries the clear",
+                    )
+        except Exception as _exc:
+            return _build_failed_result(
+                files, f"no-op drift reconcile failed: {_exc}"
+            )
         if not _needs_reap and not _needs_heal and not _epoch_dirty:
             if verbose:
                 print("build_index: index is up to date", flush=True)
@@ -4607,6 +4742,31 @@ def _build_index_locked(
         _state_store.update_freshness_from_build(
             root, index_dir, current_file_meta.keys(), verbose=verbose
         )
+        # Wave 1ro44 (1ro43): wave→files attribution + doc-code drift, the
+        # second optional resident sharing the freshness posture. Skips on a
+        # git-HEAD + docs-path-set + verification-stamp fingerprint (stamps
+        # move drift anchors without moving HEAD, so they participate).
+        _drift_summary = _state_store.update_drift_from_build(
+            root,
+            index_dir,
+            [p for p in current_file_meta if p.endswith((".md", ".markdown"))],
+            current_file_meta.keys(),
+            verbose=verbose,
+        )
+        # Round-4 re-review (4) P1: drift COMPUTATION failures stay optional (the
+        # attribution/drift table is a ranking-decay resident, not readiness) —
+        # but a `drift_clear_failed` is DIFFERENT: a CONFIRMED git→non-git
+        # transition whose stale-drift clear could not complete. Publishing the
+        # epoch would report success while serving a stale `drifted: true` row
+        # no reader re-clears. FAIL before finalize so the retry re-attempts.
+        if isinstance(_drift_summary, dict) and _drift_summary.get("drift_clear_failed"):
+            return _build_failed_result(
+                files,
+                "confirmed git→non-git transition could not clear stale drift "
+                f"({_drift_summary.get('error', 'clear failed')}) — failing before "
+                "epoch publish so the stale drift is not served behind a successful "
+                "build; the next build retries the clear",
+            )
 
     # --- 1sed6: finalize the build epoch (attempt-ID compare-and-set) ---
     # Every mandatory resident succeeded above (canonical bookkeeping, layer

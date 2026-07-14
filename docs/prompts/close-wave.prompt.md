@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-25
+Last verified: 2026-07-14
 
 Shortcut: **`Close wave`**
 
@@ -41,3 +41,13 @@ Finalize and archive the wave. Closure requires full reconciliation — not just
 - If `docs/prompts/` or manifest changed: confirm docs gate passes (**`wave_validate`** over MCP, or **`wf docs-lint`** if MCP is unavailable)
 - If seed prompts changed: confirm guard-overrides reset to `false`
 - If Wave Council is enabled: confirm `wave-council` recorded both council signoffs in `## Review Evidence`
+
+## Memory Distillation Checkpoint
+
+Before closure, list open memory candidates (`wave_memory_search(status='candidate')`) and decide each one:
+
+- **promote** — `wave_memory_reconcile(memory_id, 'active')` for lessons that should surface at action time
+- **reject** — `wave_memory_reconcile(memory_id, 'rejected')` for candidates that did not hold up
+- **defer** — leave `candidate` and record the deferral in the wave record
+
+This is a cheap decide-pass over proposed candidates, not an authoring session; an undecided candidate at close is a process gap. History is preserved through supersession, never deletion.

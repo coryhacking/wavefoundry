@@ -903,6 +903,61 @@ class ReleaseOrchestrationOrderingTests(unittest.TestCase):
                 verbs.append("gh-release")
         return verbs
 
+    def test_dry_run_makes_no_git_or_remote_mutations_and_says_so(self):
+        """Release review round 4: --release-dry-run performs NO commit, tag,
+        push, or gh release; the completion message names the retained local
+        side effects and never claims "no side effects"."""
+        root = self._repo_with_version()
+        rec = self._Recorder()
+        with patch("build_pack.subprocess.run", rec):
+            build_pack._run_release_orchestration(
+                root, "1.6.0", Path("/tmp/wavefoundry-1.6.0.ptest.zip"),
+                "notes", dry_run=True,
+            )
+        self.assertEqual(self._verbs(rec.calls), [],
+                         "dry-run must perform zero git/gh mutations")
+        # The user-facing statements are honest.
+        src = Path(build_pack.__file__).read_text(encoding="utf-8")
+        self.assertNotIn("no side effects taken", src)
+        done_msg_pos = src.index("[--release-dry-run] complete")
+        tail = src[done_msg_pos:done_msg_pos + 500]
+        self.assertIn("no commit, tag, push, or GitHub", tail)
+        self.assertIn("stamps remain", tail)
+        self.assertIn("git restore --", src)
+
+    def test_dry_run_local_build_side_effects_are_real(self):
+        """Release review rounds 4+7: the LOCAL half of dry-run is real — the
+        archive is created and VERSION is stamped (tracked change left). A
+        contract fixture must EXECUTE: no try/except-to-skip (a signature
+        mismatch here should fail loudly, not silently pass the suite)."""
+        import tempfile, zipfile
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        out_dir = Path(tmp.name)
+        root = self._repo_with_version(stamp="1.5.0+pold")
+        # Minimal framework tree so build_zip has something to package.
+        fw = root / build_pack.FRAMEWORK_REL
+        (fw / "scripts").mkdir(parents=True, exist_ok=True)
+        (fw / "scripts" / "placeholder.py").write_text("# x\n", encoding="utf-8")
+        vfile = fw / "VERSION"
+        before = vfile.read_text(encoding="utf-8")
+        zip_path = build_pack.build_zip(
+            out_dir,
+            "1.6.0",
+            "ptest",
+            framework_dir=fw,
+            update_manifest=False,
+            inject_install_templates=False,  # stub framework dir (documented convention)
+        )
+        self.assertTrue(Path(zip_path).exists(), "archive must be created")
+        self.assertTrue(zipfile.is_zipfile(zip_path))
+        after = vfile.read_text(encoding="utf-8")
+        self.assertNotEqual(before, after, "VERSION stamp is a real tracked change")
+        self.assertIn("1.6.0", after)
+        # The stamp REMAINS on disk after the build returns — the retained
+        # local side effect the dry-run completion message names.
+        self.assertIn("1.6.0", vfile.read_text(encoding="utf-8"))
+
     def test_commit_precedes_tag_and_main_is_pushed(self):
         root = self._repo_with_version()
         rec = self._Recorder()

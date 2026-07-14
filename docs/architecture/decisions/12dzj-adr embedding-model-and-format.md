@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: accepted
-Last verified: 2026-05-03
+Last verified: 2026-07-14
 
 ## Context
 
@@ -33,7 +33,7 @@ Use `BAAI/bge-base-en-v1.5` (768d, ONNX INT8 via fastembed) for both `DOCS_MODEL
 **Negative / tradeoffs:**
 - Full rebuild time increased from ~85s (bge-small) to ~280s (bge-base) on this repository's ~3,100-chunk corpus. This only matters on first install or forced re-index; incremental updates are unaffected.
 - Model cache size increased from ~67MB (bge-small INT8) to ~210MB (bge-base INT8).
-- All existing indexes are invalidated by the dimension change (384d → 768d). The `model_versions` field in `meta.json` detects this and forces a full rebuild automatically.
+- All existing indexes are invalidated by the dimension change (384d → 768d). The recorded `model_versions` (originally in `meta.json`; in the `index-state.sqlite` build state since wave 1sed7) detects this and forces a full rebuild automatically.
 - CoreML acceleration path deferred. The native Core ML path (coremltools FP16 conversion to `.mlpackage`) was not adopted: it requires `coremltools` + `torch` + `transformers` as build-time dependencies, a custom inference path bypassing fastembed, and tokenizer parity validation. The engineering cost exceeds the benefit given that CPU performance after sorted batching is acceptable.
 
 **Constraints imposed:**

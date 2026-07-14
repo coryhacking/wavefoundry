@@ -26,6 +26,7 @@ from .link_validators import check_markdown_links
 from .metadata_validators import check_metadata
 from .secrets_validators import _get_changed_files, _is_inside_git, check_hardcoded_secrets
 from .wave_validators import (
+    check_memory_docs,
     check_closed_wave_requirements,
     check_cross_artifact_consistency,
     check_factor_surface,
@@ -213,6 +214,7 @@ def _run_incremental_checks(root: Path):
 
     if changed_docs:
         failures.extend(check_journal_docs(root, only=changed_docs, skip=oversized))
+        failures.extend(check_memory_docs(root, only=changed_docs, skip=oversized))
         failures.extend(check_persona_docs(root, only=changed_docs, skip=oversized))
         failures.extend(check_wave_docs(root, only=changed_docs, skip=oversized))
         failures.extend(check_plan_filenames(root, only=changed_docs, skip=oversized))
@@ -260,6 +262,7 @@ def _run_full_checks(root: Path, args: argparse.Namespace, timings: dict | None 
         failures.extend(factor_failures)
         warnings.extend(factor_warnings)
         failures.extend(check_journal_docs(root, skip=oversized))
+        failures.extend(check_memory_docs(root, skip=oversized))
         failures.extend(check_persona_docs(root, skip=oversized))
         failures.extend(check_cross_artifact_consistency(root))
         warnings.extend(check_migration_edges(root))

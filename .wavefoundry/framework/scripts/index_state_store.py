@@ -41,6 +41,8 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
+import secrets
 import sqlite3
 import sys
 import time
@@ -91,6 +93,35 @@ FRESHNESS_GIT_LOG_MAX_COMMITS = 50000
 META_FRESHNESS_FINGERPRINT = "freshness_fingerprint"
 META_FRESHNESS_PATHS_HASH = "freshness_paths_hash"
 META_FRESHNESS_UPDATED_AT = "freshness_updated_at"
+
+# --- Doc-code drift + wave attribution (1ro43) ---
+# Drift threshold: distinct commits touching a doc's referenced code paths
+# after the doc's anchor before the doc is drift-flagged. One or two commits
+# is routine churn (format sweeps, rename fallout) that rarely invalidates
+# prose; three distinct commits is sustained divergence worth an agent's
+# suspicion. Drift is a proposal, never a verdict — the census (AC-8) records
+# this repository's calibration evidence before any ranking use.
+DRIFT_COMMITS_THRESHOLD = 3
+META_DRIFT_FINGERPRINT = "drift_fingerprint"
+META_DRIFT_UPDATED_AT = "drift_updated_at"
+
+# Verification stamp (1ro43 Req 10): a frontmatter-adjacent line recording the
+# commit a doc was deliberately reviewed against. Written only by an agentic
+# verification pass or the operator; ``docs_gardener`` cannot touch it by
+# construction (its only edit is the ``Last verified:`` date substitution).
+# Abbreviated hex (>= 7 chars) is accepted and resolved against local history;
+# an unresolvable stamp degrades to the content-change anchor.
+VERIFICATION_STAMP_FIELD = "Verified against"
+VERIFICATION_STAMP_PATTERN = re.compile(
+    r"^Verified against:\s*([0-9a-fA-F]{7,40})\s*$", re.MULTILINE
+)
+VERIFICATION_STAMP_LINE = re.compile(r"^Verified against:.*$", re.MULTILINE)
+
+# Wave-id token for landing-commit derivation: five base36 chars, digit-led,
+# with at least one letter. Rejects bare numbers ("2026") and can never match
+# dotted versions ("Land 1.8.0:") since "." is outside the class — version-only
+# landing subjects therefore degrade to plain churn by construction.
+WAVE_ID_TOKEN = re.compile(r"\b(?=[0-9]*[a-z])[0-9][a-z0-9]{4}\b")
 
 # --- FTS5 lexical layer (1rrr0) ---
 # One FTS5 table per Lance content table, keyed by chunk id. Mode decision
@@ -155,7 +186,7 @@ def store_log_path(index_dir: Path) -> Path:
     return Path(index_dir).parent / "logs" / STORE_LOG_FILENAME
 
 
-def store_log(index_dir: Path, message: str) -> None:
+def store_log(index_dir: Path, message: str) -> bool:
     """Append one timestamped line to the persisted store log (1sbfj).
 
     Best-effort by contract: never raises, never fails a build. Bounded:
@@ -163,6 +194,11 @@ def store_log(index_dir: Path, message: str) -> None:
     (truncate-and-continue — concurrent writers at worst interleave lines,
     they cannot fail each other). Callers keep their stdout/stderr prints;
     this is the persistence layer, not a replacement.
+
+    Returns ``True`` when the line durably appended, ``False`` on any
+    swallowed filesystem failure (release-review fix: callers that gate
+    retry/dedup state on persistence must check the return — a swallowed
+    failure previously read as success and suppressed the retry forever).
     """
     try:
         log_path = store_log_path(index_dir)
@@ -180,8 +216,9 @@ def store_log(index_dir: Path, message: str) -> None:
         stamp = time.strftime("%Y-%m-%dT%H:%M:%S%z")
         with open(log_path, "a", encoding="utf-8") as fh:
             fh.write(f"{stamp} {message}\n")
+        return True
     except Exception:  # noqa: BLE001 - logging must never fail the caller
-        pass
+        return False
 
 
 _FTS5_AVAILABLE: Optional[bool] = None
@@ -694,6 +731,128 @@ class IndexStateStore:
                 ],
             )
 
+    def replace_doc_drift(
+        self, entries: dict[str, dict[str, Any]], *, fingerprint: str = ""
+    ) -> None:
+        """Replace ALL per-doc drift rows in one transaction (1ro43).
+
+        Full replace mirrors ``apply_freshness``: rows for deleted or
+        no-longer-indexed docs must not linger, and the build-tail pass always
+        computes the complete current doc set. ``upsert_doc_drift`` remains for
+        targeted single-doc refreshes.
+        """
+        now = int(time.time())
+        with self._conn:
+            self._conn.execute("DELETE FROM doc_drift")
+            self._conn.executemany(
+                "INSERT INTO doc_drift "
+                "(path, drifted, drift_refs, commits_since, anchor_kind, historical, "
+                "waves_behind, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                [
+                    (
+                        path,
+                        1 if entry.get("drifted") else 0,
+                        json.dumps(list(entry.get("drift_refs") or []), separators=(",", ":")),
+                        int(entry.get("commits_since") or 0),
+                        str(entry.get("anchor_kind") or "content"),
+                        1 if entry.get("historical") else 0,
+                        int(entry.get("waves_behind") or 0),
+                        now,
+                    )
+                    for path, entry in entries.items()
+                ],
+            )
+            self._conn.executemany(
+                "INSERT INTO meta (key, value) VALUES (?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                [
+                    (META_DRIFT_FINGERPRINT, fingerprint),
+                    (META_DRIFT_UPDATED_AT, str(now)),
+                ],
+            )
+
+    def replace_attribution_and_drift(
+        self,
+        *,
+        landings: Iterable[tuple[str, str, Optional[int]]],
+        change_files: Iterable[tuple[str, str]],
+        entries: dict[str, dict[str, Any]],
+        fingerprint: str = "",
+    ) -> None:
+        """Replace wave attribution + all drift rows + the fingerprint in ONE
+        transaction (delivery-review torn-write finding: the two replaces were
+        separate transactions, so a crash between them left attribution
+        advanced while drift/fingerprint stayed stale). All-or-nothing: either
+        the whole drift/attribution state advances together or none of it does.
+        """
+        now = int(time.time())
+        with self._conn:
+            self._conn.execute("DELETE FROM wave_landing")
+            self._conn.execute("DELETE FROM wave_change_files")
+            self._conn.executemany(
+                "INSERT OR IGNORE INTO wave_landing (wave_id, commit_sha, landed_at) "
+                "VALUES (?, ?, ?)",
+                [(w, sha, ts) for w, sha, ts in landings],
+            )
+            self._conn.executemany(
+                "INSERT OR IGNORE INTO wave_change_files (wave_id, path) VALUES (?, ?)",
+                [(w, p) for w, p in change_files],
+            )
+            self._conn.execute("DELETE FROM doc_drift")
+            self._conn.executemany(
+                "INSERT INTO doc_drift "
+                "(path, drifted, drift_refs, commits_since, anchor_kind, historical, "
+                "waves_behind, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                [
+                    (
+                        path,
+                        1 if entry.get("drifted") else 0,
+                        json.dumps(list(entry.get("drift_refs") or []), separators=(",", ":")),
+                        int(entry.get("commits_since") or 0),
+                        str(entry.get("anchor_kind") or "content"),
+                        1 if entry.get("historical") else 0,
+                        int(entry.get("waves_behind") or 0),
+                        now,
+                    )
+                    for path, entry in entries.items()
+                ],
+            )
+            self._conn.executemany(
+                "INSERT INTO meta (key, value) VALUES (?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                [
+                    (META_DRIFT_FINGERPRINT, fingerprint),
+                    (META_DRIFT_UPDATED_AT, str(now)),
+                ],
+            )
+
+    def clear_attribution_and_drift(self) -> int:
+        """Remove ALL git-derived wave attribution + doc drift rows + the drift
+        fingerprint in ONE transaction. Used when a build runs in a root with
+        NO git authority (delivery-review finding: a git-built index copied into
+        — or a repo that dropped git under — a now-non-git root must not keep
+        serving stale git-derived drift/attribution). Idempotent: returns the
+        total number of rows/fingerprints removed (0 when already clean, so the
+        caller can skip re-clearing every non-git build)."""
+        with self._conn:
+            n_land = self._conn.execute("SELECT COUNT(*) FROM wave_landing").fetchone()[0]
+            n_files = self._conn.execute("SELECT COUNT(*) FROM wave_change_files").fetchone()[0]
+            n_drift = self._conn.execute("SELECT COUNT(*) FROM doc_drift").fetchone()[0]
+            n_fp = self._conn.execute(
+                "SELECT COUNT(*) FROM meta WHERE key IN (?, ?)",
+                (META_DRIFT_FINGERPRINT, META_DRIFT_UPDATED_AT),
+            ).fetchone()[0]
+            total = int(n_land) + int(n_files) + int(n_drift) + int(n_fp)
+            if total:
+                self._conn.execute("DELETE FROM wave_landing")
+                self._conn.execute("DELETE FROM wave_change_files")
+                self._conn.execute("DELETE FROM doc_drift")
+                self._conn.execute(
+                    "DELETE FROM meta WHERE key IN (?, ?)",
+                    (META_DRIFT_FINGERPRINT, META_DRIFT_UPDATED_AT),
+                )
+            return total
+
     # -- maintenance (1rq4h Req 9) --
 
     def end_of_build_maintenance(self) -> None:
@@ -858,6 +1017,348 @@ def doc_drift_for_path(index_dir: Path, path: str) -> Optional[dict[str, Any]]:
         }
     except sqlite3.Error:
         return None
+    finally:
+        try:
+            conn.close()
+        except sqlite3.Error:
+            pass
+
+
+def freshness_for_paths(
+    index_dir: Path, paths: Iterable[str]
+) -> dict[str, dict[str, Any]]:
+    """Batched per-path freshness + drift read for retrieval annotation (1ro43).
+
+    One read-only connection, two queries, for a whole response's citation
+    set — the retrieval path must never call ``freshness_for_path`` per
+    citation. Returns rel-path → merged ``freshness`` annotation dict
+    (``age_days``/``churn_score`` from ``file_freshness``; ``drifted``/
+    ``commits_since_verified``/``historical``/``waves_behind`` from
+    ``doc_drift`` when a row exists). Paths without rows are simply absent —
+    callers omit the annotation (silent degrade on metadata-free stores).
+    """
+    wanted = sorted({str(p) for p in paths if p})
+    if not wanted:
+        return {}
+    conn = open_read_only(index_dir)
+    if conn is None:
+        return {}
+    try:
+        out: dict[str, dict[str, Any]] = {}
+        now = time.time()
+        marks = ",".join("?" for _ in wanted)
+        for path, last_modified, churn_score in conn.execute(
+            f"SELECT path, last_modified, churn_score FROM file_freshness "
+            f"WHERE path IN ({marks})",
+            wanted,
+        ):
+            entry: dict[str, Any] = {"churn_score": float(churn_score or 0.0)}
+            if last_modified is not None:
+                entry["age_days"] = round(
+                    max(0.0, (now - float(last_modified)) / 86400.0), 2
+                )
+            out[str(path)] = entry
+        for path, drifted, commits_since, historical, waves_behind in conn.execute(
+            f"SELECT path, drifted, commits_since, historical, waves_behind "
+            f"FROM doc_drift WHERE path IN ({marks})",
+            wanted,
+        ):
+            entry = out.setdefault(str(path), {})
+            if historical:
+                entry["historical"] = True
+                entry["waves_behind"] = int(waves_behind or 0)
+            else:
+                entry["drifted"] = bool(drifted)
+                entry["commits_since_verified"] = int(commits_since or 0)
+        return out
+    except sqlite3.Error:
+        return {}
+    finally:
+        try:
+            conn.close()
+        except sqlite3.Error:
+            pass
+
+
+# ---------------------------------------------------------------------------
+# Agent-memory invalidation seqlock (dedicated store; delivery-review round 4)
+# ---------------------------------------------------------------------------
+#
+# The advisory cache's cross-process coherence cannot rest on in-process
+# eviction: if the durable write that other processes read fails, a second MCP
+# process keeps serving a stale advisory. So invalidation is a DURABLE SEQLOCK
+# in a dedicated store (never the canonical index-state.sqlite, so a memory
+# write can't reset freshness/FTS/epoch):
+#   - ``epoch``      — a random nonce minted ONCE at store creation. Defeats the
+#                      delete/recreate ABA: a rebuilt store gets a new epoch, so
+#                      a key from the old store can never alias the new one.
+#   - ``generation`` — monotonic counter; advances on every mutation/invalidate.
+#   - ``memory_writers`` — one WRITER-OWNED token row per in-flight mutation
+#                      (round-4 re-review: a single shared ``dirty`` flag let one
+#                      writer's finalize clear a concurrent writer's fence — A
+#                      fence, B fence, A finalize → cleared while B still
+#                      mutating). Each fence INSERTs a unique token BEFORE the
+#                      filesystem write; each finalize DELETEs ONLY its own token
+#                      (so B's fence survives A's finalize) and advances the
+#                      generation. Readers BYPASS the cache while any *live*
+#                      token exists. A crashed writer's token is bounded by a TTL
+#                      (``_MEMORY_WRITER_TTL_SECONDS``): readers stop bypassing on
+#                      tokens older than the TTL (self-heal), and the rw paths
+#                      lazily reap them. A mutation that cannot register a token
+#                      is REFUSED. ``read_memory_state`` still returns a synthetic
+#                      ``dirty`` (1 iff a live token exists) so the reader key
+#                      contract is unchanged.
+MEMORY_STATE_FILENAME = "memory-state.sqlite"
+
+# A record filesystem write completes in milliseconds; a fence held past this is
+# presumed crashed, so readers stop bypassing on it (bounded fail-closed) and it
+# is lazily reaped. Generous margin over any real add/reconcile latency.
+_MEMORY_WRITER_TTL_SECONDS = 300
+
+
+def _memory_state_path(index_dir: Path) -> Path:
+    return index_dir / MEMORY_STATE_FILENAME
+
+
+def _memory_state_rw(index_dir: Path) -> "sqlite3.Connection":
+    path = _memory_state_path(index_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(path), timeout=10.0, isolation_level=None)
+    conn.execute("PRAGMA busy_timeout=10000")
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS memory_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
+    )
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS memory_writers "
+        "(token TEXT PRIMARY KEY, started_at INTEGER NOT NULL)"
+    )
+    return conn
+
+
+def _reap_stale_writers(conn: "sqlite3.Connection", now: int) -> None:
+    """Drop writer tokens older than the TTL (crashed/abandoned mutations)."""
+    conn.execute(
+        "DELETE FROM memory_writers WHERE started_at < ?",
+        (now - _MEMORY_WRITER_TTL_SECONDS,),
+    )
+
+
+def read_memory_state(index_dir: Path) -> Optional[dict[str, Any]]:
+    """``{epoch, generation, dirty}`` or None when the durable store is
+    UNREADABLE (the reader then BYPASSES the cache — never trusts a bogus
+    clean/zero). An absent store is the valid never-initialized state
+    (empty epoch, generation 0, not dirty). ``dirty`` is synthesized: 1 iff a
+    LIVE writer token exists (a mutation is in flight); tokens older than the
+    TTL are ignored (self-heal for a crashed writer)."""
+    path = _memory_state_path(index_dir)
+    if not path.exists():
+        return {"epoch": "", "generation": 0, "dirty": 0}
+    try:
+        conn = sqlite3.connect(f"file:{path.as_posix()}?mode=ro", uri=True, timeout=10.0)
+        try:
+            rows = dict(conn.execute("SELECT key, value FROM memory_meta").fetchall())
+            live = 0
+            try:
+                # Read-only: cannot reap, but a stale token is simply not counted
+                # as live (bounded by the TTL). Table may be absent on an old store.
+                cutoff = int(time.time()) - _MEMORY_WRITER_TTL_SECONDS
+                live = conn.execute(
+                    "SELECT COUNT(*) FROM memory_writers WHERE started_at >= ?", (cutoff,)
+                ).fetchone()[0]
+            except sqlite3.Error:
+                live = 0
+        finally:
+            conn.close()
+        return {
+            "epoch": str(rows.get("epoch", "")),
+            "generation": int(rows.get("generation", "0")),
+            "dirty": 1 if live else 0,
+        }
+    except (sqlite3.Error, ValueError, OSError):
+        return None
+
+
+def memory_fence(index_dir: Path) -> Optional[str]:
+    """Register a WRITER-OWNED token (minting epoch/generation if absent) BEFORE
+    a record filesystem mutation. Returns the token string on success; None
+    means the fence could not be established and the caller MUST refuse the
+    mutation. Each writer owns its token; ``memory_finalize`` removes ONLY that
+    token, so a concurrent writer cannot clear another's fence."""
+    try:
+        conn = _memory_state_rw(index_dir)
+        try:
+            token = secrets.token_hex(16)
+            now = int(time.time())
+            conn.execute("BEGIN IMMEDIATE")
+            conn.execute(
+                "INSERT OR IGNORE INTO memory_meta (key, value) VALUES ('epoch', ?)",
+                (secrets.token_hex(16),),
+            )
+            conn.execute("INSERT OR IGNORE INTO memory_meta (key, value) VALUES ('generation', '0')")
+            _reap_stale_writers(conn, now)
+            conn.execute(
+                "INSERT INTO memory_writers (token, started_at) VALUES (?, ?)", (token, now)
+            )
+            conn.execute("COMMIT")
+            return token
+        finally:
+            conn.close()
+    except (sqlite3.Error, OSError):
+        return None
+
+
+def memory_finalize(index_dir: Path, token: Optional[str] = None) -> Optional[int]:
+    """Remove THIS writer's token and advance ``generation`` after a mutation
+    completes. Deleting only ``token`` means a concurrent in-flight writer's
+    fence survives (no cross-writer clear). Best-effort: on failure the token
+    remains and readers keep bypassing (safe) until the next successful mutation
+    or the TTL self-heals it."""
+    try:
+        conn = _memory_state_rw(index_dir)
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            if token:
+                conn.execute("DELETE FROM memory_writers WHERE token = ?", (token,))
+            _reap_stale_writers(conn, int(time.time()))
+            conn.execute(
+                "INSERT INTO memory_meta (key, value) VALUES ('generation', '1') "
+                "ON CONFLICT(key) DO UPDATE SET value = CAST(value AS INTEGER) + 1"
+            )
+            row = conn.execute("SELECT value FROM memory_meta WHERE key = 'generation'").fetchone()
+            conn.execute("COMMIT")
+            return int(row[0]) if row else None
+        finally:
+            conn.close()
+    except (sqlite3.Error, OSError):
+        return None
+
+
+def memory_advance(index_dir: Path) -> Optional[int]:
+    """Advance ``generation`` WITHOUT registering a writer token — the indexer's
+    invalidation signal when a memory record changed on disk (a raw/hook edit).
+    A generation bump alone invalidates every reader's cache key."""
+    try:
+        conn = _memory_state_rw(index_dir)
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            conn.execute(
+                "INSERT OR IGNORE INTO memory_meta (key, value) VALUES ('epoch', ?)",
+                (secrets.token_hex(16),),
+            )
+            _reap_stale_writers(conn, int(time.time()))
+            conn.execute(
+                "INSERT INTO memory_meta (key, value) VALUES ('generation', '1') "
+                "ON CONFLICT(key) DO UPDATE SET value = CAST(value AS INTEGER) + 1"
+            )
+            row = conn.execute("SELECT value FROM memory_meta WHERE key = 'generation'").fetchone()
+            conn.execute("COMMIT")
+            return int(row[0]) if row else None
+        finally:
+            conn.close()
+    except (sqlite3.Error, OSError):
+        return None
+
+
+def memory_invalidate(index_dir: Path) -> bool:
+    """Indexer-side invalidation for a raw/hook memory-record edit. Returns True
+    ONLY when the generation DURABLY advanced — the sole durable invalidation for
+    a raw content edit, which does not move ``dir_mtime`` so an un-advanced
+    generation would leave the reader key identical and serve the pre-edit
+    advisory.
+
+    On failure it registers a best-effort short-lived fence token (so readers
+    bypass during the failure WINDOW, TTL-bounded) and returns False. The caller
+    (indexer) MUST then fail the build BEFORE recording file metadata, so the
+    edited record's old file_meta is preserved and the recovered retry
+    re-detects the edit and advances the generation — otherwise a "clean" build
+    would record the new hash and the retry would see no change, permanently
+    stranding the stale advisory."""
+    if memory_advance(index_dir) is not None:
+        return True
+    memory_fence(index_dir)  # best-effort temporary bypass; not durable on its own
+    return False
+
+
+def file_commit_times(index_dir: Path, paths: Iterable[str]) -> dict[str, list[int]]:
+    """Batched per-path windowed commit timestamps — ONE read-only query.
+
+    For the memory-decay hot path (delivery-review perf finding): a whole
+    advisory batch's churn is computed in Python from one store read instead
+    of a per-target store open. Returns ``{path: [commit_ts, ...]}`` (only
+    paths with rows appear). Empty on absent/unreadable store.
+    """
+    wanted = sorted({str(p) for p in paths if p})
+    if not wanted:
+        return {}
+    conn = open_read_only(index_dir)
+    if conn is None:
+        return {}
+    try:
+        marks = ",".join("?" for _ in wanted)
+        out: dict[str, list[int]] = {}
+        for path, ts in conn.execute(
+            f"SELECT path, commit_ts FROM file_commits WHERE path IN ({marks})",
+            wanted,
+        ):
+            out.setdefault(str(path), []).append(int(ts))
+        return out
+    except sqlite3.Error:
+        return {}
+    finally:
+        try:
+            conn.close()
+        except sqlite3.Error:
+            pass
+
+
+def drift_worklist(index_dir: Path, *, limit: int = 20) -> dict[str, Any]:
+    """Drift worklist read (1ro43 Req 7/11): flagged living docs, worst first.
+
+    Historical (``docs/waves/``) rows are excluded by construction — they are
+    never verified, amended, or disposed. Ordering is the documented consumer
+    contract: ``commits_since`` descending, then path for determinism.
+    """
+    conn = open_read_only(index_dir)
+    if conn is None:
+        return {"available": False, "flagged_count": 0, "entries": []}
+    try:
+        # Exempt prefixes are filtered at read time too, so a store written
+        # by an older pass heals immediately (no fingerprint-change wait).
+        exempt_sql = " AND ".join(
+            "path NOT LIKE ?" for _ in DRIFT_EXEMPT_PREFIXES
+        )
+        exempt_args = [f"{p}%" for p in DRIFT_EXEMPT_PREFIXES]
+        flagged = int(
+            conn.execute(
+                "SELECT COUNT(*) FROM doc_drift WHERE drifted = 1 AND historical = 0 "
+                f"AND {exempt_sql}",
+                exempt_args,
+            ).fetchone()[0]
+        )
+        rows = conn.execute(
+            "SELECT path, drift_refs, commits_since, anchor_kind FROM doc_drift "
+            "WHERE drifted = 1 AND historical = 0 "
+            f"AND {exempt_sql} "
+            "ORDER BY commits_since DESC, path ASC LIMIT ?",
+            exempt_args + [int(limit)],
+        ).fetchall()
+        entries = []
+        for path, drift_refs, commits_since, anchor_kind in rows:
+            try:
+                refs = json.loads(drift_refs or "[]")
+            except Exception:
+                refs = []
+            entries.append(
+                {
+                    "path": str(path),
+                    "commits_since": int(commits_since or 0),
+                    "anchor_kind": str(anchor_kind or "content"),
+                    "drift_refs": refs if isinstance(refs, list) else [],
+                }
+            )
+        return {"available": True, "flagged_count": flagged, "entries": entries}
+    except sqlite3.Error:
+        return {"available": False, "flagged_count": 0, "entries": []}
     finally:
         try:
             conn.close()
@@ -1434,6 +1935,60 @@ def _fts_match_expression(query: str) -> str:
     return " OR ".join(quoted)
 
 
+def fts_probe(index_dir: Path, table_name: str) -> bool:
+    """Cheap FTS-layer liveness probe (1seaq review fix): True when the FTS5
+    virtual table for ``table_name`` is queryable. Distinguishes a PARTIALLY
+    corrupt store (build_state readable, FTS shadow tables broken/dropped)
+    from a genuine zero-hit — ``fts_search`` itself fails soft to ``[]`` for
+    the fusion hot path, which would otherwise mask infrastructure failure
+    as an empty corpus."""
+    if table_name not in ("docs", "code"):
+        return False
+    conn = open_read_only(index_dir)
+    if conn is None:
+        return False
+    try:
+        # Liveness = the REAL serving path works (release-review fix): a
+        # bare row count passes with dropped/corrupt FTS5 shadow tables
+        # (fts_*_idx / fts_*_docsize), which only a MATCH/bm25 query
+        # exercises. Run one.
+        conn.execute(
+            f"SELECT bm25(fts_{table_name}) FROM fts_{table_name} "
+            f"WHERE fts_{table_name} MATCH ? LIMIT 1",
+            ('"__wf_probe_token__"',),
+        ).fetchone()
+        # Parity (release-review fix): registry and FTS commit in the same
+        # reconcile transaction, so any row-count divergence — truncation,
+        # partial damage, recreated-empty — means the lexical layer is NOT
+        # the published one.
+        fts_rows = int(conn.execute(f"SELECT count(*) FROM fts_{table_name}").fetchone()[0])
+        reg_rows = int(conn.execute(
+            "SELECT count(*) FROM chunk_registry WHERE table_name = ?", (table_name,)
+        ).fetchone()[0])
+        if fts_rows != reg_rows:
+            return False
+        # Shadow-table parity (release-review round 2): the miss-token MATCH
+        # above never evaluates bm25 on a row, so a dropped/truncated
+        # ``_docsize`` (or ``_content``) shadow table would still pass and
+        # then break — or silently skew — real queries. Contentful FTS5
+        # keeps one row per document in both; enforce exact parity
+        # deterministically (no tokenizer dependence).
+        for shadow in ("docsize", "content"):
+            shadow_rows = int(conn.execute(
+                f"SELECT count(*) FROM fts_{table_name}_{shadow}"
+            ).fetchone()[0])
+            if shadow_rows != fts_rows:
+                return False
+        return True
+    except sqlite3.Error:
+        return False
+    finally:
+        try:
+            conn.close()
+        except sqlite3.Error:
+            pass
+
+
 def fts_search(
     index_dir: Path,
     table_name: str,
@@ -1946,7 +2501,7 @@ def read_build_summary(index_dir: Path) -> Optional[dict[str, Any]]:
 
 def _git_head(root: Path) -> str:
     try:
-        result = subprocess_util.isolated_run(
+        result = _run_git(
             ["git", "-C", str(root), "rev-parse", "HEAD"],
             capture_output=True, text=True, timeout=10,
         )
@@ -1955,6 +2510,219 @@ def _git_head(root: Path) -> str:
     except Exception:
         pass
     return ""
+
+
+# Typed git-authority states (round-4 re-review P1): `_git_head` conflated
+# "timeout / git-missing / error" with "confirmed no repo" into a single empty
+# string, so a transient probe FAILURE destructively cleared valid drift. Drift
+# clearing must distinguish:
+_GIT_AUTHORITY_GIT = "git"                    # a work tree with a resolvable HEAD
+_GIT_AUTHORITY_NON_GIT = "confirmed_non_git"  # git ran and POSITIVELY reports no repo
+_GIT_AUTHORITY_PROBE_FAILED = "probe_failed"  # git missing / timeout / ambiguous error
+
+# The canonical, POSITIVE "there is no repository here" signal. Every OTHER
+# completed-but-failing git invocation — dubious ownership, permission denied, a
+# corrupt `.git`, a bad config — is an ERROR, NOT a confirmed non-git repo, and
+# must NOT authorize destructive drift clearing (round-4 re-review P1: a
+# `fatal: detected dubious ownership` mis-classified as confirmed_non_git). Match
+# only this string, and force a C locale so the message is deterministic.
+_GIT_NOT_A_REPO_MARKER = "not a git repository"
+
+
+# Repository-LOCAL git env vars that redirect or reshape what a `-C <root>`
+# command reads — discovery/location (GIT_DIR, GIT_WORK_TREE, …), object-graph
+# INTERPRETATION (GIT_SHALLOW_FILE, GIT_GRAFT_FILE, GIT_REPLACE_REF_BASE,
+# GIT_NO_REPLACE_OBJECTS), and CONFIG injection (GIT_CONFIG*, GIT_INDEX_VERSION).
+# ANY of them, inherited ambiently, can silently change published TARGET-repo
+# metadata (round-4 re-review (5): GIT_DIR redirected history; (6):
+# GIT_SHALLOW_FILE silently truncated it). This hardcoded set is the FALLBACK;
+# the authoritative census is `git rev-parse --local-env-vars` (see
+# `_git_strip_vars`), so a git-version that adds a new local var is covered
+# without a code change.
+_GIT_DISCOVERY_ENV_OVERRIDES = frozenset({
+    "GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE",
+    "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_CEILING_DIRECTORIES", "GIT_DISCOVERY_ACROSS_FILESYSTEM",
+    "GIT_NAMESPACE", "GIT_PREFIX", "GIT_IMPLICIT_WORK_TREE",
+    "GIT_SHALLOW_FILE", "GIT_GRAFT_FILE",
+    "GIT_REPLACE_REF_BASE", "GIT_NO_REPLACE_OBJECTS",
+    "GIT_CONFIG", "GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT",
+    "GIT_INDEX_VERSION",
+})
+
+# NOTE (scope decision): we deliberately do NOT neutralize the GLOBAL/SYSTEM
+# config selectors (GIT_CONFIG_GLOBAL / GIT_CONFIG_SYSTEM / GIT_CONFIG_NOSYSTEM).
+# An earlier revision pointed them at os.devnull to make rename detection
+# deterministic — but that ALSO discarded protected config, and git only accepts
+# `safe.directory` trust from protected (global/system) scope. Nuking it turned a
+# normal shared/differently-owned checkout (containers, CI mounts, WSL, shared
+# workspaces) into a "dubious ownership" failure → probe_failed → no git
+# freshness/drift. A user's git config influencing behavior is normal git, not
+# corruption. So instead: pass protected config through (safe.directory keeps
+# working), and pin the ONE parser-critical setting — rename detection — with an
+# explicit `--no-renames` command flag on the derivation walks (command flags
+# outrank all config levels, so derivation stays deterministic without the
+# sledgehammer). Broader deterministic git sandboxing is deferred to a future
+# wave if field evidence warrants it.
+
+# Cached authoritative strip-set (the census output is a static compiled-in list,
+# independent of any ambient env, so it is safe to compute once).
+_git_strip_vars_cache: Optional[frozenset] = None
+
+
+def _git_strip_vars() -> frozenset:
+    """The AUTHORITATIVE set of repository-local git env vars to strip.
+
+    Primary source: ``git rev-parse --local-env-vars`` — git's own census of the
+    vars it interprets as repository-local, so a newer git that adds a var is
+    covered without a code change. Unioned with ``_GIT_DISCOVERY_ENV_OVERRIDES``
+    (covers config-injection vars an older git's census may omit, and the case
+    where the census call itself fails). Cached."""
+    global _git_strip_vars_cache
+    if _git_strip_vars_cache is not None:
+        return _git_strip_vars_cache
+    names: set[str] = set(_GIT_DISCOVERY_ENV_OVERRIDES)
+    try:
+        # Self-sanitized minimal env + a DIRECT isolated_run (not _run_git, which
+        # would recurse). The census output is static, but strip the known set
+        # anyway so nothing perturbs the call.
+        base = dict(os.environ, LC_ALL="C", LANG="C")
+        for v in _GIT_DISCOVERY_ENV_OVERRIDES:
+            base.pop(v, None)
+        res = subprocess_util.isolated_run(
+            ["git", "rev-parse", "--local-env-vars"],
+            capture_output=True, text=True, timeout=10, env=base,
+        )
+        if res.returncode == 0:
+            for tok in res.stdout.split():
+                tok = tok.strip()
+                if tok.startswith("GIT_"):
+                    names.add(tok)
+    except Exception:
+        pass  # census unavailable → the hardcoded fallback still applies
+    _git_strip_vars_cache = frozenset(names)
+    return _git_strip_vars_cache
+
+
+def _sanitized_git_env(base: Optional[dict[str, str]] = None) -> dict[str, str]:
+    """Env for EVERY git subprocess in the derivation chain: a forced C locale
+    (stable English stderr) with ALL repository-local git vars STRIPPED (the
+    authoritative ``_git_strip_vars`` census — discovery/location, object-graph
+    interpretation, and config injection).
+
+    Round-4 re-review P1s: an inherited ``GIT_DIR=/missing`` made a valid repo
+    report 'not a git repository' (authority mis-read); an ambient ``GIT_DIR``
+    pointing at a DECOY repo redirected downstream reads; and ``GIT_SHALLOW_FILE``
+    silently truncated derived history. Protected GLOBAL/SYSTEM config is passed
+    through UNCHANGED (so operator-configured ``safe.directory`` trust keeps
+    working on shared/differently-owned checkouts); parser-critical rename
+    detection is instead pinned per-command with ``--no-renames``."""
+    env = dict(base if base is not None else os.environ)
+    env["LC_ALL"] = "C"
+    env["LANG"] = "C"
+    for var in _git_strip_vars():
+        env.pop(var, None)
+    return env
+
+
+def _run_git(cmd: list[str], **kwargs: Any):
+    """The SINGLE sanctioned entry point for every git subprocess in the
+    freshness / fingerprint / drift / gardener / blob-read derivation chain.
+
+    Routes through ``subprocess_util.isolated_run`` with the sanitized git env
+    (C locale + stripped repo/discovery overrides) always applied, so a future
+    call site cannot silently omit sanitization and let an ambient
+    ``GIT_DIR``/``GIT_WORK_TREE`` redirect a ``-C <root>`` command to a decoy.
+    Any caller-supplied ``env`` is still sanitized (overrides re-stripped)."""
+    kwargs["env"] = _sanitized_git_env(kwargs.get("env"))
+    return subprocess_util.isolated_run(cmd, **kwargs)
+
+
+def _git_marker_present(root: Path) -> bool:
+    """True if ANY ``.git`` marker (dir / file / symlink, even broken or
+    unreadable) exists at ``root`` or an ancestor. Distinguishes a genuinely
+    non-git tree (NO marker anywhere → a confirmed non-git transition may clear)
+    from a PRESENT-BUT-INVALID repo — an empty/corrupt ``.git/``, a broken
+    ``.git`` worktree pointer file, an unreadable marker — where git also prints
+    'not a git repository' but a destructive clear would be wrong (→ probe_failed).
+    Walks to the filesystem root, ignoring ceilings, and errs toward 'present'
+    (the safe, preserve direction) on any access error."""
+    try:
+        d = root.resolve()
+    except OSError:
+        return True  # cannot resolve the tree — ambiguous, preserve
+    seen: set[Path] = set()
+    while d not in seen:
+        seen.add(d)
+        try:
+            if os.path.lexists(d / ".git"):  # lexists → catches broken symlinks
+                return True
+        except OSError:
+            return True  # unreadable marker location — ambiguous, preserve
+        parent = d.parent
+        if parent == d:
+            break
+        d = parent
+    return False
+
+
+def _git_authority(root: Path) -> tuple[str, str]:
+    """Typed git-authority probe → ``(state, head)``:
+
+    - ``('git', <40-hex>)``      — a git work tree with a resolvable HEAD.
+    - ``('git', '')``            — a git work tree whose HEAD is UNBORN (no
+                                   commits yet): it IS a git repo, so drift must
+                                   NOT clear (nothing to anchor, but no transition).
+    - ``('confirmed_non_git','')`` — git POSITIVELY reports 'not a git repository'
+                                   AND no ``.git`` marker exists at root/ancestors
+                                   (a genuinely non-git tree). ONLY then may drift
+                                   clear stale git-derived state.
+    - ``('probe_failed','')``    — git binary missing, the probe timed out, ANY
+                                   other completed-but-failing invocation (dubious
+                                   ownership, permission, bad config, unexpected
+                                   output), OR a present-but-invalid ``.git``
+                                   marker (empty/corrupt dir, broken pointer,
+                                   unreadable): authority is UNKNOWN, so callers
+                                   PRESERVE last-good state (never clear).
+    """
+    try:
+        head = _run_git(
+            ["git", "-C", str(root), "rev-parse", "HEAD"],
+            capture_output=True, text=True, timeout=10,
+        )
+    except Exception:
+        return (_GIT_AUTHORITY_PROBE_FAILED, "")  # git missing / timeout / OSError
+    if head.returncode == 0:
+        sha = (head.stdout or "").strip()
+        if _HEX40_RE.match(sha):
+            return (_GIT_AUTHORITY_GIT, sha)
+        return (_GIT_AUTHORITY_PROBE_FAILED, "")  # unexpected rev-parse output
+    # Nonzero: an unborn HEAD (git, no commits), a non-repo, AND error states
+    # (dubious ownership / permission / corrupt) all exit nonzero. Disambiguate
+    # via the work-tree probe (timeouts/missing-binary already returned above).
+    try:
+        wt = _run_git(
+            ["git", "-C", str(root), "rev-parse", "--is-inside-work-tree"],
+            capture_output=True, text=True, timeout=10,
+        )
+    except Exception:
+        return (_GIT_AUTHORITY_PROBE_FAILED, "")
+    out = (wt.stdout or "").strip()
+    if wt.returncode == 0 and out == "true":
+        return (_GIT_AUTHORITY_GIT, "")            # git work tree, HEAD unborn
+    # A CONFIRMED non-git result requires BOTH the positive 'not a git
+    # repository' fatal AND the genuine ABSENCE of any `.git` marker. git prints
+    # the same message for an empty/corrupt `.git/`, a broken worktree pointer,
+    # or an inherited bad env — those are present-but-invalid REPOS, not non-git
+    # trees, so the on-disk marker check forces probe_failed (preserve). Every
+    # other nonzero exit (dubious ownership, permission, bad config) and any
+    # non-"true" exit-0 result also preserves.
+    stderr = (wt.stderr or "").lower()
+    if wt.returncode != 0 and _GIT_NOT_A_REPO_MARKER in stderr:
+        if _git_marker_present(root):
+            return (_GIT_AUTHORITY_PROBE_FAILED, "")  # present-but-invalid repo
+        return (_GIT_AUTHORITY_NON_GIT, "")
+    return (_GIT_AUTHORITY_PROBE_FAILED, "")
 
 
 def _paths_hash(paths: Iterable[str]) -> str:
@@ -1980,10 +2748,14 @@ def _collect_git_freshness(
     commits: list[tuple[str, str, int]] = []
     window_start = int(time.time()) - window_days * 86400
     try:
-        result = subprocess_util.isolated_run(
+        result = _run_git(
             [
                 "git", "-C", str(root), "-c", "core.quotepath=off", "log",
                 f"--max-count={FRESHNESS_GIT_LOG_MAX_COMMITS}",
+                # Pin rename detection OFF so derivation is deterministic
+                # regardless of the user's `diff.renames` config (a command flag
+                # outranks all config levels); consistent with the gardener pass.
+                "--no-renames",
                 "--name-only", "--pretty=format:\x01%H %ct",
             ],
             capture_output=True, text=True, timeout=120, errors="replace",
@@ -2094,6 +2866,848 @@ def update_freshness_from_build(
     except Exception as exc:  # noqa: BLE001 - sidecar state must never fail a build
         print(
             f"build_index: index-state store freshness update skipped: {exc}",
+            file=sys.stderr,
+        )
+        summary["error"] = str(exc)
+    return summary
+
+
+# ---------------------------------------------------------------------------
+# Doc-code drift + wave→files attribution (1ro43): build-time derivation
+# ---------------------------------------------------------------------------
+#
+# Optional resident, same posture as the freshness pass: runs at the build
+# tail inside the index-build lock, after the mandatory residents and before
+# epoch finalize; never fails a build; consumers degrade silently when rows
+# are absent. Everything here is derived-only and rebuilds from git + the
+# working tree on any mismatch.
+
+
+def parse_verification_stamp(text: str) -> tuple[Optional[str], bool]:
+    """Extract a doc's verification stamp: ``(sha_or_none, malformed)``.
+
+    ``malformed`` is True when a ``Verified against:`` line exists but its
+    value is not 7-40 hex chars — docs-lint flags that; drift computation
+    ignores it (fail toward the content anchor, never toward false trust).
+    """
+    match = VERIFICATION_STAMP_PATTERN.search(text)
+    if match:
+        return match.group(1).lower(), False
+    if VERIFICATION_STAMP_LINE.search(text):
+        return None, True
+    return None, False
+
+
+_HEX40_RE = re.compile(r"^[0-9a-f]{40}$")
+
+
+def _collect_git_history(root: Path) -> tuple[bool, list[dict[str, Any]]]:
+    """``(ok, commits)`` — one batched ``git log --name-only`` walk, newest→oldest.
+
+    Each commit is ``{sha, ts, parents, subject, files}``. Build-path only.
+
+    ``ok`` is False (delivery-review finding: the walk must not fail open) on:
+    subprocess non-zero exit, timeout, exception, OR malformed output — a
+    sentinel line whose ``%H``/``%P`` is not a 40-hex SHA, or non-empty stdout
+    that parsed to zero commits (garbage/truncation). An empty repository makes
+    ``git log`` exit non-zero → ``(False, [])``; that is harmless because the
+    build caller gates on ``_git_head`` (empty repo → no HEAD → skipped) before
+    ever reaching this walk.
+    """
+    try:
+        result = _run_git(
+            [
+                "git", "-C", str(root), "-c", "core.quotepath=off", "log",
+                f"--max-count={FRESHNESS_GIT_LOG_MAX_COMMITS}",
+                # `-c` attributes a MERGE commit's own tree changes (evil-merge /
+                # conflict-resolution edits that differ from ALL parents) to the
+                # merge under --name-only; a clean merge lists nothing, so no
+                # over-count. Without it, a file changed only inside a merge is
+                # invisible to path_history and drift mis-counts (delivery-review
+                # merge-DAG finding). Non-merge commits are unaffected.
+                # `--no-renames`: pin rename detection OFF so path attribution is
+                # deterministic regardless of the user's `diff.renames` config (a
+                # command flag outranks all config levels); consistent with the
+                # gardener pass and _collect_git_freshness.
+                "-c", "--no-renames", "--name-only",
+                "--pretty=format:\x01%H\x02%ct\x02%P\x02%s",
+            ],
+            capture_output=True, text=True, timeout=120, errors="replace",
+        )
+        if result.returncode != 0:
+            return False, []
+    except Exception:
+        return False, []
+    commits: list[dict[str, Any]] = []
+    current: Optional[dict[str, Any]] = None
+    seen_sha: set[str] = set()
+    for line in result.stdout.splitlines():
+        if line.startswith("\x01"):
+            parts = line[1:].split("\x02", 3)
+            if len(parts) < 4:
+                return False, []  # truncated sentinel
+            sha = parts[0].strip()
+            if not _HEX40_RE.match(sha):
+                return False, []  # malformed commit SHA
+            if sha in seen_sha:
+                return False, []  # duplicate SHA — malformed/truncated stream
+            seen_sha.add(sha)
+            parents = parts[2].split() if parts[2] else []
+            if any(not _HEX40_RE.match(p) for p in parents):
+                return False, []  # malformed parent SHA
+            try:
+                ts = int(parts[1])
+            except ValueError:
+                return False, []  # invalid timestamp — reject, do not coerce to 0
+            current = {
+                "sha": sha,
+                "ts": ts,
+                "parents": parents,  # full parent SHAs (ancestry, not %ct)
+                "subject": parts[3],
+                "files": [],
+            }
+            commits.append(current)
+            continue
+        if line.strip():
+            if current is None:
+                return False, []  # orphan content before any commit sentinel
+            current["files"].append(line.strip())
+    if result.stdout.strip() and not commits:
+        return False, []  # non-empty stdout that yielded no commits — garbage
+    return True, commits
+
+
+# The canonical gardener metadata line is the DATE-form `Last verified:` in
+# the header block only. Restricting to the date form (delivery-review
+# finding) means a body/fenced lookalike such as ``Last verified: see
+# `src/a.py` `` is NEVER treated as mechanical — it is real content, so a
+# change to it invalidates the skip fingerprint and is material for the anchor.
+_GARDENER_DATE_LINE_RE = re.compile(r"^Last verified:\s+\d{4}-\d{2}-\d{2}\s*$")
+_GARDENER_DATE_LINE_MULTILINE = re.compile(
+    r"^Last verified:\s+\d{4}-\d{2}-\d{2}\s*$", re.MULTILINE
+)
+
+
+# A leading-frontmatter line is blank, a `# Title`, or a `Key: value` metadata
+# line — the region where the gardener's `Last verified:` lives. The scan stops
+# at the first line that is none of these (a `## ` heading, a code fence, a
+# bullet, or prose), so a body/fenced `Last verified: <date>` lookalike is
+# NEVER stripped — even in a doc with no `## ` heading at all (delivery-review
+# finding: `partition("\n## ")` treated a heading-less doc's whole body as
+# header).
+_FRONTMATTER_METADATA_RE = re.compile(r"^[A-Za-z][\w .()/-]*:\s")
+
+
+def _strip_gardener_field(text: str) -> str:
+    """Normalize out ONLY the canonical ``Last verified: <date>`` line in the
+    leading metadata frontmatter. Body/fenced content is preserved verbatim."""
+    out: list[str] = []
+    in_frontmatter = True
+    stripped = False
+    for line in text.split("\n"):
+        if in_frontmatter:
+            if not stripped and _GARDENER_DATE_LINE_RE.match(line):
+                stripped = True
+                continue  # drop the single canonical header date line
+            if line.strip() and not line.startswith("# ") and not _FRONTMATTER_METADATA_RE.match(line):
+                in_frontmatter = False  # first non-metadata line ends frontmatter
+        out.append(line)
+    return "\n".join(out)
+
+
+def _batch_git_blobs(root: Path, specs: list[str]) -> Optional[dict[str, tuple[bool, str]]]:
+    """Fetch many ``<sha>:<path>`` blobs in ONE ``git cat-file --batch`` call.
+
+    Returns ``{spec: (exists, text)}`` or None on any git failure. This both
+    bounds the gardener confirmation to a SINGLE subprocess regardless of
+    candidate count (delivery-review perf/DoS finding) AND fails closed on a
+    real error while treating a ``missing`` object as legitimate absence — the
+    two states the old per-candidate ``git show`` conflated (fail-open
+    finding). Output is bytes so per-object sizes are honored exactly.
+    """
+    if not specs:
+        return {}
+    req = ("\n".join(specs) + "\n").encode("utf-8")
+    try:
+        # Route through the shared sanitized wrapper (round-4 re-review P1: this
+        # was a DIRECT subprocess.run with no env sanitization, so an ambient
+        # GIT_DIR could point cat-file at a DECOY repo's object store). Binary
+        # I/O — isolated_run leaves non-text spawns untouched.
+        result = _run_git(
+            ["git", "-C", str(root), "cat-file", "--batch"],
+            input=req, capture_output=True, timeout=120,
+        )
+        if result.returncode != 0:
+            return None
+    except Exception:
+        return None
+    data = result.stdout
+    out: dict[str, tuple[bool, str]] = {}
+    i, n = 0, len(data)
+    for spec in specs:
+        nl = data.find(b"\n", i)
+        if nl < 0:
+            return None  # truncated stream
+        header = data[i:nl].decode("utf-8", "replace")
+        i = nl + 1
+        if header.endswith(" missing"):
+            out[spec] = (False, "")
+            continue
+        parts = header.rsplit(" ", 2)
+        if len(parts) != 3:
+            return None
+        try:
+            size = int(parts[2])
+        except ValueError:
+            return None
+        if i + size > n:
+            return None  # truncated content
+        content = data[i:i + size].decode("utf-8", "replace")
+        i += size
+        if i < n and data[i:i + 1] == b"\n":
+            i += 1  # skip the record's trailing newline
+        out[spec] = (True, content)
+    return out
+
+
+def _gardener_only_pairs(
+    root: Path,
+    commits: list[dict[str, Any]],
+    doc_paths: Iterable[str],
+) -> tuple[bool, set[tuple[str, str]]]:
+    """``(ok, pairs)`` — (commit_sha, doc_path) pairs that were gardener-only.
+
+    Two passes (delivery-review finding: classify by content, not line shape;
+    validate patch structure; fail closed on malformed output):
+
+    1. One batched ``git log -p -U0`` over the living-doc pathspec narrows to
+       CANDIDATE (commit, doc) pairs whose every changed line is a canonical
+       ``Last verified: <date>`` line. The patch stream is structurally
+       validated — a ``+++``/hunk/content line with no preceding commit
+       sentinel, or a malformed ``@@`` hunk header, returns ``ok=False``.
+    2. Each candidate is CONFIRMED by comparing the doc's METADATA-SCOPED
+       normalized content at the commit vs its first-parent version
+       (``_strip_gardener_field`` removes only the header date line). A
+       fenced/body ``Last verified: <date>`` edit therefore stays material
+       (its body date survives normalization → content differs). The `new`
+       version must exist; a git failure there returns ``ok=False``.
+
+    ``ok`` is False on any subprocess non-zero exit, timeout, exception, or
+    malformed output — never conflated with "success, no gardener commits".
+    """
+    paths = sorted({str(p) for p in doc_paths})
+    if not paths:
+        return True, set()
+    try:
+        result = _run_git(
+            [
+                "git", "-C", str(root), "-c", "core.quotepath=off", "log",
+                f"--max-count={FRESHNESS_GIT_LOG_MAX_COMMITS}", "--no-color",
+                # `--no-merges`: every listed commit is then a non-merge that
+                # touched the pathspec, so it MUST carry a complete diff frame —
+                # which lets the frame validator below distinguish a truncated
+                # stream (sentinel-only / diff-only / header-only) from a real
+                # empty result, without a bare-merge false positive.
+                "--no-merges", "--no-renames", "-U0",
+                "--pretty=format:\x01%H", "--", *paths,
+            ],
+            capture_output=True, text=True, timeout=120, errors="replace",
+        )
+        if result.returncode != 0:
+            return False, set()
+    except Exception:
+        return False, set()
+
+    first_parent = {
+        str(c["sha"]): (c.get("parents") or [None])[0] for c in commits
+    }
+    changed: dict[tuple[str, str], bool] = {}   # saw a changed line
+    all_date: dict[tuple[str, str], bool] = {}  # every changed line is date-form
+    sha = ""
+    cur_file: Optional[str] = None
+    saw_sentinel = False
+    # Frame state — a commit frame is `diff --git`+ `+++` + (`@@` + content)+;
+    # each commit must contain at least one COMPLETE such frame. Any partial
+    # frame (delivery-review round 4: sentinel-only / diff-only / header-only
+    # truncation) fails closed.
+    frame_open = f_plus = f_hunk = hunk_content = commit_has_frame = False
+
+    def _frame_complete() -> bool:
+        return (not frame_open) or (f_plus and f_hunk and hunk_content)
+
+    for line in result.stdout.splitlines():
+        if line.startswith("\x01"):
+            if not _frame_complete():
+                return False, set()
+            if frame_open:
+                commit_has_frame = True
+            if saw_sentinel and not commit_has_frame:
+                return False, set()  # previous commit carried no complete frame
+            sha = line[1:].strip()
+            if not _HEX40_RE.match(sha):
+                return False, set()  # malformed commit sentinel
+            saw_sentinel = True
+            cur_file = None
+            frame_open = f_plus = f_hunk = hunk_content = commit_has_frame = False
+        elif line.startswith("diff --git"):
+            if not sha:
+                return False, set()  # file diff before any commit
+            if not _frame_complete():
+                return False, set()  # previous frame truncated
+            if frame_open:
+                commit_has_frame = True
+            frame_open = True
+            f_plus = f_hunk = hunk_content = False
+            cur_file = None
+        elif line.startswith("--- "):
+            continue
+        elif line.startswith("+++ "):
+            if not frame_open:
+                return False, set()  # +++ with no diff --git
+            target = line[4:]
+            cur_file = None if target == "/dev/null" else (
+                target[2:] if target.startswith("b/") else target)
+            f_plus = True
+        elif line.startswith("@@"):
+            if not frame_open or not f_plus:
+                return False, set()  # hunk before its file header
+            if not re.match(r"^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@", line):
+                return False, set()  # malformed hunk header
+            if f_hunk and not hunk_content:
+                return False, set()  # previous hunk had no content
+            f_hunk = True
+            hunk_content = False
+        elif line and line[0] in "+-":
+            if not sha or cur_file is None or not f_hunk:
+                return False, set()  # content outside a well-formed hunk
+            hunk_content = True
+            key = (sha, cur_file)
+            changed[key] = True
+            if not _GARDENER_DATE_LINE_RE.match(line[1:]):
+                all_date[key] = all_date.get(key, True) and False
+            else:
+                all_date.setdefault(key, True)
+        # else: index/mode/`\ No newline` lines between the file header and
+        # the hunk — ignored.
+
+    # Close the final frame + commit (EOF).
+    if not _frame_complete():
+        return False, set()
+    if frame_open:
+        commit_has_frame = True
+    if saw_sentinel and not commit_has_frame:
+        return False, set()  # last commit carried no complete frame
+    if result.stdout.strip() and not saw_sentinel:
+        return False, set()
+
+    candidates = [k for k in changed if all_date.get(k, False)]
+    if not candidates:
+        return True, set()
+    # ONE batched blob read for every candidate's new + parent version. A git
+    # error → None → fail closed; a `missing` parent (creation) → empty old.
+    specs: list[str] = []
+    for c_sha, rel in candidates:
+        specs.append(f"{c_sha}:{rel}")
+        parent = first_parent.get(c_sha)
+        if parent:
+            specs.append(f"{parent}:{rel}")
+    blobs = _batch_git_blobs(root, specs)
+    if blobs is None:
+        return False, set()
+    pairs: set[tuple[str, str]] = set()
+    for c_sha, rel in candidates:
+        new = blobs.get(f"{c_sha}:{rel}")
+        if new is None or not new[0]:
+            return False, set()  # the changed version MUST exist
+        parent = first_parent.get(c_sha)
+        old_text = ""
+        if parent:
+            old = blobs.get(f"{parent}:{rel}")
+            if old is None:
+                return False, set()
+            old_text = old[1]  # (False, "") for a legitimately-absent parent
+        if _strip_gardener_field(old_text) == _strip_gardener_field(new[1]):
+            pairs.add((c_sha, rel))
+    return True, pairs
+
+
+def derive_wave_attribution(
+    commits: list[dict[str, Any]],
+) -> tuple[list[tuple[str, str, Optional[int]]], list[tuple[str, str]]]:
+    """Landing-commit wave→files derivation (1ro43 Req 12), tolerant patterns.
+
+    Rules calibrated against this repository's real history (censused at the
+    2026-07-13 pre-implementation review):
+    - ``Land …`` subjects attribute every wave-id token in the subject to the
+      commit's diff (covers "Land wave X:", "Land waves X + Y:", "Land waves
+      X, Y (1.10.0):", "Land X …", ids in trailing parens, no-colon variants).
+      Bundle commits attribute coarsely — every bundled wave shares the change
+      set (wave-set attribution, never silently per-wave).
+    - Version-only subjects ("Land 1.8.0: …") carry no id token and are
+      skipped — derivation degrades to plain churn.
+    - ``Close wave <id>`` subjects are landing candidates ONLY for ids with no
+      ``Land`` commit: sometimes the close commit carries the implementation
+      (no separate landing), but when a Land commit exists the close commit is
+      docs-only bookkeeping and counting it would double-attribute.
+    - Everything else ("Advance wave", "Bump VERSION", "Plan/Ready wave",
+      handoff updates) is excluded; mid-wave Advance commits mean landing-diff
+      attribution stays coarse for such waves — accepted best-effort.
+    """
+    landings: list[tuple[str, str, Optional[int]]] = []
+    change_files: dict[tuple[str, str], None] = {}
+    landed_ids: set[str] = set()
+    close_candidates: list[tuple[str, dict[str, Any]]] = []
+    for commit in commits:
+        subject = str(commit.get("subject") or "")
+        if subject.startswith("Land "):
+            ids = set(WAVE_ID_TOKEN.findall(subject))
+            for wave_id in ids:
+                landed_ids.add(wave_id)
+                landings.append((wave_id, str(commit["sha"]), int(commit["ts"]) or None))
+                for rel in commit.get("files") or []:
+                    change_files[(wave_id, rel)] = None
+        elif subject.startswith("Close wave "):
+            ids = set(WAVE_ID_TOKEN.findall(subject))
+            for wave_id in ids:
+                close_candidates.append((wave_id, commit))
+    for wave_id, commit in close_candidates:
+        if wave_id in landed_ids:
+            continue
+        landings.append((wave_id, str(commit["sha"]), int(commit["ts"]) or None))
+        for rel in commit.get("files") or []:
+            change_files[(wave_id, rel)] = None
+    return landings, sorted(change_files.keys())
+
+
+# Candidate path-reference tokens in doc prose: must contain a separator and
+# look path-shaped; matches are validated by exact membership in the indexed
+# path set, so precision is governed by the repo itself (a token that is not
+# an indexed file is never a drift ref).
+_DOC_PATH_REF_TOKEN = re.compile(r"[A-Za-z0-9_.][A-Za-z0-9_./-]*/[A-Za-z0-9_./-]*[A-Za-z0-9]")
+
+_HISTORICAL_DOC_PREFIX = "docs/waves/"
+
+# Census finding (1ro43 AC-8, this repo): generated point-in-time artifacts
+# under docs/reports/ dominated the false-positive tail — a dated reindex
+# report can never be "verified against" current code; flagging it is
+# meaningless. Annotation (age/churn) still rides via file_freshness; these
+# prefixes are only exempt from the DRIFT flag and therefore the worklist.
+DRIFT_EXEMPT_PREFIXES = ("docs/reports/",)
+
+
+def _extract_doc_path_refs(text: str, known_paths: set[str], self_path: str) -> list[str]:
+    refs: set[str] = set()
+    for match in _DOC_PATH_REF_TOKEN.finditer(text):
+        token = match.group(0)
+        # Normalize an explicit relative prefix only — a bare leading dot is
+        # meaningful (".wavefoundry/framework/…" is a real indexed prefix).
+        while token.startswith("./"):
+            token = token[2:]
+        if token != self_path and token in known_paths:
+            refs.add(token)
+    return sorted(refs)
+
+
+def _wave_id_for_historical_path(rel: str) -> Optional[str]:
+    """Wave id from a ``docs/waves/<wave-id> <slug>/…`` path, if shaped so."""
+    remainder = rel[len(_HISTORICAL_DOC_PREFIX):]
+    top = remainder.split("/", 1)[0]
+    first_token = top.split(" ", 1)[0]
+    if WAVE_ID_TOKEN.fullmatch(first_token):
+        return first_token
+    return None
+
+
+def compute_doc_drift(
+    root: Path,
+    docs_paths: Iterable[str],
+    all_paths: Iterable[str],
+    commits: list[dict[str, Any]],
+    landings: list[tuple[str, str, Optional[int]]],
+    change_files: list[tuple[str, str]],
+    doc_texts: Optional[dict[str, str]] = None,
+    gardener_pairs: Optional[set[tuple[str, str]]] = None,
+) -> dict[str, dict[str, Any]]:
+    """Per-doc drift rows (1ro43 Reqs 3 + 13) from one shared git walk.
+
+    Living docs: anchor = the newer of the doc's last MATERIAL content change
+    and its verification-stamp commit (gardener ``Last verified`` stamps are
+    never an anchor). ``commits_since`` counts commits touching a referenced
+    path in the ANCESTRY range ``anchor..HEAD`` — reachable from HEAD, not from
+    the anchor — so merge-DAG siblings that appear after the anchor in log
+    order are counted correctly (delivery-review finding: log position is not
+    ancestry). Drift flags at ``DRIFT_COMMITS_THRESHOLD``.
+
+    Historical docs (``docs/waves/``): anchored at their wave's landing
+    commit; ``waves_behind`` counts other waves whose landing is a DESCENDANT
+    of this wave's landing (landed later by ancestry) and whose change set
+    intersects. Never drift-flagged, never worklisted.
+
+    ``gardener_pairs`` (the ``_gardener_only_pairs`` result) is injected by the
+    build path; when None it is computed best-effort here for direct callers.
+    """
+    known_paths = {str(p) for p in all_paths}
+    sha_pos: dict[str, int] = {}          # sha → log position (0 = newest); pruning key only
+    parents_by_sha: dict[str, list[str]] = {}
+    path_history: dict[str, list[tuple[int, str]]] = {}  # rel → [(pos, sha)] newest-first
+    for pos, commit in enumerate(commits):
+        sha = str(commit["sha"])
+        sha_pos.setdefault(sha, pos)
+        parents_by_sha.setdefault(sha, [str(p) for p in commit.get("parents") or []])
+        for rel in commit.get("files") or []:
+            if rel in known_paths:
+                path_history.setdefault(rel, []).append((pos, sha))
+
+    def _resolve_stamp_sha(stamp: str) -> Optional[str]:
+        if len(stamp) == 40:
+            return stamp if stamp in sha_pos else None
+        hits = [full for full in sha_pos if full.startswith(stamp)]
+        return hits[0] if len(hits) == 1 else None
+
+    def _ancestors(anchor_sha: str, max_pos: Optional[int]) -> set[str]:
+        """Ancestors of ``anchor_sha`` (inclusive), pruning branches older than
+        ``max_pos`` (they can contain no commit we are asking about)."""
+        seen: set[str] = set()
+        stack = [anchor_sha]
+        while stack:
+            s = stack.pop()
+            if s in seen:
+                continue
+            seen.add(s)
+            for p in parents_by_sha.get(s, ()):
+                if p in seen:
+                    continue
+                pp = sha_pos.get(p)
+                if pp is None:
+                    seen.add(p)  # outside the log window — boundary, don't expand
+                    continue
+                if max_pos is not None and pp > max_pos:
+                    seen.add(p)  # older than every commit of interest — prune
+                    continue
+                stack.append(p)
+        return seen
+
+    def _commits_after(refs: set[str], anchor_sha: str) -> int:
+        # Distinct commits touching any ref in the ancestry range anchor..HEAD:
+        # reachable from HEAD (all logged commits are) but NOT reachable from
+        # the anchor. Position is used only to bound the ancestry walk.
+        targets: set[str] = set()
+        for rel in refs:
+            for _pos, sha in path_history.get(rel, ()):
+                targets.add(sha)
+        targets.discard(anchor_sha)
+        if not targets:
+            return 0
+        max_pos = max((sha_pos.get(t, 0) for t in targets), default=0)
+        reachable = _ancestors(anchor_sha, max_pos)
+        return sum(1 for t in targets if t not in reachable)
+
+    # Newest landing SHA per wave (min position) + its full ancestor set, for
+    # ancestry-based waves-behind (few landings — cheap to precompute).
+    wave_landing_sha: dict[str, str] = {}
+    wave_landing_pos: dict[str, int] = {}
+    for wave_id, sha, _ts in landings:
+        pos = sha_pos.get(str(sha))
+        if pos is not None and pos < wave_landing_pos.get(wave_id, 1 << 62):
+            wave_landing_pos[wave_id] = pos
+            wave_landing_sha[wave_id] = str(sha)
+    wave_landing_ancestors: dict[str, set[str]] = {
+        w: _ancestors(sha, None) for w, sha in wave_landing_sha.items()
+    }
+    wave_files: dict[str, set[str]] = {}
+    for wave_id, rel in change_files:
+        wave_files.setdefault(wave_id, set()).add(rel)
+
+    living_docs = [
+        str(p) for p in docs_paths
+        if not str(p).startswith(_HISTORICAL_DOC_PREFIX)
+    ]
+    if gardener_pairs is None:
+        _ok, gardener_pairs = _gardener_only_pairs(root, commits, living_docs)
+
+    def _material_content(rel: str) -> Optional[str]:
+        """Newest commit SHA whose change to the doc was NOT gardener-only."""
+        for _pos, sha in path_history.get(rel, ()):  # newest-first
+            if (sha, rel) not in gardener_pairs:
+                return sha
+        hist = path_history.get(rel)
+        return hist[-1][1] if hist else None  # all gardener-only → creation
+
+    entries: dict[str, dict[str, Any]] = {}
+    for rel in sorted({str(p) for p in docs_paths}):
+        if rel.startswith(_HISTORICAL_DOC_PREFIX):
+            wave_id = _wave_id_for_historical_path(rel)
+            landing_sha = wave_landing_sha.get(wave_id or "")
+            if wave_id and landing_sha:
+                refs = wave_files.get(wave_id, set())
+                # Y landed LATER than X iff X's landing is an ancestor of Y's
+                # landing (X reachable from Y) — pure ancestry, not %ct/position.
+                behind = sum(
+                    1
+                    for other, other_ancestors in wave_landing_ancestors.items()
+                    if other != wave_id
+                    and landing_sha in other_ancestors
+                    and wave_files.get(other, set()) & refs
+                )
+                entries[rel] = {
+                    "drifted": False,
+                    "drift_refs": [],
+                    "commits_since": _commits_after(refs, landing_sha),
+                    "anchor_kind": "content",
+                    "historical": True,
+                    "waves_behind": behind,
+                }
+            else:
+                entries[rel] = {
+                    "drifted": False,
+                    "drift_refs": [],
+                    "commits_since": 0,
+                    "anchor_kind": "content",
+                    "historical": True,
+                    "waves_behind": 0,
+                }
+            continue
+        content_sha = _material_content(rel)
+        if doc_texts is not None and rel in doc_texts:
+            text = doc_texts[rel]
+        else:
+            try:
+                text = (root / rel).read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                text = ""
+        stamp, _malformed = parse_verification_stamp(text)
+        stamp_sha = _resolve_stamp_sha(stamp) if stamp else None
+        # Anchor = the NEWER of the material content change and the stamp
+        # commit (smaller log position). A live, resolvable stamp governs the
+        # KIND label. Ancestry counting is done from the chosen anchor SHA.
+        anchor_sha = content_sha
+        anchor_kind = "content"
+        if stamp_sha is not None:
+            if anchor_sha is None or sha_pos.get(stamp_sha, 1 << 62) <= sha_pos.get(anchor_sha, 1 << 62):
+                anchor_sha = stamp_sha
+            anchor_kind = "verification"
+        refs = set(_extract_doc_path_refs(text, known_paths, rel))
+        commits_since = (
+            _commits_after(refs, anchor_sha) if (refs and anchor_sha is not None) else 0
+        )
+        drift_exempt = rel.startswith(DRIFT_EXEMPT_PREFIXES)
+        entries[rel] = {
+            "drifted": bool(refs) and not drift_exempt
+            and commits_since >= DRIFT_COMMITS_THRESHOLD,
+            "drift_refs": sorted(refs),
+            "commits_since": commits_since,
+            "anchor_kind": anchor_kind,
+            "historical": False,
+            "waves_behind": 0,
+        }
+    return entries
+
+
+def has_drift_state(index_dir: Path) -> bool:
+    """Cheap read-only probe: does the store hold ANY git-derived drift state
+    (a drift fingerprint or a ``doc_drift`` row)? Used to gate the no-op-path
+    non-git reconcile so a normal git repo does not pay a git probe on every
+    zero-change build unless there is actually stale state to reconcile."""
+    conn = open_read_only(index_dir)
+    if conn is None:
+        return False
+    try:
+        fp = conn.execute(
+            "SELECT COUNT(*) FROM meta WHERE key = ?", (META_DRIFT_FINGERPRINT,)
+        ).fetchone()
+        if fp and int(fp[0]):
+            return True
+        rows = conn.execute("SELECT COUNT(*) FROM doc_drift").fetchone()
+        return bool(rows and int(rows[0]))
+    except sqlite3.Error:
+        return False
+    finally:
+        try:
+            conn.close()
+        except sqlite3.Error:
+            pass
+
+
+def _clear_git_derived_drift(index_dir: Path, *, verbose: bool = False) -> dict[str, Any]:
+    """Transactionally clear git-derived attribution/drift/fingerprint for a
+    CONFIRMED non-git transition. FAIL-CLOSED (round-4 re-review): if the clear
+    fails, surface ``drift_clear_failed`` + an error (the atomic transaction
+    means no partial clear) so the NEXT build retries rather than silently
+    leaving a stale ``drifted: true`` row behind a clean-looking skip."""
+    out: dict[str, Any] = {}
+    if not state_store_path(index_dir).exists():
+        return out
+    try:
+        store = IndexStateStore(index_dir)
+        try:
+            store.ensure_current()
+            cleared = store.clear_attribution_and_drift()
+            if cleared:
+                out["cleared_git_derived"] = cleared
+                if verbose:
+                    print(
+                        "build_index: doc drift — git authority confirmed absent; "
+                        f"cleared {cleared} stale git-derived drift/attribution "
+                        "row(s) so readers degrade cleanly.",
+                        flush=True,
+                    )
+        finally:
+            store.close()
+    except Exception as exc:  # noqa: BLE001 - sidecar must never raise into the build
+        out["drift_clear_failed"] = True
+        out["error"] = str(exc)
+        print(
+            "build_index: WARNING — confirmed git→non-git transition could not "
+            f"clear stale drift ({exc}); the stale rows persist and the next "
+            "build will retry the clear.",
+            file=sys.stderr,
+            flush=True,
+        )
+    return out
+
+
+def reconcile_non_git_drift(
+    root: Path, index_dir: Path, *, verbose: bool = False
+) -> dict[str, Any]:
+    """No-op-build companion to ``update_drift_from_build`` (round-4 re-review
+    P1): the tail drift pass is skipped when a build detects zero file changes,
+    so an unchanged copied index — or a repo that lost ``.git`` with no other
+    edits — would keep serving stale git-derived drift. This clears it when git
+    authority is CONFIRMED absent, and PRESERVES last-good on a probe failure or
+    a real git repo. Caller gates on ``has_drift_state`` to avoid a git probe on
+    every no-op build in a normal repo."""
+    summary: dict[str, Any] = {"skipped": True}
+    try:
+        git_state, _head = _git_authority(root)
+        summary["git_state"] = git_state
+        if git_state == _GIT_AUTHORITY_NON_GIT:
+            summary.update(_clear_git_derived_drift(index_dir, verbose=verbose))
+        # probe_failed / git → preserve, do nothing.
+    except Exception as exc:  # noqa: BLE001
+        summary["error"] = str(exc)
+    return summary
+
+
+def update_drift_from_build(
+    root: Path,
+    index_dir: Path,
+    docs_paths: Iterable[str],
+    all_paths: Iterable[str],
+    *,
+    verbose: bool = False,
+) -> dict[str, Any]:
+    """Refresh wave attribution + doc drift for one build pass (1ro43).
+
+    Same contract as ``update_freshness_from_build``: inside the index-build
+    lock, optional resident, never raises. Zero-change skip fingerprints on
+    git HEAD + the docs path set + a MATERIAL-CONTENT digest of every living
+    doc (gardener ``Last verified:`` lines normalized out). The content digest
+    (delivery-review finding) means an uncommitted reference edit at stable
+    HEAD — adding, removing, or changing a `path` a doc points at — changes
+    the fingerprint and forces recompute, while a mechanical gardener edit does
+    not thrash it. The stamp text lives in the doc body, so stamp changes are
+    also covered by the content digest.
+    """
+    summary: dict[str, Any] = {"written": 0, "skipped": False}
+    try:
+        docs_set = sorted({str(p) for p in docs_paths})
+        all_set = {str(p) for p in all_paths}
+        # Round-4 re-review P1: use the TYPED git-authority probe. A transient
+        # probe failure (timeout / git missing / ambiguous error) must NEVER be
+        # read as "non-git" and destructively clear valid last-good drift.
+        git_state, head = _git_authority(root)
+        if git_state == _GIT_AUTHORITY_PROBE_FAILED:
+            # Authority UNKNOWN — preserve last-good drift, skip, retry next build.
+            summary["skipped"] = True
+            summary["git_probe_failed"] = True
+            if verbose:
+                print(
+                    "build_index: doc drift skipped — git authority probe failed "
+                    "(timeout / git missing / ambiguous); prior drift preserved.",
+                    file=sys.stderr,
+                )
+            return summary
+        if git_state != _GIT_AUTHORITY_GIT or not head:
+            # CONFIRMED non-git (or a git work tree with an unborn HEAD): no
+            # commit history, no anchors, no attribution. A fresh project has
+            # nothing to do, but a git-built index copied into — or a repo that
+            # dropped its git metadata under — a now-non-git root would keep
+            # serving stale git-derived drift. Clear ONLY on a CONFIRMED non-git
+            # transition (an unborn-HEAD git repo is still git — preserve).
+            summary["skipped"] = True
+            if git_state == _GIT_AUTHORITY_NON_GIT:
+                summary.update(
+                    _clear_git_derived_drift(index_dir, verbose=verbose)
+                )
+            return summary
+        content_digest = hashlib.sha256()
+        doc_texts: dict[str, str] = {}
+        for rel in docs_set:
+            try:
+                text = (root / rel).read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                text = ""
+            doc_texts[rel] = text
+            # Hash-prefixed (not delimiter-separated) so no crafted path/body
+            # boundary can alias two distinct doc sets to one digest.
+            content_digest.update(hashlib.sha256(rel.encode("utf-8")).digest())
+            content_digest.update(
+                hashlib.sha256(_strip_gardener_field(text).encode("utf-8")).digest()
+            )
+        fingerprint = f"{head}:{_paths_hash(docs_set)}:{content_digest.hexdigest()}"
+        store = IndexStateStore(index_dir)
+        try:
+            store.ensure_current()
+            if store.get_meta(META_DRIFT_FINGERPRINT) == fingerprint:
+                summary["skipped"] = True
+                return summary
+            living_docs = [d for d in docs_set if not d.startswith(_HISTORICAL_DOC_PREFIX)]
+            # BOTH git walks must succeed before ANY of attribution / drift
+            # rows / fingerprint is replaced (delivery-review finding: neither
+            # walk may fail open). A failure preserves the prior state — the
+            # last-good drift rows and fingerprint stay untouched — and the
+            # next build retries.
+            hist_ok, commits = _collect_git_history(root)
+            gardener_ok, gardener_pairs = (
+                _gardener_only_pairs(root, commits, living_docs) if hist_ok else (False, set())
+            )
+            if not hist_ok or not gardener_ok:
+                summary["skipped"] = True
+                summary["drift_detect_failed"] = True
+                which = "history walk" if not hist_ok else "gardener classifier"
+                print(
+                    f"build_index: doc drift update skipped — {which} failed "
+                    "(git error/timeout/malformed output); prior drift state "
+                    "preserved, will retry next build.",
+                    file=sys.stderr,
+                )
+                return summary
+            landings, change_files = derive_wave_attribution(commits)
+            entries = compute_doc_drift(
+                root, docs_set, all_set, commits, landings, change_files,
+                doc_texts=doc_texts, gardener_pairs=gardener_pairs,
+            )
+            # Single transaction — attribution + drift + fingerprint advance
+            # together or not at all (no torn write between two commits).
+            store.replace_attribution_and_drift(
+                landings=landings, change_files=change_files,
+                entries=entries, fingerprint=fingerprint,
+            )
+            summary["written"] = len(entries)
+            summary["waves_attributed"] = len({w for w, _s, _t in landings})
+            if verbose:
+                drifted = sum(1 for e in entries.values() if e.get("drifted"))
+                print(
+                    f"build_index: doc drift updated ({len(entries)} docs, "
+                    f"{drifted} drift-flagged, "
+                    f"{summary['waves_attributed']} waves attributed)",
+                    flush=True,
+                )
+        finally:
+            store.close()
+    except Exception as exc:  # noqa: BLE001 - sidecar state must never fail a build
+        print(
+            f"build_index: doc drift update skipped: {exc}",
             file=sys.stderr,
         )
         summary["error"] = str(exc)

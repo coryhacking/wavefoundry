@@ -312,9 +312,15 @@ def check_docs_gate(repo_root: Path) -> None:
 # Pre-flight checks run BEFORE the build so failures (dirty tree, wrong
 # branch, missing CHANGELOG section, gh not auth'd) abort cheaply. Wave 1p4ww
 # removed the shipped framework index, so there is no post-build index
-# assertion. `--release-dry-run` walks the entire pipeline without side
-# effects (no git tag, no push, no gh upload) so the orchestration logic
-# itself can be smoke-tested before a real release.
+# assertion. The full --release order (matches _run_release_orchestration and
+# the ordering test): (1) preflight checks, (2) LOCAL build (archive written,
+# VERSION/manifest/README-badge stamped), (3) commit the stamps, (4) tag the
+# stamp commit locally, (5) push HEAD to origin/main, (6) push the tag,
+# (7) publish the GitHub release with the zip attached.
+# `--release-dry-run` runs (1)-(2) for real and only PRINTS (3)-(7) — no
+# commit, tag, push, or upload — so the archive and stamps remain and the
+# tree is left dirty; the orchestration logic can be smoke-tested before a
+# real release.
 
 
 RELEASE_NOTES_INSTALL_BLOCK_REL = Path(".wavefoundry/framework/install/install-block.md")
@@ -903,8 +909,14 @@ def main():
         action="store_true",
         help=(
             "Walk the --release pre-flight checks and orchestration without "
-            "any side effects (no git tag, no push, no gh upload). Use to "
-            "smoke-test the release pipeline before a real --release."
+            "any REMOTE side effects (no commit, no git tag, no push, no gh "
+            "upload) — but the LOCAL build still runs: the archive is built "
+            "and VERSION/manifest are stamped, leaving the working tree "
+            "dirty (restore with: git restore -- "
+            ".wavefoundry/framework/VERSION "
+            "docs/prompts/prompt-surface-manifest.json README.md). "
+            "Use to smoke-test "
+            "the release pipeline before a real --release."
         ),
     )
     args = parser.parse_args()
@@ -1031,7 +1043,14 @@ def main():
             print(f"error: release orchestration failed: {exc}", file=sys.stderr)
             sys.exit(1)
         if args.release_dry_run:
-            print(f"[--release-dry-run] complete; no side effects taken.", file=sys.stderr)
+            print(
+                "[--release-dry-run] complete; no commit, tag, push, or GitHub "
+                "release was created. Local archive and VERSION/manifest/README "
+                "stamps remain — the working tree may be dirty (restore with: "
+                "git restore -- .wavefoundry/framework/VERSION "
+                "docs/prompts/prompt-surface-manifest.json README.md).",
+                file=sys.stderr,
+            )
         else:
             print(f"Released v{args.version}.", file=sys.stderr)
 

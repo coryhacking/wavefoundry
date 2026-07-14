@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-12
+Last verified: 2026-07-14
 
 ## The Problem
 
@@ -60,9 +60,9 @@ When semantic search is unavailable, `docs_search` automatically falls back to `
 
 The fallback is intentional rather than accidental: a useful-but-lower-quality answer is better than an error. But it must be transparent.
 
-### Decision 3: Embedded vector store (LanceDB) with numpy fallback
+### Decision 3: Embedded vector store (LanceDB)
 
-The vector retrieval layer uses **LanceDB** — an Apache 2.0 embedded in-process vector database — as its primary backend, with a numpy cosine scan as a fallback when Lance tables are absent.
+The vector retrieval layer uses **LanceDB** — an Apache 2.0 embedded in-process vector database — as its persisted backend. There is no numpy or legacy-JSON serving fallback: readers require a completed build epoch and the canonical Lance tables, and fail closed when either is unavailable.
 
 **Why LanceDB:**
 
@@ -70,20 +70,16 @@ The vector retrieval layer uses **LanceDB** — an Apache 2.0 embedded in-proces
 2. **Native HNSW index above threshold.** When a table reaches `LANCEDB_INDEX_THRESHOLD = 1000` rows, an `IVF_HNSW_SQ` index is built automatically. Below that threshold, LanceDB performs a flat scan (comparable to numpy) with no index overhead.
 3. **True deletion path.** The numpy backend had no deletion path — a file removal required a full rebuild. LanceDB supports filtered deletes for incremental updates, including row-level deletes by chunk id.
 4. **Predicate pushdown.** `where` SQL predicates are pushed into the scan layer, avoiding loading filtered-out rows. The numpy path filtered post-scan.
-5. **Operational simplicity retained.** LanceDB is embedded (no server process) and stores tables as directories under `.wavefoundry/index/lancedb/`. The directory can be deleted and rebuilt with a single `setup_index.py` run.
+5. **Operational simplicity retained.** LanceDB is embedded (no server process). Wavefoundry connects directly to `.wavefoundry/index/`; the canonical tables are `.wavefoundry/index/docs.lance/` and `.wavefoundry/index/code.lance/`. LanceDB may also maintain its own `.wavefoundry/index/__manifest/` metadata at that database root. A nested `.wavefoundry/index/lancedb/` directory is not part of the canonical layout and is a removable legacy artifact once the root tables are complete.
 
 **Lifecycle:**
 
-- `_build_lance_tables` writes `docs` and `code` tables under `index_dir/lancedb/`.
-- On full rebuild (`--full`), `_cleanup_legacy_index_files` verifies the Lance tables are non-empty and then deletes `docs.npy`, `docs.json`, `code.npy`, `code.json`. A legacy `meta.json` is removed only after a successful build finalizes its epoch (wave `1sed7`).
+- The indexer passes `index_dir` itself to `lancedb.connect(...)`, so LanceDB writes the `docs` and `code` tables as `index_dir/docs.lance/` and `index_dir/code.lance/`.
+- SQLite `index-state.sqlite` is the sole authority for build state and provenance. Readers require a completed epoch before opening either root-level table; legacy `meta.json`, numpy, and JSON index artifacts are never serving inputs (wave `1sed7`).
 - During incremental updates, the indexer reads existing rows for stale paths, compares `chunk_hash` values against freshly generated chunks, reuses unchanged vectors, embeds only changed/new chunks, deletes removed or replaced row ids, and appends current rows. `_optimize_lance_table` compacts the table when the fragment count exceeds `LANCEDB_COMPACT_THRESHOLD = 20`.
-- If lancedb is not installed (e.g. CI without the extra dep), the numpy files are written and the numpy fallback path in `WaveIndex._ensure_loaded` is used transparently.
+- A full rebuild recreates the canonical root tables. If LanceDB is unavailable or the tables cannot be opened, the build or reader reports the failure rather than manufacturing readiness from a secondary format.
 
-**Fallback path:**
-
-`WaveIndex._ensure_loaded` checks for `index_dir/lancedb/docs.lance/` (a directory). If present: opens LanceDB tables and sets `_using_lance = True`. If absent: emits a one-time migration warning to stderr and loads the numpy index. The `search_docs`, `search_code`, and `search_combined` methods branch on `_using_lance` with the numpy path as the `else` branch.
-
-**Score convention:** LanceDB's cosine metric returns `_distance = 1 - cosine_similarity`. `_lance_search` converts this to `score = 1 - distance` so higher scores always mean more similar — matching the numpy path's convention.
+**Score convention:** LanceDB's cosine metric returns `_distance = 1 - cosine_similarity`. `_lance_search` converts this to `score = 1 - distance` so higher scores always mean more similar.
 
 ### Decision 4: Single project index (framework docs folded in)
 
@@ -146,22 +142,24 @@ Both kinds are prepended to their file's chunk list so they appear first in retr
 
 1. Classifies the question type (`navigational` / `explanatory` / `instructional`) using the `_classify_question` keyword heuristic
 2. Runs a broad semantic pass via `search_combined()` — fetches from both docs and code indexes, then (wave `1p52p`, ADR `1p52q`) applies a **rerank-FIRST** cross-encoder that scores the whole pool on one unified `sigmoid(logit)` relevance scale BEFORE the agent selection (per-index floor / relevance drop-off / text budget). This is `code_ask`'s single ranking path — the former `rerank="local"` and `rrf_fallback` paths were removed. The cross-encoder runs on whatever hardware is present (FP16 on GPU, INT8 on CPU); ordering falls back to vector/coverage order (`reranked=false`) only when reranking is explicitly disabled or unbuildable. The unified scale matters because the docs/code model split (`1p4wx`) put arctic-doc and bge-code cosines on different scales — only the cross-encoder makes docs and code candidates comparable
-3. If fewer than 2 citations, runs a targeted keyword fallback pass (`code_keyword`)
-4. Returns `{answer, citations, confidence, gaps, question_type, index_freshness, reranked, partition_applied, demotion_count, total_ms, vector_ms, rerank_ms, definition_boosted, second_hop_symbols}` and per-citation metadata including `score`, `final_rank`, `demoted`, and `partition_reason`
+3. If fewer than 2 citations, runs a targeted keyword fallback pass (`code_keyword`) — SUPPRESSED in `lexical_fallback` mode and on infrastructure failure (wave 1seav: live keyword hits must not mix into a lexical envelope or mask an outage as indexed evidence)
+4. Returns `{answer, citations, confidence, gaps, question_type, index_freshness, search_mode, fallback_reason, rerank_mode, reranked, partition_applied, demotion_count, total_ms, vector_ms, rerank_ms, definition_boosted, second_hop_symbols}` — plus `drift_partition_applied`/`drift_demoted_count` when the (default-off) doc-code-drift partition fired (plus `coverage` on every degraded/failed envelope — `{}` when collection was unavailable) and per-citation metadata including `score`, `final_rank`, `demoted`, and `partition_reason`
 
 The `answer` field is mechanically assembled from the top citation — it names the file and line range, not a synthesized prose response. This is intentional: the tool is designed to be called by an agent that will read the cited sources and reason over them, not to replace that reasoning. Synthesis is the caller's job; retrieval and citation is `code_ask`'s job.
 
 `confidence` is heuristic. When the cross-encoder ran (`reranked=true`), it is calibrated on the
 unified cross-encoder relevance (`sigmoid(logit)`): `high` = top ≥ `CONF_AGENT_RERANK_HIGH` (0.5) with
 ≥2 citations, `low` = top < `CONF_AGENT_RERANK_LOW` (0.1, nothing relevant retrieved), else `medium`
-(live-index separation: on-topic ≥0.95, off-topic ≤0.07). When `reranked=false` (reranker disabled or
-unbuildable) it is count-based (`high` = 2+ citations, `medium` = 1, `low` = 0) because the
-mixed arctic/bge cosine is not a trustworthy band. `index_freshness` is `"stale"` when any indexed
-chunker version differs from the current `CHUNKER_VERSION`.
+(live-index separation: on-topic ≥0.95, off-topic ≤0.07). Two `reranked=false` cases (wave 1seav):
+on the HEALTHY path (reranker disabled/unbuildable) ordering is vector/coverage over mixed-model
+cosine and confidence is capped at `medium` (`low` with zero citations — `high` is never claimed
+without the cross-encoder); in `lexical_fallback` mode ordering is BM25 exact-token and confidence
+is `low`. `index_freshness` is the cached three-state verdict (`current`/`stale`/`unknown` — see
+`mcp-tool-surface.md`).
 
 `CHUNKER_VERSION` `"22"` introduced per-row `chunk_hash` metadata so incremental updates can reuse existing LanceDB vectors for unchanged chunks inside a changed file. The version bump intentionally forces a one-time rebuild of existing tables so old rows without `chunk_hash` are not mixed with new rows that depend on it.
 
-`code_ask` citations preserve the pre-partition reranker `score`, but `final_rank` reflects the actual output order after the soft partition rules run. When `demoted: true` is present, the lower position is intentional and `partition_reason` explains whether the citation was demoted as `seed`, `feedback`, or a journal/report-style path.
+`code_ask` citations preserve the pre-partition reranker `score`, but `final_rank` reflects the actual output order after the soft partition rules run. The historical per-citation `seed`/`feedback` partition tags were removed with that mechanic (change `12q5v`); the doc-type demotion is now a SCORE demotion reported only by the top-level `partition_applied`/`demotion_count`. Wave `1ro44` reintroduced the per-citation fields for one reason only: `demoted: true` + `partition_reason: "doc_code_drift"` marks a drift-flagged doc stable-partitioned behind a comparably-relevant current alternative (see the Temporal Decay section below).
 
 **Question-type-aware retrieval in `search_combined`:**
 
@@ -210,24 +208,13 @@ The tradeoff: the cross-encoder reranker scales approximately linearly with cand
 7. Return (results, True, vector_ms, rerank_ms, definition_boosted, second_hop_symbols)
 ```
 
-**`search_combined` RRF fallback path (reranker unavailable):**
+**`search_combined` no-reranker degradation (reranker disabled/unbuildable):**
 
-```
-1. Same vector fetch phase (same top_k logic)
-
-2. _rrf_merge([docs_candidates, code_candidates], top_n, weights)
- Formula: score += w / (k + rank) where k=60
- Navigational: weights=[1.0, 1.5] (code-index boosted); all other types: weights=None (equal)
-
-3. Infrastructure partition (explanatory only, same as reranker path)
-
-4. Return (results, False, vector_ms, rerank_ms, [], [])
- — definition_boosted and second_hop_symbols are always empty in the RRF path
-```
-
-Two-hop is skipped in the RRF path because cross-encoder scoring is required to evaluate the injected candidates on content merit; positional append without reranking produces unpredictable results.
-
-### Decision 9: `max_per_file` cap in `code_search` for result diversity
+The former `_rrf_merge` fallback path was removed with the rerank-first unification (`1p52p`) — there is no
+separate RRF pipeline anymore. When the cross-encoder cannot run, the single pipeline degrades in place:
+ordering falls back to vector/coverage order over mixed-model cosines (`reranked=false`, confidence capped at
+`medium`), lexical candidates join with rank-derived fallback scores, and two-hop symbol expansion is skipped
+because cross-encoder scoring is required to evaluate injected candidates on content merit.
 
 ### Decision 9: `max_per_file` cap in `code_search` for result diversity
 
@@ -285,19 +272,24 @@ Vector search retrieves what the original query vocabulary can reach. For explan
 
 ## Fallback Chain
 
-The complete search fallback chain for `docs_search`:
+The search fallback chain (wave `1seav` — driven by the CAPTURED `1sed7` epoch token):
 
 ```
-1. docs_search(query)
+1. docs_search / code_search / code_ask (query)
  ↓
-2. WaveIndex.search_docs() [semantic: embed query → cosine search]
- ↓ if IndexNotReadyError or SemanticModelUnavailableOfflineError
-3. WaveIndex.search_docs_lexical() [lexical: token overlap over live chunks]
+2. Semantic/hybrid retrieval [embed query → vector + FTS fusion → rerank]
+ ↓ if SemanticModelUnavailableOfflineError (or unservable tables) AND the captured epoch is COMPLETE
+3. FTS fallback [_fts_degraded_serve: BM25 from fts_docs/fts_code, filters preserved,
+   typed {available, failure_reason, results, coverage}; a broken FTS layer under a
+   readable build_state probes as query_failed, never a silent zero-hit]
+ ↓ docs_search ONLY, when NO published epoch exists (absent/uninitialized/building/interrupted)
+4. Live-filesystem walk [search_docs_lexical: per-call re-chunk — its only reachable states]
  ↓ if no results
-4. Empty result set + diagnostics explaining what failed
+5. Typed zero/failed result: search_mode + always-present fallback_reason (null when healthy)
+   + a token-semantics note on WORKING-lexical zero-hits + recovery diagnostics
 ```
 
-At every step, the response data includes `mode: "semantic" | "lexical"` and diagnostics describing what triggered any fallback. Agents should check `mode` when reasoning about result completeness.
+`code_search`/`code_ask`/`code_lexical` have NO degraded path on a not-ready index — they refuse (`index_not_ready`, the 1sed7 lockout). `code_ask` additionally classifies its artifact-anchored exact-first pass as `search_mode: "exact"` (healthy) and caps confidence in lexical fallback. The legacy `mode: "semantic" | "lexical"` field remains for back-compat; `search_mode` is the authoritative signal.
 
 For code navigation (Layer 2 and 3), there is no fallback: the tools either return results or return a clear empty/unsupported response. This is intentional — exact and symbol navigation are not degraded by missing infrastructure, only by missing language support.
 
@@ -344,7 +336,7 @@ never walks) and the code tools refuse (`index_not_ready` — unchanged from 1se
 FTS serving path returns a typed `{available, failure_reason, results, coverage}` result so
 infrastructure failure (`query_failed`) is never presented as an empty corpus.
 
-**Readiness — the build epoch (wave `1sed7`):** the store's `build_state` row is a small state machine (`uninitialized` → `building` → `complete`). A mutating build commits a FULL-durable `building` fence BEFORE the first Lance/FTS mutation and publishes completion with an attempt-ID compare-and-set transaction — the only operation that advances the build `generation`. Readers (`docs_search`, `code_search`, `code_ask`, `code_lexical`) capture the complete-epoch token `(attempt_id, generation)` before the operation and re-validate it after: a missing or changed token means the result set could span two index states, so results are discarded and a structured `index_not_ready` response is returned. `WaveIndex` reload uses the same token as its freshness signature, so a completed build invalidates cached handles without a server restart. `docs_search`'s live-filesystem walk is the one sanctioned degraded path when no complete epoch exists; `code_lexical` refuses outright (FTS is derived from Lance and mid-build state is mixed). A `building` epoch whose build lock is gone reads as *interrupted* — still fail-closed, healed by the next ordinary build superseding the dead attempt (a zero-change retry performs this recovery explicitly: reconcile, bookkeeping refresh, finalize). Completion is globally gated: a scoped build over a reset store (a Lance table present with no provenance in the canonical state) escalates to all-layer convergence before it may publish, a rear guard refuses finalization if any present table would publish unprovenanced, and the derived-FTS/optimize maintenance verbs are restore-only — they refuse on a store with no completed epoch and never manufacture `complete`.
+**Readiness — the build epoch (wave `1sed7`):** the store's `build_state` row is a small state machine (`uninitialized` → `building` → `complete`). A mutating build commits a FULL-durable `building` fence BEFORE the first Lance/FTS mutation and publishes completion with an attempt-ID compare-and-set transaction — the only operation that advances the build `generation`. Readers (`docs_search`, `code_search`, `code_ask`, `code_lexical`, `seed_get`, `wave_map`) capture the FULL state token `(attempt_id, status, generation)` — ABA-proof; every fence and every publication changes it — before the operation and re-validate the SAME token after: any transition means the result set could span two index states, so results are discarded (`index_not_ready`). The strict code tools additionally refuse up front unless the captured token's status is `complete`; `docs_search`/`seed_get`/`wave_map` serve sanctioned degraded/disk paths under a STABLE non-complete state. `WaveIndex` reload uses the same token as its freshness signature, so a completed build invalidates cached handles without a server restart. `docs_search`'s live-filesystem walk (plus `seed_get`/`wave_map`'s disk fallbacks) are the sanctioned degraded paths when no complete epoch exists; the code retrieval tools refuse outright (FTS is derived from Lance and mid-build state is mixed). A `building` epoch whose build lock is gone reads as *interrupted* — still fail-closed, healed by the next ordinary build superseding the dead attempt (a zero-change retry performs this recovery explicitly: reconcile, bookkeeping refresh, finalize). Completion is globally gated: a scoped build over a reset store (a Lance table present with no provenance in the canonical state) escalates to all-layer convergence before it may publish, a rear guard refuses finalization if any present table would publish unprovenanced, and the derived-FTS/optimize maintenance verbs are restore-only — they refuse on a store with no completed epoch and never manufacture `complete`.
 
 **Chunk schema:**
 
@@ -367,6 +359,47 @@ The `kind` field now includes two orientation kinds:
 The `text` field is what was embedded. The `path` and `lines` fields are what the agent sees in results. Keeping the two separate means the embedded text can be a normalized or chunked version of the file without changing what's reported back.
 
 ---
+
+## Temporal Decay: Per-Citation Freshness and the Drift Partition (wave 1ro44)
+
+Retrieval ranks by relevance; temporal currency is surfaced as **annotation first, demotion only on strong
+evidence** — raw scores are never blended with age (the rejected alternative is recorded in the change doc's
+Decision Log: score-perturbation buries correct answers about stable code, since old ≠ wrong).
+
+**Build-time substrate** (`index-state.sqlite`, optional residents at the build tail — never fail a build, no
+per-query git ever): per-file freshness/churn from one batched `git log` (`file_freshness`/`file_commits`),
+wave→files attribution derived from landing-commit subjects (`wave_landing`/`wave_change_files`), and per-doc
+drift summaries (`doc_drift`). A doc's **drift anchor** is the newer of its last content change in git and its
+`Verified against: <hex-sha>` verification stamp (gardener `Last verified` dates carry NO verification meaning);
+drift = distinct commits touching the doc's referenced code paths after the anchor, flagged at
+`DRIFT_COMMITS_THRESHOLD`. `docs/waves/` chunks are the **historical** class: anchored at their wave's landing
+commit with `waves_behind` decay, never drift-flagged, never worklisted. `docs/reports/` is drift-exempt
+(point-in-time artifacts — census finding).
+
+**Query-time surfacing:** `docs_search`/`code_search`/`code_ask`/`code_lexical` results carry an optional
+per-citation `freshness` object (`{age_days, churn_score}` for any path; docs rows add
+`{drifted, commits_since_verified}` or `{historical, waves_behind}`) attached by ONE batched state-store read
+per response. Distinct vocabulary from the envelope `index_freshness` (index-vs-working-tree currency).
+Annotation is omitted on `live_fallback` (live content may be newer than stored metadata) and silently absent on
+metadata-free stores.
+
+**Drift partition** (`_partition_drift`, the `_partition_infra` stable-partition pattern): drift-flagged docs
+citations move behind comparably-relevant current alternatives (`DRIFT_RELEVANCE_BAND` guard on the unified
+reranker scale) with per-citation `demoted: true` + `partition_reason: "doc_code_drift"`. Runs ONLY on the
+healthy reranked path — suppressed on `lexical_fallback`/`live_fallback`/`exact`/unreranked envelopes where the
+relevance band is undefined. Ships **default-OFF** (`DRIFT_PARTITION_DEFAULT_ON = False`): flipping the default
+requires the recorded drift-precision census AND a golden-query eval run per the standing ranking-eval gate.
+Env toggles: `WAVEFOUNDRY_ENABLE_DRIFT_PARTITION` (census/eval opt-in), `WAVEFOUNDRY_DISABLE_DRIFT_PARTITION`
+(kill switch). Code chunks are never drift-demoted (a current code chunk is ground truth for itself).
+
+**Worklist:** `wave_audit` exposes the `doc_drift` sub-object (flagged living docs, `commits_since` DESC) — the
+stable consumer contract for the future verify-docs review loop; `wave_garden` points at it and gardener stamps
+never clear drift.
+
+**Agent memory retrieval** (same wave): typed memory records under `docs/agents/memory/` are indexed through the
+docs path with a `memory` tag and served by `wave_memory_search`/`wave_memory_brief` — record files are the
+source of truth, the semantic index is an optional assist, and ranking is kind-aware-decayed confidence (via the
+per-path freshness primitive) with persisted-betweenness tie-breaks.
 
 ## Relationship to Other Architecture Docs
 

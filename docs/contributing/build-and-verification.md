@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-12
+Last verified: 2026-07-14
 
 ## Verification Commands
 
@@ -126,7 +126,7 @@ The tool-venv dependency check is **version-aware**: when a pack pins a new vers
 
 After an ordinary upgrade, if search still looks missing or stale, stop and verify that the upgraded MCP server has been restarted before rebuilding anything. There is a single semantic index — the project index at `.wavefoundry/index/` — and framework seeds fold into that project docs index at setup/upgrade; there is no separate framework index to rebuild.
 
-If `docs_search` falls back to lexical mode and you need to know whether the semantic index is stale or missing, call `wave_index_health` explicitly. In clients that do not execute the post-edit hook path, assume manual reindexing is required after meaningful docs changes.
+Since wave 1seav every search response tells you WHY it degraded: check `search_mode` (`lexical_fallback` = BM25 from the published FTS layer; `live_fallback` = no published index at all) and `fallback_reason` (`model_unavailable`, `index_not_ready`, `query_failed`, …) before reaching for `wave_index_health` — the explicit health verdict is still authoritative when you need layer-level detail. In clients that do not execute the post-edit hook path, assume manual reindexing is required after meaningful docs changes.
 
 **State recovery (wave 1sed7 — SQLite-only):** `.wavefoundry/index/index-state.sqlite` is the sole semantic-index state authority; there is no `meta.json`. A search tool returning `index_not_ready` means the store has no completed build epoch (building, interrupted, or never built) or a build fenced mid-query — check `wave_index_build_status` and retry after the build completes. A missing/corrupt/deleted store is never data loss: the next build converges all layers by re-chunking with Lance vector reuse (readiness state cannot be manufactured per layer, so convergence is deliberately all-layer). A legacy `meta.json` from a pre-1sed7 install is never read by anything — not even the upgrade's version probes (an absent/empty store reads as unknown, which forces convergence) — and is removed automatically after the first successful build. Never treat a failed build's output as current: a build that reports `failed: true` left the epoch incomplete on purpose (and exits non-zero through the CLI, so setup/hooks/MCP subprocess callers see it) — readers stay closed until a build finalizes. An interrupted build (`wave_index_build_status` reports `state: "interrupted"`) heals with any ordinary build run — a zero-change retry reconciles derived state, refreshes bookkeeping, and republishes readiness without re-embedding. The derived-FTS rebuild (`content="fts"`) and `wave_index_optimize` are restore-only maintenance: they refuse on a store with no completed build epoch rather than manufacturing readiness, and an optimize that ends with an unreadable table deliberately leaves readers failed closed until a build repairs it.
 
@@ -220,7 +220,7 @@ Agents running **Upgrade wave framework** must follow `docs/prompts/upgrade-wave
 
 **For full upgrade procedure:** see `docs/prompts/upgrade-wavefoundry.prompt.md` and `.wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md`.
 
-**`build_pack.py` semantics:** default zip date is today (local ISO); letter suffix is the next letter after the maximum suffix already present for that date in the output directory (not the first missing gap). The script stamps `.wavefoundry/framework/VERSION` to `<date><letter>` before writing the source-only archive; the pack contains framework source with no semantic index. Use `--date` only for tests or exceptional reissues.
+**`build_pack.py` semantics:** the pack is semver-versioned — `build_pack.py --version MAJOR.MINOR.PATCH` stamps `.wavefoundry/framework/VERSION` to `MAJOR.MINOR.PATCH+<lifecycle-build-suffix>` and writes the source-only archive `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` (no semantic index is built or shipped). `--release` additionally runs the preflight (clean tree on `main`, matching `## [<version>]` CHANGELOG section, unused tag, `gh auth status` succeeds), commits the stamp, tags, pushes, and uploads. `--release-dry-run` walks the pipeline but dirties the tree.
 
 **Install assets:** the framework-side install assets are consolidated under `.wavefoundry/framework/install/`; where every install-related asset (templates, the release-notes install block, the format specs, the install-flow seeds) lives and the source → ship → provision role it plays is mapped in `docs/references/install-assets.md`. Each shipped format-spec template must stay byte-identical to its `docs/references/` canonical copy (guarded by `test_shipped_reference_docs.py`).
 

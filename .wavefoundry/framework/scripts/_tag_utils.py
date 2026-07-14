@@ -57,6 +57,8 @@ def infer_tags(path: str) -> list[str]:
         tags.append("reference")
     if "docs/agents/journals/" in p:
         tags.append("journal")
+    if "docs/agents/memory/" in p:
+        tags.append("memory")
     if "docs/prompts/" in p or name.endswith(".prompt.md"):
         tags.append("prompt")
     if ".wavefoundry/framework/seeds/" in p:

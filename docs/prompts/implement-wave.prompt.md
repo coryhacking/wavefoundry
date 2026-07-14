@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-25
+Last verified: 2026-07-14
 
 Shortcut: **`Implement wave`**
 
@@ -65,3 +65,7 @@ After any framework script change:
 2. **Docs gate:** With MCP attached, run **`wave_validate`** (use **`wave_garden`** first if metadata timestamps need refresh). **CLI fallback (no MCP):** `wf docs-gardener && wf docs-lint`
 
 Fix any failures before declaring the implementation complete.
+
+## Agent Memory Briefing
+
+Before the first edit, call `wave_memory_brief(context='pre_implementation', targets=[...])` with the files in scope — active memory records (fragile files, prior failed attempts, operator preferences) surface as capped, cited advisories. Treat a `needs_reverification` fragile-file advisory as a prompt to re-check the concern against current code before editing. `wave_prepare` responses carry the same advisories for the admitted change set. Absence of records is not absence of risk.

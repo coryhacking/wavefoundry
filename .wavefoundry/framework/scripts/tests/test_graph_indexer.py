@@ -8675,7 +8675,7 @@ class GraphBuilderVersionTests(unittest.TestCase):
     """Wave 1p4ls AC-3: the node/edge shape changed (constant nodes + reads edge) so the builder
     version is bumped, forcing a full re-extract against any older cache."""
 
-    def test_graph_builder_version_is_43(self):
+    def test_graph_builder_version_is_44(self):
         # 1p4ls bumped 25→26 (constant nodes + reads edge); 1p4q4 bumped 26→27 (TS enum member nodes);
         # 1p4q4 review bumped 27→28 (namespace-prefixed enum members + short-symbol-prune exemption);
         # 1p4up bumped 28→29 (member-access constant reads — new function→constant `reads` edges);
@@ -8740,7 +8740,11 @@ class GraphBuilderVersionTests(unittest.TestCase):
         # INTO table def+write [top-level gated], Oracle GLOBAL TEMPORARY = real
         # table, GO/DUAL recognized, parenthesized-type FK recovery, MERGE-without-
         # INTO recovery. Extraction-output change. NO CLUSTER_BUILDER_VERSION bump).
-        self.assertEqual(load_graph_indexer().GRAPH_BUILDER_VERSION, "43")
+        # Wave 1ro44 bumped 43→44 (1p8gy agent memory: new `memory` node kind
+        # for docs/agents/memory/ records + typed `memory_targets` edges;
+        # memory nodes exempt from the zero-edge doc prune. Node/edge shape
+        # change. NO CLUSTER_BUILDER_VERSION bump).
+        self.assertEqual(load_graph_indexer().GRAPH_BUILDER_VERSION, "44")
 
 
 class OversizedTreeSitterGuardTests(unittest.TestCase):
@@ -11651,3 +11655,163 @@ class OrmEntityMappingSeamAndFragmentTests(_OrmEntityMappingTestBase):
                     )
         finally:
             store.close()
+
+
+class MemoryGraphExtractionTests(unittest.TestCase):
+    """Wave 1ro44 / 1p8gy AC-4 + AC-11: typed `memory` nodes with
+    `memory_targets` edges ride the per-file delta path; unresolvable-target
+    records survive the zero-edge doc prune; wave/change refs never become
+    edges (those docs are scan-excluded)."""
+
+    RECORD = (
+        "# Fragile tools module\n\n"
+        "Owner: Engineering\nStatus: active\nLast verified: 2026-07-13\n\n"
+        "Memory ID: `mem-fragile-tools`\nKind: `fragile_file`\nConfidence: 0.8\n"
+        "Created: 2026-07-13\nUpdated: 2026-07-13\n\n"
+        "## Summary\n\nEdits to tools.py regress silently.\n\n"
+        "## Evidence\n\n- `1abcd-bug tool-regression` — the regression wave\n\n"
+        "## Targets\n\n- `src/tools.py`\n- `symbol:process`\n"
+    )
+
+    def setUp(self):
+        self.mod = load_graph_indexer()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        _make_repo(self.root)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _update(self, rel_meta: dict[str, str], changed: set[str]):
+        files = [self.root / rel for rel in rel_meta]
+        return self.mod.update_graph_index(
+            root=self.root,
+            index_dir=self.root / ".wavefoundry" / "index",
+            layer="project",
+            files=files,
+            current_file_meta={rel: {"hash": h} for rel, h in rel_meta.items()},
+            changed=changed,
+            removed=set(),
+            walker_version="1",
+            chunker_version="1",
+            verbose=False,
+        )
+
+    def _write(self, rel: str, text: str):
+        path = self.root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+
+    @staticmethod
+    def _payload_parts(payload):
+        nodes = {n["id"]: n for n in payload["nodes"]}
+        edges = [(e["source"], e["target"], e["relation"]) for e in payload["edges"]]
+        return nodes, edges
+
+    def test_memory_node_and_typed_target_edges(self):
+        self._write("src/tools.py", "def process():\n    return 1\n")
+        self._write("docs/agents/memory/mem-fragile-tools.md", self.RECORD)
+        payload = self._update(
+            {"src/tools.py": "h1", "docs/agents/memory/mem-fragile-tools.md": "h2"},
+            {"src/tools.py", "docs/agents/memory/mem-fragile-tools.md"},
+        )
+        nodes, edges = self._payload_parts(payload)
+        record_id = "docs/agents/memory/mem-fragile-tools.md"
+        self.assertIn(record_id, nodes)
+        self.assertEqual(nodes[record_id]["kind"], "memory")
+        # File target: validated against the current path set.
+        self.assertIn((record_id, "src/tools.py", "memory_targets"), edges)
+        # Symbol target: resolved through the doc matcher terms.
+        symbol_targets = [t for s, t, r in edges
+                          if s == record_id and r == "memory_targets" and "::" in t]
+        self.assertTrue(symbol_targets, "symbol: target must resolve to a symbol node")
+
+    def test_zero_edge_memory_record_survives_the_doc_prune(self):
+        record = self.RECORD.replace(
+            "## Targets\n\n- `src/tools.py`\n- `symbol:process`\n",
+            "## Targets\n\n- `src/deleted-long-ago.py`\n",
+        )
+        self._write("docs/agents/memory/mem-fragile-tools.md", record)
+        self._write("docs/plain.md", "No references here either.\n")
+        payload = self._update(
+            {"docs/agents/memory/mem-fragile-tools.md": "h1", "docs/plain.md": "h2"},
+            {"docs/agents/memory/mem-fragile-tools.md", "docs/plain.md"},
+        )
+        nodes, _edges = self._payload_parts(payload)
+        self.assertIn("docs/agents/memory/mem-fragile-tools.md", nodes,
+                      "unresolvable-target memory must stay queryable")
+        self.assertNotIn("docs/plain.md", nodes,
+                         "plain zero-edge docs are still pruned")
+
+    def test_memory_readme_stays_a_plain_doc(self):
+        self._write("docs/agents/memory/README.md", "# Schema\n\nSee `src/tools.py`.\n")
+        self._write("src/tools.py", "def process():\n    return 1\n")
+        payload = self._update(
+            {"docs/agents/memory/README.md": "h1", "src/tools.py": "h2"},
+            {"docs/agents/memory/README.md", "src/tools.py"},
+        )
+        nodes, _ = self._payload_parts(payload)
+        self.assertEqual(nodes["docs/agents/memory/README.md"]["kind"], "doc")
+
+    def test_memory_write_rides_the_incremental_delta_path(self):
+        # Initial build: code only. Then ADD a record and update with ONLY the
+        # record changed — the code file must not re-extract (delta path), and
+        # the memory edges must appear in the merged payload (AC-11).
+        self._write("src/tools.py", "def process():\n    return 1\n")
+        self._update({"src/tools.py": "h1"}, {"src/tools.py"})
+        self._write("docs/agents/memory/mem-fragile-tools.md", self.RECORD)
+        payload = self._update(
+            {"src/tools.py": "h1", "docs/agents/memory/mem-fragile-tools.md": "h2"},
+            {"docs/agents/memory/mem-fragile-tools.md"},  # ONLY the record
+        )
+        stats = payload.get("merge_stats") or {}
+        self.assertEqual(stats.get("mode"), "incremental",
+                         f"memory writes must ride the delta path, not a full rebuild: {stats}")
+        self.assertEqual(stats.get("files_changed"), 1,
+                         f"only the record may extract: {stats}")
+        nodes, edges = self._payload_parts(payload)
+        record_id = "docs/agents/memory/mem-fragile-tools.md"
+        self.assertEqual(nodes[record_id]["kind"], "memory")
+        self.assertIn((record_id, "src/tools.py", "memory_targets"), edges)
+
+    def test_wave_refs_never_become_edges(self):
+        # docs/waves/ is scan-excluded; a wave-id evidence ref must not mint a
+        # node or edge even when the wave doc exists on disk.
+        self._write("docs/waves/1abcd w/wave.md", "# Wave record\n")
+        self._write("src/tools.py", "def process():\n    return 1\n")
+        record = self.RECORD.replace(
+            "- `1abcd-bug tool-regression` — the regression wave",
+            "- `docs/waves/1abcd w/wave.md` — the wave record",
+        )
+        self._write("docs/agents/memory/mem-fragile-tools.md", record)
+        payload = self._update(
+            {"src/tools.py": "h1", "docs/agents/memory/mem-fragile-tools.md": "h2"},
+            {"src/tools.py", "docs/agents/memory/mem-fragile-tools.md"},
+        )
+        nodes, edges = self._payload_parts(payload)
+        self.assertNotIn("docs/waves/1abcd w/wave.md", nodes)
+        self.assertFalse([e for e in edges if "docs/waves/" in e[1]],
+                         "wave docs must never be edge targets")
+
+    def test_query_cache_serves_memory_node_after_a_write(self):
+        # AC-11 second clause: the in-process query cache must reflect a
+        # memory write (stat-validated payload reload, no manual invalidation
+        # needed on the build path).
+        import importlib.util as _ilu
+        spec = _ilu.spec_from_file_location(
+            "graph_query", Path(__file__).resolve().parents[1] / "graph_query.py")
+        gq = _ilu.module_from_spec(spec)
+        spec.loader.exec_module(gq)
+        self._write("src/tools.py", "def process():\n    return 1\n")
+        self._update({"src/tools.py": "h1"}, {"src/tools.py"})
+        warm = gq.get_query_index(self.root)  # warm the cache pre-write
+        self.assertIsNone(warm._node_by_id.get("docs/agents/memory/mem-fragile-tools.md"))
+        self._write("docs/agents/memory/mem-fragile-tools.md", self.RECORD)
+        self._update(
+            {"src/tools.py": "h1", "docs/agents/memory/mem-fragile-tools.md": "h2"},
+            {"docs/agents/memory/mem-fragile-tools.md"},
+        )
+        refreshed = gq.get_query_index(self.root)
+        node = refreshed._node_by_id.get("docs/agents/memory/mem-fragile-tools.md")
+        self.assertIsNotNone(node, "the cache must reload after the memory write")
+        self.assertEqual(node.get("kind"), "memory")

@@ -12,6 +12,7 @@ import json
 import os
 import re
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Any, Callable, Iterable, Literal, Optional
@@ -333,7 +334,8 @@ _GRAPH_OUTGOING_INTENT_RE = re.compile(
 # cross-encoder scores docs+code on ONE scale. Measured separation: on-topic queries whose answer is
 # retrieved top ``sigmoid ≥ ~0.5`` (the model's native relevance boundary), off-topic / no-answer top
 # ``sigmoid < ~0.1``. These bands apply ONLY when the cross-encoder actually ran (GPU FP16 or CPU
-# INT8). When reranking is disabled/unbuildable, agent confidence is count-based (mixed-model cosine
+# INT8). Two reranked=false cases (wave 1seav): healthy-path vector/coverage ordering with
+# confidence CAPPED at medium (low with zero citations — mixed-model cosine
 # is not trustworthy).
 CONF_AGENT_RERANK_HIGH = 0.5       # reranked top sigmoid ≥ this (with ≥2 citations) → "high"
 CONF_AGENT_RERANK_LOW = 0.1        # reranked top sigmoid < this → "low" (nothing relevant retrieved)
@@ -832,10 +834,18 @@ class WaveIndex:
             return normalized_path == "docs/ARCHITECTURE.md" or normalized_path.startswith("docs/architecture/")
         return chunk_kind == kind
 
-    def search_docs_lexical(self, query: str, kind: Optional[str] = None, top_n: int = 5) -> list[dict]:
+    def search_docs_lexical(self, query: str, kind: Optional[str] = None, top_n: int = 5, tags: Optional[list] = None) -> list[dict]:
         chunks = self._live_docs_chunks()
         if kind:
             chunks = [chunk for chunk in chunks if self._doc_matches_kind(chunk, kind)]
+        if tags:
+            # 1seaq review fix: the tag filter survives the live walk —
+            # any-of substring semantics, matching the FTS layer's contract.
+            tag_list = [str(x) for x in tags if x]
+            chunks = [
+                chunk for chunk in chunks
+                if any(tg in str(chunk.get("tags") or "") for tg in tag_list)
+            ]
         ranked = []
         for chunk in chunks:
             score = self._lexical_score(query, chunk)
@@ -1169,8 +1179,8 @@ class WaveIndex:
         all key off one scale — the arctic-doc vs bge-code cosines (1p4wx split) are not comparable.
         Mutates ``candidates`` in place; returns True if the cross-encoder ran — it runs on either
         hardware (GPU FP16 or CPU INT8). Returns False only when the reranker is unavailable
-        (disabled/unbuildable): scores stay raw cosine and the caller treats confidence as
-        count-based. Never raises.
+        (disabled/unbuildable): scores stay raw cosine and the caller caps confidence at
+        "medium" ("low" with zero citations). Never raises.
         """
         reranker = self._get_reranker()
         if not reranker or not candidates:
@@ -1965,7 +1975,7 @@ class WaveIndex:
         # drop-off / text budget AND the confidence band no longer compare incomparable arctic-doc vs
         # bge-code cosines (the 1p4wx model split). The reranker runs on either hardware (GPU FP16 /
         # CPU INT8); only when it is unavailable (disabled/unbuildable) does `_agent_rerank` no-op
-        # (scores stay cosine; confidence falls back to count-based). The former `rerank="local"`
+        # (scores stay cosine; confidence is capped at medium). The former `rerank="local"`
         # cross-encoder path and the `rrf_fallback` path were REMOVED here — `docs_search`/`code_search`
         # keep their own independent rerank. (`rerank` param retained for API compat; ignored.)
         agent_reranked = self._agent_rerank(query, all_candidates)
@@ -3590,6 +3600,12 @@ def _index_rebuilding_response(tool: str, payload: dict) -> dict[str, Any]:
     """Structured not-ready/rebuilding result (1sed6 AC-4): the index has no
     complete epoch, or it changed while the operation ran — results (if any)
     were discarded rather than served as current."""
+    payload = dict(payload)
+    # AC-3 (review fix): the search_mode/fallback_reason contract is carried
+    # on EVERY response from the gated search tools, including refusals.
+    payload.setdefault("search_mode", None)
+    payload.setdefault("fallback_reason", "index_not_ready")
+    payload.setdefault("results", [])
     return _response(
         "error", payload,
         diagnostics=[_diagnostic(
@@ -4381,6 +4397,112 @@ def run_index_rebuild(
     }
 
 
+# ---------------------------------------------------------------------------
+# Per-citation freshness annotation + drift partition (wave 1ro44 / 1ro43)
+# ---------------------------------------------------------------------------
+#
+# Two distinct freshness vocabularies coexist by design:
+# - envelope-level `index_freshness` (1seav): is the INDEX current w.r.t. the
+#   working tree ("current" | "stale" | "unknown").
+# - per-citation `freshness` (this block): is the CITED CONTENT current w.r.t.
+#   the code it describes ({age_days, churn_score} for every path; docs rows
+#   add {drifted, commits_since_verified} or {historical, waves_behind}).
+
+# Kill switch + census/eval opt-in for the drift partition. The partition is a
+# RANKING change and ships DEFAULT-OFF: flipping the default requires BOTH the
+# AC-8 drift-precision census AND a golden-query eval run (or explicit
+# operator waiver) per the standing eval-gate policy. Env-var form follows the
+# retrieval-toggle convention (WAVEFOUNDRY_DISABLE_RERANKER / _LEXICAL_FUSION).
+DRIFT_PARTITION_DISABLE_ENV = "WAVEFOUNDRY_DISABLE_DRIFT_PARTITION"
+DRIFT_PARTITION_ENABLE_ENV = "WAVEFOUNDRY_ENABLE_DRIFT_PARTITION"
+DRIFT_PARTITION_DEFAULT_ON = False
+# Comparable-relevance guard width on the unified cross-encoder sigmoid scale
+# (0..1): a drifted docs citation is only partitioned when a NON-drifted
+# candidate scores within this band of it (or above) — a nearly-as-relevant
+# current alternative exists, so demoting the drifted one cannot bury the only
+# good answer. 0.10 is deliberately conservative (one tenth of the scale).
+DRIFT_RELEVANCE_BAND = 0.10
+
+
+def _drift_partition_enabled() -> bool:
+    if os.environ.get(DRIFT_PARTITION_DISABLE_ENV):
+        return False
+    if os.environ.get(DRIFT_PARTITION_ENABLE_ENV):
+        return True
+    return DRIFT_PARTITION_DEFAULT_ON
+
+
+def _annotate_freshness(items: list[dict], root: Any, *, search_mode: Optional[str]) -> None:
+    """Attach optional per-citation `freshness` via ONE batched store read.
+
+    Silent absence everywhere: metadata-free stores, store read failures, and
+    unknown paths simply leave citations unannotated (1ro43 Req 4 back-compat).
+    Omitted entirely on `live_fallback` — live-walked content may be newer
+    than any stored metadata, so annotating it would be dishonest. Never calls
+    `freshness_for_path` per citation (query-path budget) and never spawns git.
+    """
+    if not items or search_mode == "live_fallback":
+        return
+    try:
+        iss = _load_script("index_state_store")
+        annotations = iss.freshness_for_paths(
+            Path(root) / ".wavefoundry" / "index",
+            [str(it.get("path") or "") for it in items],
+        )
+    except Exception:
+        return
+    if not annotations:
+        return
+    for it in items:
+        fresh = annotations.get(str(it.get("path") or ""))
+        if fresh:
+            it["freshness"] = fresh
+
+
+def _partition_drift(citations: list[dict]) -> int:
+    """Stable partition of drift-flagged docs citations (1ro43 Req 5 / AC-4).
+
+    Pattern: `_partition_infra` — order-preserving, post-rerank, never a score
+    perturbation. Reintroduces the per-citation `demoted: true` +
+    `partition_reason` fields (removed with the seed/feedback partition in
+    change 12q5v) with the new reason `doc_code_drift`. Callers enforce the
+    healthy-reranked-path precondition (`reranked` true, semantic/hybrid mode)
+    — the relevance band is only meaningful on the unified cross-encoder
+    scale, so degraded/exact/unreranked envelopes get annotation only. Code
+    chunks are structurally exempt (their annotation never carries `drifted`).
+    Mutates `citations` in place; returns the demoted count.
+    """
+    if not _drift_partition_enabled():
+        return 0
+    moved_idx: set[int] = set()
+    for i, citation in enumerate(citations):
+        fresh = citation.get("freshness") or {}
+        if not fresh.get("drifted"):
+            continue
+        score = citation.get("score")
+        if score is None:
+            continue
+        band_floor = float(score) - DRIFT_RELEVANCE_BAND
+        has_comparable_current = any(
+            j != i
+            and not ((citations[j].get("freshness") or {}).get("drifted"))
+            and citations[j].get("score") is not None
+            and float(citations[j]["score"]) >= band_floor
+            for j in range(len(citations))
+        )
+        if has_comparable_current:
+            moved_idx.add(i)
+    if not moved_idx:
+        return 0
+    kept = [c for i, c in enumerate(citations) if i not in moved_idx]
+    moved = [citations[i] for i in sorted(moved_idx)]
+    for citation in moved:
+        citation["demoted"] = True
+        citation["partition_reason"] = "doc_code_drift"
+    citations[:] = kept + moved
+    return len(moved)
+
+
 def docs_search_response(index: WaveIndex, query: str, kind: str = "", limit: int = 7, tags: Optional[list] = None, epoch_state: Any = "__compute__") -> dict[str, Any]:
     k = (kind or "").strip().lower()
     n = max(1, min(int(limit), 20))  # clamp to [1, 20]
@@ -4388,7 +4510,7 @@ def docs_search_response(index: WaveIndex, query: str, kind: str = "", limit: in
         allowed = ", ".join(sorted(DOCS_SEARCH_KINDS))
         return _response(
             "error",
-            {"query": query, "kind": kind, "results": []},
+            {"query": query, "kind": kind, "results": [], "search_mode": None, "fallback_reason": None},
             diagnostics=[
                 _diagnostic(
                     "invalid_arguments",
@@ -4425,9 +4547,19 @@ def docs_search_response(index: WaveIndex, query: str, kind: str = "", limit: in
             recovery_usage="wave_index_build(content='all', mode='update')",
         ))
         try:
-            results = index.search_docs_lexical(query, kind=k or None, top_n=n)
-        except Exception:
+            # Review fix: the tag filter survives the live walk too (the
+            # original 1seaq defect was silent tag loss in this fallback).
+            results = index.search_docs_lexical(query, kind=k or None, top_n=n, tags=tags or None)
+        except Exception as exc2:  # noqa: BLE001 - typed, never a silent empty
+            fallback_reason = "query_failed"
             results = []
+            diagnostics.append(_diagnostic(
+                "live_fallback_failed",
+                f"The live-filesystem walk itself failed ({exc2}) — infrastructure "
+                "failure, NOT an empty corpus.",
+                recovery_tools=["wave_index_build"],
+                recovery_usage="wave_index_build(content='all', mode='update')",
+            ))
 
     def _fts_fallback(reason: str, exc_msg: str) -> None:
         nonlocal search_mode, fallback_reason, results, coverage
@@ -4473,9 +4605,27 @@ def docs_search_response(index: WaveIndex, query: str, kind: str = "", limit: in
             _fts_fallback("index_missing", str(exc))
         else:
             _live_walk("store_absent" if epoch_state is None else "index_not_ready", str(exc))
+    except Exception as exc:  # noqa: BLE001 - AC-3: typed end-to-end, never an escaped raw error
+        search_mode = "semantic"
+        fallback_reason = "query_failed"
+        results = []
+        diagnostics.append(_diagnostic(
+            "query_failed",
+            f"Semantic retrieval failed unexpectedly ({exc}) — infrastructure failure, "
+            "NOT an empty corpus.",
+            recovery_tools=["wave_index_health"],
+            recovery_usage="wave_index_health()",
+        ))
     _log_degradation_transition(index.root, "docs_search", fallback_reason)
     if not results:
-        if search_mode == "lexical_fallback":
+        if fallback_reason == "query_failed":
+            # Infrastructure failure already carries its typed diagnostic —
+            # a no_results/token-tweak signal would mislabel it as a miss
+            # (release-review fix: never both).
+            pass
+        elif search_mode == "lexical_fallback" and fallback_reason not in ("store_absent",):
+            # Zero hits from a WORKING lexical layer: the token-semantics
+            # note applies.
             diagnostics.append(_lexical_zero_hit_note())
         else:
             diagnostics.append(
@@ -4490,7 +4640,7 @@ def docs_search_response(index: WaveIndex, query: str, kind: str = "", limit: in
         _mode = "lexical" if search_mode != "semantic" else "semantic"
         _zero_data: dict[str, Any] = {"query": query, "kind": k, "mode": _mode, "search_mode": search_mode,
                                       "fallback_reason": fallback_reason, "reranked": reranked, "results": []}
-        if coverage:
+        if fallback_reason is not None or search_mode in ("lexical_fallback", "live_fallback") or coverage:
             _zero_data["coverage"] = coverage
         return _response(
             "ok",
@@ -4500,6 +4650,14 @@ def docs_search_response(index: WaveIndex, query: str, kind: str = "", limit: in
             usage=f"docs_search(query={query!r})",
         )
     _mode = "lexical" if search_mode != "semantic" else "semantic"
+    _results_out = [_search_result("doc", result) for result in results]
+    # 1ro43: per-citation freshness (batched, silent absence; skipped on
+    # live_fallback inside the helper). The drift partition runs only on the
+    # healthy reranked path — degraded/exact envelopes are annotation-only.
+    _annotate_freshness(_results_out, index.root, search_mode=search_mode)
+    _drift_demoted = 0
+    if reranked and search_mode in ("semantic", "hybrid"):
+        _drift_demoted = _partition_drift(_results_out)
     _data_out: dict[str, Any] = {
         "query": query,
         "kind": k,
@@ -4507,10 +4665,15 @@ def docs_search_response(index: WaveIndex, query: str, kind: str = "", limit: in
         "search_mode": search_mode,
         "fallback_reason": fallback_reason,
         "reranked": reranked,
-        "results": [_search_result("doc", result) for result in results],
+        "results": _results_out,
     }
-    if coverage:
-        _data_out["coverage"] = coverage
+    if _drift_demoted:
+        # Distinct from code_ask's `partition_applied` (doc-type SCORE
+        # demotion) — never overload that meaning.
+        _data_out["drift_partition_applied"] = True
+        _data_out["drift_demoted_count"] = _drift_demoted
+    if fallback_reason is not None or search_mode in ("lexical_fallback", "live_fallback") or coverage:
+        _data_out["coverage"] = coverage  # required on every degraded/failed envelope ({} = unavailable)
     return _response(
         "ok",
         _data_out,
@@ -4563,10 +4726,13 @@ def code_search_response(index: WaveIndex, query: str, language: str = "", limit
         epoch_state = _epoch_state(index.root)
     _epoch_complete = epoch_state is not None and epoch_state[1] == "complete"
 
+    _fts_attempted = [False]
+
     def _fts_fallback(reason: str, exc_msg: str) -> "list | None":
         """FTS fallback (complete epoch only). Returns results or None when
         the fallback itself is unavailable (caller emits the typed error)."""
         nonlocal search_mode, fallback_reason, coverage
+        _fts_attempted[0] = True
         lang_set = category_langs if category_langs is not None else (
             frozenset({language}) if language else None
         )
@@ -4577,6 +4743,7 @@ def code_search_response(index: WaveIndex, query: str, language: str = "", limit
         coverage = serve.get("coverage") or {}
         if not serve["available"]:
             fallback_reason = serve["failure_reason"]
+            search_mode = "lexical_fallback"  # attempted-and-failed: the mode names the path that failed (cross-tool consistency)
             return None
         search_mode = "lexical_fallback"
         fallback_reason = reason
@@ -4593,19 +4760,31 @@ def code_search_response(index: WaveIndex, query: str, language: str = "", limit
         d = _data([])
         d["search_mode"] = search_mode
         d["fallback_reason"] = reason
-        if coverage:
-            d["coverage"] = coverage
+        d["coverage"] = coverage  # required on every degraded/failed envelope ({} = unavailable)
+        diags = [
+            _diagnostic(
+                code,
+                exc_msg,
+                recovery_tools=["wave_help"],
+                recovery_usage="python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --root . --include-code",
+            )
+        ]
+        if reason == "query_failed" and _fts_attempted[0]:
+            # Review fix (cross-tool parity with docs_search): a failed FTS
+            # fallback is infrastructure failure, named as such — but ONLY
+            # when the fallback actually ran (a generic semantic failure
+            # never touched the FTS layer and must not blame it).
+            diags.append(_diagnostic(
+                "lexical_fallback_failed",
+                "The FTS fallback also failed — this is an infrastructure failure, "
+                "NOT an empty corpus.",
+                recovery_tools=["wave_index_health", "wave_index_build"],
+                recovery_usage="wave_index_health()",
+            ))
         return _response(
             "error",
             d,
-            diagnostics=[
-                _diagnostic(
-                    code,
-                    exc_msg,
-                    recovery_tools=["wave_help"],
-                    recovery_usage="python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --root . --include-code",
-                )
-            ],
+            diagnostics=diags,
             next_tools=["wave_help"],
             usage="wave_help(goal='search_code')",
         )
@@ -4635,9 +4814,15 @@ def code_search_response(index: WaveIndex, query: str, language: str = "", limit
                 fallback_reason or ("index_not_ready" if epoch_state is not None else "store_absent"),
                 "index_not_ready", str(exc),
             )
+    except Exception as exc:  # noqa: BLE001 - AC-3: typed end-to-end
+        fallback_reason = "query_failed"
+        _log_degradation_transition(index.root, "code_search", fallback_reason)
+        return _degraded_error("query_failed", "query_failed",
+                               f"Semantic retrieval failed unexpectedly ({exc}) — infrastructure "
+                               "failure, NOT an empty corpus.")
     _log_degradation_transition(index.root, "code_search", fallback_reason)
     if not results:
-        if search_mode == "lexical_fallback":
+        if search_mode == "lexical_fallback" and fallback_reason not in ("query_failed", "store_absent"):
             diagnostics.append(_lexical_zero_hit_note())
         else:
             diagnostics.append(
@@ -4651,7 +4836,7 @@ def code_search_response(index: WaveIndex, query: str, language: str = "", limit
         d = _data([], reranked=reranked)
         d["search_mode"] = search_mode
         d["fallback_reason"] = fallback_reason
-        if coverage:
+        if fallback_reason is not None or search_mode == "lexical_fallback" or coverage:
             d["coverage"] = coverage
         return _response(
             "ok",
@@ -4660,10 +4845,14 @@ def code_search_response(index: WaveIndex, query: str, language: str = "", limit
             next_tools=["wave_help"],
             usage=f"code_search(query={query!r})",
         )
-    d = _data([_search_result("code", result) for result in results], reranked=reranked)
+    _results_out = [_search_result("code", result) for result in results]
+    # 1ro43: freshness annotation only — code chunks are ground truth for
+    # themselves and are never drift-partitioned.
+    _annotate_freshness(_results_out, index.root, search_mode=search_mode)
+    d = _data(_results_out, reranked=reranked)
     d["search_mode"] = search_mode
     d["fallback_reason"] = fallback_reason
-    if coverage:
+    if fallback_reason is not None or search_mode == "lexical_fallback" or coverage:
         d["coverage"] = coverage
     return _response(
         "ok",
@@ -5353,23 +5542,92 @@ def _prepare_review_evidence(wave_text: str) -> str:
     return tail[: m_end.start()] if m_end else tail
 
 
-def _lane_has_signoff_in_evidence(evidence_text: str, lane: str) -> bool:
-    """True if some line in the evidence block names the lane and records signoff on that line."""
+_SIGNOFF_POSITIVE_STATES = ("approved", "passed", "complete")
+
+
+def _normalize_signoff_line(raw: str) -> str:
+    line = raw.strip()
+    line = line.lstrip("-*+ ")
+    for emphasis in ("**", "__", "`"):
+        line = line.replace(emphasis, "")
+    return line.strip()
+
+
+def _signoff_key_matches_lane(key: str, lane_l: str) -> bool:
+    """Exact-key matching (release-review round 4 P0): the normalized key must
+    BE the lane, or the lane's ``-signoff`` form. Never a prefix match —
+    ``qa`` must not match ``qa-reviewer``; ``operator-signoff`` must not
+    match ``operator-signoff-notes``."""
+    return key == lane_l or key == f"{lane_l}-signoff" or f"{key}-signoff" == lane_l
+
+
+def _lane_has_signoff_in_evidence(evidence_text: str, lane: str, *, authorization: "bool | None" = None) -> bool:
+    """True when the lane's signoff is recorded, current, and explicitly positive.
+
+    Release-review round 4 P0 — FAIL-CLOSED structured parsing:
+
+    - A STATE LINE is one whose text (markdown bullets/emphasis stripped)
+      begins with the lane's exact key before the first ``:`` (the lane
+      itself or its ``-signoff`` form; never a prefix collision).
+    - Parenthesized historical keys (``lane(superseded):``) are bookkeeping
+      and never contribute — neither to state nor to prose evidence.
+    - Among state lines, ONLY THE LAST governs. Its value must BEGIN with an
+      explicit canonical positive state (``approved``/``passed``/``complete``).
+      Everything else — ``not approved``, ``pending``, ``blocked``,
+      ``rejected``, ``denied``, ``failed``, ``withdrawn``, ``revoked``,
+      ``rescinded``, placeholders, unknown wording — is unapproved, and a
+      positive word appearing ELSEWHERE in the value never authorizes
+      ("blocked because previous checks passed" is blocked).
+    - AUTHORIZATION lanes (operator and wave-council signoffs — auto-detected
+      unless ``authorization`` is passed explicitly) require a state line:
+      prose evidence never authorizes lifecycle closure. Reviewer-seat lanes
+      keep prose-line compatibility for their per-seat evidence.
+    """
     lane_l = lane.strip().lower()
     if not lane_l or not evidence_text.strip():
         return False
+    if authorization is None:
+        authorization = (
+            lane_l in ("operator", "operator-signoff")
+            or lane_l.startswith("wave-council")
+        )
+    state_values: list[str] = []
+    any_prose_signoff = False
     for raw in evidence_text.splitlines():
-        line = raw.strip().lower()
-        if not line or line.startswith("#"):
+        low = raw.strip().lower()
+        if not low or low.startswith("#"):
             continue
-        # Skip placeholder lines — e.g. "operator-signoff: <approved when ...>"
-        if "<" in line:
-            continue
-        if lane_l not in line:
-            continue
-        if any(tok in line for tok in _SIGNOFF_TOKENS):
-            return True
-    return False
+        norm = _normalize_signoff_line(low)
+        key, sep, value = norm.partition(":")
+        if sep:
+            key_clean = key.strip()
+            # Historical parenthesized variant — the parenthesis abuts the
+            # lane key directly ("lane(superseded):"). A SPACED parenthesis
+            # ("red-team (delivery):") is a seat descriptor, not bookkeeping.
+            paren = key_clean.find("(")
+            if paren > 0 and key_clean[paren - 1] != " " and _signoff_key_matches_lane(
+                key_clean[:paren].strip(), lane_l
+            ):
+                continue  # historical variant: never counts
+            if _signoff_key_matches_lane(key_clean, lane_l):
+                state_values.append(value.strip())
+                continue
+        # Prose evidence (reviewer seats only): the lane must appear as a
+        # WHOLE word — "qa" never matches inside "qa-reviewer" — and
+        # placeholders never count.
+        if ("<" not in low
+                and re.search(rf"(?<![a-z0-9-]){re.escape(lane_l)}(?![a-z0-9-])", low)
+                and any(tok in low for tok in _SIGNOFF_TOKENS)):
+            any_prose_signoff = True
+    if state_values:
+        current = state_values[-1]
+        if not current or current.startswith("<"):
+            return False
+        first_word = re.match(r"[a-z][a-z-]*", current)
+        return bool(first_word and first_word.group(0) in _SIGNOFF_POSITIVE_STATES)
+    if authorization:
+        return False  # fail closed: no state line = not authorized
+    return any_prose_signoff
 
 
 def _lanes_missing_signoff(wave_text: str) -> list[str]:
@@ -7068,6 +7326,677 @@ def wave_index_health_response(index: WaveIndex) -> dict[str, Any]:
     )
 
 
+# ---------------------------------------------------------------------------
+# Agent memory tools (wave 1ro44 / 1p8gy): add / search / brief / reconcile
+# ---------------------------------------------------------------------------
+#
+# The record FILES under docs/agents/memory/ are the source of truth (few,
+# small, live); the semantic index is an optional retrieval assist and its
+# absence degrades silently. Decay is a ranking view, never a mutation.
+
+# Advisory caps (1p8gy Req 6: named constants, response bloat is a hot-path
+# concern). A briefing is a nudge, not a document — five entries is what an
+# agent actually reads before acting.
+MEMORY_BRIEF_CAP = 5
+MEMORY_SEARCH_CAP = 20
+MEMORY_SUMMARY_EXCERPT_CHARS = 280
+MEMORY_BRIEF_CONTEXTS = (
+    "session_start", "pre_implementation", "review", "close", "setup", "file_edit",
+)
+
+
+def _memory_mod():
+    return _load_script("memory_records")
+
+
+def _memory_fence(root: Path) -> Optional[str]:
+    """Register a WRITER-OWNED fence token BEFORE a record filesystem mutation.
+    Returns the token on success; None means the caller must REFUSE the mutation
+    (an unfenced write could leave another process serving stale). The token
+    must be passed to ``_memory_finalize`` so this writer clears ONLY its own
+    fence (a concurrent writer's fence must survive)."""
+    try:
+        tok = _load_script("index_state_store").memory_fence(
+            root / ".wavefoundry" / "index"
+        )
+        return tok if isinstance(tok, str) and tok else None
+    except Exception:
+        return None
+
+
+def _memory_finalize(root: Path, token: Optional[str] = None) -> None:
+    """Remove THIS writer's fence token + advance the generation after a
+    mutation, and evict the local cache. Best-effort: if the durable finalize
+    fails, the token remains so every process keeps bypassing the cache (no
+    stale serve) until the next successful mutation or the TTL self-heals it."""
+    _MEMORY_RECORDS_CACHE.pop(str(root), None)
+    try:
+        _load_script("index_state_store").memory_finalize(
+            root / ".wavefoundry" / "index", token
+        )
+    except Exception:
+        pass
+
+
+# Exact lifecycle-id token (v2 scheme): 5-char base36, digit-led, at least one
+# letter, bounded by non-alphanumerics so `1abcd` is never found inside
+# `1abcde` (delivery-review prefix-collision finding). Mirrors the derivation
+# grammar in index_state_store.WAVE_ID_TOKEN.
+_LIFECYCLE_ID_TOKEN_RE = re.compile(r"(?<![a-z0-9])(?=[0-9]*[a-z])[0-9][a-z0-9]{4}(?![a-z0-9])")
+
+
+def _lifecycle_id_tokens(text: str) -> set[str]:
+    return set(_LIFECYCLE_ID_TOKEN_RE.findall(str(text).lower()))
+
+
+# Hot-path caches (delivery-review perf finding): memory advisories fire on
+# code_read/code_impact/code_callhierarchy, so re-reading every record file and
+# re-decompressing the cluster artifact per call is the wrong cost. Both caches
+# are keyed on a cheap on-disk signature and invalidate the instant the backing
+# state changes (a memory write bumps the dir signature; a graph rebuild bumps
+# the artifact stat). Bounded: one dict entry per repo root.
+_MEMORY_RECORDS_CACHE: dict[str, tuple[Any, list[dict[str, Any]]]] = {}
+_MEMORY_BETWEENNESS_CACHE: dict[str, tuple[Any, dict[str, float]]] = {}
+
+
+_MEMORY_KEY_BYPASS = "__bypass__"
+
+
+def _memory_cache_key(root: Path):
+    """Bounded cache key from the durable memory seqlock — NO per-call tree
+    walk. One of:
+    - ``None`` — the memory root is absent/uncontained (reads → []);
+    - ``_MEMORY_KEY_BYPASS`` — the durable state is UNREADABLE or DIRTY (a
+      mutation is in flight, or a finalize failed leaving dirty set); the cache
+      is bypassed (always reload fresh) so no process serves stale;
+    - ``(epoch, generation, dir_mtime_ns)`` — the normal key. The random epoch
+      defeats the delete/recreate ABA; the monotonic generation advances on
+      every mutation/invalidate across processes; the dir mtime additionally
+      catches add/delete/rename.
+    """
+    mem = _memory_mod()
+    mem_dir = mem.canonical_memory_root(root)
+    if mem_dir is None or not mem_dir.is_dir():
+        return None
+    try:
+        dir_mtime = int(mem_dir.stat().st_mtime_ns)
+    except OSError:
+        return None
+    state = _load_script("index_state_store").read_memory_state(
+        root / ".wavefoundry" / "index"
+    )
+    if state is None or state.get("dirty"):
+        return _MEMORY_KEY_BYPASS
+    return (str(state.get("epoch", "")), int(state.get("generation", 0)), dir_mtime)
+
+
+def _memory_records_cached(root: Path, statuses: Optional[Iterable[str]]) -> list[dict[str, Any]]:
+    """All parseable records for ``root``, cached on the bounded key.
+
+    Caches the FULL (all-status) set and filters by status in memory. A key
+    change reloads; an unreadable generation BYPASSES the cache (fresh load,
+    no store); an absent/uncontained dir → [].
+    """
+    key_sig = _memory_cache_key(root)
+    if key_sig is None:
+        return []
+    load = _memory_mod().load_memory_records
+
+    def _filter(records):
+        if statuses is None:
+            return list(records)
+        wanted = set(statuses)
+        return [r for r in records if r["status"] in wanted]
+
+    if key_sig == _MEMORY_KEY_BYPASS:
+        return _filter(load(root))  # durable state unavailable — never cache
+    key = str(root)
+    cached = _MEMORY_RECORDS_CACHE.get(key)
+    if cached and cached[0] == key_sig:
+        records = cached[1]
+    else:
+        records = load(root)  # all statuses
+        _MEMORY_RECORDS_CACHE[key] = (key_sig, records)
+    return _filter(records)
+
+
+def _memory_betweenness_by_file(root: Path) -> dict[str, float]:
+    """Max persisted betweenness per file from the cluster artifact (top-200).
+
+    Cached on the artifact's (mtime_ns, size) so the gzip decompress runs once
+    per graph build, not per advisory call. Graceful absence: {} when the
+    artifact is missing/unreadable — ranking falls back to decayed confidence
+    alone (AC-12 degrade path).
+    """
+    path = root / ".wavefoundry" / "index" / "graph" / "project-graph-clusters.json"
+    try:
+        st = path.stat()
+        art_sig = (int(st.st_mtime_ns), int(st.st_size))
+    except OSError:
+        return {}
+    key = str(root)
+    cached = _MEMORY_BETWEENNESS_CACHE.get(key)
+    if cached and cached[0] == art_sig:
+        return cached[1]
+    try:
+        import gzip
+        with gzip.open(path, "rt", encoding="utf-8") as fh:
+            data = json.load(fh)
+        scores: dict[str, float] = {}
+        for entry in (data.get("betweenness") or {}).get("ranking") or []:
+            node_id = str(entry.get("node_id") or "")
+            file_part = node_id.split("::", 1)[0]
+            score = float(entry.get("score") or 0.0)
+            if file_part and score > scores.get(file_part, 0.0):
+                scores[file_part] = score
+        _MEMORY_BETWEENNESS_CACHE[key] = (art_sig, scores)
+        return scores
+    except Exception:
+        return {}
+
+
+def _memory_view(record: dict[str, Any], decay: dict[str, Any]) -> dict[str, Any]:
+    summary = str(record.get("summary") or "")
+    view = {
+        "memory_id": record["memory_id"],
+        "title": record.get("title"),
+        "kind": record["kind"],
+        "status": record["status"],
+        "confidence": record.get("confidence"),
+        "effective_confidence": round(float(decay.get("effective_confidence") or 0.0), 3),
+        "decay_basis": decay.get("decay_basis"),
+        "summary": summary[:MEMORY_SUMMARY_EXCERPT_CHARS],
+        "target_refs": record.get("target_refs") or [],
+        "evidence_refs": record.get("evidence_refs") or [],
+        "path": str(Path(record["path"]).as_posix()) if record.get("path") else None,
+        "created_at": record.get("created_at"),
+        "updated_at": record.get("updated_at"),
+    }
+    if record.get("superseded_by"):
+        view["superseded_by"] = record["superseded_by"]
+    if decay.get("needs_reverification"):
+        view["needs_reverification"] = True
+    return view
+
+
+def _memory_ranked(
+    root: Path,
+    records: list[dict[str, Any]],
+) -> list[tuple[dict[str, Any], dict[str, Any]]]:
+    """Decay + centrality-weighted ordering (1p8gy Req 12).
+
+    Primary key: decayed confidence. Tie-band: persisted betweenness of the
+    highest-centrality file target (degree/centrality absence degrades to
+    flat). Returns [(record, decay)] best-first.
+
+    Freshness is read ONCE for the whole batch (delivery-review perf finding):
+    all file targets across the records are collected and their windowed
+    commit timestamps fetched in a single store query, then per-record churn
+    is computed in memory — no per-target store open, no per-call cluster
+    decompress (betweenness is cached).
+    """
+    mem = _memory_mod()
+    index_dir = root / ".wavefoundry" / "index"
+    betweenness = _memory_betweenness_by_file(root)
+
+    file_targets = {
+        ref for r in records for ref in (r.get("target_refs") or [])
+        if not ref.startswith(("symbol:", "community:"))
+    }
+    commit_times: dict[str, list[int]] = {}
+    if file_targets:
+        try:
+            commit_times = _load_script("index_state_store").file_commit_times(
+                index_dir, file_targets
+            )
+        except Exception:
+            commit_times = {}
+
+    def _churn_provider(path: str, since_ts: Optional[int]) -> int:
+        times = commit_times.get(path)
+        if not times:
+            return 0
+        if since_ts is None:
+            return len(times)
+        return sum(1 for t in times if t > since_ts)
+
+    def _centrality(record: dict[str, Any]) -> float:
+        best = 0.0
+        for ref in record.get("target_refs") or []:
+            if ref.startswith(("symbol:", "community:")):
+                continue
+            best = max(best, betweenness.get(ref, 0.0))
+        return best
+
+    scored = []
+    for record in records:
+        decay = mem.apply_decay(record, index_dir=index_dir, churn_provider=_churn_provider)
+        scored.append((record, decay, _centrality(record)))
+    scored.sort(
+        key=lambda item: (
+            -round(float(item[1].get("effective_confidence") or 0.0), 2),
+            -item[2],
+            item[0]["memory_id"],
+        )
+    )
+    return [(record, decay) for record, decay, _c in scored]
+
+
+# Per-tool advisory cap on hot read tools (1p8gy Req 6): a nudge in a
+# response an agent is reading for OTHER content — three entries max.
+MEMORY_ADVISORY_CAP = 3
+
+
+def _memory_advisories_for_path(root: Path, path: str, symbol: str = "") -> list[dict[str, Any]]:
+    """Capped active-memory advisories for a file/symbol (1p8gy AC-5).
+
+    Graceful absence everywhere: no memory directory, no matches, or any
+    failure → [] and the host tool's response is unchanged. The empty-match
+    short-circuit keeps the hot read tools at directory-scan cost; ranking
+    (decay + centrality) runs only when something matched.
+    """
+    try:
+        mem = _memory_mod()
+        records = _memory_records_cached(root, mem.DEFAULT_SURFACED_STATUSES)
+        if not records:
+            return []
+        matched = [r for r in records if mem.match_targets(r, path=path, symbol=symbol)]
+        if not matched:
+            return []
+        ranked = _memory_ranked(root, matched)
+        return [_memory_view(r, d) for r, d in ranked[:MEMORY_ADVISORY_CAP]]
+    except Exception:
+        return []
+
+
+def _memory_advisories_for_wave(root: Path, wave: dict[str, Any]) -> list[dict[str, Any]]:
+    """Capped advisories relevant to a wave (1p8gy AC-6): records whose
+    evidence/target refs mention the wave id or an admitted change id, plus
+    any fragile_file advisory flagged needs-reverification. Graceful absence.
+    """
+    try:
+        mem = _memory_mod()
+        records = _memory_records_cached(root, mem.DEFAULT_SURFACED_STATUSES)
+        if not records:
+            return []
+        # Exact lifecycle-id token matching (delivery-review finding): collect
+        # the wave/change id TOKENS and match refs by whole-token equality, so
+        # a memory that references `1abcde` never attaches to wave `1abcd` (the
+        # old `ident in ref` substring test did). `_lifecycle_id_tokens` finds
+        # 5-char digit-led base36 tokens bounded by non-alphanumerics.
+        wave_tokens: set[str] = set()
+        wave_id = str(wave.get("wave_id") or wave.get("id") or "")
+        if wave_id:
+            wave_tokens |= _lifecycle_id_tokens(wave_id)
+        for change in wave.get("changes") or []:
+            cid = str(change.get("id") or change) if not isinstance(change, str) else change
+            if cid:
+                wave_tokens |= _lifecycle_id_tokens(cid)
+        if not wave_tokens:
+            return []
+
+        def _mentions_wave(record: dict[str, Any]) -> bool:
+            refs = (record.get("evidence_refs") or []) + (record.get("target_refs") or [])
+            return any(_lifecycle_id_tokens(ref) & wave_tokens for ref in refs)
+
+        matched = [r for r in records if _mentions_wave(r)]
+        ranked = _memory_ranked(root, matched)
+        views = [_memory_view(r, d) for r, d in ranked[:MEMORY_ADVISORY_CAP]]
+        # Standing fragile-file warnings that need re-verification surface at
+        # lifecycle checkpoints even without a wave-id link.
+        if len(views) < MEMORY_ADVISORY_CAP:
+            seen = {v["memory_id"] for v in views}
+            fragile = [r for r in records
+                       if r["kind"] == "fragile_file" and r["memory_id"] not in seen]
+            for record, decay in _memory_ranked(root, fragile):
+                if decay.get("needs_reverification") and len(views) < MEMORY_ADVISORY_CAP:
+                    views.append(_memory_view(record, decay))
+        return views
+    except Exception:
+        return []
+
+
+def wave_memory_add_response(
+    root: Path,
+    kind: str,
+    summary: str,
+    evidence: list,
+    targets: list,
+    title: str = "",
+    confidence: float = 0.6,
+    status: str = "candidate",
+    supersedes: str = "",
+    memory_id: str = "",
+) -> dict[str, Any]:
+    mem = _memory_mod()
+    problems: list[str] = []
+    kind = (kind or "").strip()
+    status = (status or "candidate").strip()
+    evidence = [str(e).strip() for e in (evidence or []) if str(e).strip()]
+    targets = [str(t).strip() for t in (targets or []) if str(t).strip()]
+    if kind not in mem.MEMORY_KINDS:
+        problems.append(f"unknown kind {kind!r}; allowed: {', '.join(mem.MEMORY_KINDS)}")
+    if status not in ("candidate", "active"):
+        problems.append("new records start as 'candidate' or 'active' — other statuses are reconciliation outcomes")
+    if not (summary or "").strip():
+        problems.append("summary is required (the lesson, phrased as what changes the next action)")
+    if not evidence:
+        problems.append("evidence refs are required — memory without evidence is opinion")
+    if not targets:
+        problems.append("target refs are required — an advisory needs something to attach to")
+    try:
+        confidence = float(confidence)
+        if not 0.0 <= confidence <= 1.0:
+            raise ValueError
+    except (TypeError, ValueError):
+        problems.append("confidence must be a number in [0.0, 1.0]")
+    # Security boundary (delivery-review finding 2026-07-13): ids are path
+    # components — validate caller-supplied ids and supersedes references
+    # against the memory-id grammar BEFORE any filesystem access.
+    for label, value in (("memory_id", memory_id), ("supersedes", supersedes)):
+        if value:
+            try:
+                mem.validate_memory_id(value)
+            except ValueError as exc:
+                problems.append(f"{label}: {exc}")
+    # Forbidden-content pre-write scan (1p8gy Req 8). Delivery-review finding:
+    # scan EVERY caller-controlled field that gets persisted (title + summary +
+    # evidence + targets), and NEVER echo the rejected line — the diagnostic
+    # names the offending field only, so a secret is not repeated back into
+    # logs/responses.
+    try:
+        from wave_lint_lib.constants import MEMORY_DISALLOWED_PATTERNS as _FORBIDDEN
+    except ImportError:
+        _FORBIDDEN = ()
+    _scanned_fields = (
+        ("title", [title or ""]),
+        ("summary", [summary or ""]),
+        ("evidence", list(evidence)),
+        ("targets", list(targets)),
+    )
+    _forbidden_fields: list[str] = []
+    for field_name, chunks in _scanned_fields:
+        hit = False
+        for chunk in chunks:
+            for line in str(chunk).splitlines():
+                if any(p.search(line) for p in _FORBIDDEN):
+                    hit = True
+                    break
+            if hit:
+                break
+        if hit:
+            _forbidden_fields.append(field_name)
+    if _forbidden_fields:
+        problems.append(
+            "content looks like a secret, raw transcript, or personal fact in "
+            f"{', '.join(_forbidden_fields)} — forbidden by the memory schema "
+            "(the offending text is not echoed back)"
+        )
+    if problems:
+        return _response(
+            "error",
+            {"written": False, "problems": problems},
+            diagnostics=[_diagnostic(
+                "invalid_memory_record", "; ".join(problems),
+                recovery_tools=["wave_memory_add"],
+                recovery_usage="wave_memory_add(kind='fragile_file', summary=..., evidence=[...], targets=[...])",
+            )],
+            next_tools=["wave_memory_add"],
+            usage="",
+        )
+    explicit = bool(memory_id)
+    base_id = memory_id or f"mem-{mem.slugify(title or summary)}"
+
+    def _render(mid: str) -> str:
+        return mem.render_memory_record(
+            memory_id=mid, kind=kind, summary=summary, evidence=evidence,
+            targets=targets, title=title, confidence=confidence, status=status,
+            supersedes=supersedes,
+        )
+
+    # Fence the durable seqlock BEFORE any filesystem write (delivery-review
+    # round 4): if the fence cannot be established, refuse the mutation — an
+    # unfenced write could leave a second MCP process serving a stale advisory.
+    # The token is writer-owned; finalize clears ONLY this token.
+    _fence_token = _memory_fence(root)
+    if _fence_token is None:
+        return _response(
+            "error", {"written": False},
+            diagnostics=[_diagnostic(
+                "memory_state_unwritable",
+                "Cannot establish the memory-state fence (memory-state.sqlite is "
+                "unwritable). Refusing the write so no process serves a stale advisory.",
+                recovery_tools=["wave_memory_add"], recovery_usage="")],
+            next_tools=["wave_memory_add"], usage="",
+        )
+    diagnostics: list[dict[str, Any]] = []
+    try:
+        # Atomic creation: exclusive-create, retry only generated-id
+        # collisions, surface the conflict for an explicit id. No TOCTOU.
+        try:
+            path, memory_id = mem.create_memory_record(root, _render, base_id, explicit=explicit)
+        except ValueError as exc:
+            return _response(
+                "error", {"written": False},
+                diagnostics=[_diagnostic("invalid_memory_record", str(exc),
+                                         recovery_tools=["wave_memory_add"],
+                                         recovery_usage="wave_memory_add(memory_id='mem-<kebab-slug>', ...)")],
+                next_tools=["wave_memory_add"], usage="",
+            )
+        except FileExistsError as exc:
+            return _response(
+                "error", {"written": False},
+                diagnostics=[_diagnostic("memory_record_exists", str(exc),
+                                         recovery_tools=["wave_memory_reconcile"],
+                                         recovery_usage=f"wave_memory_reconcile(memory_id={base_id!r}, status='superseded', superseded_by=<new id>)")],
+                next_tools=["wave_memory_search"], usage="",
+            )
+        if supersedes:
+            try:
+                mem.reconcile_memory_record(root, supersedes, "superseded", superseded_by=memory_id)
+            except (FileNotFoundError, ValueError) as exc:
+                diagnostics.append(_diagnostic(
+                    "supersedes_target_not_updated",
+                    f"The new record was written but {supersedes!r} could not be marked superseded: {exc}",
+                    recovery_tools=["wave_memory_reconcile"],
+                    recovery_usage=f"wave_memory_reconcile(memory_id={supersedes!r}, status='superseded', superseded_by={memory_id!r})",
+                ))
+    finally:
+        # Clear THIS writer's fence + advance the generation. A concurrent
+        # writer's fence survives (only our token is removed).
+        _memory_finalize(root, _fence_token)
+    _trigger_background_index_refresh_for_paths(root, [path])
+    record = mem.parse_memory_record(path)
+    decay = mem.apply_decay(record, index_dir=root / ".wavefoundry" / "index") if record else {}
+    return _response(
+        "ok",
+        {"written": True, "record": _memory_view(record, decay) if record else {"memory_id": memory_id}},
+        diagnostics=diagnostics,
+        next_tools=["wave_memory_search", "wave_memory_brief"],
+        usage=f"wave_memory_search(target={targets[0]!r})",
+    )
+
+
+def wave_memory_search_response(
+    root: Path,
+    query: str = "",
+    target: str = "",
+    symbol: str = "",
+    kind: str = "",
+    status: str = "",
+    include_history: bool = False,
+    limit: int = 10,
+    index: Optional[WaveIndex] = None,
+) -> dict[str, Any]:
+    mem = _memory_mod()
+    n = max(1, min(int(limit), MEMORY_SEARCH_CAP))
+    if kind and kind not in mem.MEMORY_KINDS:
+        return _response(
+            "error", {"records": [], "count": 0},
+            diagnostics=[_diagnostic("invalid_arguments",
+                                     f"unknown kind {kind!r}; allowed: {', '.join(mem.MEMORY_KINDS)}",
+                                     recovery_tools=["wave_memory_search"], recovery_usage="wave_memory_search()")],
+            next_tools=["wave_memory_search"], usage="",
+        )
+    statuses = None if include_history else ([status] if status else list(mem.DEFAULT_SURFACED_STATUSES))
+    records = mem.load_memory_records(root, statuses=statuses)
+    if kind:
+        records = [r for r in records if r["kind"] == kind]
+    if target or symbol:
+        records = [r for r in records if mem.match_targets(r, path=target, symbol=symbol)]
+    semantic_hit_order: dict[str, int] = {}
+    if query:
+        lowered = query.lower()
+        # Semantic assist (optional): the docs index already embeds records.
+        if index is not None:
+            try:
+                hits, _reranked = index.search_docs(query, top_n=MEMORY_SEARCH_CAP)
+                for rank, hit in enumerate(hits):
+                    hit_path = str(hit.get("path") or "")
+                    if hit_path.startswith(mem.MEMORY_DIR):
+                        stem = Path(hit_path).stem
+                        semantic_hit_order.setdefault(stem, rank)
+            except Exception:
+                pass
+        # Token containment keeps search useful with no index at all: every
+        # query token must appear somewhere in the record's text surface.
+        tokens = [t for t in re.split(r"[^a-z0-9_]+", lowered) if t]
+
+        def _text_match(r: dict[str, Any]) -> bool:
+            haystack = " ".join([
+                (r.get("summary") or ""), (r.get("title") or ""),
+                " ".join(r.get("target_refs") or []),
+                " ".join(r.get("evidence_refs") or []),
+            ]).lower()
+            return bool(tokens) and all(t in haystack for t in tokens)
+
+        records = [
+            r for r in records
+            if r["memory_id"] in semantic_hit_order or _text_match(r)
+        ]
+    ranked = _memory_ranked(root, records)
+    if query and semantic_hit_order:
+        ranked.sort(key=lambda pair: semantic_hit_order.get(pair[0]["memory_id"], MEMORY_SEARCH_CAP))
+    views = [_memory_view(record, decay) for record, decay in ranked[:n]]
+    diagnostics = []
+    if not views:
+        diagnostics.append(_diagnostic(
+            "no_memory_matches",
+            "No memory records matched. Memory is evidence-backed and sparse by design — "
+            "absence of a record is not absence of risk.",
+            recovery_tools=["wave_memory_add"],
+            recovery_usage="wave_memory_add(kind=..., summary=..., evidence=[...], targets=[...])",
+        ))
+    return _response(
+        "ok",
+        {"records": views, "count": len(views),
+         "statuses_searched": statuses or list(mem.MEMORY_STATUSES),
+         "semantic_assist": bool(semantic_hit_order)},
+        diagnostics=diagnostics,
+        next_tools=["wave_memory_brief", "wave_memory_reconcile"],
+        usage="wave_memory_brief(context='pre_implementation')",
+    )
+
+
+def wave_memory_brief_response(
+    root: Path,
+    context: str = "pre_implementation",
+    targets: Optional[list] = None,
+    limit: int = MEMORY_BRIEF_CAP,
+) -> dict[str, Any]:
+    mem = _memory_mod()
+    context = (context or "pre_implementation").strip()
+    if context not in MEMORY_BRIEF_CONTEXTS:
+        return _response(
+            "error", {"advisories": [], "count": 0},
+            diagnostics=[_diagnostic("invalid_arguments",
+                                     f"unknown context {context!r}; allowed: {', '.join(MEMORY_BRIEF_CONTEXTS)}",
+                                     recovery_tools=["wave_memory_brief"], recovery_usage="wave_memory_brief()")],
+            next_tools=["wave_memory_brief"], usage="",
+        )
+    n = max(1, min(int(limit), MEMORY_BRIEF_CAP))
+    target_list = [str(t).strip() for t in (targets or []) if str(t).strip()]
+    records = mem.load_memory_records(root, statuses=mem.DEFAULT_SURFACED_STATUSES)
+    ranked = _memory_ranked(root, records)
+    ranked = [(r, d) for r, d in ranked if d.get("briefing_included", True)]
+    if target_list:
+        matched = [(r, d) for r, d in ranked
+                   if any(mem.match_targets(r, path=t) for t in target_list)]
+        unmatched = [(r, d) for r, d in ranked if (r, d) not in matched]
+        ranked = matched + unmatched
+    advisories = []
+    community_scoped = []
+    for record, decay in ranked[:n]:
+        view = _memory_view(record, decay)
+        if any(ref.startswith("community:") for ref in record.get("target_refs") or []):
+            community_scoped.append(view)
+        else:
+            advisories.append(view)
+    data = {
+        "context": context,
+        "advisories": advisories,
+        "count": len(advisories) + len(community_scoped),
+        "cap": n,
+        "total_surfaceable": len(ranked),
+    }
+    if community_scoped:
+        data["community_scoped"] = community_scoped
+    return _response(
+        "ok", data,
+        diagnostics=[],
+        next_tools=["wave_memory_search", "wave_memory_reconcile"],
+        usage="wave_memory_search(query=...)",
+    )
+
+
+def wave_memory_reconcile_response(
+    root: Path,
+    memory_id: str,
+    status: str,
+    superseded_by: str = "",
+) -> dict[str, Any]:
+    mem = _memory_mod()
+    # Fence BEFORE the status rewrite (delivery-review round 4): refuse if the
+    # durable fence cannot be established. Token is writer-owned.
+    _fence_token = _memory_fence(root)
+    if _fence_token is None:
+        return _response(
+            "error", {"updated": False},
+            diagnostics=[_diagnostic(
+                "memory_state_unwritable",
+                "Cannot establish the memory-state fence (memory-state.sqlite is "
+                "unwritable). Refusing the reconcile so no process serves a stale advisory.",
+                recovery_tools=["wave_memory_reconcile"], recovery_usage="")],
+            next_tools=["wave_memory_search"], usage="",
+        )
+    try:
+        try:
+            path = mem.reconcile_memory_record(
+                root, (memory_id or "").strip(), (status or "").strip(),
+                superseded_by=(superseded_by or "").strip(),
+            )
+        except (FileNotFoundError, ValueError) as exc:
+            return _response(
+                "error", {"updated": False},
+                diagnostics=[_diagnostic("memory_reconcile_failed", str(exc),
+                                         recovery_tools=["wave_memory_search"],
+                                         recovery_usage="wave_memory_search(include_history=True)")],
+                next_tools=["wave_memory_search"], usage="",
+            )
+    finally:
+        _memory_finalize(root, _fence_token)
+    _trigger_background_index_refresh_for_paths(root, [path])
+    record = mem.parse_memory_record(path)
+    decay = mem.apply_decay(record, index_dir=root / ".wavefoundry" / "index") if record else {}
+    return _response(
+        "ok",
+        {"updated": True, "record": _memory_view(record, decay) if record else {"memory_id": memory_id}},
+        diagnostics=[],
+        next_tools=["wave_memory_search"],
+        usage="wave_memory_search(include_history=True)",
+    )
+
+
 def wave_audit_response(
     root: Path,
     wave_id: str = "",
@@ -7128,6 +8057,22 @@ def wave_audit_response(
             index_data = {"error": str(exc), "semantic_ready": False}
     else:
         index_data = {"semantic_ready": False}
+
+    # --- Doc-code drift summary (wave 1ro44 / 1ro43 Req 7) ---
+    # The gardening worklist surface: flagged living docs, worst first,
+    # historical (docs/waves/) rows excluded by construction. Never blocks
+    # `ready` — drift is a proposal for the verification loop, not a gate.
+    # The worklist format below is the STABLE CONSUMER CONTRACT for the
+    # future Verify-docs loop: entries ordered by `commits_since` DESC then
+    # path; each entry = {path, commits_since, anchor_kind, drift_refs}.
+    doc_drift_data: dict[str, Any] = {}
+    try:
+        _iss_drift = _load_script("index_state_store")
+        doc_drift_data = _iss_drift.drift_worklist(
+            root / ".wavefoundry" / "index", limit=10
+        )
+    except Exception:
+        doc_drift_data = {"available": False, "flagged_count": 0, "entries": []}
 
     # --- ready ---
     ready = wave_ok and lint_ok and index_ok
@@ -7272,6 +8217,23 @@ def wave_audit_response(
             recovery_tools=["wave_audit"],
             recovery_usage="wave_audit()",
         ))
+    if doc_drift_data.get("flagged_count", 0) > 0:
+        _top = ", ".join(e["path"] for e in doc_drift_data.get("entries", [])[:3])
+        diagnostics.append(_diagnostic(
+            "doc_code_drift_flagged",
+            (
+                f"{doc_drift_data['flagged_count']} living doc(s) are drift-flagged — the code "
+                f"they reference has churned past their verification anchor (top: {_top}). "
+                "Drift is a PROPOSAL, not a verdict: read each doc against the current code and "
+                "either update it or record a `Verified against: <hex-sha>` stamp (the stamp "
+                "resets the drift clock; docs_gardener never writes it)."
+            ),
+            recovery_tools=["docs_search", "code_read"],
+            recovery_usage="code_read(path=<flagged doc path>)",
+        ))
+
+    # 1p8gy AC-6: memory advisories relevant to the audited wave.
+    _mem_advisories = _memory_advisories_for_wave(root, wave_data) if wave_data else []
 
     return _response(
         "ok",
@@ -7280,6 +8242,8 @@ def wave_audit_response(
             "wave": wave_data,
             "validation": val_result,
             "index": index_data,
+            "doc_drift": doc_drift_data,
+            **({"memory_advisories": _mem_advisories} if _mem_advisories else {}),
             "commit_governance": commit_governance,
             "harnessability": harnessability,
             "harness_coverage": harness_coverage,
@@ -7543,6 +8507,28 @@ def wave_garden_response(root: Path, mode: str = "dry_run", cache: Optional[McpR
             recovery_usage="wave_validate()",
         )
     ]
+    # 1ro43 Req 7: gardening has a drift worklist — point at it. The gardener's
+    # `Last verified` stamps are mechanical and carry no verification meaning;
+    # drift disposal is a deliberate review recorded via `Verified against:`.
+    if result["passed"]:
+        try:
+            _drift = _load_script("index_state_store").drift_worklist(
+                root / ".wavefoundry" / "index", limit=3
+            )
+            if _drift.get("flagged_count", 0) > 0:
+                diagnostics.append(_diagnostic(
+                    "doc_code_drift_flagged",
+                    (
+                        f"{_drift['flagged_count']} living doc(s) are drift-flagged (gardener "
+                        "stamps do NOT clear drift — only a doc content update or a deliberate "
+                        "`Verified against: <hex-sha>` review stamp resets the clock). See "
+                        "wave_audit's `doc_drift` worklist for the ordered entries."
+                    ),
+                    recovery_tools=["wave_audit"],
+                    recovery_usage="wave_audit()",
+                ))
+        except Exception:
+            pass
     if cache and result["passed"]:
         cache.invalidate()
     if result["passed"] and result.get("files_updated", 0):
@@ -10220,6 +11206,13 @@ def wave_prepare_response(root: Path, wave_id: str, mode: str = "dry_run", cache
     if mode_s == "create":
         _regenerate_codebase_map_safe(root)
     resp_data = {"wave_id": wave_id, "mode": mode_s, "readied": mode_s == "ready", "change_count": len(change_ids), "lint_passed": lint_passed, "garden_passed": garden_passed, "updated": updated, "repairs_needed": repairs_needed, "repaired": repaired, "required_council_signoffs": required_council_signoffs, "council_brief": council_brief, "council_verdict_present": verdict_present, "council_verdict_valid": verdict_valid}
+    # 1p8gy AC-6: prior-learning advisories before implementation begins —
+    # fragile files, repeated failed attempts, operator preferences.
+    _mem_advisories = _memory_advisories_for_wave(
+        root, {"wave_id": wave_id, "changes": [{"id": cid} for cid in change_ids]}
+    )
+    if _mem_advisories:
+        resp_data["memory_advisories"] = _mem_advisories
     envelope = _response("dry_run" if mode_s == "dry_run" else "ok", resp_data, diagnostics=_ac_advisories if _ac_advisories else None, next_tools=["wave_current"], usage="wave_current()")
     return _attach_lint_to_response(envelope, root, mode_s)
 
@@ -10401,9 +11394,16 @@ def wave_review_response(root: Path, wave_id: str, phase: str = "implementation"
             recovery_usage="wave_current()",
         ))
     status = "ok" if lint_result["passed"] and not missing and not missing_council else "error"
+    # 1p8gy AC-6: prior review findings and lessons relevant to this wave.
+    _review_data = {"wave_id": wave_id, "phase": phase_s, "required_lanes": required_lanes, "lane_results": lane_results, "required_council_signoffs": required_council_signoffs, "council_results": council_results, "lint_passed": lint_result["passed"], "max_severity": max_severity}
+    _mem_advisories = _memory_advisories_for_wave(
+        root, {"wave_id": wave_id, "changes": [{"id": cid} for cid in _extract_change_ids_from_wave_text(wave_text)]}
+    )
+    if _mem_advisories:
+        _review_data["memory_advisories"] = _mem_advisories
     return _response(
         status,
-        {"wave_id": wave_id, "phase": phase_s, "required_lanes": required_lanes, "lane_results": lane_results, "required_council_signoffs": required_council_signoffs, "council_results": council_results, "lint_passed": lint_result["passed"], "max_severity": max_severity},
+        _review_data,
         diagnostics=diagnostics,
         next_tools=["wave_validate", "wave_current"],
         usage="wave_validate()",
@@ -11652,6 +12652,11 @@ def code_read_response(
         data["size_bytes"] = size_bytes
     if edit_governance is not None:
         data["edit_governance"] = edit_governance
+    # 1p8gy Req 6 / AC-5: active memory attached to the file being read —
+    # capped, cited, graceful absence (the edit_governance precedent).
+    _mem_advisories = _memory_advisories_for_path(root, repo_rel)
+    if _mem_advisories:
+        data["memory_advisories"] = _mem_advisories
 
     # Tier 5: tree-sitter structural enrichment. Omitted for non-code files,
     # files >500KB, and files where parse fails. Source is whatever we have
@@ -11692,6 +12697,7 @@ CODE_LEXICAL_TEXT_CAP = 700    # per-result chunk-text cap (chars)
 
 
 _DEGRADED_LOG_STATE: "dict[tuple[str, str], str]" = {}
+_DEGRADED_LOG_LOCK = threading.Lock()
 
 
 def _log_degradation_transition(root: Path, tool: str, fallback_reason: "str | None") -> None:
@@ -11699,21 +12705,33 @@ def _log_degradation_transition(root: Path, tool: str, fallback_reason: "str | N
     TRANSITION — never per query (1seaq P2: an outage must not flood the
     bounded log). Recovery (reason back to None) is logged too, closing the
     episode. In-band response diagnostics remain the primary signal."""
+    if not isinstance(root, Path):
+        return  # unit tests pass mock roots; never fabricate paths from them
     key = (str(root), tool)
     current = fallback_reason or ""
-    if _DEGRADED_LOG_STATE.get(key, "") == current:
-        return
-    _DEGRADED_LOG_STATE[key] = current
-    try:
-        iss = _load_script("index_state_store")
-        index_dir = root / ".wavefoundry" / "index"
-        msg = (
-            f"search degradation: {tool} entered fallback_reason={current}"
-            if current else f"search degradation: {tool} recovered (healthy path)"
-        )
-        iss.store_log(index_dir, msg)
-    except Exception:
-        pass
+    # Release-review fix (round 2): check + PERSIST + mark are one critical
+    # section — persisting outside the lock let two transitions land in the
+    # log in the opposite order of the in-memory state (the tail reported
+    # degradation while the state said recovered). store_log is a bounded
+    # local append; holding the lock across it is cheap and makes the log
+    # order match the state order by construction.
+    with _DEGRADED_LOG_LOCK:
+        if _DEGRADED_LOG_STATE.get(key, "") == current:
+            return
+        try:
+            iss = _load_script("index_state_store")
+            index_dir = root / ".wavefoundry" / "index"
+            msg = (
+                f"search degradation: {tool} entered fallback_reason={current}"
+                if current else f"search degradation: {tool} recovered (healthy path)"
+            )
+            if iss.store_log(index_dir, msg):  # release-review fix: store_log
+                # swallows filesystem failures internally — only a True return
+                # means the line durably appended; anything else stays
+                # unmarked so the next query retries.
+                _DEGRADED_LOG_STATE[key] = current
+        except Exception:
+            pass  # unmarked: the next query retries the persist
 
 
 def _fts_degraded_serve(
@@ -11752,6 +12770,18 @@ def _fts_degraded_serve(
             return {"available": False, "failure_reason": "store_absent", "results": [], "coverage": coverage}
     except Exception:
         return {"available": False, "failure_reason": "store_absent", "results": [], "coverage": coverage}
+    # Review fix: probe EVERY requested table's FTS liveness up front — a
+    # broken fts_code beside a matching fts_docs must not serve a partial
+    # result as available (fts_search fails soft to [] per table).
+    try:
+        for table in tables:
+            if not iss.fts_probe(index_dir, table):
+                return {"available": False, "failure_reason": "query_failed",
+                        "results": [], "coverage": coverage,
+                        "detail": f"FTS table for '{table}' is not queryable (store damage?)"}
+    except Exception as exc:  # noqa: BLE001
+        return {"available": False, "failure_reason": "query_failed",
+                "results": [], "coverage": coverage, "detail": str(exc)}
     hits: list[dict[str, Any]] = []
     try:
         fetch_n = max(top_n * (3 if (language_names or max_per_file) else 1), top_n)
@@ -11763,6 +12793,8 @@ def _fts_degraded_serve(
             for r in rows:
                 hits.append({
                     "id": r.get("id", ""),
+                    "table": table,
+                    "source": "docs" if table == "docs" else "code",
                     "path": str(r.get("path", "")).replace("\\", "/"),
                     "kind": r.get("kind") or "",
                     "language": r.get("language") or "",
@@ -11896,6 +12928,10 @@ def code_lexical_response(
             "bm25": h.get("bm25"),
             "table": h.get("table"),
         })
+    # 1ro43: freshness annotation rides the same store this tool reads —
+    # cheapest surface of all; annotation-only (BM25 order is never
+    # partitioned; the relevance band is undefined off the reranker scale).
+    _annotate_freshness(results, root, search_mode=None)
     data["results"] = results
     data["result_count"] = len(results)
     # Coverage tie-in (1sbfj): a zero/thin result on an under-covered table is
@@ -14871,6 +15907,13 @@ def code_callhierarchy_response(
     # Wave 1p2q3 (1p2q9 B): per-language attribution-confidence counts.
     data["attribution_counts_by_language"] = _compute_attribution_counts_by_language(_attr_edges, index)
 
+    # 1p8gy AC-5: active memory attached to the symbol or its defining file.
+    _mem_advisories = _memory_advisories_for_path(
+        root, str((index.get_node(node_id) or {}).get("source_file") or file or ""), symbol=symbol,
+    )
+    if _mem_advisories:
+        data["memory_advisories"] = _mem_advisories
+
     return _attach_auto_rebuild_diag(
         _response("ok", data, diagnostics=advice_diagnostics, next_tools=["code_read", "code_callgraph"], usage=f"code_callgraph(symbol={symbol!r}, direction='both')"),
         index,
@@ -15193,6 +16236,8 @@ def _code_impact_heuristic_response(root: Path, path: str, max_results: int = 50
             recovery_tools=["code_impact", "code_references"],
             recovery_usage=f"code_impact(symbol='SomeSymbolFromThisFile')",
         ))
+    # 1p8gy AC-5: active memory attached to the file whose impact is queried.
+    _mem_advisories = _memory_advisories_for_path(root, target_rel)
     return _response(
         "ok",
         {
@@ -15200,6 +16245,7 @@ def _code_impact_heuristic_response(root: Path, path: str, max_results: int = 50
             "importers": importers,
             "truncated": total > max_results,
             "total_found": total,
+            **({"memory_advisories": _mem_advisories} if _mem_advisories else {}),
             "method": "heuristic",
         },
         diagnostics=diagnostics,
@@ -16038,6 +17084,12 @@ def _code_impact_graph_response(
         _supers = None
     if _supers:
         _extra["supertypes"] = _supers
+    # 1p8gy AC-5: active memory attached to the impacted symbol/file.
+    _mem_advisories = _memory_advisories_for_path(
+        root, _resolved_id.split("::", 1)[0] if "::" in _resolved_id else "", symbol=symbol,
+    )
+    if _mem_advisories:
+        _extra["memory_advisories"] = _mem_advisories
     return _attach_auto_rebuild_diag(
         _response(
             "ok",
@@ -17564,8 +18616,10 @@ def _heuristic_confidence(citations: list[dict], reranked: bool = False) -> str:
     cross-encoder relevance ``sigmoid(logit)`` ∈ [0,1] — comparable across docs+code — so we gate
     "high" on a genuinely relevant top score and flag a clearly-weak band "low" around the model's
     native ~0.5 relevance boundary. Without a reranker (explicitly disabled or unbuildable), the
-    per-citation scores are mixed-model cosine (arctic-doc vs bge-code, 1p4wx split) and are NOT a trustworthy band → confidence
-    stays count-based. Still coarse — the per-citation scores carry the fine signal.
+    per-citation scores are mixed-model cosine (arctic-doc vs bge-code, 1p4wx split) and are NOT a
+    trustworthy band → confidence is CAPPED at "medium" ("low" with zero citations); "high" is never
+    claimed without the cross-encoder. In lexical_fallback mode the caller further caps to "low"
+    (BM25 exact-token ordering). Still coarse — the per-citation scores carry the fine signal.
     """
     if not citations:
         return "low"
@@ -17676,23 +18730,23 @@ def _definition_match_boost(query_terms: set[str], candidate: dict) -> float:
 def code_ask_response(index: "WaveIndex", root: Path, question: str, rerank: str = "agent", epoch_state: Any = "__compute__") -> dict[str, Any]:
     """Mechanical routing: broad retrieval pass → targeted pass → assemble structured response.
 
-    Wave 1p4hj: ``rerank`` selects the candidate pipeline. ``"agent"`` (default) skips
-    the cross-encoder AND the RRF cross-source merge and returns labeled, deduped,
-    full-chunk per-index candidates for the calling agent to fuse+rank+synthesize.
-    ``"local"`` keeps the cross-encoder + RRF path (eval baseline / determinism / offline).
+    Wave 1p52p: ONE ranking path — agent candidate selection with a
+    rerank-FIRST cross-encoder. ``rerank="local"`` is a deprecated alias for
+    the identical path (the old local/RRF pipelines are removed); citations
+    are labeled, deduped, full-chunk in both spellings.
     """
     t_start = time.monotonic()
 
     question = question.strip()
     if not question:
-        return _response("error", {"question": question}, diagnostics=[_diagnostic("invalid_arguments", "question must be a non-empty string.")], next_tools=[], usage="")
+        return _response("error", {"question": question, "search_mode": None, "fallback_reason": None}, diagnostics=[_diagnostic("invalid_arguments", "question must be a non-empty string.")], next_tools=[], usage="")
 
     # Wave 1p52p: code_ask has a single ranking path (agent selection + rerank-FIRST cross-encoder).
     # The ``rerank`` param is retained for API back-compat: "agent" (default) and the deprecated alias
     # "local" both route through the one path (search_combined ignores the value). Other values error.
     rerank = (rerank or "agent").strip().lower()
     if rerank not in ("agent", "local"):
-        return _response("error", {"question": question, "rerank": rerank}, diagnostics=[_diagnostic("invalid_arguments", "rerank must be 'agent' (default); 'local' is a deprecated alias for the same single path.")], next_tools=["code_ask"], usage="code_ask(question='...')")
+        return _response("error", {"question": question, "rerank": rerank, "search_mode": None, "fallback_reason": None}, diagnostics=[_diagnostic("invalid_arguments", "rerank must be 'agent' (default); 'local' is a deprecated alias for the same single path.")], next_tools=["code_ask"], usage="code_ask(question='...')")
 
     question_type = _classify_question(question)
     gaps: list[str] = []
@@ -17723,16 +18777,20 @@ def code_ask_response(index: "WaveIndex", root: Path, question: str, rerank: str
         epoch_state = _epoch_state(root)
     _epoch_complete = epoch_state is not None and epoch_state[1] == "complete"
 
+    degraded_coverage: dict[str, Any] = {}
+
     def _degraded_citation_pass(reason: str, exc_msg: str) -> list:
         """FTS-built citations for the degraded mode (complete epoch only)."""
-        nonlocal search_mode, fallback_reason, gaps
+        nonlocal search_mode, fallback_reason, gaps, degraded_coverage
         if not _epoch_complete:
             fallback_reason = "index_not_ready" if epoch_state is not None else "store_absent"
             gaps.append(f"search index unavailable ({fallback_reason}): {exc_msg}")
             return []
         serve = _fts_degraded_serve(root, ("docs", "code"), question, 7)
+        degraded_coverage = serve.get("coverage") or {}
         if not serve["available"]:
             fallback_reason = serve["failure_reason"]
+            search_mode = "lexical_fallback"  # attempted-and-failed (cross-tool consistency)
             gaps.append(f"search infrastructure failure ({serve['failure_reason']}): {exc_msg}")
             return []
         search_mode = "lexical_fallback"
@@ -17741,6 +18799,14 @@ def code_ask_response(index: "WaveIndex", root: Path, question: str, rerank: str
             f"semantic retrieval unavailable ({reason}) — citations are BM25 exact-token "
             "matches from the published FTS layer, not semantic recall; confidence is capped"
         )
+        if not serve["results"]:
+            # Working-lexical zero-hit honesty (review fix): the same
+            # token-semantics guidance the search tools carry.
+            gaps.append(
+                "zero lexical hits — tokens are matched as exact literals (compound "
+                "identifiers are indivisible; substrings do not match); try the full "
+                "identifier, code_keyword (live substring), or code_pattern (regex)"
+            )
         return serve["results"]
 
     try:
@@ -17749,7 +18815,10 @@ def code_ask_response(index: "WaveIndex", root: Path, question: str, rerank: str
         )
         # 1seaq: classify the exact-first artifact short-circuit honestly —
         # it returns keyword matches BEFORE semantic retrieval (a healthy
-        # mode, not a fallback).
+        # mode, not a fallback). The marker is the sentinel the short-circuit
+        # return places in the definition_boosted slot; no DEFINITION_BOOST
+        # rule may ever be labeled "artifact_anchored" (it would misclassify
+        # semantic results as exact).
         if definition_boosted == ["artifact_anchored"]:
             search_mode = "exact"
         # Detect whether the scaffolding-layer partition fired (explanatory questions only)
@@ -17773,22 +18842,25 @@ def code_ask_response(index: "WaveIndex", root: Path, question: str, rerank: str
         path = r.get("path", "")
         lines = r.get("lines") or []
         line_range = f":{lines[0]}-{lines[1]}" if len(lines) == 2 else ""
-        # Wave 1p4hj: agent-mode returns the FULL chunk text (reranker parity — the
-        # unit the cross-encoder ranks on, not a 300-char sliver) plus the multi-source
-        # label; "local" mode keeps the 300-char excerpt.
+        # Wave 1p4hj: return the FULL chunk text (reranker parity — the unit
+        # the cross-encoder ranks on, not a 300-char sliver). Release-review
+        # fix: "local" is a documented alias of the same single path, so it
+        # gets the identical excerpt (the old 300-char truncation is gone).
         full = r.get("text") or ""
         cit = {
             "ref": f"{path}{line_range}",
             "path": path,
             "lines": lines,
-            "excerpt": full if rerank == "agent" else full[:300],
+            "excerpt": full,
             "score": r.get("score"),
             "kind": r.get("kind"),
         }
-        if rerank == "agent":
+        # Release-review fix: "local" is a documented alias of "agent" — the
+        # source metadata is part of the citation contract in both.
+        if r.get("source") is not None:
             cit["source"] = r.get("source")
-            if r.get("sources"):
-                cit["sources"] = r.get("sources")
+        if r.get("sources"):
+            cit["sources"] = r.get("sources")
         return cit
 
     broad_hits = combined_results
@@ -17812,8 +18884,16 @@ def code_ask_response(index: "WaveIndex", root: Path, question: str, rerank: str
         citation["final_rank"] = final_rank
         citations.append(citation)
 
-    # Targeted pass: keyword and structural lookup when broad pass is thin
-    if len(citations) < 2:
+    # Targeted pass: keyword and structural lookup when broad pass is thin.
+    # Review fix: SUPPRESSED in lexical fallback — mixing live code_keyword
+    # citations into an envelope labeled lexical_fallback would violate the
+    # mode contract (the citations would not all be FTS-published data).
+    if len(citations) < 2 and search_mode != "lexical_fallback" and not (
+        fallback_reason in ("query_failed", "store_absent", "index_not_ready")
+    ):
+        # (release-review fix: the live keyword pass must not mask an
+        # infrastructure failure with "Based on indexed sources" — during a
+        # store/model outage the honest envelope is the failure itself.)
         try:
             kw_resp = code_keyword_response(root, question.split()[0] if question.split() else question)
             if kw_resp.get("status") != "ok":
@@ -17821,13 +18901,17 @@ def code_ask_response(index: "WaveIndex", root: Path, question: str, rerank: str
             else:
                 kw_results = kw_resp.get("data", {}).get("results", [])[:3]
                 for r in kw_results:
+                    _kw_path = r.get("path", "")
                     citations.append({
-                        "ref": f"{r.get('path', '')}:{r.get('line', '')}",
-                        "path": r.get("path", ""),
+                        "ref": f"{_kw_path}:{r.get('line', '')}",
+                        "path": _kw_path,
                         "lines": [r.get("line"), r.get("line")],
                         "excerpt": r.get("snippet", ""),
                         "score": None,
                         "kind": "keyword",
+                        # Release-review fix: citation source parity — the
+                        # same path-based labeling the exact-first pass uses.
+                        "source": "docs" if (_kw_path.startswith("docs/") or "/docs/" in _kw_path or _kw_path.endswith(".md")) else "code",
                     })
         except Exception:
             gaps.append("keyword search unavailable")
@@ -17837,6 +18921,18 @@ def code_ask_response(index: "WaveIndex", root: Path, question: str, rerank: str
 
     for final_rank, citation in enumerate(citations, start=1):
         citation["final_rank"] = final_rank
+
+    # 1ro43: per-citation freshness annotation (batched; silent absence; the
+    # helper skips live_fallback — code_ask never serves that mode, but the
+    # guard is uniform). Drift partition only on the healthy reranked path;
+    # `final_rank` is re-stamped when it fires so rank matches output order.
+    _annotate_freshness(citations, index.root, search_mode=search_mode)
+    drift_demoted_count = 0
+    if combined_reranked and search_mode in ("semantic", "hybrid"):
+        drift_demoted_count = _partition_drift(citations)
+        if drift_demoted_count:
+            for final_rank, citation in enumerate(citations, start=1):
+                citation["final_rank"] = final_rank
 
     # Wave 1p66r: relevance-gated abstention. The per-index anti-starvation floor
     # always returns ~6 citations even when every cross-encoder score is ~0.001
@@ -17860,7 +18956,11 @@ def code_ask_response(index: "WaveIndex", root: Path, question: str, rerank: str
                 "floor; treat the citations as weak navigation leads and verify with "
                 "code_keyword / code_search / grep before relying on them"
             )
-    elif citations and not combined_reranked:
+    elif citations and not combined_reranked and search_mode != "lexical_fallback" and fallback_reason is None:
+        # (1seav review fix: in lexical fallback the ranking is BM25 by
+        # design, confidence is already capped low, and the cause is stated
+        # in the degraded-mode gap — the reranker-unavailable text would
+        # misdiagnose "vector-only" and misdirect to reranker setup.)
         # Wave 1p66r: the cross-encoder is the single intended ranking path; a
         # False here means it did not run (disabled via WAVEFOUNDRY_DISABLE_RERANKER
         # or the reranker model could not be built/loaded), so ranking is vector-only
@@ -17889,11 +18989,30 @@ def code_ask_response(index: "WaveIndex", root: Path, question: str, rerank: str
         confidence = "low"
 
     # Assemble answer text from top citations
+    _infra_failure = fallback_reason in ("query_failed", "store_absent", "index_not_ready")
     if citations:
         top = citations[0]
         answer = f"Based on indexed sources: see {top['ref']}."
         if len(citations) > 1:
             answer += f" Additional evidence in {', '.join(c['ref'] for c in citations[1:3])}."
+    elif _infra_failure:
+        # Review fix: an infrastructure failure must never read as corpus
+        # absence — an agent synthesizing from `answer` would conclude
+        # "not covered" when the truth is "retrieval was unavailable".
+        answer = (
+            f"Search infrastructure failure ({fallback_reason}) — retrieval was "
+            "unavailable, so the absence of citations says NOTHING about corpus "
+            "coverage. Check wave_index_health and retry."
+        )
+    elif search_mode == "lexical_fallback":
+        # Release-review fix: a WORKING lexical zero-hit is an exact-token
+        # miss, not evidence of absence — semantic recall was unavailable.
+        answer = (
+            "No exact-token matches in the lexical fallback (semantic recall was "
+            "unavailable). This is NOT evidence the topic is uncovered — compound "
+            "identifiers are indivisible tokens; try the full identifier, "
+            "code_keyword, or code_pattern, or retry when the semantic path recovers."
+        )
     else:
         answer = f"No indexed evidence found for this question. The topic may not be covered in the current index or may use different terminology."
 
@@ -17910,6 +19029,7 @@ def code_ask_response(index: "WaveIndex", root: Path, question: str, rerank: str
         "index_freshness": index_freshness,
         "search_mode": search_mode,
         "fallback_reason": fallback_reason,
+        **({"coverage": degraded_coverage} if (degraded_coverage or search_mode == "lexical_fallback" or fallback_reason is not None) else {}),
         "reranked": combined_reranked,
         # Wave 1p52p: code_ask has a single ranking path — agent selection with a rerank-FIRST
         # cross-encoder. ``rerank_mode`` is always "agent"; the ``reranked`` bool tells whether the
@@ -17924,6 +19044,12 @@ def code_ask_response(index: "WaveIndex", root: Path, question: str, rerank: str
     }
     if infrastructure_demoted:
         data["infrastructure_demoted"] = True
+    if drift_demoted_count:
+        # 1ro43: distinct from `partition_applied` (doc-type SCORE demotion,
+        # 1p52p) — the drift partition is order-only and reason-tagged
+        # per-citation; never overload the existing flag's meaning.
+        data["drift_partition_applied"] = True
+        data["drift_demoted_count"] = drift_demoted_count
     if definition_boosted:
         data["definition_boosted"] = definition_boosted
     if second_hop_symbols:
@@ -17951,9 +19077,19 @@ def code_ask_response(index: "WaveIndex", root: Path, question: str, rerank: str
             except Exception:
                 pass
 
+    _ask_diagnostics: list[dict[str, Any]] = []
+    if _infra_failure:  # release-review fix: attached regardless of citations
+        _ask_diagnostics.append(_diagnostic(
+            "search_infrastructure_failure",
+            f"Retrieval was unavailable ({fallback_reason}); zero citations here does "
+            "not mean the topic is uncovered. Check the index state and retry.",
+            recovery_tools=["wave_index_health"],
+            recovery_usage="wave_index_health()",
+        ))
     return _response(
         "ok",
         data,
+        diagnostics=_ask_diagnostics,
         next_tools=next_tools,
         usage=f"code_read(path={citations[0]['path']!r}, start_line={citations[0]['lines'][0] if citations[0]['lines'] else 1})" if citations else "code_search(query=...)",
     )
@@ -18188,7 +19324,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         but an unavailable semantic model, serves BM25 results from the FTS layer
         (search_mode: lexical_fallback); with no published index at all, serves the
         live-filesystem walk (search_mode: live_fallback). Every response carries
-        search_mode (semantic | lexical_fallback | live_fallback) and fallback_reason
+        search_mode (semantic | lexical_fallback | live_fallback; null on refusal/validation errors) and fallback_reason
         (null when healthy; else model_unavailable | index_missing | store_absent |
         index_not_ready | query_failed — query_failed means infrastructure failure,
         NOT an empty corpus).
@@ -18208,6 +19344,9 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         """
         bad = _ensure_no_extra_args("docs_search", kwargs)
         if bad is not None:
+            if isinstance(bad.get("data"), dict):  # search contract: fields always present
+                bad["data"].setdefault("search_mode", None)
+                bad["data"].setdefault("fallback_reason", None)
             return bad
         # 1sed6 seqlock read: capture the complete epoch token before the
         # whole operation; discard results if it changed underneath. A None
@@ -18239,7 +19378,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         unavailable semantic model, serves BM25 results from the FTS layer with the requested
         filters preserved (search_mode: lexical_fallback, exact-token recall). With no published
         index there is NO degraded path — the tool refuses (index_not_ready). Every response
-        carries search_mode (hybrid | lexical_fallback) and fallback_reason (null when healthy;
+        carries search_mode (hybrid | lexical_fallback; null on refusal/validation errors) and fallback_reason (null when healthy;
         else model_unavailable | index_missing | store_absent | index_not_ready | query_failed).
 
         Orientation pass (Guru): use kind="code-summary" with max_per_file=1 for a fast file-level survey before targeted retrieval.
@@ -18275,6 +19414,9 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         """
         bad = _ensure_no_extra_args("code_search", kwargs)
         if bad is not None:
+            if isinstance(bad.get("data"), dict):  # search contract: fields always present
+                bad["data"].setdefault("search_mode", None)
+                bad["data"].setdefault("fallback_reason", None)
             return bad
         t_start = time.monotonic()
         # 1sed6 seqlock read (review-hardened): strict pre-gate — indexed code
@@ -18290,12 +19432,16 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         if _tok is None or _tok[1] != "complete":
             return _index_rebuilding_response("code_search", {"query": query})
         result = code_search_response(get_handler().index, query, language, limit=limit, kind=kind or None, max_per_file=max_per_file or None, tags=tags or None, epoch_state=_tok)
-        if _epoch_state(get_handler().root) != _tok:
-            return _index_rebuilding_response("code_search", {"query": query})
         result = _augment_with_graph_neighbors_if_enabled(
             result, get_handler().root,
             tool_key="code_search", graph=graph, graph_limit=graph_limit, layer=layer,
         )
+        # Review fix (P0): the post-compare closes the fence AFTER graph
+        # augmentation — the graph read is part of the indexed operation, so
+        # a build fencing during augmentation must discard the WHOLE result,
+        # not just the pre-augmentation half.
+        if _epoch_state(get_handler().root) != _tok:
+            return _index_rebuilding_response("code_search", {"query": query})
         return _inject_timing(result, t_start, "code_search")
 
     @mcp.tool(annotations=_READONLY_TOOL)
@@ -18309,6 +19455,9 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         """
         bad = _ensure_no_extra_args("seed_get", kwargs)
         if bad is not None:
+            if isinstance(bad.get("data"), dict):  # search contract: fields always present
+                bad["data"].setdefault("search_mode", None)
+                bad["data"].setdefault("fallback_reason", None)
             return bad
         # 1sed6 seqlock read (review fix): seed_get reads indexed chunks (with
         # a sanctioned disk fallback), so it takes the same whole-operation
@@ -18737,11 +19886,14 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         - rerank_mode: always "agent" — code_ask has one ranking path (agent selection + a rerank-FIRST
           cross-encoder). Use the `reranked` bool to tell whether the cross-encoder ran.
         - reranked: true = the cross-encoder ran and scored/ordered the candidates on one unified
-          relevance scale; false = reranker disabled/unbuildable, no cross-encoder (vector/coverage
-          order, mixed-model cosine scores).
+          relevance scale; false = the cross-encoder did not run. Two `reranked=false` cases:
+          on the HEALTHY path (reranker disabled/unbuildable) ordering is vector/coverage over
+          mixed-model cosine; in `lexical_fallback` mode ordering is BM25 exact-token.
         - confidence: "high" / "medium" / "low". When `reranked=true` it is calibrated on the unified
           cross-encoder relevance (high = a genuinely relevant top match with ≥2 citations; low = nothing
-          relevant retrieved); when `reranked=false` it is count-based. Retrieval signal only — not an
+          relevant retrieved). When `reranked=false`: capped at "medium" on the healthy path ("low"
+          with zero citations — cosine bands are untrustworthy, so "high" is never claimed), and
+          "low" in `lexical_fallback`. Retrieval signal only — not an
           answer-quality signal. Evaluate citations by path and content; high confidence with wrong-layer
           citations (e.g. infrastructure scaffolding for an explanatory question) still requires follow-up.
         - gaps: Retrieval gaps or index unavailability notices
@@ -18776,6 +19928,9 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
           unavailable; citations are BM25 exact-token matches, confidence capped)
         - fallback_reason: null when healthy; else model_unavailable | index_missing |
           store_absent | index_not_ready | query_failed (infrastructure failure, not zero hits)
+        - coverage: per-table lexical coverage (present on every degraded/failed envelope; {} = collection unavailable)
+        - Refusal/invalid-argument error envelopes carry search_mode: null (status "error"
+          disambiguates from a healthy null fallback_reason)
         - vector_ms: milliseconds spent on vector retrieval across all indexes.
         - rerank_ms: milliseconds spent on cross-encoder reranking (0 when reranked=false).
         - total_ms: wall-clock milliseconds for the full code_ask call.
@@ -18790,6 +19945,9 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         """
         bad = _ensure_no_extra_args("code_ask", kwargs)
         if bad is not None:
+            if isinstance(bad.get("data"), dict):  # search contract: fields always present
+                bad["data"].setdefault("search_mode", None)
+                bad["data"].setdefault("fallback_reason", None)
             return bad
         # 1sed6 seqlock read (review-hardened): strict pre-gate + unconditional
         # post-compare around the complete combined operation (vector + FTS +
@@ -18968,7 +20126,16 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         bad = _ensure_no_extra_args("wave_map", kwargs)
         if bad is not None:
             return bad
-        return wave_map_response(get_handler().root, address, get_handler().index)
+        # 1sed6 seqlock read (pre-release red-team fix): wave_map serves
+        # indexed chunk text + index_match metadata with a sanctioned disk
+        # fallback — the same class as seed_get, so it takes the same
+        # whole-operation fence (stable non-complete state allowed; any
+        # transition discards).
+        _tok = _epoch_state(get_handler().root)
+        result = wave_map_response(get_handler().root, address, get_handler().index)
+        if _epoch_state(get_handler().root) != _tok:
+            return _index_rebuilding_response("wave_map", {"address": address})
+        return result
 
     @mcp.tool(annotations=_MUTATING_TOOL)
     def wave_create_wave(slug: str, mode: str = "dry_run", **kwargs: Any) -> dict[str, Any]:
@@ -19698,6 +20865,121 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             return bad
         return wave_sync_surfaces_response(get_handler().root, mode=mode, cache=get_handler().cache)
 
+    # --- Agent memory tools (wave 1ro44 / 1p8gy) ---
+
+    @mcp.tool(annotations=_MUTATING_TOOL)
+    def wave_memory_add(kind: str, summary: str, evidence: list, targets: list,
+                        title: str = "", confidence: float = 0.6, status: str = "candidate",
+                        supersedes: str = "", memory_id: str = "", **kwargs: Any) -> dict[str, Any]:
+        """Create an agent memory record (typed, evidence-backed, repo-visible markdown).
+
+        Memory records surface prior learning at action time: failed attempts,
+        operator preferences, fragile files, review findings, environment
+        gotchas, decisions. Records live under docs/agents/memory/ and are
+        lint-validated; secrets, raw transcripts, and personal facts are
+        refused before write.
+
+        Args:
+            kind: One of failed_attempt, successful_pattern, review_finding,
+                operator_preference, environment_gotcha, fragile_file,
+                decision, dependency_gotcha.
+            summary: The lesson, phrased as what changes the next action.
+            evidence: Backtickable refs (wave/change ids, commit SHAs, paths,
+                test names). Required — memory without evidence is opinion.
+            targets: What the advisory attaches to — file paths,
+                "symbol:Class.method", or "community:hub:<node-id>".
+            title: Optional short title (defaults to the memory id).
+            confidence: 0.0-1.0 (default 0.6).
+            status: "candidate" (default) or "active"; other statuses are
+                reconciliation outcomes, never starting states.
+            supersedes: Optional memory id this record replaces (the old
+                record is marked superseded, preserving history).
+            memory_id: Optional explicit id; defaults to a slug of the title.
+        """
+        bad = _ensure_no_extra_args("wave_memory_add", kwargs)
+        if bad is not None:
+            return bad
+        return wave_memory_add_response(
+            get_handler().root, kind, summary, evidence, targets, title=title,
+            confidence=confidence, status=status, supersedes=supersedes, memory_id=memory_id,
+        )
+
+    @mcp.tool(annotations=_READONLY_TOOL)
+    def wave_memory_search(query: str = "", target: str = "", symbol: str = "",
+                           kind: str = "", status: str = "", include_history: bool = False,
+                           limit: int = 10, **kwargs: Any) -> dict[str, Any]:
+        """Search agent memory records by query, target file/symbol, kind, or status.
+
+        Record files are the source of truth (live filesystem); the semantic
+        docs index is an optional assist whose absence degrades silently.
+        Ranking is kind-aware-decayed confidence with centrality tie-breaks;
+        stale/superseded/rejected records are excluded unless
+        ``include_history`` or an explicit ``status`` asks for them.
+
+        Args:
+            query: Free-text query (semantic assist + text containment).
+            target: File path a record must target.
+            symbol: Symbol name a record must target (matches "symbol:" refs).
+            kind: Restrict to one memory kind.
+            status: Restrict to one status (default: active + candidate).
+            include_history: Include stale/superseded/rejected records.
+            limit: Max records (default 10, cap 20).
+        """
+        bad = _ensure_no_extra_args("wave_memory_search", kwargs)
+        if bad is not None:
+            return bad
+        handler = get_handler()
+        return wave_memory_search_response(
+            handler.root, query=query, target=target, symbol=symbol, kind=kind,
+            status=status, include_history=include_history, limit=limit, index=handler.index,
+        )
+
+    @mcp.tool(annotations=_READONLY_TOOL)
+    def wave_memory_brief(context: str = "pre_implementation", targets: Optional[list] = None,
+                          limit: int = 5, **kwargs: Any) -> dict[str, Any]:
+        """Assemble a short, capped, cited memory briefing for an action context.
+
+        Contexts: session_start, pre_implementation, review, close, setup,
+        file_edit. When ``targets`` is given, records targeting those files
+        rank first. Community-scoped advisories are grouped separately.
+        Decay affects inclusion: churn-decayed kinds can drop out below the
+        confidence floor; ``fragile_file`` never drops from churn alone — it
+        gains ``needs_reverification`` instead.
+
+        Args:
+            context: The action context the briefing is for.
+            targets: Optional file paths the upcoming action touches.
+            limit: Advisory cap (default and max 5 — a briefing is a nudge).
+        """
+        bad = _ensure_no_extra_args("wave_memory_brief", kwargs)
+        if bad is not None:
+            return bad
+        return wave_memory_brief_response(
+            get_handler().root, context=context, targets=targets, limit=limit,
+        )
+
+    @mcp.tool(annotations=_MUTATING_TOOL)
+    def wave_memory_reconcile(memory_id: str, status: str, superseded_by: str = "",
+                              **kwargs: Any) -> dict[str, Any]:
+        """Transition a memory record's status — active, stale, superseded, rejected, candidate.
+
+        History is preserved through supersession, never deletion: a
+        ``superseded`` transition requires ``superseded_by`` and leaves the
+        record in place as history. Reconciliation is the ONLY way a
+        ``fragile_file`` advisory retires.
+
+        Args:
+            memory_id: The record's memory id (filename stem).
+            status: New status (one of the five memory statuses).
+            superseded_by: Required when status is "superseded".
+        """
+        bad = _ensure_no_extra_args("wave_memory_reconcile", kwargs)
+        if bad is not None:
+            return bad
+        return wave_memory_reconcile_response(
+            get_handler().root, memory_id, status, superseded_by=superseded_by,
+        )
+
     # --- Code navigation tools ---
 
     @mcp.tool(annotations=_READONLY_TOOL)
@@ -19851,6 +21133,9 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         """
         bad = _ensure_no_extra_args("code_lexical", kwargs)
         if bad is not None:
+            if isinstance(bad.get("data"), dict):  # search contract: fields always present
+                bad["data"].setdefault("search_mode", None)
+                bad["data"].setdefault("fallback_reason", None)
             return bad
         t_start = time.monotonic()
         # 1sed6: FTS is derived from Lance — mid-build/uninitialized state is
@@ -20449,25 +21734,25 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         mime_type="text/markdown",
     )
     def resource_seed(slug: str) -> str:
-        """Return the seed document matching the given slug."""
-        try:
-            chunk = get_handler().index.get_seed(slug)
-        except Exception:
-            chunk = None
-        if chunk is None:
-            # Fall back to filesystem scan of framework seeds
-            seeds_dir = get_handler().root / ".wavefoundry" / "framework" / "seeds"
-            if seeds_dir.exists():
-                slug_lower = slug.lower().strip()
-                for p in sorted(seeds_dir.glob("*.md")):
-                    if slug_lower in p.stem.lower():
-                        return p.read_text(encoding="utf-8")
-            return f"# Not Found\n\nNo seed found matching `{slug}`. Use `seed_get(name=...)` for structured lookup.\n"
-        # chunk has a "path" and likely "text" or we read from path
-        seed_path = get_handler().root / chunk["path"] if not str(chunk.get("path", "")).startswith("/") else Path(chunk["path"])
-        if seed_path.exists():
-            return seed_path.read_text(encoding="utf-8")
-        return chunk.get("text", f"# Not Found\n\nSeed `{slug}` index entry exists but file not readable.\n")
+        """Return the seed document matching the given slug.
+
+        Filesystem-ONLY (release-review fix): seeds live on disk at a known
+        location, so this resource never consults the semantic index —
+        which also removes it from the epoch-fencing surface entirely
+        (resources have no envelope to carry a discard).
+        """
+        seeds_dir = get_handler().root / ".wavefoundry" / "framework" / "seeds"
+        if seeds_dir.exists():
+            slug_lower = slug.lower().strip()
+            # Exact stem match first, then substring.
+            candidates = sorted(seeds_dir.glob("*.md"))
+            for p in candidates:
+                if p.stem.lower() == slug_lower:
+                    return p.read_text(encoding="utf-8")
+            for p in candidates:
+                if slug_lower in p.stem.lower():
+                    return p.read_text(encoding="utf-8")
+        return f"# Not Found\n\nNo seed found matching `{slug}`. Use `seed_get(name=...)` for structured lookup.\n"
 
     @mcp.resource(
         "wavefoundry://architecture/{slug}",

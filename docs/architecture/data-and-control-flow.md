@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-12
+Last verified: 2026-07-14
 
 ## Primary Control Paths
 
@@ -161,3 +161,98 @@ Opt-in via `dashboard.auto_index: true` in `docs/workflow-config.json` (default:
 | Change docs `docs/plans/<id>.md` | Engineering | wave_get_change | wave_new_* tools, operator, wave_remove_change |
 | Change docs `docs/waves/<wave-id>/<id>.md` | Active wave | wave_get_change, wave lifecycle tools | wave_add_change, wave_prepare |
 | Session handoff `docs/agents/session-handoff.md` | Active session | wave_get_handoff, MCP resource `wavefoundry://session-handoff` | wave_set_handoff |
+
+## Temporal Metadata and Agent Memory Flows (wave 1ro44)
+
+**Build-time temporal passes** (optional residents at the semantic-build tail, inside the index-build lock,
+after the mandatory residents and before epoch finalize — never fail a build):
+
+1. `update_freshness_from_build` — one batched `git log --name-only` → per-file `last_modified`/`churn_score`
+   (`file_freshness`) + windowed commit rows (`file_commits`); zero-change skip on a git-HEAD + path-set
+   fingerprint; mtime fallback labeled `source='mtime'`.
+2. `update_drift_from_build` — a second batched walk with subjects → landing-commit wave→files attribution
+   (`wave_landing`/`wave_change_files`, tolerant subject patterns incl. "Close wave"-as-landing) and per-doc
+   drift rows (`doc_drift`: content/verification-stamp anchor, explicit path refs validated against the indexed
+   path set, historical class for `docs/waves/`). Skip fingerprint = HEAD + docs path set + verification-stamp
+   digest, so an uncommitted stamp still recomputes anchors.
+
+**Zero-git query guarantee:** all git subprocesses run on the build path only; the query path (search tools,
+degraded FTS serving, freshness annotation, memory tools) reads SQLite/Lance exclusively — pinned by a test that
+patches subprocess and asserts zero spawns.
+
+**Query-time annotation:** search responses attach per-citation `freshness` via one batched read-only
+state-store query (`freshness_for_paths`); the drift partition (default-off) and the `wave_audit` drift
+worklist consume the same rows. See `search-architecture.md` → Temporal Decay.
+
+**Agent memory flows:** `wave_memory_add` validates (forbidden content refused pre-write) → **fences the memory
+seqlock** → writes the record markdown under `docs/agents/memory/` → **finalizes the seqlock** → triggers the
+background index refresh (docs embedding + graph per-file delta). `wave_memory_search`/`wave_memory_brief` read
+the record files directly (source of truth), decay confidence kind-awarely through `freshness_for_path(since_ts)`,
+rank with persisted-betweenness tie-breaks, and degrade gracefully without index/graph layers.
+`wave_memory_reconcile` transitions status in place (supersession preserves history; nothing deletes), under the
+same fence. Hot read tools and lifecycle tools attach capped advisories from the same record store.
+
+**`memory-state.sqlite` (advisory-cache invalidation seqlock).** A DEDICATED store in `.wavefoundry/index/`,
+owned exclusively by the memory layer — never the canonical `index-state.sqlite`, so a memory write can never
+`ensure_current`/reset freshness, FTS, or the build epoch. It holds three keys: a random `epoch` (minted once at
+creation; a delete/recreate mints a new one, defeating an ABA where a rebuilt store returns to the same
+generation), a monotonic `generation`, and a `memory_writers` table of **writer-owned fence tokens**. **Writers:**
+the `wave_memory_*` tools (`memory_fence` registers a unique token BEFORE the filesystem write; `memory_finalize`
+removes ONLY that token and advances the generation AFTER) and the indexer (`memory_invalidate` runs early — right
+after the changed/removed path sets are known, before any Lance/FTS/freshness/drift work — when a memory record
+changed on disk via a hook/raw edit). **Readers** (the hot-path advisory cache) key on
+`(epoch, generation, dir_mtime)` and BYPASS caching whenever the store is unreadable or any *live* writer token
+exists (`read_memory_state` synthesizes a `dirty` flag from the live-token count, so the reader key contract is
+unchanged). **Writer-owned tokens (not a shared flag):** a single shared `dirty` flag let one writer's finalize
+clear a concurrent writer's fence (A fence, B fence, A finalize → cleared while B still mutating). Each writer owns
+its token and finalize deletes only its own, so B's fence survives A's finalize. A crashed writer's token is
+bounded by a TTL (`_MEMORY_WRITER_TTL_SECONDS`, 300s): readers stop bypassing on tokens older than the TTL
+(self-heal) and the rw paths lazily reap them. **Failure semantics:** if the fence cannot be registered the tool
+REFUSES the mutation; if a finalize fails, the token remains so every process keeps bypassing (correctness over
+warm-cache performance) until the next successful mutation or the TTL. The indexer's `memory_invalidate` returns
+True ONLY when the generation DURABLY advances (the sole durable invalidation for a raw content edit, which leaves
+`dir_mtime` unchanged); on failure it sets a best-effort short-lived fence token and returns False, and the
+**build then FAILS before recording file metadata** (`_build_failed_result`) so the edited record's old file_meta
+is preserved and the recovered retry re-detects the edit and advances the generation — a "clean" build can never
+strand a warm reader on the pre-edit advisory. The store is derived/rebuildable — deleting it only forces cache
+reloads.
+
+**Git→non-git drift clearing (typed authority).** `update_drift_from_build` probes git authority through the typed
+`_git_authority` (not the empty-string-conflating `_git_head`), returning `git` (work tree with a resolvable HEAD),
+`confirmed_non_git`, or `probe_failed`. **Every git subprocess in the derivation chain — the authority probe, the
+freshness history walk, the drift history walk, `git cat-file` blob reads, and the gardener classification — routes
+through ONE sanitized wrapper (`_run_git`)** that forces a C locale and STRIPS every repository-LOCAL git env var.
+The strip-set is the AUTHORITATIVE `git rev-parse --local-env-vars` census (git's own list — discovery/location
+`GIT_DIR`/`GIT_WORK_TREE`/`GIT_COMMON_DIR`/…, object-graph *interpretation* `GIT_SHALLOW_FILE`/`GIT_GRAFT_FILE`/
+`GIT_REPLACE_REF_BASE`/`GIT_NO_REPLACE_OBJECTS`, and config injection `GIT_CONFIG*`) unioned with a hardcoded
+fallback superset, so a newer git that adds a local var is covered without a code change. **Protected GLOBAL/SYSTEM
+config is passed through unchanged** — it is deliberately NOT neutralized, because git only accepts `safe.directory`
+trust from protected scope, and discarding it would break ordinary shared/differently-owned checkouts (containers,
+CI mounts, WSL, shared workspaces) with a "dubious ownership" failure. Instead, the one parser-critical setting —
+rename detection — is pinned per-command with `--no-renames` on the freshness and history walks (command flags
+outrank all config levels), so path attribution is deterministic regardless of the user's `diff.renames` without the
+config sledgehammer. This closes three failure modes: an inherited `GIT_DIR=/missing` no longer makes a valid repo
+report "not a git repository" (authority mis-read); an ambient `GIT_DIR` pointing at an unrelated DECOY repo can no
+longer redirect the downstream history/freshness/blob reads to the decoy; and an ambient `GIT_SHALLOW_FILE`/
+`GIT_GRAFT_FILE` can no longer silently truncate or reshape the derived history. A genuinely-untrusted repo (real
+"dubious ownership") degrades gracefully — `rev-parse` fails → `probe_failed` → drift preserved / mtime freshness
+fallback. A structural AST census test asserts no process-spawn (`subprocess.run`/`Popen`/aliases/variable-built
+commands) exists outside `_run_git`. A `confirmed_non_git` result requires BOTH the POSITIVE "`not a git repository`"
+fatal (matched under a forced C locale) AND the genuine ABSENCE of any `.git` marker at the root or an ancestor
+(`_git_marker_present`): git prints the same message for an empty/corrupt `.git/`, a broken `.git` worktree pointer,
+or an unreadable marker, and those are PRESENT-BUT-INVALID repos — not non-git trees — so a present marker forces
+`probe_failed`. **Every other completed-but-failing invocation — dubious ownership, permission denied, bad config,
+unexpected output — is also `probe_failed`, NOT confirmed non-git**, so none can authorize a destructive clear. A
+FRESH non-git project has nothing to clear, but a git-built index copied into — or a repo that dropped its git
+metadata under — a now-non-git root would otherwise keep serving stale git-derived `drifted: true` rows. So on a
+CONFIRMED non-git transition the git-derived wave attribution + doc-drift rows + drift fingerprint are
+transactionally CLEARED (`IndexStateStore.clear_attribution_and_drift`, idempotent). A `probe_failed` result
+PRESERVES last-good drift and never clears (a transient timeout, dubious-ownership error, or corrupt `.git` must not
+destructively wipe valid drift); an unborn-HEAD git repo is still git and is not cleared. The no-op build path
+reconciles the same transition (`reconcile_non_git_drift`, gated on the cheap `has_drift_state` so a normal git repo
+pays no git probe on a zero-change build). **A failed clear on a confirmed transition returns a structured FAILED
+build (not `up_to_date` / not a finalized epoch) on BOTH paths** — the no-op path fails before the up_to_date
+return, and the build-tail path fails on `drift_clear_failed` before finalizing the epoch — so the stale row is
+never served behind a successful build, and the retry re-attempts the clear. Ordinary drift *computation* failures
+(`drift_detect_failed`, `git_probe_failed`) stay OPTIONAL (the drift table is a ranking-decay resident, not a
+readiness gate); only a `drift_clear_failed` on a confirmed transition escalates to a build failure.

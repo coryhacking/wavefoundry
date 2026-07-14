@@ -8,6 +8,15 @@ METADATA_PATTERNS = {
     "Last verified": re.compile(r"^Last verified:\s+\d{4}-\d{2}-\d{2}$", re.MULTILINE),
 }
 
+# Verification stamp (wave 1ro44 / 1ro43): OPTIONAL, validated only when
+# present. Records the commit a doc was deliberately reviewed against —
+# written by an agentic verification pass or the operator, never by
+# docs_gardener (whose only edit is the `Last verified:` date substitution).
+# The value must be 7-40 hex chars; write real hex (e.g. `abc1234`), never an
+# angle-bracket placeholder. Drift computation anchors to this stamp's commit.
+VERIFICATION_STAMP_LINE = re.compile(r"^Verified against:.*$", re.MULTILINE)
+VERIFICATION_STAMP_VALID = re.compile(r"^Verified against:\s*[0-9a-fA-F]{7,40}\s*$")
+
 PROMPT_SURFACE_FILES = (
     "docs/prompts/index.md",
     "docs/prompts/plan-feature.prompt.md",
@@ -169,6 +178,36 @@ JOURNAL_DISALLOWED_PATTERNS = (
     re.compile(r"\b(raw|full)\s+(chat\s+)?transcript\b", re.IGNORECASE),
     re.compile(r"\bcopy\s+every\s+(message|command|observation|output)\b", re.IGNORECASE),
     re.compile(r"\broutine\s+(success|progress)\s+(update|log|entry)\b", re.IGNORECASE),
+)
+
+# --- Agent memory records (wave 1ro44 / 1p8gy) ---
+# Typed, evidence-backed memory records under docs/agents/memory/. The lint
+# contract IS the schema contract: records are repo-visible markdown, and a
+# record that fails these checks must never surface as an advisory.
+MEMORY_RECORD_DIR = "docs/agents/memory"
+MEMORY_KINDS = (
+    "failed_attempt",
+    "successful_pattern",
+    "review_finding",
+    "operator_preference",
+    "environment_gotcha",
+    "fragile_file",
+    "decision",
+    "dependency_gotcha",
+)
+MEMORY_STATUSES = ("candidate", "active", "stale", "superseded", "rejected")
+MEMORY_ID_PATTERN = re.compile(r"^Memory ID:\s*`([a-z0-9][a-z0-9-]*)`\s*$", re.MULTILINE)
+MEMORY_KIND_PATTERN = re.compile(r"^Kind:\s*`([a-z_]+)`\s*$", re.MULTILINE)
+MEMORY_CONFIDENCE_PATTERN = re.compile(r"^Confidence:\s*(\S+)\s*$", re.MULTILINE)
+MEMORY_CREATED_PATTERN = re.compile(r"^Created:\s*(\d{4}-\d{2}-\d{2})\s*$", re.MULTILINE)
+MEMORY_UPDATED_PATTERN = re.compile(r"^Updated:\s*(\d{4}-\d{2}-\d{2})\s*$", re.MULTILINE)
+MEMORY_SUPERSEDED_BY_PATTERN = re.compile(r"^Superseded by:\s*`([a-z0-9][a-z0-9-]*)`\s*$", re.MULTILINE)
+MEMORY_REQUIRED_SECTIONS = ("## Summary", "## Evidence", "## Targets")
+# Memory records reuse the journal forbidden-content posture (secrets, raw
+# transcripts, routine noise) plus personal-fact phrasing — memory is scoped
+# to software-delivery behavior, never to people.
+MEMORY_DISALLOWED_PATTERNS = JOURNAL_DISALLOWED_PATTERNS + (
+    re.compile(r"\b(the\s+)?(user|operator)('s)?\s+(personal|private|home|family|health)\b", re.IGNORECASE),
 )
 WAVE_WATCHPOINT_MARKERS = ("watchpoint", "follow-up", "block", "retry", "defer", "move")
 

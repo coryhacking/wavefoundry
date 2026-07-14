@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-11
+Last verified: 2026-07-14
 
 Architecture reference for Wavefoundry's code and documentation graph index: how it is generated, stored, traversed, clustered, and surfaced through MCP tools.
 
@@ -537,6 +537,21 @@ The **codebase map** (`docs/references/codebase-map.md`) is a generated, read-on
 **Regeneration hook + MCP surface + idempotence (wave `1p601`).** Regeneration is hooked fail-safe into **`indexer.py::build_index`** (after the graph/cluster write), so **every** rebuild path — the freshness monitor, background refresh, and `wave_index_build content="docs"/"code"/"all"`/upgrade — refreshes the map (the old `setup_index` hook was relocated here). It is **change-only / idempotent**: a regeneration with unchanged inputs writes nothing — the render is skipped when a fingerprint over the graph + cluster artifacts **and** the per-area `AGENTS.md` is unchanged, and the write is skipped when the rendered content (ignoring the `Last verified` date line) matches the existing file (preserving the date). The map is exposed over MCP as the resource **`wavefoundry://codebase-map`** (served fresh from the generated file, regenerated fail-safe if missing) and refreshable on demand via **`wave_index_build(content="map")`** (map-only, no full rebuild). New MCP resources/tool options require a **server reconnect** to appear (FastMCP limitation). Also available as a CLI: `wf codebase-map --root .`.
 
 **Per-area `AGENTS.md` context (wave 1p5xc).** Vendor-neutral per-area context files live at major areas' representative paths. `gen_codebase_map.py --scaffold-area-contexts` is an **opt-in** command that scaffolds an empty **stub** `AGENTS.md` for each major area (idempotent; never overwrites an existing file; never auto-authors conventions — humans write the content). `render_markdown` links each area to its `AGENTS.md` when one exists. Discovery is agent-agnostic: the map link, a standing convention line woven into the run-contract seed (`020`) and rendered into every host agent surface, and the doc index (a subdirectory `AGENTS.md` is a normal `.md` file, picked up by the index walk and surfaced in `docs_search` / `code_ask`). The only `@import` the framework adopts is the root `CLAUDE.md` → `@AGENTS.md` bridge (rendered by `render_agent_surfaces.py`); there are no per-folder `CLAUDE.md` bridge files and no nested `@import`.
+
+## Memory Nodes and Edges (wave 1ro44)
+
+Agent memory records under `docs/agents/memory/` extract as typed **`memory` nodes** (the directory README
+stays a plain `doc`). Each record's `## Targets` refs become **`memory_targets` edges**: file targets validated
+against the current path set; `symbol:` targets resolved through the same matcher terms the prose pass uses;
+`community:hub:<node-id>` refs stay record fields resolved at query time (as do wave/change refs — `docs/waves/`
+and `docs/plans/` are doc-scan-excluded and never become nodes). Records also keep the generic
+`doc_references_code`/`doc_references_doc` extraction.
+
+Two deliberate contracts: memory nodes are **exempt from the zero-edge doc prune** (a record whose targets fail
+to resolve must stay queryable — the record store still serves it), and memory writes ride the **incremental
+per-file delta path** with the standard stat-validated query-cache reload (test-pinned: one changed record ⇒
+`merge_stats.mode == "incremental"`, `files_changed == 1`). The `memory` node kind and `memory_targets` edge
+shape landed with `GRAPH_BUILDER_VERSION` "44".
 
 ## Related Docs
 
