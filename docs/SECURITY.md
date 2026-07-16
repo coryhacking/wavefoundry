@@ -2,11 +2,23 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-15
+Last verified: 2026-07-15
 
 ## Security Posture
 
 Wavefoundry is local developer tooling with no network exposure in current scripts. Security posture is low-risk for the current implementation.
+
+Wavefoundry runs with the **operator's own authority**. The repository filesystem is trusted, target roots are operator-approved, and network surfaces are loopback-only. A defect the operator (or a same-user local process) could trigger using capabilities the operator already has is a **required-contract / correctness** issue, not an authority escalation.
+
+- **Trusted:** the operator; operator-owned repository contents (read as data); same-user local processes.
+- **Untrusted:** genuinely external callers or content explicitly accepted from third parties — untrusted archives, webhook payloads, third-party/forked repositories, forked-PR CI, plugins, imported configuration, and shared-workspace users when a less-trusted actor controls them.
+- **Out of scope (today):** malicious same-user concurrent processes and privilege-separated attackers on the local host.
+
+### Credible-Threat Gate
+
+Security severity, blocking, and approval freshness are driven **only** by grounded findings. A credible security threat requires ALL five factors present (a conjunctive gate, not an additive score): (1) a named less-trusted actor in the threat model, (2) a surface that actor controls, (3) a supported product path that accepts it, (4) an authority or asset delta beyond what the actor already has, and (5) a concrete confidentiality/integrity/availability/privilege impact. Reviewers may report security candidates freely; only findings that pass the gate affect severity. See `docs/architecture/threat-model.md` for the actor classes and promotion triggers.
+
+**Promotion triggers** (any one flips the posture): remote / non-loopback MCP or network binding, multi-user service operation, untrusted-repository analysis, CI on untrusted/forked pull requests, or execution under credentials unavailable to the caller.
 
 ## Current Security Controls
 

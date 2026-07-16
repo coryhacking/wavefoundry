@@ -194,6 +194,13 @@ def _run_incremental_checks(root: Path):
 
     docs_root = root / "docs"
     changed_docs = {p for p in changed if p.suffix == ".md" and docs_root in p.parents}
+    changed_event_wave_docs = {
+        path.parent / "wave.md"
+        for path in changed
+        if path.name == "events.jsonl"
+        and path.parent.parent == root / "docs" / "waves"
+        and (path.parent / "wave.md").is_file()
+    }
     changed_entry = {p for p in changed if p.parent == root and p.name in _ENTRY_FILES}
 
     # Wave 1p9cj: the file-size guard applies incrementally too — an oversized changed doc is skipped
@@ -220,6 +227,10 @@ def _run_incremental_checks(root: Path):
         failures.extend(check_plan_filenames(root, only=changed_docs, skip=oversized))
         failures.extend(_check_agent_role_metadata(root, only=changed_docs, skip=oversized))
         failures.extend(_check_agent_category_metadata(root, only=changed_docs, skip=oversized))
+    if changed_event_wave_docs:
+        # Canonical ledger edits have no Markdown body of their own, but they
+        # must revalidate the owning wave/adoption proof on the incremental hook.
+        failures.extend(check_wave_docs(root, only=changed_event_wave_docs, skip=set()))
 
     return (failures, warnings)
 

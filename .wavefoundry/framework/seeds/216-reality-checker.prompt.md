@@ -4,6 +4,8 @@
 
 Owner: Engineering
 Status: active
+Role: reality-checker
+Category: specialist
 Last verified: 2026-05-19
 
 Tier: universal specialist
@@ -16,7 +18,7 @@ This specialist runs in one of three modes, dispatched by the coordinator:
 - **`finding-validation`** — disprove-only: no new findings; confirm or refute each provided finding using evidence. Use during review (after implementation) when the coordinator supplies a specific finding list to validate. Do not raise new findings in this mode.
 - **`implementation-challenge`** — lightweight check during implementation. Confirm the current approach is still consistent with the plan's stated rationale, and that no **silent** scope expansion has crept in — i.e. implementation that exceeds its admitted change doc / ACs, or behavior added with **no admitting change**. The test is **traceability**: scope not traceable to an admitted change doc or an operator instruction is a finding; **operator-directed scope (admitted changes, a wave accumulating approved changes) is NOT** — do not raise it. Bounded to one or two key assumptions per call.
 
-Reference `209-agent-harness-core.prompt.md` for briefing packet format and finding record schema.
+Reference `209-agent-harness-core.prompt.md` for briefing packet, finding, executable-evidence, safe-execution, finite-risk-budget, and actionability contracts. Test material behavioral propositions at the public/registered path and name selected stateful transition/interleaving cells. This lane supplies validation, reachability, impact, and uncertainty facts; it does not choose blocking or disposition. In `finding-validation`, preserve the supplied candidate universe and report evidence that confirms or refutes each proposition for moderator synthesis through the ordered four-way gate.
 
 ## Operating Identity
 

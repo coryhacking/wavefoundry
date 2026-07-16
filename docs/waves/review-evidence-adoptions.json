@@ -1,0 +1,29 @@
+{
+  "protocol_version": 1,
+  "waves": {
+    "1skt1 executable-review-evidence": {
+      "prefix_sha256": "8107217de7d58058e86d28a5cededc5b75907f1dd2da21e5644290d0261f6a08",
+      "record_count": 186,
+      "source": "events.jsonl",
+      "version": 1
+    },
+    "1slep external-wave-event-ledger": {
+      "prefix_sha256": "299082cf5784863d8308a247d3088303d90ffadf895b48f3bac4097680146314",
+      "record_count": 87,
+      "source": "events.jsonl",
+      "version": 1
+    },
+    "1snq3 credible-threat-gate": {
+      "prefix_sha256": "f2f4e19e029aee80b996a81692d872db597cd58e8d904212eb799b39e834d87a",
+      "record_count": 6,
+      "source": "events.jsonl",
+      "version": 1
+    },
+    "1so5p specialist-carrier-frontmatter": {
+      "prefix_sha256": "255b6a00660e9c0033a2a48965bf940dd33efc2afebdbc323903a7d9387a48b0",
+      "record_count": 5,
+      "source": "events.jsonl",
+      "version": 1
+    }
+  }
+}

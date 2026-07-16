@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-19
+Last verified: 2026-07-15
 
 Maps Wave Framework agent docs, personas, specialists, and factor agents to native agent platform files.
 
@@ -37,6 +37,12 @@ Maps Wave Framework agent docs, personas, specialists, and factor agents to nati
 | Cursor | `.cursor/rules/auto-guru.mdc` | `alwaysApply` rule |
 | Claude Code | `.claude/agents/guru.md` | `PROACTIVELY` subagent |
 | Codex | `.codex/skills/auto-guru/SKILL.md` | `.codex/config.toml` (project-local, committed) |
+
+## Executable Review-Evidence Propagation
+
+Canonical reviewer/council docs are the source surfaces. `render_agent_surfaces.py` derives its finite destination manifest from `REVIEW_PROTOCOL_CARRIER_REGISTRY` and reconciles one `waveframework:executable-review-evidence` marker region per enabled carrier through the public `wf render-surfaces` path. Setup, full upgrade, targeted/full refresh, and Wavefoundry self-hosting use that same operation. Missing required canonical carriers are created from installed seeds or a bounded multi-output-owner pointer; Guru and repo-local optional lanes remain existing/enabled-only. The renderer owns only the marked section and preserves project-authored extensions outside it.
+
+Native reviewer wrappers are not discovered by a broad glob. Only an existing `.claude/agents/<registered-role>.md` or `.codex/skills/agent-role-<registered-role>/SKILL.md` derived from a registered canonical role is eligible, plus the canonical Guru wrapper paths `.claude/agents/guru.md` and `.codex/skills/auto-guru/SKILL.md`. Wrappers created during a render are reconciled again before that same render returns. Repo-local docs-contract and release reviewer docs are likewise existing/enabled-only. QA's canonical source is `239-qa-reviewer.prompt.md` → `docs/agents/qa-reviewer.md`; seed 209 remains the single full protocol/checklist.
 
 ## Canonical Factor Docs (`docs/agents/`)
 

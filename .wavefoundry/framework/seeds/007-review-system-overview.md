@@ -81,9 +81,11 @@ All review lane participants share a common grounding contract defined in `209-a
 - Evidence grounding table (repository evidence over memory; stricter project rules win; missing docs = gap to record)
 - Briefing packet required fields: `wave_id`, `phase`, `change_ids`, `trust_boundaries_touched`, `files_in_scope`
 - Finding record schema including `reachability` and `confidence` fields
+- Executable Evidence Records for material approvals and blocking findings
+- The ordered four-way actionability gate: `do_now`, `maybe_later`, `dont_do_later`, or `not_issue`
 - Reachability labels and coordination behaviors (narrow scope, no self-approval, split questions, parallel merge and deduplicate, gapfill pointer)
 
-All participants must reference `209-agent-harness-core.prompt.md` for the briefing packet format and finding record schema.
+All participants must reference `209-agent-harness-core.prompt.md` for the briefing packet, finding, executable-evidence, safe-execution, finite-risk-budget, and actionability contracts. Material behavioral claims exercise the public/registered path and name selected transition/interleaving cells when stateful; lanes record evidence and semantic facts, the moderator synthesizes them, and the validator derives disposition, blocking, and review depth. Severity, repair size, and reviewer preference do not replace that gate.
 
 ## Inferential Sensor Lanes
 
@@ -201,13 +203,13 @@ Each inferential sensor verdict includes a `severity` field. Levels and their me
 
 | Level | Meaning |
 |---|---|
-| `critical` | Exploitable vulnerability, data loss, or structural architecture break — must be resolved before closure |
-| `high` | Significant regression or boundary violation — requires operator attention before closure |
-| `medium` | Suboptimal pattern with no immediate impact — should be addressed but does not block |
-| `low` | Minor drift or style issue — advisory only |
+| `critical` | Reproducible critical observable impact or authority delta on a supported path |
+| `high` | Reproducible material observable impact or authority delta on a supported path |
+| `medium` | Limited or conditional impact supported by evidence |
+| `low` | Low-impact drift or quality concern supported by evidence |
 | `none` | No findings |
 
-When `max_severity` is `critical` or `high`, `wave_review` emits a `high_severity_finding` advisory diagnostic to direct operator attention before closure.
+Severity is a triage signal, not a disposition or blocking decision. Classify it from supported reachability, observable impact, containment, and authority delta per seed 209; do not infer it from the defect-class label. When `max_severity` is `critical` or `high`, `wave_review` emits a `high_severity_finding` advisory diagnostic to direct operator attention before closure.
 
 ## Operator Review Lane
 

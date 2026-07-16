@@ -102,6 +102,54 @@ def remove_copilot_artifacts(repo_root: Path) -> None:
     )
 
 
+_PLATFORM_WRITE_ROOTS = {
+    "claude": (".claude", ".mcp.json"),
+    "cursor": (".cursor",),
+    "copilot": (".github",),
+    "junie": (".junie", ".aiignore"),
+    "windsurf": (".windsurf",),
+    "antigravity": (".agents",),
+}
+
+
+def _preflight_platform_render_paths(
+    repo_root: Path,
+    platforms: set[str],
+    detected_platforms: set[str],
+) -> None:
+    """Refuse every platform write root that resolves outside ``repo_root``.
+
+    This is an orchestration guard, intentionally before cleanup or platform
+    entrypoint rendering.  Individual writers retain their narrower checks;
+    this pass prevents a late agent-carrier refusal from arriving after an
+    earlier platform writer has already followed the same escaped ancestor.
+    """
+
+    root = repo_root.resolve()
+    destinations = {
+        ".wavefoundry/bin",
+        ".wavefoundry/git-hooks",
+        ".gitignore",
+        ".gitattributes",
+    }
+    for platform in platforms:
+        destinations.update(_PLATFORM_WRITE_ROOTS.get(platform, ()))
+    if "copilot" not in detected_platforms:
+        destinations.add(".github")
+    for destination in sorted(destinations):
+        try:
+            resolved = (repo_root / destination).resolve(strict=False)
+        except OSError as exc:
+            raise RuntimeError(
+                f"platform render path cannot be resolved safely: {destination}: {exc}"
+            ) from exc
+        if not resolved.is_relative_to(root):
+            raise RuntimeError(
+                "platform render path escapes the repository root through a symlink: "
+                f"{destination}"
+            )
+
+
 def launcher_command(rel_base: str, project_dir_var: str | None = None) -> str:
     """Launcher command for a hook config — ``python3`` invoking the ``.py`` hook body directly.
 
@@ -1726,6 +1774,18 @@ def main(argv: list[str] | None = None) -> int:
         pass
     detected_platforms = detect_platforms(repo_root)
     platforms = set(args.platform or detected_platforms)
+    from render_agent_surfaces import preflight_agent_surface_paths, render_agent_surfaces
+
+    # Wave 1skt1: containment is an orchestration precondition, not a late
+    # writer check.  Validate every platform root and registered/native agent
+    # destination before cleanup or the first platform mutation.
+    try:
+        _preflight_platform_render_paths(repo_root, platforms, detected_platforms)
+        preflight_agent_surface_paths(repo_root)
+    except RuntimeError as exc:
+        print(f"render_platform_surfaces: ERROR — {exc}", file=sys.stderr)
+        return 1
+
     # Wave 1p9pe (renderer-overwrite-safety): copilot-artifact removal keys off whether the REPO
     # has copilot surfaces (detection), never off the invocation's --platform set. An explicit
     # `--platform claude` render on a repo with .github/copilot-instructions.md must not delete
@@ -1734,9 +1794,11 @@ def main(argv: list[str] | None = None) -> int:
         remove_copilot_artifacts(repo_root)
     for platform in sorted(platforms):
         render_platform_entrypoints(repo_root, platform)
-    from render_agent_surfaces import render_agent_surfaces
-
-    render_agent_surfaces(repo_root)
+    try:
+        render_agent_surfaces(repo_root)
+    except RuntimeError as exc:
+        print(f"render_platform_surfaces: ERROR — {exc}", file=sys.stderr)
+        return 1
     render_bin_launchers(repo_root)
     render_gitignore_block(repo_root)  # wave 1p8vj: enforce the runtime ignore block on every render/upgrade (self-heals)
     render_gitattributes_block(repo_root)  # wave 1p9hm: propagate the LF line-ending policy to target repos (self-heals)

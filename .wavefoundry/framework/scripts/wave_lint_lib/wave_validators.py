@@ -5,6 +5,14 @@ from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Iterable
 
+from review_evidence import (
+    adopted_protocol_state,
+    parse_review_evidence_source,
+    render_review_evidence_projection,
+    validate_adopted_protocol_state,
+    validate_external_review_evidence,
+)
+
 from .constants import (
     ALLOWED_CHANGE_STATUS_TRANSITIONS,
     ALLOWED_ITEM_STATUS_TRANSITIONS,
@@ -967,6 +975,30 @@ def check_wave_docs(root: Path, only: set[Path] | None = None, skip: set[Path] |
         watchpoints = ""
 
         if is_wave_record:
+            source, _source_errors = parse_review_evidence_source(text)
+            adopted, _adoption_error = adopted_protocol_state(root, path.parent.name)
+            inline_marker = re.search(r"(?mi)^review-evidence-protocol\s*:", text) is not None
+            if source is not None or adopted is not None or _source_errors or _adoption_error or inline_marker:
+                review_evidence = validate_external_review_evidence(path)
+                failures.extend(
+                    f"{rel}: review evidence: {error}" for error in review_evidence.errors
+                )
+                failures.extend(
+                    f"{rel}: review evidence: {error}"
+                    for error in validate_adopted_protocol_state(root, path.parent.name, path)
+                )
+                if review_evidence.ok:
+                    try:
+                        expected_projection = render_review_evidence_projection(
+                            text, review_evidence.records
+                        )
+                    except ValueError as exc:
+                        failures.append(f"{rel}: review evidence projection: {exc}")
+                    else:
+                        if expected_projection != text:
+                            failures.append(
+                                f"{rel}: review evidence projection is stale; regenerate it from sibling events.jsonl"
+                            )
             # Wave record checks: wave-id, required sections, Title, Objective, Watchpoints, Changes
             wave_matches = WAVE_ID_PATTERN.findall(text)
             if not wave_matches:

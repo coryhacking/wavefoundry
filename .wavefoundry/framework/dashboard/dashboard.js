@@ -485,12 +485,21 @@ function WaveAcs({ acTotals, acDone = {}, acStats = { total: 0, done: 0 } }) {
   );
 }
 
-function WaveEvidence({ evidence }) {
-  if (!evidence?.length) return null;
+function WaveEvidence({ evidence, status }) {
+  const diagnostics = status?.diagnostics || [];
+  const needsAttention = status?.integrity === "invalid" || ["stale", "missing"].includes(status?.projection);
+  if (!evidence?.length && !needsAttention) return null;
   return h("div", { className: "wip-section" },
     h("div", { className: "wip-section-label" }, "Review evidence"),
+    needsAttention ? h("div", {
+      className: "review-evidence-diagnostic",
+      title: diagnostics.join("\n"),
+    }, status.integrity === "invalid"
+      ? "Canonical review evidence is unavailable"
+      : `Review projection is ${status.projection}; showing state derived from events.jsonl`)
+      : null,
     h("ul", { className: "lanes-list" },
-      evidence.map((item, i) =>
+      (evidence || []).map((item, i) =>
         h("li", { key: i, className: "lanes-item lanes-item--stacked" },
           h("span", { className: "lanes-role" }, item.key),
           h("span", { className: "lanes-scope muted" }, stripScopePrefix(item.value || "recorded")),
@@ -562,7 +571,7 @@ function OpenWaveCard({ wave, allChanges, handoffWaveId, onWaveClick, onChangeCl
     h(WaveChangeList, { changes: wave.changes, waveId: wave.wave_id, onChangeClick }),
     h(WaveAcs, { acTotals, acDone, acStats }),
     h(WaveTasks, { tasksTotal, tasksDone }),
-    h(WaveEvidence, { evidence: wave.review_evidence }),
+    h(WaveEvidence, { evidence: wave.review_evidence, status: wave.review_evidence_status }),
     h(WaveLanes, { participants: wave.participants }),
   );
 }

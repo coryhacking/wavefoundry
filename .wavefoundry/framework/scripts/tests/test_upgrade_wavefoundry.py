@@ -1345,6 +1345,312 @@ class PreferredPythonTests(unittest.TestCase):
         self.assertIn("--full", graph_calls[0].args[0], "rebuild path runs a full graph rebuild")
 
 
+class PublicUpgradeReviewProtocolIntegrationTests(unittest.TestCase):
+    """The real upgrade surface phase repairs existing project carriers."""
+
+    def test_upgrade_surface_phase_refuses_claude_ancestor_before_external_write(self):
+        mod = load_upgrade_module()
+        import venv_bootstrap
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            outer = Path(temp_dir)
+            root = (outer / "repo").resolve()
+            outside = outer / "outside"
+            root.mkdir()
+            outside.mkdir()
+            try:
+                (root / ".claude").symlink_to(outside, target_is_directory=True)
+            except OSError as exc:
+                self.skipTest(f"directory symlinks unavailable: {exc}")
+
+            with patch.object(mod, "_preferred_python", return_value=sys.executable), \
+                 patch.object(venv_bootstrap, "ensure_python_resolves", return_value="ok"), \
+                 patch.dict(os.environ, {"WAVEFOUNDRY_SKIP_PYTHON_HEAL": "1"}, clear=False), \
+                 self.assertRaises(SystemExit) as raised:
+                mod.phase_surface_rendering(root)
+
+            self.assertEqual(raised.exception.code, 2)
+            self.assertEqual(list(outside.rglob("*")), [])
+
+    def test_upgrade_surface_phase_refuses_final_carrier_symlink_escape(self):
+        mod = load_upgrade_module()
+        import venv_bootstrap
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            outer = Path(temp_dir)
+            root = (outer / "repo").resolve()
+            outside = outer / "outside.md"
+            target = root / "docs" / "agents" / "qa-reviewer.md"
+            target.parent.mkdir(parents=True)
+            outside.write_text("external sentinel\n", encoding="utf-8")
+            target.symlink_to(outside)
+
+            with patch.object(mod, "_preferred_python", return_value=sys.executable), \
+                 patch.object(venv_bootstrap, "ensure_python_resolves", return_value="ok"), \
+                 patch.dict(os.environ, {"WAVEFOUNDRY_SKIP_PYTHON_HEAL": "1"}, clear=False), \
+                 self.assertRaises(SystemExit) as raised:
+                mod.phase_surface_rendering(root)
+
+            self.assertEqual(raised.exception.code, 2)
+            self.assertEqual(outside.read_text(encoding="utf-8"), "external sentinel\n")
+
+    def test_upgrade_surface_phase_refuses_dangling_native_wrapper_parent(self):
+        mod = load_upgrade_module()
+        import venv_bootstrap
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            outer = Path(temp_dir)
+            root = (outer / "repo").resolve()
+            outside = outer / "outside"
+            (root / "docs" / "agents").mkdir(parents=True)
+            (root / "docs" / "agents" / "guru.md").write_text("# Guru\n", encoding="utf-8")
+            wrapper = root / ".codex" / "skills" / "auto-guru"
+            wrapper.parent.mkdir(parents=True)
+            outside.mkdir()
+            wrapper.symlink_to(outside, target_is_directory=True)
+
+            with patch.object(mod, "_preferred_python", return_value=sys.executable), \
+                 patch.object(venv_bootstrap, "ensure_python_resolves", return_value="ok"), \
+                 patch.dict(os.environ, {"WAVEFOUNDRY_SKIP_PYTHON_HEAL": "1"}, clear=False), \
+                 self.assertRaises(SystemExit) as raised:
+                mod.phase_surface_rendering(root)
+
+            self.assertEqual(raised.exception.code, 2)
+            self.assertFalse((outside / "SKILL.md").exists())
+
+    def test_surface_phase_reconciles_stale_carrier_preserves_extensions_and_is_idempotent(self):
+        mod = load_upgrade_module()
+        import render_agent_surfaces as ras
+        import venv_bootstrap
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir).resolve()
+            target_seeds = root / ".wavefoundry" / "framework" / "seeds"
+            target_seeds.mkdir(parents=True)
+            target_seeds.joinpath("239-qa-reviewer.prompt.md").write_text(
+                (SCRIPTS_ROOT.parent / "seeds" / "239-qa-reviewer.prompt.md").read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+            target = root / "docs" / "agents" / "security-reviewer.md"
+            target.parent.mkdir(parents=True)
+            prefix = "# Project Security Reviewer\n\nproject-prefix\n\n"
+            suffix = "\n\n## Project extension\n\n- preserve this exactly\n"
+            target.write_text(
+                prefix
+                + ras.REVIEW_PROTOCOL_MARKER_BEGIN
+                + "\nold protocol revision\n"
+                + ras.REVIEW_PROTOCOL_MARKER_END
+                + suffix,
+                encoding="utf-8",
+            )
+
+            with patch.object(mod, "_preferred_python", return_value=sys.executable), \
+                 patch.object(venv_bootstrap, "ensure_python_resolves", return_value="ok"), \
+                 patch.dict(os.environ, {"WAVEFOUNDRY_SKIP_PYTHON_HEAL": "1"}, clear=False):
+                mod.phase_surface_rendering(root)
+                first = target.read_bytes()
+                mod.phase_surface_rendering(root)
+
+            text = first.decode("utf-8")
+            self.assertTrue(text.startswith(prefix))
+            self.assertTrue(text.endswith(suffix))
+            self.assertNotIn("old protocol revision", text)
+            self.assertIn("four-way actionability gate", text)
+            for rel in (
+                "docs/agents/qa-reviewer.md",
+                "docs/prompts/review-wave.prompt.md",
+                "docs/prompts/create-wave.prompt.md",
+                "docs/contributing/review-and-evals.md",
+            ):
+                created = root / rel
+                self.assertTrue(created.is_file(), rel)
+                self.assertIn(ras.REVIEW_PROTOCOL_MARKER_BEGIN, created.read_text(encoding="utf-8"))
+            self.assertIn(
+                "zero unintended skips",
+                (root / "docs" / "agents" / "qa-reviewer.md").read_text(encoding="utf-8"),
+            )
+            self.assertEqual(target.read_bytes(), first)
+            self.assertFalse(
+                (root / "docs" / "agents" / "guru.md").exists(),
+                "upgrade reconciliation must run before the Guru-availability guard",
+            )
+
+    def test_full_upgrade_main_reaches_real_surface_phase_for_missing_carriers(self):
+        """Negative-control complement: exercise main, not phase helper only."""
+
+        mod = load_upgrade_module()
+        import render_agent_surfaces as ras
+        import venv_bootstrap
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir).resolve()
+            (root / ".wavefoundry").mkdir()
+            target_seeds = root / ".wavefoundry" / "framework" / "seeds"
+            target_seeds.mkdir(parents=True)
+            target_seeds.joinpath("239-qa-reviewer.prompt.md").write_text(
+                (SCRIPTS_ROOT.parent / "seeds" / "239-qa-reviewer.prompt.md").read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+            (root / "docs").mkdir()
+            (root / "docs" / "workflow-config.json").write_text("{}\n", encoding="utf-8")
+            historical = root / "docs" / "waves" / "abcde historical" / "wave.md"
+            historical.parent.mkdir(parents=True)
+            historical.write_bytes(
+                b"# Historical target wave\n\nproject-authored bytes: do not parse or rewrite\n"
+            )
+            historical_snapshot = historical.read_bytes()
+
+            def assert_carriers_before_index(_root):
+                self.assertEqual(_root, root)
+                for rel in (
+                    "docs/agents/qa-reviewer.md",
+                    "docs/prompts/create-wave.prompt.md",
+                    "docs/prompts/review-wave.prompt.md",
+                    "docs/contributing/review-and-evals.md",
+                ):
+                    self.assertTrue((root / rel).is_file(), f"{rel} must exist before index update")
+
+            with patch.object(mod, "phase_preflight", return_value=(None, None, None)), \
+                 patch.object(mod, "_load_extension_module", return_value=None), \
+                 patch.object(mod, "_run_hook"), \
+                 patch.object(mod, "_snapshot_pre_extract_chunker_versions", return_value={}), \
+                 patch.object(mod, "_snapshot_pre_extract_versions", return_value={}), \
+                 patch.object(mod, "_stamp_manifest_revision", return_value=False), \
+                 patch.object(mod, "phase_pruning", return_value=0), \
+                 patch.object(mod, "materialize_secrets_policy", return_value="ok"), \
+                 patch.object(mod, "materialize_lifecycle_policy", return_value="ok"), \
+                 patch.object(mod, "phase_docs_gate"), \
+                 patch.object(mod, "phase_index_update", side_effect=assert_carriers_before_index), \
+                 patch.object(mod, "_emit_primary_phase_summary"), \
+                 patch.object(venv_bootstrap, "ensure_python_resolves", return_value="ok"), \
+                 patch.dict(os.environ, {"WAVEFOUNDRY_SKIP_PYTHON_HEAL": "1"}, clear=False):
+                self.assertEqual(mod.main(["--root", str(root), "--yes"]), 0)
+
+            for rel in (
+                "docs/agents/qa-reviewer.md",
+                "docs/prompts/review-wave.prompt.md",
+                "docs/prompts/create-wave.prompt.md",
+                "docs/contributing/review-and-evals.md",
+            ):
+                path = root / rel
+                self.assertTrue(path.is_file(), rel)
+                self.assertIn(ras.REVIEW_PROTOCOL_MARKER_BEGIN, path.read_text(encoding="utf-8"))
+            create_text = (
+                root / "docs" / "prompts" / "create-wave.prompt.md"
+            ).read_text(encoding="utf-8")
+            self.assertIn("review-evidence-source: events.jsonl", create_text)
+            self.assertNotIn("review-evidence-protocol: 1", create_text)
+            self.assertNotIn("```jsonl", create_text)
+            self.assertEqual(historical.read_bytes(), historical_snapshot)
+            self.assertFalse((historical.parent / "events.jsonl").exists())
+
+    def test_full_upgrade_extracts_compact_review_authoring_into_target_project(self):
+        """A real upgrade extraction replaces the target's old server/protocol modules."""
+
+        mod = load_upgrade_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir).resolve()
+            scripts = root / ".wavefoundry" / "framework" / "scripts"
+            scripts.mkdir(parents=True)
+            scripts.joinpath("review_evidence.py").write_text("# old protocol\n", encoding="utf-8")
+            scripts.joinpath("server_impl.py").write_text("# old server\n", encoding="utf-8")
+            historical = root / "docs" / "waves" / "abcde historical" / "wave.md"
+            historical.parent.mkdir(parents=True)
+            historical.write_bytes(b"# Historical target wave\n\nopaque sentinel\n")
+            historical_snapshot = historical.read_bytes()
+            zip_path = root / "wavefoundry-upgrade.zip"
+            with zipfile.ZipFile(zip_path, "w") as zf:
+                for name in ("review_evidence.py", "server_impl.py"):
+                    zf.writestr(
+                        f".wavefoundry/framework/scripts/{name}",
+                        SCRIPTS_ROOT.joinpath(name).read_text(encoding="utf-8"),
+                    )
+
+            with patch.object(
+                mod,
+                "phase_preflight",
+                return_value=("1.12.0", "1.13.0", zip_path),
+            ), patch.object(mod, "_load_extension_module", return_value=None), patch.object(
+                mod, "_run_hook"
+            ), patch.object(
+                mod, "_snapshot_pre_extract_chunker_versions", return_value={}
+            ), patch.object(
+                mod, "_snapshot_pre_extract_versions", return_value={}
+            ), patch.object(
+                mod, "_tree_already_at", return_value=False
+            ), patch.object(
+                mod, "_detect_version_transitions", return_value=[]
+            ), patch.object(
+                mod, "_warn_if_no_version_baseline", return_value=False
+            ), patch.object(
+                mod, "phase_surface_rendering"
+            ), patch.object(
+                mod, "_stamp_manifest_revision", return_value=False
+            ), patch.object(
+                mod, "phase_pruning", return_value=0
+            ), patch.object(
+                mod, "materialize_secrets_policy", return_value="ok"
+            ), patch.object(
+                mod, "materialize_lifecycle_policy", return_value="ok"
+            ), patch.object(
+                mod, "phase_docs_gate"
+            ), patch.object(
+                mod, "phase_index_update"
+            ), patch.object(
+                mod, "_emit_primary_phase_summary"
+            ):
+                self.assertEqual(mod.main(["--root", str(root), "--yes"]), 0)
+
+            self.assertIn(
+                "def build_compact_review_event(",
+                scripts.joinpath("review_evidence.py").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "def wave_record_review_evidence(",
+                scripts.joinpath("server_impl.py").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "EVENTS_FILENAME = \"events.jsonl\"",
+                scripts.joinpath("review_evidence.py").read_text(encoding="utf-8"),
+            )
+            self.assertEqual(historical.read_bytes(), historical_snapshot)
+            self.assertFalse((historical.parent / "events.jsonl").exists())
+
+    def test_full_upgrade_known_bad_unwired_surface_phase_is_detected_before_index(self):
+        """The integration fixture fails against the old helper-present-but-unwired behavior."""
+
+        mod = load_upgrade_module()
+        import venv_bootstrap
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir).resolve()
+            (root / ".wavefoundry" / "framework" / "seeds").mkdir(parents=True)
+            (root / "docs").mkdir()
+            (root / "docs" / "workflow-config.json").write_text("{}\n", encoding="utf-8")
+
+            def detect_missing_carriers(_root):
+                self.assertFalse((root / "docs" / "agents" / "qa-reviewer.md").exists())
+                raise AssertionError("known-bad upgrade reached index before review carriers")
+
+            with patch.object(mod, "phase_preflight", return_value=(None, None, None)), \
+                 patch.object(mod, "_load_extension_module", return_value=None), \
+                 patch.object(mod, "_run_hook"), \
+                 patch.object(mod, "_snapshot_pre_extract_chunker_versions", return_value={}), \
+                 patch.object(mod, "_snapshot_pre_extract_versions", return_value={}), \
+                 patch.object(mod, "phase_surface_rendering", return_value=None), \
+                 patch.object(mod, "_stamp_manifest_revision", return_value=False), \
+                 patch.object(mod, "phase_pruning", return_value=0), \
+                 patch.object(mod, "materialize_secrets_policy", return_value="ok"), \
+                 patch.object(mod, "materialize_lifecycle_policy", return_value="ok"), \
+                 patch.object(mod, "phase_docs_gate"), \
+                 patch.object(mod, "phase_index_update", side_effect=detect_missing_carriers), \
+                 patch.object(venv_bootstrap, "ensure_python_resolves", return_value="ok"), \
+                 patch.dict(os.environ, {"WAVEFOUNDRY_SKIP_PYTHON_HEAL": "1"}, clear=False):
+                with self.assertRaisesRegex(AssertionError, "known-bad upgrade"):
+                    mod.main(["--root", str(root), "--yes"])
+
+
 # ---------------------------------------------------------------------------
 # Upgrade log file (12r21)
 # ---------------------------------------------------------------------------

@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import importlib.util
 import io
+import json
+import os
 import subprocess
 import sys
+import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
@@ -43,7 +46,7 @@ class SetupWavefoundryTests(unittest.TestCase):
         self.ensure_python_resolves_mock = heal.start()
         self.addCleanup(heal.stop)
 
-    # --- Step 1: setup_index delegation ----------------------------------
+    # --- Step 2: setup_index delegation ----------------------------------
 
     def test_step_1_delegates_args_to_setup_index_main(self):
         delegated: list[list[str] | None] = []
@@ -62,49 +65,53 @@ class SetupWavefoundryTests(unittest.TestCase):
         self.assertEqual(result, 0)
         self.assertEqual(delegated, [["--root", "/tmp/repo", "--full"]])
 
-    def test_step_1_failure_aborts_before_step_2_and_3(self):
+    def test_step_2_failure_aborts_before_step_3(self):
         class FakeSetupIndex:
             @staticmethod
             def main(argv=None):
                 return 5
 
         with patch.object(self.mod, "_load_setup_index", return_value=FakeSetupIndex), \
-             patch.object(self.mod, "_run_render_platform_surfaces") as render_mock, \
+             patch.object(self.mod, "_run_render_platform_surfaces", return_value=0) as render_mock, \
              patch.object(self.mod, "_run_mcp_server_dry_run") as dry_run_mock:
             result = self.mod.main([])
 
         self.assertEqual(result, 5)
-        render_mock.assert_not_called()
+        render_mock.assert_called_once_with(Path.cwd().resolve())
         dry_run_mock.assert_not_called()
 
-    # --- Step 2: render_platform_surfaces orchestration ------------------
+    # --- Step 1: render_platform_surfaces orchestration ------------------
 
-    def test_step_2_runs_render_platform_surfaces_after_setup_index_succeeds(self):
+    def test_step_1_runs_render_platform_surfaces_before_setup_index(self):
+        events: list[str] = []
         class FakeSetupIndex:
             @staticmethod
             def main(argv=None):
+                events.append("index")
                 return 0
 
         with patch.object(self.mod, "_load_setup_index", return_value=FakeSetupIndex), \
-             patch.object(self.mod, "_run_render_platform_surfaces", return_value=0) as render_mock, \
+             patch.object(self.mod, "_run_render_platform_surfaces", side_effect=lambda root: (events.append("render"), 0)[1]) as render_mock, \
              patch.object(self.mod, "_run_mcp_server_dry_run", return_value=0):
             result = self.mod.main([])
 
         self.assertEqual(result, 0)
-        render_mock.assert_called_once_with()
+        render_mock.assert_called_once_with(Path.cwd().resolve())
+        self.assertEqual(events, ["render", "index"])
 
-    def test_step_2_failure_aborts_before_step_3(self):
+    def test_step_1_failure_aborts_before_index_and_step_3(self):
         class FakeSetupIndex:
             @staticmethod
             def main(argv=None):
                 return 0
 
-        with patch.object(self.mod, "_load_setup_index", return_value=FakeSetupIndex), \
+        with patch.object(self.mod, "_load_setup_index", return_value=FakeSetupIndex) as index_mock, \
              patch.object(self.mod, "_run_render_platform_surfaces", return_value=3), \
              patch.object(self.mod, "_run_mcp_server_dry_run") as dry_run_mock:
             result = self.mod.main([])
 
         self.assertEqual(result, 3)
+        index_mock.assert_not_called()
         dry_run_mock.assert_not_called()
 
     # --- Step 3: MCP server dry-run smoke test ---------------------------
@@ -121,7 +128,7 @@ class SetupWavefoundryTests(unittest.TestCase):
             result = self.mod.main([])
 
         self.assertEqual(result, 0)
-        dry_run_mock.assert_called_once_with()
+        dry_run_mock.assert_called_once_with(Path.cwd().resolve())
 
     def test_step_3_failure_returns_non_zero(self):
         class FakeSetupIndex:
@@ -136,7 +143,7 @@ class SetupWavefoundryTests(unittest.TestCase):
 
         self.assertEqual(result, 7)
 
-    # --- Step 1b: `python` resolution heal (wave 1p7pm) ------------------
+    # --- Step 2b: `python` resolution heal (wave 1p7pm) ------------------
 
     def test_step_1b_calls_ensure_python_resolves_strict_after_venv(self):
         """Setup heals `python` resolution after Step 1 (the venv exists), strictly. The heal mock is
@@ -162,7 +169,7 @@ class SetupWavefoundryTests(unittest.TestCase):
                 return 9
 
         with patch.object(self.mod, "_load_setup_index", return_value=FakeSetupIndex), \
-             patch.object(self.mod, "_run_render_platform_surfaces"), \
+             patch.object(self.mod, "_run_render_platform_surfaces", return_value=0), \
              patch.object(self.mod, "_run_mcp_server_dry_run"):
             result = self.mod.main([])
 
@@ -177,14 +184,14 @@ class SetupWavefoundryTests(unittest.TestCase):
                 return 0
 
         with patch.object(self.mod, "_load_setup_index", return_value=FakeSetupIndex), \
-             patch.object(self.mod, "_run_render_platform_surfaces") as render_mock, \
+             patch.object(self.mod, "_run_render_platform_surfaces", return_value=0) as render_mock, \
              patch.object(self.mod, "_run_mcp_server_dry_run") as dry_run_mock:
             self.ensure_python_resolves_mock.side_effect = SystemExit(2)
             with self.assertRaises(SystemExit):
                 self.mod.main([])
 
         self.ensure_python_resolves_mock.assert_called_once_with(strict=True)
-        render_mock.assert_not_called()
+        render_mock.assert_called_once_with(Path.cwd().resolve())
         dry_run_mock.assert_not_called()
 
     def test_setup_does_not_print_gui_fallback_guidance(self):
@@ -226,12 +233,14 @@ class SetupWavefoundryTests(unittest.TestCase):
             return _make_completed_process(0)
 
         with patch.object(self.mod.subprocess, "run", side_effect=fake_run):
-            rc = self.mod._run_render_platform_surfaces()
+            root = (Path.cwd() / "public-setup-target").resolve()
+            rc = self.mod._run_render_platform_surfaces(root)
 
         self.assertEqual(rc, 0)
         self.assertEqual(len(captured), 1)
         self.assertEqual(captured[0][0], sys.executable)
         self.assertTrue(captured[0][1].endswith("render_platform_surfaces.py"))
+        self.assertEqual(captured[0][2:], ["--repo-root", str(root)])
 
     def test_run_mcp_dry_run_invokes_server_with_generated_mcp_python_shape(self):
         captured: list[list[str]] = []
@@ -241,12 +250,15 @@ class SetupWavefoundryTests(unittest.TestCase):
             return _make_completed_process(0)
 
         with patch.object(self.mod.subprocess, "run", side_effect=fake_run):
-            rc = self.mod._run_mcp_server_dry_run()
+            root = (Path.cwd() / "external-target").resolve()
+            rc = self.mod._run_mcp_server_dry_run(root)
 
         self.assertEqual(rc, 0)
         self.assertEqual(len(captured), 1)
         self.assertEqual(captured[0][0], "python3")
         self.assertTrue(captured[0][1].endswith("server.py"))
+        self.assertIn("--root", captured[0])
+        self.assertEqual(captured[0][captured[0].index("--root") + 1], str(root))
         self.assertIn("--dry-run", captured[0])
 
     def test_success_message_requires_fresh_agent_session(self):
@@ -267,6 +279,221 @@ class SetupWavefoundryTests(unittest.TestCase):
         self.assertIn("fully quit and reopen your AI agent", text)
         self.assertIn("start a fresh conversation", text)
         self.assertIn("Do not resume an old session", text)
+
+
+class PublicSetupReviewProtocolIntegrationTests(unittest.TestCase):
+    """Fresh public setup reconciles review carriers in the requested target."""
+
+    def test_setup_refuses_claude_ancestor_escape_before_indexing_or_external_write(self):
+        mod = load_setup_wavefoundry()
+        index_called = False
+
+        class FakeSetupIndex:
+            @staticmethod
+            def main(argv=None):
+                nonlocal index_called
+                index_called = True
+                return 0
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            outer = Path(temp_dir)
+            root = (outer / "repo").resolve()
+            outside = outer / "outside"
+            (root / ".wavefoundry" / "framework").mkdir(parents=True)
+            outside.mkdir()
+            try:
+                (root / ".claude").symlink_to(outside, target_is_directory=True)
+            except OSError as exc:
+                self.skipTest(f"directory symlinks unavailable: {exc}")
+
+            with patch.object(mod, "_load_setup_index", return_value=FakeSetupIndex), \
+                 patch.object(mod, "_run_mcp_server_dry_run", return_value=0), \
+                 patch.object(mod.venv_bootstrap, "ensure_python_resolves", return_value="ok"), \
+                 patch.dict(os.environ, {"WAVEFOUNDRY_SKIP_PYTHON_HEAL": "1"}, clear=False), \
+                 redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                self.assertNotEqual(mod.main(["--root", str(root)]), 0)
+
+            self.assertFalse(index_called)
+            self.assertEqual(list(outside.rglob("*")), [])
+
+    def test_setup_refuses_parent_symlink_escape_before_indexing(self):
+        mod = load_setup_wavefoundry()
+        index_called = False
+
+        class FakeSetupIndex:
+            @staticmethod
+            def main(argv=None):
+                nonlocal index_called
+                index_called = True
+                return 0
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            outer = Path(temp_dir)
+            root = (outer / "repo").resolve()
+            outside = outer / "outside"
+            (root / ".wavefoundry" / "framework").mkdir(parents=True)
+            (root / "docs").mkdir()
+            outside.mkdir()
+            sentinel = outside / "qa-reviewer.md"
+            sentinel.write_text("external sentinel\n", encoding="utf-8")
+            (root / "docs" / "agents").symlink_to(outside, target_is_directory=True)
+
+            with patch.object(mod, "_load_setup_index", return_value=FakeSetupIndex), \
+                 patch.object(mod, "_run_mcp_server_dry_run", return_value=0), \
+                 patch.object(mod.venv_bootstrap, "ensure_python_resolves", return_value="ok"), \
+                 patch.dict(os.environ, {"WAVEFOUNDRY_SKIP_PYTHON_HEAL": "1"}, clear=False), \
+                 redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                self.assertNotEqual(mod.main(["--root", str(root)]), 0)
+
+            self.assertFalse(index_called)
+            self.assertEqual(sentinel.read_text(encoding="utf-8"), "external sentinel\n")
+
+    def test_setup_refuses_dangling_native_wrapper_parent_before_indexing(self):
+        mod = load_setup_wavefoundry()
+        index_called = False
+
+        class FakeSetupIndex:
+            @staticmethod
+            def main(argv=None):
+                nonlocal index_called
+                index_called = True
+                return 0
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            outer = Path(temp_dir)
+            root = (outer / "repo").resolve()
+            outside = outer / "outside"
+            (root / ".wavefoundry" / "framework").mkdir(parents=True)
+            (root / "docs" / "agents").mkdir(parents=True)
+            (root / "docs" / "agents" / "guru.md").write_text("# Guru\n", encoding="utf-8")
+            wrapper = root / ".codex" / "skills" / "auto-guru"
+            wrapper.parent.mkdir(parents=True)
+            outside.mkdir()
+            wrapper.symlink_to(outside, target_is_directory=True)
+
+            with patch.object(mod, "_load_setup_index", return_value=FakeSetupIndex), \
+                 patch.object(mod, "_run_mcp_server_dry_run", return_value=0), \
+                 patch.object(mod.venv_bootstrap, "ensure_python_resolves", return_value="ok"), \
+                 patch.dict(os.environ, {"WAVEFOUNDRY_SKIP_PYTHON_HEAL": "1"}, clear=False), \
+                 redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                self.assertNotEqual(mod.main(["--root", str(root)]), 0)
+
+            self.assertFalse(index_called)
+            self.assertFalse((outside / "SKILL.md").exists())
+
+    def test_setup_root_adds_missing_protocol_preserves_extensions_and_is_idempotent(self):
+        mod = load_setup_wavefoundry()
+        import render_agent_surfaces as ras
+        observed: list[bool] = []
+        historical_snapshot: bytes | None = None
+
+        class FakeSetupIndex:
+            @staticmethod
+            def main(argv=None):
+                observed.append((root / "docs" / "agents" / "qa-reviewer.md").is_file())
+                self.assertEqual(historical.read_bytes(), historical_snapshot)
+                return 0
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir).resolve()
+            (root / ".wavefoundry" / "framework").mkdir(parents=True)
+            target_seeds = root / ".wavefoundry" / "framework" / "seeds"
+            target_seeds.mkdir()
+            target_seeds.joinpath("239-qa-reviewer.prompt.md").write_text(
+                (SCRIPTS_ROOT.parent / "seeds" / "239-qa-reviewer.prompt.md").read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+            config = root / "docs" / "workflow-config.json"
+            config.parent.mkdir(parents=True)
+            config.write_text(
+                json.dumps({"lifecycle_id_policy": {"scheme_version": "v2"}}),
+                encoding="utf-8",
+            )
+            historical = root / "docs" / "waves" / "abcde historical" / "wave.md"
+            historical.parent.mkdir(parents=True)
+            historical.write_bytes(
+                b"# Historical target wave\n\nproject-authored bytes: do not parse or rewrite\n"
+            )
+            historical_snapshot = historical.read_bytes()
+            target = root / "docs" / "agents" / "code-reviewer.md"
+            target.parent.mkdir(parents=True)
+            prefix = "# Project Code Reviewer\n\nproject-prefix\n\n"
+            suffix = "\n\n## Project extension\n\n- preserve this exactly\n"
+            target.write_text(
+                prefix + suffix,
+                encoding="utf-8",
+            )
+            original = target.read_bytes()
+
+            with patch.object(mod, "_load_setup_index", return_value=FakeSetupIndex), \
+                 patch.object(mod, "_run_mcp_server_dry_run", return_value=0), \
+                 patch.object(mod.venv_bootstrap, "ensure_python_resolves", return_value="ok"), \
+                 patch.dict(os.environ, {"WAVEFOUNDRY_SKIP_PYTHON_HEAL": "1"}, clear=False), \
+                 redirect_stdout(io.StringIO()):
+                self.assertEqual(mod.main(["--root", str(root)]), 0)
+                first = target.read_bytes()
+                self.assertEqual(mod.main(["--root", str(root)]), 0)
+
+            text = first.decode("utf-8")
+            self.assertTrue(first.startswith(original), "project-authored bytes must remain an exact prefix")
+            self.assertEqual(observed, [True, True], "both setup index passes must see rendered carriers")
+            self.assertTrue(text.startswith(prefix))
+            self.assertIn(suffix.strip(), text)
+            self.assertIn(ras.REVIEW_PROTOCOL_MARKER_BEGIN, text)
+            self.assertIn("four-way actionability gate", text)
+            for rel in (
+                "docs/agents/qa-reviewer.md",
+                "docs/prompts/review-wave.prompt.md",
+                "docs/prompts/create-wave.prompt.md",
+                "docs/contributing/review-and-evals.md",
+            ):
+                created = root / rel
+                self.assertTrue(created.is_file(), rel)
+                self.assertIn(ras.REVIEW_PROTOCOL_MARKER_BEGIN, created.read_text(encoding="utf-8"))
+            self.assertIn(
+                "zero unintended skips",
+                (root / "docs" / "agents" / "qa-reviewer.md").read_text(encoding="utf-8"),
+            )
+            self.assertEqual(target.read_bytes(), first)
+            self.assertEqual(historical.read_bytes(), historical_snapshot)
+            self.assertFalse((historical.parent / "events.jsonl").exists())
+            create_text = (
+                root / "docs" / "prompts" / "create-wave.prompt.md"
+            ).read_text(encoding="utf-8")
+            self.assertIn("review-evidence-source: events.jsonl", create_text)
+            self.assertNotIn("review-evidence-protocol: 1", create_text)
+            self.assertNotIn("```jsonl", create_text)
+            self.assertFalse(
+                (root / "docs" / "agents" / "guru.md").exists(),
+                "review reconciliation must run before the Guru-availability guard",
+            )
+
+    def test_public_setup_known_bad_unwired_renderer_is_detected_at_index_boundary(self):
+        """The public-path fixture fails against the old renderer-unwired setup ordering."""
+
+        mod = load_setup_wavefoundry()
+        observed: list[bool] = []
+
+        class DetectMissingCarrierSetupIndex:
+            @staticmethod
+            def main(argv=None):
+                present = (root / "docs" / "agents" / "qa-reviewer.md").is_file()
+                observed.append(present)
+                return 0 if present else 29
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir).resolve()
+            (root / ".wavefoundry" / "framework").mkdir(parents=True)
+            (root / "docs").mkdir()
+            (root / "docs" / "workflow-config.json").write_text("{}\n", encoding="utf-8")
+            with patch.object(mod, "_run_render_platform_surfaces", return_value=0), \
+                 patch.object(mod, "_load_setup_index", return_value=DetectMissingCarrierSetupIndex), \
+                 patch.object(mod, "_run_mcp_server_dry_run", return_value=0), \
+                 redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                result = mod.main(["--root", str(root)])
+
+        self.assertEqual(result, 29)
+        self.assertEqual(observed, [False])
 
 
 if __name__ == "__main__":
@@ -294,8 +521,8 @@ class GpuDoctorCheckTests(unittest.TestCase):
 
         with patch.object(self.mod, "_run_gpu_check", side_effect=fake_gpu_check), \
              patch.object(self.mod, "_load_setup_index", side_effect=lambda: steps.append("setup_index")), \
-             patch.object(self.mod, "_run_render_platform_surfaces", side_effect=lambda: (steps.append("render"), 0)[1]), \
-             patch.object(self.mod, "_run_mcp_server_dry_run", side_effect=lambda: (steps.append("dryrun"), 0)[1]):
+             patch.object(self.mod, "_run_render_platform_surfaces", side_effect=lambda _root: (steps.append("render"), 0)[1]), \
+             patch.object(self.mod, "_run_mcp_server_dry_run", side_effect=lambda _root: (steps.append("dryrun"), 0)[1]):
             rc = self.mod.main(["--check-gpu"])
         self.assertEqual(rc, 0)
         self.assertTrue(flags["gpu"])

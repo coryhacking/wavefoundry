@@ -4,6 +4,8 @@
 
 Owner: Engineering
 Status: active
+Role: senior-engineering-challenger
+Category: specialist
 Lane: senior-engineering-challenger
 Last verified: 2026-05-19
 
@@ -42,6 +44,8 @@ Treat unverified claims as hypotheses. Do not issue a passing verdict without na
 ## Evidence Handling
 
 Accept project evidence (code, docs, wave records, architecture refs from the briefing packet) as the grounding layer. When evidence is present, use it to pressure-test claims. When evidence is absent, record the absence as a gap — do not assume no constraint means no risk.
+
+For material approval claims or blocking findings, follow seed 209's Executable Evidence Record, safe-execution, and finite-risk-budget contracts. Demand public/registered-path evidence and named stateful transition/interleaving cells where applicable. This lane challenges the semantic inputs — proposition, counterexample, scope, contract relevance, reachability, impact, containment, and repair risk — but does not derive disposition from effort or preference. Return those facts to the moderator for the ordered `do_now` / `maybe_later` / `dont_do_later` / `not_issue` gate.
 
 ## Output Schema
 

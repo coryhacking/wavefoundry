@@ -643,7 +643,7 @@ class FrameworkWideSubprocessIsolationGuard(unittest.TestCase):
         },
         # setup_wavefoundry runs its MCP smoke / phase scripts with operator console output.
         "setup_wavefoundry.py": {
-            "[sys.executable, str(script_path)]": "setup phase script — operator-visible console output",
+            "[sys.executable, str(script_path), \"--repo-root\"": "setup phase script — operator-visible console output",
         },
         # Dev-host-only (also in _DEV_HOST_EXEMPT_FILES) — runs on a developer terminal.
         "build_pack.py": {
@@ -869,6 +869,70 @@ def _prepare_council_verdict_line(
         f"(moderator: wave-council; primer-depth: standard; seats: {seats}; rotating-seat: {rotating_seat}; "
         f"strongest-challenge: {strongest_challenge}; strongest-alternative: {strongest_alternative})"
     )
+
+
+def _append_review_run(root: Path, wave_id: str, *, kind: str = "readiness") -> None:
+    """Append a minimal executable lifecycle run to a new external-ledger wave."""
+    wave_md = root / "docs" / "waves" / wave_id / "wave.md"
+    short_id = wave_id.split()[0]
+    evidence_id = f"dedup-{kind}-{short_id}"
+    run_id = f"{kind}-{short_id}"
+    evidence = {
+        "record_type": "executable_evidence",
+        "evidence_record_id": evidence_id,
+        "claim_id": evidence_id,
+        "claim_kind": "dedup",
+        "required_for_approval": False,
+        "phase": "readiness" if kind == "readiness" else "delivery",
+        "proposition": f"{kind} candidates were deduplicated",
+        "counterexample_or_failure_condition": "a duplicate candidate remains",
+        "execution_status": "executed",
+        "public_path": "public lifecycle fixture",
+        "command_or_fixture": "test_server_tools lifecycle fixture",
+        "expected": "zero duplicate candidates",
+        "observed": "zero duplicate candidates",
+        "artifact_or_test_id": f"test:{run_id}",
+        "adjacent_controls": ["empty candidate set"],
+        "test_ran_without_unintended_skip": True,
+        "public_path_reached": True,
+        "boundary_values_realistic": True,
+        "assertions_non_vacuous": True,
+        "known_bad_detected": True,
+        "known_bad_detection_method": "duplicate injection control",
+        "limitations": "temporary local wave",
+        "safety_and_authorization": "local temporary fixture only",
+        "probe_class": "local_safe",
+        "authorization_status": "not_required",
+        "safe_boundary": False,
+        "unexecuted_remainder_prohibited": False,
+        "universal_claim": False,
+        "verification_context": {
+            "actor": "qa-reviewer",
+            "context_id": f"context-{run_id}",
+            "fresh_context": True,
+            "independent": True,
+        },
+    }
+    run = {
+        "record_type": "review_run",
+        "review_run_id": run_id,
+        "run_kind": kind,
+        "cycle": 0,
+        "candidate_finding_ids": [],
+        "source_record_ids": ["test-council"],
+        "dedup_evidence_id": evidence_id,
+    }
+    review = sys.modules["review_evidence"]
+    events = review.review_event_path(wave_md)
+    existing, errors = review.read_review_event_ledger(wave_md)
+    assert not errors, errors
+    records = (*existing, evidence, run)
+    events.write_bytes(review.canonical_review_events_bytes(records))
+    text = review.render_review_evidence_projection(
+        wave_md.read_text(encoding="utf-8"), records
+    )
+    wave_md.write_text(text, encoding="utf-8")
+    assert review.record_protocol_state(root, wave_id, wave_md) is None
 
 
 def _store_read_meta(index_dir: Path) -> dict:
@@ -2717,6 +2781,44 @@ class WaveCreateScaffoldAlignmentTests(unittest.TestCase):
         self.assertLess(title_idx, obj_idx)
         self.assertLess(obj_idx, changes_idx)
 
+    def test_new_wave_opts_into_review_evidence_with_valid_empty_owned_block(self):
+        result = self._create_wave("review-evidence-wave")
+        wave_md = self.root / result["path"]
+        text = wave_md.read_text(encoding="utf-8")
+        self.assertIn("review-evidence-source: events.jsonl", text)
+        self.assertNotIn("review-evidence-protocol", text)
+        self.assertNotIn("```jsonl", text)
+        self.assertIn("## Finding Synthesis", text)
+        self.assertIn("waveframework:finding-synthesis begin", text)
+        events = wave_md.parent / "events.jsonl"
+        self.assertEqual(events.read_bytes(), b"")
+        validation = self.srv.validate_external_review_evidence(wave_md)
+        self.assertTrue(validation.ok, validation.errors)
+        ledger = self.root / "docs" / "waves" / "review-evidence-adoptions.json"
+        self.assertTrue(ledger.is_file())
+        self.assertIn(result["wave_id"], ledger.read_text(encoding="utf-8"))
+
+    def test_public_lifecycle_rejects_source_removal_after_creation(self):
+        result = self._create_wave("durable-adoption-wave")
+        wave_md = self.root / result["path"]
+        text = wave_md.read_text(encoding="utf-8")
+        text = re.sub(r"(?m)^review-evidence-source: events\.jsonl\n", "", text)
+        text = re.sub(
+            r"(?ms)^## Finding Synthesis\n.*?^## Review Evidence\n",
+            "## Review Evidence\n",
+            text,
+        )
+        wave_md.write_text(text, encoding="utf-8")
+        response = self.srv.wave_prepare_response(self.root, result["wave_id"], mode="dry_run")
+        self.assertTrue(
+            any(
+                diagnostic["code"] == "review_evidence_invalid"
+                and "may not be removed" in diagnostic["message"]
+                for diagnostic in response.get("diagnostics", [])
+            ),
+            response,
+        )
+
     def test_co_creates_journal_stub(self):
         """AC-4: a journal stub appears at docs/agents/journals/<wave-id>.md."""
         result = self._create_wave("beta-wave")
@@ -2787,10 +2889,14 @@ class WaveCreateScaffoldAlignmentTests(unittest.TestCase):
         target_wave_id = "00abc test-wave"
         wave_dir = self.root / "docs" / "waves" / target_wave_id
         wave_dir.mkdir(parents=True)
+        review = sys.modules["review_evidence"]
         (wave_dir / "wave.md").write_text(
-            "# Wave Record\n\nOwner: Engineering\nStatus: planned\n",
+            "# Wave Record\n\nOwner: Engineering\nStatus: planned\n"
+            "review-evidence-source: events.jsonl\n\n"
+            + review.empty_external_finding_synthesis_section(),
             encoding="utf-8",
         )
+        (wave_dir / "events.jsonl").write_bytes(b"")
         journal_path = (
             self.root / "docs" / "agents" / "journals"
             / "00abc-test-wave.md"
@@ -2956,6 +3062,71 @@ class WaveLifecycleMutationTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
+    @staticmethod
+    def _approval_record(signoff_key: str, *, actor: str, fresh: bool = True, independent: bool = True) -> dict:
+        return {
+            "record_type": "executable_evidence",
+            "evidence_record_id": f"approval-{signoff_key}-{actor}",
+            "claim_id": f"approval:{signoff_key}",
+            "claim_kind": "approval",
+            "required_for_approval": True,
+            "phase": "delivery",
+            "proposition": f"{signoff_key} approval was independently executed",
+            "counterexample_or_failure_condition": "the signer is not authorized for the lane",
+            "execution_status": "executed",
+            "public_path": "wave_review",
+            "command_or_fixture": "WaveLifecycleMutationTests approval binding",
+            "expected": "the exact authorized actor is bound to the signoff",
+            "observed": "the recorded actor was inspected",
+            "artifact_or_test_id": f"test:approval-{signoff_key}",
+            "adjacent_controls": ["valid exact actor"],
+            "test_ran_without_unintended_skip": True,
+            "public_path_reached": True,
+            "boundary_values_realistic": True,
+            "assertions_non_vacuous": True,
+            "known_bad_detected": True,
+            "known_bad_detection_method": "forged actor control",
+            "limitations": "temporary local wave",
+            "safety_and_authorization": "local temporary fixture only",
+            "probe_class": "local_safe",
+            "authorization_status": "not_required",
+            "safe_boundary": False,
+            "unexecuted_remainder_prohibited": False,
+            "universal_claim": False,
+            "verification_context": {
+                "actor": actor,
+                "context_id": f"context-{signoff_key}-{actor}",
+                "fresh_context": fresh,
+                "independent": independent,
+            },
+        }
+
+    def _marked_wave_with_approval(self, signoff_key: str, *, actor: str, fresh: bool = True, independent: bool = True) -> str:
+        created = self.srv.wave_create_wave_response(
+            self.root, f"approval-{signoff_key}", mode="create"
+        )
+        wave_id = created["data"]["wave_id"]
+        _append_review_run(self.root, wave_id, kind="initial_delivery")
+        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        approval = self._approval_record(
+            signoff_key, actor=actor, fresh=fresh, independent=independent
+        )
+        review = sys.modules["review_evidence"]
+        records, errors = review.read_review_event_ledger(wave_md)
+        self.assertFalse(errors)
+        updated = (*records, approval)
+        review.review_event_path(wave_md).write_bytes(
+            review.canonical_review_events_bytes(updated)
+        )
+        wave_md.write_text(
+            review.render_review_evidence_projection(
+                wave_md.read_text(encoding="utf-8"), updated
+            ),
+            encoding="utf-8",
+        )
+        self.assertIsNone(review.record_protocol_state(self.root, wave_id, wave_md))
+        return wave_id
+
     def test_wave_create_wave_dry_run(self):
         result = self.srv.wave_create_wave_response(self.root, "new-wave", mode="dry_run")
         self.assertEqual(result["status"], "dry_run")
@@ -3010,6 +3181,760 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         result = self.srv.wave_prepare_response(self.root, "1200a test-wave", mode="dry_run")
         self.assertEqual(result["status"], "error")
         self.assertEqual(result["diagnostics"][0]["code"], "no_admitted_changes")
+
+    def test_marked_review_evidence_is_enforced_by_prepare_review_and_close(self):
+        wave_md = self.root / "docs" / "waves" / "1200a test-wave" / "wave.md"
+        review = sys.modules["review_evidence"]
+        wave_md.write_text(
+            wave_md.read_text(encoding="utf-8").replace(
+                "# Wave Record\n",
+                "# Wave Record\n\nreview-evidence-source: events.jsonl\n",
+                1,
+            )
+            + "\n"
+            + review.empty_external_finding_synthesis_section(),
+            encoding="utf-8",
+        )
+        review.review_event_path(wave_md).write_bytes(b"{not-json}\n")
+        calls = (
+            lambda: self.srv.wave_prepare_response(self.root, "1200a test-wave", mode="dry_run"),
+            lambda: self.srv.wave_review_response(self.root, "1200a test-wave"),
+            lambda: self.srv.wave_close_response(self.root, "1200a test-wave", mode="dry_run"),
+        )
+        for call in calls:
+            result = call()
+            self.assertEqual(result["status"], "error")
+            self.assertTrue(
+                any(d["code"] == "review_evidence_invalid" for d in result["diagnostics"]),
+                result["diagnostics"],
+            )
+
+    def test_malformed_adoption_state_cannot_fall_back_to_legacy_lifecycle(self):
+        adoption = self.root / "docs" / "waves" / "review-evidence-adoptions.json"
+        adoption.write_text("{broken", encoding="utf-8")
+
+        result = self.srv.wave_review_response(self.root, "1200a test-wave")
+
+        self.assertEqual(result["status"], "error")
+        self.assertTrue(
+            any(
+                diagnostic["code"] == "review_evidence_invalid"
+                and "adoption ledger is unreadable" in diagnostic["message"]
+                for diagnostic in result["diagnostics"]
+            ),
+            result["diagnostics"],
+        )
+
+    def test_bullet_participants_are_enforced_by_public_review(self):
+        wave_md = self.root / "docs" / "waves" / "1200a test-wave" / "wave.md"
+        wave_md.write_text(
+            wave_md.read_text(encoding="utf-8")
+            + "\n## Participants\n\n"
+            + "- Required review lanes: `code-reviewer`, `qa-reviewer`, `security-reviewer`\n"
+            + "\n## Review Evidence\n\n- operator-signoff: approved\n",
+            encoding="utf-8",
+        )
+        with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}), \
+             patch.object(self.srv, "_required_wave_council_signoffs", return_value=[]):
+            response = self.srv.wave_review_response(self.root, "1200a test-wave")
+        self.assertEqual(
+            response["data"]["required_lanes"][:4],
+            ["operator", "code-reviewer", "qa-reviewer", "security-reviewer"],
+        )
+        self.assertIn("missing_required_lane", [item["code"] for item in response["diagnostics"]])
+
+    def test_review_status_fails_when_executable_approval_is_missing(self):
+        created = self.srv.wave_create_wave_response(
+            self.root, "review-status-approval", mode="create"
+        )
+        wave_id = created["data"]["wave_id"]
+        _append_review_run(self.root, wave_id, kind="initial_delivery")
+        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        wave_md.write_text(
+            wave_md.read_text(encoding="utf-8").replace(
+                "operator-signoff: <approved when operator confirms closure>",
+                "operator-signoff: approved",
+            ),
+            encoding="utf-8",
+        )
+        with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}), \
+             patch.object(self.srv, "_required_wave_council_signoffs", return_value=[]), \
+             patch.object(self.srv, "_extract_required_review_lanes", return_value=[]), \
+             patch.object(self.srv, "_read_project_required_review_lanes", return_value=[]):
+            response = self.srv.wave_review_response(self.root, wave_id)
+        self.assertEqual(response["status"], "error", response)
+        self.assertIn(
+            "missing_executable_approval_evidence",
+            [item["code"] for item in response["diagnostics"]],
+        )
+
+    def test_approval_evidence_binds_exact_actor_and_independence(self):
+        forged_operator = self._marked_wave_with_approval(
+            "operator-signoff", actor="implementer", fresh=False, independent=False
+        )
+        self.assertTrue(
+            self.srv._approval_evidence_diagnostics(
+                "", ["operator-signoff"], root=self.root, wave_key=forged_operator
+            )
+        )
+        valid_operator = self._marked_wave_with_approval(
+            "operator-signoff", actor="operator", fresh=False, independent=False
+        )
+        self.assertEqual(
+            self.srv._approval_evidence_diagnostics(
+                "", ["operator-signoff"], root=self.root, wave_key=valid_operator
+            ), []
+        )
+
+        forged_lane = self._marked_wave_with_approval(
+            "qa-reviewer", actor="code-reviewer", fresh=True, independent=True
+        )
+        self.assertTrue(
+            self.srv._approval_evidence_diagnostics(
+                "", ["qa-reviewer"], root=self.root, wave_key=forged_lane
+            )
+        )
+        stale_lane = self._marked_wave_with_approval(
+            "qa-reviewer", actor="qa-reviewer", fresh=False, independent=False
+        )
+        self.assertTrue(
+            self.srv._approval_evidence_diagnostics(
+                "", ["qa-reviewer"], root=self.root, wave_key=stale_lane
+            )
+        )
+        valid_lane = self._marked_wave_with_approval(
+            "qa-reviewer", actor="qa-reviewer", fresh=True, independent=True
+        )
+        self.assertEqual(
+            self.srv._approval_evidence_diagnostics(
+                "", ["qa-reviewer"], root=self.root, wave_key=valid_lane
+            ), []
+        )
+
+    def test_approval_evidence_must_follow_latest_repair_affecting_its_lane(self):
+        approval = self._approval_record(
+            "qa-reviewer", actor="qa-reviewer", fresh=True, independent=True
+        )
+        repair = {
+            "record_type": "finding_synthesis",
+            "record_id": "repair-head",
+            "finding_id": "finding-1",
+            "cycle": 1,
+            "approval_recheck_lanes": ["qa-reviewer"],
+        }
+        diagnostics = self.srv._approval_evidence_diagnostics(
+            "marked", ["qa-reviewer"], records=(approval, repair)
+        )
+        self.assertTrue(diagnostics)
+        self.assertIn("chronology", diagnostics[0]["message"])
+        self.assertEqual(
+            self.srv._approval_evidence_diagnostics(
+                "marked", ["qa-reviewer"], records=(repair, approval)
+            ), []
+        )
+
+    def test_unaffected_lane_approval_survives_later_repair_synthesis(self):
+        approval = self._approval_record(
+            "qa-reviewer", actor="qa-reviewer", fresh=True, independent=True
+        )
+        unrelated_repair = {
+            "record_type": "finding_synthesis",
+            "record_id": "docs-repair-head",
+            "finding_id": "docs-finding",
+            "cycle": 1,
+            "approval_recheck_lanes": ["docs-contract-reviewer"],
+            "review_depth": "focused",
+        }
+        self.assertEqual(
+            self.srv._approval_evidence_diagnostics(
+                "marked", ["qa-reviewer"], records=(approval, unrelated_repair)
+            ), []
+        )
+
+    def test_operator_and_full_council_approvals_remain_final_scope(self):
+        operator = self._approval_record(
+            "operator-signoff", actor="operator", fresh=False, independent=False
+        )
+        council = self._approval_record(
+            "wave-council-delivery", actor="wave-council", fresh=True, independent=True
+        )
+        full_repair = {
+            "record_type": "finding_synthesis",
+            "record_id": "full-repair-head",
+            "finding_id": "finding-1",
+            "cycle": 1,
+            "approval_recheck_lanes": [],
+            "review_depth": "full",
+        }
+        diagnostics = self.srv._approval_evidence_diagnostics(
+            "marked",
+            ["operator-signoff", "wave-council-delivery"],
+            records=(operator, council, full_repair),
+        )
+        self.assertTrue(diagnostics)
+        self.assertIn("operator-signoff", diagnostics[0]["message"])
+        self.assertIn("wave-council-delivery", diagnostics[0]["message"])
+
+    def test_typed_review_evidence_tool_previews_then_writes_lightweight_run(self):
+        created = self.srv.wave_create_wave_response(
+            self.root, "typed-review-run", mode="create"
+        )
+        wave_id = created["data"]["wave_id"]
+        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        before = wave_md.read_text(encoding="utf-8")
+        preview = self.srv.wave_record_review_evidence_response(
+            self.root,
+            wave_id,
+            "run",
+            "wave-council",
+            "lightweight-delivery",
+            run_kind="initial_delivery",
+            cycle=0,
+        )
+        self.assertEqual(preview["status"], "dry_run", preview)
+        self.assertEqual(len(preview["data"]["appended_records"]), 1)
+        self.assertEqual(wave_md.read_text(encoding="utf-8"), before)
+        with patch.object(self.srv, "_trigger_background_index_refresh_for_paths") as refresh:
+            written = self.srv.wave_record_review_evidence_response(
+                self.root,
+                wave_id,
+                "run",
+                "wave-council",
+                "lightweight-delivery",
+                mode="create",
+                run_kind="initial_delivery",
+                cycle=0,
+            )
+        self.assertEqual(written["status"], "ok", written)
+        text = wave_md.read_text(encoding="utf-8")
+        self.assertIn("<details class=\"wavefoundry-review-evidence\">", text)
+        self.assertIn("| Current finding | Disposition | Open block |", text)
+        self.assertTrue(self.srv.validate_external_review_evidence(wave_md).ok)
+        refresh.assert_called_once_with(self.root, [wave_md.resolve()])
+
+    def test_typed_review_evidence_tool_requires_explicit_judgment_and_integrity(self):
+        created = self.srv.wave_create_wave_response(
+            self.root, "typed-review-invalid", mode="create"
+        )
+        wave_id = created["data"]["wave_id"]
+        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        before = wave_md.read_text(encoding="utf-8")
+        response = self.srv.wave_record_review_evidence_response(
+            self.root,
+            wave_id,
+            "finding",
+            "qa-reviewer",
+            "missing-facts",
+            finding_id="missing-facts",
+            run_kind="initial_delivery",
+            judgment={"validation_status": "real"},
+            evidence={},
+        )
+        self.assertEqual(response["status"], "error")
+        self.assertIn("invalid_review_event", [item["code"] for item in response["diagnostics"]])
+        self.assertIn("missing load-bearing fields", "\n".join(item["message"] for item in response["diagnostics"]))
+        self.assertEqual(wave_md.read_text(encoding="utf-8"), before)
+
+    def test_typed_review_evidence_tool_rejects_evidence_semantic_key_collisions(self):
+        created = self.srv.wave_create_wave_response(
+            self.root, "typed-review-collision", mode="create"
+        )
+        wave_id = created["data"]["wave_id"]
+        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        before = wave_md.read_text(encoding="utf-8")
+
+        response = self.srv.wave_record_review_evidence_response(
+            self.root,
+            wave_id,
+            "approval",
+            "code-reviewer",
+            "collision-probe",
+            signoff_key="qa-reviewer",
+            fresh_context=True,
+            independent=True,
+            integrity_confirmed=True,
+            evidence={
+                "actor": "qa-reviewer",
+                "observed": "must not be accepted",
+                "artifact_or_test_id": "qa:collision-probe",
+            },
+        )
+
+        self.assertEqual(response["status"], "error", response)
+        self.assertIn(
+            "evidence may not override protected semantic field(s): actor",
+            "\n".join(item["message"] for item in response["diagnostics"]),
+        )
+        self.assertEqual(wave_md.read_text(encoding="utf-8"), before)
+
+    def test_typed_review_evidence_tool_rejects_reserved_metadata_without_poisoning_retry(self):
+        created = self.srv.wave_create_wave_response(
+            self.root, "typed-review-reserved", mode="create"
+        )
+        wave_id = created["data"]["wave_id"]
+        events_path = self.root / "docs" / "waves" / wave_id / "events.jsonl"
+        for evidence in (
+            {"event_identity": {"actor": "attacker"}},
+            {"request_digest": "0" * 64},
+        ):
+            rejected = self.srv.wave_record_review_evidence_response(
+                self.root,
+                wave_id,
+                "run",
+                "wave-council",
+                "reserved-metadata",
+                mode="create",
+                run_kind="initial_delivery",
+                evidence=evidence,
+            )
+            self.assertEqual(rejected["status"], "error", rejected)
+            self.assertIn(
+                "evidence may not override protected semantic field",
+                "\n".join(item["message"] for item in rejected["diagnostics"]),
+            )
+            self.assertEqual(events_path.read_bytes(), b"")
+
+        clean = self.srv.wave_record_review_evidence_response(
+            self.root,
+            wave_id,
+            "run",
+            "wave-council",
+            "reserved-metadata",
+            mode="create",
+            run_kind="initial_delivery",
+        )
+        self.assertEqual(clean["status"], "ok", clean)
+        self.assertFalse(clean["data"]["replayed"])
+
+    def test_typed_review_writer_rejects_symlinked_wave_directory_escape(self):
+        created = self.srv.wave_create_wave_response(
+            self.root, "typed-review-symlink", mode="create"
+        )
+        wave_id = created["data"]["wave_id"]
+        wave_dir = self.root / "docs" / "waves" / wave_id
+        with tempfile.TemporaryDirectory() as outside_tmp:
+            outside = Path(outside_tmp) / wave_id
+            shutil.move(str(wave_dir), outside)
+            before = (outside / "events.jsonl").read_bytes()
+            try:
+                wave_dir.symlink_to(outside, target_is_directory=True)
+            except OSError as exc:
+                self.skipTest(f"directory symlinks unavailable: {exc}")
+
+            response = self.srv.wave_record_review_evidence_response(
+                self.root,
+                wave_id,
+                "run",
+                "wave-council",
+                "symlink-escape",
+                mode="create",
+                run_kind="initial_delivery",
+            )
+
+            self.assertEqual(response["status"], "error", response)
+            self.assertIn(
+                "review_evidence_path_escape",
+                [item["code"] for item in response["diagnostics"]],
+            )
+            self.assertEqual((outside / "events.jsonl").read_bytes(), before)
+
+    def test_typed_review_approval_updates_machine_and_human_state(self):
+        created = self.srv.wave_create_wave_response(
+            self.root, "typed-review-approval", mode="create"
+        )
+        wave_id = created["data"]["wave_id"]
+        self.srv.wave_record_review_evidence_response(
+            self.root,
+            wave_id,
+            "run",
+            "wave-council",
+            "delivery-run",
+            mode="create",
+            run_kind="initial_delivery",
+        )
+        response = self.srv.wave_record_review_evidence_response(
+            self.root,
+            wave_id,
+            "approval",
+            "qa-reviewer",
+            "qa-approval",
+            mode="create",
+            signoff_key="qa-reviewer",
+            fresh_context=True,
+            independent=True,
+            integrity_confirmed=True,
+            evidence={
+                "observed": "public-path QA passed",
+                "artifact_or_test_id": "qa:typed-review-approval",
+            },
+        )
+        self.assertEqual(response["status"], "ok", response)
+        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        text = wave_md.read_text(encoding="utf-8")
+        self.assertIn("- qa-reviewer: approved — public-path QA passed", text)
+        self.assertEqual(
+            self.srv._approval_evidence_diagnostics(
+                text, ["qa-reviewer"], root=self.root, wave_key=wave_id
+            ), []
+        )
+
+    def test_typed_review_evidence_rolls_back_wave_when_adoption_persist_fails(self):
+        created = self.srv.wave_create_wave_response(
+            self.root, "typed-review-rollback", mode="create"
+        )
+        wave_id = created["data"]["wave_id"]
+        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        before = wave_md.read_text(encoding="utf-8")
+        events_path = sys.modules["review_evidence"].review_event_path(wave_md)
+        with patch.object(self.srv, "record_protocol_state_locked", return_value="forced persist failure"):
+            response = self.srv.wave_record_review_evidence_response(
+                self.root,
+                wave_id,
+                "run",
+                "wave-council",
+                "rollback-run",
+                mode="create",
+                run_kind="initial_delivery",
+            )
+        self.assertEqual(response["status"], "partial")
+        self.assertTrue(response["data"]["event_committed"])
+        self.assertTrue(response["data"]["adoption_pending"])
+        self.assertIn("review_evidence_adoption_pending", [item["code"] for item in response["diagnostics"]])
+        self.assertEqual(wave_md.read_text(encoding="utf-8"), before)
+        self.assertNotEqual(events_path.read_bytes(), b"")
+        committed = events_path.read_bytes()
+        replay = self.srv.wave_record_review_evidence_response(
+            self.root,
+            wave_id,
+            "run",
+            "wave-council",
+            "rollback-run",
+            mode="create",
+            run_kind="initial_delivery",
+        )
+        self.assertEqual(replay["status"], "ok", replay)
+        self.assertTrue(replay["data"]["replayed"])
+        self.assertEqual(events_path.read_bytes(), committed)
+        self.assertNotEqual(wave_md.read_text(encoding="utf-8"), before)
+
+    def test_typed_review_event_replay_conflict_new_context_and_concurrency(self):
+        created = self.srv.wave_create_wave_response(
+            self.root, "typed-review-idempotency", mode="create"
+        )
+        wave_id = created["data"]["wave_id"]
+        def call(context, actor="qa-reviewer", signoff_key="qa-reviewer", observed="passed"):
+            return self.srv.wave_record_review_evidence_response(
+            self.root,
+            wave_id,
+            "approval",
+            actor,
+            context,
+            mode="create",
+            signoff_key=signoff_key,
+            fresh_context=True,
+            independent=True,
+            integrity_confirmed=True,
+            evidence={"observed": observed, "artifact_or_test_id": f"test:{signoff_key}"},
+        )
+        first = call("same-operation")
+        replay = call("same-operation")
+        conflict = call("same-operation", observed="different content")
+        second = call("new-operation")
+        self.assertEqual(first["status"], "ok", first)
+        self.assertTrue(replay["data"]["replayed"])
+        self.assertEqual(conflict["status"], "error", conflict)
+        self.assertIn(
+            "review_event_identity_conflict",
+            [item["code"] for item in conflict["diagnostics"]],
+        )
+        self.assertFalse(second["data"]["replayed"])
+
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(
+                lambda args: call(*args),
+                (
+                    ("parallel-a", "code-reviewer", "code-reviewer"),
+                    ("parallel-b", "security-reviewer", "security-reviewer"),
+                ),
+            ))
+        self.assertEqual([item["status"] for item in results], ["ok", "ok"])
+        records, errors = self.srv.read_review_event_ledger(
+            self.root / created["data"]["path"]
+        )
+        self.assertFalse(errors)
+        self.assertEqual(len(records), 4)
+
+    def test_typed_review_multiple_findings_share_context_without_identity_collision(self):
+        created = self.srv.wave_create_wave_response(
+            self.root, "typed-review-multi-finding", mode="create"
+        )
+        wave_id = created["data"]["wave_id"]
+        judgment = {
+            "validation_status": "conforming",
+            "scope_relation": "admitted",
+            "introduced_or_worsened_by_wave": False,
+            "contract_relevance": "none",
+            "supported_reachability": False,
+            "attacker_reachability": False,
+            "authority_domain": "none",
+            "authority_delta": "none",
+            "observable_impact": "none",
+            "containment": "preventive",
+        }
+        evidence = {
+            "proposition": "candidate behavior conforms",
+            "failure_condition": "a counterexample reaches the path",
+            "public_path": "wave_record_review_evidence",
+            "command_or_fixture": "multi-finding public fixture",
+            "expected": "the behavior remains conforming",
+            "observed": "the public fixture conformed",
+            "artifact_or_test_id": "test:multi-finding",
+            "known_bad_detection_method": "a known-bad control was rejected",
+            "limitations": "local fixture",
+            "safety_and_authorization": "local non-destructive fixture",
+            "disposition_rationale": "no issue was reproduced",
+        }
+        for finding_id in ("finding-a", "finding-b"):
+            result = self.srv.wave_record_review_evidence_response(
+                self.root,
+                wave_id,
+                "finding",
+                "qa-reviewer",
+                "shared-review-context",
+                mode="create",
+                finding_id=finding_id,
+                run_kind="initial_delivery",
+                cycle=0,
+                judgment=judgment,
+                evidence=evidence,
+                source_lanes=["qa-reviewer"],
+                integrity_confirmed=True,
+            )
+            self.assertEqual(result["status"], "ok", result)
+        records, errors = self.srv.read_review_event_ledger(
+            self.root / created["data"]["path"]
+        )
+        self.assertFalse(errors)
+        identities = [row["event_identity"] for row in records if "event_identity" in row]
+        self.assertEqual({item["finding_id"] for item in identities}, {"finding-a", "finding-b"})
+
+    def test_second_cycle_reverification_atomically_adds_convergence_checkpoint(self):
+        created = self.srv.wave_create_wave_response(
+            self.root, "typed-convergence", mode="create"
+        )
+        wave_id = created["data"]["wave_id"]
+        judgment = {
+            "validation_status": "real",
+            "scope_relation": "admitted",
+            "introduced_or_worsened_by_wave": True,
+            "contract_relevance": "required_ac",
+            "supported_reachability": True,
+            "attacker_reachability": False,
+            "authority_domain": "integrity",
+            "authority_delta": "low",
+            "observable_impact": "material",
+            "containment": "none",
+        }
+        evidence = {
+            "proposition": "the repair cycle closes",
+            "failure_condition": "the public writer cannot append the required next state",
+            "public_path": "wave_record_review_evidence",
+            "command_or_fixture": "typed convergence fixture",
+            "expected": "the second reverification and checkpoint commit together",
+            "observed": "the public writer committed the requested transition",
+            "artifact_or_test_id": "test:typed-convergence",
+            "known_bad_detection_method": "without the checkpoint the second reverification fails validation",
+            "limitations": "local temporary wave",
+            "safety_and_authorization": "local non-destructive fixture",
+            "disposition_rationale": "required lifecycle state is actionable",
+        }
+
+        def record(kind, cycle, context, blocking):
+            return self.srv.wave_record_review_evidence_response(
+                self.root,
+                wave_id,
+                "finding",
+                "qa-reviewer",
+                context,
+                mode="create",
+                finding_id="convergence-finding",
+                run_kind=kind,
+                cycle=cycle,
+                judgment=judgment,
+                evidence=evidence,
+                source_lanes=["qa-reviewer"],
+                blocking_required_lanes=blocking,
+                approval_recheck_lanes=["qa-reviewer"],
+                review_boundaries_changed=[],
+                fresh_context=True,
+                independent=True,
+                integrity_confirmed=True,
+            )
+
+        transitions = (
+            ("initial_delivery", 0, "initial", ["qa-reviewer"]),
+            ("repair_start", 1, "repair-1", ["qa-reviewer"]),
+            ("reverification", 1, "verify-1", []),
+            ("repair_start", 2, "repair-2", ["qa-reviewer"]),
+            ("reverification", 2, "verify-2", []),
+        )
+        for transition in transitions:
+            result = record(*transition)
+            self.assertEqual(result["status"], "ok", result)
+
+        records, errors = self.srv.read_review_event_ledger(
+            self.root / created["data"]["path"]
+        )
+        self.assertFalse(errors)
+        checkpoints = [
+            row
+            for row in records
+            if row.get("record_type") == "review_run"
+            and row.get("run_kind") == "convergence_checkpoint"
+        ]
+        self.assertEqual(len(checkpoints), 1)
+        self.assertEqual(checkpoints[0]["cycle"], 2)
+        self.assertEqual(checkpoints[0]["frozen_boundary"], ["convergence-finding"])
+
+    def test_event_commit_and_projection_failure_boundaries(self):
+        created = self.srv.wave_create_wave_response(
+            self.root, "typed-review-faults", mode="create"
+        )
+        wave_id = created["data"]["wave_id"]
+        wave_md = self.root / created["data"]["path"]
+        events_path = wave_md.parent / "events.jsonl"
+        original_replace = self.srv._atomic_replace_bytes
+
+        def fail_event(path, payload, purpose):
+            if purpose == "review-events":
+                raise OSError("forced event replacement failure")
+            return original_replace(path, payload, purpose)
+
+        with patch.object(self.srv, "_atomic_replace_bytes", side_effect=fail_event):
+            failed = self.srv.wave_record_review_evidence_response(
+                self.root, wave_id, "run", "wave-council", "event-fail",
+                mode="create", run_kind="initial_delivery",
+            )
+        self.assertEqual(failed["status"], "error", failed)
+        self.assertEqual(events_path.read_bytes(), b"")
+
+        original_projection = wave_md.read_text(encoding="utf-8")
+        with patch.object(
+            self.srv, "_atomic_replace_text", side_effect=OSError("forced projection failure")
+        ):
+            partial = self.srv.wave_record_review_evidence_response(
+                self.root, wave_id, "run", "wave-council", "projection-fail",
+                mode="create", run_kind="initial_delivery",
+            )
+        self.assertEqual(partial["status"], "partial", partial)
+        self.assertTrue(partial["data"]["event_committed"])
+        self.assertTrue(partial["data"]["projection_stale"])
+        committed = events_path.read_bytes()
+        self.assertEqual(wave_md.read_text(encoding="utf-8"), original_projection)
+        repaired = self.srv.wave_record_review_evidence_response(
+            self.root, wave_id, "run", "wave-council", "projection-fail",
+            mode="create", run_kind="initial_delivery",
+        )
+        self.assertEqual(repaired["status"], "ok", repaired)
+        self.assertTrue(repaired["data"]["replayed"])
+        self.assertEqual(events_path.read_bytes(), committed)
+
+    def test_close_requires_initial_delivery_not_readiness_only(self):
+        evidence = {
+            "record_type": "executable_evidence",
+            "evidence_record_id": "dedup-readiness",
+            "claim_id": "dedup-readiness",
+            "claim_kind": "dedup",
+            "required_for_approval": False,
+            "phase": "readiness",
+            "proposition": "readiness candidates were deduplicated",
+            "counterexample_or_failure_condition": "duplicate candidate remains",
+            "execution_status": "executed",
+            "public_path": "wave_prepare",
+            "command_or_fixture": "readiness-only fixture",
+            "expected": "zero duplicate candidates",
+            "observed": "zero duplicate candidates",
+            "artifact_or_test_id": "test_close_requires_initial_delivery",
+            "adjacent_controls": [],
+            "test_ran_without_unintended_skip": True,
+            "public_path_reached": True,
+            "boundary_values_realistic": True,
+            "assertions_non_vacuous": True,
+            "known_bad_detected": True,
+            "known_bad_detection_method": "readiness-only close reproduction",
+            "limitations": "temporary local wave",
+            "safety_and_authorization": "local read-only fixture",
+            "probe_class": "local_safe",
+            "authorization_status": "not_required",
+            "safe_boundary": False,
+            "unexecuted_remainder_prohibited": False,
+            "universal_claim": False,
+            "verification_context": {
+                "actor": "qa-reviewer",
+                "context_id": "readiness-context",
+                "fresh_context": True,
+                "independent": True,
+            },
+        }
+        run = {
+            "record_type": "review_run",
+            "review_run_id": "readiness-1",
+            "run_kind": "readiness",
+            "cycle": 0,
+            "candidate_finding_ids": [],
+            "source_record_ids": ["prepare-council"],
+            "dedup_evidence_id": "dedup-readiness",
+        }
+        created = self.srv.wave_create_wave_response(
+            self.root, "readiness-only-close", mode="create"
+        )
+        wave_id = created["data"]["wave_id"]
+        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        review = sys.modules["review_evidence"]
+        records = (evidence, run)
+        review.review_event_path(wave_md).write_bytes(
+            review.canonical_review_events_bytes(records)
+        )
+        wave_md.write_text(
+            review.render_review_evidence_projection(
+                wave_md.read_text(encoding="utf-8"), records
+            ),
+            encoding="utf-8",
+        )
+        self.assertIsNone(review.record_protocol_state(self.root, wave_id, wave_md))
+        response = self.srv.wave_close_response(self.root, wave_id, mode="dry_run")
+        self.assertTrue(
+            any(
+                diagnostic["code"] == "review_evidence_invalid"
+                and "initial_delivery" in diagnostic["message"]
+                for diagnostic in response.get("diagnostics", [])
+            ),
+            response,
+        )
+
+    def test_close_binds_operator_signoff_to_executable_approval_evidence(self):
+        created = self.srv.wave_create_wave_response(
+            self.root, "approval-evidence-binding", mode="create"
+        )
+        wave_id = created["data"]["wave_id"]
+        _append_review_run(self.root, wave_id, kind="initial_delivery")
+        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        wave_md.write_text(
+            wave_md.read_text(encoding="utf-8").replace(
+                "operator-signoff: <approved when operator confirms closure>",
+                "operator-signoff: approved",
+            ),
+            encoding="utf-8",
+        )
+
+        response = self.srv.wave_close_response(self.root, wave_id, mode="dry_run")
+
+        self.assertIn(
+            "missing_executable_approval_evidence",
+            [item["code"] for item in response.get("diagnostics", [])],
+            response,
+        )
 
     def test_wave_prepare_repairs_staged_doc_when_wave_copy_missing(self):
         self.srv.wave_add_change_response(self.root, "1200a test-wave", "1200a-feat sample", mode="create")
@@ -5478,6 +6403,7 @@ class ServerToolRegistrationTests(unittest.TestCase):
             "wave_prepare",
             "wave_pause",
             "wave_review",
+            "wave_record_review_evidence",
             "wave_reopen",
             "wave_close",
             "wave_index_build_status",
@@ -7203,6 +8129,48 @@ class McpResourceReadTests(unittest.TestCase):
         result_text = self._read_resource("wavefoundry://wave/current")
         self.assertIn("Wave Record", result_text)
 
+    def test_current_wave_resource_derives_stale_projection_and_fails_closed_on_bad_authority(self):
+        wave_result = self.srv.wave_create_wave_response(
+            self.root, "resource-event-state", mode="create"
+        )
+        wave_id = wave_result["data"]["wave_id"]
+        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        text = wave_md.read_text(encoding="utf-8").replace("Status: planned", "Status: active")
+        text = text.replace("Machine review evidence — 0 records", "Machine review evidence — 999 records")
+        wave_md.write_text(text, encoding="utf-8")
+
+        stale = self._read_resource("wavefoundry://wave/current")
+        self.assertIn("Machine review evidence — 0 records", stale)
+        self.assertIn("projection is stale", stale)
+        self.assertNotIn("999 records", stale)
+
+        (wave_md.parent / "events.jsonl").write_bytes(b"{bad-json}\n")
+        invalid = self._read_resource("wavefoundry://wave/current")
+        self.assertIn("Wave Review Evidence Unavailable", invalid)
+        self.assertIn("invalid JSON", invalid)
+        self.assertNotIn("999 records", invalid)
+
+    def test_current_wave_resource_derives_valid_authority_when_projection_is_missing(self):
+        wave_result = self.srv.wave_create_wave_response(
+            self.root, "resource-missing-projection", mode="create"
+        )
+        wave_id = wave_result["data"]["wave_id"]
+        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        text = wave_md.read_text(encoding="utf-8").replace("Status: planned", "Status: active")
+        text = re.sub(
+            r"(?ms)^## Finding Synthesis\n.*?(?=^## )",
+            "",
+            text,
+            count=1,
+        )
+        wave_md.write_text(text, encoding="utf-8")
+
+        derived = self._read_resource("wavefoundry://wave/current")
+
+        self.assertNotIn("Wave Review Evidence Unavailable", derived)
+        self.assertIn("Machine review evidence — 0 records", derived)
+        self.assertIn("projection is missing", derived)
+
     def test_prompt_index_returns_content_when_exists(self):
         # Create a prompt index file
         prompts_dir = self.root / "docs" / "prompts"
@@ -8423,6 +9391,7 @@ class WavePrepareSingleActiveGuardTests(unittest.TestCase):
 
     def _add_council_verdict(self, wave_id: str) -> None:
         """Append a prepare-council verdict to the wave's ## Review Checkpoints section."""
+        _append_review_run(self.root, wave_id, kind="readiness")
         wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
         wave_md.write_text(
             wave_md.read_text(encoding="utf-8")
@@ -18271,6 +19240,24 @@ class TestMcpWrapperParameterExposure(unittest.TestCase):
         for tool in ("wave_graph_report", "code_graph_community", "code_callhierarchy", "code_impact", "code_callgraph"):
             self.assertIn(tool, names, f"{tool} not registered with MCP")
 
+    def test_review_evidence_authoring_exposes_compact_public_schema(self):
+        props = self._properties("wave_record_review_evidence")
+        for required in (
+            "wave_id",
+            "event",
+            "actor",
+            "context_id",
+            "mode",
+            "judgment",
+            "evidence",
+            "approval_recheck_lanes",
+        ):
+            self.assertIn(
+                required,
+                props,
+                f"{required} missing from wave_record_review_evidence MCP schema; got {props}",
+            )
+
 
 class TestSuggestNearSymbolsTokenization(unittest.TestCase):
     """Improvement: _suggest_near_symbols handles multi-token queries (whitespace/underscore)."""
@@ -19399,6 +20386,7 @@ class WavePrepareCouncilGateTests(unittest.TestCase):
         return wave_id
 
     def _add_verdict(self, wave_id: str) -> None:
+        _append_review_run(self.root, wave_id, kind="readiness")
         wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
         wave_md.write_text(
             wave_md.read_text(encoding="utf-8")
@@ -19591,6 +20579,7 @@ class WaveImplementTests(unittest.TestCase):
         return wave_id
 
     def _add_council_verdict(self, wave_id: str) -> None:
+        _append_review_run(self.root, wave_id, kind="readiness")
         wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
         wave_md.write_text(
             wave_md.read_text(encoding="utf-8")
@@ -19599,6 +20588,7 @@ class WaveImplementTests(unittest.TestCase):
         )
 
     def _add_prepare_review_signoffs(self, wave_id: str, lanes: list) -> None:
+        _append_review_run(self.root, wave_id, kind="readiness")
         wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
         signoffs = "\n".join(f"- {lane}: approved 2026-05-21" for lane in lanes)
         wave_md.write_text(

@@ -59,7 +59,7 @@ Execution flow (no-MCP CLI fallback — `wf upgrade`; when MCP is attached, pref
  cp .wavefoundry/framework/MANIFEST /tmp/wf-manifest-old.txt 2>/dev/null || true
  ```
  - **Unpack:** `unzip -o <selected-zip> -d .` (repository root as the current working directory) so archive entries land under `.wavefoundry/framework/` per the packaging layout.
- - **Regenerate hooks and agent surfaces immediately** after a successful unpack so tracked launcher surfaces match the new pack: `wf render-surfaces` (includes `render_agent_surfaces.py` for auto-Guru tier 2–3 files). See **Agent surfaces and auto-Guru upgrade (agent procedure)** below.
+ - **Regenerate hooks and agent surfaces immediately** after a successful unpack so tracked launcher surfaces match the new pack: `wf render-surfaces` (includes `render_agent_surfaces.py`; its review-protocol reconciliation runs for enabled carriers even when Guru is absent, then auto-Guru tier 2–3 rendering runs when Guru is present). See **Agent surfaces, executable review evidence, and auto-Guru upgrade (agent procedure)** below.
  - **Prune pack-removed files** so orphans from prior packs do not shadow or duplicate current-pack code. `unzip -o` overlays files but never removes paths that vanished from the pack. This is a manual upgrade-cleanup step run directly (it requires the pre-upgrade MANIFEST you saved above, which only this upgrade run holds — it is intentionally not a `wf` subcommand): it diffs the saved old MANIFEST against the newly-extracted MANIFEST and deletes only pack-delivered files that were removed. User-created files are never touched.
  ```bash
  python3 .wavefoundry/framework/scripts/prune_framework.py --old-manifest /tmp/wf-manifest-old.txt
@@ -101,6 +101,7 @@ The migrations:
 2. Before detecting drift or editing any files, use a **read-only Explore subagent** to map the current actual state of the repository's installed Wave Framework surface: which prompt docs exist, which topical artifact roots exist, which workflow config keys are present, and which wrappers are in place. The exploration lane must not edit files. Use this map as the baseline for drift detection in step 6 — do not rely on assumptions about what a prior init or upgrade produced. This step prevents confusion between stale template expectations and actual installed state.
 3. **Version guard:** Read `.wavefoundry/framework/VERSION` (the pack version) and `docs/prompts/prompt-surface-manifest.json` field `framework_revision` (the installed revision). Compare them using semver ordering on `MAJOR.MINOR.PATCH`, ignoring build metadata for precedence. If the pack version is **older** than the installed revision, stop and present a clear warning to the operator: state both versions and require explicit confirmation before continuing — do not proceed silently with a downgrade. If the pack version equals the installed revision, note this and continue (running for drift/alignment only). If the pack version is newer, proceed normally. **Upgrade floor (1.4.0):** when the *installed* revision is below 1.4.0 (or unparseable), the automated path prints a WARNING and proceeds — it does not block. Migrations for transitions older than 1.4→1.5 have been pruned, so a jump from below the floor may skip an intermediate migration; verify the result or upgrade in steps. Multi-version skips are otherwise supported (e.g. 1.4.x → 1.6 in one run); only downgrades require confirmation.
 4. Use `seed-150` for targeted or full refresh. When invoked as `Upgrade Wavefoundry` (rather than a targeted reindex), default to **`full` scope** in `150` so the holistic project state evaluation in task 2 runs — this ensures the upgrade reflects how the project actually exists today, not just framework-level drift. Explicitly run `150` task 2 across all dimensions: source module structure, dependency graph, build/test procedure currency, security surface, quality posture, reliability, spec currency, missing-docs gaps, contribution workflow, thin pointers, repo profile archetype, and license compliance. Explicitly run `150` task 12 so that spec gaps and divergence found in task 2 are acted on — not just noted — before the upgrade closes.
+   As part of that full refresh, run the same public `wf render-surfaces` operation used by setup. It must invoke `reconcile_review_protocol_surfaces(repo_root)` and verify the typed carrier registry after pack adoption, including missing-carrier creation from installed seed 239, Review-wave/Create-wave surfaces, and same-pass reconciliation of newly-created canonical Guru wrappers. The owned marker section may be replaced; project-authored content outside it must survive unchanged. Guru, conditional docs-contract/release reviewers, and arbitrary native wrappers remain existing/enabled-only. Upgrade installs the external-ledger writer/readers and carrier wording prospectively; it must not enumerate, parse, migrate, or rewrite historical target-project waves. A subsequent public `wave_create_wave` is the proof that new wave state uses only sibling `events.jsonl` authority.
 5. If the repository still uses the legacy framework or has stale post-init migration drift, apply `seed-220` without redefining baseline-wave semantics.
 6. Validate the installed repo-local Wave Framework surface and detect drift across:
  - public prompt docs (including `implement-feature`, `implement-wave`, `plan-feature`, and `index` vs current `seed-100` guard requirements)
@@ -362,9 +363,9 @@ Required upgrade behaviors:
 - when cleaning up legacy content, scope removal to only the explicitly named deprecated artifacts; do not expand to adjacent historical records, prior wave archives, or references in closed-wave docs without explicit instruction
  - stop and report conflicts when a legacy artifact mixes durable guidance with obsolete wrapper behavior and the correct migration target is unclear
 
-## Agent surfaces and auto-Guru upgrade (agent procedure)
+## Agent surfaces, executable review evidence, and auto-Guru upgrade (agent procedure)
 
-Agents performing **Upgrade Wavefoundry** in a target repository must apply **all** steps below when the pack includes `seed-050` auto-Guru routing, `render_agent_surfaces.py`, or `seed-211` Guru changes. Do not stop after unpack or hook regeneration alone.
+Agents performing **Upgrade Wavefoundry** in a target repository must apply **all** steps below when the pack includes `render_agent_surfaces.py`, review-protocol seed/carrier changes, `seed-050` auto-Guru routing, or `seed-211` Guru changes. Do not stop after unpack or hook regeneration alone.
 
 **Order of operations**
 
@@ -373,28 +374,35 @@ Agents performing **Upgrade Wavefoundry** in a target repository must apply **al
    ```bash
    wf render-surfaces
    ```
-   This materializes hooks, MCP host config (`.cursor/mcp.json`, `.mcp.json`, `.junie/mcp/mcp.json`), `.wavefoundry/bin/` launchers, and calls **`render_agent_surfaces.py`** when `docs/agents/guru.md` exists.
-3. **Backfill tier 1 in `AGENTS.md`** (merge-safe; not overwritten by the renderer):
+   This materializes hooks, MCP host config (`.cursor/mcp.json`, `.mcp.json`, `.junie/mcp/mcp.json`), `.wavefoundry/bin/` launchers, and always calls **`render_agent_surfaces.py`**. Its `reconcile_review_protocol_surfaces(repo_root)` operation runs before the Guru-presence check; auto-Guru tier 2–3 rendering remains conditional on `docs/agents/guru.md`. It owns no target wave-history migration: it never scans or writes existing `docs/waves/*/{wave.md,events.jsonl}` records.
+3. **Reconcile executable review-evidence carriers** (part of step 2, verify explicitly):
+   - Ensure the canonical QA source exists at `docs/agents/qa-reviewer.md` from seed 239, and that Review-wave prompt sources exist before rendering.
+   - Verify each registry-enumerated enabled carrier has exactly one `waveframework:executable-review-evidence` marker pair, points to seed 209 for the full protocol, and describes the fixed sibling `events.jsonl` authority rather than inline JSONL in `wave.md`.
+   - Preserve all project-authored text outside the owned marker region. A malformed marker pair is a failed reconciliation, not permission to replace the file.
+   - Keep repo-local docs-contract/release reviewers and native wrappers conditional on their existing/enabled surfaces.
+4. **Backfill tier 1 in `AGENTS.md`** (merge-safe; not overwritten by the renderer):
    - `## Codebase and documentation questions (auto-Guru)` — per `seed-050` template
    - `### Agent platform routing` — three tiers; optional native table; instruction-only hosts (Junie, Air, Windsurf, Copilot, Warp) use tier 1–2 only
    - Reconcile when missing or when `050` changed in the pack
-4. **Ensure Guru role doc exists** (`seed-211`):
+5. **Ensure Guru role doc exists** (`seed-211`):
    - Target: `docs/agents/guru.md` with `Role: guru` in metadata
    - Update `docs/prompts/index.md` **Guru** row and legacy aliases
-5. **Regenerate tier 2–3 agent routing** (required when `docs/agents/guru.md` exists):
+6. **Regenerate tier 2–3 agent routing** (required when `docs/agents/guru.md` exists):
    ```bash
    python3 .wavefoundry/framework/scripts/render_agent_surfaces.py
    ```
    Or re-run step 2. **Do not hand-edit** regions between `<!-- waveframework:auto-guru begin` and `end -->` — change `.wavefoundry/framework/scripts/render_agent_surfaces.py` in the framework source repo instead.
-6. **Verify generated outputs** (see validation checklist bullets for auto-Guru).
-7. **Per-host operator follow-up** (document in upgrade summary; operator executes):
+7. **Verify generated outputs** (see validation checklist bullets for executable review evidence and auto-Guru).
+8. **Per-host operator follow-up** (document in upgrade summary; operator executes):
    - **Cursor:** enable `wavefoundry` MCP from `.cursor/mcp.json` if not auto-loaded
    - **Claude Code:** restart session so `.mcp.json` and `.claude/agents/guru.md` load; subagent delegates per `description`
    - **Codex:** MCP server loads automatically from the committed `.codex/config.toml`; attach the `wavefoundry` server from the project-local config
    - **Junie / Copilot / Windsurf / Air / Warp:** tier-1 `AGENTS.md` + tier-2 thin-pointer bullet only; attach MCP per `AGENTS.md` MCP table
-8. **Docs gate, MCP restart, project index** — continue with existing upgrade verification (not optional).
+9. **Docs gate, MCP restart, project index** — continue with existing upgrade verification (not optional).
 
-**Files written or updated by `render_agent_surfaces.py` when Guru is present**
+**Self-hosting:** when the framework source repository is also the target repository, use this same public render/reconcile path after changing seed 209, a registered carrier seed, seed 050/100/150/160, or the renderer registry. Do not hand-copy seed bodies into self-hosted role docs. Review the resulting marker-only diff and verify source files outside marker regions retain their project-specific extensions.
+
+**Auto-Guru files written or updated by `render_agent_surfaces.py` when Guru is present**
 
 | Path | Tier |
 |------|------|
@@ -447,6 +455,7 @@ Validation areas that should be checked explicitly:
 - `AGENTS.md` is compact: scan for planning sections that predate the current implementation (dot-notation API calls, milestone lists, MVP definition-of-done blocks) and for inline MCP tool-detail prose that belongs in `docs/specs/mcp-tool-surface.md`; remove stale planning sections outright and replace inline tool-detail blocks with a one-line pointer to the spec; target file length ≤ 320 lines after compaction
 - `docs/agents/guru.md` exists when the project uses Guru (`seed-211`)
 - `wf render-surfaces` ran during upgrade (hooks + MCP + bin launchers + `render_agent_surfaces.py`)
+- review-protocol reconciliation ran through that public renderer path even when Guru is absent; `docs/agents/qa-reviewer.md` reflects seed 239, every enabled registry destination has one valid owned marker pair, and project prose outside markers was preserved
 - when `docs/agents/guru.md` exists: `.codex/skills/auto-guru/SKILL.md` present; `.cursor/rules/auto-guru.mdc` when `.cursor/` exists; `.claude/agents/guru.md` when `.claude/` exists; tier-2 `waveframework:auto-guru` marker blocks on `CLAUDE.md` and each enabled thin pointer (`project-context.mdc`, `.junie/guidelines.md`, `WARP.md`, `.github/copilot-instructions.md`) with no duplicate unmarked bullets outside markers
 - `docs/agents/platform-mapping.md` documents auto-Guru tier 1–3 routing when present in the repo
 - do not hand-maintain hook logic or auto-Guru marker bodies when the renderer can own them

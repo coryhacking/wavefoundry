@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-14
+Last verified: 2026-07-15
 
 Behavioral contract for the Wavefoundry local MCP server. This spec covers the
 tool names, response conventions, safety rules, and compatibility expectations that
@@ -389,6 +389,17 @@ during `ready`/`create` (readiness mutations); `dry_run` is read-only.
 
 - Returns structured review readiness summary and docs-lint status.
 - Also requests a non-blocking background docs-index refresh for the wave record so non-hook clients can opportunistically catch up before or after review.
+
+`wave_record_review_evidence(wave_id, event, actor, context_id, mode="dry_run", ...)`
+
+- Typed authoring surface for external-ledger executable review evidence. `event` is `approval`, `finding`, or an empty lightweight `run`; `dry_run` previews exact derived rows and `create` atomically appends them to the fixed sibling `docs/waves/<wave>/events.jsonl`.
+- Finding callers explicitly provide the load-bearing judgment object plus evidence narrative; the tool never guesses contract relevance, reachability, authority, impact, containment, scope, or wave causality. It derives IDs, disposition, blocking, review depth, supersession, cycle linkage, and append order.
+- Approval callers must name the exact authority actor for the signoff; specialist/council approvals are accepted only with explicit fresh, independent context. Finding events require at least one originating source lane.
+- `approval_recheck_lanes` scopes specialist approval chronology to affected findings/lanes. Wave Council remains stale after later full-depth or council-named synthesis; operator approval remains final-wave scoped.
+- A one-candidate run reuses its finding evidence as the sealed-universe proof. An empty lightweight readiness/initial-delivery run emits one run row with reviewer `verification_context` and no separate dedup evidence row.
+- When a `reverification` completes repair cycle 2 after cycle 1, the same typed operation automatically includes the mandatory `convergence_checkpoint` in its identified bundle and atomic authority replacement. The caller does not submit a separate lightweight checkpoint; the server derives `frozen_boundary` from the wave-current synthesis heads after applying the reverification and carries its verification context.
+- The sibling JSONL ledger remains canonical. Each typed write regenerates a compact Markdown current-head projection in `wave.md`; that projection is presentation only and raw event fields are not semantically indexed.
+- `create` derives stable structured event identity from the existing compact inputs, rejects same-identity/different-request conflicts, and replays same-identity/same-request retries without appending. Under one project-global lock it validates the complete prospective ledger, atomically replaces `events.jsonl` as the authority commit point, advances bounded adoption proof, then refreshes the Markdown projection and matching `## Review Evidence` line. Post-commit adoption/projection failures return structured pending/stale diagnostics and converge on replay; only `wave.md` receives a background docs-index refresh.
 
 `wave_close(wave_id: str, mode: str = "dry_run")`
 

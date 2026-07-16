@@ -53,17 +53,6 @@ Return one of: `approved`, `approved-with-notes`, or `needs-revision` with:
 - Architecture boundary violations — that is `architecture-reviewer`.
 - Latency benchmarks or profiling runs — this lane reviews code structure for complexity risk, not measured numbers.
 
-## Fix-Now Threshold (wave 1304x / 1305d)
+## Executable Evidence And Actionability
 
-**Default: fix small performance findings in-session, not as follow-ons.**
-
-Performance concerns that involve measurable but small overhead in already-touched code should be fixed in the same session: extra hash lookups, unnecessary copies, missing short-circuits, repeated computation that's trivially cacheable within the function scope, an O(N) scan inside a loop that's easily O(1) with a precomputed set.
-
-**Defer to follow-on only when:**
-
-- The fix is a redesign (parallelization, caching layer, algorithmic substitution), OR
-- The fix would change the contract (response shape, latency budget), OR
-- The fix requires measurement that hasn't been done
-
-For every perf finding routed to follow-on, write one line of justification. Small inefficiencies that compound across hot paths are how systems get slow; fix them while the context is hot.
-
+For every material approval or blocking finding, produce the linked Executable Evidence Record required by seed 209, using its safe-execution ceiling and finite risk budget. Exercise the public/registered hot path and name selected transition/interleaving cells for stateful or cached behavior. This lane supplies measured complexity, supported-path reachability, observable latency/resource impact, containment, and repair-risk facts; it does not choose disposition from implementation size or redesign cost. The moderator routes each finding through seed 209's ordered four-way gate. Both `do_now` and `maybe_later` are completed in-session before closure; `dont_do_later` and `not_issue` create no backlog item.

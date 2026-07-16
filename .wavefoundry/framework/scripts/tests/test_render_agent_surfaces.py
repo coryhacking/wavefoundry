@@ -13,14 +13,223 @@ TESTS_ROOT = Path(__file__).resolve().parent
 PROJECT_ROOT = TESTS_ROOT.parents[2]
 SCRIPTS_ROOT = PROJECT_ROOT / "framework" / "scripts"
 RENDER_SCRIPT = SCRIPTS_ROOT / "render_agent_surfaces.py"
+PLATFORM_RENDER_SCRIPT = SCRIPTS_ROOT / "render_platform_surfaces.py"
 GURU_STUB = "# Guru\n\nRole: guru\n"
 
 sys.path.insert(0, str(SCRIPTS_ROOT))
 import render_agent_surfaces as ras  # noqa: E402
 
 
+class ReviewProtocolCarrierRegistryTests(unittest.TestCase):
+    def test_manifest_is_derived_from_unique_registry_destinations(self) -> None:
+        expected = tuple(row.destination for row in ras.REVIEW_PROTOCOL_CARRIER_REGISTRY)
+        self.assertEqual(ras.REVIEW_PROTOCOL_CARRIER_MANIFEST, expected)
+        self.assertEqual(len(expected), len(set(expected)))
+        self.assertIn("docs/agents/qa-reviewer.md", expected)
+        self.assertIn("docs/prompts/agents/review-wave.prompt.md", expected)
+        self.assertIn("docs/contributing/review-and-evals.md", expected)
+        seeds_root = PROJECT_ROOT / "framework" / "seeds"
+        missing_sources = [
+            row.source_seed
+            for row in ras.REVIEW_PROTOCOL_CARRIER_REGISTRY
+            if not (seeds_root / row.source_seed).is_file()
+        ]
+        self.assertEqual(missing_sources, [])
+
+    def test_self_host_ownership_contracts_cover_every_registry_destination(self) -> None:
+        repo_root = TESTS_ROOT.parents[3]
+        ownership = (repo_root / "docs" / "contributing" / "review-and-evals.md").read_text(
+            encoding="utf-8"
+        )
+        change = next((repo_root / "docs" / "waves").glob("1skt1*/1siu0*.md")).read_text(
+            encoding="utf-8"
+        )
+        for carrier in ras.REVIEW_PROTOCOL_CARRIER_REGISTRY:
+            self.assertIn(carrier.destination, ownership, carrier.destination)
+            self.assertIn(carrier.destination, change, carrier.destination)
+
+    def test_reconciles_before_guru_guard_preserves_extensions_and_is_idempotent(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            target = repo_root / "docs" / "agents" / "code-reviewer.md"
+            target.parent.mkdir(parents=True)
+            operator_extension = "## Project extension\n\n- keep this byte-for-byte\n"
+            target.write_text("# Code Reviewer\n\n" + operator_extension, encoding="utf-8")
+
+            written = ras.render_agent_surfaces(repo_root)
+            self.assertIn("docs/agents/code-reviewer.md", written)
+            self.assertIn("docs/agents/qa-reviewer.md", written)
+            self.assertIn("docs/prompts/review-wave.prompt.md", written)
+            self.assertIn("docs/prompts/create-wave.prompt.md", written)
+            first = target.read_bytes()
+            text = first.decode("utf-8")
+            self.assertIn(operator_extension, text)
+            self.assertIn(ras.REVIEW_PROTOCOL_MARKER_BEGIN, text)
+            self.assertIn("four-way actionability gate", text)
+            self.assertFalse((repo_root / "docs" / "agents" / "guru.md").exists())
+            create_wave = (repo_root / "docs" / "prompts" / "create-wave.prompt.md").read_text(encoding="utf-8")
+            for literal in (
+                "review-evidence-source: events.jsonl",
+                "exactly empty file",
+                "No review findings recorded.",
+                "docs/waves/review-evidence-adoptions.json",
+            ):
+                self.assertIn(literal, create_wave)
+            self.assertNotIn("review-evidence-protocol: 1", create_wave)
+            self.assertNotIn("waveframework:finding-synthesis", create_wave)
+            self.assertNotIn("```jsonl", create_wave)
+
+            self.assertEqual(ras.render_agent_surfaces(repo_root), [])
+            self.assertEqual(target.read_bytes(), first)
+
+    def test_stale_owned_region_refreshes_without_touching_surrounding_bytes(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            target = repo_root / "docs" / "prompts" / "review-wave.prompt.md"
+            target.parent.mkdir(parents=True)
+            prefix = "# Review Wave\n\nproject-prefix\n\n"
+            suffix = "\n\nproject-suffix\n"
+            target.write_text(
+                prefix
+                + ras.REVIEW_PROTOCOL_MARKER_BEGIN
+                + "\nstale\n"
+                + ras.REVIEW_PROTOCOL_MARKER_END
+                + suffix,
+                encoding="utf-8",
+            )
+
+            ras.reconcile_review_protocol_surfaces(repo_root)
+            text = target.read_text(encoding="utf-8")
+            self.assertTrue(text.startswith(prefix))
+            self.assertTrue(text.endswith(suffix))
+            self.assertNotIn("\nstale\n", text)
+            self.assertIn("public or registered", text)
+
+    def test_malformed_owned_markers_fail_safe(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            target = repo_root / "docs" / "agents" / "qa-reviewer.md"
+            target.parent.mkdir(parents=True)
+            original = "# QA\n\n" + ras.REVIEW_PROTOCOL_MARKER_BEGIN + "\ntruncated\n"
+            target.write_text(original, encoding="utf-8")
+
+            written = ras.reconcile_review_protocol_surfaces(repo_root)
+            self.assertNotIn("docs/agents/qa-reviewer.md", written)
+            self.assertEqual(target.read_text(encoding="utf-8"), original)
+
+    def test_parent_symlink_escape_is_refused_without_touching_external_tree(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            outer = Path(temp_dir)
+            repo_root = outer / "repo"
+            outside = outer / "outside"
+            (repo_root / "docs").mkdir(parents=True)
+            outside.mkdir()
+            sentinel = outside / "qa-reviewer.md"
+            sentinel.write_text("external sentinel\n", encoding="utf-8")
+            (repo_root / "docs" / "agents").symlink_to(outside, target_is_directory=True)
+
+            with self.assertRaisesRegex(RuntimeError, "escapes the repository root"):
+                ras.reconcile_review_protocol_surfaces(repo_root)
+
+            self.assertEqual(sentinel.read_text(encoding="utf-8"), "external sentinel\n")
+
+    def test_only_registered_enabled_native_role_wrappers_are_reconciled(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            registered = repo_root / ".claude" / "agents" / "code-reviewer.md"
+            unregistered = repo_root / ".claude" / "agents" / "project-custom.md"
+            codex = repo_root / ".codex" / "skills" / "agent-role-code-reviewer" / "SKILL.md"
+            for path in (registered, unregistered, codex):
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(f"# {path.stem}\n\nproject extension\n", encoding="utf-8")
+
+            manifest = ras.review_protocol_carrier_manifest(repo_root)
+            self.assertIn(".claude/agents/code-reviewer.md", manifest)
+            self.assertIn(".codex/skills/agent-role-code-reviewer/SKILL.md", manifest)
+            self.assertNotIn(".claude/agents/project-custom.md", manifest)
+
+            written = ras.reconcile_review_protocol_surfaces(repo_root)
+            self.assertIn(".claude/agents/code-reviewer.md", written)
+            self.assertIn(".codex/skills/agent-role-code-reviewer/SKILL.md", written)
+            self.assertNotIn(".claude/agents/project-custom.md", written)
+            self.assertIn(ras.REVIEW_PROTOCOL_MARKER_BEGIN, registered.read_text(encoding="utf-8"))
+            self.assertIn(ras.REVIEW_PROTOCOL_MARKER_BEGIN, codex.read_text(encoding="utf-8"))
+            self.assertNotIn(ras.REVIEW_PROTOCOL_MARKER_BEGIN, unregistered.read_text(encoding="utf-8"))
+
+    def test_self_host_enabled_manifest_has_exactly_one_owned_region(self) -> None:
+        repo_root = TESTS_ROOT.parents[3]
+        manifest = ras.review_protocol_carrier_manifest(repo_root)
+        self.assertIn(".claude/agents/guru.md", manifest)
+        self.assertIn(".codex/skills/auto-guru/SKILL.md", manifest)
+        for rel in manifest:
+            path = repo_root / rel
+            if not path.is_file():
+                # Conditional repo-local/native carriers are enabled by presence.
+                continue
+            text = path.read_text(encoding="utf-8")
+            self.assertEqual(text.count(ras.REVIEW_PROTOCOL_MARKER_BEGIN), 1, rel)
+            self.assertEqual(text.count(ras.REVIEW_PROTOCOL_MARKER_END), 1, rel)
+
+
 class RenderAgentSurfacesTests(unittest.TestCase):
-    def test_skips_when_guru_role_missing(self) -> None:
+    def test_public_agent_render_refuses_dangling_native_wrapper_symlink_escapes(self) -> None:
+        for shape in ("final", "parent"):
+            with self.subTest(shape=shape), tempfile.TemporaryDirectory() as temp_dir:
+                outer = Path(temp_dir)
+                repo_root = outer / "repo"
+                outside = outer / "outside"
+                (repo_root / "docs" / "agents").mkdir(parents=True)
+                (repo_root / "docs" / "agents" / "guru.md").write_text(
+                    GURU_STUB, encoding="utf-8"
+                )
+                skill = repo_root / ".codex" / "skills" / "auto-guru" / "SKILL.md"
+                skill.parent.mkdir(parents=True)
+                if shape == "final":
+                    outside.mkdir()
+                    skill.symlink_to(outside / "created.md")
+                    escaped = outside / "created.md"
+                else:
+                    skill.parent.rmdir()
+                    outside.mkdir()
+                    skill.parent.symlink_to(outside, target_is_directory=True)
+                    escaped = outside / "SKILL.md"
+
+                result = subprocess.run(
+                    ["python3", str(RENDER_SCRIPT), "--repo-root", str(repo_root)],
+                    cwd=SCRIPTS_ROOT,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("escapes the repository root", result.stderr)
+                self.assertFalse(escaped.exists())
+
+    def test_public_platform_render_refuses_final_carrier_symlink_escape(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            outer = Path(temp_dir)
+            repo_root = outer / "repo"
+            outside = outer / "outside.md"
+            target = repo_root / "docs" / "agents" / "qa-reviewer.md"
+            target.parent.mkdir(parents=True)
+            outside.write_text("external sentinel\n", encoding="utf-8")
+            target.symlink_to(outside)
+
+            result = subprocess.run(
+                ["python3", str(PLATFORM_RENDER_SCRIPT), "--repo-root", str(repo_root)],
+                cwd=SCRIPTS_ROOT,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("escapes the repository root", result.stderr)
+            self.assertNotIn("Traceback", result.stderr)
+            self.assertEqual(outside.read_text(encoding="utf-8"), "external sentinel\n")
+
+    def test_missing_guru_stays_disabled_while_required_review_carriers_are_created(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             repo_root = Path(temp_dir)
             result = subprocess.run(
@@ -31,7 +240,9 @@ class RenderAgentSurfacesTests(unittest.TestCase):
                 check=False,
             )
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertIn("skip", result.stderr.lower())
+            self.assertTrue((repo_root / "docs" / "agents" / "qa-reviewer.md").is_file())
+            self.assertTrue((repo_root / "docs" / "prompts" / "review-wave.prompt.md").is_file())
+            self.assertFalse((repo_root / "docs" / "agents" / "guru.md").exists())
             self.assertFalse((repo_root / ".cursor" / "rules" / "auto-guru.mdc").exists())
 
     def test_renders_tier2_and_tier3_when_guru_present(self) -> None:
@@ -71,9 +282,11 @@ class RenderAgentSurfacesTests(unittest.TestCase):
             claude_agent = repo_root / ".claude" / "agents" / "guru.md"
             self.assertTrue(claude_agent.is_file())
             self.assertIn("PROACTIVELY", claude_agent.read_text(encoding="utf-8"))
+            self.assertIn(ras.REVIEW_PROTOCOL_MARKER_BEGIN, claude_agent.read_text(encoding="utf-8"))
 
             codex_skill = repo_root / ".codex" / "skills" / "auto-guru" / "SKILL.md"
             self.assertTrue(codex_skill.is_file())
+            self.assertIn(ras.REVIEW_PROTOCOL_MARKER_BEGIN, codex_skill.read_text(encoding="utf-8"))
 
             codex_mcp_config = repo_root / ".codex" / "config.toml"
             self.assertTrue(codex_mcp_config.is_file())
@@ -887,6 +1100,86 @@ class GuruWrapperToolAllowlistTests(unittest.TestCase):
             "wrapper body instructs tools its frontmatter does not grant "
             f"(the self-contradiction this change fixes): {sorted(uncovered)}",
         )
+
+
+class FreshCarrierAgentFrontmatterTests(unittest.TestCase):
+    """Regression: fresh docs/agents/** carriers must satisfy the pack's own docs-lint.
+
+    A 1.13.0 upgrade halted at the docs gate because newly-rendered specialist
+    carriers lacked the `Role:`/`Category:` frontmatter the agent-metadata validator
+    requires. These tests render carriers into a temp root that EXPOSES the real
+    seeds (so rendering takes the seed-verbatim path, not the frontmatter-less
+    title-minimum branch that would make the test vacuous) and assert the agent
+    validators pass over the whole rendered `docs/agents/**` set.
+    """
+
+    def _render_fresh_root(self, repo_root: Path) -> None:
+        import shutil
+
+        seeds_dst = repo_root / ".wavefoundry" / "framework" / "seeds"
+        seeds_dst.parent.mkdir(parents=True)
+        shutil.copytree(PROJECT_ROOT / "framework" / "seeds", seeds_dst)
+        ras.reconcile_review_protocol_surfaces(repo_root)
+
+    def test_fresh_carriers_pass_the_pack_agent_metadata_validators(self) -> None:
+        from wave_lint_lib.wave_validators import (
+            _check_agent_category_metadata,
+            _check_agent_role_metadata,
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            self._render_fresh_root(repo_root)
+
+            # The exact checks that blocked the upgrade — over the whole rendered set.
+            self.assertEqual(_check_agent_role_metadata(repo_root), [])
+            self.assertEqual(_check_agent_category_metadata(repo_root), [])
+
+            specialists = repo_root / "docs" / "agents" / "specialists"
+
+            # Requirement 1 (seed frontmatter): a single-destination specialist renders
+            # seed-verbatim (proving the seeds dir was actually consulted) with Role/Category.
+            red_team = (specialists / "red-team.md").read_text(encoding="utf-8")
+            self.assertIn("# Agent Body — Red Team", red_team)  # seed body, not title-minimum
+            self.assertIn("Role: red-team", red_team)
+            self.assertIn("Category: specialist", red_team)
+
+            # Requirement 2 (renderer fallback): seed 236 carries NO seed frontmatter, so
+            # its specialist render gets Role/Category from the fallback — and its exempt
+            # docs/prompts render must NOT be polluted with them.
+            archetype = (specialists / "archetype-council.md").read_text(encoding="utf-8")
+            self.assertIn("Role: archetype-council", archetype)
+            self.assertIn("Category: specialist", archetype)
+            prompt = (repo_root / "docs" / "prompts" / "archetype-council.prompt.md").read_text(
+                encoding="utf-8"
+            )
+            self.assertNotIn("Role: archetype-council", prompt)
+            self.assertNotIn("Category: specialist", prompt)
+
+            # Non-specialist derivation: a review-category carrier must get Category: review,
+            # not specialist — this is why the fallback reuses _expected_agent_category.
+            qa = (repo_root / "docs" / "agents" / "qa-reviewer.md").read_text(encoding="utf-8")
+            self.assertIn("Role: qa-reviewer", qa)
+            self.assertIn("Category: review", qa)
+
+    def test_fallback_is_fresh_only_and_does_not_clobber_existing_frontmatter(self) -> None:
+        # An existing (update-path) specialist doc with project-authored frontmatter must
+        # be preserved verbatim outside the owned region — the fallback runs fresh-only.
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            target = repo_root / "docs" / "agents" / "specialists" / "red-team.md"
+            target.parent.mkdir(parents=True)
+            existing = "# Red Team\n\nRole: red-team\nCategory: specialist\n\n## Project note\n\n- keep me\n"
+            target.write_text(existing, encoding="utf-8")
+
+            ras.reconcile_review_protocol_surfaces(repo_root)
+
+            text = target.read_text(encoding="utf-8")
+            self.assertIn("## Project note", text)
+            self.assertIn("- keep me", text)
+            # Exactly one Role:/Category: each — no duplicate injection on the update path.
+            self.assertEqual(text.count("Role: red-team"), 1)
+            self.assertEqual(text.count("Category: specialist"), 1)
 
 
 if __name__ == "__main__":

@@ -105,6 +105,7 @@ def _make_wave(root: Path) -> None:
 wave-id: `12x test-wave`
 Title: Test Wave
 Status: active
+review-evidence-source: events.jsonl
 
 ## Objective
 
@@ -125,12 +126,25 @@ Verify dashboard snapshot rendering.
 - wave-council-readiness: approved
 - code-reviewer: approved
 
+## Finding Synthesis
+
+<!-- waveframework:finding-synthesis begin -->
+| Current finding | Disposition | Open block | Repair | Approval recheck |
+| --- | --- | --- | --- | --- |
+| — | — | — | — | — |
+
+<details class="wavefoundry-review-evidence">
+<summary>Machine review evidence — 0 records; 0 runs; 0 findings; current: do_now 0, maybe_later 0, dont_do_later 0, not_issue 0</summary>
+</details>
+<!-- waveframework:finding-synthesis end -->
+
 ## Changes
 
 Change ID: `12x1-enh sample-dashboard`
 Change Status: `ready`
 """,
     )
+    _write(wave_dir / "events.jsonl", "")
     _write(
         wave_dir / "12x1-enh sample-dashboard.md",
         """# Sample Dashboard Change
@@ -340,6 +354,121 @@ class DashboardSnapshotTests(unittest.TestCase):
         self.assertEqual(change["ac_priority_counts"]["important"], 1)
         self.assertEqual(snapshot["activity"]["recent_progress"][0]["change_id"], "12x1-enh sample-dashboard")
         self.assertEqual(snapshot["metrics"]["scope"], "active_wave")
+
+    def test_review_evidence_projection_is_derived_from_external_ledger(self):
+        wave = self.lib.collect_waves(self.root)[0]
+
+        self.assertEqual(wave["review_evidence_status"]["integrity"], "ok")
+        self.assertEqual(wave["review_evidence_status"]["projection"], "current")
+        self.assertEqual(wave["review_evidence_status"]["diagnostics"], [])
+        self.assertEqual(
+            wave["review_evidence"], [],
+            "prose signoff bullets must not be served as canonical approval state",
+        )
+        self.assertIn("| — | — | — | — | — |", wave["review_evidence_projection"])
+        self.assertNotIn("```jsonl", wave["review_evidence_projection"])
+
+    def test_dashboard_approval_state_comes_from_validated_external_records(self):
+        from review_evidence import build_compact_review_event, canonical_review_events_bytes
+
+        wave_dir = self.root / "docs" / "waves" / "12x test-wave"
+        records, errors = build_compact_review_event(
+            (),
+            {
+                "event": "approval",
+                "actor": "wave-council",
+                "context_id": "dashboard-approval",
+                "signoff_key": "wave-council-delivery",
+                "fresh_context": True,
+                "independent": True,
+                "integrity_confirmed": True,
+                "observed": "approved from external authority",
+                "artifact_or_test_id": "dashboard external approval fixture",
+            },
+        )
+        self.assertEqual(errors, ())
+        (wave_dir / "events.jsonl").write_bytes(canonical_review_events_bytes(records))
+
+        wave = self.lib.collect_waves(self.root)[0]
+
+        self.assertEqual(wave["review_evidence_status"]["integrity"], "ok")
+        self.assertEqual(
+            wave["review_evidence"],
+            [
+                {
+                    "key": "wave-council-delivery",
+                    "value": "approved from external authority",
+                }
+            ],
+        )
+
+    def test_valid_external_ledger_serves_derived_state_when_projection_is_stale(self):
+        wave_md = self.root / "docs" / "waves" / "12x test-wave" / "wave.md"
+        stale = wave_md.read_text(encoding="utf-8").replace(
+            "| — | — | — | — | — |", "| _Stale projection._ | — | — | — | — |"
+        )
+        wave_md.write_text(stale, encoding="utf-8")
+
+        wave = self.lib.collect_waves(self.root)[0]
+
+        self.assertEqual(wave["review_evidence_status"]["integrity"], "ok")
+        self.assertEqual(wave["review_evidence_status"]["projection"], "stale")
+        self.assertIn("| — | — | — | — | — |", wave["review_evidence_projection"])
+        self.assertNotIn("_Stale projection._", wave["review_evidence_projection"])
+        self.assertIn("derived from events.jsonl", wave["review_evidence_status"]["diagnostics"][0])
+
+    def test_valid_external_ledger_serves_derived_state_when_projection_is_missing(self):
+        wave_md = self.root / "docs" / "waves" / "12x test-wave" / "wave.md"
+        text = wave_md.read_text(encoding="utf-8")
+        start = text.index("## Finding Synthesis\n")
+        end = text.index("## Changes\n", start)
+        wave_md.write_text(text[:start] + text[end:], encoding="utf-8")
+
+        wave = self.lib.collect_waves(self.root)[0]
+
+        self.assertEqual(wave["review_evidence_status"]["integrity"], "ok")
+        self.assertEqual(wave["review_evidence_status"]["projection"], "missing")
+        self.assertIn("| — | — | — | — | — |", wave["review_evidence_projection"])
+
+    def test_invalid_external_ledger_fails_closed_without_serving_projection(self):
+        ledger = self.root / "docs" / "waves" / "12x test-wave" / "events.jsonl"
+        ledger.write_text('{"record_type":"review_run"}', encoding="utf-8")
+
+        wave = self.lib.collect_waves(self.root)[0]
+
+        self.assertEqual(wave["review_evidence_status"]["integrity"], "invalid")
+        self.assertEqual(wave["review_evidence_status"]["projection"], "unavailable")
+        self.assertIsNone(wave["review_evidence_projection"])
+        self.assertTrue(wave["review_evidence_status"]["diagnostics"])
+
+    def test_adopted_missing_external_ledger_fails_closed(self):
+        wave_dir = self.root / "docs" / "waves" / "12x test-wave"
+        empty_hash = hashlib.sha256(b"wavefoundry-review-events\0").hexdigest()
+        _write(
+            self.root / "docs" / "waves" / "review-evidence-adoptions.json",
+            json.dumps(
+                {
+                    "protocol_version": 1,
+                    "waves": {
+                        "12x test-wave": {
+                            "version": 1,
+                            "source": "events.jsonl",
+                            "record_count": 0,
+                            "prefix_sha256": empty_hash,
+                        }
+                    },
+                }
+            ),
+        )
+        (wave_dir / "events.jsonl").unlink()
+
+        wave = self.lib.collect_waves(self.root)[0]
+
+        self.assertEqual(wave["review_evidence_status"]["integrity"], "invalid")
+        self.assertIsNone(wave["review_evidence_projection"])
+        self.assertTrue(
+            any("ledger is missing" in item for item in wave["review_evidence_status"]["diagnostics"])
+        )
 
     def test_collect_dashboard_snapshot_uses_pending_scope_when_no_active_wave(self):
         root = Path(self.tmp.name) / "pending-scope"

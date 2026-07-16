@@ -35,6 +35,7 @@ Before executing row 1.1, check whether `.wavefoundry/install-log.md` exists:
    - `.claude/settings.json` (if Claude Code is detected) and equivalents for other hosts; registers the MCP server (the committed `.mcp.json` runs `python3 .wavefoundry/framework/scripts/server.py`).
    - MCP configs must launch the PATH `python3` command on Wavefoundry's `server.py`; do not point them at `.wavefoundry/venv/Scripts/python.exe`, `.wavefoundry/venv/bin/python`, or another project-local venv interpreter as a workaround for a missing or too-old `python3`. `server.py` activates the shared tool environment itself.
    - **Do NOT create these files by hand.** The renderer is the source of truth; pre-created files will be overwritten on next render and cause spurious diffs.
+   - Setup/render installs prospective lifecycle carriers only. It must not create, migrate, repair, or rewrite `docs/waves/*/{wave.md,events.jsonl}`; historical target-project wave bytes remain untouched. New external-ledger state begins only when the operator later invokes the public Create-wave path.
 3. **Step 3/3 — MCP server dry-run smoke test** (via `server.py --dry-run`):
    - Verifies the MCP server can initialize through the same launch shape generated MCP configs use: `python3 .wavefoundry/framework/scripts/server.py --dry-run`.
    - Confirms all imports work, tool registration succeeds, framework state is loadable, and the PATH `python3` that the host will launch can use the Wavefoundry tool environment.

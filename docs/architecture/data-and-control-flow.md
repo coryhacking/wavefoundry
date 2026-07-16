@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-14
+Last verified: 2026-07-15
 
 ## Primary Control Paths
 
@@ -33,13 +33,13 @@ The `scheme_version: "v2"` policy is provisioned by code, not agents: fresh inst
 ### Path 3: Platform Surface Rendering
 
 1. Operator or init process runs `python3 .wavefoundry/framework/scripts/render_platform_surfaces.py`
-2. Renderer generates `.claude/hooks/pre-edit`, `.claude/hooks/post-edit`, `.claude/hooks/pycache-cleanup`
-3. Generates `.cursor/hooks/after-file-edit`, `.github/hooks/pre-tool-use`, `.github/hooks/post-tool-use`
-4. Merges `.claude/settings.json` hooks (does not replace full file)
-5. Writes `.mcp.json` and `.junie/mcp/mcp.json` with the `wavefoundry` MCP server entry
+2. Before cleanup or the first write, the orchestration layer resolves every selected platform write root (`.claude`, `.cursor`, `.github`, `.junie`, `.windsurf`, `.agents` as applicable), unconditional launcher/ignore roots, every registered review carrier, and every enabled native/Guru destination against the resolved repository root. Any pre-existing/static final, parent, or common-ancestor symlink escape in the repository state presented to the command returns nonzero with no platform/agent mutation; fresh `wf setup` therefore stops before `setup_index.py`, and upgrade stops before pruning, the docs gate, and index update. Rendering assumes exclusive control of these path namespaces for the duration of the command; concurrent local filesystem substitution after preflight is outside the supported threat model and is not claimed race-safe
+3. After the complete preflight passes, the platform renderer generates enabled platform entrypoints and merged configuration, including `.claude/hooks/*`, `.cursor/hooks/*`, `.github/hooks/*`, `.claude/settings.json`, `.mcp.json`, and `.junie/mcp/mcp.json`
+4. It then calls `render_agent_surfaces`; before that function's Guru-availability guard, the agent renderer reconciles only the typed registry's framework-owned executable-review marker regions under `docs/agents/`, `docs/prompts/`, `docs/contributing/`, and explicitly enabled native role destinations under `.claude/agents/` and `.codex/skills/`. Missing required canonical carriers are materialized, absent optional/native roles stay disabled, malformed markers fail safe, and project-authored bytes outside the marker pair remain unchanged
+5. The renderer finishes the remaining bin-launcher, ignore/attributes, and cleanup work only after agent-surface reconciliation succeeds
 
-**State read:** `.wavefoundry/framework/scripts/` (templates)
-**State written:** `.claude/`, `.cursor/`, `.github/hooks/`, `.junie/mcp/mcp.json`, `.mcp.json`
+**State read:** `.wavefoundry/framework/scripts/` (templates), registered carrier seeds and enabled target files
+**State written:** `.claude/`, `.cursor/`, `.github/hooks/`, `.junie/mcp/mcp.json`, `.mcp.json`, and only framework-marked regions in registered review carriers under `docs/` plus explicitly enabled native role carriers under `.claude/agents/` and `.codex/skills/`
 **Must not touch:** `.github/workflows/`, `.git/hooks/`
 
 ### Path 4: Framework Packaging
@@ -87,7 +87,7 @@ The `scheme_version: "v2"` policy is provisioned by code, not agents: fresh inst
 6c. **Cited-answer retrieval** (`code_ask`): default agent mode returns the semantic `docs`/`code` `citations` PLUS a dedicated **`graph_related` section** (wave 1p4hu): the query's resolved symbol(s) → 1-hop graph neighbors **grouped by relationship** (`callers`/`readers`/`importers`/`related`), with **seed + direction by intent** — "what calls/reads/uses X" expands the named symbol's edges INTO it (callers / readers via the 1p4ls `reads` edge / importers), while "how does X work" expands the named symbol + top semantic hits both directions (its mechanism). Citations stay purely semantic; a structural match that is also a citation is flagged `also_cited` (excerpt dropped, never sent twice). Generic-word seeds, test-file, and module nodes are suppressed. Bounded, relationship-labeled; absent when no graph/symbol resolves. Consumes the existing graph (no builder bump)
 7. **Creation tools** (`wave_new_*`): import `lifecycle_id.py` directly, generate change ID, scaffold docs in `docs/plans/`, and return repeat-safe diagnostics when the artifact already exists
 8. **Lifecycle mutation tools** (`wave_add_change`, `wave_remove_change`, `wave_prepare`): update the wave record and keep admitted change docs in the wave folder; add-change relocates immediately and inserts the new `Change ID:` block inside the wave's `## Changes` section (tail-append, preserving admission order), remove-change moves active docs back to `docs/plans/`, and prepare validates or repairs placement drift; `wave_prepare` decouples readiness from activation (wave 1p45l): `mode='ready'` records full readiness and leaves the wave `planned` (readied) with no guard, while `mode='create'` runs the single-OPEN guard and flips `planned→active`. The single-OPEN invariant (≤1 wave `active`/`implementing`) is enforced at the activation transitions — `wave_implement`, `wave_reopen`, and `wave_prepare(create)` — via the `another_wave_active` diagnostic (recovery: pause the open wave, or ready the target with `mode='ready'`), not at readiness; successful write paths request a detached background docs-index refresh so non-hook clients do not depend on editor hooks for search freshness
-9. **Review and closure tools** (`wave_review`, `wave_close`, `wave_pause`): review remains read-first but now opportunistically requests a detached background docs refresh, while write paths trigger one after successful mutations; `wave_pause` transitions the target wave from `active` to `paused` (idempotent on paused, advisory on other states) in addition to writing the session-handoff entry, so the paused wave drops out of `wave_current`'s OPEN slot and frees the single-OPEN slot for a different wave to be opened; duplicate refreshes are throttled with repo-local runtime state so repeated MCP calls do not spawn an unbounded queue
+9. **Review and closure tools** (`wave_review`, `wave_record_review_evidence`, `wave_close`, `wave_pause`): prepare/review/close resolve the fixed sibling `docs/waves/<wave>/events.jsonl`, parse its canonical bytes, validate record relationships through `review_evidence.py`, and compare the adopted prefix against the bounded count/hash proof in `docs/waves/review-evidence-adoptions.json`. The typed evidence tool accepts explicit reviewer judgments, derives only mechanical fields, serializes the complete transaction under the project-global review lock, atomically replaces the event ledger as the authority commit point, advances adoption proof, and regenerates the non-authoritative Markdown current-head projection. When cycle-2 reverification completes after cycle 1, that same identified transaction derives and appends the mandatory convergence checkpoint, including a frozen boundary from the post-reverification current synthesis heads; there is no separate caller-authored checkpoint operation. Failures after event commit report adoption-pending or projection-stale state and converge on identical replay without another append. Its lane-scoped chronology invalidates only approvals affected by a synthesis (with full/council and final-operator scopes preserved). Review may request background refresh and run lint first; close runs its existing garden/lint gates first. With adoption state retained, a missing/downgraded source declaration, missing authority, proof-ahead state, changed prefix, or unadopted suffix fails closed without invoking Git. Review remains otherwise read-first and opportunistically requests a detached background docs refresh, while write paths index only `wave.md`; an exact declared ledger or a retained-adoption ledger after declaration tamper is excluded from semantic retrieval, while unrelated/unadopted lifecycle-shaped files remain eligible. `wave_pause` transitions the target wave from `active` to `paused` (idempotent on paused, advisory on other states), so the paused wave frees the single-OPEN slot; duplicate refreshes are throttled with repo-local runtime state
 10. **Explicit index maintenance tools** (`wave_index_health`, `wave_index_build`): `wave_index_health` reports stale/missing layer status without touching the hot search path; `wave_index_build` runs `setup_index.py` (project `content=all`, docs+code) or `indexer.py` (project `content=docs|code`) synchronously for deterministic index builds (`mode='update'` vs `mode='rebuild'`), returns structured statistics, and invalidates the in-process loaded index state afterward
 11. **Operations tools** (`wave_validate`, `wave_garden`, `wave_sync_surfaces`): invoke `docs_lint.py`, `docs_gardener.py`, `render_platform_surfaces.py` as subprocesses and return structured pass/fail
 
@@ -103,7 +103,7 @@ The `scheme_version: "v2"` policy is provisioned by code, not agents: fresh inst
 **Transport:** stdio (FastMCP MCP resources protocol)
 
 **State read (Path 6):** `.wavefoundry/index/`, `docs/waves/`, `docs/plans/`, `docs/prompts/`, `docs/agents/session-handoff.md`
-**State written (Path 6):** `docs/plans/`, `docs/waves/`, `docs/agents/session-handoff.md` (handoff tools), `docs/` metadata (garden tool)
+**State written (Path 6):** `docs/plans/`, `docs/waves/` (including project-visible `review-evidence-adoptions.json`), `docs/agents/session-handoff.md` (handoff tools), `docs/` metadata (garden tool), and ignored host-local `.wavefoundry/review-evidence-adoptions.lock` coordination state
 **Transport:** stdio (FastMCP)
 
 ### Path 7: Local Dashboard
@@ -158,6 +158,9 @@ Opt-in via `dashboard.auto_index: true` in `docs/workflow-config.json` (default:
 | `.wavefoundry/dashboard-server.json` | dashboard_server.py | dashboard_server.py | dashboard_server.py |
 | Background refresh state `.wavefoundry/index/background-refresh.json` | MCP server runtime | server.py background refresh helper | MCP mutation/review tools that request detached docs-index refresh |
 | Wave records `docs/waves/<id>/wave.md` | wave-coordinator | wave inspection tools | wave lifecycle commands |
+| Wave event ledger `docs/waves/<id>/events.jsonl` | wave-coordinator | prepare/review/close, dashboard/resources | `wave_create_wave` (empty) and locked `wave_record_review_evidence`; sole canonical review-event authority |
+| Review adoption ledger `docs/waves/review-evidence-adoptions.json` | lifecycle evidence validator | prepare/review/close validation | `review_evidence.py`; bounded `record_count` + canonical-prefix SHA-256 per adopted wave |
+| Review adoption lock `.wavefoundry/review-evidence-adoptions.lock` | lifecycle evidence validator | `review_evidence.py` | `review_evidence.py`; host-local, ignored, crash-safe coordination only |
 | Change docs `docs/plans/<id>.md` | Engineering | wave_get_change | wave_new_* tools, operator, wave_remove_change |
 | Change docs `docs/waves/<wave-id>/<id>.md` | Active wave | wave_get_change, wave lifecycle tools | wave_add_change, wave_prepare |
 | Session handoff `docs/agents/session-handoff.md` | Active session | wave_get_handoff, MCP resource `wavefoundry://session-handoff` | wave_set_handoff |

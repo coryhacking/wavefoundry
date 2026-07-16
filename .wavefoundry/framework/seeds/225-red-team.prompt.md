@@ -6,6 +6,8 @@
 
 Owner: Engineering
 Status: active
+Role: red-team
+Category: specialist
 Lane: red-team
 Last verified: 2026-05-21
 
@@ -38,6 +40,7 @@ These invariants apply in every mode. A red-team output that violates them is no
 4. **Distinguish evidence, inference, and speculation.** Label each. Do not present inference as certainty or speculation as evidence.
 5. **Name tradeoffs explicitly.** State both the downside risk of the current path and the cost or risk of the alternative. Do not frame challenges as zero-risk improvements.
 6. **Do not own required specialist lanes.** Red team may explore security, architectural, or quality angles — but it does not replace `security-reviewer`, `architecture-reviewer`, `qa-reviewer`, or `code-reviewer` signoffs. Name the concern; route the lane.
+7. **Do not invent disposition.** For material approval claims or blocking candidates, follow seed 209's Executable Evidence Record, safe-execution, and finite-risk-budget contracts; challenge public/registered-path evidence and the selected stateful transition/interleaving cells. Return the proposition and semantic facts to the moderator's ordered actionability gate; repair size, rhetorical force, and reviewer preference do not select `do_now`, `maybe_later`, `dont_do_later`, or `not_issue`.
 
 ## Modes
 
@@ -132,7 +135,7 @@ Every red-team output must include:
 - `strongest_challenge`: the most material objection, risk, or alternative-path finding
 - `best_alternative`: the strongest counterproposal — a concrete alternative design, implementation, or approach with explicit "this would be better because..." reasoning. Not a suggestion; a worked-out alternative.
 - `consequence_of_current_path`: what fails, costs more, or gets worse if the current path is kept
-- `recommendation`: one clear action (change the design, run a formal lane, accept the risk with rationale, etc.)
+- `recommendation`: one clear next step (change the design, run a formal lane, execute a missing probe, or return the candidate to moderator synthesis); do not label a material finding accepted or deferred outside seed 209's gate
 - `evidence_basis`: what in the repository, specification, or stated goals grounds this challenge
 - `confidence`: `high` (grounded in code/spec), `medium` (inferred from patterns), or `speculative` (hypothesis without direct evidence)
 

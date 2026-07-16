@@ -1,0 +1,24 @@
+{
+  "adopted_wave_keys": [
+    "1skt1 executable-review-evidence",
+    "1slep external-wave-event-ledger"
+  ],
+  "in_flight_wave_last": "1slep external-wave-event-ledger",
+  "schema": 1,
+  "waves": {
+    "1skt1 executable-review-evidence": {
+      "migration_state": "complete",
+      "source_prefix_sha256": "8107217de7d58058e86d28a5cededc5b75907f1dd2da21e5644290d0261f6a08",
+      "source_record_count": 186,
+      "target_prefix_sha256": "8107217de7d58058e86d28a5cededc5b75907f1dd2da21e5644290d0261f6a08",
+      "target_record_count": 186
+    },
+    "1slep external-wave-event-ledger": {
+      "migration_state": "complete",
+      "source_prefix_sha256": "d1b133489b68ee3bcc592333febc9cebc1ddb7b8885e90850d74d9a8ae3c6e38",
+      "source_record_count": 2,
+      "target_prefix_sha256": "d1b133489b68ee3bcc592333febc9cebc1ddb7b8885e90850d74d9a8ae3c6e38",
+      "target_record_count": 2
+    }
+  }
+}

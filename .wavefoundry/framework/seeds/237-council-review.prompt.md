@@ -76,6 +76,8 @@ Synthesis must include:
 - `improvements_recommended`: concrete improvements regardless of verdict
 - Final verdict: **pass**, **pass with conditions**, or **blocked**
 
+Material approval claims and blocking findings follow seed 209's Executable Evidence Record, safe-execution, finite-risk-budget, public/registered-path, and named stateful-transition/interleaving contracts. After deduplication, the moderator seals the candidate universe, records semantic facts, and applies the ordered four-way actionability gate; severity, repair size, and seat preference are inputs at most, never substitute dispositions.
+
 When this review is used to satisfy `Prepare wave`, the verdict must be recorded in `## Review Checkpoints` as a structured `prepare-council` line containing `moderator`, `primer-depth`, `seats`, `rotating-seat`, `strongest-challenge`, and `strongest-alternative`. A freeform marker is not sufficient for the lifecycle gate.
 
 **Roster honesty:** the `seats:` field lists the seats *actually run*, each at most once — never paste the template's example roster verbatim. A rotating pick that is also a fixed seat appears once in `seats:` and is identified by the `rotating-seat:` field. Every listed seat (other than the `red-team` primer and the `wave-council` moderator) must have recorded evidence in the wave record — a finding or an explicit no-findings note in `## Prepare Review Evidence`, `## Review Evidence`, or a `## Review Checkpoints` entry other than the verdict line itself. docs-lint flags rostered seats with no recorded evidence: a seat named only inside its own verdict line does not self-certify.
@@ -110,15 +112,13 @@ The council reviews what you give it. If the artifact is ambiguous, the red-team
 
 <!-- Fill from target repository evidence during upgrade render. Never add product-specific content to this seed body. -->
 
-## Moderator Synthesis: Fix-Now-or-Justify (wave 1304x / 1305d)
+## Moderator Synthesis: Ordered Actionability Gate
 
-**The default verdict format distinguishes two pass modes:**
+Use seed 209's Review Run and Finding Synthesis records as the authoritative result. For each sealed candidate, derive exactly one disposition in order: `not_issue`, `do_now`, `maybe_later`, or `dont_do_later` under the canonical semantic predicates. Do not derive it from LOC, implementation difficulty, contract-change size, missing measurement, or a reviewer label.
 
-1. **PASS WITH IN-SESSION FIXES** — small findings (≤20 LOC, no contract change) were applied during the review pass. List each fix with a one-line description. The wave can close after the fixes land and tests re-run green.
+- `do_now` and `maybe_later` both require completed repair evidence before closure; `maybe_later` means optional-but-worth-doing-now, not a follow-on.
+- `dont_do_later` deliberately rejects the work and creates no backlog item; it requires the canonical rejection basis and promotion trigger where applicable.
+- `not_issue` records an invalid or conforming proposition and creates no follow-on debt.
+- Only the seed-209 blocking predicate decides whether a `do_now` finding blocks. Severity remains a triage signal.
 
-2. **PASS WITH FOLLOW-ON** — one or more findings were genuinely outside the in-session-fix threshold. For each finding routed to follow-on, the synthesis **must** include a one-line justification explaining *why* it isn't fixable in-session. Acceptable justifications: "exceeds ~20 LOC", "changes the response shape contract", "requires a new design decision not made by the wave", "requires measurement that hasn't been done".
-
-**Unacceptable justifications:** "small but worth doing later", "could be addressed in a follow-on plan", "honest AC partial". These are the silent-defer patterns that produce long-tail technical debt across waves. If the moderator finds itself writing one of these, the correct move is to route the finding back to the relevant lane for in-session fix.
-
-A wave that ships with three findings — two fixed in-session, one genuinely deferred with justification — is a healthier outcome than the same wave shipping with all three filed as follow-on plans. The cumulative effect over many waves is the difference between rising and falling code quality.
-
+Repairs receive focused re-verification unless one of seed 209's five full-council trigger facts changed. A full council is not the default consequence of every repair.

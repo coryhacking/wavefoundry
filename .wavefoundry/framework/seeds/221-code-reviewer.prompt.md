@@ -84,7 +84,7 @@ A senior-engineer pass that simplifies the codebase and reduces technical debt: 
 
 This runs in **two modes**:
 
-- **Scoped (every close review).** For the change under review, flag maintainability debt **in or adjacent to** the diff: dead code introduced or left behind, duplicated logic, an over-complex implementation, an abandoned/disconnected file. Route findings through the **Fix-Now Threshold** (small removals in-session; larger cleanups → a follow-on wave). Stay within `files_in_scope`.
+- **Scoped (every close review).** For the change under review, flag maintainability debt **in or adjacent to** the diff: dead code introduced or left behind, duplicated logic, an over-complex implementation, an abandoned/disconnected file. Route findings through seed 209's actionability gate; cleanup size alone neither requires repair nor authorizes deferral. Stay within `files_in_scope`.
 - **Whole-codebase sweep (explicit / periodic).** A full audit across the codebase, run only when invoked (operator or the "Codebase cleanup review" command) — recommended on the same cadence as the **Framework Config Review** (at major/minor upgrade). Do **not** run a full sweep on every wave (expensive + noisy).
 
 ### What to find
@@ -126,33 +126,14 @@ Return one of: `approved`, `approved-with-notes`, or `needs-revision` with:
 - Performance complexity — that is `performance-reviewer`.
 - Architecture boundary violations — that is `architecture-reviewer`.
 
-## Fix-Now Threshold (wave 1304x / 1305d)
+## Executable Evidence And Actionability
 
-**Default: fix small findings in-session, not as follow-ons.**
+For every material approval or blocking finding, produce the linked Executable Evidence Record required by seed 209 under its safe-execution ceiling and finite risk budget, including a non-vacuous public/registered-path or faithful-boundary probe and named stateful transition/interleaving cells when behavior is claimed. This lane supplies correctness, contract relevance, supported reachability, observable impact, containment, scope, and repair-risk facts; it does not choose disposition from LOC, design effort, or whether a contract changes. The moderator applies seed 209's ordered four-way gate. `do_now` and `maybe_later` both complete in-session before closure; `dont_do_later` and `not_issue` create no follow-on debt.
 
-When this lane finds an issue that can be fixed in fewer than ~20 lines of code without changing the change's contract, recommend the fix in-session — write it up as part of the same review pass, and either patch directly (if the implementer-lane is collaborating) or stage the patch as a one-paragraph diff for the implementer to apply.
+### Reviewer-side graph queries for actionability facts
 
-**In-session fix examples:**
+When MCP is attached, use these graph signals to establish supported reachability, containment, and cross-component scope for the actionability gate:
 
-- Missing or imprecise type hints on helpers (`recheck_fn` → `Callable[[], Any]`)
-- Replacing a `holder = {"index": None}` closure-smuggle pattern with a direct return tuple
-- Narrowing `except Exception:` to specific exceptions, or adding operator-visible logging (`_wf_log`) so silent failures are detectable
-- Removing dead code, unused imports, or duplicate guard checks
-- Adding obvious test coverage for an extracted helper (a few unit tests against its documented contract)
-
-**Defer to follow-on only when:**
-
-- The fix exceeds ~20 LOC, OR
-- The fix would change the change's contract (response shape, MCP tool signature, behavior visible to agents/operators), OR
-- The fix requires a new design decision that wasn't on the wave's plan
-
-For every finding routed to follow-on, write one line of justification explaining *why* it's not fixable in-session. Silent deferral accumulates technical debt across waves — the principle is to absorb the cost now, when context is hot, rather than defer to a colder future session.
-
-### Reviewer-side graph queries before deciding fix-now vs follow-on
-
-When MCP is attached, use these graph signals to sharpen the fix-now-vs-follow-on call:
-
-- **Count incoming callers.** For a finding in function X, run `code_callhierarchy(symbol=X, direction="incoming")` to see how many callers depend on the current behavior. **Small caller count (≤5) AND all callers in one `community:`** → the change is module-local; fix-now threshold is easier to meet because the blast radius is contained. **Large caller count OR callers spanning multiple communities** → the contract is load-bearing; either keep the fix strictly in-contract or escalate per architecture-reviewer guidance.
+- **Count incoming callers.** For a finding in function X, run `code_callhierarchy(symbol=X, direction="incoming")` to see how many callers depend on the current behavior. A small caller count in one `community:` is containment evidence; a large or cross-community caller set is load-bearing contract evidence and may trigger architecture review. Neither result alone selects a disposition.
 - **Read the `community:` field on each incoming entry.** Cross-community callers signal a cross-cutting concern that should not be silently fixed. If the change crosses architectural boundaries, surface the finding to council per seed 214 rather than absorbing it in-session.
-- **Treat empty graph results as coverage gaps when corroboration disagrees.** Wave 1p2q3 (1p2q9 E) — replaces the prior static less-mature-language list. The rule is response-shape, not language-shape: if `code_callhierarchy(symbol=X)` returns empty AND `code_references(symbol=X, graph=false)` returns hits on the same symbol, treat the empty graph result as a **coverage gap, not authoritative absence** — any language can hit a per-codebase extraction limit (e.g. TS monorepos with `tsconfig.paths`, deeply-nested namespaces, dynamic dispatch). Use `code_references` / `code_keyword` as ground truth in that case and prefer the LOC/contract heuristics in the original fix-now threshold. (AOP/advice exception per seed-211 still applies for Java `@Advice.*` / `@Around` / `@Before` / `@After` methods.)
-
+- **Treat empty graph results as coverage gaps when corroboration disagrees.** Wave 1p2q3 (1p2q9 E) — replaces the prior static less-mature-language list. The rule is response-shape, not language-shape: if `code_callhierarchy(symbol=X)` returns empty AND `code_references(symbol=X, graph=false)` returns hits on the same symbol, treat the empty graph result as a **coverage gap, not authoritative absence** — any language can hit a per-codebase extraction limit (e.g. TS monorepos with `tsconfig.paths`, deeply-nested namespaces, dynamic dispatch). Use `code_references` / `code_keyword` as ground truth and mark unresolved reachability as `unverified`. (AOP/advice exception per seed-211 still applies for Java `@Advice.*` / `@Around` / `@Before` / `@After` methods.)

@@ -93,34 +93,15 @@ Guru must not treat the write-up as complete until this review finishes. When `w
 - Security vulnerabilities — that is `security-reviewer`.
 - Automated fitness-function enforcement (ArchUnit-style) — that is a future computational sensor.
 
-## Fix-Now Threshold (wave 1304x / 1305d)
+## Executable Evidence And Actionability
 
-**Default: fix small architectural findings in-session, not as follow-ons.**
-
-When this lane finds an issue that can be fixed in fewer than ~20 lines without changing a contract, recommend the fix in-session.
-
-**In-session fix examples:**
-
-- Helper boundary cleanup (e.g., the closure-smuggle `holder` pattern flagged in wave `1304x` close-review)
-- Signature consolidation (collapsing a near-duplicate helper into a parameterized one)
-- Removing redundant indirection (e.g., a helper that only forwards to another)
-- Adding type hints to a public-ish helper that already has stable callers
-- Renaming for consistency when the call sites are all in the same change
-
-**Defer to follow-on only when:**
-
-- The fix exceeds ~20 LOC, OR
-- The fix changes a published contract (response shape, MCP tool signature, library API), OR
-- The fix requires a new architectural decision
-
-For every architecture finding routed to follow-on, write one line of justification explaining *why* it's not fixable in-session. The cumulative cost of deferred architectural cleanups is the largest single source of long-tail technical debt in self-hosting frameworks.
+For every material approval or blocking finding, produce the linked Executable Evidence Record required by seed 209, using its safe-execution ceiling and finite risk budget. Exercise the public/registered boundary and name selected transition/interleaving cells for cross-component stateful behavior. This lane supplies boundary, ownership, coupling, contract-relevance, cross-component-state, and repair-risk facts; it does not choose disposition from LOC, cross-community size, or whether a new ADR is needed. The moderator applies seed 209's ordered four-way gate. A repair that changes architecture/ownership, a cross-component protocol/state model, or public-contract/required-AC semantics triggers full review depth; merely satisfying an unchanged contract receives focused re-verification.
 
 ### Reviewer-side graph queries — cross-community escalation signal
 
-When MCP is attached, use these graph signals to decide whether an architectural finding crosses module boundaries (council-worthy) or stays local (fix-now):
+When MCP is attached, use these graph signals to establish cross-component and ownership facts for actionability and review-depth derivation:
 
-- **Run `code_impact(symbol=X, max_hops=3)` on the affected symbol** and read the `community:` field across the returned `affected` list. Findings whose affected set spans **multiple communities** are cross-cutting concerns by definition — they should not be silently fixed in-session. Surface them to council per the Wave Council readiness gate, with the cross-community evidence in the review write-up. Findings contained in a single community are candidates for in-session fix-now.
+- **Run `code_impact(symbol=X, max_hops=3)` on the affected symbol** and read the `community:` field across the returned `affected` list. Findings whose affected set spans **multiple communities** are cross-cutting evidence; record the affected communities and surface architecture/ownership or cross-component protocol/state changes to council. A single-community result is containment evidence, not an automatic disposition.
 - **`code_graph_path(direction="either")`** is the right tool for "is module A coupled to module B?" — but read each `path_edges[i].relation` before drawing a conclusion. `defines` and `imports` edges count toward path existence but are not call coupling. Genuine call coupling requires every edge to be `calls`. Reactive/AOP/event-driven flows often surface through `direction="either"` only because data flows backward through shared mutable state.
 - **`wave_graph_report(sections=["chokepoints", "fan_in"])`** at the start of a cross-cutting review session frames the architectural geometry before per-symbol analysis. Chokepoints with high fan_out AND genuine project-internal `code_callhierarchy(direction="incoming")` are real hotspots; those without project callers are usually AOP/SPI/runtime-weave wiring that the static graph cannot trace.
-- **Treat empty graph results as coverage gaps when corroboration disagrees.** Wave 1p2q3 (1p2q9 E) — response-shape rule, not language-shape: if `code_impact` / `code_callhierarchy` returns empty AND `code_references(symbol=X, graph=false)` returns hits on the same symbol, treat the empty graph result as a **coverage gap, not architectural decoupling**. Any language can hit a per-codebase extraction limit (e.g. TS monorepos with `tsconfig.paths` aliases, deeply-nested namespaces, dynamic dispatch). Don't conclude "no architectural coupling" from absence alone — corroborate via `code_references` / `code_keyword` before drawing a council-vs-fix-now boundary.
-
+- **Treat empty graph results as coverage gaps when corroboration disagrees.** Wave 1p2q3 (1p2q9 E) — response-shape rule, not language-shape: if `code_impact` / `code_callhierarchy` returns empty AND `code_references(symbol=X, graph=false)` returns hits on the same symbol, treat the empty graph result as a **coverage gap, not architectural decoupling**. Any language can hit a per-codebase extraction limit (e.g. TS monorepos with `tsconfig.paths` aliases, deeply-nested namespaces, dynamic dispatch). Don't conclude "no architectural coupling" from absence alone — corroborate via `code_references` / `code_keyword` and mark unresolved coupling as unverified.

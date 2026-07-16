@@ -3,9 +3,11 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 
@@ -21,6 +23,126 @@ def _load_render_module():
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
+
+
+class PublicRenderReviewProtocolIntegrationTests(unittest.TestCase):
+    """The public render entrypoint owns carrier reconciliation."""
+
+    @staticmethod
+    def _load_agent_renderer():
+        scripts_dir = str(SCRIPT_PATH.parent)
+        if scripts_dir not in sys.path:
+            sys.path.insert(0, scripts_dir)
+        import render_agent_surfaces
+        return render_agent_surfaces
+
+    @staticmethod
+    def _seed_stale_carrier(root: Path, ras) -> tuple[Path, str, str]:
+        target = root / "docs" / "prompts" / "review-wave.prompt.md"
+        target.parent.mkdir(parents=True)
+        prefix = "# Project Review Wave\n\nproject-prefix\n\n"
+        suffix = "\n\n## Project extension\n\n- preserve this exactly\n"
+        target.write_text(
+            prefix
+            + ras.REVIEW_PROTOCOL_MARKER_BEGIN
+            + "\nstale protocol revision\n"
+            + ras.REVIEW_PROTOCOL_MARKER_END
+            + suffix,
+            encoding="utf-8",
+        )
+        return target, prefix, suffix
+
+    def test_public_render_reconciles_before_guru_guard_and_is_idempotent(self) -> None:
+        mod = _load_render_module()
+        ras = self._load_agent_renderer()
+        import venv_bootstrap
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir).resolve()
+            target_seeds = root / ".wavefoundry" / "framework" / "seeds"
+            target_seeds.mkdir(parents=True)
+            target_seeds.joinpath("239-qa-reviewer.prompt.md").write_text(
+                (PROJECT_ROOT / "framework" / "seeds" / "239-qa-reviewer.prompt.md").read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+            target, prefix, suffix = self._seed_stale_carrier(root, ras)
+            with patch.object(venv_bootstrap, "ensure_python_resolves", return_value="ok"):
+                self.assertEqual(mod.main(["--repo-root", str(root), "--platform", "claude"]), 0)
+                first = target.read_bytes()
+                self.assertEqual(mod.main(["--repo-root", str(root), "--platform", "claude"]), 0)
+
+            text = first.decode("utf-8")
+            self.assertTrue(text.startswith(prefix))
+            self.assertTrue(text.endswith(suffix))
+            self.assertNotIn("stale protocol revision", text)
+            self.assertIn("four-way actionability gate", text)
+            for rel in (
+                "docs/agents/qa-reviewer.md",
+                "docs/prompts/create-wave.prompt.md",
+                "docs/contributing/review-and-evals.md",
+            ):
+                created = root / rel
+                self.assertTrue(created.is_file(), rel)
+                self.assertIn(ras.REVIEW_PROTOCOL_MARKER_BEGIN, created.read_text(encoding="utf-8"))
+            self.assertIn(
+                "zero unintended skips",
+                (root / "docs" / "agents" / "qa-reviewer.md").read_text(encoding="utf-8"),
+            )
+            self.assertEqual(target.read_bytes(), first)
+            self.assertFalse(
+                (root / "docs" / "agents" / "guru.md").exists(),
+                "carrier reconciliation must precede the Guru-availability guard",
+            )
+
+    def test_public_render_preflights_claude_ancestor_before_any_write(self) -> None:
+        mod = _load_render_module()
+        self._load_agent_renderer()
+        import venv_bootstrap
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            outer = Path(temp_dir)
+            root = (outer / "repo").resolve()
+            outside = outer / "outside"
+            root.mkdir()
+            outside.mkdir()
+            try:
+                (root / ".claude").symlink_to(outside, target_is_directory=True)
+            except OSError as exc:  # native Windows may not grant symlink privilege
+                self.skipTest(f"directory symlinks unavailable: {exc}")
+
+            with patch.object(venv_bootstrap, "ensure_python_resolves", return_value="ok"):
+                self.assertEqual(
+                    mod.main(["--repo-root", str(root), "--platform", "claude"]),
+                    1,
+                )
+
+            self.assertEqual(
+                list(outside.rglob("*")),
+                [],
+                "platform containment must fail before hooks/config/skill writes",
+            )
+
+    def test_unwired_agent_renderer_negative_control_leaves_stale_carrier(self) -> None:
+        """Prove platform rendering cannot repair a carrier by incidental side effect."""
+
+        mod = _load_render_module()
+        ras = self._load_agent_renderer()
+        import venv_bootstrap
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir).resolve()
+            target, _prefix, _suffix = self._seed_stale_carrier(root, ras)
+            original = target.read_bytes()
+            unwired = SimpleNamespace(
+                preflight_agent_surface_paths=lambda _root: None,
+                render_agent_surfaces=lambda _root: [],
+            )
+            with patch.object(venv_bootstrap, "ensure_python_resolves", return_value="ok"), \
+                 patch.dict(sys.modules, {"render_agent_surfaces": unwired}):
+                self.assertEqual(mod.main(["--repo-root", str(root), "--platform", "claude"]), 0)
+
+            self.assertEqual(target.read_bytes(), original)
+            self.assertIn("stale protocol revision", target.read_text(encoding="utf-8"))
 
 
 class RenderPlatformSurfacesScriptTests(unittest.TestCase):

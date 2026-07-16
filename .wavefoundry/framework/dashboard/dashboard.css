@@ -3763,3 +3763,13 @@ html[data-theme="dark"] .index-build-badge--current {
 .doc-dialog-body table.table--nowrap-first td:first-child {
   white-space: nowrap;
 }
+
+.review-evidence-diagnostic {
+  margin: 0.35rem 0 0.55rem;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--warning, #b7791f);
+  border-radius: 6px;
+  color: var(--warning-text, #8a4b08);
+  font-size: 0.8rem;
+  line-height: 1.35;
+}

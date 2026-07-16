@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Wavefoundry harness bootstrap entrypoint.
 
-Single command that completes install Phase 1: venv + framework deps + semantic
-indexes (via setup_index.py), platform host configs + bin/ launchers (via
-render_platform_surfaces.py), and an MCP server dry-run smoke test (via
+Single command that completes install Phase 1: platform host configs + bin/
+launchers (via render_platform_surfaces.py), venv + framework deps + semantic
+indexes (via setup_index.py), and an MCP server dry-run smoke test (via
 `server.py --dry-run`).
 
 Run after the lifecycle epoch is set in `docs/workflow-config.json` (Phase 1
@@ -11,7 +11,9 @@ step 1.1 in `wavefoundry-install-log.md`). On clean exit, restart your AI agent
 so the MCP server becomes available; Phase 2 begins.
 
 Forwards argv to setup_index.py for venv / dep / index configuration. The
-render and dry-run steps take no arguments.
+render and dry-run steps receive the resolved target repository root. Setup
+installs prospective framework/carrier behavior only: it never creates,
+migrates, repairs, or rewrites target-project wave event state.
 """
 from __future__ import annotations
 
@@ -51,17 +53,25 @@ def _print_step(label: str) -> None:
     print(f"\n=== {label} ===", flush=True)
 
 
-def _run_render_platform_surfaces() -> int:
-    """Invoke render_platform_surfaces.py to materialize bin/ launchers and host configs."""
+def _run_render_platform_surfaces(repo_root: Path) -> int:
+    """Render surfaces for the same explicit target passed to public setup.
+
+    ``setup --root`` may target a repository other than the checkout containing
+    this script.  Passing the resolved root through avoids silently rendering
+    the framework checkout while indexing the requested target.
+    """
     script_path = _SCRIPTS_DIR / "render_platform_surfaces.py"
     if not script_path.exists():
         print(f"ERROR: render_platform_surfaces.py not found at {script_path}", file=sys.stderr)
         return 1
-    result = subprocess_util.isolated_run([sys.executable, str(script_path)], check=False)
+    result = subprocess_util.isolated_run(
+        [sys.executable, str(script_path), "--repo-root", str(repo_root)],
+        check=False,
+    )
     return result.returncode
 
 
-def _run_mcp_server_dry_run() -> int:
+def _run_mcp_server_dry_run(repo_root: Path) -> int:
     """Invoke `python3 server.py --dry-run` to verify the MCP launch shape.
 
     This catches startup misconfigurations (missing deps, broken imports, framework
@@ -75,7 +85,13 @@ def _run_mcp_server_dry_run() -> int:
         print(f"ERROR: server.py not found at {script_path}", file=sys.stderr)
         return 1
     result = subprocess_util.isolated_run(
-        [venv_bootstrap.MCP_PYTHON_COMMAND, str(script_path), "--dry-run"],
+        [
+            venv_bootstrap.MCP_PYTHON_COMMAND,
+            str(script_path),
+            "--root",
+            str(repo_root),
+            "--dry-run",
+        ],
         check=False,
     )
     return result.returncode
@@ -180,7 +196,8 @@ def main(argv: list[str] | None = None) -> int:
     # Runs BEFORE indexing so no ID is ever minted pre-policy and the docs index
     # embeds the final config. No-op when a policy block already exists.
     _print_step("Step 0/3: lifecycle-ID policy (fresh repos auto-provision; existing configs untouched)")
-    rc = _provision_lifecycle_policy_if_absent(_resolve_setup_root(args))
+    repo_root = _resolve_setup_root(args)
+    rc = _provision_lifecycle_policy_if_absent(repo_root)
     if rc != 0:
         print(
             f"\nERROR: lifecycle policy provisioning failed with rc={rc}. Harness setup aborted.",
@@ -188,9 +205,22 @@ def main(argv: list[str] | None = None) -> int:
         )
         return rc
 
-    # Step 1: venv + framework deps + semantic indexes (via setup_index.py).
+    # Step 1: materialize docs/prompt carriers before setup_index walks the
+    # repository. Otherwise a fresh install publishes a completed docs epoch
+    # and then immediately creates unindexed framework-owned documents.
+    _print_step("Step 1/3: render bin/ launchers and host configs (render_platform_surfaces.py)")
+    rc = _run_render_platform_surfaces(repo_root)
+    if rc != 0:
+        print(
+            f"\nERROR: render_platform_surfaces.py exited with rc={rc}. "
+            f"No semantic index was built; fix the surface error and re-run setup.",
+            file=sys.stderr,
+        )
+        return rc
+
+    # Step 2: venv + framework deps + semantic indexes (via setup_index.py).
     # argv is forwarded so operators can pass --root, --full, etc.
-    _print_step("Step 1/3: venv + framework deps + semantic indexes (setup_index.py)")
+    _print_step("Step 2/3: venv + framework deps + semantic indexes (setup_index.py)")
     setup_index = _load_setup_index()
     rc = int(setup_index.main(argv))
     if rc != 0:
@@ -200,28 +230,16 @@ def main(argv: list[str] | None = None) -> int:
         )
         return rc
 
-    # Step 1b: verify the committed `command: "python3"` launchers resolve (DETECT + GUIDE; setup
+    # Step 2b: verify the committed `command: "python3"` launchers resolve (DETECT + GUIDE; setup
     # does NOT create a shim/symlink or edit PATH — operator decision, wave 1p88t). strict=True: a box
     # where `python3 --version` does not work or does not report Python 3.11+ fails loud before
     # rendering surfaces or smoke-testing MCP. The agent/operator must fix the prerequisite before
     # proceeding.
     venv_bootstrap.ensure_python_resolves(strict=True)
 
-    # Step 2: render bin/ launchers and platform host configs.
-    _print_step("Step 2/3: render bin/ launchers and host configs (render_platform_surfaces.py)")
-    rc = _run_render_platform_surfaces()
-    if rc != 0:
-        print(
-            f"\nERROR: render_platform_surfaces.py exited with rc={rc}. "
-            f"venv + indexes are in place, but the launchers and host configs were not rendered. "
-            f"Re-run setup_wavefoundry after fixing the issue (idempotent).",
-            file=sys.stderr,
-        )
-        return rc
-
     # Step 3: MCP server dry-run smoke test.
     _print_step("Step 3/3: verify MCP server can start (server.py --dry-run)")
-    rc = _run_mcp_server_dry_run()
+    rc = _run_mcp_server_dry_run(repo_root)
     if rc != 0:
         print(
             f"\nERROR: MCP server dry-run failed with rc={rc}. "

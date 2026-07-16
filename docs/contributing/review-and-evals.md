@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-04
+Last verified: 2026-07-15
 
 ## Review Lane Summary
 
@@ -19,6 +19,38 @@ Last verified: 2026-07-04
 | `wave-council-delivery` | Every wave after implementation and before closure (`wave_review.enabled`) | Yes |
 
 All review lanes follow the **Retrieval Posture (All Lanes)** in `docs/contributing/agent-team-workflow.md` — MCP retrieval tools first, and how-many/blast-radius claims backed by `code_references`/`code_callhierarchy`, never a sampled grep.
+
+## Review Protocol Ownership
+
+Seed `209-agent-harness-core.prompt.md` is the only full executable-review-evidence protocol and checklist. Other sources own routing and lane-specific additions; they do not fork the shared protocol.
+
+| Canonical owner | Carrier / rendered target | Init owner | Upgrade / refresh owner | Verification fixture |
+|-----------------|---------------------------|------------|-------------------------|----------------------|
+| Seed 209 | Shared protocol and Evidence Record schema | Framework seed pack | Framework seed pack | `ReviewEvidenceStateMachineTests` |
+| Seed 007 | Framework review-system overview | Framework seed pack | Seeds 150 / 160 | `ReviewProtocolCarrierRegistryTests` |
+| Seed 211 | `docs/agents/guru.md` | Seed 050 + public renderer | Seeds 150 / 160 + public renderer | `ReviewProtocolCarrierRegistryTests` |
+| Seed 212 | `docs/agents/performance-reviewer.md` | Seed 050 + public renderer | Seeds 150 / 160 + public renderer | `ReviewProtocolCarrierRegistryTests` |
+| Seed 213 | `docs/agents/security-reviewer.md` | Seed 050 + public renderer | Seeds 150 / 160 + public renderer | `ReviewProtocolCarrierRegistryTests` |
+| Seed 214 | `docs/agents/architecture-reviewer.md` | Seed 050 + public renderer | Seeds 150 / 160 + public renderer | `ReviewProtocolCarrierRegistryTests` |
+| Seed 215 | `docs/agents/specialists/wave-council.md` | Seed 050 + public renderer | Seeds 150 / 160 + public renderer | `ReviewProtocolCarrierRegistryTests` |
+| Seed 216 | `docs/agents/specialists/reality-checker.md` | Seed 050 + public renderer | Seeds 150 / 160 + public renderer | `ReviewProtocolCarrierRegistryTests` |
+| Seed 217 | `docs/agents/specialists/senior-engineering-challenger.md` | Seed 050 + public renderer | Seeds 150 / 160 + public renderer | `ReviewProtocolCarrierRegistryTests` |
+| Seed 221 | `docs/agents/code-reviewer.md` | Seed 050 + public renderer | Seeds 150 / 160 + public renderer | `ReviewProtocolCarrierRegistryTests` |
+| Seed 225 | `docs/agents/specialists/red-team.md` | Seed 050 + public renderer | Seeds 150 / 160 + public renderer | `ReviewProtocolCarrierRegistryTests` |
+| Seed 236 | `docs/agents/specialists/archetype-council.md`; `docs/prompts/archetype-council.prompt.md` | Seeds 050 / 100 + public renderer | Seeds 150 / 160 + public renderer | `ReviewProtocolCarrierRegistryTests` |
+| Seed 237 | `docs/prompts/council-review.prompt.md` | Seed 100 + public renderer | Seeds 150 / 160 + public renderer | `ReviewProtocolCarrierRegistryTests` |
+| Seed 239 | `docs/agents/qa-reviewer.md` | Seeds 050 / 100 + public renderer | Seeds 150 / 160 + public renderer | `PublicSetupReviewProtocolIntegrationTests`; `PublicUpgradeReviewProtocolIntegrationTests` |
+| Seed 100 | `docs/prompts/review-wave.prompt.md`; `docs/prompts/agents/review-wave.prompt.md`; `docs/prompts/create-wave.prompt.md` | Seed 100 + public renderer | Seeds 150 / 160 + public renderer | `PublicSetupReviewProtocolIntegrationTests`; `PublicUpgradeReviewProtocolIntegrationTests` |
+| Seeds 050 + 209 | Existing/enabled `docs/agents/docs-contract-reviewer.md`; `docs/agents/release-reviewer.md` | Seed 050 + public renderer | Seeds 150 / 160 + public renderer | `ReviewProtocolCarrierRegistryTests` |
+| Seed 209 | `docs/contributing/review-and-evals.md` | Public renderer | Seeds 150 / 160 + public renderer | `ReviewProtocolCarrierRegistryTests` |
+| Registered canonical role | Existing/enabled `.claude/agents/<role>.md`; `.codex/skills/agent-role-<role>/SKILL.md`; canonical Guru wrappers `.claude/agents/guru.md` and `.codex/skills/auto-guru/SKILL.md` | Seed 050 + public renderer | Seeds 150 / 160 + public renderer | `ReviewProtocolCarrierRegistryTests` |
+| `review_evidence.py` + `wave_record_review_evidence` | Fixed sibling `docs/waves/<wave>/events.jsonl` authority plus bounded count/hash proof in `docs/waves/review-evidence-adoptions.json`; generated Markdown current-head projection in `wave.md` | Seed 100 / `wave_create_wave`; framework MCP server | Direct-ledger validation; typed append on installed/upgraded servers; no consumer-history migration; retained-prefix mutation/refusal without invoking Git | `ReviewEvidenceStateMachineTests`; `WaveLifecycleMutationTests`; `WaveCreateScaffoldAlignmentTests`; build-pack/setup/upgrade distribution fixtures |
+
+Fresh setup, full upgrade, direct `wf render-surfaces`, and self-host refresh converge on that renderer operation. Missing required canonical carriers are materialized from their installed seeds (or a bounded bootstrap pointer for multi-output owners); Guru, conditional repo-local reviewers, and arbitrary native wrappers remain existing/enabled-only. Newly created canonical Guru wrappers are reconciled after materialization in the same render pass. Malformed markers fail safe rather than authorizing whole-file replacement.
+
+The machine contract is fail-closed. `wave.md` declares `review-evidence-source: events.jsonl`; the fixed sibling ledger—not the generated Markdown table—is the append-only authority. The typed `wave_record_review_evidence` tool serializes its event transaction under the project-global lock and refreshes the concise current-head projection on each write. A one-candidate run may reuse its finding evidence as universe proof, and an empty lightweight run needs only one run row, retaining reviewer `verification_context` without a separate dedup row. A synthesis links only to earlier `claim_kind: finding` evidence for the same finding. Approval records use `claim_id: approval:<signoff-key>` and bind the exact authority actor: `operator`, `wave-council`, or the named specialist lane; specialist and council approvals must be fresh and independent. Approval chronology is affected-lane scoped through `approval_recheck_lanes`; unrelated later synthesis does not stale another lane, while council remains scoped to full/council changes and operator approval remains final-wave scoped. Independence means the reviewer did not implement the repair and formed its own current-tree/test assessment before relying on prior findings or verdicts. Mandatory project orientation may disclose status or history, but it is context rather than evidence and does not by itself disqualify a fresh review. Lane reassessment is exact-lane, fresh, independent, and single-use. Universal census records include `residual_uncertainty_status` (`none | bounded | unresolved`) and `index_freshness` (`current | stale | unknown`). Operator waivers include scope, reason, and risk. When cycle-2 reverification completes after cycle 1, the typed writer derives the mandatory convergence checkpoint in that same identified bundle and atomic authority replacement; callers do not append a separate checkpoint event. Its `frozen_boundary` is the set of wave-current synthesis heads after the reverification, and later runs declare deviations or reopened findings explicitly.
+
+The adoption ledger is a local monotonicity sensor, not an undeletable trust anchor. For each adopted wave it stores only the canonical-prefix `record_count` and domain-separated SHA-256. With adoption state retained, lifecycle validation rejects a missing/downgraded source declaration, missing event ledger, proof-ahead state, changed adopted prefix, or unadopted suffix without calling Git. Retained adoption also keeps that exact ledger excluded from semantic indexing when its declaration is missing or malformed, so an integrity failure cannot expose raw/superseded event history; unadopted lifecycle-shaped note files remain eligible. If both adoption state and the source declaration are deleted, no repository-local state remains that can distinguish prior adoption from a legacy wave; protect adoption state through ordinary repository access control, source control, or backup rather than recursively duplicating it.
 
 ## Readiness Checklist (Prepare Wave)
 
@@ -82,3 +114,30 @@ When `qa-reviewer` is required:
 ## Docs-Contract Review
 
 At wave closure: if any `docs/specs/*.md` behavioral contract changed during the wave, record a docs-contract review with findings in `## Review checkpoints`. If no specs changed, record `Docs-contract review: not applicable` with a one-line rationale.
+
+<!-- waveframework:executable-review-evidence begin — generated by render_agent_surfaces.py; preserve project-authored content outside this region -->
+## Executable review evidence
+
+Follow the canonical **Executable Review Evidence Protocol** in
+`.wavefoundry/framework/seeds/209-agent-harness-core.prompt.md` for material
+approval claims and blocking findings. Exercise the public or registered
+path when one exists; keep state/interleaving probes within the protocol's
+finite risk-selected budget; record expected versus observed evidence and
+honest limitations; and never broaden task authority to run destructive,
+external, credential-bearing, or cost-bearing probes.
+
+Do not hand-author canonical JSONL when the lifecycle coordinator exposes
+the typed review-evidence authoring surface. Reviewers supply the
+load-bearing judgment facts to that coordinator; the authoring surface
+derives only bookkeeping, appends the fixed sibling
+`docs/waves/<wave>/events.jsonl` authority, and rebuilds the compact
+Markdown current-state projection in `wave.md`. A role without lifecycle
+mutation authority returns those facts to its coordinator instead of
+writing wave state.
+
+After validation, apply the ordered four-way actionability gate:
+`do_now`, `maybe_later`, `dont_do_later`, or `not_issue`. Complete bounded
+`do_now`/`maybe_later` work before closure, create no backlog for rejected
+states, and use focused repair replay unless a load-bearing boundary change
+objectively requires a full council.
+<!-- waveframework:executable-review-evidence end -->

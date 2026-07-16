@@ -7,6 +7,7 @@ import datetime
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -24,6 +25,11 @@ if str(SCRIPTS_DIR) not in sys.path:
 import venv_bootstrap  # the single venv resolver (wave 1p7pl)
 import subprocess_util  # shared subprocess isolation (wave 1p8gu)
 import cli_stdio  # shared UTF-8 stdio reconfigure (wave 1p8gv)
+from review_evidence import (
+    REVIEW_EVIDENCE_SOURCE,
+    adopted_protocol_state,
+    parse_review_evidence_source,
+)
 
 # Activate the shared tool venv IN-PROCESS before any heavy import (wave 1p7pl/1p802). No-op when
 # already in the venv or when it does not exist yet (fresh bootstrap).
@@ -635,7 +641,10 @@ _DOT_DIR_ALLOWLIST_PREFIX = ".wavefoundry/"
 # existing indexes must re-walk to pull them in. The deprecated shipped framework/index/ is NOT
 # removed by manifest-prune (its `.lance` artifacts were never in any MANIFEST, so prune can't see
 # them) — it is removed by an explicit step in upgrade_wavefoundry.py's prune phase (wave 1p5ik).
-WALKER_VERSION = "6"
+# 6 -> 7 (1slep): canonical per-wave ``docs/waves/<wave>/events.jsonl``
+# ledgers are machine authority, not retrieval content.  Generated ``wave.md``
+# projections remain indexable; unrelated same-named JSONL files remain eligible.
+WALKER_VERSION = "7"
 
 # Environment variable used by the MCP server to tell the background indexer
 # which state file to remove once the process exits.
@@ -713,6 +722,55 @@ def _resolve_max_file_bytes(root: Path) -> int:
     return _resolve_index_size_limits(root)[0]
 
 
+def _is_canonical_wave_events_path(rel_path: str, root: Path) -> bool:
+    """Return whether *rel_path* is a canonical per-wave event ledger.
+
+    The exclusion is intentionally structural and exact: only the fixed sibling
+    ``docs/waves/<one wave directory>/events.jsonl`` is machine authority.  A
+    root-level file, a deeper nested file, or any unrelated file with the same
+    basename remains eligible for indexing.  Callers pass normalized repo-relative
+    paths in production; accepting backslashes keeps the predicate platform-neutral.
+    """
+    normalized = rel_path.replace("\\", "/")
+    parts = normalized.split("/")
+    structurally_canonical = (
+        len(parts) == 4
+        and parts[0] == "docs"
+        and parts[1] == "waves"
+        and re.match(r"^[0-9a-z]{5,6}[- ].+", parts[2]) is not None
+        and parts[3] == "events.jsonl"
+    )
+    if not structurally_canonical:
+        return False
+    wave_md = root / "docs" / "waves" / parts[2] / "wave.md"
+    try:
+        source, source_errors = parse_review_evidence_source(
+            wave_md.read_text(encoding="utf-8")
+        )
+    except (OSError, UnicodeError):
+        source, source_errors = None, ()
+    if source == REVIEW_EVIDENCE_SOURCE and not source_errors:
+        return True
+
+    # The source declaration is mutable repository text, while retained adoption
+    # is the monotonicity sensor that proves this exact wave directory already
+    # owns canonical review authority.  A removed/malformed declaration must
+    # fail lifecycle validation without simultaneously admitting the raw ledger
+    # into semantic retrieval.  Unadopted lifecycle-shaped notes remain eligible.
+    adoption, _adoption_error = adopted_protocol_state(root, parts[2])
+    return adoption is not None
+
+
+def _filter_canonical_wave_event_ledgers(files: list[Path], root: Path) -> list[Path]:
+    """Drop only canonical wave event ledgers from a candidate file list."""
+    return [
+        path for path in files
+        if not _is_canonical_wave_events_path(
+            str(path.relative_to(root)).replace("\\", "/"), root
+        )
+    ]
+
+
 def walk_repo(root: Path, *, respect_ignore: bool = True) -> list[Path]:
     """Return all indexable files under root, respecting ignore rules.
 
@@ -767,6 +825,12 @@ def walk_repo(root: Path, *, respect_ignore: bool = True) -> list[Path]:
             rel_str = str(rel).replace("\\", "/")
 
             if rel_str in HARDCODED_EXCLUDE_PATHS:
+                continue
+
+            # Wave 1slep: raw append-only review history is canonical machine
+            # state.  Search the generated wave.md current-head projection,
+            # never the ledger (which also contains superseded findings).
+            if _is_canonical_wave_events_path(rel_str, root):
                 continue
 
             # Check hardcoded prefix excludes
@@ -3793,6 +3857,9 @@ def _build_index_locked(
             seen.add(rel)
             normalized_files.append(candidate)
         files = sorted(normalized_files, key=lambda p: str(p.relative_to(root)).replace("\\", "/"))
+        # ``files=`` is a public build seam used by targeted/incremental callers
+        # and bypasses walk_repo(), so enforce the same corpus boundary here.
+        files = _filter_canonical_wave_event_ledgers(files, root)
         if str(index_dir).replace("\\", "/").endswith("/.wavefoundry/framework/index"):
             files = _filter_framework_pack_artifacts(files, root)
         graph_layer = _graph_layer_for_index_dir(index_dir)

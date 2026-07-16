@@ -17,6 +17,16 @@ from typing import Any
 
 import server
 import subprocess_util  # shared subprocess isolation (wave 1p8gu)
+from review_evidence import (
+    REVIEW_EVIDENCE_SOURCE,
+    adopted_protocol_state,
+    empty_external_finding_synthesis_section,
+    parse_review_evidence_source,
+    read_review_event_ledger,
+    render_review_evidence_projection,
+    validate_adopted_protocol_state,
+    validate_review_evidence_records,
+)
 
 
 _TITLE_RE = re.compile(r"^#\s+(.+)$", re.MULTILINE)
@@ -810,16 +820,93 @@ def _parse_participants(section_text: str) -> list[dict[str, str]]:
     return result
 
 
-def _parse_review_evidence(section_text: str) -> list[dict[str, str]]:
-    items: list[dict[str, str]] = []
-    for raw in section_text.splitlines():
-        line = raw.strip()
-        if not line.startswith("- "):
+def _review_evidence_dashboard_state(
+    root: Path, wave_md: Path, text: str
+) -> dict[str, Any]:
+    """Derive dashboard review state from the external authority, never Markdown.
+
+    A valid ledger remains readable when the generated Markdown projection is
+    stale or missing.  Authority/source/adoption failures fail closed and do
+    not expose the on-disk projection as though it were current.
+    """
+
+    source, source_errors = parse_review_evidence_source(text)
+    adopted, adoption_state_error = adopted_protocol_state(root, wave_md.parent.name)
+    inline_marker = re.search(r"(?mi)^review-evidence-protocol\s*:", text) is not None
+    if (
+        source is None
+        and not source_errors
+        and adopted is None
+        and adoption_state_error is None
+        and not inline_marker
+    ):
+        return {
+            "integrity": "legacy",
+            "projection_status": "unavailable",
+            "projection": None,
+            "approvals": [],
+            "diagnostics": [],
+        }
+    diagnostics = list(source_errors)
+    if source is None and not source_errors:
+        diagnostics.append("wave header is missing review-evidence-source: events.jsonl")
+    elif source != REVIEW_EVIDENCE_SOURCE and not source_errors:
+        diagnostics.append("wave header does not name the canonical events.jsonl authority")
+
+    records, ledger_errors = read_review_event_ledger(wave_md)
+    diagnostics.extend(ledger_errors)
+    if not ledger_errors:
+        diagnostics.extend(validate_review_evidence_records(records))
+    diagnostics.extend(
+        validate_adopted_protocol_state(root, wave_md.parent.name, wave_md)
+    )
+
+    if diagnostics:
+        return {
+            "integrity": "invalid",
+            "projection_status": "unavailable",
+            "projection": None,
+            "approvals": [],
+            "diagnostics": diagnostics,
+        }
+
+    projection = render_review_evidence_projection(
+        empty_external_finding_synthesis_section(), records
+    ).strip()
+    try:
+        expected_wave = render_review_evidence_projection(text, records)
+    except ValueError:
+        projection_status = "missing"
+    else:
+        projection_status = "current" if expected_wave == text else "stale"
+    projection_diagnostics: list[str] = []
+    if projection_status != "current":
+        projection_diagnostics.append(
+            "wave.md review evidence projection is "
+            f"{projection_status}; current state was derived from events.jsonl"
+        )
+    approvals_by_key: dict[str, dict[str, str]] = {}
+    for record in records:
+        if (
+            record.get("record_type") != "executable_evidence"
+            or record.get("claim_kind") != "approval"
+        ):
             continue
-        body = line[2:]
-        key, _, value = body.partition(":")
-        items.append({"key": key.strip(), "value": value.strip()})
-    return items
+        claim_id = str(record.get("claim_id", ""))
+        if not claim_id.startswith("approval:"):
+            continue
+        key = claim_id.removeprefix("approval:")
+        approvals_by_key[key] = {
+            "key": key,
+            "value": str(record.get("observed", "recorded")),
+        }
+    return {
+        "integrity": "ok",
+        "projection_status": projection_status,
+        "projection": projection,
+        "approvals": list(approvals_by_key.values()),
+        "diagnostics": projection_diagnostics,
+    }
 
 
 @dataclass
@@ -939,7 +1026,7 @@ def collect_waves(root: Path) -> list[dict[str, Any]]:
         title_match = re.search(r"^Title:\s+(.+)$", text, re.MULTILINE)
         objective = _extract_section(text, "Objective")
         participants = _parse_participants(_extract_section(text, "Participants"))
-        evidence = _parse_review_evidence(_extract_section(text, "Review Evidence"))
+        evidence_state = _review_evidence_dashboard_state(root, wave_md, text)
         checkpoints = _extract_section(text, "Review Checkpoints").splitlines()
         result.append(
             {
@@ -951,7 +1038,13 @@ def collect_waves(root: Path) -> list[dict[str, Any]]:
                 "change_count": len(wave.get("changes", [])),
                 "changes": wave.get("changes", []),
                 "participants": participants,
-                "review_evidence": evidence,
+                "review_evidence": evidence_state["approvals"],
+                "review_evidence_projection": evidence_state["projection"],
+                "review_evidence_status": {
+                    "integrity": evidence_state["integrity"],
+                    "projection": evidence_state["projection_status"],
+                    "diagnostics": evidence_state["diagnostics"],
+                },
                 "review_checkpoint_preview": [line.strip() for line in checkpoints if line.strip()][:4],
                 "last_updated": datetime.fromtimestamp(wave_md.stat().st_mtime, UTC).isoformat(),
             }

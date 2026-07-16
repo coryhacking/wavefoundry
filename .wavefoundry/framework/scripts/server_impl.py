@@ -19,11 +19,11 @@ from typing import Any, Callable, Iterable, Literal, Optional
 
 sys.dont_write_bytecode = True
 
-# Evict wave_lint_lib submodules so that lazy imports inside tool handlers
-# (e.g. wave_scan_secrets_response) always pick up the current code on disk
-# after a wave_mcp_reload (importlib.reload of this module re-runs this block).
+# Evict lifecycle-validation modules so tool handlers always pick up the
+# current code on disk after a wave_mcp_reload (importlib.reload of this module
+# re-runs this block).
 for _wll_key in list(sys.modules):
-    if _wll_key.startswith("wave_lint_lib"):
+    if _wll_key.startswith("wave_lint_lib") or _wll_key == "review_evidence":
         del sys.modules[_wll_key]
 
 FASTEMBED_CACHE_DEFAULT = Path.home() / ".wavefoundry" / "cache" / "fastembed"
@@ -36,6 +36,29 @@ if str(SCRIPTS_DIR) not in sys.path:
 
 import venv_bootstrap  # the single venv resolver (wave 1p7pl)
 import subprocess_util  # shared subprocess isolation (wave 1p8gu)
+from review_evidence import (
+    EVENT_IDENTITY_FIELD,
+    PROTOCOL_VERSION,
+    REQUEST_DIGEST_FIELD,
+    REVIEW_EVIDENCE_SOURCE_DECLARATION,
+    adopted_protocol_state,
+    build_identified_review_event,
+    canonical_review_events_bytes,
+    derive_review_event_identity,
+    empty_external_finding_synthesis_section,
+    parse_review_evidence_source,
+    read_review_event_ledger,
+    record_protocol_state,
+    record_protocol_state_locked,
+    render_review_evidence_projection,
+    review_event_path,
+    review_event_request_digest,
+    review_event_write_lock,
+    review_evidence_summary,
+    validate_adopted_protocol_state,
+    validate_external_review_evidence,
+    validate_review_evidence_records,
+)
 
 DASHBOARD_START_WAIT_SECONDS = 5.0
 
@@ -5436,7 +5459,7 @@ def _wave_match_payload(root: Path, wave_md: Path) -> dict[str, Any]:
     wave_id = str(parsed.get("wave_id") or wave_md.parent.name)
     return {
         "wave_id": wave_id,
-        "path": str(wave_md.relative_to(root)).replace("\\", "/"),
+        "path": str(wave_md.relative_to(root.resolve())).replace("\\", "/"),
         "changes": _extract_change_ids_from_wave_text(text),
     }
 
@@ -5450,6 +5473,12 @@ def _resolve_wave_md_matches(root: Path, wave_id_or_prefix: str) -> list[dict[st
         return []
     matches: list[dict[str, Any]] = []
     for wave_md in waves_root.glob("*/wave.md"):
+        try:
+            wave_md, _ = _contained_wave_review_paths(root, wave_md)
+        except ValueError as exc:
+            if _token_matches_id(wave_md.parent.name, token):
+                raise ValueError(f"Wave record path is not contained: {exc}") from exc
+            continue
         try:
             parsed = _parse_wave_record(wave_md)
             wave_id = str(parsed.get("wave_id") or wave_md.parent.name).lower()
@@ -5736,7 +5765,11 @@ def _plan_change_doc_path(root: Path, change_id: str) -> Path:
 
 
 def _repo_rel(root: Path, path: Path) -> str:
-    return str(path.relative_to(root)).replace("\\", "/")
+    try:
+        relative = path.relative_to(root)
+    except ValueError:
+        relative = path.resolve(strict=False).relative_to(root.resolve())
+    return str(relative).replace("\\", "/")
 
 
 def _background_refresh_state_path(root: Path, layer: str = "project") -> Path:
@@ -6184,6 +6217,17 @@ def _extract_required_review_lanes(wave_text: str) -> list[str]:
             break
         if not in_participants:
             continue
+        bullet_match = re.match(
+            r"^-\s*Required review lanes\s*:\s*(?P<lanes>.+?)\s*$",
+            line,
+            re.IGNORECASE,
+        )
+        if bullet_match:
+            for lane in bullet_match.group("lanes").split(","):
+                normalized = lane.strip().strip("`").strip()
+                if normalized:
+                    lanes.append(normalized)
+            continue
         if not line.startswith("|") or line.startswith("|------"):
             continue
         cells = [c.strip() for c in line.strip("|").split("|")]
@@ -6206,6 +6250,48 @@ def _extract_required_review_lanes(wave_text: str) -> list[str]:
 def _lane_has_signoff(wave_text: str, lane: str) -> bool:
     """Whether ``lane`` has an explicit signoff on the same line in Review Evidence (not global heuristics)."""
     return _lane_has_signoff_in_evidence(_combined_review_evidence(wave_text), lane)
+
+
+def _atomic_replace_bytes(path: Path, payload: bytes, purpose: str) -> None:
+    """Replace one fixed-path lifecycle artifact from a same-directory temp file."""
+
+    temp = path.with_name(f".{path.name}.{os.getpid()}.{threading.get_ident()}.{purpose}.tmp")
+    try:
+        temp.write_bytes(payload)
+        os.replace(temp, path)
+    finally:
+        try:
+            temp.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+def _atomic_replace_text(path: Path, text: str, purpose: str) -> None:
+    _atomic_replace_bytes(path, text.encode("utf-8"), purpose)
+
+
+def _contained_wave_review_paths(root: Path, wave_md: Path) -> tuple[Path, Path]:
+    """Resolve the fixed wave/event paths and reject any repository escape."""
+
+    root_resolved = root.resolve()
+    expected_waves_root = root_resolved / "docs" / "waves"
+    waves_root = (root / "docs" / "waves").resolve(strict=False)
+    if waves_root != expected_waves_root:
+        raise ValueError("docs/waves must resolve to the canonical in-repository directory")
+    wave_dir = wave_md.parent.resolve(strict=False)
+    if wave_dir.parent != waves_root:
+        raise ValueError("wave directory must resolve to one direct child of docs/waves")
+    try:
+        wave_dir.relative_to(root_resolved)
+    except ValueError as exc:
+        raise ValueError("wave directory resolves outside the repository") from exc
+    expected_wave_md = wave_dir / "wave.md"
+    if wave_md.resolve(strict=False) != expected_wave_md:
+        raise ValueError("wave.md must not resolve through a file symlink")
+    expected_events = wave_dir / "events.jsonl"
+    if expected_events.resolve(strict=False) != expected_events:
+        raise ValueError("events.jsonl must not resolve through a file symlink")
+    return expected_wave_md, expected_events
 
 
 def create_wave(root: Path, slug: str, mode: str = "dry_run") -> dict[str, Any]:
@@ -6238,22 +6324,15 @@ def create_wave(root: Path, slug: str, mode: str = "dry_run") -> dict[str, Any]:
             "journal_path": journal_rel_path,
             "journal_exists": journal_exists,
         }
-    if exists:
-        return {
-            "wave_id": wave_id, "path": rel_path, "mode": mode_s,
-            "created": False, "exists": True,
-            "journal_path": journal_rel_path,
-            "journal_exists": journal_exists,
-        }
-    wave_dir.mkdir(parents=True, exist_ok=True)
+    wave_md, events_path = _contained_wave_review_paths(root, wave_md)
     today_iso = datetime.date.today().isoformat()
     title = slug_s.replace('-', ' ').title()
-    wave_md.write_text(
-        (
+    new_wave_text = (
             "# Wave Record\n\n"
             "Owner: Engineering\n"
             "Status: planned\n"
-            f"Last verified: {today_iso}\n\n"
+            f"Last verified: {today_iso}\n"
+            f"{REVIEW_EVIDENCE_SOURCE_DECLARATION}\n\n"
             f"wave-id: `{wave_id}`\n"
             f"Title: {title}\n\n"
             "## Objective\n\n"
@@ -6265,13 +6344,51 @@ def create_wave(root: Path, slug: str, mode: str = "dry_run") -> dict[str, Any]:
             "<Describe the purpose and scope of this wave in 1–3 sentences.>\n\n"
             "## Journal Watchpoints\n\n"
             "- <Add any coordination notes, sequencing constraints, or guard requirements here.>\n\n"
+            f"{empty_external_finding_synthesis_section()}\n"
             "## Review Evidence\n\n"
             "- operator-signoff: <approved when operator confirms closure>\n\n"
             "## Dependencies\n\n"
             "- No external wave dependencies.\n"
-        ),
-        encoding="utf-8",
     )
+    with review_event_write_lock(root):
+        if wave_md.exists():
+            existing_text = wave_md.read_text(encoding="utf-8")
+            source, source_errors = parse_review_evidence_source(existing_text)
+            if source != "events.jsonl" or source_errors:
+                raise RuntimeError(
+                    "Existing wave does not use the external review-event contract; "
+                    "runtime creation will not migrate inline history"
+                )
+            if not events_path.exists():
+                state, state_error = adopted_protocol_state(root, wave_id)
+                if state_error or state is not None:
+                    raise RuntimeError(
+                        "Existing adopted wave is missing events.jsonl; refusing to invent authority"
+                    )
+                _atomic_replace_bytes(events_path, b"", "create-events")
+            validation = validate_external_review_evidence(wave_md)
+            if validation.errors:
+                raise RuntimeError("Existing wave review evidence is invalid: " + "; ".join(validation.errors))
+            adoption_error = record_protocol_state_locked(root, wave_id, wave_md)
+            if adoption_error:
+                raise RuntimeError(
+                    f"Existing wave review-evidence adoption could not be reconciled: {adoption_error}"
+                )
+            return {
+                "wave_id": wave_id, "path": rel_path, "mode": mode_s,
+                "created": False, "exists": True,
+                "events_path": str(events_path.relative_to(root.resolve())).replace("\\", "/"),
+                "journal_path": journal_rel_path,
+                "journal_exists": journal_exists,
+            }
+        wave_dir.mkdir(parents=True, exist_ok=True)
+        _atomic_replace_bytes(events_path, b"", "create-events")
+        _atomic_replace_text(wave_md, new_wave_text, "create-wave")
+        adoption_error = record_protocol_state_locked(root, wave_id, wave_md)
+        if adoption_error:
+            raise RuntimeError(
+                f"Wave record and event ledger were created but durable adoption failed: {adoption_error}"
+            )
     # Co-create journal stub (1p3do). Idempotent: skip when the file already
     # exists so operator-customized journals are never overwritten.
     journal_created = False
@@ -6285,6 +6402,7 @@ def create_wave(root: Path, slug: str, mode: str = "dry_run") -> dict[str, Any]:
     return {
         "wave_id": wave_id, "path": rel_path, "mode": mode_s,
         "created": True, "exists": False,
+        "events_path": str(events_path.relative_to(root.resolve())).replace("\\", "/"),
         "journal_path": journal_rel_path,
         "journal_created": journal_created,
         "journal_exists": journal_exists,
@@ -6422,7 +6540,14 @@ def wave_add_change_response(
     mode_s = "create" if (mode or "").strip().lower() == "apply" else (mode or "").strip().lower()
     if mode_s not in {"dry_run", "create"}:
         return _response("error", {"wave_id": wave_id, "change_id": change_id, "mode": mode}, diagnostics=[_diagnostic("invalid_arguments", f"Unsupported mode '{mode}'.")], next_tools=["wave_help"], usage="wave_help()")
-    wave_md = _find_wave_md(root, wave_id)
+    try:
+        wave_md = _find_wave_md(root, wave_id)
+    except ValueError as exc:
+        return _response(
+            "error",
+            {"wave_id": wave_id, "change_id": change_id, "mode": mode_s},
+            diagnostics=[_diagnostic("review_evidence_path_escape", str(exc))],
+        )
     if wave_md is None:
         return _response("error", {"wave_id": wave_id, "change_id": change_id, "mode": mode_s}, diagnostics=[_diagnostic("wave_not_found", f"No wave found matching '{wave_id}'.", recovery_tools=["wave_list_waves"], recovery_usage="wave_list_waves()")], next_tools=["wave_list_waves"], usage="wave_list_waves()")
     change_matches = _resolve_change_doc_matches(root, change_id)
@@ -10943,6 +11068,485 @@ def _build_prepare_council_brief(wave_id: str, wave_text: str, change_ids: list[
     }
 
 
+def _wave_uses_external_review_evidence(root: Path, wave_md: Path) -> bool:
+    """True for the new contract; unmarked pre-protocol waves remain prose-only legacy."""
+
+    try:
+        text = wave_md.read_text(encoding="utf-8")
+    except OSError:
+        return False
+    source, source_errors = parse_review_evidence_source(text)
+    state, adoption_error = adopted_protocol_state(root, wave_md.parent.name)
+    legacy_inline_marker = re.search(r"(?mi)^review-evidence-protocol\s*:", text) is not None
+    return (
+        source is not None
+        or bool(source_errors)
+        or state is not None
+        or adoption_error is not None
+        or legacy_inline_marker
+    )
+
+
+def _review_evidence_diagnostics(
+    text: str,
+    *,
+    root: Path | None = None,
+    wave_key: str | None = None,
+    persist_adoption: bool = False,
+    closure: bool = False,
+    required_run_kind: str | None = None,
+) -> list[dict[str, Any]]:
+    """Translate the external-ledger validator's errors into lifecycle diagnostics."""
+
+    if root is None or wave_key is None:
+        errors = ["external review evidence validation requires repository root and wave key"]
+        result = None
+    else:
+        wave_md = _find_wave_md(root, wave_key)
+        if wave_md is None:
+            errors = [f"no wave record found for `{wave_key}`"]
+            result = None
+        elif not _wave_uses_external_review_evidence(root, wave_md):
+            errors = []
+            result = None
+        else:
+            result = validate_external_review_evidence(wave_md, closure=closure)
+            errors = list(result.errors)
+            errors.extend(validate_adopted_protocol_state(root, wave_md.parent.name, wave_md))
+            if not result.errors:
+                try:
+                    raw_projection = wave_md.read_text(encoding="utf-8")
+                    if render_review_evidence_projection(raw_projection, result.records) != raw_projection:
+                        errors.append(
+                            "Finding Synthesis projection is stale relative to canonical events.jsonl; "
+                            "replay the last typed review event to reconcile it"
+                        )
+                except (OSError, ValueError) as exc:
+                    errors.append(f"Finding Synthesis projection could not be checked: {exc}")
+    if result is not None and required_run_kind is not None:
+        has_required_run = any(
+            record.get("record_type") == "review_run"
+            and record.get("run_kind") == required_run_kind
+            for record in result.records
+        )
+        if not has_required_run:
+            errors.append(
+                f"marked wave requires a `{required_run_kind}` Review Run Record at this lifecycle phase"
+            )
+    if (
+        not errors
+        and persist_adoption
+        and result is not None
+        and root is not None
+        and wave_key is not None
+    ):
+        adoption_error = record_protocol_state(root, wave_key, wave_md)
+        if adoption_error:
+            errors.append(adoption_error)
+    return [
+        _diagnostic(
+            "review_evidence_invalid",
+            error,
+            recovery_tools=["wave_current", "wave_validate"],
+            recovery_usage="wave_current()",
+        )
+        for error in errors
+    ]
+
+
+def _approval_evidence_diagnostics(
+    text: str,
+    required_signoff_keys: Iterable[str],
+    *,
+    root: Path | None = None,
+    wave_key: str | None = None,
+    records: Iterable[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    """Bind prose lane/council signoffs to executed evidence on marked waves."""
+
+    if records is None:
+        if root is None or wave_key is None:
+            return []
+        wave_md = _find_wave_md(root, wave_key)
+        if wave_md is None or not _wave_uses_external_review_evidence(root, wave_md):
+            return []
+        result = validate_external_review_evidence(wave_md)
+        if result.errors:
+            return []
+        rows = result.records
+    else:
+        rows = tuple(records)
+    repair_rows = [
+        (position, record)
+        for position, record in enumerate(rows)
+        if record.get("record_type") == "finding_synthesis"
+        and isinstance(record.get("cycle"), int)
+        and record.get("cycle", 0) > 0
+    ]
+    approval_rows = {
+        str(record.get("claim_id")): (position, record)
+        for position, record in enumerate(rows)
+        if record.get("record_type") == "executable_evidence"
+        and record.get("claim_kind") == "approval"
+        and record.get("required_for_approval") is True
+        and record.get("phase") == "delivery"
+        and record.get("execution_status") == "executed"
+    }
+    missing: list[str] = []
+    invalid: list[str] = []
+    for key in required_signoff_keys:
+        approval_entry = approval_rows.get(f"approval:{key}")
+        if approval_entry is None:
+            missing.append(key)
+            continue
+        position, row = approval_entry
+        context = row.get("verification_context")
+        actor = context.get("actor") if isinstance(context, dict) else None
+        expected_actor = "operator" if key == "operator-signoff" else (
+            "wave-council" if key.startswith("wave-council-") else key
+        )
+        actor_valid = actor == expected_actor
+        independence_valid = bool(
+            key == "operator-signoff"
+            or (
+                isinstance(context, dict)
+                and context.get("fresh_context") is True
+                and context.get("independent") is True
+            )
+        )
+        affected_positions: list[int] = []
+        for repair_position, repair in repair_rows:
+            explicit = repair.get("approval_recheck_lanes")
+            affected_lanes = (
+                {str(lane) for lane in explicit}
+                if isinstance(explicit, list)
+                else {
+                    str(lane)
+                    for lane in [
+                        *repair.get("source_lanes", []),
+                        *repair.get("blocking_required_lanes", []),
+                    ]
+                }
+            )
+            if key == "operator-signoff":
+                affected = True
+            elif key.startswith("wave-council-"):
+                affected = (
+                    key in affected_lanes
+                    or "wave-council" in affected_lanes
+                    or repair.get("review_depth") == "full"
+                )
+            else:
+                affected = key in affected_lanes
+            if affected:
+                affected_positions.append(repair_position)
+        latest_affected_repair = max(affected_positions, default=-1)
+        chronology_valid = position > latest_affected_repair
+        if not actor_valid or not independence_valid or not chronology_valid:
+            invalid.append(key)
+    if not missing and not invalid:
+        return []
+    details: list[str] = []
+    if missing:
+        details.append(f"missing: {', '.join(missing)}")
+    if invalid:
+        details.append(
+            "invalid actor, independence, or post-repair chronology: " + ", ".join(invalid)
+        )
+    return [
+        _diagnostic(
+            "missing_executable_approval_evidence",
+            "Marked wave approval signoffs require executed delivery Evidence Records with "
+            "claim_kind `approval`, claim_id `approval:<signoff-key>`, and a matching actor "
+            "(`operator` for operator-signoff, `wave-council` for council signoffs, or the exact "
+            f"specialist lane); specialist/council evidence must be fresh and independent; {'; '.join(details)}.",
+            recovery_tools=["wave_review", "wave_current"],
+            recovery_usage="wave_review()",
+        )
+    ]
+
+
+def _append_review_evidence_state_line(text: str, key: str, state: str, note: str) -> str:
+    """Append one exact-key state line so the existing latest-state parser remains authoritative."""
+
+    marker = "## Review Evidence"
+    start = text.find(marker)
+    if start < 0:
+        suffix = "" if text.endswith("\n") else "\n"
+        return text + suffix + f"\n{marker}\n\n- {key}: {state} — {note}\n"
+    section_start = text.find("\n", start + len(marker))
+    if section_start < 0:
+        section_start = len(text)
+    else:
+        section_start += 1
+    next_heading = re.search(r"(?m)^## ", text[section_start:])
+    insert_at = section_start + next_heading.start() if next_heading else len(text)
+    prefix = text[:insert_at].rstrip() + "\n"
+    suffix = text[insert_at:]
+    return prefix + f"- {key}: {state} — {note}\n\n" + suffix.lstrip("\n")
+
+
+def _identified_review_event_bundle(
+    records: Iterable[dict[str, Any]], identity: dict[str, Any]
+) -> tuple[dict[str, Any], ...] | None:
+    """Return the committed bundle whose leading row owns ``identity``."""
+
+    rows = tuple(records)
+    for start, row in enumerate(rows):
+        if row.get(EVENT_IDENTITY_FIELD) != identity:
+            continue
+        end = start + 1
+        while end < len(rows) and EVENT_IDENTITY_FIELD not in rows[end]:
+            end += 1
+        return tuple(rows[start:end])
+    return None
+
+
+def wave_record_review_evidence_response(
+    root: Path,
+    wave_id: str,
+    event: str,
+    actor: str,
+    context_id: str,
+    *,
+    mode: str = "dry_run",
+    signoff_key: str | None = None,
+    finding_id: str | None = None,
+    run_kind: str | None = None,
+    cycle: int = 0,
+    judgment: dict[str, Any] | None = None,
+    evidence: dict[str, Any] | None = None,
+    source_lanes: list[str] | None = None,
+    blocking_required_lanes: list[str] | None = None,
+    approval_recheck_lanes: list[str] | None = None,
+    review_boundaries_changed: list[str] | None = None,
+    fresh_context: bool = False,
+    independent: bool = False,
+    integrity_confirmed: bool = False,
+) -> dict[str, Any]:
+    """Preview or append a compact semantic review event to a marked wave."""
+
+    mode_s = (mode or "dry_run").strip().lower()
+    if mode_s not in {"dry_run", "create"}:
+        return _response(
+            "error",
+            {"wave_id": wave_id, "mode": mode_s},
+            diagnostics=[_diagnostic("invalid_arguments", "mode must be dry_run or create")],
+            next_tools=["wave_help"],
+            usage="wave_help()",
+        )
+    try:
+        wave_md = _find_wave_md(root, wave_id)
+    except ValueError as exc:
+        return _response(
+            "error",
+            {"wave_id": wave_id, "mode": mode_s, "event": event},
+            diagnostics=[_diagnostic("review_evidence_path_escape", str(exc))],
+        )
+    if wave_md is None:
+        return _response(
+            "error",
+            {"wave_id": wave_id},
+            diagnostics=[_diagnostic("wave_not_found", f"No wave found matching '{wave_id}'.")],
+            next_tools=["wave_list_waves"],
+            usage="wave_list_waves()",
+        )
+    try:
+        wave_md, _events_path = _contained_wave_review_paths(root, wave_md)
+    except ValueError as exc:
+        return _response(
+            "error",
+            {"wave_id": wave_id, "mode": mode_s, "event": event},
+            diagnostics=[_diagnostic("review_evidence_path_escape", str(exc))],
+        )
+    semantic_event: dict[str, Any] = {
+        "event": event,
+        "actor": actor,
+        "context_id": context_id,
+        "signoff_key": signoff_key,
+        "finding_id": finding_id,
+        "run_kind": run_kind,
+        "cycle": cycle,
+        "judgment": judgment,
+        "source_lanes": source_lanes or [],
+        "blocking_required_lanes": blocking_required_lanes or [],
+        "approval_recheck_lanes": approval_recheck_lanes or [],
+        "review_boundaries_changed": review_boundaries_changed or [],
+        "fresh_context": fresh_context,
+        "independent": independent,
+        "integrity_confirmed": integrity_confirmed,
+    }
+    evidence_payload = dict(evidence or {})
+    protected_collisions = sorted(
+        (set(semantic_event) | {EVENT_IDENTITY_FIELD, REQUEST_DIGEST_FIELD})
+        .intersection(evidence_payload)
+    )
+    if protected_collisions:
+        return _response(
+            "error",
+            {"wave_id": wave_id, "mode": mode_s, "event": event},
+            diagnostics=[
+                _diagnostic(
+                    "invalid_review_event",
+                    "evidence may not override protected semantic field(s): "
+                    + ", ".join(protected_collisions),
+                )
+            ],
+            next_tools=["wave_help"],
+            usage="wave_help(goal='record_review_evidence')",
+        )
+    semantic_event.update(evidence_payload)
+    try:
+        identity = derive_review_event_identity(wave_md.parent.name, semantic_event)
+        request_digest = review_event_request_digest(semantic_event)
+    except (TypeError, ValueError) as exc:
+        return _response(
+            "error",
+            {"wave_id": wave_id, "mode": mode_s, "event": event},
+            diagnostics=[_diagnostic("invalid_review_event", str(exc))],
+        )
+
+    def transact() -> dict[str, Any]:
+        original = wave_md.read_text(encoding="utf-8")
+        current = validate_external_review_evidence(wave_md)
+        if current.errors:
+            return _response(
+                "error",
+                {"wave_id": wave_id, "mode": mode_s},
+                diagnostics=[_diagnostic("review_evidence_invalid", error) for error in current.errors],
+                next_tools=["wave_review", "wave_current"],
+            )
+        existing_bundle = _identified_review_event_bundle(current.records, identity)
+        durable_errors = validate_adopted_protocol_state(root, wave_md.parent.name, wave_md)
+        recoverable_suffix = durable_errors == ("canonical review event ledger has an unadopted suffix",)
+        if durable_errors and not (recoverable_suffix and existing_bundle is not None):
+            return _response(
+                "error",
+                {"wave_id": wave_id, "mode": mode_s},
+                diagnostics=[_diagnostic("review_evidence_adoption_invalid", error) for error in durable_errors],
+                next_tools=["wave_review"],
+            )
+        replayed = existing_bundle is not None
+        if existing_bundle is not None:
+            if existing_bundle[0].get(REQUEST_DIGEST_FIELD) != request_digest:
+                return _response(
+                    "error",
+                    {"wave_id": wave_id, "mode": mode_s, "event": event},
+                    diagnostics=[_diagnostic(
+                        "review_event_identity_conflict",
+                        "the derived event identity already exists with different semantic content",
+                    )],
+                )
+            appended = existing_bundle
+            proposed_records = tuple(current.records)
+        else:
+            appended, build_errors = build_identified_review_event(
+                current.records, wave_md.parent.name, semantic_event
+            )
+            if build_errors:
+                return _response(
+                    "error",
+                    {"wave_id": wave_id, "mode": mode_s, "event": event},
+                    diagnostics=[_diagnostic("invalid_review_event", error) for error in build_errors],
+                    next_tools=["wave_help"],
+                )
+            proposed_records = (*current.records, *appended)
+            record_errors = validate_review_evidence_records(proposed_records)
+            if record_errors:
+                return _response(
+                    "error",
+                    {"wave_id": wave_id, "mode": mode_s, "event": event},
+                    diagnostics=[_diagnostic("review_evidence_invalid", error) for error in record_errors],
+                )
+        projected = original
+        note = str((evidence or {}).get("observed") or finding_id or event)
+        if event == "approval" and signoff_key:
+            if not (
+                replayed
+                and _lane_has_signoff_in_evidence(
+                    _combined_review_evidence(projected), signoff_key, authorization=True
+                )
+            ):
+                projected = _append_review_evidence_state_line(
+                    projected, signoff_key, "approved", note
+                )
+        elif event == "finding":
+            for lane in approval_recheck_lanes or []:
+                already_withdrawn = replayed and any(
+                    _normalize_signoff_line(line.lower()).startswith(f"{lane.lower()}: withdrawn")
+                    and str(finding_id).lower() in line.lower()
+                    for line in _combined_review_evidence(projected).splitlines()
+                )
+                if already_withdrawn:
+                    continue
+                projected = _append_review_evidence_state_line(
+                    projected, lane, "withdrawn",
+                    f"{finding_id} requires affected-lane re-verification",
+                )
+        projected = render_review_evidence_projection(projected, proposed_records)
+        payload = {
+            "wave_id": wave_md.parent.name,
+            "path": str(wave_md.relative_to(root.resolve())).replace("\\", "/"),
+            "events_path": str(review_event_path(wave_md).relative_to(root.resolve())).replace("\\", "/"),
+            "mode": mode_s,
+            "event": event,
+            "appended_records": list(appended),
+            "summary": review_evidence_summary(proposed_records),
+            "replayed": replayed,
+        }
+        if mode_s == "dry_run":
+            return _response("dry_run", payload, next_tools=["wave_record_review_evidence"])
+        event_committed = replayed
+        if not replayed:
+            try:
+                _atomic_replace_bytes(
+                    review_event_path(wave_md),
+                    canonical_review_events_bytes(proposed_records),
+                    "review-events",
+                )
+                event_committed = True
+            except OSError as exc:
+                return _response(
+                    "error", payload,
+                    diagnostics=[_diagnostic("review_event_commit_failed", str(exc))],
+                )
+        adoption_error = record_protocol_state_locked(root, wave_md.parent.name, wave_md)
+        if adoption_error:
+            payload.update(event_committed=event_committed, adoption_pending=True)
+            return _response(
+                "partial", payload,
+                diagnostics=[_diagnostic("review_evidence_adoption_pending", adoption_error)],
+                next_tools=["wave_record_review_evidence"],
+            )
+        try:
+            _atomic_replace_text(wave_md, projected, "review-projection")
+        except OSError as exc:
+            payload.update(event_committed=True, projection_stale=True)
+            return _response(
+                "partial", payload,
+                diagnostics=[_diagnostic("review_evidence_projection_stale", str(exc))],
+                next_tools=["wave_record_review_evidence", "wave_review"],
+            )
+        payload.update(event_committed=True, adoption_pending=False, projection_stale=False)
+        return _response("ok", payload, next_tools=["wave_review", "wave_current"])
+
+    try:
+        if mode_s == "create":
+            with review_event_write_lock(root):
+                response = transact()
+        else:
+            response = transact()
+    except OSError as exc:
+        return _response(
+            "error",
+            {"wave_id": wave_id, "mode": mode_s, "event": event},
+            diagnostics=[_diagnostic("review_evidence_persist_failed", str(exc))],
+        )
+    if mode_s == "create" and response.get("status") == "ok":
+        _trigger_background_index_refresh_for_paths(root, [wave_md])
+    return response
+
+
 def wave_prepare_response(root: Path, wave_id: str, mode: str = "dry_run", cache: Optional[McpRepoCache] = None) -> dict[str, Any]:
     mode_s = "create" if (mode or "").strip().lower() == "apply" else (mode or "").strip().lower()
     if mode_s not in {"dry_run", "ready", "create"}:
@@ -10961,6 +11565,14 @@ def wave_prepare_response(root: Path, wave_id: str, mode: str = "dry_run", cache
     text = wave_md.read_text(encoding="utf-8")
     change_ids = _extract_change_ids_from_wave_text(text)
     diagnostics: list[dict[str, Any]] = []
+    diagnostics.extend(
+        _review_evidence_diagnostics(
+            text,
+            root=root,
+            wave_key=wave_md.parent.name,
+            persist_adoption=_mutating,
+        )
+    )
     _ac_advisories: list[dict[str, Any]] = []
     repairs_needed = 0
     repaired = 0
@@ -11182,6 +11794,18 @@ def wave_prepare_response(root: Path, wave_id: str, mode: str = "dry_run", cache
                 next_tools=["wave_prepare"],
                 usage="wave_prepare(mode='create')",
             )
+    else:
+        # The readiness run is evidence *for* the completed prepare review. Do
+        # not require it before the council has run: the no-verdict path above
+        # must remain able to return the brief that makes that review possible.
+        diagnostics.extend(
+            _review_evidence_diagnostics(
+                text,
+                root=root,
+                wave_key=wave_md.parent.name,
+                required_run_kind="readiness",
+            )
+        )
     if diagnostics:
         error_data = {"wave_id": wave_id, "mode": mode_s, "change_count": len(change_ids), "lint_passed": lint_passed, "garden_passed": garden_passed, "repairs_needed": repairs_needed, "repaired": repaired}
         error_data["required_council_signoffs"] = required_council_signoffs
@@ -11318,6 +11942,13 @@ def wave_review_response(root: Path, wave_id: str, phase: str = "implementation"
     _trigger_background_index_refresh_for_paths(root, [wave_md])
     lint_result = run_validate(root)
     wave_text = wave_md.read_text(encoding="utf-8")
+    review_evidence_diagnostics = _review_evidence_diagnostics(
+        wave_text,
+        root=root,
+        wave_key=wave_md.parent.name,
+        persist_adoption=True,
+        required_run_kind="readiness" if phase_s == "prepare" else "initial_delivery",
+    )
     # Merge lanes from wave.md Participants table and project-declared required_review_lanes
     wave_lanes = _extract_required_review_lanes(wave_text)
     project_lanes = _read_project_required_review_lanes(root)
@@ -11328,7 +11959,9 @@ def wave_review_response(root: Path, wave_id: str, phase: str = "implementation"
         # Prepare-phase: check signoffs in ## Prepare Review Evidence (no operator signoff required)
         evidence = _prepare_review_evidence(wave_text)
         lane_results = [{"lane": lane, "recorded_signoff": _lane_has_signoff_in_evidence(evidence, lane)} for lane in required_lanes]
-        diagnostics = [] if lint_result["passed"] else [_diagnostic("docs_lint_error", err, recovery_tools=["wave_validate"]) for err in lint_result["errors"]]
+        diagnostics = list(review_evidence_diagnostics)
+        if not lint_result["passed"]:
+            diagnostics.extend(_diagnostic("docs_lint_error", err, recovery_tools=["wave_validate"]) for err in lint_result["errors"])
         missing = [entry["lane"] for entry in lane_results if not entry["recorded_signoff"]]
         if missing:
             diagnostics.append(_diagnostic(
@@ -11338,7 +11971,7 @@ def wave_review_response(root: Path, wave_id: str, phase: str = "implementation"
                 recovery_tools=["wave_current"],
                 recovery_usage="wave_current()",
             ))
-        status = "ok" if lint_result["passed"] and not missing else "error"
+        status = "ok" if lint_result["passed"] and not missing and not review_evidence_diagnostics else "error"
         return _response(
             status,
             {"wave_id": wave_id, "phase": phase_s, "required_lanes": required_lanes, "lane_results": lane_results, "lint_passed": lint_result["passed"]},
@@ -11355,7 +11988,16 @@ def wave_review_response(root: Path, wave_id: str, phase: str = "implementation"
         {"signoff_key": signoff_key, "recorded_signoff": _lane_has_signoff(wave_text, signoff_key)}
         for signoff_key in required_council_signoffs
     ]
-    diagnostics = [] if lint_result["passed"] else [_diagnostic("docs_lint_error", err, recovery_tools=["wave_validate"]) for err in lint_result["errors"]]
+    diagnostics = list(review_evidence_diagnostics)
+    approval_evidence_diagnostics = _approval_evidence_diagnostics(
+        wave_text,
+        ["operator-signoff", *required_lanes[1:], *required_council_signoffs],
+        root=root,
+        wave_key=wave_md.parent.name,
+    )
+    diagnostics.extend(approval_evidence_diagnostics)
+    if not lint_result["passed"]:
+        diagnostics.extend(_diagnostic("docs_lint_error", err, recovery_tools=["wave_validate"]) for err in lint_result["errors"])
     missing = [entry["lane"] for entry in lane_results if not entry["recorded_signoff"]]
     if "operator" in missing:
         diagnostics.append(_diagnostic(
@@ -11393,7 +12035,13 @@ def wave_review_response(root: Path, wave_id: str, phase: str = "implementation"
             recovery_tools=["wave_current"],
             recovery_usage="wave_current()",
         ))
-    status = "ok" if lint_result["passed"] and not missing and not missing_council else "error"
+    status = "ok" if (
+        lint_result["passed"]
+        and not missing
+        and not missing_council
+        and not review_evidence_diagnostics
+        and not approval_evidence_diagnostics
+    ) else "error"
     # 1p8gy AC-6: prior review findings and lessons relevant to this wave.
     _review_data = {"wave_id": wave_id, "phase": phase_s, "required_lanes": required_lanes, "lane_results": lane_results, "required_council_signoffs": required_council_signoffs, "council_results": council_results, "lint_passed": lint_result["passed"], "max_severity": max_severity}
     _mem_advisories = _memory_advisories_for_wave(
@@ -11787,6 +12435,16 @@ def wave_close_response(root: Path, wave_id: str, mode: str = "dry_run", cache: 
     open_statuses = {"stub", "planned", "ready", "active"}
     unresolved = [s for s in statuses if s in open_statuses]
     diagnostics: list[dict[str, Any]] = []
+    diagnostics.extend(
+        _review_evidence_diagnostics(
+            text,
+            root=root,
+            wave_key=wave_md.parent.name,
+            persist_adoption=mode_s == "create",
+            closure=True,
+            required_run_kind="initial_delivery",
+        )
+    )
     if not garden_passed:
         diagnostics.append(_diagnostic("docs_gardener_failed", "docs_gardener failed during close.", recovery_tools=["wave_garden", "wave_validate"], recovery_usage="wave_garden(mode='run')"))
     if unresolved:
@@ -11809,6 +12467,14 @@ def wave_close_response(root: Path, wave_id: str, mode: str = "dry_run", cache: 
     project_lanes = _read_project_required_review_lanes(root)
     required_lanes = list({*wave_lanes, *project_lanes})  # deduped, order doesn't matter here
     required_council_signoffs = _required_wave_council_signoffs(root, "close", wave_text=text)
+    diagnostics.extend(
+        _approval_evidence_diagnostics(
+            text,
+            ["operator-signoff", *required_lanes, *required_council_signoffs],
+            root=root,
+            wave_key=wave_md.parent.name,
+        )
+    )
     evidence_present = bool(_combined_review_evidence(text).strip())
     if required_lanes:
         if not evidence_present:
@@ -20236,6 +20902,103 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         return wave_review_response(get_handler().root, wave_id, phase=phase)
 
     @mcp.tool(annotations=_MUTATING_TOOL)
+    def wave_record_review_evidence(
+        wave_id: str,
+        event: str,
+        actor: str,
+        context_id: str,
+        mode: str = "dry_run",
+        signoff_key: str | None = None,
+        finding_id: str | None = None,
+        run_kind: str | None = None,
+        cycle: int = 0,
+        judgment: dict[str, Any] | None = None,
+        evidence: dict[str, Any] | None = None,
+        source_lanes: list[str] | None = None,
+        blocking_required_lanes: list[str] | None = None,
+        approval_recheck_lanes: list[str] | None = None,
+        review_boundaries_changed: list[str] | None = None,
+        fresh_context: bool = False,
+        independent: bool = False,
+        integrity_confirmed: bool = False,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        """Preview or append compact executable-review evidence without hand-authoring JSONL.
+
+        ``event`` is ``approval``, ``finding``, or ``run``. The default ``dry_run`` returns the
+        exact derived records without writing; ``create`` serializes under the project-global lock,
+        atomically replaces the fixed sibling ``events.jsonl`` authority, advances its bounded
+        adoption proof, and rebuilds the Markdown current-state projection. The server derives a
+        structured operation identity from the existing semantic inputs: identical retries replay
+        without appending, while conflicting content fails closed. Post-commit adoption/projection
+        failures return explicit partial-success fields and converge on retry. ``finding`` callers
+        must provide every load-bearing judgment
+        field explicitly in ``judgment``; the tool derives only IDs, actionability, blocking,
+        review depth, supersession, cycle linkage, and record ordering. ``evidence`` carries the
+        falsifiable proposition and executed observation fields. An executed claim also requires
+        ``integrity_confirmed=true``. ``approval_recheck_lanes`` names only the approvals affected
+        by that finding; unrelated lane approvals remain current. Approval events require the exact
+        signoff actor, and non-operator approvals require fresh independent context.
+        When a ``reverification`` completes cycle 2 after cycle 1, the same identified operation
+        derives and appends the mandatory ``convergence_checkpoint`` atomically. Its
+        ``frozen_boundary`` is computed from the post-reverification wave-current synthesis heads;
+        callers do not author a separate lightweight checkpoint event.
+
+        Args:
+            wave_id: Wave ID or unique prefix.
+            event: ``approval``, ``finding``, or empty lightweight ``run``.
+            actor: Exact reviewer/operator lane recording the event.
+            context_id: Stable identifier for this verification context.
+            mode: ``dry_run`` (default) or ``create``.
+            signoff_key: Required for approval, e.g. ``qa-reviewer`` or ``wave-council-delivery``.
+            finding_id: Required for finding.
+            run_kind: Required for finding/run; one of the canonical review run kinds.
+            cycle: Review cycle (0 for readiness/initial delivery).
+            judgment: Finding semantic facts. Required core keys: validation_status,
+                scope_relation, introduced_or_worsened_by_wave, contract_relevance,
+                supported_reachability, attacker_reachability, authority_domain,
+                authority_delta, observable_impact, containment. A real non-action-required
+                finding also requires fix_risk, optional_value, repair_scope_bounded,
+                repair_safety, benefit_vs_fix_risk, and rejection_basis.
+            evidence: Evidence narrative/fixture facts. Finding requires proposition,
+                failure_condition, public_path, command_or_fixture, expected, observed,
+                artifact_or_test_id, known_bad_detection_method, limitations,
+                safety_and_authorization, and disposition_rationale. Approval requires observed
+                and artifact_or_test_id; other fields are optional overrides.
+            source_lanes: Originating reviewer lanes for a finding.
+            blocking_required_lanes: Required lanes still blocking the finding.
+            approval_recheck_lanes: Exact approvals invalidated by this finding.
+            review_boundaries_changed: Canonical full-council trigger names that actually changed.
+            fresh_context: Whether the actor started without retained repair context.
+            independent: Whether the actor did not implement the repair and formed its own verdict.
+            integrity_confirmed: Explicit confirmation of the five evidence-integrity checks.
+        """
+        bad = _ensure_no_extra_args("wave_record_review_evidence", kwargs)
+        if bad is not None:
+            return bad
+        return wave_record_review_evidence_response(
+            get_handler().root,
+            wave_id,
+            event,
+            actor,
+            context_id,
+            mode=mode,
+            signoff_key=signoff_key,
+            finding_id=finding_id,
+            run_kind=run_kind,
+            cycle=cycle,
+            judgment=judgment,
+            evidence=evidence,
+            source_lanes=source_lanes,
+            blocking_required_lanes=blocking_required_lanes,
+            approval_recheck_lanes=approval_recheck_lanes,
+            review_boundaries_changed=review_boundaries_changed,
+            fresh_context=fresh_context,
+            independent=independent,
+            integrity_confirmed=integrity_confirmed,
+        )
+
+    @mcp.tool(annotations=_MUTATING_TOOL)
     def wave_implement(wave_id: str, mode: str = "dry_run", **kwargs: Any) -> dict[str, Any]:
         """Gate and context builder for starting wave implementation.
 
@@ -21595,6 +22358,49 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             return path.read_text(encoding="utf-8")
         return f"# Not Found\n\n`{label}` does not exist at `{_repo_rel(get_handler().root, path)}`.\n"
 
+    def _validated_wave_markdown(path: Path) -> str:
+        """Serve canonical-event-derived projection or fail closed on authority damage."""
+
+        if not _wave_uses_external_review_evidence(get_handler().root, path):
+            return path.read_text(encoding="utf-8")
+        validation = validate_external_review_evidence(path)
+        adoption_errors = validate_adopted_protocol_state(
+            get_handler().root, path.parent.name, path
+        )
+        if validation.authority_errors or adoption_errors:
+            details = [*validation.authority_errors, *adoption_errors]
+            return (
+                "# Wave Review Evidence Unavailable\n\n"
+                "The canonical `events.jsonl` authority failed validation; the Markdown "
+                "projection is not being served as review state.\n\n"
+                + "\n".join(f"- {detail}" for detail in details)
+                + "\n"
+            )
+        raw = path.read_text(encoding="utf-8")
+        projection_status = "current"
+        try:
+            rendered = render_review_evidence_projection(raw, validation.records)
+            if rendered != raw or validation.projection_errors:
+                projection_status = "stale"
+        except ValueError:
+            projection_status = "missing"
+            rendered = (
+                raw.rstrip()
+                + "\n\n"
+                + render_review_evidence_projection(
+                    empty_external_finding_synthesis_section(), validation.records
+                ).strip()
+                + "\n"
+            )
+        if projection_status != "current":
+            return (
+                rendered.rstrip()
+                + "\n\n> Wavefoundry diagnostic: the on-disk Finding Synthesis projection "
+                f"is {projection_status}; this response was derived from validated `events.jsonl`. "
+                "Replay the last typed review event to repair it.\n"
+            )
+        return raw
+
     @mcp.resource(
         "wavefoundry://overview",
         name="project_overview",
@@ -21647,7 +22453,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             return "# No Active Wave\n\nNo active wave found. Use `wave_create_wave` to start one.\n"
         wave_path = get_handler().root / wave_info["path"]
         if wave_path.exists():
-            return wave_path.read_text(encoding="utf-8")
+            return _validated_wave_markdown(wave_path)
         return f"# Wave Not Found\n\nWave record path `{wave_info['path']}` does not exist on disk.\n"
 
     @mcp.resource(
@@ -21712,7 +22518,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
                 lines.append(f"- `{match['wave_id']}` — `{match['path']}`{suffix}")
             return "\n".join(lines) + "\n"
         wave_md = root / str(matches[0]["path"])
-        return wave_md.read_text(encoding="utf-8")
+        return _validated_wave_markdown(wave_md)
 
     @mcp.resource(
         "wavefoundry://prompt/{slug}",

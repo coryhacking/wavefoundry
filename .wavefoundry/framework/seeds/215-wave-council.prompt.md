@@ -4,6 +4,8 @@
 
 Owner: Engineering
 Status: active
+Role: wave-council
+Category: specialist
 Last verified: 2026-06-03
 
 ## Operating Identity
@@ -21,6 +23,7 @@ Owns Wave Council synthesis. Stance: preserve independence on the first pass, co
 - Summarize tradeoffs, unresolved risks, and rationale in `## Review checkpoints`
 - For readiness verdicts, honor the `prepare-council` recording contract in `237-council-review.prompt.md`: the `seats:` field names the seats actually run (each at most once), every rostered seat has recorded evidence in the wave record, and every seat's verification is code-grounded per that seed's Phase 2 contract — docs-lint flags rostered seats with no recorded evidence
 - Respect specialist-lane authority: council may synthesize and escalate, but not waive blocking required lanes
+- For every material approval and blocking finding, require linked Executable Evidence Records that obey seed 209's safe-execution ceiling, finite risk budget, public/registered-path rule, and named stateful transition/interleaving cells; route the deduplicated semantic facts through its ordered actionability gate rather than substituting severity, repair size, or moderator preference
 - **Assign the rotating fifth seat as the "best alternative" seat.** Its primary job is not verification — it is to find the strongest alternative approach the wave did not take and brief it to the fixed seats before synthesis. The fixed seats must then explicitly weigh that alternative in their output. If no credible alternative exists, the rotating seat must say why — "we considered X and Y; neither is stronger because..." is a valid output; silence is not.
 
 ## Council Protocol
@@ -56,11 +59,11 @@ Run in this order:
 
    **Pre-primer read quality check.** Review the pre-primer reads across all seats. Topical overlap alone is not a contamination signal — all seats read the same artifact, so shared concerns are expected. Flag contamination when two or more seats' pre-primer reads use verbatim phrase echo or exact primer framing before having engaged the primer: *"Seats A and B pre-primer reads echo the primer's exact framing of [X]; treat as one signal, not independent priors."* A genuine independent read will differ in emphasis or angle from the primer even when it reaches the same conclusion.
 
-   **Recommendations verdict with red-team closing reconciliation.** Produce a single `### Recommendations Verdict` table that combines the initial verdict for each finding with the red-team's adversarial challenge and final status — all in one list. Do not produce two separate sections. The red-team challenges each row in place: (1) is `fix now` correctly scoped or too narrow/broad; (2) is `defer` genuine or a punt; (3) is `accept` appropriate or lazy; (4) are there new findings the seats missed. If the red-team produces a new finding mid-reconciliation, add it as a new row. The final table is the single authoritative output — one row per finding, verdict already reconciled. Note: in sequential execution the moderator has full context of all findings — the table's value is visibility and accountability, not structural enforcement of honest verdicts.
+   **Finding synthesis with red-team closing reconciliation.** Produce the seed-209 Review Run and Finding Synthesis records for the sealed candidate set. The red-team challenges each row's semantic facts and derived disposition in place: whether the proposition is real, whether reachability/impact/authority/containment are supported, whether the repair changes a full-review trigger, and whether new evidence creates a distinct finding. Add a genuinely new finding to the sealed set through the protocol rather than hiding it in prose. The records are authoritative; a compact operator-facing table may render them but must not invent a second verdict vocabulary.
 
-   | Finding | Verdict | Rationale | Red-team |
+   | Finding | Disposition | Rationale | Red-team |
    |---|---|---|---|
-   | [finding ID or short name] | fix now / defer / accept | [one line] | [challenge + held / updated / new] |
+   | [finding ID] | do_now / maybe_later / dont_do_later / not_issue | [seed-209 semantic rationale] | [challenge + held / updated / new] |
 
    **Falsification check.** As the penultimate step before finalizing the verdict: state the working verdict in one sentence, name the strongest argument against it sourced from any seat output, the primer, or the red-team closing pass, and state why that argument does not change the conclusion. If the argument does change the conclusion, revise the verdict before finalizing. Record this under a `### Falsification Check` heading in the synthesis output.
 
@@ -108,8 +111,8 @@ A good wave-council output contains:
 - material disagreements and how they were resolved or left unresolved
 - `strongest_alternative`: the best alternative design, implementation, or approach surfaced by any seat — with explicit "this would be better because..." reasoning. If no alternative is stronger than the current path, say why.
 - `improvements_recommended`: concrete changes the council recommends to make the work better, regardless of verdict. A passing wave should still leave with actionable improvements.
-- `recommendations_verdict_table`: single table combining initial verdict and red-team closing reconciliation for every advisory and recommended finding — `fix now` / `defer` / `accept`, rationale, red-team challenge and final status. Never leave advisories unverdicted or unchallenged.
-- explicit action items, deferrals, or blockers
+- `finding_synthesis`: the seed-209 Review Run and Finding Synthesis records, optionally rendered as one table with the exact four dispositions and red-team reconciliation. Never leave a sealed candidate without exactly one synthesis row.
+- explicit action items, completed optional repairs, deliberate rejections, or blockers derived by seed 209
 - deduplicated findings from multiple seats: findings with the same `finding_id` (per `209-agent-harness-core.prompt.md`) are merged before synthesis; do not report the same finding twice from different seats
 
 ## Output Verbosity

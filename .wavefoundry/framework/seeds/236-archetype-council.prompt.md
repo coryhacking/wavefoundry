@@ -76,13 +76,13 @@ Each archetype runs in isolation, applying its stance against the artifact, in t
 - **Strongest axis** — which seat's findings bound the most must-fixes
 - **Strongest challenge surviving review** — the challenge that did not collapse into a fixable finding
 - **Strongest alternative not taken** — the path the artifact did not take, worked out enough to be actionable
-- Verdict: **PASS** (no must-fixes), **PASS WITH IN-SESSION FIXES** (must-fixes applied during the review), **NOT READY** (must-fixes routed to a follow-on or back-to-author pass)
+- Verdict: **PASS** (no unresolved actionable findings), **PASS WITH IN-SESSION FIXES** (`do_now` / `maybe_later` repairs completed during review), **NOT READY** (required repair or executable evidence remains incomplete)
 
-**Recommendations verdict with red-team closing reconciliation.** Produce a single `### Recommendations Verdict` table that combines the initial verdict for each finding with the red-team's adversarial challenge and final status — all in one list. Do not produce two separate sections. The red-team challenges each row in place: (1) is `fix now` correctly scoped; (2) is `defer` genuine or a punt; (3) is `accept` appropriate or lazy; (4) are there new findings the seats missed. New findings from the red-team are added as rows. The final table is the single authoritative output. Note: in sequential execution the moderator has full context of all findings — the table's value is visibility and accountability, not structural enforcement of honest verdicts.
+**Finding synthesis with red-team closing reconciliation.** Material findings and approvals follow seed 209's executable-evidence, safe-execution, finite-risk-budget, public/registered-path, stateful-transition, and ordered-actionability contracts. The red-team challenges each finding's proposition and semantic facts; the moderator records the Review Run and Finding Synthesis records. New findings from the red-team enter the sealed candidate set through that protocol. A compact table may render the exact four dispositions but must not invent a parallel `fix/defer/accept` vocabulary.
 
-| Finding | Verdict | Rationale | Red-team |
+| Finding | Disposition | Rationale | Red-team |
 |---|---|---|---|
-| [finding ID or short name] | fix now / defer / accept | [one line] | [challenge + held / updated / new] |
+| [finding ID] | do_now / maybe_later / dont_do_later / not_issue | [seed-209 semantic rationale] | [challenge + held / updated / new] |
 
 **Falsification check.** As the penultimate step before finalizing the verdict: state the working verdict in one sentence, name the strongest argument against it sourced from any seat output or the red-team closing pass, and state why that argument does not change the conclusion. If the argument does change the conclusion, revise the verdict before finalizing. Record this under a `### Falsification Check` heading in the synthesis output.
 
@@ -219,7 +219,7 @@ Every moderator synthesis must include:
 - `axes_covered`: which orthogonal axes were actually exercised; overlap flagged
 - `must_fix_aggregate`: deduplicated must-fix list with finding IDs preserved
 - `advisory_aggregate`: deduplicated advisory list
-- `recommendations_verdict_table`: single table combining initial verdict and red-team closing reconciliation for every advisory and recommended finding — `fix now` / `defer` / `accept`, rationale, red-team challenge and final status. Never leave advisories unverdicted or unchallenged.
+- `finding_synthesis`: seed-209 Review Run and Finding Synthesis records for every material candidate, optionally rendered in one table with the exact four dispositions and red-team reconciliation. Never leave a sealed candidate unsynthesized.
 - `strongest_axis`: which seat's findings bound the most must-fixes
 - `strongest_challenge_surviving`: the challenge that did not collapse into a fixable finding
 - `strongest_alternative_not_taken`: the path the artifact did not take
@@ -231,7 +231,7 @@ Present council output at summary level — seat step details stay internal; the
 
 **Seat summaries:** One short paragraph per seat — axis declared, findings summary, verdict. Steps 1–3 are execution structure, not output structure.
 
-**Recommendations verdict table:** Always shown in full — this is the primary operator-facing output.
+**Finding synthesis table:** When material findings exist, show the compact four-disposition rendering in full; the machine-readable seed-209 records remain authoritative.
 
 **Falsification check:** Condense when the verdict is a clean PASS with no must-fix findings: one line stating the working verdict, the strongest counter-argument in a phrase, and "does not change verdict." Show in full when the verdict is PASS WITH IN-SESSION FIXES or NOT READY, or when must-fix findings are present.
 

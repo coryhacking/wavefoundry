@@ -236,8 +236,52 @@ class BuildPackTests(unittest.TestCase):
             names,
         )
         self.assertIn(
+            ".wavefoundry/framework/scripts/review_evidence.py",
+            names,
+        )
+        self.assertIn(
+            ".wavefoundry/framework/scripts/server_impl.py",
+            names,
+        )
+        self.assertIn(
             ".wavefoundry/framework/dashboard/dashboard.html",
             names,
+        )
+
+    def test_install_pack_carries_typed_review_evidence_authoring(self):
+        path = self._build()
+        with zipfile.ZipFile(path, "r") as archive:
+            writer = archive.read(
+                ".wavefoundry/framework/scripts/review_evidence.py"
+            ).decode("utf-8")
+            server = archive.read(
+                ".wavefoundry/framework/scripts/server_impl.py"
+            ).decode("utf-8")
+        self.assertIn("def build_compact_review_event", writer)
+        self.assertIn("def review_evidence_human_table", writer)
+        self.assertIn("def wave_record_review_evidence(", server)
+
+    def test_extracting_install_pack_does_not_mutate_historical_waves(self):
+        path = self._build()
+        target = self.tmp / "target"
+        legacy_wave = target / "docs" / "waves" / "legacy-wave" / "wave.md"
+        legacy_wave.parent.mkdir(parents=True)
+        sentinel = b"# Historical wave\n\nLegacy narrative remains byte-stable.\n"
+        legacy_wave.write_bytes(sentinel)
+
+        with zipfile.ZipFile(path, "r") as archive:
+            archive.extractall(target)
+
+        self.assertEqual(legacy_wave.read_bytes(), sentinel)
+        self.assertFalse((legacy_wave.parent / "events.jsonl").exists())
+        self.assertTrue(
+            (
+                target
+                / ".wavefoundry"
+                / "framework"
+                / "scripts"
+                / "migrate_self_host_review_events.py"
+            ).is_file()
         )
 
     def test_tests_excluded_from_pack(self):
@@ -1142,10 +1186,6 @@ class ReadmeVersionBadgeStampTests(unittest.TestCase):
             self.assertFalse(build_pack._stamp_readme_version_badge(Path(tmp), "1.6.3"))
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class BuildPackVenvActivationTests(unittest.TestCase):
     """Wave 1p802: ``_reexec_with_venv_if_needed`` (name kept for back-compat) now delegates to
     ``venv_bootstrap.activate_tool_venv`` — in-process activation, NO ``os.execv``/re-exec. The numpy
@@ -1165,3 +1205,7 @@ class BuildPackVenvActivationTests(unittest.TestCase):
              patch.object(build_pack.venv_bootstrap, "activate_tool_venv") as activate:
             build_pack._reexec_with_venv_if_needed()
             activate.assert_not_called()
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -132,6 +132,82 @@ class FileWalkerTests(unittest.TestCase):
         self.assertIn("foo.py", names)
         self.assertIn("guide.md", names)
 
+    def test_excludes_only_canonical_wave_event_ledgers(self):
+        """1slep AC-8: raw wave authority is excluded without a basename-wide rule."""
+        _make_repo(self.root, {
+            "docs/waves/1slep external-ledger/events.jsonl": '{"canonical":true}\n',
+            "docs/waves/1slep external-ledger/wave.md": "# Wave\nreview-evidence-source: events.jsonl\n\n# Searchable current-state projection\n",
+            "events.jsonl": '{"root":"eligible"}\n',
+            "audit/events.jsonl": '{"nested":"eligible"}\n',
+            "docs/waves/events.jsonl": '{"no-wave-directory":"eligible"}\n',
+            "docs/waves/design-notes/events.jsonl": '{"unrelated-wave-note":"eligible"}\n',
+            "docs/waves/design-notes/wave.md": "# Design notes, not a Wavefoundry wave\n",
+            "docs/waves/1slep external-ledger/archive/events.jsonl": '{"deeper":"eligible"}\n',
+        })
+
+        rels = {
+            str(path.relative_to(self.root)).replace("\\", "/")
+            for path in self.bi.walk_repo(self.root)
+        }
+
+        self.assertNotIn("docs/waves/1slep external-ledger/events.jsonl", rels)
+        self.assertIn("docs/waves/1slep external-ledger/wave.md", rels)
+        self.assertIn("events.jsonl", rels)
+        self.assertIn("audit/events.jsonl", rels)
+        self.assertIn("docs/waves/events.jsonl", rels)
+        self.assertIn("docs/waves/design-notes/events.jsonl", rels)
+        self.assertIn("docs/waves/design-notes/wave.md", rels)
+        self.assertIn("docs/waves/1slep external-ledger/archive/events.jsonl", rels)
+        self.assertTrue(
+            self.bi._is_canonical_wave_events_path(
+                r"docs\waves\1slep external-ledger\events.jsonl", self.root
+            ),
+            "Windows separators must normalize to the same exact path shape",
+        )
+        self.assertFalse(
+            self.bi._is_canonical_wave_events_path(
+                "docs/waves/design-notes/events.jsonl", self.root
+            )
+        )
+
+    def test_retained_adoption_keeps_ledger_excluded_after_source_tamper(self):
+        """Lifecycle failure must not make adopted raw review history searchable."""
+        import review_evidence
+
+        wave_dir = self.root / "docs" / "waves" / "1test adopted-ledger"
+        _make_repo(self.root, {
+            "docs/waves/1test adopted-ledger/events.jsonl": "",
+            "docs/waves/1test adopted-ledger/wave.md": (
+                "# Wave\nreview-evidence-source: events.jsonl\n\n"
+                + review_evidence.empty_external_finding_synthesis_section()
+            ),
+            "docs/waves/1notes design-notes/events.jsonl": '{"note":"eligible"}\n',
+            "docs/waves/1notes design-notes/wave.md": "# Design notes, not an adopted wave\n",
+        })
+        wave_md = wave_dir / "wave.md"
+        self.assertIsNone(
+            review_evidence.record_protocol_state(
+                self.root, wave_dir.name, wave_md
+            )
+        )
+
+        for tampered in (
+            "# Wave\n\n" + review_evidence.empty_external_finding_synthesis_section(),
+            "# Wave\nreview-evidence-source: wrong.jsonl\n\n"
+            + review_evidence.empty_external_finding_synthesis_section(),
+        ):
+            wave_md.write_text(tampered, encoding="utf-8")
+            rels = {
+                str(path.relative_to(self.root)).replace("\\", "/")
+                for path in self.bi.walk_repo(self.root)
+            }
+            self.assertNotIn(
+                "docs/waves/1test adopted-ledger/events.jsonl", rels
+            )
+            self.assertIn(
+                "docs/waves/1notes design-notes/events.jsonl", rels
+            )
+
     def test_excludes_git_directory(self):
         _make_repo(self.root, {"src/foo.py": "x = 1\n"})
         git_file = self.root / ".git" / "config"
@@ -937,6 +1013,133 @@ class IncrementalBuildTests(unittest.TestCase):
         )
         self.assertTrue(has_index)
         self.assertFalse(result["up_to_date"])
+
+    def test_explicit_full_build_excludes_ledger_but_indexes_projection_and_same_name(self):
+        """The caller-supplied files= seam cannot bypass the canonical-ledger boundary."""
+        canonical = "docs/waves/1slep external-ledger/events.jsonl"
+        projection = "docs/waves/1slep external-ledger/wave.md"
+        unrelated = "audit/events.jsonl"
+        unrelated_wave_note = "docs/waves/design-notes/events.jsonl"
+        _make_repo(self.root, {
+            canonical: '{"finding":"superseded raw history"}\n',
+            projection: "# Wave\nreview-evidence-source: events.jsonl\n\n# Current findings\n\nSearchable head.\n",
+            unrelated: '{"audit":"searchable"}\n',
+            unrelated_wave_note: '{"note":"searchable"}\n',
+            "docs/waves/design-notes/wave.md": "# Design notes, not a Wavefoundry wave\n",
+        })
+
+        docs_mock = _make_embedder_mock(dim=4)
+        with patch.object(self.bi, "_get_embedder", return_value=docs_mock):
+            self.bi.build_index(
+                self.root,
+                full=True,
+                content="docs",
+                files=[
+                    self.root / canonical,
+                    self.root / projection,
+                    self.root / unrelated,
+                    self.root / unrelated_wave_note,
+                ],
+                verbose=False,
+            )
+
+        index_dir = self.root / ".wavefoundry" / "index"
+        meta_paths = set((_read_meta_store(index_dir).get("file_meta") or {}).keys())
+        chunk_paths = {row["path"] for row in _read_index_chunks(index_dir, "docs")}
+        self.assertNotIn(canonical, meta_paths)
+        self.assertNotIn(canonical, chunk_paths)
+        self.assertIn(projection, meta_paths)
+        self.assertIn(projection, chunk_paths)
+        self.assertIn(unrelated, meta_paths)
+        self.assertIn(unrelated_wave_note, meta_paths)
+
+    def test_incremental_exclusion_reaps_previously_indexed_canonical_ledger(self):
+        """A pre-cutover row becomes a removal and is evicted from metadata and Lance."""
+        canonical = "docs/waves/1slep external-ledger/events.jsonl"
+        projection = "docs/waves/1slep external-ledger/wave.md"
+        unrelated = "audit/events.jsonl"
+        unrelated_wave_note = "docs/waves/design-notes/events.jsonl"
+        _make_repo(self.root, {
+            canonical: '{"finding":"old indexed authority"}\n',
+            projection: "# Wave\nreview-evidence-source: events.jsonl\n\n# Current findings\n\nSearchable head.\n",
+            unrelated: '{"audit":"still searchable"}\n',
+            unrelated_wave_note: '{"note":"still searchable"}\n',
+            "docs/waves/design-notes/wave.md": "# Design notes, not a Wavefoundry wave\n",
+        })
+
+        # Simulate a prior build that admitted and emitted a docs row for the
+        # ledger.  The chunk override makes the stale-row fixture non-vacuous
+        # even though current generic .jsonl dispatch produces a code-kind
+        # line window that is not part of the source-code corpus.
+        original_chunks_for_file = self.bi._chunks_for_file
+
+        def legacy_chunks_for_file(rel_path, content):
+            if rel_path == canonical:
+                return ([{
+                    "id": f"{canonical}::legacy-ledger-row",
+                    "path": canonical,
+                    "kind": "doc",
+                    "language": None,
+                    "lines": [1, 1],
+                    "section": "events",
+                    "text": content,
+                }], [])
+            return original_chunks_for_file(rel_path, content)
+
+        with (
+            patch.object(self.bi, "_is_canonical_wave_events_path", return_value=False),
+            patch.object(self.bi, "_chunks_for_file", side_effect=legacy_chunks_for_file),
+        ):
+            self._run_build(full=True)
+        index_dir = self.root / ".wavefoundry" / "index"
+        before_meta = set((_read_meta_store(index_dir).get("file_meta") or {}).keys())
+        before_chunks = {row["path"] for row in _read_index_chunks(index_dir, "docs")}
+        self.assertIn(canonical, before_meta, "fixture must prove the old walker admitted the ledger")
+        self.assertIn(canonical, before_chunks, "fixture must seed a real stale semantic row")
+
+        docs_mock = _make_embedder_mock(dim=4)
+        code_mock = _make_embedder_mock(dim=4)
+        with patch.object(self.bi, "_get_embedder", side_effect=[docs_mock, code_mock]):
+            result = self.bi.build_index(self.root, full=False, content="all", verbose=False)
+
+        after_meta = set((_read_meta_store(index_dir).get("file_meta") or {}).keys())
+        after_chunks = {row["path"] for row in _read_index_chunks(index_dir, "docs")}
+        self.assertFalse(result["up_to_date"])
+        self.assertNotIn(canonical, after_meta)
+        self.assertNotIn(canonical, after_chunks)
+        self.assertIn(projection, after_meta)
+        self.assertIn(projection, after_chunks)
+        self.assertIn(unrelated, after_meta)
+        self.assertIn(unrelated_wave_note, after_meta)
+
+    def test_incremental_ledger_add_modify_delete_are_semantic_noops(self):
+        """Canonical machine-state churn never enters incremental docs/code state."""
+        canonical = self.root / "docs/waves/1slep external-ledger/events.jsonl"
+        _make_repo(self.root, {
+            "docs/waves/1slep external-ledger/wave.md": "# Wave\nreview-evidence-source: events.jsonl\n\n# Searchable current head\n",
+            "src/app.py": "def app():\n    return 1\n",
+        })
+        self._run_build(full=True)
+
+        canonical.parent.mkdir(parents=True, exist_ok=True)
+        canonical.write_text('{"event":1}\n', encoding="utf-8")
+        added = self.bi.build_index(self.root, full=False, content="all", verbose=False)
+        canonical.write_text('{"event":2}\n', encoding="utf-8")
+        modified = self.bi.build_index(self.root, full=False, content="all", verbose=False)
+        canonical.unlink()
+        deleted = self.bi.build_index(self.root, full=False, content="all", verbose=False)
+
+        for result in (added, modified, deleted):
+            self.assertTrue(result["up_to_date"])
+            self.assertEqual(result["files_indexed"], 0)
+        index_dir = self.root / ".wavefoundry" / "index"
+        meta_paths = set((_read_meta_store(index_dir).get("file_meta") or {}).keys())
+        docs_paths = {row["path"] for row in _read_index_chunks(index_dir, "docs")}
+        code_paths = {row["path"] for row in _read_index_chunks(index_dir, "code")}
+        rel = "docs/waves/1slep external-ledger/events.jsonl"
+        self.assertNotIn(rel, meta_paths)
+        self.assertNotIn(rel, docs_paths)
+        self.assertNotIn(rel, code_paths)
 
     def test_build_does_not_write_codebase_map(self):
         # Wave 1p601 AC-2b: map regen is DECOUPLED from the index build — an

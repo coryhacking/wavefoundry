@@ -54,6 +54,86 @@ class DocsLintFixtureTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("docs-lint: ok", result.stdout)
 
+    def test_external_review_event_ledger_missing_fails_closed(self) -> None:
+        root = self.copy_fixture()
+        ledger = root / self.WAVE_DOC_PATH.parent / "events.jsonl"
+        ledger.unlink()
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("canonical review event ledger is missing", result.stderr)
+
+    def test_external_review_event_ledger_malformed_fails_closed(self) -> None:
+        root = self.copy_fixture()
+        ledger = root / self.WAVE_DOC_PATH.parent / "events.jsonl"
+        ledger.write_text('{"record_type":"review_run"}', encoding="utf-8")
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("final LF", result.stderr)
+
+    def test_external_review_projection_drift_is_reported(self) -> None:
+        root = self.copy_fixture()
+        wave_md = root / self.WAVE_DOC_PATH
+        wave_md.write_text(
+            wave_md.read_text(encoding="utf-8").replace(
+                "| — | — | — | — | — |",
+                "| _Stale projection._ | — | — | — | — |",
+            ),
+            encoding="utf-8",
+        )
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("review evidence projection is stale", result.stderr)
+
+    def test_inline_review_evidence_is_not_a_runtime_fallback(self) -> None:
+        root = self.copy_fixture()
+        wave_md = root / self.WAVE_DOC_PATH
+        text = wave_md.read_text(encoding="utf-8").replace(
+            "review-evidence-source: events.jsonl",
+            "review-evidence-protocol: 1",
+        )
+        wave_md.write_text(text, encoding="utf-8")
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("must declare `review-evidence-source: events.jsonl`", result.stderr)
+
+    def test_external_review_adoption_prefix_mismatch_fails_closed(self) -> None:
+        root = self.copy_fixture()
+        adoption = root / "docs" / "waves" / "review-evidence-adoptions.json"
+        adoption.write_text(
+            json.dumps(
+                {
+                    "protocol_version": 1,
+                    "waves": {
+                        self.WAVE_DOC_PATH.parent.name: {
+                            "version": 1,
+                            "source": "events.jsonl",
+                            "record_count": 0,
+                            "prefix_sha256": "0" * 64,
+                        }
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("adopted prefix hash does not match", result.stderr)
+
     def test_verification_stamp_valid_forms_pass(self) -> None:
         # 1ro43 AC-11: the stamp is optional and accepted when well-formed
         # (full or abbreviated hex) — no registration or whitelist needed.
@@ -2358,6 +2438,32 @@ class IncrementalDocsLintTests(DocsLintFixtureTests):
             shutil.rmtree(root)
         self.assertEqual(empty_result, ([], []), "empty changed set must be an ok no-op")
         self.assertEqual(code_result, ([], []), "a non-doc/non-config changed set must be an ok no-op")
+
+    def test_incremental_canonical_event_change_revalidates_owning_wave(self) -> None:
+        """A changed canonical ledger is not a generic non-doc no-op."""
+        import unittest.mock as mock
+        root = self.copy_fixture()
+        cli = self._cli()
+        try:
+            source_wave = next((root / "docs" / "waves").rglob("wave.md"))
+            wave_dir = root / "docs" / "waves" / "00abc incremental-event-fixture"
+            wave_dir.mkdir()
+            (wave_dir / "wave.md").write_text(
+                source_wave.read_text(encoding="utf-8").replace(
+                    "00057 routine-behavior-contract", "00abc incremental-event-fixture"
+                ),
+                encoding="utf-8",
+            )
+            events = wave_dir / "events.jsonl"
+            events.write_bytes(b"{not-json}\n")
+            with mock.patch.object(cli, "_get_changed_files", return_value=[events]):
+                failures, _ = cli._run_incremental_checks(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertTrue(
+            any("events.jsonl" in failure and "invalid JSON" in failure for failure in failures),
+            failures,
+        )
 
     def test_changed_flag_on_non_git_tree_is_ok_noop_end_to_end(self) -> None:
         """AC-4 (end-to-end): `docs_lint.py --changed` on a non-git fixture (git reports nothing) exits
