@@ -572,10 +572,13 @@ _PROJECT_STALE_IGNORE_PATHS = {
     ".wavefoundry/dashboard-server.lock",  # 1p64x: merged lock + startup-metadata sidecar
     ".wavefoundry/guard-overrides.json",
     ".wavefoundry/logs/dashboard.log",
-    # Wave 1p601: the generated codebase map is a regenerated artifact written at
-    # lifecycle/on-demand/on-read moments. It must NOT drive index staleness, or
-    # writing it (at prepare/close/upgrade/resource-read) would trigger a reindex —
-    # the write→reindex coupling the decoupling is meant to eliminate.
+    # Wave 1p601: the generated codebase map is a derived artifact, rewritten
+    # (change-only — see gen_codebase_map.generate_codebase_map) by the index build
+    # and at lifecycle checkpoints (prepare/close/upgrade), at moments decoupled from
+    # the index snapshot. It must NOT drive index staleness, or those regenerations
+    # would trigger a redundant reindex for a derived artifact whose source inputs are
+    # already tracked. (A normal resource read does NOT regenerate it — 1sq9h:
+    # resource_codebase_map only writes the map when the file is missing.)
     "docs/references/codebase-map.md",
 }
 
@@ -1452,6 +1455,12 @@ def project_layer_freshness(root: Path) -> "dict[str, Any]":
             )
         }
         docs_eligible |= code_eligible  # 1sek8 dual-output union
+        # 1sq9h: keep the ignore discipline uniform across every comparison input.
+        # walk_files and filtered_file_meta already drop _PROJECT_STALE_IGNORE_PATHS
+        # above; drop them here too so an ignore-listed path cannot drive the symmetric
+        # "eligible path not in state" branch.
+        docs_eligible -= _PROJECT_STALE_IGNORE_PATHS
+        code_eligible -= _PROJECT_STALE_IGNORE_PATHS
 
         layers: dict = {}
         required_layer_unreadable = False
@@ -1464,6 +1473,13 @@ def project_layer_freshness(root: Path) -> "dict[str, Any]":
                 continue
             layer_stale = False
             for rel, embedded_hash in state.items():
+                # 1sq9h: ignore-listed paths (e.g. the always-regenerated codebase map)
+                # are filtered out of walk_files and filtered_file_meta above; apply the
+                # same filter here so a recorded-but-ignored path is not read as
+                # "recorded path gone" (both maps lack it by construction) → the
+                # permanent false-stale that stuck every repo with a codebase map.
+                if rel in _PROJECT_STALE_IGNORE_PATHS:
+                    continue
                 entry = current_meta.get(rel) or filtered_file_meta.get(rel)
                 if entry is None:
                     layer_stale = True  # recorded path gone (or excluded)

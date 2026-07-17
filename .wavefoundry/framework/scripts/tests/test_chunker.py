@@ -3,7 +3,9 @@ from __future__ import annotations
 import importlib.util
 import sys
 import textwrap
+import tracemalloc
 import unittest
+import unittest.mock
 from pathlib import Path
 
 
@@ -3236,8 +3238,14 @@ class UniversalOversizedChunkGuardTests(unittest.TestCase):
         cls.chunker = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(cls.chunker)
 
-    def test_chunker_version_bumped_to_31(self):
-        """Wave 1p4q4 review: CHUNKER_VERSION bumped 28 → 29 — the `module M{}` keyword form,
+    def test_chunker_version_bumped_to_32(self):
+        """Wave 1sbfl: CHUNKER_VERSION bumped 31 → 32 — Java static/instance initializer
+        blocks are now emitted as their own kind="code" chunks across class/enum/record
+        containers (records static-only). Chunk-set shape change → bump so any 31-index
+        re-chunks (incremental re-chunk with embedding reuse for content-identical chunks,
+        NOT an unconditional full re-embed; see AC-6 coverage in test_fts_lexical_layer).
+
+        Wave 1p4q4 review: CHUNKER_VERSION bumped 28 → 29 — the `module M{}` keyword form,
         non-export namespace const, `export namespace`, `declare namespace`, and `declare enum`
         members now chunk (completing the namespace/module coverage that rode 28). Chunk-set shape
         change → bump so any 28-index re-chunks. Wave 1p4q4: CHUNKER_VERSION bumped 27 → 28 — TS
@@ -3260,8 +3268,9 @@ class UniversalOversizedChunkGuardTests(unittest.TestCase):
         27 → 28 (wave 1p4q4): TS enum/const-enum members + namespace const + declare const chunked.
         28 → 29 (wave 1p4q4 review): module-keyword / non-export-namespace / export-&-declare-namespace / declare-enum chunking completed.
         29 → 30 (wave 1p4u5, 1p4w9): docs chunks prepend their section breadcrumb to embedded text (docs-only; code text unchanged).
-        30 → 31 (wave 1p5k0): nested-type members attribute to the qualified owner (Outer.Inner.x) in the chunk lane + nested-type __decl__ chunk (code shape change → re-chunk)."""
-        self.assertEqual(self.chunker.CHUNKER_VERSION, "31")
+        30 → 31 (wave 1p5k0): nested-type members attribute to the qualified owner (Outer.Inner.x) in the chunk lane + nested-type __decl__ chunk (code shape change → re-chunk).
+        31 → 32 (wave 1sbfl): Java static/instance initializer blocks emitted as own chunks (class/enum/record; records static-only)."""
+        self.assertEqual(self.chunker.CHUNKER_VERSION, "32")
 
     def test_split_large_chunks_is_idempotent_on_small_chunks(self):
         c = self.chunker.Chunk(id="x", path="p", kind="doc", language=None,
@@ -4313,6 +4322,870 @@ class JavaConstantChunkTests(unittest.TestCase):
         """))
         for n in ("A", "B", "C"):
             self.assertIn(f"src/Config.java::K.{n}", consts, n)
+
+
+class JavaInitializerChunkTests(unittest.TestCase):
+    """Wave 1sbfl: Java static/instance initializer blocks are emitted as their own
+    kind="code" chunks across class/enum/record containers (records static-only — Java
+    forbids record instance initializers). Covers AC-1, AC-2, AC-3, AC-5, AC-7 on the
+    chunker side. Both the tree-sitter path and the forced regex-fallback path are pinned;
+    the fallback path fails closed (patches _fallback_with_stem to raise) and asserts EXACT
+    initializer identity/metadata rather than accepting generic line-window rescue."""
+
+    def setUp(self):
+        self.chunker = load_chunker()
+
+    # A catalog exercising: ordinary-class static+instance, multiple same-kind static
+    # (ordinals), an enum static init, a top-level record static init, a nested class
+    # static init, and a nested member-record static init — plus negative constructs.
+    CATALOG = textwrap.dedent("""\
+        public class Bundle {
+            static final int SEED = 1;
+            static {
+                MESSAGES.put("cat.k1", "AlphaZzToken");
+                MESSAGES.put("cat.k2", "BetaZzToken");
+            }
+            {
+                this.local = new java.util.HashMap<>();
+                local.put("inst.k", "InstanceZzToken");
+            }
+            static {
+                LATE.put("cat.k3", "GammaZzToken");
+            }
+            void doWork() {
+                if (SEED > 0) { int x = 1; }
+                Runnable r = () -> { run("LambdaZzToken"); };
+                int[] arr = {1, 2, 3};
+                Object o = new Object() { void inner() { note("AnonZzToken"); } };
+            }
+            Bundle() { seed("CtorZzToken"); }
+            static class Nested {
+                static { NREG.put("n.k", "NestedZzToken"); }
+            }
+            record Member(int a) {
+                static { MREG.put("m.k", "MemberZzToken"); }
+            }
+        }
+        enum Palette {
+            RED, GREEN;
+            static { LOOKUP.put("p.k", "EnumZzToken"); }
+        }
+        record Coord(int x, int y) {
+            static { CREG.put("c.k", "RecordZzToken"); }
+        }
+        interface Marker {
+            int LIMIT = 5;
+        }
+    """)
+
+    # The exact initializer chunk-id set the CATALOG must produce (path-qualified,
+    # static/instance distinguished, ordinals for multiples, nested-type qualified).
+    EXPECTED_INIT_IDS = {
+        "src/Bundle.java::Bundle.__static_init_1__",
+        "src/Bundle.java::Bundle.__instance_init_1__",
+        "src/Bundle.java::Bundle.__static_init_2__",
+        "src/Bundle.java::Bundle.Nested.__static_init_1__",
+        "src/Bundle.java::Bundle.Member.__static_init_1__",
+        "src/Bundle.java::Palette.__static_init_1__",
+        "src/Bundle.java::Coord.__static_init_1__",
+    }
+
+    def _init_chunks(self, chunks):
+        return {c.id: c for c in chunks if "__static_init_" in c.id or "__instance_init_" in c.id}
+
+    # ---- AC-2: direct tree-sitter path (fails if grammar unavailable — no skip) ----
+
+    def test_treesitter_emits_all_container_initializers(self):
+        chunks = self.chunker.chunk_java_treesitter(self.CATALOG, "src/Bundle.java")
+        self.assertIsNotNone(
+            chunks, "tree-sitter Java grammar unavailable (must FAIL, not skip)")
+        inits = self._init_chunks(chunks)
+        self.assertEqual(set(inits), self.EXPECTED_INIT_IDS)
+        # Records reach FIRST-CLASS identity through the net-new record path, not a
+        # generic __module__/line-window chunk.
+        self.assertIn("src/Bundle.java::Coord.__static_init_1__", inits)
+        self.assertNotIn("src/Bundle.java::__module__", {c.id for c in chunks})
+        # Record instance initializers are illegal Java — records get static-only.
+        self.assertFalse(any("Coord.__instance_init_" in i for i in inits))
+        self.assertFalse(any("Member.__instance_init_" in i for i in inits))
+        # Literal payload is present in the right blocks.
+        self.assertIn("AlphaZzToken", inits["src/Bundle.java::Bundle.__static_init_1__"].text)
+        self.assertIn("GammaZzToken", inits["src/Bundle.java::Bundle.__static_init_2__"].text)
+        self.assertIn("InstanceZzToken", inits["src/Bundle.java::Bundle.__instance_init_1__"].text)
+        self.assertIn("EnumZzToken", inits["src/Bundle.java::Palette.__static_init_1__"].text)
+        self.assertIn("RecordZzToken", inits["src/Bundle.java::Coord.__static_init_1__"].text)
+        self.assertIn("NestedZzToken", inits["src/Bundle.java::Bundle.Nested.__static_init_1__"].text)
+        self.assertIn("MemberZzToken", inits["src/Bundle.java::Bundle.Member.__static_init_1__"].text)
+
+    def test_treesitter_metadata_kind_language_marker_lines(self):
+        chunks = self.chunker.chunk_java_treesitter(self.CATALOG, "src/Bundle.java")
+        self.assertIsNotNone(chunks)
+        inits = self._init_chunks(chunks)
+        c = inits["src/Bundle.java::Bundle.__static_init_1__"]
+        self.assertEqual(c.kind, "code")
+        self.assertEqual(c.language, "java")
+        # Merge-exempt marker + breadcrumb.
+        self.assertEqual(c.section, "Bundle > Bundle.__static_init_1__" + self.chunker._INIT_SECTION_SUFFIX)
+        self.assertTrue(c.text.startswith("Bundle > Bundle.__static_init_1__\n\n"))
+        self.assertEqual(c.lines, (3, 6))
+
+    def test_treesitter_negative_constructs_not_initializers(self):
+        chunks = self.chunker.chunk_java_treesitter(self.CATALOG, "src/Bundle.java")
+        self.assertIsNotNone(chunks)
+        init_text = "\n".join(c.text for c in self._init_chunks(chunks).values())
+        # Control-flow, lambda, anonymous-class, array init, and constructor bodies must
+        # NOT be misclassified as sibling initializer chunks.
+        for token in ("LambdaZzToken", "AnonZzToken", "CtorZzToken"):
+            self.assertNotIn(token, init_text, f"{token} leaked into an initializer chunk")
+        # The array literal `{1, 2, 3}` produced no initializer chunk.
+        self.assertFalse(any("doWork" in i for i in self._init_chunks(chunks)))
+        # Interface bodies get no initializer chunk.
+        self.assertFalse(any("Marker." in i and "_init_" in i for i in self._init_chunks(chunks)))
+
+    def test_treesitter_below_min_lines_initializer_survives_merge(self):
+        # A one-line `static {}`-with-body block is below CHUNK_MIN_LINES but must remain
+        # a distinct chunk after _merge_small_chunks (merge-exempt marker).
+        src = textwrap.dedent("""\
+            public class Tiny {
+                static { T.put("k", "TinyStaticZz"); }
+                void m() { work(); }
+            }
+        """)
+        chunks = self.chunker.chunk_java_treesitter(src, "src/Tiny.java")
+        self.assertIsNotNone(chunks)
+        ids = {c.id for c in chunks}
+        self.assertIn("src/Tiny.java::Tiny.__static_init_1__", ids)
+        c = next(c for c in chunks if c.id.endswith("Tiny.__static_init_1__"))
+        self.assertEqual(c.lines[1] - c.lines[0] + 1, 1)  # one line, still standalone
+        self.assertIn("TinyStaticZz", c.text)
+
+    # ---- AC-2: forced regex-fallback path — fails closed, exact identity ----
+
+    def _forced_fallback(self, source, path):
+        """Force grammar-unavailable regex fallback AND disable the generic line-window
+        rescue so the acceptance proof fails closed on any identity loss."""
+        def _boom(*a, **k):
+            raise AssertionError(
+                "generic line-window rescue is disabled for initializer parity")
+        with unittest.mock.patch.object(self.chunker, "_ts_parse", return_value=None), \
+             unittest.mock.patch.object(self.chunker, "_fallback_with_stem", _boom):
+            return self.chunker.chunk_java(source, path)
+
+    def test_fallback_annotation_array_and_negatives_do_not_desync_or_leak(self):
+        # Hardening (delivery-review note): an annotation with an array argument
+        # `@Anno({...})` and a brace-initialized field precede a real `static {}`.
+        # The scanner must not treat those `{...}` as initializers, must not let them
+        # desync brace depth, and must still capture the trailing `static {}` as
+        # ordinal 1 — on the forced grammar-unavailable fallback path. Lambda and
+        # anonymous-class bodies must not leak into initializer chunks either.
+        src = textwrap.dedent("""\
+            package p;
+            public class Widget {
+                @Anno({"AnnoArrZzToken", "X"})
+                private final int[] table = {1, 2, 3};
+                static { R.put("k", "AfterAnnoZzToken"); }
+                void run() {
+                    Runnable r = () -> log("LambdaFbToken");
+                    Object o = new Object() {
+                        public String toString() { return "AnonFbToken"; }
+                    };
+                }
+            }
+        """)
+        chunks = self._forced_fallback(src, "src/Widget.java")
+        init_ids = {
+            c.id for c in chunks
+            if "__static_init_" in c.id or "__instance_init_" in c.id
+        }
+        # Exactly the one real static initializer — the annotation array, the field
+        # array literal, the lambda, and the anonymous class produced none.
+        self.assertEqual(init_ids, {"src/Widget.java::Widget.__static_init_1__"})
+        init_text = "\n".join(
+            c.text for c in chunks
+            if "__static_init_" in c.id or "__instance_init_" in c.id
+        )
+        self.assertIn("AfterAnnoZzToken", init_text)
+        for token in ("AnnoArrZzToken", "LambdaFbToken", "AnonFbToken"):
+            self.assertNotIn(token, init_text, f"{token} leaked into an initializer chunk")
+
+    @staticmethod
+    def _init_ids(chunks):
+        return {
+            c.id for c in (chunks or [])
+            if "__static_init_" in c.id or "__instance_init_" in c.id
+        }
+
+    def test_fallback_block_comment_between_class_and_name_preserves_identity(self):
+        # Delivery re-review P1: a block comment used as lexical whitespace between
+        # `class` and its name must NOT fuse into `classRegistry` and drop the
+        # initializer into the generic line-window rescue. The forced-fallback
+        # identity must match the tree-sitter path exactly.
+        src = 'class /* c */ Registry {\n    static { R.put("k", "CommentZz"); }\n}\n'
+        expected = {"src/Registry.java::Registry.__static_init_1__"}
+        self.assertEqual(self._init_ids(self._forced_fallback(src, "src/Registry.java")), expected)
+        ts = self.chunker.chunk_java_treesitter(src, "src/Registry.java")
+        self.assertIsNotNone(ts)  # grammar must be present — fail, not skip
+        self.assertEqual(self._init_ids(ts), expected, "fallback identity must match tree-sitter")
+
+    def test_fallback_dollar_bearing_type_name_preserves_identity(self):
+        # Delivery re-review P1: a legal `$`-bearing type name must be captured in
+        # full (`Generated$Registry`), not truncated to `Generated`; both paths agree.
+        src = 'class Generated$Registry {\n    static { R.put("k", "DollarZz"); }\n}\n'
+        expected = {"src/Gen.java::Generated$Registry.__static_init_1__"}
+        self.assertEqual(self._init_ids(self._forced_fallback(src, "src/Gen.java")), expected)
+        ts = self.chunker.chunk_java_treesitter(src, "src/Gen.java")
+        self.assertIsNotNone(ts)
+        self.assertEqual(self._init_ids(ts), expected, "fallback identity must match tree-sitter")
+
+    def test_segment_classifier_retained_state_bound_is_identifier_length(self):
+        # Delivery re-review P1 (round 3): retained state must NOT grow with segment/source
+        # length, and — stated honestly — it is bounded by the longest identifier token,
+        # NOT O(1) (exact owner identity requires keeping the full name; no silent cap).
+        clf = self.chunker._SegmentClassifier()
+        # 200k one-char tokens separated by non-ident chars: the token buffer never
+        # accumulates the run — it flushes at each separator, so it stays at one char.
+        for k in range(200_000):
+            clf.feed_char("x", 1)
+            clf.feed_char("," if k % 7 else " ", 1)
+        self.assertLessEqual(len(clf._word), 1)  # does not grow with the number of tokens
+        # A single very long identifier IS retained in full — the honest O(identifier)
+        # bound, not a truncating cap (the round-2 `_JAVA_IDENT_TOKEN_MAX` defect).
+        clf.reset()
+        for _ in range(5000):
+            clf.feed_char("z", 1)
+        self.assertEqual(len(clf._word), 5000)
+        clf.reset()
+        self.assertEqual(clf._word, [])
+        self.assertIsNone(clf.type_kind)
+        self.assertEqual(clf.word_count, 0)
+
+    def test_over_max_identifier_owner_matches_treesitter(self):
+        # Delivery re-review P1 (round 3): a valid Java class name longer than any internal
+        # token bound must NOT be truncated — the fallback owner must equal tree-sitter's
+        # full identifier, through the public forced-fallback path. (The round-2 512-char
+        # cap silently emitted a 512-char owner for a 513-char class.)
+        name = "C" + "x" * 512  # 513-char legal Java identifier
+        src = f'class {name} {{\n    static {{ R.put("k","LongNameZz"); }}\n}}\n'
+        expected = {f"src/Big.java::{name}.__static_init_1__"}
+        self.assertEqual(self._init_ids(self._forced_fallback(src, "src/Big.java")), expected)
+        ts = self.chunker.chunk_java_treesitter(src, "src/Big.java")
+        self.assertIsNotNone(ts)
+        self.assertEqual(self._init_ids(ts), expected, "fallback owner must equal tree-sitter's full name")
+
+    def test_over_cap_annotation_before_class_keeps_identity(self):
+        # Delivery re-review P1 (round 2): a valid declaration whose annotation before
+        # `class` is far longer than any fixed prefix cap must NOT lose initializer
+        # identity on the fallback path — the streaming classifier captures the type
+        # keyword/name incrementally, so preceding length is irrelevant. Fallback must
+        # equal tree-sitter.
+        big_ann = "z" * 6000  # >> any fixed header cap
+        src = f'@Ann("{big_ann}")\nclass Registry {{\n    static {{ R.put("k","OverCapZz"); }}\n}}\n'
+        expected = {"src/Registry.java::Registry.__static_init_1__"}
+        self.assertEqual(self._init_ids(self._forced_fallback(src, "src/Registry.java")), expected)
+        ts = self.chunker.chunk_java_treesitter(src, "src/Registry.java")
+        self.assertIsNotNone(ts)
+        self.assertEqual(self._init_ids(ts), expected, "fallback identity must match tree-sitter")
+
+    def test_fallback_class_literal_annotation_does_not_corrupt_owner(self):
+        # Delivery re-review P1 (round 4): a class-literal annotation argument `@Anno(Foo.class)`
+        # puts the keyword `class` after a `.` (member selection). The streaming classifier
+        # must NOT mistake it for the declaration keyword — the owner is `Registry`, not `class`.
+        # Fallback must equal tree-sitter.
+        src = '@Anno(Foo.class)\nclass Registry {\n    static { R.put("k","ClassLitZz"); }\n}\n'
+        expected = {"src/Registry.java::Registry.__static_init_1__"}
+        self.assertEqual(self._init_ids(self._forced_fallback(src, "src/Registry.java")), expected)
+        ts = self.chunker.chunk_java_treesitter(src, "src/Registry.java")
+        self.assertIsNotNone(ts)
+        self.assertEqual(self._init_ids(ts), expected, "fallback owner must equal tree-sitter")
+
+    def test_fallback_escaped_text_block_delimiter_does_not_truncate(self):
+        # Delivery re-review P1 (round 5): a Java text block containing an escaped `\"""`
+        # must NOT be read as a closing delimiter — doing so desyncs the scan and drops the
+        # later initializer. Fallback (initializer id AND line span) must equal tree-sitter.
+        src = (
+            "class Registry {\n"
+            "    static {\n"
+            '        String s = """\n'
+            '            has an escaped \\""" delimiter inside\n'
+            '            """;\n'
+            '        R.put("k1", "V1");\n'
+            '        R.put("k2", "LaterLiteralZz");\n'
+            "        int x = 1;\n"
+            "    }\n"
+            "}\n"
+        )
+        path = "src/Registry.java"
+        expected = {"src/Registry.java::Registry.__static_init_1__"}
+        fb_chunks = [c for c in self._forced_fallback(src, path)
+                     if "__static_init_" in c.id]
+        self.assertEqual({c.id for c in fb_chunks}, expected)
+        ts = self.chunker.chunk_java_treesitter(src, path)
+        self.assertIsNotNone(ts)
+        ts_chunks = [c for c in ts if "__static_init_" in c.id]
+        self.assertEqual({c.id for c in ts_chunks}, expected)
+        # Line span must match too (the bug truncated the span, dropping the later literal).
+        self.assertEqual(fb_chunks[0].lines, ts_chunks[0].lines)
+        self.assertIn("LaterLiteralZz", fb_chunks[0].text)
+
+    def test_javac_legal_unicode_owner_categories_match_both_paths(self):
+        # Final delivery review P1: Java identifier start/part accepts more than
+        # Python ``isalnum``/``\w``. These representatives were independently
+        # compiled with javac during review. Preserve exact source spelling (no NFC
+        # normalization) on both supported paths, including when tree-sitter puts a
+        # legal currency/format character in an ERROR sibling of its identifier node.
+        names = (
+            "A\u0301Registry",  # Mn combining mark (identifier part)
+            "€Box",             # Sc currency symbol (identifier start)
+            "A\u203fB",         # Pc connector punctuation
+            "A\u200cB",         # Cf identifier-ignorable format character
+        )
+        for name in names:
+            with self.subTest(name=repr(name)):
+                src = (
+                    '@Ann(value="class Fake", type=Foo.class)\n'
+                    f'class {name} {{\n'
+                    '    static { R.put("k", "UnicodeOwnerZz"); }\n'
+                    '}\n'
+                )
+                expected = {f"src/Unicode.java::{name}.__static_init_1__"}
+                self.assertEqual(
+                    self._init_ids(self._forced_fallback(src, "src/Unicode.java")),
+                    expected,
+                )
+                ts = self.chunker.chunk_java_treesitter(src, "src/Unicode.java")
+                self.assertIsNotNone(ts)
+                self.assertEqual(self._init_ids(ts), expected)
+
+    def test_distinct_unicode_owners_never_collapse_to_one_initializer_id(self):
+        # Exact collision reproduction from the final full-wave review. Java treats
+        # composed/decomposed-looking spellings as distinct identifiers; do not normalize.
+        accented = "A\u0301"
+        src = (
+            'class A { static { R.put("plain", "PlainOwnerZz"); } }\n'
+            f'class {accented} {{ static {{ R.put("accented", "AccentOwnerZz"); }} }}\n'
+        )
+        expected = {
+            "src/Collision.java::A.__static_init_1__",
+            f"src/Collision.java::{accented}.__static_init_1__",
+        }
+        for label, chunks in (
+            ("fallback", self._forced_fallback(src, "src/Collision.java")),
+            ("tree-sitter", self.chunker.chunk_java_treesitter(src, "src/Collision.java")),
+        ):
+            with self.subTest(path=label):
+                self.assertIsNotNone(chunks)
+                inits = [
+                    c for c in chunks
+                    if "__static_init_" in c.id or "__instance_init_" in c.id
+                ]
+                self.assertEqual({c.id for c in inits}, expected)
+                self.assertEqual(len(inits), len(expected), "distinct owners must keep unique ids")
+                text = "\n".join(c.text for c in inits)
+                self.assertIn("PlainOwnerZz", text)
+                self.assertIn("AccentOwnerZz", text)
+
+    def test_single_character_currency_and_connector_owners_survive_partial_tree(self):
+        # Round-6 re-review: tree-sitter represents these javac-legal single-character
+        # owners as ERROR + sibling block. A normal class in the same file makes the AST
+        # path partially successful, so dispatch must supplement rather than suppress the
+        # supported lexical path and silently drop two initializer chunks.
+        source = (
+            'class A { static { R.put("a", "PlainZz"); } }\n'
+            'class € { static { R.put("e", "CurrencyZz"); } }\n'
+            'class ‿ { static { R.put("p", "ConnectorZz"); } }\n'
+        )
+        path = "src/SingleUnicode.java"
+        tree = self.chunker._ts_parse("java", source)
+        self.assertIsNotNone(tree)
+        self.assertTrue(tree.root_node.has_error, "fixture must exercise partial AST recovery")
+        expected = {
+            f"{path}::A.__static_init_1__",
+            f"{path}::€.__static_init_1__",
+            f"{path}::‿.__static_init_1__",
+        }
+        direct = self.chunker.chunk_java_treesitter(source, path)
+        self.assertIsNotNone(direct)
+        self.assertEqual(self._init_ids(direct), expected)
+        self.assertEqual(self._init_ids(self.chunker.chunk_file(source, path)), expected)
+        # Also pin the single-owner public path: without an ordinary class, summary
+        # extraction falls back to `__module__`; that additive summary must not replace
+        # the structured initializer recovered from the partial AST.
+        for owner in ("€", "‿"):
+            with self.subTest(single_owner=owner):
+                single_path = "src/Single.java"
+                single = f'class {owner} {{ static {{ R.put("k", "OnlyZz"); }} }}\n'
+                public_chunks = self.chunker.chunk_file(single, single_path)
+                self.assertEqual(
+                    self._init_ids(public_chunks),
+                    {f"{single_path}::{owner}.__static_init_1__"},
+                )
+                self.assertEqual(
+                    {chunk.id for chunk in public_chunks},
+                    {
+                        f"{single_path}::__module__",
+                        f"{single_path}::{owner}.__static_init_1__",
+                    },
+                    "module fallback and recovered initializer must coexist",
+                )
+
+    def test_oversized_single_currency_owner_survives_public_summary_fallback(self):
+        # Split initializer sections end in `[init] (part N/M)`. Public summary wrapping
+        # must recognize those parts and preserve every literal alongside the legacy module
+        # fallback when the grammar cannot extract a symbol summary for the owner.
+        body = "\n".join(f'        R.put("k{i}", "v{i}");' for i in range(200))
+        source = f"class € {{\n    static {{\n{body}\n    }}\n}}\n"
+        path = "src/BigEuro.java"
+        chunks = self.chunker.chunk_file(source, path)
+        ids = {chunk.id for chunk in chunks}
+        init_parts = [chunk for chunk in chunks if "€.__static_init_1__" in chunk.id]
+        self.assertIn(f"{path}::__module__", ids)
+        self.assertGreater(len(init_parts), 1, "fixture must exercise split initializer sections")
+        self.assertTrue(all(" [init] (part " in (chunk.section or "") for chunk in init_parts))
+        joined = "\n".join(chunk.text for chunk in init_parts)
+        self.assertIn('R.put("k0", "v0")', joined)
+        self.assertIn('R.put("k199", "v199")', joined)
+
+    def test_table_split_currency_owner_survives_public_summary_fallback(self):
+        # The table-aware splitter uses `[init] (rows N–M of T)`, not `(part N/M)`.
+        # The stable initializer marker—not one suffix family—is the preservation key.
+        rows = "\n".join(f"| k{i} | v{i} |" for i in range(200))
+        source = (
+            "class € {\n"
+            "    static {\n"
+            '        String table = """\n'
+            "| Key | Value |\n"
+            "| --- | --- |\n"
+            f"{rows}\n"
+            '        """;\n'
+            '        R.put("tail", "TailZz");\n'
+            "    }\n"
+            "}\n"
+        )
+        path = "src/TableEuro.java"
+        chunks = self.chunker.chunk_file(source, path)
+        ids = {chunk.id for chunk in chunks}
+        init_rows = [chunk for chunk in chunks if "€.__static_init_1__" in chunk.id]
+        self.assertIn(f"{path}::__module__", ids)
+        self.assertGreater(len(init_rows), 1, "fixture must exercise table-aware splitting")
+        self.assertTrue(all(" [init] (rows " in (chunk.section or "") for chunk in init_rows))
+        joined = "\n".join(chunk.text for chunk in init_rows)
+        self.assertIn("| k0 | v0 |", joined)
+        self.assertIn("| k199 | v199 |", joined)
+        self.assertIn("TailZz", joined)
+
+    def test_restricted_record_annotation_element_cannot_capture_owner(self):
+        # `record` is a restricted identifier, not a globally reserved keyword. Punctuation
+        # after an annotation element name must terminate the declaration-keyword candidate
+        # in both the streaming fallback classifier and the tree-path header recovery lexer.
+        cases = (
+            ('@Ann(record="x") class Registry { static { R.put("k", "ClassZz"); } }', "Registry"),
+            ('@Ann(record="x") record Registry(int n) { static { R.put("k", "RecordZz"); } }', "Registry"),
+        )
+        for source, owner in cases:
+            with self.subTest(source=source):
+                path = "src/Restricted.java"
+                expected = {f"{path}::{owner}.__static_init_1__"}
+                self.assertEqual(self._init_ids(self._forced_fallback(source, path)), expected)
+                direct = self.chunker.chunk_java_treesitter(source, path)
+                self.assertIsNotNone(direct)
+                self.assertEqual(self._init_ids(direct), expected)
+
+    def test_raw_unicode_escape_owner_is_explicitly_unsupported_and_fails_closed(self):
+        # Java translates raw Unicode escapes before tokenization. Wave 1sbfl does not
+        # implement that separate prelexical phase; it must not publish tree-sitter's
+        # partial `u0041` spelling as a supposedly stable first-class initializer owner.
+        cases = (
+            r'class \u0041 { static { R.put("k", "FirstZz"); } }',
+            r'class A\u0301B { static { R.put("k", "MiddleZz"); } }',
+            r'class Alpha\u0301 { static { R.put("k", "TailZz"); } }',
+            r'class Outer { class I\u0301nner { static { R.put("k", "NestedZz"); } } }',
+        )
+        path = "src/EscapedOwner.java"
+        for source in cases:
+            with self.subTest(source=source):
+                fallback = self.chunker._java_initializer_chunks(source, path, "EscapedOwner")
+                direct = self.chunker.chunk_java_treesitter(source, path)
+                public = self.chunker.chunk_file(source, path)
+                self.assertEqual(self._init_ids(fallback), set())
+                self.assertEqual(self._init_ids(direct or []), set())
+                self.assertEqual(self._init_ids(public), set())
+                initializer_ids = "\n".join(
+                    c.id for c in (direct or []) + public
+                    if "__static_init_" in c.id or "__instance_init_" in c.id
+                )
+                for partial in ("u0041", "::A.__", "::Alpha.__", "Outer.I.__"):
+                    self.assertNotIn(partial, initializer_ids)
+
+    def test_initializer_scanner_auxiliary_memory_does_not_scale_with_file_lines(self):
+        # Construct input before tracemalloc starts so the measurement covers helper-owned
+        # auxiliary state, not the caller's source. The pre-fix `source.splitlines()` grew
+        # from ~86 KiB to ~1.28 MiB over this shape; offset-based span tracking stays flat.
+        def peak_for(line_count: int) -> int:
+            source = "class A;\n" * line_count
+            tracemalloc.start()
+            try:
+                self.assertEqual(
+                    self.chunker._java_initializer_chunks(source, "src/Large.java", "Large"),
+                    [],
+                )
+                _current, peak = tracemalloc.get_traced_memory()
+                return peak
+            finally:
+                tracemalloc.stop()
+
+        small_peak = peak_for(2_000)
+        large_peak = peak_for(20_000)
+        self.assertLess(
+            large_peak,
+            small_peak + 64_000,
+            f"scanner auxiliary state scaled with source: {small_peak=} {large_peak=}",
+        )
+
+    # ---- Hybrid generator (round-4 review design): a small, declarative generator over the
+    # declaration-prefix / initializer-identity grammar fragment the fallback interprets — NOT
+    # a general Java generator or fuzzer. Category coverage is guaranteed; the fixed seed only
+    # COMBINES categories. Each case is valid Java BY CONSTRUCTION with a KNOWN expected owner
+    # and initializer set, so we compare fallback vs tree-sitter AND both vs the independent
+    # expected owner (so the two agreeing on a WRONG answer cannot pass — 1sr0t's requirement
+    # to pair differential agreement with a spec-derived invariant). The bounded combinatorial
+    # generator intentionally uses ASCII owners; Java's Unicode identifier categories and
+    # collision behavior are covered separately by named, javac-legal category fixtures so that
+    # this generator does not multiply a second orthogonal surface through every combination.
+
+    _GEN_ANNOTATIONS = {
+        "none": "",
+        "marker": "@Ann\n",
+        "arg": "@Ann(1)\n",
+        "long_string": '@Ann("' + "q" * 6100 + '")\n',           # length dimension
+        "class_literal": "@Anno(Foo.class)\n",                    # `class` after `.` (round 4)
+        "qualified_class_literal": "@Anno(a.b.Foo.class)\n",
+        "array_class_literals": "@Anno({A.class, B.class})\n",
+        "multiple": "@A @B\n",
+    }
+    _GEN_COMMENTS = {
+        "none": "", "block": "/*c*/ ", "line": "// hi\n", "multiline_block": "/* multi\n line */ ",
+    }
+    _GEN_NAMES = {
+        "short": "Reg", "dollar": "Generated$Registry", "underscore": "_Impl",
+        "digits": "X9", "long": "L" + "o" * 600 + "ng",           # >512 chars (round-3 truncation)
+    }
+    # container -> (keyword, header_suffix, body_prefix, allows_instance, nested_modifier)
+    _GEN_CONTAINERS = {
+        "class": ("class", "", "", True, "static "),              # static nested class supports both
+        "enum_const": ("enum", "", "A, B;\n        ", True, ""),  # valid enum: constants then ;
+        "enum_semi": ("enum", "", ";\n        ", True, ""),       # valid enum: bare ; then decls
+        "record": ("record", "(int a)", "", False, ""),          # record: static-only (Java rule)
+    }
+    # init selection -> (body fragments, expected [(kind, ordinal), ...])
+    _GEN_INITS = {
+        "one_static": (['static { R.put("k", "V"); }'], [("static", 1)]),
+        "two_static": (['static { R.put("a", "1"); }', 'static { R.put("b", "2"); }'],
+                       [("static", 1), ("static", 2)]),
+        "short_static": (['static { z(); }'], [("static", 1)]),   # below CHUNK_MIN_LINES: merge-exempt
+        "static_instance": (['static { R.put("k", "V"); }', '{ R.put("k2", "W"); }'],
+                            [("static", 1), ("instance", 1)]),    # class/enum only
+    }
+    _GEN_NESTING = ("top_level", "nested")
+
+    def _gen_build(self, ann, cm, nm, ck, init, nest):
+        """Return (valid Java source, expected initializer id set) for one category tuple."""
+        kw, suffix, body_prefix, allows_instance, nested_mod = self._GEN_CONTAINERS[ck]
+        frags, exp = self._GEN_INITS[init]
+        if not allows_instance and any(k == "instance" for k, _ in exp):
+            frags, exp = self._GEN_INITS["one_static"]  # records forbid instance initializers
+        name = self._GEN_NAMES[nm]
+        body = body_prefix + "\n        ".join(frags)
+        ann_txt, cm_txt = self._GEN_ANNOTATIONS[ann], self._GEN_COMMENTS[cm]
+        if nest == "nested":
+            owner = f"Outer.{name}"
+            inner = f"{ann_txt}{nested_mod}{kw} {cm_txt}{name}{suffix} {{\n        {body}\n    }}"
+            src = f"class Outer {{\n    {inner}\n}}\n"
+        else:
+            owner = name
+            src = f"{ann_txt}{kw} {cm_txt}{name}{suffix} {{\n    {body}\n}}\n"
+        return src, {f"src/Gen.java::{owner}.__{k}_init_{o}__" for k, o in exp}
+
+    def _gen_check(self, src, expected, why):
+        fb = self._init_ids(self._forced_fallback(src, "src/Gen.java"))
+        ts = self.chunker.chunk_java_treesitter(src, "src/Gen.java")
+        self.assertIsNotNone(ts, f"grammar must be present [{why}]\n---\n{src}")
+        ts_ids = self._init_ids(ts)
+        # tree-sitter must parse the intended declaration (a parse error would drop the inits)
+        self.assertEqual(ts_ids, expected, f"tree-sitter != expected owner [{why}]\n---\n{src}")
+        # independent spec-derived owner oracle — catches fallback AND tree-sitter agreeing wrongly
+        self.assertEqual(fb, expected, f"fallback != expected owner [{why}]\n---\n{src}")
+        self.assertEqual(fb, ts_ids, f"fallback != tree-sitter [{why}]\n---\n{src}")
+
+    def test_generated_java_owner_and_init_identity_parity(self):
+        import random
+        SEED = 20260716
+        rng = random.Random(SEED)
+        cats = {
+            "ann": list(self._GEN_ANNOTATIONS), "cm": list(self._GEN_COMMENTS),
+            "nm": list(self._GEN_NAMES), "ck": list(self._GEN_CONTAINERS),
+            "init": list(self._GEN_INITS), "nest": list(self._GEN_NESTING),
+        }
+        base = dict(ann="none", cm="none", nm="short", ck="class", init="one_static", nest="top_level")
+        cases = []
+        # (1) COVERAGE — every value of every category appears with valid defaults; the seed
+        # never decides WHETHER a category is exercised.
+        for cat, values in cats.items():
+            for v in values:
+                sel = dict(base); sel[cat] = v
+                cases.append((f"cover:{cat}={v}", sel))
+        # (2) COMBINATIONS — the seed only COMBINES categories; bounded budget, no new dependency.
+        for _ in range(600):
+            sel = {cat: rng.choice(values) for cat, values in cats.items()}
+            cases.append((f"combo(seed={SEED})", sel))
+        for why, sel in cases:
+            src, expected = self._gen_build(**sel)
+            self._gen_check(src, expected, why)
+        self.assertGreaterEqual(len(cases), 600)  # bounded, ~current scale
+
+    def test_generated_java_metamorphic_decorations_preserve_owner_and_count(self):
+        # Metamorphic invariant: adding legal annotations, comments, whitespace, or nesting
+        # must not change the declared owner or initializer count (nesting qualifies the owner
+        # to Outer.<name> but preserves the count). Catches a defect that shifts identity only
+        # when a decoration is present.
+        base_src, base_expected = self._gen_build("none", "none", "short", "class",
+                                                  "static_instance", "top_level")
+        self._gen_check(base_src, base_expected, "metamorphic base")
+        # annotations / comments / whitespace: owner AND count invariant.
+        for ann, cm in (("marker", "block"), ("class_literal", "line"),
+                        ("qualified_class_literal", "multiline_block"), ("multiple", "none")):
+            src, expected = self._gen_build(ann, cm, "short", "class", "static_instance", "top_level")
+            self.assertEqual(expected, base_expected)  # decoration didn't change owner/count (by design)
+            self._gen_check(src, expected, f"metamorphic ann={ann} cm={cm}")
+        # nesting: count invariant, owner becomes Outer.<name>.
+        nsrc, nexpected = self._gen_build("none", "none", "short", "class", "static_instance", "nested")
+        self.assertEqual(len(nexpected), len(base_expected))
+        self._gen_check(nsrc, nexpected, "metamorphic nesting")
+
+    def test_fallback_static_init_after_huge_single_segment_still_captured(self):
+        # A very long single field-initializer segment (no braces, one statement) must
+        # not blow up retained state, and the trailing `static {}` must still be
+        # captured — the streaming classifier preserves classification for real code.
+        big = " + ".join(f'"tok{i}"' for i in range(4000))  # one very long segment
+        src = (
+            "class Big {\n"
+            f"    String blob = {big};\n"
+            '    static { R.put("k", "HugeSegZz"); }\n'
+            "}\n"
+        )
+        self.assertEqual(
+            self._init_ids(self._forced_fallback(src, "src/Big.java")),
+            {"src/Big.java::Big.__static_init_1__"},
+        )
+
+    def test_fallback_exact_initializer_identity_and_metadata(self):
+        chunks = self._forced_fallback(self.CATALOG, "src/Bundle.java")
+        inits = self._init_chunks(chunks)
+        # EXACT id set — generic `path:Lx-Ly` / `__module__` identity cannot satisfy this.
+        self.assertEqual(set(inits), self.EXPECTED_INIT_IDS)
+        c = inits["src/Bundle.java::Bundle.__static_init_1__"]
+        self.assertEqual(c.kind, "code")
+        self.assertEqual(c.language, "java")
+        self.assertEqual(c.section, "Bundle > Bundle.__static_init_1__" + self.chunker._INIT_SECTION_SUFFIX)
+        self.assertEqual(c.lines, (3, 6))
+        # Multiple/nested ordinals and container qualification match the tree-sitter path.
+        self.assertEqual(inits["src/Bundle.java::Bundle.__static_init_2__"].lines, (11, 13))
+        self.assertEqual(inits["src/Bundle.java::Bundle.__instance_init_1__"].lines, (7, 10))
+        self.assertIn("NestedZzToken", inits["src/Bundle.java::Bundle.Nested.__static_init_1__"].text)
+        self.assertIn("MemberZzToken", inits["src/Bundle.java::Bundle.Member.__static_init_1__"].text)
+
+    def test_fallback_and_treesitter_agree_on_init_identity_and_spans(self):
+        ts = self.chunker.chunk_java_treesitter(self.CATALOG, "src/Bundle.java")
+        self.assertIsNotNone(ts)
+        ts_inits = {i: (c.section, c.lines) for i, c in self._init_chunks(ts).items()}
+        fb_inits = {i: (c.section, c.lines)
+                    for i, c in self._init_chunks(self._forced_fallback(self.CATALOG, "src/Bundle.java")).items()}
+        self.assertEqual(ts_inits, fb_inits)
+
+    def test_fallback_lexically_aware_of_strings_chars_comments(self):
+        # Braces / semicolons / comment delimiters / escaped quotes / char literals inside
+        # string/comment text must not terminate or open an initializer span.
+        src = textwrap.dedent(r"""
+            public class Torture {
+                static {
+                    // fake close } ; in a line comment
+                    String a = "brace } and semi ; and \" escaped quote {";
+                    char c = '}';
+                    /* block } ; comment { */
+                    MAP.put("TortureZzToken", a);
+                }
+                void m() { real(); }
+            }
+        """).lstrip("\n")
+        chunks = self._forced_fallback(src, "src/Torture.java")
+        inits = self._init_chunks(chunks)
+        self.assertEqual(set(inits), {"src/Torture.java::Torture.__static_init_1__"})
+        c = inits["src/Torture.java::Torture.__static_init_1__"]
+        self.assertIn("TortureZzToken", c.text)
+        # The span stopped at the real closing brace (line 8), not the fake ones inside
+        # the comments/strings/char literal.
+        self.assertEqual(c.lines, (2, 8))
+        # The method after the block was still chunked separately (span didn't run away).
+        self.assertTrue(any(i.endswith("Torture.m") for i in {x.id for x in chunks}))
+
+    def test_fallback_single_pass_bounded_scan(self):
+        # AC-2 structural/call-count pin: the initializer scan visits each source character
+        # a constant number of times (monotonic cursor) — no per-type/whole-source rescan.
+        class _CountingStr(str):
+            def __new__(cls, s, counter):
+                obj = super().__new__(cls, s)
+                obj._counter = counter
+                return obj
+            def __getitem__(self, k):
+                self._counter[0] += 1
+                return str.__getitem__(self, k)
+
+        base = self.CATALOG
+        c1 = [0]
+        self.chunker._java_initializer_chunks(_CountingStr(base, c1), "src/Bundle.java", "Bundle")
+        # Character inspections stay within a small constant multiple of source length.
+        self.assertLessEqual(c1[0], 8 * len(base))
+        # Doubling the source ~doubles (not quadruples) the inspections → linear, not O(n^2).
+        doubled = base + base
+        c2 = [0]
+        self.chunker._java_initializer_chunks(_CountingStr(doubled, c2), "src/Bundle.java", "Bundle")
+        self.assertLess(c2[0], 2.6 * c1[0])
+        # Source-level anti-rescan pin: no whole-source rescan / prefix-slice idioms.
+        import inspect
+        body = inspect.getsource(self.chunker._java_initializer_chunks)
+        for anti in ("finditer(source", "source.count(", "for _ in source_lines",
+                     "re.findall(", ".search(source"):
+            self.assertNotIn(anti, body, f"anti-pattern {anti!r} present")
+
+    # ---- AC-3: long field-initializer reproduction + disposition ----
+
+    def test_static_final_field_initializer_literals_retained(self):
+        # The field-repo shape whose static initializer catalog is the primary symptom:
+        # a static-final map field with a multiline builder initializer keeps its literals
+        # (captured by the constant-chunk mechanism, bounded by the size cap).
+        src = textwrap.dedent("""\
+            public class MessagesResourceBundle {
+                private static final java.util.Map<String,String> M =
+                    new java.util.HashMap<>() {{
+                        put("err.ambiguous", "Unable to find unambiguous FieldZzToken");
+                        put("err.missing", "value missing");
+                    }};
+            }
+        """)
+        chunks = self.chunker.chunk_java_treesitter(src, "src/MessagesResourceBundle.java")
+        self.assertIsNotNone(chunks)
+        self.assertTrue(any("FieldZzToken" in c.text for c in chunks),
+                        "static-final field initializer literals must be retained")
+        for c in chunks:
+            self.assertLessEqual(len(c.text), self.chunker.MAX_CODE_CHUNK_CHARS)
+
+    def test_plain_field_double_brace_literals_deferred(self):
+        # DEFERRED (Decision Log): a PLAIN (non-static-final) field with a double-brace
+        # anonymous-class instance initializer is a materially broader field-chunking
+        # design (anonymous-class bodies are explicitly out of scope). This pins the KNOWN
+        # residual gap so the deferral is honest and any future fix is a visible change.
+        src = textwrap.dedent("""\
+            public class DBrace {
+                java.util.Map<String,String> messages = new java.util.HashMap<>() {{
+                    put("db.k", "DoubleBraceZzToken");
+                }};
+            }
+        """)
+        chunks = self.chunker.chunk_java_treesitter(src, "src/DBrace.java")
+        self.assertIsNotNone(chunks)
+        self.assertFalse(any("DoubleBraceZzToken" in c.text for c in chunks),
+                         "if this now passes, the AC-3 deferral was resolved — update the Decision Log")
+
+    # ---- AC-7: oversized initializer split preserves every literal ----
+
+    def test_oversized_initializer_split_preserves_all_literals(self):
+        puts = "\n".join(
+            f'        REG.put("bigkey_{i}_zzmark", "bigval_{i}");' for i in range(200))
+        src = f"public class BigCat {{\n    static {{\n{puts}\n    }}\n}}\n"
+        chunks = self.chunker.chunk_java_treesitter(src, "src/BigCat.java")
+        self.assertIsNotNone(chunks)
+        init_parts = [c for c in chunks if "BigCat.__static_init_1__" in c.id]
+        self.assertGreater(len(init_parts), 1, "oversized block must split into >1 sub-chunk")
+        for c in init_parts:
+            self.assertLessEqual(len(c.text), self.chunker.MAX_CODE_CHUNK_CHARS)
+        for i in range(200):
+            self.assertTrue(any(f"bigkey_{i}_zzmark" in c.text for c in init_parts),
+                            f"literal bigkey_{i}_zzmark lost across the split")
+
+    # ---- AC-5: forced-fallback Scala golden — no Java initializer leakage ----
+
+    def test_scala_fallback_unchanged_no_init_marker_leak(self):
+        # _chunk_java_like is shared by Java and Scala; the Java-only gate must leave Scala
+        # fallback byte-for-byte stable. Golden-pin the full serialized surface.
+        src = textwrap.dedent("""\
+            package com.x
+            class Registry {
+              def register(): Unit = {
+                map.put("scala.key", "ScalaZzToken")
+              }
+            }
+        """)
+        chunks = self.chunker.chunk_scala(src, "src/Registry.scala")
+        serialized = [(c.id, c.path, c.kind, c.language, c.lines, c.section, c.text)
+                      for c in chunks]
+        # Golden = the ACTUAL pre-change fallback surface (the 1-line decl chunk merges
+        # into the namespace chunk under _merge_small_chunks — a pre-existing behavior this
+        # change must NOT perturb for Scala).
+        expected = [
+            ("src/Registry.scala::__namespace__", "src/Registry.scala", "code", "scala",
+             (1, 2), "Registry > namespace",
+             "Registry > namespace\n\npackage com.x\nRegistry > Registry\n\nclass Registry"),
+            ("src/Registry.scala::Registry.register", "src/Registry.scala", "code", "scala",
+             (3, 5), "Registry > Registry.register",
+             '  def register(): Unit = {\n    map.put("scala.key", "ScalaZzToken")\n  }'),
+        ]
+        self.assertEqual(serialized, expected)
+        # No Java initializer marker/chunk leaks into Scala output.
+        self.assertFalse(any(c.section and c.section.endswith(self.chunker._INIT_SECTION_SUFFIX)
+                             for c in chunks))
+        self.assertFalse(any("_init_" in c.id for c in chunks))
+
+
+class SiblingInitializerCensusTests(unittest.TestCase):
+    """Wave 1sbfl AC-5: grammar-enabled census of sibling-language initializer constructs.
+
+    C# static constructors are captured by the existing constructor path (no fix needed).
+    Kotlin `init` blocks are DROPPED by the current grammar-specific path — a different
+    function (chunk_kotlin_treesitter) and grammar node than Java's, so it is a materially
+    separate mechanism, DEFERRED (see the change-doc Decision Log) rather than folded into
+    this Java-scoped change. Both are pinned with the grammar active (no line-window
+    fallback, which would be no evidence)."""
+
+    def setUp(self):
+        self.chunker = load_chunker()
+
+    def test_csharp_static_constructor_literal_is_captured(self):
+        src = textwrap.dedent("""\
+            public class Reg {
+                static Reg() {
+                    Map.Add("k", "CsStaticCtorZz");
+                }
+            }
+        """)
+        chunks = self.chunker.chunk_csharp_treesitter(src, "src/Reg.cs")
+        self.assertIsNotNone(chunks, "C# tree-sitter grammar unavailable (must FAIL, not skip)")
+        self.assertTrue(any("CsStaticCtorZz" in c.text for c in chunks),
+                        "C# static constructor literal must be captured by the existing path")
+
+    def test_kotlin_init_block_literal_currently_dropped_deferred(self):
+        src = textwrap.dedent("""\
+            class Reg {
+                init {
+                    map["k"] = "KotlinInitZz"
+                }
+            }
+        """)
+        chunks = self.chunker.chunk_kotlin_treesitter(src, "src/Reg.kt")
+        self.assertIsNotNone(chunks, "Kotlin tree-sitter grammar unavailable (must FAIL, not skip)")
+        # Grammar ACTIVE: the init block literal is not captured today. This pins the KNOWN
+        # gap for the deferral; if it starts passing, the Kotlin sibling fix landed and the
+        # Decision Log should be updated.
+        self.assertFalse(any("KotlinInitZz" in c.text for c in chunks),
+                         "Kotlin init capture would be a separate-mechanism fix — update the Decision Log")
 
 
 class KotlinConstantChunkTests(unittest.TestCase):

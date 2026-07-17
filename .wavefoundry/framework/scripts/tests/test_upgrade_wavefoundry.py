@@ -16,6 +16,49 @@ from unittest.mock import MagicMock, patch
 
 SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
 UPGRADE_PATH = SCRIPTS_ROOT / "upgrade_wavefoundry.py"
+REVIEW_PROTOCOL_SEEDS = (
+    "209-agent-harness-core.prompt.md",
+    "221-code-reviewer.prompt.md",
+    "239-qa-reviewer.prompt.md",
+)
+
+
+def _stage_review_protocol_seeds(root: Path) -> Path:
+    target_seeds = root / ".wavefoundry" / "framework" / "seeds"
+    target_seeds.mkdir(parents=True, exist_ok=True)
+    for name in REVIEW_PROTOCOL_SEEDS:
+        target_seeds.joinpath(name).write_bytes(
+            (SCRIPTS_ROOT.parent / "seeds" / name).read_bytes()
+        )
+    return target_seeds
+
+
+def _assert_review_protocol_contract(test: unittest.TestCase, root: Path) -> None:
+    target_seeds = root / ".wavefoundry" / "framework" / "seeds"
+    canonical_text = target_seeds.joinpath(
+        "209-agent-harness-core.prompt.md"
+    ).read_text(encoding="utf-8")
+    test.assertIn(
+        "Independent-reference verification",
+        canonical_text,
+    )
+    test.assertIn(
+        "Implementer-authored evidence remains `independent: false`",
+        canonical_text,
+    )
+    for name in REVIEW_PROTOCOL_SEEDS:
+        test.assertEqual(
+            target_seeds.joinpath(name).read_bytes(),
+            (SCRIPTS_ROOT.parent / "seeds" / name).read_bytes(),
+        )
+    for rel in ("docs/agents/code-reviewer.md", "docs/agents/qa-reviewer.md"):
+        role_text = (root / rel).read_text(encoding="utf-8")
+        test.assertIn("Independent-reference verification", role_text)
+        test.assertIn("`independent: false`", role_text)
+    test.assertIn(
+        "assertion that would falsify",
+        (root / "docs" / "agents" / "qa-reviewer.md").read_text(encoding="utf-8"),
+    )
 
 
 def load_upgrade_module():
@@ -1425,12 +1468,7 @@ class PublicUpgradeReviewProtocolIntegrationTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir).resolve()
-            target_seeds = root / ".wavefoundry" / "framework" / "seeds"
-            target_seeds.mkdir(parents=True)
-            target_seeds.joinpath("239-qa-reviewer.prompt.md").write_text(
-                (SCRIPTS_ROOT.parent / "seeds" / "239-qa-reviewer.prompt.md").read_text(encoding="utf-8"),
-                encoding="utf-8",
-            )
+            _stage_review_protocol_seeds(root)
             target = root / "docs" / "agents" / "security-reviewer.md"
             target.parent.mkdir(parents=True)
             prefix = "# Project Security Reviewer\n\nproject-prefix\n\n"
@@ -1469,6 +1507,7 @@ class PublicUpgradeReviewProtocolIntegrationTests(unittest.TestCase):
                 "zero unintended skips",
                 (root / "docs" / "agents" / "qa-reviewer.md").read_text(encoding="utf-8"),
             )
+            _assert_review_protocol_contract(self, root)
             self.assertEqual(target.read_bytes(), first)
             self.assertFalse(
                 (root / "docs" / "agents" / "guru.md").exists(),
@@ -1485,12 +1524,7 @@ class PublicUpgradeReviewProtocolIntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir).resolve()
             (root / ".wavefoundry").mkdir()
-            target_seeds = root / ".wavefoundry" / "framework" / "seeds"
-            target_seeds.mkdir(parents=True)
-            target_seeds.joinpath("239-qa-reviewer.prompt.md").write_text(
-                (SCRIPTS_ROOT.parent / "seeds" / "239-qa-reviewer.prompt.md").read_text(encoding="utf-8"),
-                encoding="utf-8",
-            )
+            _stage_review_protocol_seeds(root)
             (root / "docs").mkdir()
             (root / "docs" / "workflow-config.json").write_text("{}\n", encoding="utf-8")
             historical = root / "docs" / "waves" / "abcde historical" / "wave.md"
@@ -1527,6 +1561,7 @@ class PublicUpgradeReviewProtocolIntegrationTests(unittest.TestCase):
                 self.assertEqual(mod.main(["--root", str(root), "--yes"]), 0)
 
             for rel in (
+                "docs/agents/code-reviewer.md",
                 "docs/agents/qa-reviewer.md",
                 "docs/prompts/review-wave.prompt.md",
                 "docs/prompts/create-wave.prompt.md",
@@ -1535,6 +1570,7 @@ class PublicUpgradeReviewProtocolIntegrationTests(unittest.TestCase):
                 path = root / rel
                 self.assertTrue(path.is_file(), rel)
                 self.assertIn(ras.REVIEW_PROTOCOL_MARKER_BEGIN, path.read_text(encoding="utf-8"))
+            _assert_review_protocol_contract(self, root)
             create_text = (
                 root / "docs" / "prompts" / "create-wave.prompt.md"
             ).read_text(encoding="utf-8")

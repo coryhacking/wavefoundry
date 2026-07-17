@@ -6,6 +6,32 @@ the individual wave records under [`docs/waves/`](docs/waves/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.0] - 2026-07-16
+
+### Added
+
+- **Java static and instance initializer blocks are now indexed as their own code chunks.** Literal-rich `static { … }` / `{ … }` bodies — message and error tables, lookup-map registration, enum bootstrap — were previously in no chunk at all and invisible to search; they are now emitted as stable, size-bounded chunks in both the tree-sitter and regex-fallback Java paths, across class/enum/record containers. Java records also become first-class in the tree-sitter path. An upgrade re-chunks the code index, reusing embeddings for unchanged chunks.
+
+- **A prior-learning memory layer surfaces relevant lessons before risky actions.** Typed, evidence-backed memory records attached to the code graph are surfaced at action time, and retrieval is now churn-aware: index-time freshness/churn metadata and doc↔code drift detection let every retrieval response distinguish current documentation from documentation that has drifted from the code it describes.
+
+- **Ranked search reports index freshness and degrades gracefully when the embedding model is unavailable.** `code_ask` carries an honest three-state freshness verdict computed from a cheap per-layer signal (replacing an expensive, incorrect per-question corpus walk), and semantic-path failure now degrades to full-text search with preserved filters and a uniform, typed `search_mode` / `fallback_reason` contract instead of disabling search or silently dropping filters.
+
+- **Reviewers now verify changed work against an independent reference.** A framework-owned review protocol asks reviewers to falsify material claims through public paths, state transitions, and exact repair replays, and — for any changed implementation — to verify behavior against a reference that does not share the implementation's assumptions (a specification, the independently-read acceptance criteria, a materially independent implementation, or a metamorphic invariant), never relabeling implementer-authored evidence as independent approval. Executable review evidence is recorded in a typed, machine-readable event ledger.
+
+- **Security severity now requires a grounded, attacker-reachable threat.** A conjunctive credible-threat gate drives security severity, blocking, and approval-freshness only from findings reachable under the documented threat model — cutting false-positive security escalation without weakening discovery.
+
+### Changed
+
+- **A single SQLite store is now the authority for semantic-index state.** `meta.json` is retired; index state lives in `index-state.sqlite` with a durable build-generation contract and reset/rebuild-or-fail semantics, while Lance remains the chunk/vector authority. Every MCP, dashboard, health, upgrade, and setup consumer reads the one authority — no dual-format fallback.
+
+### Fixed
+
+- **Incremental code indexing no longer freezes on hook-enabled repositories.** A content-scoped build stamped broad file hashes while embedding only its own content type, freezing the other type's index — so automatic post-edit indexing had effectively never kept the code index current, and the documented `content=code` recovery was a no-op. Change detection is now coherent under any build scope, and the automatic hook path keeps both semantic layers fresh.
+
+- **`code_ask` no longer reports a permanent false "stale" index on repositories with a generated codebase map.** The freshness check compared recorded index state against ignore-filtered inputs, so the always-regenerated codebase map read as "gone" forever — every query reported stale and the prescribed rebuild was a no-op. The ignore filter is now applied uniformly; the fix heals an already-built index in place, no rebuild required.
+
+- **Upgrading no longer halts at the documentation gate on freshly rendered specialist agent files.** Newly rendered specialist reviewer carriers lacked the role/category frontmatter that the same release's docs-lint enforces; the seeds now carry it and the render path injects it as a destination-aware fallback.
+
 ## [1.12.0] - 2026-07-11
 
 ### Added

@@ -114,6 +114,29 @@ REVIEW_PROTOCOL_CARRIER_BLOCK = dedent(
     """
 ).strip()
 
+INDEPENDENT_REFERENCE_CARRIER_BLOCK = dedent(
+    """\
+    ### Independent-reference verification
+
+    For any changed implementation — feature, API or tool-surface change,
+    config-driven change, bug fix, or deterministic mechanism — apply seed
+    209's independent-reference rule: verify against a reference that does not
+    share the implementation's assumptions (a specification, the
+    independently-read acceptance criteria, the consumer/caller contract, the
+    original reproduction, a materially independent implementation, a
+    schema/model, or a metamorphic invariant). Name the reference, exact
+    promised property, and common-mode limitations; keep one highest-risk probe
+    bounded, reproducible, and limited to valid inputs and the public contract
+    surface. A same-hypothesis helper or agent brief is not an independent
+    reference, and implementer-authored evidence remains `independent: false`.
+
+    Code review identifies the applicable reference and property. QA names the
+    assertion that would falsify each load-bearing correctness, complexity,
+    compatibility, or parity claim. Carrier-presence tests prove propagation,
+    not reviewer adherence.
+    """
+).strip()
+
 
 def _review_role_slug(carrier: ReviewProtocolCarrier) -> str | None:
     path = Path(carrier.destination)
@@ -719,9 +742,15 @@ def write_text(path: Path, content: str) -> None:
 def _carrier_protocol_block(carrier: ReviewProtocolCarrier) -> str:
     """Return the shared minimum plus any destination-specific obligations."""
 
+    block = REVIEW_PROTOCOL_CARRIER_BLOCK
+    if carrier.source_seed in {
+        "221-code-reviewer.prompt.md",
+        "239-qa-reviewer.prompt.md",
+    }:
+        block += "\n\n" + INDEPENDENT_REFERENCE_CARRIER_BLOCK
     if carrier.destination != "docs/agents/qa-reviewer.md":
-        return REVIEW_PROTOCOL_CARRIER_BLOCK
-    return REVIEW_PROTOCOL_CARRIER_BLOCK + "\n\n" + dedent(
+        return block
+    return block + "\n\n" + dedent(
         """\
         ### QA evidence integrity
 

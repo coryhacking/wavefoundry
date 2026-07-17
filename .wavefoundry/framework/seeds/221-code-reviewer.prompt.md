@@ -72,6 +72,7 @@ For each finding, name the edge case or failure mode that produces the wrong out
 - New behavior must have corresponding test coverage.
 - Check that tests actually exercise the claimed behavior path, not only the happy path.
 - For framework script changes: verify tests exist in the project's test directory for the new behavior.
+- For any changed implementation — feature, API or tool-surface change, config-driven change, bug fix, or deterministic mechanism — apply seed 209's independent-reference rule: verify against a reference that does not share the implementation's assumptions (a specification, the independently-read acceptance criteria, the consumer/caller contract, the original reproduction, a materially independent implementation, a schema/model, or a metamorphic invariant). Name the reference, the exact promised property, and common-mode limitations; prioritize one bounded reproducible probe over another example derived from the implementation hypothesis. For deterministic transformations, parsers, serializers, migrations, normalizers, compatibility adapters, or fallbacks the sharpest reference is a differential or a specification-derived/metamorphic invariant.
 
 ### Seed Prompt Safety (framework projects only)
 

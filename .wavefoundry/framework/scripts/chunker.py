@@ -6,6 +6,7 @@ import ast
 import logging
 import re
 import sys
+import unicodedata
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath
 from typing import Callable, Optional
@@ -206,7 +207,7 @@ def _ts_collapse_body(text: str, max_lines: int = 150) -> str:
 # (b) `phase_index_rebuild` (full) running on `--update-index` instead of
 # `phase_index_update` (incremental), (c) post-condition verification confirming
 # the new version in the index-state store's build snapshot after rebuild.
-CHUNKER_VERSION = "31"  # 1p5k0 (nested-type-const-qualification): nested types (Swift struct/enum/class in a class body; other langs' nested classes) now attribute member constants AND methods to the nested qualified owner (Outer.Inner.x) in the chunk lane — was flattened onto the outermost type — and emit a nested-type __decl__ chunk. Aligns chunk-lane qnames with the already-correct graph lane; paired with code_constants dotted-suffix matching so the natural Inner.x query resolves. Chunk-set shape change → bump (consumer code index re-chunks). 1p4w9: docs chunks prepend their section breadcrumb to embedded text (NL→docs retrieval +10pp on the 32-query eval; docs-only — code chunk text unchanged, so code vectors reuse by content-hash and only docs re-embed). 1p4q4 review (C1/C2/C3): complete the TS namespace/module const-chunk coverage — the `module M{}` keyword form, NON-export namespace const, `export namespace`, `declare namespace`, and `declare enum` members now chunk. Chunk-set shape change → bump (consumer code index re-chunks). 1p4q4 (28): TS enum/const-enum members + namespace const + declare const are now constant chunks (Enum.Member). 1p4hi close (27): all-11-language constant chunking + Go short-const fix. 1p4mf (26): module/class-level constants emitted as chunks (kind="code", breadcrumb-prefixed text, merge-excluded via " [const]" section marker)
+CHUNKER_VERSION = "32"  # 1sbfl (java-initializer-chunk-coverage): Java static `static { … }` and instance `{ … }` initializer blocks are now emitted as their own kind="code" chunks in BOTH the tree-sitter path and the regex fallback, across class/enum/record containers (records get static-only — Java forbids record instance initializers). Closes a retrieval blind spot: literal-rich init catalogs (message/error tables, lookup-map registration) were previously in NO chunk. Deterministic identity `{owner}.__static_init_N__` / `{owner}.__instance_init_N__` (1-based per-container ordinals, nested-type qualified); merge-exempt via a " [init]" section marker; oversized blocks bounded by split_large_code_chunks. Records are now first-class in the tree-sitter path (record_declaration recognition + body traversal were net-new). Chunk-set shape change → bump (consumer code index re-chunks with embedding reuse for content-identical chunks). 1p5k0 (nested-type-const-qualification): nested types (Swift struct/enum/class in a class body; other langs' nested classes) now attribute member constants AND methods to the nested qualified owner (Outer.Inner.x) in the chunk lane — was flattened onto the outermost type — and emit a nested-type __decl__ chunk. Aligns chunk-lane qnames with the already-correct graph lane; paired with code_constants dotted-suffix matching so the natural Inner.x query resolves. Chunk-set shape change → bump (consumer code index re-chunks). 1p4w9: docs chunks prepend their section breadcrumb to embedded text (NL→docs retrieval +10pp on the 32-query eval; docs-only — code chunk text unchanged, so code vectors reuse by content-hash and only docs re-embed). 1p4q4 review (C1/C2/C3): complete the TS namespace/module const-chunk coverage — the `module M{}` keyword form, NON-export namespace const, `export namespace`, `declare namespace`, and `declare enum` members now chunk. Chunk-set shape change → bump (consumer code index re-chunks). 1p4q4 (28): TS enum/const-enum members + namespace const + declare const are now constant chunks (Enum.Member). 1p4hi close (27): all-11-language constant chunking + Go short-const fix. 1p4mf (26): module/class-level constants emitted as chunks (kind="code", breadcrumb-prefixed text, merge-excluded via " [const]" section marker)
 
 # Lines per window and overlap for the line-window fallback chunker.
 WINDOW_SIZE = 120
@@ -447,7 +448,25 @@ def _file_stem(path: str) -> str:
 # (mirrors the existing "> imports" exclusion); the marker is kept OUT of the embedded
 # `text`, which gets the clean breadcrumb prefix. Casing IS the only Python constant signal.
 _CONST_SECTION_SUFFIX = " [const]"
+# Wave 1sbfl: Java static/instance initializer blocks are emitted as their own
+# kind="code" chunks. Like constants, an initializer's `section` carries a marker
+# suffix that _merge_small_chunks excludes both as a merge SOURCE and TARGET — so a
+# short or empty `static {}` / instance `{}` block keeps its own first-class identity
+# and is never folded into a declaration, method, or neighboring initializer chunk.
+_INIT_SECTION_SUFFIX = " [init]"
 _CONST_NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
+
+
+def _is_initializer_section(section: Optional[str]) -> bool:
+    """Return whether a section is an initializer, including split parts.
+
+    Splitters append suffixes such as ``(part N/M)`` or ``(rows N–M of T)``
+    after the stable marker; consumers that run after splitting must recognize
+    every derived shape.
+    """
+    if not section:
+        return False
+    return _INIT_SECTION_SUFFIX in section
 
 
 def _is_const_name(name: str) -> bool:
@@ -1752,16 +1771,20 @@ def _merge_small_chunks(chunks: list[Chunk], scoped: bool = False) -> list[Chunk
         # (a 1-line constant must keep its own id, never fold into a neighbour) — both as a
         # merge SOURCE (the predicate below) and as a merge TARGET (the finder here).
         is_const = chunk.section is not None and chunk.section.endswith(_CONST_SECTION_SUFFIX)
+        # Wave 1sbfl: initializer chunks are merge-exempt (as SOURCE and TARGET) so a short
+        # or empty static/instance initializer keeps its promised first-class identity.
+        is_init = _is_initializer_section(chunk.section)
         is_doc = chunk.kind == "doc"
         line_count = chunk.lines[1] - chunk.lines[0] + 1
 
-        # Find last code chunk in result as merge target (skip imports + constant chunks)
+        # Find last code chunk in result as merge target (skip imports + constant + initializer chunks)
         last_code_idx = next(
             (
                 idx for idx in range(len(result) - 1, -1, -1)
                 if result[idx].kind == "code"
                 and not (result[idx].section is not None and result[idx].section.endswith("> imports"))
                 and not (result[idx].section is not None and result[idx].section.endswith(_CONST_SECTION_SUFFIX))
+                and not _is_initializer_section(result[idx].section)
             ),
             None,
         )
@@ -1777,6 +1800,7 @@ def _merge_small_chunks(chunks: list[Chunk], scoped: bool = False) -> list[Chunk
         if (
             not is_imports
             and not is_const
+            and not is_init
             and not is_doc
             and chunk.kind == "code"
             and line_count < CHUNK_MIN_LINES
@@ -1814,6 +1838,470 @@ _JAVA_METHOD_RE = re.compile(
     re.MULTILINE,
 )
 _JAVADOC_RE = re.compile(r"/\*\*.*?\*/", re.DOTALL)
+
+
+_JAVA_TYPE_KEYWORDS = frozenset({"class", "interface", "enum", "record"})
+_JAVA_IDENTIFIER_START_CATEGORIES = frozenset(
+    {"Lu", "Ll", "Lt", "Lm", "Lo", "Nl", "Sc", "Pc"}
+)
+_JAVA_IDENTIFIER_PART_EXTRA_CATEGORIES = frozenset({"Mn", "Mc", "Nd"})
+
+
+def _is_java_identifier_start(ch: str) -> bool:
+    """Return whether *ch* may start a Java identifier.
+
+    This mirrors ``Character.isJavaIdentifierStart`` by Unicode general category rather
+    than Python's narrower ``str.isalnum``/``\\w`` surface. Java admits letters (including
+    letter numbers), currency symbols, and connector punctuation; ``$`` and ``_`` are
+    covered by those categories but remain called out because generated Java uses them
+    heavily. The exact source spelling is retained — identifiers are never normalized.
+    """
+    return bool(ch) and unicodedata.category(ch) in _JAVA_IDENTIFIER_START_CATEGORIES
+
+
+def _is_java_identifier_ignorable(ch: str) -> bool:
+    """Mirror ``Character.isIdentifierIgnorable`` for Java identifier parts."""
+    cp = ord(ch)
+    return (
+        unicodedata.category(ch) == "Cf"
+        or 0x0000 <= cp <= 0x0008
+        or 0x000E <= cp <= 0x001B
+        or 0x007F <= cp <= 0x009F
+    )
+
+
+def _is_java_identifier_part(ch: str) -> bool:
+    """Return whether *ch* may continue a Java identifier."""
+    return (
+        _is_java_identifier_start(ch)
+        or unicodedata.category(ch) in _JAVA_IDENTIFIER_PART_EXTRA_CATEGORIES
+        or _is_java_identifier_ignorable(ch)
+    )
+
+
+def _is_java_ident_char(ch: str) -> bool:
+    """Backward-compatible internal alias for the full Java identifier-part predicate."""
+    return _is_java_identifier_part(ch)
+
+
+def _java_declared_type_name(header: str, keyword: str) -> Optional[str]:
+    """Recover the exact declared Java type name from declaration-header text.
+
+    Tree-sitter-java can tokenize some javac-legal Unicode identifier characters as an
+    ``ERROR`` sibling of its ``identifier`` node. This small Java-only lexer therefore
+    treats the grammar as a structural boundary oracle while deriving the owner spelling
+    from the original header. It skips comments and quoted literals, rejects ``.class``
+    member-selection tokens, and returns the first Java identifier following the expected
+    declaration keyword. Runtime Unicode-table version skew remains possible and is pinned
+    with representative JLS category fixtures.
+    """
+    i = 0
+    n = len(header)
+    after_dot = False
+    saw_keyword = False
+    while i < n:
+        ch = header[i]
+        if ch.isspace():
+            i += 1
+            continue
+        if header.startswith("//", i):
+            end = header.find("\n", i + 2)
+            i = n if end < 0 else end + 1
+            continue
+        if header.startswith("/*", i):
+            end = header.find("*/", i + 2)
+            i = n if end < 0 else end + 2
+            continue
+        if header.startswith('\"\"\"', i):
+            i += 3
+            while i < n:
+                if header[i] == "\\":
+                    i += 2
+                    continue
+                if header.startswith('\"\"\"', i):
+                    i += 3
+                    break
+                i += 1
+            after_dot = False
+            continue
+        if ch in {'"', "'"}:
+            quote = ch
+            i += 1
+            while i < n:
+                if header[i] == "\\":
+                    i += 2
+                    continue
+                if header[i] == quote:
+                    i += 1
+                    break
+                i += 1
+            after_dot = False
+            continue
+        if _is_java_identifier_start(ch):
+            j = i + 1
+            while j < n and _is_java_identifier_part(header[j]):
+                j += 1
+            token = header[i:j]
+            if saw_keyword:
+                # A raw Unicode escape adjacent to the token means Java's separate
+                # prelexical translation owns the real identifier. Do not publish the
+                # visible ASCII prefix as a stable owner.
+                if header.startswith("\\u", j):
+                    return None
+                return token
+            if token == keyword and not after_dot:
+                saw_keyword = True
+            after_dot = False
+            i = j
+            continue
+        if _is_java_identifier_part(ch):
+            # Invalid-at-start Java identifier material cannot be a declaration name.
+            j = i + 1
+            while j < n and _is_java_identifier_part(header[j]):
+                j += 1
+            after_dot = False
+            i = j
+            continue
+        # A declaration keyword must be followed by its name through lexical whitespace
+        # only. Punctuation ends the candidate: ``@Ann(record="x")`` is a valid annotation
+        # argument, not the start of ``record Registry``.
+        if saw_keyword:
+            saw_keyword = False
+        after_dot = ch == "."
+        i += 1
+    return None
+
+
+class _SegmentClassifier:
+    """Streaming, bounded-state classifier for the declaration text preceding a ``{``.
+
+    Wave 1sbfl. Rather than retaining the raw segment (which grows with a long annotation
+    or expression — the unbounded-state defect flagged in delivery re-review), it tracks
+    only: the current/previous identifier token, the first significant word, whether any
+    non-word significant character appeared, and a captured ``class/interface/enum/record
+    <name>`` type declaration. Because the type keyword/name is captured incrementally, a
+    ``{`` opening a type body is recognized **no matter how much precedes the keyword** —
+    e.g. a multi-kilobyte annotation before ``class Registry``.
+
+    A type keyword only counts as a **declaration** keyword when it is not a member-selection
+    token: the ``class`` in the class-literal ``Foo.class`` (a legal annotation argument) is
+    preceded by ``.`` and must not be mistaken for ``class Registry`` — so a leading-``.``
+    flag disqualifies it.
+
+    Memory (stated honestly): this classifier's retained state is the current identifier
+    token plus a fixed set of flags/word references; combined with the scanner's frame
+    stack it is bounded by the current identifier plus the **live enclosing type-owner text
+    and nesting depth**, not the total source or segment length. It is *not* O(1): exact
+    arbitrary-length owner identity (parity with tree-sitter) inherently requires keeping the
+    full identifier, so a 10 000-character class name is retained in full rather than
+    silently truncated.
+
+    Comments and strings are fed as token separators / non-word significant content so
+    ``class /*x*/ Registry`` still resolves to the ``Registry`` declaration and an annotation
+    string never reads as an empty segment.
+    """
+
+    __slots__ = ("start_line", "start_offset", "_word", "first_word", "word_count", "nonword_sig",
+                 "prev_word", "prev_word_is_decl_kw", "type_kind", "type_name",
+                 "_after_dot", "_this_word_after_dot")
+
+    def __init__(self) -> None:
+        self.reset()
+
+    def reset(self) -> None:
+        self.start_line: Optional[int] = None
+        self.start_offset: Optional[int] = None
+        self._word: list[str] = []
+        self.first_word: Optional[str] = None
+        self.word_count = 0
+        self.nonword_sig = False
+        self.prev_word: Optional[str] = None
+        self.prev_word_is_decl_kw = False
+        self.type_kind: Optional[str] = None
+        self.type_name: Optional[str] = None
+        self._after_dot = False           # the next identifier is a member selection (`.x`)
+        self._this_word_after_dot = False  # the word currently being built follows a `.`
+
+    def _flush_word(self) -> None:
+        if not self._word:
+            return
+        w = "".join(self._word)
+        self._word = []
+        self.word_count += 1
+        if self.first_word is None:
+            self.first_word = w
+        # `class`/`interface`/`enum`/`record` is a declaration keyword only when it is NOT a
+        # member-selection token (e.g. the `class` in the class-literal `Foo.class`).
+        is_decl_kw = (w in _JAVA_TYPE_KEYWORDS) and not self._this_word_after_dot
+        if self.type_kind is None and self.prev_word_is_decl_kw:
+            self.type_kind = self.prev_word
+            self.type_name = w
+        self.prev_word = w
+        self.prev_word_is_decl_kw = is_decl_kw
+        self._this_word_after_dot = False
+
+    def feed_char(self, ch: str, line_no: int, line_start_offset: Optional[int] = None) -> None:
+        if _is_java_ident_char(ch):
+            if not self._word:  # starting a new token — record whether it follows a `.`
+                self._this_word_after_dot = self._after_dot
+                self._after_dot = False
+            if self.start_line is None:
+                self.start_line = line_no
+                self.start_offset = line_start_offset
+            # Retain the FULL identifier — exact owner identity (parity with tree-sitter)
+            # inherently requires keeping the whole name; never silently truncate it.
+            self._word.append(ch)
+        elif ch.isspace():
+            # Whitespace ends a token but does not clear a pending `.` (``Foo . class``).
+            self._flush_word()
+        elif ch == ".":
+            self._flush_word()
+            self._after_dot = True
+            self.nonword_sig = True
+            if self.start_line is None:
+                self.start_line = line_no
+        else:
+            had_word = bool(self._word)
+            self._flush_word()
+            self._after_dot = False
+            if ch == "\\" and had_word and self.type_name is not None:
+                # The just-flushed type name is only a prefix of a raw Unicode-escape
+                # identifier. That prelexical mechanism is explicitly unsupported; clear
+                # the captured declaration so the scanner fails closed rather than emits a
+                # truncated owner such as `Alpha` for `Alpha\\u0301`.
+                self.type_kind = None
+                self.type_name = None
+            # Punctuation ends a pending declaration-keyword candidate. This prevents
+            # restricted identifiers used as annotation element names (``record=...``)
+            # from capturing the next token as a type owner.
+            self.prev_word_is_decl_kw = False
+            self.nonword_sig = True
+            if self.start_line is None:
+                self.start_line = line_no
+                self.start_offset = line_start_offset
+
+    def feed_separator(self) -> None:
+        """A comment (lexical whitespace) between tokens ends the current token."""
+        self._flush_word()
+
+    def feed_nonword(self, line_no: int, line_start_offset: Optional[int] = None) -> None:
+        """A string / character literal in header position — significant, non-word content."""
+        self._flush_word()
+        self._after_dot = False
+        self.nonword_sig = True
+        if self.start_line is None:
+            self.start_line = line_no
+            self.start_offset = line_start_offset
+
+    def classify(self) -> tuple:
+        """Return ``("type", kind, name)`` | ``("static",)`` | ``("empty",)`` | ``("generic",)``."""
+        self._flush_word()
+        if self.type_kind is not None:
+            return ("type", self.type_kind, self.type_name)
+        if self.word_count == 1 and self.first_word == "static" and not self.nonword_sig:
+            return ("static",)
+        if self.word_count == 0 and not self.nonword_sig:
+            return ("empty",)
+        return ("generic",)
+
+
+def _java_initializer_chunks(source: str, path: str, stem: str) -> list[Chunk]:
+    """Emit one chunk per Java ``static { … }`` / instance ``{ … }`` initializer block.
+
+    Wave 1sbfl. This is NET-NEW Java-only logic (isolated from the shared Java/Scala
+    ``_chunk_java_like`` seam via an explicit ``lang == "java"`` caller gate) that closes
+    the retrieval blind spot for literal-rich initializer catalogs. It runs a single
+    bounded linear pass over the source (each character is inspected a constant number of
+    times; comment/string/char-literal runs advance the cursor without rescanning, and no
+    prefix slicing, per-type rescan, or whole-source rescan is ever performed). State is
+    bounded by the current identifier/owner text plus the type/brace nesting depth;
+    initializer spans retain source offsets and are sliced only when emitted.
+
+    Scope-awareness: a ``static``/instance block is emitted only when it is a DIRECT member
+    of a ``class`` / ``enum`` / ``record`` body (records get static-only — Java forbids record
+    instance initializers; interface/annotation bodies get neither). Method, constructor,
+    control-flow, lambda, anonymous-class, and array/object-initializer braces — and any
+    nested brace inside an initializer — are never emitted as sibling initializer chunks.
+    The scan is Java-lexically aware of strings, text blocks, character literals, line and
+    block comments, and escaped quotes, so a ``{``/``}``/``;`` inside literal or comment text
+    can never terminate or open an initializer span.
+
+    Chunk identity: static → ``{owner}.__static_init_{n}__``; instance → ``{owner}.__instance_init_{n}__``
+    (1-based per-container ordinals), where ``owner`` is the dotted enclosing/nested type
+    qualification. The ``section`` carries ``_INIT_SECTION_SUFFIX`` so the block stays
+    merge-exempt. Oversized blocks are bounded downstream by ``split_large_code_chunks``.
+    """
+    chunks: list[Chunk] = []
+    n = len(source)
+
+    # Frame stack: one entry per open brace. Type frames carry the container kind, name,
+    # and per-container initializer ordinals; initializer frames carry emission state.
+    stack: list[dict] = []
+    hdr = _SegmentClassifier()      # streaming classifier (state = current identifier + owner path, not O(1))
+    line_no = 1
+    line_start_offset = 0
+    i = 0
+
+    def _type_qname() -> str:
+        return ".".join(f["name"] for f in stack if f.get("is_type"))
+
+    while i < n:
+        c = source[i]
+
+        if c == "\n":
+            line_no += 1
+            line_start_offset = i + 1
+            hdr.feed_separator()
+            i += 1
+            continue
+
+        # Line comment — skip to end of line (do not consume the newline). A comment is
+        # lexical whitespace, so it separates adjacent tokens.
+        if c == "/" and i + 1 < n and source[i + 1] == "/":
+            i += 2
+            while i < n and source[i] != "\n":
+                i += 1
+            hdr.feed_separator()
+            continue
+
+        # Block comment — skip to closing */, counting newlines. A block comment can sit
+        # BETWEEN tokens used as whitespace (`class /*x*/ Registry`); treat it as a token
+        # separator so the header does not fuse into `classRegistry` and lose type identity.
+        if c == "/" and i + 1 < n and source[i + 1] == "*":
+            i += 2
+            while i < n and not (source[i] == "*" and i + 1 < n and source[i + 1] == "/"):
+                if source[i] == "\n":
+                    line_no += 1
+                    line_start_offset = i + 1
+                i += 1
+            i += 2  # consume the closing */
+            hdr.feed_separator()
+            continue
+
+        # Text block (Java 15+): """ … """ — significant non-word header content.
+        # `\` escapes the next char inside a text block (e.g. `\"`, or a line-continuation
+        # `\` + newline), so an escaped quote must NOT be read as part of the closing
+        # delimiter and terminate the block early — that desyncs the whole scan and drops
+        # every later initializer (delivery re-review, escaped-delimiter parity defect).
+        if c == '"' and source[i:i + 3] == '"""':
+            i += 3
+            while i < n and source[i:i + 3] != '"""':
+                if source[i] == "\\":
+                    if i + 1 < n and source[i + 1] == "\n":
+                        line_no += 1
+                        line_start_offset = i + 2
+                    i += 2
+                    continue
+                if source[i] == "\n":
+                    line_no += 1
+                    line_start_offset = i + 1
+                i += 1
+            i += 3
+            hdr.feed_nonword(line_no, line_start_offset)
+            continue
+
+        # String literal — significant non-word header content.
+        if c == '"':
+            i += 1
+            while i < n and source[i] != '"':
+                if source[i] == "\\":
+                    i += 2
+                    continue
+                if source[i] == "\n":
+                    line_no += 1
+                    line_start_offset = i + 1
+                i += 1
+            i += 1
+            hdr.feed_nonword(line_no, line_start_offset)
+            continue
+
+        # Character literal — significant non-word header content.
+        if c == "'":
+            i += 1
+            while i < n and source[i] != "'":
+                if source[i] == "\\":
+                    i += 2
+                    continue
+                i += 1
+            i += 1
+            hdr.feed_nonword(line_no, line_start_offset)
+            continue
+
+        if c == "{":
+            seg = hdr.classify()
+            parent = stack[-1] if stack else None
+            parent_is_container = bool(
+                parent and parent.get("is_type") and parent.get("type_kind") in ("class", "enum", "record")
+            )
+            if seg[0] == "type":
+                # Opens a (possibly nested) type body. The keyword/name were captured
+                # incrementally, so this holds no matter how much (e.g. a long annotation)
+                # preceded the keyword.
+                stack.append({
+                    "is_type": True, "type_kind": seg[1], "name": seg[2],
+                    "static_count": 0, "instance_count": 0, "init_kind": None,
+                })
+            elif parent_is_container and seg[0] == "static":
+                parent["static_count"] += 1
+                stack.append({
+                    "is_type": False, "init_kind": "static",
+                    "ordinal": parent["static_count"], "owner": _type_qname(),
+                    "start_line": hdr.start_line if hdr.start_line is not None else line_no,
+                    "start_offset": hdr.start_offset if hdr.start_offset is not None else line_start_offset,
+                })
+            elif parent_is_container and seg[0] == "empty" and parent["type_kind"] in ("class", "enum"):
+                # Instance initializer: a bare block directly in a class/enum body
+                # (records forbid instance initializers — excluded above).
+                parent["instance_count"] += 1
+                stack.append({
+                    "is_type": False, "init_kind": "instance",
+                    "ordinal": parent["instance_count"], "owner": _type_qname(),
+                    "start_line": line_no,
+                    "start_offset": line_start_offset,
+                })
+            else:
+                # Method/constructor/field-initializer/control-flow/lambda/anon-class/array
+                # brace — a generic block, never an initializer sibling.
+                stack.append({"is_type": False, "init_kind": None})
+            hdr.reset()
+            i += 1
+            continue
+
+        if c == "}":
+            if stack:
+                frame = stack.pop()
+                kind = frame.get("init_kind")
+                if kind:
+                    marker = "static" if kind == "static" else "instance"
+                    qname = f"{frame['owner']}.__{marker}_init_{frame['ordinal']}__"
+                    breadcrumb = f"{stem} > {qname}"
+                    start_line = frame["start_line"]
+                    end_line = line_no
+                    # Slice only the emitted initializer span. Keeping ``source.splitlines()``
+                    # for the entire scan made auxiliary memory grow with file length even
+                    # when no initializer existed; offsets keep retained scan state bounded.
+                    block_text = source[frame["start_offset"]:i + 1]
+                    chunks.append(Chunk(
+                        id=f"{path}::{qname}", path=path, kind="code", language="java",
+                        lines=(start_line, end_line),
+                        section=f"{breadcrumb}{_INIT_SECTION_SUFFIX}",
+                        text=f"{breadcrumb}\n\n{block_text}",
+                    ))
+            hdr.reset()
+            i += 1
+            continue
+
+        if c == ";":
+            hdr.reset()
+            i += 1
+            continue
+
+        # Normal character — feed the streaming classifier (identifier chars build the
+        # current token; other chars flush it and mark non-word significance).
+        hdr.feed_char(c, line_no, line_start_offset)
+        i += 1
+
+    return chunks
 
 
 def _chunk_java_like(source: str, path: str, lang: str, *, has_namespace: bool = False) -> list[Chunk]:
@@ -1970,6 +2458,12 @@ def _chunk_java_like(source: str, path: str, lang: str, *, has_namespace: bool =
                 continue
 
             i += 1
+
+        # Wave 1sbfl: Java-only initializer capture (Scala bypasses this net-new pass so
+        # its shared fallback output stays byte-for-byte unchanged). A scanner failure lands
+        # in the except-clause rescue below — disabled to fail closed in the parity fixture.
+        if lang == "java":
+            chunks.extend(_java_initializer_chunks(source, path, stem))
     except Exception:
         return _fallback_with_stem(source, path, lang)
 
@@ -4107,14 +4601,59 @@ def chunk_java_treesitter(source: str, path: str) -> Optional[list[Chunk]]:
         return None
 
     source_lines = source.splitlines()
+    source_bytes = source.encode("utf-8")
     chunks: list[Chunk] = []
     import_nodes = []
 
     def _name(node) -> str:
         for c in node.children:
             if c.type == "identifier":
-                return source_lines[c.start_point[0]][c.start_point[1]:c.end_point[1]]
+                # Tree-sitter columns/offsets are UTF-8 bytes; slicing a Python Unicode
+                # line with them corrupts every non-ASCII identifier. Slice the encoded
+                # source once instead, then decode the exact identifier node.
+                return source_bytes[c.start_byte:c.end_byte].decode("utf-8")
         return "unknown"
+
+    def _type_name(node) -> str:
+        # The installed grammar may put javac-legal currency/connector/format characters
+        # in an ERROR sibling and expose only the ASCII suffix as its `identifier` child.
+        # Use tree-sitter to delimit the declaration header, then recover the exact source
+        # spelling with the Java identifier lexer above.
+        # A grammar declaration that ends immediately before a raw Unicode escape is a
+        # partial prefix node (e.g. `class Alpha\\u0301`). The real owner belongs to Java's
+        # unsupported prelexical translation phase; reject the prefix before recovery.
+        if source_bytes[node.end_byte:node.end_byte + 2] == b"\\u":
+            return ""
+        keyword = {
+            "class_declaration": "class",
+            "interface_declaration": "interface",
+            "enum_declaration": "enum",
+            "record_declaration": "record",
+            "annotation_type_declaration": "interface",
+        }.get(node.type)
+        if keyword:
+            body = next(
+                (
+                    child for child in node.children
+                    if child.type in {
+                        "class_body", "interface_body", "enum_body", "record_body",
+                        "annotation_type_body",
+                    }
+                ),
+                None,
+            )
+            header_end = body.start_byte if body is not None else node.end_byte
+            header = source_bytes[node.start_byte:header_end].decode("utf-8")
+            recovered = _java_declared_type_name(header, keyword)
+            if recovered:
+                return recovered
+            # Raw Java Unicode escapes are translated before lexical analysis. This
+            # chunker intentionally does not implement that separate prelexical phase;
+            # fail closed instead of publishing tree-sitter's partial `u0041` spelling as
+            # a stable owner identity. The generic fallback remains available for content.
+            if re.search(r"\\u+[0-9A-Fa-f]{4}", header):
+                return ""
+        return _name(node)
 
     def _java_body_members(body_node):
         # Direct body members; for enums the constants/fields live one level deeper
@@ -4152,9 +4691,29 @@ def chunk_java_treesitter(source: str, path: str) -> Optional[list[Chunk]]:
                     text=f"{breadcrumb}\n\n{decl_text}",
                 ))
 
+    def _emit_java_initializer(member, owner_qname: str, kind: str, ordinal: int) -> None:
+        # Wave 1sbfl: one chunk per static/instance initializer block. The block text is
+        # NOT collapsed (its literals are the payload); oversized blocks are bounded by
+        # split_large_code_chunks. The " [init]" marker keeps it out of _merge_small_chunks.
+        marker = "static" if kind == "static" else "instance"
+        qname = f"{owner_qname}.__{marker}_init_{ordinal}__"
+        breadcrumb = f"{stem} > {qname}"
+        start, end = _ts_node_lines(member)
+        block_text = _ts_node_text(member, source_lines)
+        chunks.append(Chunk(id=f"{path}::{qname}", path=path, kind="code", language="java",
+                            lines=(start, end), section=f"{breadcrumb}{_INIT_SECTION_SUFFIX}",
+                            text=f"{breadcrumb}\n\n{block_text}"))
+
     def _process_class(class_node, class_name: str):
+        # Wave 1sbfl: container kind gates initializer emission. Records get static-only
+        # (Java forbids record instance initializers); interfaces/annotations get neither.
+        container = class_node.type
+        is_record = container == "record_declaration"
+        is_interface = container in ("interface_declaration", "annotation_type_declaration")
+        static_ord = 0
+        instance_ord = 0
         for child in class_node.children:
-            if child.type in ("class_body", "interface_body", "enum_body"):
+            if child.type in ("class_body", "interface_body", "enum_body", "record_body"):
                 members = list(_java_body_members(child))
                 for member in members:
                     if member.type in ("method_declaration", "constructor_declaration"):
@@ -4167,9 +4726,18 @@ def chunk_java_treesitter(source: str, path: str) -> Optional[list[Chunk]]:
                                             language="java", lines=(start, end),
                                             section=breadcrumb, text=text))
                     elif member.type in ("class_declaration", "interface_declaration",
-                                         "enum_declaration"):
+                                         "enum_declaration", "record_declaration"):
                         # Nested type → Outer.Inner.CONST qualification.
-                        _process_class(member, f"{class_name}.{_name(member)}")
+                        nested_name = _type_name(member)
+                        if nested_name:
+                            _process_class(member, f"{class_name}.{nested_name}")
+                    elif member.type == "static_initializer" and not is_interface:
+                        static_ord += 1
+                        _emit_java_initializer(member, class_name, "static", static_ord)
+                    elif member.type == "block" and not is_interface and not is_record:
+                        # A bare block directly in a class/enum body is an instance initializer.
+                        instance_ord += 1
+                        _emit_java_initializer(member, class_name, "instance", instance_ord)
                 # Wave 1p4mf: type-level constants for this class/interface/enum body.
                 _emit_java_constants(members, class_name)
 
@@ -4183,8 +4751,12 @@ def chunk_java_treesitter(source: str, path: str) -> Optional[list[Chunk]]:
         elif t == "import_declaration":
             import_nodes.append(node)
         elif t in ("class_declaration", "interface_declaration", "enum_declaration",
-                   "annotation_type_declaration"):
-            name = _name(node)
+                   "annotation_type_declaration", "record_declaration"):
+            # Wave 1sbfl: record_declaration is net-new here — records were previously
+            # unrecognized and fell through to the generic fallback (no first-class identity).
+            name = _type_name(node)
+            if not name:
+                continue
             breadcrumb = f"{stem} > {name}"
             start, end = _ts_node_lines(node)
             decl_line = source_lines[node.start_point[0]].strip()
@@ -4192,6 +4764,19 @@ def chunk_java_treesitter(source: str, path: str) -> Optional[list[Chunk]]:
                                 language="java", lines=(start, start), section=breadcrumb,
                                 text=f"{breadcrumb}\n\n{decl_line}"))
             _process_class(node, name)
+
+    # Some javac-legal identifiers (notably a single currency symbol or connector
+    # punctuation owner) are represented by tree-sitter-java as a root/nested ERROR plus
+    # a sibling body instead of a declaration node. A partially successful AST must not
+    # suppress the supported fallback and silently omit those initializers. On parse-error
+    # trees only, use the Java lexical scanner as a repair source and add initializer IDs
+    # the recognized AST did not emit; clean trees retain the grammar-only fast path.
+    if tree.root_node.has_error:
+        existing_ids = {chunk.id for chunk in chunks}
+        for fallback_chunk in _java_initializer_chunks(source, path, stem):
+            if fallback_chunk.id not in existing_ids:
+                chunks.append(fallback_chunk)
+                existing_ids.add(fallback_chunk.id)
 
     imp = _ts_imports_chunk(import_nodes, source_lines, path, "java", stem)
     if imp:
@@ -5655,6 +6240,15 @@ def _chunk_file_dispatch(source: str, path: str) -> list[Chunk]:
         module_chunk = _chunk_code_summary(
             source, normalized, language, allow_module_fallback=True
         )
+        if module_chunk and any(
+            _is_initializer_section(chunk.section)
+            for chunk in chunks
+        ):
+            # A javac-legal owner may be invisible to the symbol-summary extractor while
+            # the Java partial-AST repair still emitted first-class initializer chunks.
+            # Keep the established generic module fallback and preserve those initializer
+            # chunks; all ordinary symbolless language paths retain their prior shape.
+            return [module_chunk] + chunks
         return [module_chunk] if module_chunk else chunks
 
     if suffix in JAVA_EXTENSIONS:

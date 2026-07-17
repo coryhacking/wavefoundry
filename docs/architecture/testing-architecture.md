@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-15
+Last verified: 2026-07-16
 
 ## Test Tiers
 
@@ -13,6 +13,7 @@ Last verified: 2026-07-15
 | Fixture-based integration | Docs-lint against fixture repos | `.wavefoundry/framework/scripts/tests/fixtures/` | Same runner |
 | Semantic embedding regression | Real fastembed path, model name/dim/determinism/ranking anchors — **skipped** when fastembed is not installed or model not cached | `SemanticEmbeddingRegressionTests` in `test_server_tools.py` | Same runner |
 | Differential equivalence harnesses (wave 1rsh9) | Optimized path vs authoritative path over identical inputs — the registry-backed incremental skip vs the Lance-read delta plan (`RegistryDifferentialTests`), and the secret-scan cache path vs a no-cache full scan through a six-mutation git fixture matrix with the REAL scanner (`DifferentialEquivalenceTests`). Any divergence fails; these are the adoption gates for skip-class optimizations | `test_fts_lexical_layer.py`, `test_secret_scan_cache.py` | Same runner |
+| Independent-reference review contract (waves 1shv4/1sq4a) | Contract and distribution tests pin the bounded independent-reference rule, code/QA carrier wording, proof ceiling, and install/upgrade propagation. They prove the rule is delivered and internally coherent—not that an agent adhered to it during a review | `test_render_agent_surfaces.py`, `test_setup_wavefoundry.py`, `test_upgrade_wavefoundry.py`, existing `test_review_evidence.py` independence checks | Same runner |
 | Build-epoch fault injection (wave 1sed7) | The SQLite-only state contract: epoch state-machine/CAS unit tests (`BuildEpochTests`), structured no-fallback failure injection at every mandatory boundary + a fresh-process kill between fence and finalize (`EpochOrderingAndFaultTests`), legacy meta.json convergence-by-reconstruction (`LegacyConvergenceTests`), and the reader seqlock at the MCP tool boundary — mid-search epoch mutation discards results (`EpochSeqlockConcurrencyTests`) | `test_index_state_store.py`, `test_indexer.py`, `test_server_tools.py` | Same runner |
 | Review-protocol propagation and state (waves 1skt1/1slep) | Typed carrier-registry census plus public-path integration through fresh setup, packaged install, real full-upgrade extraction, direct `wf render-surfaces`, and self-host reconciliation. Fixtures pin compact authoring, direct canonical `events.jsonl` parsing, required judgment refusal, lane-scoped approval chronology, generated-Markdown non-authority, empty-run provenance, serialized append/replay/fault recovery, bounded prefix proof, public MCP registration/schema, missing-carrier creation, Guru-absent execution, idempotency, malformed-ledger fail-closed behavior, initial-delivery close gating, and exact semantic-index exclusion. Setup/upgrade/package tests place byte sentinels in historical target waves and prove those paths install source/carriers without scanning or mutating wave history; subsequent public creation is external-ledger-only | `test_review_evidence.py`, `test_render_agent_surfaces.py`, `test_server_tools.py`, `test_indexer.py`, build-pack/setup/upgrade/render integration tests | Same runner |
 | Manual docs gate | MCP **`wave_validate`** succeeds, **or** `wf docs-lint` passes | MCP / repo root | `wave_validate` / `wf docs-lint` |
@@ -28,6 +29,12 @@ These tests exercise the real `fastembed` embedding path — no mocks. They pin 
 - **Ranking order** — a semantically close query ranks its best match above an unrelated chunk
 
 When a model upgrade is intentional, update the two constants at the top of `SemanticEmbeddingRegressionTests` and follow the checklist in `docs/architecture/embedding-model.md`.
+
+### Independent-Reference Review Evidence
+
+Independent-reference verification is a review-evidence technique for any implementation change, not a new test tier or a replacement for independent approval. Within seed 209's finite probe budget, code review identifies a credible reference that does not share the implementation's assumptions and the exact promised property; QA names the assertion that would falsify each load-bearing correctness, complexity, compatibility, or parity claim. For deterministic mechanisms a fixed seed or durable fixture makes generative probes reproducible, invalid inputs are rejected before comparison, and incidental representation differences stay outside the assertion.
+
+The worked pattern is a fallback parser compared with a grammar-backed parser over valid generated declarations, asserting only initializer ownership identity. Named fixtures retain diagnosed edge cases; the differential comparison diversifies the reference used to explore the valid surface. Because both parsers can still share a misunderstanding, specification-derived or metamorphic assertions cover plausible common-mode failures. Implementer-produced results remain `independent: false`; carrier and rendering tests prove distribution only.
 
 ## Test File Locations
 

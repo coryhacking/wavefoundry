@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-15
+Last verified: 2026-07-16
 
 ## Review Lane Summary
 
@@ -110,6 +110,14 @@ When `qa-reviewer` is required:
 - Confirm each required AC row in `## AC priority` has verification evidence (automated test, manual matrix, or documented exception)
 - Multi-step verification for any stateful behavior (state across repeated calls or routine steps)
 - AC scope gap check: surface important/nice-to-have items not in admitted scope after confirming required ACs
+
+## Independent-Reference Verification
+
+When a change modifies any implementation — a feature, an API or tool-surface change, a config-driven change, a bug fix, or a deterministic mechanism — reviewers apply seed 209's independent-reference rule: verify the changed behavior against a reference that does not share the implementation's assumptions. Eligible references include a specification, the acceptance criteria read independently of the implementer's interpretation, the consumer/caller contract, the original defect reproduction, a materially independent implementation, an authoritative schema/model, a prior-version contract, or a metamorphic invariant. Record the reference, exact promised property, and common-mode limitations; reject invalid generated inputs and compare only the public contract surface. A second helper or agent brief derived from the implementation hypothesis is not an independent reference.
+
+For deterministic transformations, parsers, serializers, migrations, normalizers, compatibility adapters, and fallbacks the sharpest reference is a differential or a specification-derived/metamorphic invariant, spent as one highest-risk, reproducible probe. For example, a hand-written fallback parser can be compared with a grammar-backed parser over valid generated declarations, with the assertion limited to initializer ownership identity. Named regressions remain useful for diagnosed failures; the differential probe adds an assumption-independent reference for the broader property. Agreement does not prove either parser universally correct, so specification-derived identifier and token-boundary invariants still guard plausible shared defects.
+
+Reference independence improves evidence quality; it does not confer reviewer independence. Implementer-authored probes remain `independent: false` and cannot restore a withdrawn approval. Tests that assert this paragraph or its generated carrier is present prove framework propagation only—not that a reviewer followed it on a particular wave. When no credible reference exists or the faithful probe would exceed current authorization, record that limitation and use the closest safe evidence rather than inventing a reference or starting open-ended fuzzing.
 
 ## Docs-Contract Review
 

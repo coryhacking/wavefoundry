@@ -738,6 +738,22 @@ class ReviewEvidenceStateMachineTests(unittest.TestCase):
         result = subject.validate_review_evidence(raw_wave_text([evidence]))
         self.assertIn("must be fresh and independent", "\n".join(result.errors))
 
+    def test_implementer_reference_probe_cannot_restore_withdrawn_lane_approval(self) -> None:
+        # AC-3 machine-checkable ceiling: reference independence improves correctness evidence,
+        # but an implementer's differential probe is still not independent approval.
+        evidence = executable_evidence(
+            "implementer-reference-1",
+            "java-owner-parity",
+            claim_kind="lane_reassessment",
+            actor="implementer",
+            fresh_context=True,
+            independent=False,
+            proposition="fallback and grammar-backed parser agree on exact owner identity",
+            command_or_fixture="bounded differential Java owner fixture",
+        )
+        result = subject.validate_review_evidence(raw_wave_text([evidence]))
+        self.assertIn("must be fresh and independent", "\n".join(result.errors))
+
     def test_required_approval_is_mandatory_at_closure(self) -> None:
         rows = [
             executable_evidence("dedup-empty", "dedup-empty", claim_kind="dedup"),

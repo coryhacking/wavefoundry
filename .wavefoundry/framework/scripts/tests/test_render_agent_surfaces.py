@@ -21,6 +21,110 @@ import render_agent_surfaces as ras  # noqa: E402
 
 
 class ReviewProtocolCarrierRegistryTests(unittest.TestCase):
+    def test_independent_reference_contract_is_bounded_and_preserves_independence(self) -> None:
+        seeds_root = PROJECT_ROOT / "framework" / "seeds"
+        core = (seeds_root / "209-agent-harness-core.prompt.md").read_text(encoding="utf-8")
+        code = (seeds_root / "221-code-reviewer.prompt.md").read_text(encoding="utf-8")
+        qa = (seeds_root / "239-qa-reviewer.prompt.md").read_text(encoding="utf-8")
+
+        for literal in (
+            "one highest-risk differential or invariant probe",
+            "normative specification",
+            "materially independent implementation",
+            "prior-version behavior contract",
+            "authoritative schema/model",
+            "metamorphic invariant",
+            "fixed seed or durable fixture",
+            "reject invalid generated inputs before comparison",
+            "same hypothesis list is not an independent reference",
+            "Implementer-authored evidence remains `independent: false`",
+            "If no credible independent reference exists",
+            "not reviewer adherence",
+        ):
+            self.assertIn(literal, core)
+        self.assertIn("Name the reference, the exact promised property", code)
+        self.assertIn("name the assertion that would falsify it", qa)
+        self.assertIn("Executable review never broadens task authority", core)
+        self.assertNotIn("oracle_id", core + code + qa)
+        self.assertNotIn("oracle_property", core + code + qa)
+
+    def test_independent_reference_carrier_is_role_scoped_and_carries_the_proof_ceiling(self) -> None:
+        code = ras._carrier_protocol_block(
+            ras.ReviewProtocolCarrier(
+                "221-code-reviewer.prompt.md", "docs/agents/code-reviewer.md"
+            )
+        )
+        qa = ras._carrier_protocol_block(
+            ras.ReviewProtocolCarrier(
+                "239-qa-reviewer.prompt.md", "docs/agents/qa-reviewer.md"
+            )
+        )
+        security = ras._carrier_protocol_block(
+            ras.ReviewProtocolCarrier(
+                "229-security-reviewer.prompt.md", "docs/agents/security-reviewer.md"
+            )
+        )
+
+        for role_block in (code, qa):
+            self.assertIn("same-hypothesis helper", role_block)
+            self.assertIn("`independent: false`", role_block)
+            self.assertIn("Carrier-presence tests prove propagation", role_block)
+        self.assertIn("assertion that would falsify", qa)
+        self.assertNotIn("Independent-reference verification", security)
+
+        repo_root = TESTS_ROOT.parents[3]
+        for rel in ("docs/agents/code-reviewer.md", "docs/agents/qa-reviewer.md"):
+            rendered = (repo_root / rel).read_text(encoding="utf-8")
+            self.assertIn(ras.INDEPENDENT_REFERENCE_CARRIER_BLOCK, rendered)
+
+    def test_dual_implementation_reference_scenario_carries_bounded_falsification_contract(self) -> None:
+        # AC-3 scenario fixture: a deterministic fallback parser has a materially
+        # independent grammar-backed implementation. The carrier must ask for the exact
+        # compared property and common-mode limit, while keeping the probe finite.
+        scenario = {
+            "mechanism": "fallback parser",
+            "reference": "materially independent grammar-backed parser",
+            "promised_property": "stable public initializer identity",
+            "highest_risk_input": "valid declaration-prefix boundary",
+        }
+        self.assertNotEqual(scenario["mechanism"], scenario["reference"])
+        code = ras._carrier_protocol_block(
+            ras.ReviewProtocolCarrier(
+                "221-code-reviewer.prompt.md", "docs/agents/code-reviewer.md"
+            )
+        )
+        qa = ras._carrier_protocol_block(
+            ras.ReviewProtocolCarrier(
+                "239-qa-reviewer.prompt.md", "docs/agents/qa-reviewer.md"
+            )
+        )
+        code_flat = " ".join(code.split())
+        self.assertIn("one highest-risk probe bounded, reproducible", code_flat)
+        self.assertIn("exact promised property", code_flat)
+        self.assertIn("common-mode", code_flat)
+        self.assertIn("assertion that would falsify", qa)
+        self.assertIn("limited to valid inputs", " ".join(qa.split()))
+
+    def test_no_reference_or_unsafe_probe_scenario_narrows_claim_without_broadening_authority(self) -> None:
+        # AC-3 scenario fixture: no credible reference exists and the tempting comparison
+        # would require an unauthorized external mutation. The canonical rule must record
+        # the limitation/narrow the claim, not invent a reference or broaden task authority.
+        scenario = {
+            "credible_reference": None,
+            "candidate_probe": "unauthorized external mutation",
+            "authorized": False,
+            "expected_disposition": "record narrow limitation",
+        }
+        self.assertIsNone(scenario["credible_reference"])
+        self.assertFalse(scenario["authorized"])
+        core = (
+            PROJECT_ROOT / "framework" / "seeds" / "209-agent-harness-core.prompt.md"
+        ).read_text(encoding="utf-8")
+        self.assertIn("If no credible independent reference exists", core)
+        self.assertIn("record that narrow limitation", core)
+        self.assertIn("Executable review never broadens task authority", core)
+        self.assertIn("not proof of universal correctness", core)
+
     def test_manifest_is_derived_from_unique_registry_destinations(self) -> None:
         expected = tuple(row.destination for row in ras.REVIEW_PROTOCOL_CARRIER_REGISTRY)
         self.assertEqual(ras.REVIEW_PROTOCOL_CARRIER_MANIFEST, expected)
@@ -66,6 +170,12 @@ class ReviewProtocolCarrierRegistryTests(unittest.TestCase):
             self.assertIn(operator_extension, text)
             self.assertIn(ras.REVIEW_PROTOCOL_MARKER_BEGIN, text)
             self.assertIn("four-way actionability gate", text)
+            self.assertIn("Independent-reference verification", text)
+            qa_text = (repo_root / "docs" / "agents" / "qa-reviewer.md").read_text(
+                encoding="utf-8"
+            )
+            self.assertIn("assertion that would falsify", qa_text)
+            self.assertIn("`independent: false`", qa_text)
             self.assertFalse((repo_root / "docs" / "agents" / "guru.md").exists())
             create_wave = (repo_root / "docs" / "prompts" / "create-wave.prompt.md").read_text(encoding="utf-8")
             for literal in (
@@ -154,6 +264,8 @@ class ReviewProtocolCarrierRegistryTests(unittest.TestCase):
             self.assertNotIn(".claude/agents/project-custom.md", written)
             self.assertIn(ras.REVIEW_PROTOCOL_MARKER_BEGIN, registered.read_text(encoding="utf-8"))
             self.assertIn(ras.REVIEW_PROTOCOL_MARKER_BEGIN, codex.read_text(encoding="utf-8"))
+            self.assertIn("Independent-reference verification", registered.read_text(encoding="utf-8"))
+            self.assertIn("Independent-reference verification", codex.read_text(encoding="utf-8"))
             self.assertNotIn(ras.REVIEW_PROTOCOL_MARKER_BEGIN, unregistered.read_text(encoding="utf-8"))
 
     def test_self_host_enabled_manifest_has_exactly_one_owned_region(self) -> None:

@@ -994,5 +994,143 @@ class StoreLogTests(_StoreCase):
         self.iss.store_log(self.index_dir, "should not raise")
 
 
+def _load_module(name: str):
+    spec = importlib.util.spec_from_file_location(name, SCRIPTS_ROOT / f"{name}.py")
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[name] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class JavaInitializerLexicalEndToEndTests(_StoreCase):
+    """Wave 1sbfl AC-4: a distinctive tokenizer-stable literal from a Java static-initializer
+    catalog is returned by chunk text, the internal SQLite FTS path (``fts_search``), AND the
+    registered ``code_lexical`` tool — resolving to the INITIALIZER chunk id, not a symbols
+    summary or generic line-window chunk. An executed pre-fix control proves the literal was
+    absent from the corpus before the initializer chunk existed."""
+
+    # unicode61 + tokenchars '_' → this whole compound is ONE lexical token.
+    LITERAL = "zz_unambiguous_method_token"
+    CATALOG = (
+        "public class MessagesResourceBundle {\n"
+        "    private final java.util.Map<String,String> messages = new java.util.HashMap<>();\n"
+        "    static {\n"
+        f'        MESSAGES.put("err.ambiguous", "Unable to find {LITERAL} here");\n'
+        '        MESSAGES.put("err.missing", "value missing");\n'
+        "    }\n"
+        "}\n"
+    )
+
+    def _rows_from_chunks(self, chunks):
+        return [
+            {"id": c.id, "path": c.path, "kind": c.kind, "language": c.language,
+             "lines": list(c.lines), "text": c.text, "chunk_hash": f"h-{c.id}"}
+            for c in chunks if c.kind == "code"
+        ]
+
+    def test_initializer_literal_surfaces_through_fts_and_code_lexical(self):
+        chunker = _load_module("chunker")
+        chunks = chunker.chunk_file(self.CATALOG, "src/MessagesResourceBundle.java")
+        init = [c for c in chunks if "__static_init_1__" in c.id]
+        self.assertEqual(len(init), 1, "the static initializer must be its own chunk")
+        init_id = init[0].id
+        # (a) chunk text carries the literal.
+        self.assertIn(self.LITERAL, init[0].text)
+
+        # Pre-fix control: a corpus of ONLY the non-initializer chunks does not surface
+        # the literal at all (proves it was invisible before the initializer chunk).
+        pre_rows = self._rows_from_chunks([c for c in chunks if "__static_init_" not in c.id])
+        self.iss.apply_chunk_deltas(self.index_dir, "code", add_rows=pre_rows)
+        self.assertEqual(self.iss.fts_search(self.index_dir, "code", self.LITERAL), [],
+                         "pre-fix control: literal must be absent without the initializer chunk")
+
+        # Now add the full chunk set (including the initializer chunk).
+        self.iss.apply_chunk_deltas(
+            self.index_dir, "code", add_rows=self._rows_from_chunks(chunks))
+        # (b) internal FTS path resolves to the initializer chunk id.
+        hits = self.iss.fts_search(self.index_dir, "code", self.LITERAL)
+        self.assertEqual([h["id"] for h in hits], [init_id])
+
+        # (c) the registered code_lexical tool resolves to the same initializer chunk id.
+        srv = _load_module("server")
+        impl = sys.modules["server_impl"]
+        root = self.index_dir.parent.parent  # <root>/.wavefoundry/index → <root>
+        resp = impl.code_lexical_response(root, query=self.LITERAL, table="code")
+        self.assertEqual(resp["status"], "ok")
+        result_ids = [r["id"] for r in resp["data"]["results"]]
+        self.assertIn(init_id, result_ids)
+        self.assertNotIn("src/MessagesResourceBundle.java#summary", result_ids)
+
+
+class JavaInitializerRechunkReuseTests(_StoreCase):
+    """Wave 1sbfl AC-6: the 31 → 32 shape change triggers a re-chunk with embedding REUSE
+    for content-identical chunks (not an unconditional full re-embed). Content-identical
+    chunks reuse vectors; the newly-added initializer chunk is the only one embedded."""
+
+    def test_content_identical_chunks_reuse_vectors_new_initializer_embeds(self):
+        chunker = _load_module("chunker")
+        idx = _load_module("indexer")
+
+        src = (
+            "public class Reg {\n"
+            "    void register() { setup(); }\n"
+            "    static { REG.put(\"k\", \"reuseTokenZz\"); }\n"
+            "}\n"
+        )
+        chunks = [c.to_dict() for c in chunker.chunk_file(src, "src/Reg.java")
+                  if c.kind == "code"]
+        init_ids = [c["id"] for c in chunks if "__static_init_" in c["id"]]
+        self.assertEqual(len(init_ids), 1)
+
+        def _lance_row(chunk):
+            row = dict(chunk)
+            row["chunk_hash"] = idx._chunk_hash(chunk)
+            row["tags"] = ""
+            row["vector"] = [0.1, 0.2]
+            return row
+
+        class _RecordingEmbedder:
+            def __init__(self):
+                self.embedded_texts = []
+
+            def embed(self, texts, batch_size=256):
+                import numpy as np
+                texts = list(texts)
+                self.embedded_texts.extend(texts)
+                return np.array([[0.3, 0.4] for _ in texts], dtype=np.float32)
+
+        # Case 1 — content-identical re-chunk: every chunk reuses its vector, nothing embeds.
+        identical_rows = [_lance_row(c) for c in chunks]
+        emb1 = _RecordingEmbedder()
+        delete_ids, rows_to_add, fallback, stats = idx._plan_lance_delta_rows(
+            existing_rows=identical_rows, new_chunks=chunks, embedder=emb1, label="code")
+        self.assertFalse(fallback)
+        self.assertEqual(rows_to_add, [])
+        self.assertEqual(stats["unchanged"], len(chunks))
+        self.assertEqual(emb1.embedded_texts, [], "content-identical chunks must reuse embeddings")
+
+        # Case 2 — the 31→32 shape change: the initializer chunk is NEW relative to a v31
+        # index. Only it embeds; the pre-existing chunks still reuse their vectors.
+        prior_rows = [_lance_row(c) for c in chunks if "__static_init_" not in c["id"]]
+        emb2 = _RecordingEmbedder()
+        delete_ids, rows_to_add, fallback, stats = idx._plan_lance_delta_rows(
+            existing_rows=prior_rows, new_chunks=chunks, embedder=emb2, label="code")
+        self.assertFalse(fallback)
+        self.assertEqual(len(rows_to_add), 1)
+        self.assertEqual(rows_to_add[0]["id"], init_ids[0])
+        self.assertEqual(stats["unchanged"], len(chunks) - 1)
+        # Exactly the initializer text was embedded — reuse for the rest.
+        self.assertTrue(any("reuseTokenZz" in t for t in emb2.embedded_texts))
+        self.assertEqual(len(emb2.embedded_texts), 1)
+
+    def test_indexer_selects_rechunk_with_reuse_on_chunker_version_mismatch(self):
+        # Source-level pin: a chunker-only version mismatch selects the incremental
+        # re-chunk-with-embedding-reuse path, NOT an unconditional full re-embed.
+        src = (SCRIPTS_ROOT / "indexer.py").read_text(encoding="utf-8")
+        self.assertIn("incremental re-chunk with embedding reuse", src)
+        self.assertIn("chunker_only = chunker_changed and not model_changed and not walker_changed", src)
+        self.assertIn("rechunk_all = True", src)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: qa-reviewer
 Category: review
-Last verified: 2026-07-15
+Last verified: 2026-07-16
 
 ## Operating Identity
 
@@ -128,6 +128,25 @@ After validation, apply the ordered four-way actionability gate:
 `do_now`/`maybe_later` work before closure, create no backlog for rejected
 states, and use focused repair replay unless a load-bearing boundary change
 objectively requires a full council.
+
+### Independent-reference verification
+
+For any changed implementation — feature, API or tool-surface change,
+config-driven change, bug fix, or deterministic mechanism — apply seed
+209's independent-reference rule: verify against a reference that does not
+share the implementation's assumptions (a specification, the
+independently-read acceptance criteria, the consumer/caller contract, the
+original reproduction, a materially independent implementation, a
+schema/model, or a metamorphic invariant). Name the reference, exact
+promised property, and common-mode limitations; keep one highest-risk probe
+bounded, reproducible, and limited to valid inputs and the public contract
+surface. A same-hypothesis helper or agent brief is not an independent
+reference, and implementer-authored evidence remains `independent: false`.
+
+Code review identifies the applicable reference and property. QA names the
+assertion that would falsify each load-bearing correctness, complexity,
+compatibility, or parity claim. Carrier-presence tests prove propagation,
+not reviewer adherence.
 
 ### QA evidence integrity
 

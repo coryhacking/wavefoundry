@@ -2484,6 +2484,73 @@ class PlanLanceDeltaRowsTests(unittest.TestCase):
         )
         self.assertTrue(fallback_required)
 
+    def test_distinct_unicode_java_owner_ids_survive_delta_planning(self):
+        # Wave 1shv4 final-review P1: the supported Java fallback previously gave
+        # `A` and `A` + combining acute the same initializer id. `_plan_lance_delta_rows`
+        # keys by id, so that collision silently reduced two source chunks to one row.
+        chunker = self.mod._get_chunker()
+        accented = "A\u0301"
+        source = (
+            'class A { static { R.put("plain", "PlainOwnerZz"); } }\n'
+            f'class {accented} {{ static {{ R.put("accented", "AccentOwnerZz"); }} }}\n'
+        )
+        with patch.object(chunker, "_ts_parse", return_value=None):
+            emitted = chunker.chunk_java(source, "src/Collision.java")
+        new_chunks = [
+            dict(vars(chunk)) for chunk in emitted
+            if "__static_init_" in chunk.id or "__instance_init_" in chunk.id
+        ]
+        expected = {
+            "src/Collision.java::A.__static_init_1__",
+            f"src/Collision.java::{accented}.__static_init_1__",
+        }
+        self.assertEqual({chunk["id"] for chunk in new_chunks}, expected)
+        self.assertEqual(len(new_chunks), 2)
+
+        _delete_ids, rows, fallback_required, stats = self.mod._plan_lance_delta_rows(
+            existing_rows=[],
+            new_chunks=new_chunks,
+            embedder=_make_embedder_mock(),
+            label="project",
+        )
+        self.assertFalse(fallback_required)
+        self.assertEqual({row["id"] for row in rows}, expected)
+        self.assertEqual(stats["written"], 2)
+
+    def test_partial_java_tree_unicode_owners_survive_delta_planning(self):
+        # The tree path used to return partial success for this file: the ordinary class
+        # survived, while javac-legal single-character Sc/Pc owners were ERROR+sibling-body
+        # shapes and never reached the fallback. Pin the real public dispatch and planner.
+        chunker = self.mod._get_chunker()
+        source = (
+            'class A { static { R.put("a", "PlainZz"); } }\n'
+            'class € { static { R.put("e", "CurrencyZz"); } }\n'
+            'class ‿ { static { R.put("p", "ConnectorZz"); } }\n'
+        )
+        path = "src/SingleUnicode.java"
+        emitted = chunker.chunk_file(source, path)
+        new_chunks = [
+            dict(vars(chunk)) for chunk in emitted
+            if "__static_init_" in chunk.id or "__instance_init_" in chunk.id
+        ]
+        expected = {
+            f"{path}::A.__static_init_1__",
+            f"{path}::€.__static_init_1__",
+            f"{path}::‿.__static_init_1__",
+        }
+        self.assertEqual({chunk["id"] for chunk in new_chunks}, expected)
+        self.assertEqual(len(new_chunks), 3)
+
+        _delete_ids, rows, fallback_required, stats = self.mod._plan_lance_delta_rows(
+            existing_rows=[],
+            new_chunks=new_chunks,
+            embedder=_make_embedder_mock(),
+            label="project",
+        )
+        self.assertFalse(fallback_required)
+        self.assertEqual({row["id"] for row in rows}, expected)
+        self.assertEqual(stats["written"], 3)
+
 
 # ---------------------------------------------------------------------------
 # Wave 1p3b9 (1p399): drift detection between file_meta and Lance
@@ -4273,6 +4340,31 @@ class ProjectLayerFreshnessTests(_EpochBuildCase):
         self._seed()
         v = self._freshness()
         self.assertIs(v["stale"], False)
+        self.assertEqual(v["reason"], "current")
+
+    def test_ignore_listed_recorded_state_path_stays_current(self):
+        """1sq9h regression: an ignore-listed path (the always-regenerated
+        codebase map) is stamped into docs layer state by the build but is
+        filtered out of the freshness walk and snapshot. It must NOT be read
+        as 'recorded path gone'. Pre-fix this returned stale=True / reason
+        'layer behind broad snapshot' on every repo with a codebase map, and
+        no build could clear it."""
+        _make_repo(self.root, {
+            "src/foo.py": "def f(): return 1\n",
+            "docs/guide.md": "## Intro\n\nHello.\n",
+            "docs/references/codebase-map.md": "# Codebase Map\n\nGenerated every build.\n",
+        })
+        self._run_build(full=True)
+        # Non-vacuity precondition: the ignore-listed path really is recorded in
+        # layer state (otherwise the false-stale branch is never exercised).
+        state = self.iss.layer_hashes(self.index_dir, "docs") or {}
+        self.assertIn(
+            "docs/references/codebase-map.md", state,
+            "precondition: build must stamp the ignore-listed path into docs layer state",
+        )
+        self.assertIn("docs/references/codebase-map.md", self.bi._PROJECT_STALE_IGNORE_PATHS)
+        v = self._freshness()
+        self.assertIs(v["stale"], False, v.get("reason"))
         self.assertEqual(v["reason"], "current")
 
     def test_simple_edit_reads_stale(self):

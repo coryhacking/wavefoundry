@@ -56,6 +56,10 @@ Before accepting a claimed test or fixture, verify all five conditions:
 
 If any condition fails, the evidence is `unverified`; it cannot satisfy a required delivery approval claim.
 
+## Independent-reference falsification
+
+For any changed implementation — feature, API or tool-surface change, config-driven change, bug fix, or deterministic mechanism — apply seed 209's independent-reference rule: verify against a reference that does not share the implementation's assumptions. For every load-bearing correctness, complexity, compatibility, or parity claim, name the assertion that would falsify it. Prefer one bounded, reproducible, highest-risk probe — a differential or a specification-derived/metamorphic invariant for deterministic mechanisms; reject invalid generated inputs before comparison and do not treat a same-hypothesis helper or implementer-authored agent brief as an independent reference.
+
 ## Stateful and failure-path evidence
 
 Apply seed 209's finite transition/interleaving budget. Prioritize the baseline plus the highest-risk failure, retry, interruption, interleaving, cache-invalidation, recovery, or repeated-call cell for each changed stateful mechanism. Name every selected cell and its adjacent legitimate-state control. Do not add unbounded attack cases; additional probes require moderator justification.

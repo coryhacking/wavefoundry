@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-12
+Last verified: 2026-07-16
 
 This document describes how Wavefoundry builds and maintains its search indexes. It covers
 every stage of the pipeline: file discovery, change detection, chunking, embedding, and
@@ -276,17 +276,18 @@ was frozen by the old behavior. Reaped paths (eligibility narrowing, corpus
 migration) drop their layer records so re-widening re-indexes them; reaps are
 recorded in the persisted store log.
 
-### Forced full rebuild
+### Version-triggered convergence
 
-A full rebuild is triggered automatically when any of the following values differ from
-the stored build state:
+Version differences trigger convergence, but they do not all require new embeddings:
 
-- The embedding model name or version
-- `CHUNKER_VERSION` (currently `"29"`) — bumped whenever the chunk format changes
-- `WALKER_VERSION` (currently `"6"`) — bumped when the file-walk logic or the project-index include
-  set changes (version 6 folded the framework seeds + `README` into the docs table)
+- An embedding-model name/version mismatch forces a full rebuild and re-embed.
+- A `WALKER_VERSION` mismatch (currently `"6"`) forces a full rebuild because the eligible file
+  set may have changed (version 6 folded the framework seeds + `README` into the docs table).
+- A `CHUNKER_VERSION` mismatch (currently `"32"`) selects `rechunk_all`: every eligible file is
+  reprocessed into the new chunk shape, while content-identical chunks reuse embeddings by hash.
 
-On a forced rebuild, change detection is bypassed and every file is re-processed.
+Both full rebuild and `rechunk_all` bypass ordinary per-file change detection; only the former
+necessarily recomputes every vector.
 
 ---
 
@@ -381,6 +382,60 @@ ancestor gate to module/file/type top level), **never** a uniform `UPPER_SNAKE` 
 camelCase/PascalCase/MixedCaps constants (Swift `apiURL`, C# `MaxRetries`, Go `StatusOK`) are
 included and function/block locals are excluded by scope. Casing gates apply for Python only.
 
+**Java initializer blocks are chunked** (wave `1sbfl`). Each legal Java `static { … }` and
+instance `{ … }` initializer block is emitted as its own `kind="code"` chunk in **both** the
+tree-sitter path (`chunk_java_treesitter`) and the regex fallback (`chunk_java`), across
+`class` / `enum` / `record` containers — records get static-only because Java forbids record
+instance initializers. This closes a retrieval blind spot: literal-rich initializer catalogs
+(message/error tables, lookup-map registration, driver/handler registration) previously lived
+in **no** chunk and were invisible to both the dense and FTS5 lexical layers. Chunk identity is
+deterministic and stable: `path::{Owner}.__static_init_N__` / `path::{Owner}.__instance_init_N__`
+(1-based per-container ordinals distinguish multiple same-kind blocks; the owner retains
+enclosing/nested-type qualification, e.g. `Outer.Inner`). Each initializer `section` carries an
+` [init]` marker so `_merge_small_chunks` never absorbs a short or empty block, and oversized
+catalogs pass through `split_large_code_chunks` (every literal preserved across splits). Consumers
+recognize the stable marker before either splitter suffix (`(part N/M)` or `(rows N–M of T)`), so a
+generic module-summary fallback cannot replace split initializer chunks on a partial Java AST. The
+fallback span walk is a single linear pass with **bounded retained state** — a streaming
+`_SegmentClassifier` that keeps only the current identifier token, the first word, a few flags, and
+any captured `class/interface/enum/record <name>`; it never retains annotation, expression, or
+method-body text, so its memory does **not** grow with total source or segment length. Stated
+honestly, this is **not** O(1): exact arbitrary-length owner identity (parity with tree-sitter)
+inherently requires keeping the full identifier, so the bound is O(longest identifier token +
+type-nesting depth) — a 10 000-character class name is retained in full rather than silently
+truncated. Initializer spans retain source offsets and slice only when a chunk is emitted; the
+scanner does not duplicate the whole file into a line array. Because the type keyword/name is
+captured incrementally, a `{` opening a type body is
+recognized no matter how much precedes the keyword — e.g. a multi-kilobyte annotation before
+`class Registry`. The scan is Java-lexically aware of strings, text blocks,
+character literals, line and block comments, and escaped quotes. A comment between tokens is
+treated as whitespace (so `class /*x*/ Registry` keeps its declaration identity). Java owner names
+use Java's Unicode identifier-start/identifier-part categories, including combining marks,
+currency symbols, connector punctuation, and identifier-ignorable format characters; the exact
+source spelling is retained without normalization. The grammar-backed path slices identifier nodes
+by UTF-8 byte offsets, not Python character columns. Because the installed Java grammar can expose
+some javac-legal identifier characters as `ERROR` siblings, type declarations use the grammar only
+to delimit the declaration header and recover the exact owner with the same small Java lexer; this
+keeps legal owners such as `Generated$Registry`, `Á`, and `€Box` distinct on both paths. A bounded
+differential repair runs only when the Java parse contains errors: it adds initializer IDs missing
+from a partially successful AST, covering legal single-character currency/connector owners that the
+grammar represents as `ERROR` plus a sibling body. Declaration-keyword candidates are cleared by
+punctuation, so a restricted identifier used as annotation data (`@Ann(record="x")`) cannot capture
+the following token as the owner. Raw Java Unicode escapes in declaration keywords/owners are an
+explicit unsupported boundary: Java translates them in a separate prelexical phase that this
+chunker does not emulate. Those declarations degrade to generic content rather than publishing a
+partial tree-sitter spelling (for example `u0041`) as a stable initializer ID. A bounded
+differential generator covers the declaration-prefix grammar over ASCII owners, while separate
+named javac-legal fixtures cover Unicode start/part categories, paired-owner collision resistance,
+and survival through the indexer's ID-keyed delta planner. The scan is
+scope-aware (only direct members of
+a class/enum/record body qualify — methods, constructors, control-flow, lambdas, anonymous-class
+bodies, and array/object initializers are excluded). It is isolated behind a Java-only gate so
+the shared Java/Scala fallback (`_chunk_java_like`) leaves Scala output unchanged. Sibling
+languages: C# static constructors are already captured by the constructor path; Kotlin `init`
+blocks are a separate grammar-specific mechanism and remain uncovered (tracked for a future
+change).
+
 #### Tree-sitter installation
 
 - Runtime: `tree-sitter>=0.24,<0.26` (pinned in `setup_index.py`)
@@ -399,7 +454,7 @@ included and function/block locals are excluded by scope. Casing gates apply for
 #### Post-processing (all structured tree-sitter paths)
 
 - **`_merge_small_chunks`** — sub-2-line code chunks merge into predecessor (scoped merge inside classes for tree-sitter)
-- **`split_large_code_chunks`** — `kind="code"` chunks over `MAX_CODE_CHUNK_CHARS` (4000) split into sub-ranges
+- **`split_large_code_chunks`** — `kind="code"` chunks over `MAX_CODE_CHUNK_CHARS` (1500) split into sub-ranges
 - **`_ts_collapse_body`** — symbol bodies over ~150 lines collapse to signature + `// ... N lines ...` + closing line
 - **`_chunk_code_summary`** — optional file-level `code-summary` chunk prepended when symbols or module comment exist
 
@@ -664,19 +719,22 @@ changed since the last run.
 
 | Constant                  | Value  | Effect of change                                 |
 |---------------------------|--------|--------------------------------------------------|
-| `CHUNKER_VERSION`         | `"29"` | Forces a full rebuild (re-chunk + re-embed)      |
+| `CHUNKER_VERSION`         | `"32"` | Chunker-only bump → re-chunk with embedding reuse (content-identical chunks keep their vectors); a model/walker change forces a full re-embed |
 | `WALKER_VERSION`          | `"6"`  | Forces a full rebuild (re-walk the include set)  |
 | `WINDOW_SIZE`             | 120    | Line-window fallback window (lines per chunk)    |
 | `WINDOW_OVERLAP`          | 10     | Reserved; structured fallbacks often advance without overlap |
-| `MAX_CODE_CHUNK_CHARS`    | 4000   | Triggers sub-split of oversized `kind="code"` chunks |
+| `MAX_CODE_CHUNK_CHARS`    | 1500   | Triggers sub-split of oversized `kind="code"` chunks (matches the BGE code token budget) |
 | `CHUNK_MIN_LINES`         | 2      | Minimum code chunk size before merge             |
 | `EMBED_BATCH_SIZE`        | 256    | Affects throughput only                          |
 | `SORT_WINDOW_SIZE`        | 2048   | Affects padding efficiency only                  |
 | `LANCEDB_INDEX_THRESHOLD` | 1000   | Below: brute-force scan; at/above: HNSW+FTS used |
 
 Whenever `CHUNKER_VERSION` is bumped — for example because a breadcrumb format changes or a
-new tree-sitter language is added — every file is re-chunked and re-embedded on the next build.
-The same applies when the embedding model name changes.
+new tree-sitter language is added — every file is **re-chunked** on the next build, but a
+chunker-only bump (model and walker unchanged) **reuses embeddings for content-identical
+chunks by content hash** and only embeds new or changed chunk text (the `_plan_lance_delta_rows`
+delta path). A full re-encode is forced only when the embedding **model** name/precision or the
+`WALKER_VERSION` changes (old vectors are invalid), or on an explicit `--full`.
 
 An index whose existing LanceDB rows predate `chunk_hash` triggers a one-time **full rebuild**
 automatically (the 1p4n4 legacy-fallback preflight) so rows carry `chunk_hash` consistently
