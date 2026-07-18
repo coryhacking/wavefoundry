@@ -36,6 +36,30 @@
       "record_count": 5,
       "source": "events.jsonl",
       "version": 1
+    },
+    "1stwj context-efficiency-telemetry": {
+      "prefix_sha256": "555fd035b0f883684e3d9004795bc6007ace10e1a51b34e59ce23b1569d4da55",
+      "record_count": 324,
+      "source": "events.jsonl",
+      "version": 1
+    },
+    "1stwm memory-supply": {
+      "prefix_sha256": "4dd91a56d3b51da7fea42458fbec987f4efad290c1d35e8e12e844e2c8547464",
+      "record_count": 1,
+      "source": "events.jsonl",
+      "version": 1
+    },
+    "1sufo memory-retrieval-eval-and-fusion": {
+      "prefix_sha256": "746a38376d25e09166aaf9dfb775dd2cce4bc7611e7487c9bde349fc5d3a4510",
+      "record_count": 1,
+      "source": "events.jsonl",
+      "version": 1
+    },
+    "1sufq commit-reasoning-provenance": {
+      "prefix_sha256": "8b29c4552a70431439a55a7521c79b5fb0b3d4e3599171101f5d1702fed2dc38",
+      "record_count": 1,
+      "source": "events.jsonl",
+      "version": 1
     }
   }
 }

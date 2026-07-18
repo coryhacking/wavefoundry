@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: generated
-Last verified: 2026-07-16
+Last verified: 2026-07-17
 
 ## Current State (2026-07-15)
 
@@ -53,3 +53,8 @@ Last verified: 2026-07-16
 ## Current Session
 
 **Active wave:** *(none)*
+
+- Both admitted changes are implemented. `1sua7` keeps multi-finding repair cycles truthful; `1stwi` replaces the earlier split/buffered telemetry with one SQLite write-through closed ledger: phase/source/version content and structural credit, mapped workflow-prompt credit, exact request/response debits, and only a quality-qualified paired residual.
+- Every eligible call commits its event or durable accounting-gap poison before returning; an undurable double failure returns `telemetry_persistence_failed`. Source credit is capped with explicit drop diagnostics. Lifecycle, reload, and upgrade boundaries project durable generations into one concise `wave.md` total. This is the first shipped telemetry schema; no pre-release compatibility layer is retained.
+- The machine checkpoint retains store identity, component provenance, source counts/drops, matched residual, and active paired-evaluation count. Fresh install, package, render, and real zip upgrade ship the telemetry module, scorer, schema, and typed attachment tool without creating runtime state eagerly.
+- Delivery repair cycle 2 closed the reviewed telemetry/protocol blockers plus three adjacent current-tree omissions and reached aggregate convergence across 17 findings. Its fresh Wave Council approval was subsequently withdrawn by the close dry-run's discovery of an eighteenth, bounded protocol defect: delivery repairs incorrectly staled historical prepare readiness. Cycle 3 now scopes approval freshness correctly—readiness remains required and identity-valid but historical; operator, delivery-council, and specialist chronology remain enforced. Fresh architecture and QA reviewers replayed the known-bad, a 17-case matrix, public close behavior, and adjacent controls; both returned PASS. A fresh Wave Council moderator confirmed all 18 finding heads terminal, max severity none, and no changed full-review boundary; the refreshed executable `wave-council-delivery` approval is recorded. Canonical verification is **5,744 tests across 52 isolated files, all green**; WaveLifecycleMutationTests are **47/47** and review-evidence tests are **79/79**. Only operator signoff, operator-owned close, and commit remain pending.

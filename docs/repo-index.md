@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-16
+Last verified: 2026-07-17
 
 ## Repository Summary
 
@@ -30,36 +30,36 @@ between the markers is machine-maintained; the surrounding narrative is not.
 
 ### Generated structural areas (from the codebase map)
 
-<!-- waveframework:repo-index-modules begin -->
+<!-- wave:repo-index-modules begin -->
 <!-- Generated from the codebase map (.wavefoundry/framework/scripts/gen_codebase_map.py). The narrative outside these markers is human/agent-authored and never touched. -->
 
 | Area | Path | Kind | Size (nodes) |
 | ---- | ---- | ---- | ------------ |
-| tests | `.wavefoundry/framework/scripts/tests` | code | 8402 |
-| server_impl | `.wavefoundry/framework/scripts` | code | 909 |
+| tests | `.wavefoundry/framework/scripts/tests` | code | 8514 |
+| server_impl | `.wavefoundry/framework/scripts` | code | 843 |
 | graph | `.wavefoundry/framework/scripts` | code | 352 |
 | dashboard | `.wavefoundry/framework/dashboard` | code | 212 |
-| wave_lint_lib | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 185 |
+| subprocess_util | `.wavefoundry/framework/scripts` | code | 201 |
+| wave_lint_lib | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 183 |
 | chunker | `.wavefoundry/framework/scripts` | code | 179 |
-| setup | `.wavefoundry/framework/scripts` | code | 157 |
-| upgrade_wavefoundry | `.wavefoundry/framework/scripts` | code | 132 |
 | indexer | `.wavefoundry/framework/scripts` | code | 120 |
-| dashboard/dashboard | `.wavefoundry/framework/scripts` | code | 115 |
-| render_platform_surfaces | `.wavefoundry/framework/scripts` | code | 82 |
+| dashboard/dashboard | `.wavefoundry/framework/scripts` | code | 116 |
+| upgrade_wavefoundry | `.wavefoundry/framework/scripts` | code | 89 |
+| render_agent_surfaces | `.wavefoundry/framework/scripts` | code | 86 |
+| context_efficiency | `.wavefoundry/framework/scripts` | code | 83 |
+| review_evidence | `.wavefoundry/framework/scripts` | code | 82 |
 | gen_codebase_map | `.wavefoundry/framework/scripts` | code | 57 |
 | graph_di_signals | `.wavefoundry/framework/scripts` | code | 44 |
-| graph_cluster | `.wavefoundry/framework/scripts` | code | 38 |
-| graph_query | `.wavefoundry/framework/scripts` | code | 35 |
-| build_pack | `.wavefoundry/framework/scripts` | code | 26 |
+| graph_cluster | `.wavefoundry/framework/scripts` | code | 40 |
+| graph_query | `.wavefoundry/framework/scripts` | code | 39 |
 | design_token_build | `.wavefoundry/framework/scripts` | code | 25 |
 | upgrade_extensions | `.wavefoundry/framework/scripts` | code | 21 |
 | docs_gardener | `.wavefoundry/framework/scripts` | code | 17 |
 | server | `.wavefoundry/framework/scripts` | code | 13 |
 | tokens | `docs/design-system/tokens` | config | 320 |
-| docs | `docs` | config | 221 |
+| docs | `docs` | config | 246 |
 | modes | `docs/design-system/tokens/modes` | config | 150 |
-| json | `docs/design-system/exports/json` | config | 86 |
-<!-- waveframework:repo-index-modules end -->
+<!-- wave:repo-index-modules end -->
 
 No shipped product implementation sources exist yet. The MCP Python package (`src/wavefoundry/`) is planned but not scaffolded.
 
