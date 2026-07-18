@@ -400,6 +400,24 @@ def build_server(root: Path):
         bad = server_impl._ensure_no_extra_args("wave_mcp_reload", kwargs)
         if bad is not None:
             return bad
+        projection = server_impl.project_pending_context_efficiency(_get_handler())
+        if not projection.get("ok"):
+            return server_impl._response(
+                "error",
+                {
+                    "failed": True,
+                    "stage": "context_efficiency_projection",
+                    "projection": projection,
+                },
+                diagnostics=[
+                    server_impl._diagnostic(
+                        "context_efficiency_projection_failed",
+                        "MCP reload was refused because pending durable context-"
+                        "efficiency telemetry could not be projected.",
+                    )
+                ],
+                usage="Resolve the projection failure, then call wave_mcp_reload() again.",
+            )
         return perform_mcp_reload()
 
     tool_names = server_impl._registered_mcp_tool_names(mcp)

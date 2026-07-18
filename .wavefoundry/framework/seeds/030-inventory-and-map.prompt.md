@@ -102,7 +102,7 @@ Tasks:
  ```markdown
  ### Generated structural areas (from the codebase map)
 
- <!-- waveframework:repo-index-modules begin --><!-- waveframework:repo-index-modules end -->
+ <!-- wave:repo-index-modules begin --><!-- wave:repo-index-modules end -->
  ```
 
  **Vendored / third-party path detection (codebase-map signal).** Identify any **bundled / vendored / third-party** trees — a checked-in copy of an external library, dependency, or generated SDK that nobody navigates to as product logic (e.g. a vendored expression-language implementation, a bundled minified library, copied upstream source) — and record them as a glob list under `vendored_paths` in `docs/repo-profile.json` (e.g. `"vendored_paths": ["**/vendor/**", "**/third_party/**", "**/*.min.js"]`). Also honor the ecosystem-standard `.gitattributes` `linguist-vendored=true` marker, which the map reads as the same signal. The codebase-map generator (`gen_codebase_map.py`) excludes vendored-dominated areas from the orientation tier into a collapsed "Vendored / third-party" footer so a cold-start agent is routed to the product, not the dependency; the trees stay fully `code_*`-searchable. **Use explicit path/marker evidence — do not guess from names:** a first-party file with a library-ish name (a product `JSON.java` carrying your copyright) is NOT vendored. When unsure, leave it out (the map keeps it visible rather than wrongly hiding product). Generated code is detected automatically (`.gitattributes linguist-generated`, generated dir/suffix names, header signatures) and needs no entry here.

@@ -5909,7 +5909,7 @@ def _extract_module_content_lines(source: str, language: str) -> Optional[str]:
 
 
 _WAVEFRAMEWORK_MARKER_BEGIN_RE = re.compile(
-    r"<!--\s*waveframework:[\w:-]+\s+begin\s*-->"
+    r"<!--\s*(?:wave|waveframework|wavefoundry):[\w:-]+\s+begin\s*-->"
 )
 _WAVEFRAMEWORK_MARKER_END_RE = re.compile(r"<!--\s*end\s*-->")
 

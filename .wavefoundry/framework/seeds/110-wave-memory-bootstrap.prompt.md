@@ -43,11 +43,22 @@ Every `wave.md` must carry the anchors below, grouped into the natural section l
 | outputs                         | `Outputs produced or expected`                                                        |
 | review and approvals            | `Review checkpoints`                                                                  |
 | journal and evidence            | `Journal refs`, `Journal Watchpoints`, optional `Salience / Impact` where decision-relevant |
+| operational telemetry           | optional generated `Context Efficiency` checkpoint when telemetry has been durably published |
 | completion and handoff          | `Completion criteria`, `Handoff or next-wave notes`                                   |
 | disposition (when applicable)   | `deferred`, `moved`, `retry`, or `blocked` for incomplete work                        |
 | changes inside the wave         | change-level anchors in `## Changes` / `## Corpus` (see below)                        |
 
 `wave-id` is the folder name under `docs/waves/`. **`Change ID` does not belong in the wave record header** — it lives in the body (`## Changes` or `## Corpus`).
+
+Context Efficiency telemetry, when the installed tool surface provides it:
+
+- is an operational aggregate, not lifecycle or review authority;
+- writes eligible tool events through to a host-local SQLite authority, using phase-scoped source/version uniqueness and one closed ledger: content + structural + completed-workflow credit minus request + response debits; saved output or avoided tool loops enter only through quality-equivalent paired evidence;
+- publishes an idempotent generated `## Context Efficiency` checkpoint at lifecycle projection boundaries and before MCP reload or upgrade, using canonical `wave:` markers and a single plain table of stage, tool-call count, and estimated token savings;
+- may associate only the invoking MCP process's unattributed general events at successful create or mutating prepare; another process cannot redirect them;
+- must write a durable accounting-gap poison marker after a failed event transaction; only the exceptional failure to persist both event and poison may fail the public call;
+- stores opaque host-local accounting state under the managed-ignored `.wavefoundry/logs/` domain and creates no SQLite store eagerly during setup, upgrade, rendering, or inspection; and
+- must not scan, migrate, or rewrite historical `wave.md` or `events.jsonl` artifacts merely to adopt telemetry.
 
 Wave identity rules:
 

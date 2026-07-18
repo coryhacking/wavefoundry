@@ -4,6 +4,7 @@ import importlib.util
 import io
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -29,6 +30,15 @@ def _stage_review_protocol_seeds(root: Path) -> Path:
         target_seeds.joinpath(name).write_bytes(
             (SCRIPTS_ROOT.parent / "seeds" / name).read_bytes()
         )
+    shutil.copytree(
+        SCRIPTS_ROOT.parent / "install" / "lifecycle-prompts",
+        root
+        / ".wavefoundry"
+        / "framework"
+        / "install"
+        / "lifecycle-prompts",
+        dirs_exist_ok=True,
+    )
     return target_seeds
 
 
@@ -425,6 +435,10 @@ class PublicSetupReviewProtocolIntegrationTests(unittest.TestCase):
                 b"# Historical target wave\n\nproject-authored bytes: do not parse or rewrite\n"
             )
             historical_snapshot = historical.read_bytes()
+            historical_events = historical.parent / "events.jsonl"
+            historical_events.write_bytes(b'{"historical":true,"opaque":"keep"}\n')
+            historical_events_snapshot = historical_events.read_bytes()
+            prompt_root = root / "docs" / "prompts"
             target = root / "docs" / "agents" / "code-reviewer.md"
             target.parent.mkdir(parents=True)
             prefix = "# Project Code Reviewer\n\nproject-prefix\n\n"
@@ -477,7 +491,10 @@ class PublicSetupReviewProtocolIntegrationTests(unittest.TestCase):
             ):
                 created = root / rel
                 self.assertTrue(created.is_file(), rel)
-                self.assertIn(ras.REVIEW_PROTOCOL_MARKER_BEGIN, created.read_text(encoding="utf-8"))
+                created_text = created.read_text(encoding="utf-8")
+                self.assertIn(ras.REVIEW_PROTOCOL_MARKER_BEGIN, created_text)
+                self.assertNotIn("waveframework:", created_text)
+                self.assertNotIn("wavefoundry:context-efficiency", created_text)
             self.assertIn(
                 "zero unintended skips",
                 (root / "docs" / "agents" / "qa-reviewer.md").read_text(encoding="utf-8"),
@@ -488,13 +505,39 @@ class PublicSetupReviewProtocolIntegrationTests(unittest.TestCase):
             )
             self.assertEqual(target.read_bytes(), first)
             self.assertEqual(historical.read_bytes(), historical_snapshot)
-            self.assertFalse((historical.parent / "events.jsonl").exists())
+            self.assertEqual(historical_events.read_bytes(), historical_events_snapshot)
             create_text = (
                 root / "docs" / "prompts" / "create-wave.prompt.md"
             ).read_text(encoding="utf-8")
             self.assertIn("review-evidence-source: events.jsonl", create_text)
+            self.assertEqual(
+                create_text.count(ras.CONTEXT_EFFICIENCY_CARRIER_MARKER_BEGIN), 1
+            )
+            self.assertEqual(
+                create_text.count(ras.CONTEXT_EFFICIENCY_CARRIER_MARKER_END), 1
+            )
+            self.assertIn(ras._context_efficiency_carrier_block(), create_text)
             self.assertNotIn("review-evidence-protocol: 1", create_text)
             self.assertNotIn("```jsonl", create_text)
+            for prompt_name in (
+                "create-wave.prompt.md",
+                "prepare-wave.prompt.md",
+                "implement-wave.prompt.md",
+                "review-wave.prompt.md",
+                "close-wave.prompt.md",
+            ):
+                self.assertTrue(prompt_root.joinpath(prompt_name).is_file())
+                self.assertGreater(
+                    prompt_root.joinpath(prompt_name).stat().st_size,
+                    500,
+                )
+            self.assertIn(
+                ".wavefoundry/logs/",
+                (root / ".gitignore").read_text(encoding="utf-8"),
+            )
+            self.assertFalse(
+                (root / ".wavefoundry" / "logs" / "context-efficiency.sqlite").exists()
+            )
             self.assertFalse(
                 (root / "docs" / "agents" / "guru.md").exists(),
                 "review reconciliation must run before the Guru-availability guard",

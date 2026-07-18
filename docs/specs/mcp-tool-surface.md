@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-15
+Last verified: 2026-07-17
 
 Behavioral contract for the Wavefoundry local MCP server. This spec covers the
 tool names, response conventions, safety rules, and compatibility expectations that
@@ -162,6 +162,156 @@ Diagnostic entries should use stable field names:
 }
 ```
 
+## Context-Efficiency Telemetry
+
+Context-efficiency fields account for the request, response, and attributable
+project context of eligible tools. Ordinary measurement uncertainty does not
+change the core result. If neither an event nor the durable accounting-gap poison
+can be persisted, the tool fails with `telemetry_persistence_failed` rather than
+silently publishing a clean ledger.
+
+### Retrieval field
+
+Exactly 17 tools attach:
+
+```json
+{
+  "context_avoided": {
+    "estimated_request_tokens": 0,
+    "estimated_returned_tokens": 0,
+    "estimated_source_tokens": 0,
+    "estimated_avoided_tokens": 0,
+    "source_files_counted": 0,
+    "source_files_verified": 0,
+    "source_files_estimated": 0,
+    "source_files_credited": 0,
+    "source_credits_dropped": 0,
+    "captured": true,
+    "persistence": "durable | duplicate | poisoned | failed",
+    "method": "utf8_bytes_div_4_phase_source_ledger"
+  }
+}
+```
+
+The fixed census is:
+
+- semantic/lexical: `code_ask`, `code_search`, `code_lexical`, `docs_search`
+- exact: `code_keyword`, `code_pattern`, `code_constants`
+- file/structure: `code_read`, `code_outline`
+- symbol/graph: `code_definition`, `code_references`,
+  `code_callhierarchy`, `code_impact`, `code_dependencies`,
+  `code_callgraph`, `code_graph_path`, `code_graph_community`
+
+Request, complete response, and source-size estimates use
+`ceil(UTF-8 byte length / 4)`. Content tools use returned file paths. Structural
+tools use their documented source-path fields (`data.path`,
+`importers[*].file`, `affected[*].source_file`, `nodes[*].source_file`, or
+`path_nodes[*].source_file`, according to the tool). Telemetry never infers paths
+from unrelated response strings.
+
+The strongest available contained size baseline is used. Stable live read boundaries
+and stable indexed epochs with matching per-path provenance are counted in
+`source_files_verified`. A readable current-file size or already-captured/indexed
+expected size without that proof is counted in `source_files_estimated`.
+`source_files_counted` is their sum. Sources without any size-bearing baseline are
+omitted; no public unavailable-files category is emitted. Paths and versions are
+persisted only as opaque hashes. SQLite credits one source version once per wave
+phase across content and structural tools.
+
+### Lifecycle field
+
+`wave_create_wave`, `wave_prepare`, `wave_implement`, `wave_review`, and
+`wave_close` attach:
+
+```json
+{
+    "workflow_instruction_proxy": {
+    "estimated_request_tokens": 0,
+    "estimated_returned_tokens": 0,
+    "prompt_surface_tokens": 0,
+    "estimated_compaction_tokens": 0,
+    "invocation_id": "opaque per-invocation ID",
+    "credited": false,
+    "captured": true,
+    "persistence": "durable | duplicate | poisoned | failed",
+    "method": "utf8_bytes_div_4_workflow_closed_ledger",
+    "limitation": "saved output and avoided loops require paired evidence"
+  }
+}
+```
+
+Each tool maps to exactly one contained project-local public shortcut prompt. Every
+call that reaches the handler records its request and complete response debits.
+Only a newly completed lifecycle milestone receives prompt credit. Dry runs,
+refusals, no-op retries, and incomplete reviews therefore lower or leave unchanged
+the unified estimate rather than disappearing from it.
+
+### Durable accounting and projection
+
+- Each `ImplHandler` has process-local producer/focus state, but eligible events
+  write through to `.wavefoundry/logs/context-efficiency.sqlite`.
+- Event IDs prevent replay; phase/source/version uniqueness prevents double source
+  credit across processes and across content/structural retrieval.
+- General events are producer-scoped. Successful create/prepare can associate only
+  the invoking producer's rows with the wave's `pre-wave` stage.
+- Each stage is displayed with
+  `max(0, content + structural + workflow prompt - request - response + paired residual)`.
+  The wave total is recomputed from the summed components and floored once; it
+  is never the sum of already-floored stage headlines.
+- The SQLite store contains opaque accounting IDs and values, not query text,
+  returned content, prompts, paths, secrets, or conversations.
+- Every framework writer of the active `wave.md`, including mutating
+  `wave_garden`, uses one project-global cross-process serialization helper.
+  Projection re-reads current `wave.md` under the lock and atomically replaces only
+  the owned `## Context Efficiency` marker block. New output uses
+  `<!-- wave:context-efficiency begin/end -->`; legacy `wavefoundry:` telemetry
+  markers are accepted and migrated when touched. Runtime and docs lint share the
+  strict marker/schema/render validator for that block. The human projection has
+  one table: stage, tool calls, and estimated token savings. Detailed components
+  stay in the machine state.
+- Lifecycle boundaries project pending generations. MCP reload and framework
+  upgrade refuse to proceed until all pending generations are projected.
+- Store-instance mismatch freezes the wave as `credit_history_unavailable`;
+  totals are never reconstructed from `wave.md`. This is the first shipped
+  telemetry schema, so no pre-release legacy-evidence layer is retained; a
+  recognized prototype table census is reset before the first current-schema
+  write.
+- A failed event transaction writes `context-efficiency.gap`; health becomes
+  `accounting_gap` and positive publication is suppressed. Precommit
+  instrumentation exceptions use the same poison-or-fatal path.
+
+### Paired evaluation
+
+Saved output and avoided tool loops require a typed paired-evaluation attachment.
+Applicability is pre-registered for the exact wave, phase, stage, task, repository
+snapshot, model/version, and tool configuration. At least five completed pairs
+must have assisted quality no worse than baseline on correctness, completeness,
+evidence, and maintainability. The credited residual is the minimum qualifying
+`max(0, baseline input + output - assisted input - output - assisted direct net)`.
+Before attachment, every reported assisted direct-net value must equal the
+authoritative phase ledger. Replay is idempotent; replacement names the active
+evaluation; revocation removes its contribution.
+
+`wave_context_efficiency_attach_evaluation(wave_id, phase_id, mode,
+report_path="", applicability=null)` is the typed authority:
+
+- `mode="register"` requires the complete applicability object before either
+  paired arm runs.
+- `mode="attach"` scores and attaches one contained JSON artifact.
+- `mode="replace"` requires `supersedes_evaluation_id` to name the active
+  evaluation.
+- `mode="revoke"` deactivates the current residual without deleting chronology.
+
+Fresh install/package, public surface rendering, and upgrade ship the telemetry
+implementation, pair schema/scorer, and packaged missing-only templates for all
+five project-local prompt baselines, plus a managed `.wavefoundry/logs/` ignore,
+without creating telemetry state. Existing project prompt prose is preserved.
+Upgrade first projects existing pending state, then leaves historical wave/event
+bytes unchanged.
+
+The concise normative signal and limitation text is in
+`docs/references/context-efficiency.md`.
+
 ## Mutating Tool Contract
 
 Mutating tools must expose a mode enum unless a change document records why the
@@ -296,6 +446,8 @@ once envelope migration is complete.
 
 - Returns active wave ID, status, admitted changes, and recommended next lifecycle
 action when known.
+- Returns context-efficiency SQLite totals, published checkpoints, current focus,
+  producer-scoped general totals, pending projection, and store health.
 
 `wave_list_waves(limit: int = 50)`
 
@@ -388,7 +540,11 @@ during `ready`/`create` (readiness mutations); `dry_run` is read-only.
 `wave_review(wave_id: str)`
 
 - Returns structured review readiness summary and docs-lint status.
-- Also requests a non-blocking background docs-index refresh for the wave record so non-hook clients can opportunistically catch up before or after review.
+- Preserves its read-only contract: requests no background index refresh, validates
+review-evidence adoption with `persist_adoption=False`, and performs no project or
+adoption-ledger write. Like every eligible lifecycle handler it records telemetry
+request/response debits; a fully completed implementation review may receive the
+mapped prompt credit.
 
 `wave_record_review_evidence(wave_id, event, actor, context_id, mode="dry_run", ...)`
 
@@ -397,7 +553,8 @@ during `ready`/`create` (readiness mutations); `dry_run` is read-only.
 - Approval callers must name the exact authority actor for the signoff; specialist/council approvals are accepted only with explicit fresh, independent context. Finding events require at least one originating source lane.
 - `approval_recheck_lanes` scopes specialist approval chronology to affected findings/lanes. Wave Council remains stale after later full-depth or council-named synthesis; operator approval remains final-wave scoped.
 - A one-candidate run reuses its finding evidence as the sealed-universe proof. An empty lightweight readiness/initial-delivery run emits one run row with reviewer `verification_context` and no separate dedup evidence row.
-- When a `reverification` completes repair cycle 2 after cycle 1, the same typed operation automatically includes the mandatory `convergence_checkpoint` in its identified bundle and atomic authority replacement. The caller does not submit a separate lightweight checkpoint; the server derives `frozen_boundary` from the wave-current synthesis heads after applying the reverification and carries its verification context.
+- A repair cycle may contain several findings and several ordered same-finding reverification events as fresh independent actors clear their own required lanes. It is aggregate-complete only when every actionable finding started in the cycle has a terminal current head with no unresolved required lanes: completed reverification, truthful `not_issue` / `dont_do_later` reclassification with `not_required` repair state, or a valid distinct operator waiver. Historical multi-candidate batch runs and compact per-finding runs remain valid.
+- When the final outstanding `reverification` makes repair cycle 2 aggregate-complete after cycle 1, the same typed operation automatically includes the mandatory `convergence_checkpoint` in its identified bundle and atomic authority replacement. The caller does not submit a separate lightweight checkpoint; the server derives `frozen_boundary` from the wave-current synthesis heads after applying that final transition and carries its verification context.
 - The sibling JSONL ledger remains canonical. Each typed write regenerates a compact Markdown current-head projection in `wave.md`; that projection is presentation only and raw event fields are not semantically indexed.
 - `create` derives stable structured event identity from the existing compact inputs, rejects same-identity/different-request conflicts, and replays same-identity/same-request retries without appending. Under one project-global lock it validates the complete prospective ledger, atomically replaces `events.jsonl` as the authority commit point, advances bounded adoption proof, then refreshes the Markdown projection and matching `## Review Evidence` line. Post-commit adoption/projection failures return structured pending/stale diagnostics and converge on replay; only `wave.md` receives a background docs-index refresh.
 
@@ -527,6 +684,10 @@ not rely on `status` to signal index absence.
   - `wave` — current wave record (empty dict when no wave is found).
   - `validation` — docs-lint result (`passed`, `errors`, `warnings`).
   - `index` — semantic index health summary (`semantic_ready`, `readiness_overview`, etc.).
+  - `context_efficiency` — durable SQLite wave/general totals, the last published
+    checkpoint, current process focus, pending projection, and explicit
+    persistence/accounting-gap health. The headline is the unified closed-ledger
+    estimate; components remain separately auditable in machine state.
   - `doc_drift` — the doc-code drift worklist (wave 1ro44): `{available, flagged_count, entries}`. **This is the stable consumer contract for the future Verify-docs review loop** — build against these formats, not the implementation:
     - `entries` lists drift-flagged **living** docs only (historical `docs/waves/` records are excluded by construction — they are never verified, amended, or disposed), ordered by `commits_since` descending, then `path` ascending for determinism.
     - Each entry: `path` (repo-relative doc), `commits_since` (distinct commits touching the doc's referenced code after its drift anchor), `anchor_kind` (`"content"` = the doc's last content change in git; `"verification"` = a live `Verified against:` stamp governs), `drift_refs` (the referenced code paths whose churn triggered the flag).

@@ -7,11 +7,13 @@ from typing import Iterable
 
 from review_evidence import (
     adopted_protocol_state,
+    canonicalize_finding_synthesis_markers,
     parse_review_evidence_source,
     render_review_evidence_projection,
     validate_adopted_protocol_state,
     validate_external_review_evidence,
 )
+from context_efficiency import checkpoint_validation_errors
 
 from .constants import (
     ALLOWED_CHANGE_STATUS_TRANSITIONS,
@@ -975,6 +977,10 @@ def check_wave_docs(root: Path, only: set[Path] | None = None, skip: set[Path] |
         watchpoints = ""
 
         if is_wave_record:
+            failures.extend(
+                f"{rel}: Context Efficiency checkpoint: {error}"
+                for error in checkpoint_validation_errors(text)
+            )
             source, _source_errors = parse_review_evidence_source(text)
             adopted, _adoption_error = adopted_protocol_state(root, path.parent.name)
             inline_marker = re.search(r"(?mi)^review-evidence-protocol\s*:", text) is not None
@@ -995,7 +1001,7 @@ def check_wave_docs(root: Path, only: set[Path] | None = None, skip: set[Path] |
                     except ValueError as exc:
                         failures.append(f"{rel}: review evidence projection: {exc}")
                     else:
-                        if expected_projection != text:
+                        if expected_projection != canonicalize_finding_synthesis_markers(text):
                             failures.append(
                                 f"{rel}: review evidence projection is stale; regenerate it from sibling events.jsonl"
                             )

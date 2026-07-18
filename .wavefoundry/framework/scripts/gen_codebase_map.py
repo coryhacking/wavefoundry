@@ -169,8 +169,12 @@ OUTPUT_REL_PATH = "docs/references/codebase-map.md"
 # touched. The marker is seed-rooted (see seed 030-inventory-and-map) so any
 # consuming project carries it.
 REPO_INDEX_REL_PATH = "docs/repo-index.md"
-REPO_INDEX_MARKER_BEGIN = "<!-- waveframework:repo-index-modules begin -->"
-REPO_INDEX_MARKER_END = "<!-- waveframework:repo-index-modules end -->"
+REPO_INDEX_MARKER_BEGIN = "<!-- wave:repo-index-modules begin -->"
+REPO_INDEX_MARKER_END = "<!-- wave:repo-index-modules end -->"
+_LEGACY_REPO_INDEX_MARKER_BEGIN = (
+    "<!-- waveframework:repo-index-modules begin -->"
+)
+_LEGACY_REPO_INDEX_MARKER_END = "<!-- waveframework:repo-index-modules end -->"
 
 # Vendor-neutral per-area context file (1p5xc). The canonical name many agents
 # read (the agents.md convention); never Claude-specific.
@@ -1782,16 +1786,19 @@ def _refresh_repo_index_modules(root: Path, model: CodebaseMapModel) -> bool:
     if not path.is_file():
         return False
     try:
-        text = path.read_text(encoding="utf-8")
+        disk_text = path.read_text(encoding="utf-8")
     except OSError:
         return False
+    text = disk_text.replace(
+        _LEGACY_REPO_INDEX_MARKER_BEGIN, REPO_INDEX_MARKER_BEGIN
+    ).replace(_LEGACY_REPO_INDEX_MARKER_END, REPO_INDEX_MARKER_END)
     begin = text.find(REPO_INDEX_MARKER_BEGIN)
     end = text.find(REPO_INDEX_MARKER_END)
     if begin == -1 or end == -1 or end < begin:
         return False
     inner_start = begin + len(REPO_INDEX_MARKER_BEGIN)
     new_inner = _render_repo_index_modules(model)
-    if text[inner_start:end] == new_inner:
+    if text[inner_start:end] == new_inner and text == disk_text:
         return False  # change-only: no structural change → no write
     new_text = text[:inner_start] + new_inner + text[end:]
     try:

@@ -2405,6 +2405,47 @@ def write_build_bookkeeping(index_dir: Path, meta: dict[str, Any]) -> None:
         store.close()
 
 
+def read_build_file_meta(
+    index_dir: Path, paths: Iterable[str]
+) -> Optional[dict[str, dict[str, Any]]]:
+    """Read one bounded batch of indexed per-path stat metadata.
+
+    Context-efficiency telemetry uses this instead of exporting the complete
+    build snapshot on every retrieval. The caller supplies only distinct
+    response-source paths; one read-only query returns their existing
+    build-version rows and never creates or upgrades the store.
+    """
+
+    requested = sorted({str(path).replace("\\", "/") for path in paths if path})
+    if not requested:
+        return {}
+    conn = open_read_only(index_dir)
+    if conn is None:
+        return None
+    try:
+        placeholders = ",".join("?" for _ in requested)
+        rows = conn.execute(
+            "SELECT path,mtime,size,inode FROM build_file_meta "
+            f"WHERE path IN ({placeholders})",
+            requested,
+        ).fetchall()
+        return {
+            str(path): {
+                "mtime": mtime,
+                "size": size,
+                "inode": inode,
+            }
+            for path, mtime, size, inode in rows
+        }
+    except sqlite3.Error:
+        return None
+    finally:
+        try:
+            conn.close()
+        except sqlite3.Error:
+            pass
+
+
 def export_meta_snapshot(index_dir: Path) -> Optional[dict[str, Any]]:
     """Reconstruct the full per-path build-state dict from the bookkeeping tables.
 

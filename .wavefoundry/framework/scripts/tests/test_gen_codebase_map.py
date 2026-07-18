@@ -984,6 +984,25 @@ class RepoIndexFeedTests(unittest.TestCase):
         second = path.read_text(encoding="utf-8")
         self.assertEqual(first, second)
 
+    def test_feed_migrates_legacy_marker_pair_in_place(self):
+        path = self._write_repo_index()
+        legacy = (
+            path.read_text(encoding="utf-8")
+            .replace(
+                self.gen.REPO_INDEX_MARKER_BEGIN,
+                "<!-- waveframework:repo-index-modules begin -->",
+            )
+            .replace(
+                self.gen.REPO_INDEX_MARKER_END,
+                "<!-- waveframework:repo-index-modules end -->",
+            )
+        )
+        path.write_text(legacy, encoding="utf-8")
+        self.gen.generate_codebase_map(self.root, force=True)
+        migrated = path.read_text(encoding="utf-8")
+        self.assertIn(self.gen.REPO_INDEX_MARKER_BEGIN, migrated)
+        self.assertNotIn("waveframework:repo-index-modules", migrated)
+
     def test_feed_no_markers_is_safe_noop(self):
         path = self.root / "docs" / "repo-index.md"
         path.parent.mkdir(parents=True, exist_ok=True)

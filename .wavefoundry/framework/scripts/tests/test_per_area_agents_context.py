@@ -174,7 +174,7 @@ class RootBridgeTests(unittest.TestCase):
             claude = (repo_root / "CLAUDE.md").read_text(encoding="utf-8")
             self.assertIn("@AGENTS.md", claude)
             self.assertNotIn("Thin pointer. Read", claude)
-            self.assertIn("waveframework:root-bridge begin", claude)
+            self.assertIn("wave:root-bridge begin", claude)
 
     def test_bridge_idempotent(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -192,15 +192,15 @@ class RootBridgeTests(unittest.TestCase):
             # The root-bridge block itself is stable across re-renders: exactly
             # one import line and one marker pair, identical between runs.
             self.assertEqual(second.count("@AGENTS.md"), 1)
-            self.assertEqual(second.count("waveframework:root-bridge begin"), 1)
+            self.assertEqual(second.count("wave:root-bridge begin"), 1)
             for text in (first, second):
-                begin = text.index("waveframework:root-bridge begin")
-                end = text.index("waveframework:root-bridge end")
+                begin = text.index("wave:root-bridge begin")
+                end = text.index("wave:root-bridge end")
                 self.assertLess(begin, end)
             # The bridge region is byte-identical between runs.
             def bridge(t: str) -> str:
-                b = t.index("waveframework:root-bridge begin")
-                e = t.index("waveframework:root-bridge end")
+                b = t.index("wave:root-bridge begin")
+                e = t.index("wave:root-bridge end")
                 return t[b:e]
             self.assertEqual(bridge(first), bridge(second))
 

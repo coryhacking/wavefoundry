@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-06
+Last verified: 2026-07-17
 
 Shortcut: **`Upgrade Wavefoundry`** | Legacy: **`Upgrade wave framework`** / **`Upgrade wave context`**
 
@@ -93,7 +93,7 @@ python3 .wavefoundry/framework/scripts/render_agent_surfaces.py
    - `### Agent platform routing` (all hosts; tier 1–2 for Junie, Air, Windsurf, Copilot, Warp)
 2. **Guru role** — ensure `docs/agents/guru.md` exists (`Role: guru`); update `docs/prompts/index.md` **Guru** row
 3. **Re-run renderer** after tier-1 backfill if those sections were just added
-4. **Tier 2–3 — generated files** (do not hand-edit `waveframework:auto-guru` marker regions):
+4. **Tier 2–3 — generated files** (do not hand-edit `wave:auto-guru` marker regions):
    - `.cursor/rules/auto-guru.mdc`, `.claude/agents/guru.md`, `.codex/skills/auto-guru/SKILL.md`
    - Marked blocks in `CLAUDE.md`, `.cursor/rules/project-context.mdc`, `.junie/guidelines.md`, `WARP.md`, `.github/copilot-instructions.md` when those files exist
 5. **Verify** paths listed in `docs/agents/platform-mapping.md` § Auto-Guru routing

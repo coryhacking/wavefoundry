@@ -23,7 +23,10 @@ sys.dont_write_bytecode = True
 # current code on disk after a wave_mcp_reload (importlib.reload of this module
 # re-runs this block).
 for _wll_key in list(sys.modules):
-    if _wll_key.startswith("wave_lint_lib") or _wll_key == "review_evidence":
+    if (
+        _wll_key.startswith("wave_lint_lib")
+        or _wll_key in {"review_evidence", "context_efficiency"}
+    ):
         del sys.modules[_wll_key]
 
 FASTEMBED_CACHE_DEFAULT = Path.home() / ".wavefoundry" / "cache" / "fastembed"
@@ -36,6 +39,7 @@ if str(SCRIPTS_DIR) not in sys.path:
 
 import venv_bootstrap  # the single venv resolver (wave 1p7pl)
 import subprocess_util  # shared subprocess isolation (wave 1p8gu)
+import context_efficiency
 from review_evidence import (
     EVENT_IDENTITY_FIELD,
     PROTOCOL_VERSION,
@@ -2910,7 +2914,7 @@ def _ensure_no_extra_args(tool_name: str, kwargs: dict[str, Any]) -> Optional[di
     if not real_extras:
         return None
     kwargs = real_extras
-    return _response(
+    response = _response(
         "error",
         {"tool": tool_name, "rejected_arguments": sorted(kwargs.keys())},
         diagnostics=[
@@ -2924,6 +2928,7 @@ def _ensure_no_extra_args(tool_name: str, kwargs: dict[str, Any]) -> Optional[di
         next_tools=["wave_help"],
         usage=f"wave_help()  # see supported parameters for {tool_name}",
     )
+    return _attach_retrieval_failure_context(tool_name, response)
 
 
 def _slug_fragment(text: str) -> str:
@@ -3629,7 +3634,7 @@ def _index_rebuilding_response(tool: str, payload: dict) -> dict[str, Any]:
     payload.setdefault("search_mode", None)
     payload.setdefault("fallback_reason", "index_not_ready")
     payload.setdefault("results", [])
-    return _response(
+    response = _response(
         "error", payload,
         diagnostics=[_diagnostic(
             "index_not_ready",
@@ -3643,6 +3648,7 @@ def _index_rebuilding_response(tool: str, payload: dict) -> dict[str, Any]:
         next_tools=["wave_index_build_status"],
         usage="wave_index_build_status()",
     )
+    return _attach_retrieval_failure_context(tool, response)
 
 
 def _store_has_completed_build(index_dir: Path) -> bool:
@@ -8622,7 +8628,8 @@ def wave_garden_response(root: Path, mode: str = "dry_run", cache: Optional[McpR
             next_tools=["wave_garden"],
             usage="wave_garden(mode='run')",
         )
-    result = run_garden(root)
+    with review_event_write_lock(root):
+        result = run_garden(root)
     status = "ok" if result["passed"] else "error"
     diagnostics = [] if result["passed"] else [
         _diagnostic(
@@ -11230,6 +11237,12 @@ def _approval_evidence_diagnostics(
             )
             if key == "operator-signoff":
                 affected = True
+            elif key == "wave-council-readiness":
+                # Readiness is historical prepare-phase authority: it proves the
+                # plan was reviewed before implementation began. Delivery repairs
+                # can stale delivery/specialist approvals, but cannot retroactively
+                # move that already-crossed stage gate.
+                affected = False
             elif key.startswith("wave-council-"):
                 affected = (
                     key in affected_lanes
@@ -11813,12 +11826,14 @@ def wave_prepare_response(root: Path, wave_id: str, mode: str = "dry_run", cache
         error_data["council_verdict_present"] = verdict_present
         error_data["council_verdict_valid"] = verdict_valid
         return _response("error", error_data, diagnostics=diagnostics, next_tools=["wave_prepare"], usage="wave_prepare(mode='create')")
+    transitioned_to_active = False
     if mode_s == "create":
         status_match = _STATUS_PATTERN.search(text)
         if status_match and status_match.group(1) != "active":
             text = text[:status_match.start(1)] + "active" + text[status_match.end(1):]
             wave_md.write_text(text, encoding="utf-8")
             updated = True
+            transitioned_to_active = True
         if cache and updated:
             cache.invalidate()
         _trigger_background_index_refresh_for_paths(
@@ -11829,7 +11844,7 @@ def wave_prepare_response(root: Path, wave_id: str, mode: str = "dry_run", cache
     # checkpoint (fail-safe — never affects the prepare result).
     if mode_s == "create":
         _regenerate_codebase_map_safe(root)
-    resp_data = {"wave_id": wave_id, "mode": mode_s, "readied": mode_s == "ready", "change_count": len(change_ids), "lint_passed": lint_passed, "garden_passed": garden_passed, "updated": updated, "repairs_needed": repairs_needed, "repaired": repaired, "required_council_signoffs": required_council_signoffs, "council_brief": council_brief, "council_verdict_present": verdict_present, "council_verdict_valid": verdict_valid}
+    resp_data = {"wave_id": wave_id, "mode": mode_s, "readied": mode_s == "ready", "transitioned_to_active": transitioned_to_active, "change_count": len(change_ids), "lint_passed": lint_passed, "garden_passed": garden_passed, "updated": updated, "repairs_needed": repairs_needed, "repaired": repaired, "required_council_signoffs": required_council_signoffs, "council_brief": council_brief, "council_verdict_present": verdict_present, "council_verdict_valid": verdict_valid}
     # 1p8gy AC-6: prior-learning advisories before implementation begins —
     # fragile files, repeated failed attempts, operator preferences.
     _mem_advisories = _memory_advisories_for_wave(
@@ -11939,14 +11954,13 @@ def wave_review_response(root: Path, wave_id: str, phase: str = "implementation"
     wave_md = _find_wave_md(root, wave_id)
     if wave_md is None:
         return _response("error", {"wave_id": wave_id}, diagnostics=[_diagnostic("wave_not_found", f"No wave found matching '{wave_id}'.", recovery_tools=["wave_list_waves"], recovery_usage="wave_list_waves()")], next_tools=["wave_list_waves"], usage="wave_list_waves()")
-    _trigger_background_index_refresh_for_paths(root, [wave_md])
     lint_result = run_validate(root)
     wave_text = wave_md.read_text(encoding="utf-8")
     review_evidence_diagnostics = _review_evidence_diagnostics(
         wave_text,
         root=root,
         wave_key=wave_md.parent.name,
-        persist_adoption=True,
+        persist_adoption=False,
         required_run_kind="readiness" if phase_s == "prepare" else "initial_delivery",
     )
     # Merge lanes from wave.md Participants table and project-declared required_review_lanes
@@ -12084,7 +12098,7 @@ def wave_implement_response(root: Path, wave_id: str, mode: str = "dry_run", cac
     current_status = (status_match.group(1) if status_match else "").lower()
 
     if current_status == "implementing":
-        return _response("ok", {"wave_id": wave_id, "mode": mode_s, "status": "implementing", "already_implementing": True}, next_tools=["wave_current", "wave_review"], usage="wave_current()")
+        return _response("ok", {"wave_id": wave_id, "mode": mode_s, "status": "implementing", "already_implementing": True, "transitioned_to_implementing": False}, next_tools=["wave_current", "wave_review"], usage="wave_current()")
     # Wave 1p45l: implement opens an `active` wave (legacy prepare-and-open) OR a readied
     # `planned` wave. A non-readied `planned` wave still fails the council/lane gates below.
     if current_status not in ("active", "planned"):
@@ -12195,6 +12209,7 @@ def wave_implement_response(root: Path, wave_id: str, mode: str = "dry_run", cac
     resp_data = {
         "wave_id": wave_id,
         "mode": mode_s,
+        "transitioned_to_implementing": mode_s == "create",
         "status_transition": {"from": current_status, "to": "implementing"} if mode_s == "create" else {"from": current_status, "to": f"{current_status} (dry_run)"},
         "ordered_changes": ordered_changes,
         "journal_watchpoints": watchpoints_text,
@@ -12566,6 +12581,7 @@ def wave_close_response(root: Path, wave_id: str, mode: str = "dry_run", cache: 
     # Generate the wave summary from structured change doc fields (12sq4).
     wave_summary = _generate_wave_close_summary(wave_id, text, wave_md)
     updated = False
+    transitioned_to_closed = False
     handoff_rel = ""
     close_optimize: Optional[dict[str, Any]] = None
     if mode_s == "create":
@@ -12579,6 +12595,7 @@ def wave_close_response(root: Path, wave_id: str, mode: str = "dry_run", cache: 
                 text = text.replace("## Wave Summary", f"Completed At: {time.strftime('%Y-%m-%d')}\n\n## Wave Summary", 1)
             wave_md.write_text(text, encoding="utf-8")
             updated = True
+            transitioned_to_closed = True
             handoff = root / "docs" / "agents" / "session-handoff.md"
             handoff.parent.mkdir(parents=True, exist_ok=True)
             prior = handoff.read_text(encoding="utf-8") if handoff.exists() else ""
@@ -12601,7 +12618,7 @@ def wave_close_response(root: Path, wave_id: str, mode: str = "dry_run", cache: 
         _regenerate_codebase_map_safe(root)
     envelope = _response(
         "dry_run" if mode_s == "dry_run" else "ok",
-        {"wave_id": wave_id, "mode": mode_s, "updated": updated, "handoff_path": handoff_rel, "wave_summary": wave_summary,
+        {"wave_id": wave_id, "mode": mode_s, "updated": updated, "transitioned_to_closed": transitioned_to_closed, "handoff_path": handoff_rel, "wave_summary": wave_summary,
          **({"index_optimize": close_optimize} if close_optimize else {}), **secrets_notice},
         diagnostics=gate_diagnostics if gate_diagnostics else None,
         next_tools=["wave_current"],
@@ -12791,10 +12808,12 @@ _EDIT_GOVERNANCE_GATE_MAP = (
     (".wavefoundry/framework/dashboard/", "framework_edit_allowed"),
 )
 
-_WAVEFRAMEWORK_MARKER_BEGIN_RE = __import__("re").compile(
-    r"<!--\s*waveframework:([\w:-]+)\s+begin\b"
+_WAVE_MARKER_BEGIN_RE = __import__("re").compile(
+    r"<!--\s*(?:wave|waveframework|wavefoundry):([\w:-]+)\s+begin\b"
 )
-_WAVEFRAMEWORK_MARKER_END_RE = __import__("re").compile(r"<!--\s*end\s*-->")
+_WAVE_MARKER_END_RE = __import__("re").compile(
+    r"<!--\s*(?:(?:wave|waveframework|wavefoundry):([\w:-]+)\s+)?end\s*-->"
+)
 
 
 def _edit_governance_for_path(root: Path, repo_rel: str) -> Optional[dict[str, Any]]:
@@ -12829,7 +12848,7 @@ def _edit_governance_for_path(root: Path, repo_rel: str) -> Optional[dict[str, A
 
 
 def _marker_regions_in_range(text: str, lo: int, hi: int) -> list[dict[str, Any]]:
-    """Find ``<!-- waveframework:* begin -->...<!-- end -->`` regions that
+    """Find canonical or legacy ``<!-- wave:* begin/end -->`` regions that
     overlap the requested line range [lo, hi] (inclusive, 1-indexed).
 
     Returns a list of ``{name, start_line, end_line, warning}`` entries.
@@ -12844,11 +12863,15 @@ def _marker_regions_in_range(text: str, lo: int, hi: int) -> list[dict[str, Any]
     inside_marker: Optional[tuple[str, int]] = None  # (name, start_line)
     for line_no, line in enumerate(text.splitlines(), 1):
         if inside_marker is None:
-            m = _WAVEFRAMEWORK_MARKER_BEGIN_RE.search(line)
+            m = _WAVE_MARKER_BEGIN_RE.search(line)
             if m:
                 inside_marker = (m.group(1), line_no)
         else:
-            if _WAVEFRAMEWORK_MARKER_END_RE.search(line):
+            end_match = _WAVE_MARKER_END_RE.search(line)
+            if end_match and (
+                end_match.group(1) is None
+                or end_match.group(1) == inside_marker[0]
+            ):
                 name, start_line = inside_marker
                 end_line = line_no
                 # Overlap test: [start_line, end_line] intersects [lo, hi]?
@@ -13183,7 +13206,7 @@ def code_read_response(
       gates when the path falls under a gated area (seeds, framework scripts,
       framework dashboard).
     - **Marker region detection:** ``marker_regions`` lists
-      ``<!-- waveframework:* begin -->...<!-- end -->`` blocks overlapping
+      canonical or legacy ``<!-- wave:* begin/end -->`` blocks overlapping
       the requested range so agents don't waste an Edit inside renderer-owned
       content.
     - **``total_lines`` semantics shift:** returned only when the call read
@@ -19789,6 +19812,845 @@ SERVER_IMPL_VERSION = _read_framework_pack_version()
 
 _runner_version: str = ""
 
+_CONTEXT_RETRIEVAL_TOOLS = frozenset(
+    {
+        "code_ask",
+        "code_search",
+        "code_lexical",
+        "docs_search",
+        "code_keyword",
+        "code_pattern",
+        "code_constants",
+        "code_read",
+        "code_outline",
+        "code_definition",
+        "code_references",
+        "code_callhierarchy",
+        "code_impact",
+        "code_dependencies",
+        "code_callgraph",
+        "code_graph_path",
+        "code_graph_community",
+    }
+)
+_INDEXED_CONTEXT_TOOLS = frozenset(
+    {"code_ask", "code_search", "code_lexical", "docs_search"}
+)
+_REFERENCE_ONLY_GRAPH_TOOLS = frozenset(
+    {
+        "code_impact",
+        "code_dependencies",
+        "code_callgraph",
+        "code_graph_path",
+        "code_graph_community",
+    }
+)
+_LIFECYCLE_CONTEXT_STAGES = {
+    "wave_create_wave": "plan",
+    "wave_prepare": "prepare",
+    "wave_implement": "implement",
+    "wave_review": "review",
+    "wave_close": "close",
+}
+
+
+def _context_data(response: dict[str, Any]) -> dict[str, Any]:
+    data = response.get("data")
+    if isinstance(data, dict):
+        return data
+    data = {}
+    response["data"] = data
+    return data
+
+
+def _context_source_paths(
+    tool_name: str, response: dict[str, Any]
+) -> list[str]:
+    """Extract only paths whose content-bearing fields are in the envelope.
+
+    This is deliberately an explicit public-shape census. Recursive
+    ``path``/``file`` guessing is unsafe because indexed envelopes also carry
+    graph neighbors, communities, dependency scope, and other reference-only
+    metadata that must never become a whole-file savings baseline.
+    """
+
+    data = response.get("data")
+    if not isinstance(data, dict):
+        return []
+    paths: set[str] = set()
+
+    def add_rows(
+        rows_key: str,
+        path_key: str,
+        content_keys: tuple[str, ...],
+        *,
+        present_is_content: bool = False,
+    ) -> None:
+        rows = data.get(rows_key)
+        if not isinstance(rows, list):
+            return
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            path = row.get(path_key)
+            if not isinstance(path, str) or not path or path == "external":
+                continue
+            if present_is_content:
+                content_bearing = any(key in row for key in content_keys)
+            else:
+                content_bearing = any(
+                    row.get(key) not in (None, "") for key in content_keys
+                )
+            if content_bearing:
+                paths.add(path)
+
+    if tool_name == "code_ask":
+        add_rows("citations", "path", ("excerpt",))
+    elif tool_name in {"code_search", "docs_search"}:
+        add_rows("results", "path", ("excerpt", "text"))
+    elif tool_name == "code_lexical":
+        add_rows("results", "path", ("text",))
+    elif tool_name == "code_keyword":
+        add_rows("results", "path", ("snippet", "text"))
+    elif tool_name == "code_pattern":
+        add_rows("matches", "file", ("text",), present_is_content=True)
+    elif tool_name == "code_constants":
+        add_rows("results", "file", ("value",), present_is_content=True)
+    elif tool_name == "code_read":
+        path = data.get("path")
+        if isinstance(path, str) and path and "content" in data:
+            paths.add(path)
+    elif tool_name == "code_outline":
+        path = data.get("file")
+        symbols = data.get("symbols")
+        if isinstance(path, str) and path and isinstance(symbols, list) and symbols:
+            paths.add(path)
+    elif tool_name == "code_definition":
+        add_rows("definitions", "path", ("snippet",))
+    elif tool_name == "code_references":
+        add_rows("references", "path", ("snippet",))
+    elif tool_name == "code_callhierarchy":
+        add_rows("outgoing", "file", ("snippet",))
+        add_rows("incoming", "file", ("snippet",))
+    return sorted(paths)
+
+
+def _context_structural_paths(
+    tool_name: str, response: dict[str, Any]
+) -> list[str]:
+    """Extract only file fields explicitly represented by graph results."""
+
+    data = response.get("data")
+    if not isinstance(data, dict):
+        return []
+    paths: set[str] = set()
+
+    def add(value: Any) -> None:
+        if isinstance(value, str) and value and value != "external":
+            paths.add(value)
+
+    def add_rows(value: Any, key: str) -> None:
+        if not isinstance(value, list):
+            return
+        for row in value:
+            if isinstance(row, dict):
+                add(row.get(key))
+
+    if tool_name == "code_dependencies":
+        add(data.get("path"))
+    elif tool_name == "code_impact":
+        # Heuristic mode exposes the seed and importers; graph mode exposes
+        # the bounded affected rows. Hidden neighbors never enter this census.
+        add(data.get("path"))
+        add_rows(data.get("importers"), "file")
+        add_rows(data.get("affected"), "source_file")
+    elif tool_name == "code_callgraph":
+        add_rows(data.get("nodes"), "source_file")
+    elif tool_name == "code_graph_path":
+        add_rows(data.get("path_nodes"), "source_file")
+    elif tool_name == "code_graph_community":
+        add_rows(data.get("nodes"), "source_file")
+    return sorted(paths)
+
+
+def _context_indexed_proofs(
+    root: Path,
+    tool_name: str,
+    response: dict[str, Any],
+    *,
+    epoch_stable: bool,
+) -> list[context_efficiency.SourceProof]:
+    paths = _context_source_paths(tool_name, response)
+    if not paths:
+        return []
+    normalized: list[tuple[str, str]] = []
+    for path in paths:
+        rel = path
+        try:
+            candidate = Path(path)
+            if candidate.is_absolute():
+                rel = candidate.resolve().relative_to(root.resolve()).as_posix()
+            else:
+                rel = candidate.as_posix()
+        except (OSError, RuntimeError, ValueError):
+            rel = path
+        normalized.append((path, rel))
+    try:
+        metadata = _load_script("index_state_store").read_build_file_meta(
+            root / ".wavefoundry" / "index",
+            [rel for _, rel in normalized],
+        )
+    except Exception:
+        metadata = None
+    rows = metadata if isinstance(metadata, dict) else {}
+    proofs: list[context_efficiency.SourceProof] = []
+    for _path, rel in normalized:
+        row = rows.get(rel)
+        version = (
+            context_efficiency.FileVersion.from_index_meta(row)
+            if isinstance(row, dict)
+            else None
+        )
+        proofs.append(
+            context_efficiency.indexed_source_proof(
+                rel, version, epoch_stable=epoch_stable
+            )
+        )
+    return proofs
+
+
+def _context_current_size_proofs(
+    tool_name: str, response: dict[str, Any],
+) -> list[context_efficiency.SourceProof]:
+    return [
+        context_efficiency.SourceProof(path, "live", None)
+        for path in _context_source_paths(tool_name, response)
+    ]
+
+
+def _context_structural_proofs(
+    tool_name: str, response: dict[str, Any],
+) -> list[context_efficiency.SourceProof]:
+    return [
+        context_efficiency.SourceProof(
+            path,
+            "live",
+            None,
+            credit_kind="structural",
+        )
+        for path in _context_structural_paths(tool_name, response)
+    ]
+
+
+def _retrieval_failure_metric(core_response: dict[str, Any]) -> dict[str, Any]:
+    try:
+        returned = context_efficiency.estimate_tokens_utf8(
+            context_efficiency.canonical_core_json(core_response)
+        )
+    except Exception:
+        returned = 0
+    return {
+        "estimated_request_tokens": 0,
+        "estimated_returned_tokens": returned,
+        "estimated_source_tokens": 0,
+        "estimated_avoided_tokens": 0,
+        "source_files_counted": 0,
+        "source_files_verified": 0,
+        "source_files_estimated": 0,
+        "source_files_credited": 0,
+        "source_credits_dropped": 0,
+        "captured": False,
+        "persistence": "failed",
+        "method": context_efficiency.RETRIEVAL_METHOD,
+    }
+
+
+def _attach_retrieval_failure_context(
+    tool_name: str, response: dict[str, Any]
+) -> dict[str, Any]:
+    """Keep every retrieval envelope shaped without buffering rejected work."""
+
+    retrieval_tools = globals().get("_CONTEXT_RETRIEVAL_TOOLS", ())
+    if tool_name in retrieval_tools:
+        _context_data(response)["context_avoided"] = (
+            _retrieval_failure_metric(response)
+        )
+    return response
+
+
+def _record_retrieval_context(
+    handler: "ImplHandler",
+    tool_name: str,
+    response: dict[str, Any],
+    *,
+    indexed_epoch_stable: bool = False,
+    request_arguments: Any = None,
+) -> dict[str, Any]:
+    """Attach one fail-isolated metric at the public tool envelope."""
+
+    if tool_name not in _CONTEXT_RETRIEVAL_TOOLS:
+        return response
+    try:
+        if tool_name in _REFERENCE_ONLY_GRAPH_TOOLS:
+            proofs = _context_structural_proofs(tool_name, response)
+        elif tool_name in _INDEXED_CONTEXT_TOOLS:
+            proofs = _context_indexed_proofs(
+                handler.root,
+                tool_name,
+                response,
+                epoch_stable=indexed_epoch_stable,
+            )
+        else:
+            # Exact-navigation helpers do not expose a read-bracketing
+            # signature. Their contained current-file size is still a useful
+            # estimate, but the metric classifies it separately from a
+            # same-version verified baseline.
+            proofs = _context_current_size_proofs(tool_name, response)
+        metric = context_efficiency.retrieval_context_avoided(
+            response,
+            handler.root,
+            proofs,
+            request_arguments=request_arguments,
+        )
+        if metric.get("captured") is not True:
+            public = _poisoned_or_fatal_telemetry_failure(
+                handler.root, metric
+            )
+        else:
+            public = handler.telemetry.record_retrieval(
+                metric, tool_name=tool_name
+            )
+    except Exception:
+        public = _poisoned_or_fatal_telemetry_failure(
+            handler.root, _retrieval_failure_metric(response)
+        )
+    if public.get("fatal_persistence_failure") is True:
+        return {
+            "status": "error",
+            "data": {
+                "failed": True,
+                "stage": "context_efficiency",
+                "error_code": "telemetry_persistence_failed",
+            },
+            "diagnostics": [
+                {
+                    "code": "telemetry_persistence_failed",
+                    "message": (
+                        "The tool result was withheld because neither its "
+                        "telemetry event nor the durable accounting-gap "
+                        "barrier could be persisted."
+                    ),
+                }
+            ],
+            "next_tools": [],
+        }
+    _context_data(response)["context_avoided"] = public
+    return response
+
+
+def _workflow_failure_metric(core_response: dict[str, Any]) -> dict[str, Any]:
+    try:
+        returned = context_efficiency.estimate_tokens_utf8(
+            context_efficiency.canonical_core_json(core_response)
+        )
+    except Exception:
+        returned = 0
+    return {
+        "estimated_request_tokens": 0,
+        "estimated_returned_tokens": returned,
+        "prompt_surface_tokens": 0,
+        "estimated_compaction_tokens": 0,
+        "credited": False,
+        "captured": False,
+        "persistence": "failed",
+        "method": context_efficiency.WORKFLOW_PROXY_METHOD,
+        "limitation": context_efficiency.WORKFLOW_PROXY_LIMITATION,
+    }
+
+
+def _poisoned_or_fatal_telemetry_failure(
+    root: Path, metric: dict[str, Any]
+) -> dict[str, Any]:
+    """Fail closed when instrumentation raises before its normal commit path."""
+
+    payload = dict(metric)
+    if context_efficiency.poison_accounting_gap(root):
+        payload["persistence"] = "poisoned"
+    else:
+        payload["persistence"] = "failed"
+        payload["fatal_persistence_failure"] = True
+    payload["captured"] = False
+    return payload
+
+
+def _record_workflow_context(
+    handler: "ImplHandler",
+    tool_name: str,
+    wave_id: str,
+    response: dict[str, Any],
+    *,
+    request_arguments: Any = None,
+    milestone_completed: bool,
+) -> dict[str, Any]:
+    """Persist debits for every reached handler; credit only a milestone."""
+
+    try:
+        metric = context_efficiency.workflow_instruction_proxy(
+            response,
+            handler.root,
+            tool_name,
+            request_arguments=request_arguments,
+            milestone_completed=milestone_completed,
+        )
+        if metric.get("captured") is not True:
+            public = _poisoned_or_fatal_telemetry_failure(
+                handler.root, metric
+            )
+        else:
+            public = handler.telemetry.record_workflow(
+                wave_id,
+                _LIFECYCLE_CONTEXT_STAGES[tool_name],
+                tool_name,
+                metric,
+            )
+    except Exception:
+        public = _poisoned_or_fatal_telemetry_failure(
+            handler.root, _workflow_failure_metric(response)
+        )
+    if public.get("fatal_persistence_failure") is True:
+        return {
+            "status": "error",
+            "data": {
+                "failed": True,
+                "stage": "context_efficiency",
+                "error_code": "telemetry_persistence_failed",
+            },
+            "diagnostics": [
+                {
+                    "code": "telemetry_persistence_failed",
+                    "message": (
+                        "The lifecycle result was withheld because neither "
+                        "its telemetry event nor the durable accounting-gap "
+                        "barrier could be persisted."
+                    ),
+                }
+            ],
+            "next_tools": [],
+        }
+    _context_data(response)["workflow_instruction_proxy"] = public
+    return response
+
+
+def _wave_checkpoint_floor(root: Path, wave_id: str) -> dict[str, Any]:
+    wave_md = _find_wave_md(root, wave_id)
+    if wave_md is None:
+        return context_efficiency.empty_checkpoint(wave_id)
+    try:
+        parsed = context_efficiency.parse_checkpoint_block(
+            wave_md.read_text(encoding="utf-8")
+        )
+    except OSError:
+        parsed = None
+    return parsed or context_efficiency.empty_checkpoint(wave_md.parent.name)
+
+
+def _flush_context_efficiency(
+    handler: "ImplHandler",
+    wave_id: str,
+    *,
+    transfer_general: bool = False,
+) -> tuple[dict[str, Any], context_efficiency.FlushResult | None]:
+    """Persist one process buffer and project its durable wave checkpoint."""
+
+    root = handler.root
+    canonical_wave = wave_id
+    try:
+        wave_md = _find_wave_md(root, wave_id)
+        if wave_md is None:
+            return (
+                {"persistence": "failed", "projection": "wave_not_found"},
+                None,
+            )
+        canonical_wave = wave_md.parent.name
+        floor = _wave_checkpoint_floor(root, canonical_wave)
+        context_efficiency.reconcile_checkpoint_authority(
+            root, canonical_wave, floor
+        )
+        flushed = handler.telemetry.flush(
+            root,
+            transfer_general_to=canonical_wave if transfer_general else None,
+            checkpoint_floors=None,
+        )
+        if not flushed.success:
+            return (
+                {
+                    "persistence": "failed",
+                    "projection": "pending",
+                    "error": flushed.error,
+                },
+                flushed,
+            )
+        with review_event_write_lock(root):
+            # Re-read both authorities under the shared writer lock. A second
+            # process may have flushed a newer generation after this process's
+            # transaction committed but before it reached projection.
+            snapshot = context_efficiency.read_wave_snapshot(
+                root, canonical_wave
+            )
+            published = dict(snapshot)
+            published["pending"] = False
+            current = wave_md.read_text(encoding="utf-8")
+            updated = context_efficiency.replace_checkpoint_block(
+                current, published
+            )
+            if updated != current:
+                _atomic_replace_text(
+                    wave_md, updated, "context-efficiency-projection"
+                )
+            marked = context_efficiency.mark_checkpoint_published(
+                root,
+                canonical_wave,
+                published,
+                expected_generation=int(snapshot.get("generation", 0)),
+            )
+        return (
+            {
+                "persistence": "durable",
+                "projection": "published" if marked else "pending",
+                "credited_invocations": sorted(
+                    f"{wave}:{invocation_id}"
+                    for wave, invocation_id in flushed.credited_keys
+                ),
+                "duplicate_invocations": sorted(
+                    f"{wave}:{invocation_id}"
+                    for wave, invocation_id in flushed.duplicate_keys
+                ),
+            },
+            flushed,
+        )
+    except Exception as exc:
+        return (
+            {
+                "persistence": "failed",
+                "projection": "pending",
+                "error": f"{type(exc).__name__}: {exc}",
+                "wave_id": canonical_wave,
+            },
+            None,
+        )
+
+
+def project_pending_context_efficiency(
+    handler: "ImplHandler",
+) -> dict[str, Any]:
+    """Project every pending durable wave generation before reload/upgrade."""
+
+    pending_state = context_efficiency.pending_wave_ids(handler.root)
+    if not pending_state.get("ok"):
+        return {
+            "ok": False,
+            "projected": [],
+            "failed_wave": None,
+            "detail": {
+                "persistence": "failed",
+                "projection": "unavailable",
+                "error": pending_state.get("error"),
+                "authority_status": pending_state.get("status"),
+            },
+        }
+    pending = list(pending_state.get("pending", []))
+    projected: list[str] = []
+    for wave_id in pending:
+        result, _flushed = _flush_context_efficiency(handler, wave_id)
+        if result.get("projection") != "published":
+            return {
+                "ok": False,
+                "projected": projected,
+                "failed_wave": wave_id,
+                "detail": result,
+            }
+        projected.append(wave_id)
+    return {"ok": True, "projected": projected}
+
+
+def _context_efficiency_state(
+    handler: "ImplHandler", wave_ids: Iterable[str]
+) -> dict[str, Any]:
+    """Read-only durable + current-process overlay; never creates the store."""
+
+    canonical_waves = sorted({wave for wave in wave_ids if wave})
+    health = context_efficiency.read_store_health(handler.root)
+    if health["status"] == "failed":
+        durable = {
+            wave_id: _wave_checkpoint_floor(handler.root, wave_id)
+            for wave_id in canonical_waves
+        }
+        durable_general = {
+            "calls": 0,
+            "request_debit": 0,
+            "response_debit": 0,
+            "source_credit": 0,
+            "estimated_tokens_saved": 0,
+        }
+        durable_source = "published_checkpoint_floor"
+        durable_general_available = False
+    else:
+        durable = {
+            wave_id: context_efficiency.read_wave_snapshot(
+                handler.root, wave_id
+            )
+            for wave_id in canonical_waves
+        }
+        durable_general = context_efficiency.read_general_totals(handler.root)
+        durable_source = (
+            "sidecar"
+            if health["status"] in {"healthy", "accounting_gap"}
+            else "empty_store"
+        )
+        durable_general_available = True
+    producer_id: str | None = None
+    try:
+        buffered = handler.telemetry.buffered_snapshot()
+        producer_id = buffered.pop("producer_id", None)
+    except Exception:
+        buffered = {
+            "focus": None,
+            "retrieval": {},
+            "workflow_credit_intents": [],
+            "general_note": context_efficiency.GENERAL_ASSOCIATION_NOTE,
+            "available": False,
+            "persistence": "failed",
+        }
+    if health["status"] in {"healthy", "accounting_gap"}:
+        durable_general = context_efficiency.read_general_totals(
+            handler.root, producer_id
+        )
+    return {
+        "durable_waves": durable,
+        "current_process": buffered,
+        "durable_general": durable_general,
+        "durable_source": durable_source,
+        "durable_general_available": durable_general_available,
+        "persistence_health": health,
+        "visibility": (
+            "SQLite is the live write-through authority. Process focus and "
+            "producer-scoped general attribution remain isolated; wave.md is "
+            "the last published checkpoint. Accounting gaps suppress a "
+            "positive headline."
+        ),
+    }
+
+
+def _implementation_review_complete(response: dict[str, Any]) -> bool:
+    """Return whether an implementation review reached its public milestone."""
+
+    if response.get("status") != "ok":
+        return False
+    data = response.get("data")
+    if not isinstance(data, dict) or data.get("phase") != "implementation":
+        return False
+    if data.get("lint_passed") is not True:
+        return False
+    lane_results = data.get("lane_results")
+    council_results = data.get("council_results")
+    return (
+        isinstance(lane_results, list)
+        and isinstance(council_results, list)
+        and all(
+            isinstance(row, dict) and row.get("recorded_signoff") is True
+            for row in lane_results
+        )
+        and all(
+            isinstance(row, dict) and row.get("recorded_signoff") is True
+            for row in council_results
+        )
+    )
+
+
+def wave_context_efficiency_attach_evaluation_response(
+    root: Path,
+    wave_id: str,
+    phase_id: str,
+    *,
+    mode: str,
+    report_path: str = "",
+    applicability: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Register or attach one phase-scoped paired evaluation."""
+
+    mode_s = str(mode or "").strip().lower()
+    try:
+        if mode_s == "register":
+            result = context_efficiency.attach_evaluation(
+                root,
+                wave_id,
+                phase_id,
+                mode=mode_s,
+                applicability=applicability,
+            )
+        elif mode_s in {"attach", "replace"}:
+            candidate = Path(report_path)
+            if not candidate.is_absolute():
+                candidate = root / candidate
+            resolved_root = root.resolve(strict=True)
+            report_file = candidate.resolve(strict=True)
+            if (
+                not report_file.is_relative_to(resolved_root)
+                or not report_file.is_file()
+            ):
+                raise ValueError("report_path must be a contained file")
+            payload = json.loads(report_file.read_text(encoding="utf-8"))
+            scorer = _load_script("score_context_efficiency_pairs")
+            report = scorer.score_pairs(payload)
+            result = context_efficiency.attach_evaluation(
+                root,
+                wave_id,
+                phase_id,
+                mode=mode_s,
+                report=report,
+            )
+            result["scorer"] = {
+                "qualifying_pairs": int(report["qualifying_pairs"]),
+                "quality_gate_passed": bool(report["quality_gate_passed"]),
+                "matched_pair_residual": int(report["matched_pair_residual"]),
+            }
+        elif mode_s == "revoke":
+            result = context_efficiency.attach_evaluation(
+                root, wave_id, phase_id, mode=mode_s
+            )
+        else:
+            raise ValueError("mode must be register, attach, replace, or revoke")
+        return _response(
+            "ok",
+            result,
+            next_tools=["wave_current"],
+            usage=(
+                "wave_context_efficiency_attach_evaluation("
+                f"wave_id={wave_id!r}, phase_id={phase_id!r}, mode={mode_s!r})"
+            ),
+        )
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        return _response(
+            "error",
+            {
+                "failed": True,
+                "stage": "context_efficiency_evaluation",
+                "error": f"{type(exc).__name__}: {exc}",
+            },
+            diagnostics=[
+                {
+                    "code": "context_efficiency_evaluation_invalid",
+                    "message": str(exc),
+                }
+            ],
+            usage=(
+                "Register applicability before running pairs, then attach a "
+                "contained context-efficiency pair artifact."
+            ),
+        )
+
+
+def _lifecycle_milestone_completed(
+    tool_name: str,
+    response: dict[str, Any],
+    *,
+    mutating: bool,
+) -> bool:
+    """Return whether a mutating lifecycle call completed new milestone work."""
+
+    if not mutating or response.get("status") != "ok":
+        return False
+    data = response.get("data")
+    if not isinstance(data, dict):
+        return False
+    if tool_name == "wave_create_wave":
+        return data.get("created") is True
+    if tool_name == "wave_prepare":
+        mode = str(data.get("mode", "")).strip().lower()
+        if mode == "ready":
+            return data.get("readied") is True
+        return data.get("transitioned_to_active") is True
+    if tool_name == "wave_implement":
+        return data.get("transitioned_to_implementing") is True
+    if tool_name == "wave_close":
+        return data.get("transitioned_to_closed") is True
+    return False
+
+
+def _lifecycle_context_result(
+    handler: "ImplHandler",
+    tool_name: str,
+    wave_id: str,
+    response: dict[str, Any],
+    *,
+    focus_stage: str | None = None,
+    credit: bool | None = None,
+    flush: bool = False,
+    transfer_general: bool = False,
+    request_arguments: Any = None,
+) -> dict[str, Any]:
+    """Apply focus, proxy, flush, and projection after a successful core call."""
+
+    core_succeeded = response.get("status") in {"ok", "dry_run"}
+    try:
+        wave_md = _find_wave_md(handler.root, wave_id)
+    except ValueError:
+        wave_md = None
+    if wave_md is not None:
+        wave_id = wave_md.parent.name
+    if credit is None:
+        credit = flush
+    response_data = response.get("data")
+    reached_review = (
+        tool_name == "wave_review"
+        and isinstance(response_data, dict)
+        and isinstance(response_data.get("wave_id"), str)
+        and isinstance(response_data.get("lane_results"), list)
+        and (response_data.get("phase") in {"prepare", "implementation"})
+    )
+    if (core_succeeded or reached_review) and focus_stage is not None:
+        try:
+            handler.telemetry.set_focus(
+                wave_id, focus_stage, new_phase=bool(credit)
+            )
+        except Exception:
+            # Telemetry is observational. A wedged in-process buffer must
+            # never change the already-successful lifecycle result.
+            pass
+    response = _record_workflow_context(
+        handler,
+        tool_name,
+        wave_id,
+        response,
+        request_arguments=request_arguments,
+        milestone_completed=bool(credit),
+    )
+    if response.get("status") == "error":
+        return response
+    if not flush:
+        return response
+    projection, flushed = _flush_context_efficiency(
+        handler,
+        wave_id,
+        transfer_general=transfer_general,
+    )
+    data = _context_data(response)
+    data["context_efficiency_persistence"] = projection
+    if flushed is not None and isinstance(
+        data.get("workflow_instruction_proxy"), dict
+    ):
+        data["workflow_instruction_proxy"] = (
+            context_efficiency.workflow_proxy_after_flush(
+                data["workflow_instruction_proxy"],
+                wave_id,
+                flushed,
+            )
+        )
+    elif isinstance(data.get("workflow_instruction_proxy"), dict):
+        data["workflow_instruction_proxy"]["persistence"] = "failed"
+        data["workflow_instruction_proxy"]["credited"] = False
+    return response
+
 
 def set_server_runner_version(v: str) -> None:
     global _runner_version
@@ -19816,6 +20678,7 @@ class ImplHandler:
         self.root = root.resolve()
         self.index = WaveIndex(self.root)
         self.cache = McpRepoCache(self.root, index=self.index)
+        self.telemetry = context_efficiency.ProcessTelemetry(self.root)
         # Wave 1p5xu: in-session index-staleness monitor. Fail-safe + daemon;
         # never blocks __init__/close, swallows all errors, config-gated.
         self._monitor_stop: Any | None = None
@@ -19932,6 +20795,12 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
     # schema parameter is captured and rejected via _ensure_no_extra_args rather
     # than causing an unexpected-argument error at the Python call boundary.
     _READONLY_TOOL = {"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False}
+    _OBSERVATIONAL_TOOL = {
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": False,
+        "openWorldHint": False,
+    }
     _MUTATING_TOOL = {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False}
     _DESTRUCTIVE_TOOL = {"readOnlyHint": False, "destructiveHint": True, "idempotentHint": False, "openWorldHint": False}
 
@@ -19974,7 +20843,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             return bad
         return wave_gpu_doctor_response(get_handler().root)
 
-    @mcp.tool(annotations=_READONLY_TOOL)
+    @mcp.tool(annotations=_OBSERVATIONAL_TOOL)
     def docs_search(
         query: str,
         kind: Literal["", "doc", "seed", "architecture", "prompt", "doc-summary"] = "",
@@ -20030,9 +20899,20 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         # token, both endpoints None) — discards the results.
         if _epoch_state(get_handler().root) != _tok:
             return _index_rebuilding_response("docs_search", {"query": query})
-        return result
+        return _record_retrieval_context(
+            get_handler(),
+            "docs_search",
+            result,
+            indexed_epoch_stable=bool(_tok and _tok[1] == "complete"),
+            request_arguments={
+                "query": query,
+                "kind": kind,
+                "tags": tags,
+                "limit": limit,
+            },
+        )
 
-    @mcp.tool(annotations=_READONLY_TOOL)
+    @mcp.tool(annotations=_OBSERVATIONAL_TOOL)
     def code_search(query: str, language: str = "", kind: str = "", max_per_file: int = 0, tags: list = [], limit: int = 7, graph: bool = True, graph_limit: int = 5, layer: str = "project", **kwargs: Any) -> dict[str, Any]:
         """Semantic search over indexed source code chunks. Requires a built code index (wave_index_build content='code').
 
@@ -20108,7 +20988,23 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         # not just the pre-augmentation half.
         if _epoch_state(get_handler().root) != _tok:
             return _index_rebuilding_response("code_search", {"query": query})
-        return _inject_timing(result, t_start, "code_search")
+        return _record_retrieval_context(
+            get_handler(),
+            "code_search",
+            _inject_timing(result, t_start, "code_search"),
+            indexed_epoch_stable=True,
+            request_arguments={
+                "query": query,
+                "language": language,
+                "kind": kind,
+                "max_per_file": max_per_file,
+                "tags": tags,
+                "limit": limit,
+                "graph": graph,
+                "graph_limit": graph_limit,
+                "layer": layer,
+            },
+        )
 
     @mcp.tool(annotations=_READONLY_TOOL)
     def seed_get(name: str, **kwargs: Any) -> dict[str, Any]:
@@ -20134,7 +21030,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             return _index_rebuilding_response("seed_get", {"name": name})
         return result
 
-    @mcp.tool(annotations=_READONLY_TOOL)
+    @mcp.tool(annotations=_OBSERVATIONAL_TOOL)
     def code_dependencies(path: str, **kwargs: Any) -> dict[str, Any]:
         """Return the list of imported modules/files for a repo-relative source file, parsed on demand.
 
@@ -20148,7 +21044,17 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         if bad is not None:
             return bad
         t_start = time.monotonic()
-        return _inject_timing(code_dependencies_response(get_handler().root, path), t_start, "code_dependencies")
+        result = _inject_timing(
+            code_dependencies_response(get_handler().root, path),
+            t_start,
+            "code_dependencies",
+        )
+        return _record_retrieval_context(
+            get_handler(),
+            "code_dependencies",
+            result,
+            request_arguments={"path": path},
+        )
 
     @mcp.tool(annotations=_READONLY_TOOL)
     def code_hover(path: str, line: int, **kwargs: Any) -> dict[str, Any]:
@@ -20174,7 +21080,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         t_start = time.monotonic()
         return _inject_timing(code_hover_response(get_handler().root, path, line), t_start, "code_hover")
 
-    @mcp.tool(annotations=_READONLY_TOOL)
+    @mcp.tool(annotations=_OBSERVATIONAL_TOOL)
     def code_impact(
         path: str = "",
         max_results: int = 50,
@@ -20258,7 +21164,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         if bad is not None:
             return bad
         t_start = time.monotonic()
-        return _inject_timing(code_impact_response(
+        result = _inject_timing(code_impact_response(
             get_handler().root,
             path,
             max_results,
@@ -20268,6 +21174,20 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             relations=relations,
             include_tests=include_tests,
         ), t_start, "code_impact")
+        return _record_retrieval_context(
+            get_handler(),
+            "code_impact",
+            result,
+            request_arguments={
+                "path": path,
+                "max_results": max_results,
+                "symbol": symbol,
+                "max_hops": max_hops,
+                "layer": layer,
+                "relations": relations,
+                "include_tests": include_tests,
+            },
+        )
 
     @mcp.tool(annotations=_READONLY_TOOL)
     def code_risk_score(
@@ -20337,7 +21257,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             include_tests=include_tests,
         ), t_start, "code_risk_score")
 
-    @mcp.tool(annotations=_READONLY_TOOL)
+    @mcp.tool(annotations=_OBSERVATIONAL_TOOL)
     def code_callgraph(
         symbol: str,
         depth: int = 1,
@@ -20375,7 +21295,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         if bad is not None:
             return bad
         t_start = time.monotonic()
-        return _inject_timing(code_callgraph_response(
+        result = _inject_timing(code_callgraph_response(
             get_handler().root,
             symbol,
             depth=depth,
@@ -20383,6 +21303,18 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             layer=layer,
             include_tests=include_tests,
         ), t_start, "code_callgraph")
+        return _record_retrieval_context(
+            get_handler(),
+            "code_callgraph",
+            result,
+            request_arguments={
+                "symbol": symbol,
+                "depth": depth,
+                "direction": direction,
+                "layer": layer,
+                "include_tests": include_tests,
+            },
+        )
 
     @mcp.tool(annotations=_READONLY_TOOL)
     def wave_graph_report(
@@ -20523,7 +21455,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             collapse_package_to_directory=collapse_package_to_directory,
         ), t_start, "wave_graph_report")
 
-    @mcp.tool(annotations=_READONLY_TOOL)
+    @mcp.tool(annotations=_OBSERVATIONAL_TOOL)
     def code_ask(question: str, rerank: str = "agent", **kwargs: Any) -> dict[str, Any]:
         """Ask a natural-language question about the codebase and receive a grounded, cited answer.
 
@@ -20627,7 +21559,13 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         result = code_ask_response(get_handler().index, get_handler().root, question, rerank=rerank, epoch_state=_tok)
         if _epoch_state(get_handler().root) != _tok:
             return _index_rebuilding_response("code_ask", {"question": question})
-        return result
+        return _record_retrieval_context(
+            get_handler(),
+            "code_ask",
+            result,
+            indexed_epoch_stable=True,
+            request_arguments={"question": question, "rerank": rerank},
+        )
 
     # --- Wave inspection ---
 
@@ -20641,7 +21579,18 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         bad = _ensure_no_extra_args("wave_current", kwargs)
         if bad is not None:
             return bad
-        return wave_current_response(get_handler().root, get_handler().cache)
+        handler = get_handler()
+        result = wave_current_response(handler.root, handler.cache)
+        waves = _context_data(result).get("waves", [])
+        wave_ids = [
+            str(wave.get("wave_id", ""))
+            for wave in waves
+            if isinstance(wave, dict)
+        ]
+        _context_data(result)["context_efficiency"] = (
+            _context_efficiency_state(handler, wave_ids)
+        )
+        return result
 
     @mcp.tool(annotations=_READONLY_TOOL)
     def wave_list_waves(limit: int = 50, **kwargs: Any) -> dict[str, Any]:
@@ -20814,7 +21763,29 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         bad = _ensure_no_extra_args("wave_create_wave", kwargs)
         if bad is not None:
             return bad
-        return wave_create_wave_response(get_handler().root, slug, mode=mode, cache=get_handler().cache)
+        handler = get_handler()
+        mutating = (mode or "").strip().lower() in {"create", "apply"}
+        lock = review_event_write_lock(handler.root) if mutating else contextlib.nullcontext()
+        with lock:
+            result = wave_create_wave_response(
+                handler.root, slug, mode=mode, cache=handler.cache
+            )
+            canonical = str(_context_data(result).get("wave_id", ""))
+            if not canonical:
+                return result
+            return _lifecycle_context_result(
+                handler,
+                "wave_create_wave",
+                canonical,
+                result,
+                focus_stage="plan",
+                credit=_lifecycle_milestone_completed(
+                    "wave_create_wave", result, mutating=mutating
+                ),
+                flush=mutating,
+                transfer_general=mutating,
+                request_arguments={"slug": slug, "mode": mode},
+            )
 
     @mcp.tool(annotations=_MUTATING_TOOL)
     def wave_add_change(wave_id: str, change_id: str, mode: str = "dry_run", **kwargs: Any) -> dict[str, Any]:
@@ -20828,7 +21799,17 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         bad = _ensure_no_extra_args("wave_add_change", kwargs)
         if bad is not None:
             return bad
-        return wave_add_change_response(get_handler().root, wave_id, change_id, mode=mode, cache=get_handler().cache)
+        handler = get_handler()
+        mutating = (mode or "").strip().lower() in {"create", "apply"}
+        lock = review_event_write_lock(handler.root) if mutating else contextlib.nullcontext()
+        with lock:
+            return wave_add_change_response(
+                handler.root,
+                wave_id,
+                change_id,
+                mode=mode,
+                cache=handler.cache,
+            )
 
     @mcp.tool(annotations=_MUTATING_TOOL)
     def wave_remove_change(wave_id: str, change_id: str, mode: str = "dry_run", **kwargs: Any) -> dict[str, Any]:
@@ -20842,7 +21823,17 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         bad = _ensure_no_extra_args("wave_remove_change", kwargs)
         if bad is not None:
             return bad
-        return wave_remove_change_response(get_handler().root, wave_id, change_id, mode=mode, cache=get_handler().cache)
+        handler = get_handler()
+        mutating = (mode or "").strip().lower() in {"create", "apply"}
+        lock = review_event_write_lock(handler.root) if mutating else contextlib.nullcontext()
+        with lock:
+            return wave_remove_change_response(
+                handler.root,
+                wave_id,
+                change_id,
+                mode=mode,
+                cache=handler.cache,
+            )
 
     @mcp.tool(annotations=_MUTATING_TOOL)
     def wave_prepare(wave_id: str, mode: str = "dry_run", **kwargs: Any) -> dict[str, Any]:
@@ -20868,7 +21859,28 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         bad = _ensure_no_extra_args("wave_prepare", kwargs)
         if bad is not None:
             return bad
-        return wave_prepare_response(get_handler().root, wave_id, mode=mode, cache=get_handler().cache)
+        handler = get_handler()
+        mode_s = (mode or "").strip().lower()
+        mutating = mode_s in {"ready", "create", "apply"}
+        lock = review_event_write_lock(handler.root) if mutating else contextlib.nullcontext()
+        with lock:
+            result = wave_prepare_response(
+                handler.root, wave_id, mode=mode, cache=handler.cache
+            )
+            canonical = str(_context_data(result).get("wave_id") or wave_id)
+            return _lifecycle_context_result(
+                handler,
+                "wave_prepare",
+                canonical,
+                result,
+                focus_stage="prepare",
+                credit=_lifecycle_milestone_completed(
+                    "wave_prepare", result, mutating=mutating
+                ),
+                flush=mutating,
+                transfer_general=mutating,
+                request_arguments={"wave_id": wave_id, "mode": mode},
+            )
 
     @mcp.tool(annotations=_MUTATING_TOOL)
     def wave_pause(wave_id: str, mode: str = "dry_run", **kwargs: Any) -> dict[str, Any]:
@@ -20884,9 +21896,23 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         bad = _ensure_no_extra_args("wave_pause", kwargs)
         if bad is not None:
             return bad
-        return wave_pause_response(get_handler().root, wave_id, mode=mode, cache=get_handler().cache)
+        handler = get_handler()
+        mutating = (mode or "").strip().lower() in {"create", "apply"}
+        lock = review_event_write_lock(handler.root) if mutating else contextlib.nullcontext()
+        with lock:
+            result = wave_pause_response(
+                handler.root, wave_id, mode=mode, cache=handler.cache
+            )
+            if mutating and result.get("status") == "ok":
+                try:
+                    handler.telemetry.pause_focus()
+                except Exception:
+                    pass
+                projection, _ = _flush_context_efficiency(handler, wave_id)
+                _context_data(result)["context_efficiency_persistence"] = projection
+            return result
 
-    @mcp.tool(annotations=_READONLY_TOOL)
+    @mcp.tool(annotations=_OBSERVATIONAL_TOOL)
     def wave_review(wave_id: str, phase: str = "implementation", **kwargs: Any) -> dict[str, Any]:
         """Run review readiness checks for a wave and return structured lane summary.
 
@@ -20899,7 +21925,53 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         bad = _ensure_no_extra_args("wave_review", kwargs)
         if bad is not None:
             return bad
-        return wave_review_response(get_handler().root, wave_id, phase=phase)
+        handler = get_handler()
+        result = wave_review_response(handler.root, wave_id, phase=phase)
+        canonical = str(_context_data(result).get("wave_id") or wave_id)
+        return _lifecycle_context_result(
+            handler,
+            "wave_review",
+            canonical,
+            result,
+            focus_stage="review",
+            credit=(
+                (phase or "").strip().lower() == "implementation"
+                and _implementation_review_complete(result)
+            ),
+            request_arguments={"wave_id": wave_id, "phase": phase},
+        )
+
+    @mcp.tool(annotations=_MUTATING_TOOL)
+    def wave_context_efficiency_attach_evaluation(
+        wave_id: str,
+        phase_id: str,
+        mode: str,
+        report_path: str = "",
+        applicability: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        """Register or attach quality-gated paired context-efficiency evidence.
+
+        Call ``mode="register"`` with the exact applicability key before either
+        paired run begins. Then call ``mode="attach"`` with a contained JSON
+        artifact; ``replace`` requires its scorer report to name the active
+        evaluation in ``supersedes_evaluation_id``. ``revoke`` removes the
+        active residual while retaining chronology.
+        """
+
+        bad = _ensure_no_extra_args(
+            "wave_context_efficiency_attach_evaluation", kwargs
+        )
+        if bad is not None:
+            return bad
+        return wave_context_efficiency_attach_evaluation_response(
+            get_handler().root,
+            wave_id,
+            phase_id,
+            mode=mode,
+            report_path=report_path,
+            applicability=applicability,
+        )
 
     @mcp.tool(annotations=_MUTATING_TOOL)
     def wave_record_review_evidence(
@@ -20939,10 +22011,17 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         ``integrity_confirmed=true``. ``approval_recheck_lanes`` names only the approvals affected
         by that finding; unrelated lane approvals remain current. Approval events require the exact
         signoff actor, and non-operator approvals require fresh independent context.
-        When a ``reverification`` completes cycle 2 after cycle 1, the same identified operation
-        derives and appends the mandatory ``convergence_checkpoint`` atomically. Its
-        ``frozen_boundary`` is computed from the post-reverification wave-current synthesis heads;
-        callers do not author a separate lightweight checkpoint event.
+        A repair cycle may contain several findings and ordered same-finding reverification
+        progress as fresh independent actors clear their own required lanes. The cycle is
+        aggregate-complete only when every started actionable finding has a terminal current head
+        with no unresolved required lanes: completed reverification, truthful ``not_issue`` /
+        ``dont_do_later`` reclassification with ``not_required`` repair state, or a valid distinct
+        operator waiver. Repeat same-cycle lane reverifications and later aggregate repair cycles
+        while the action matrix yields unresolved findings; historical batch runs remain valid.
+        When the final outstanding ``reverification`` makes cycle 2 aggregate-complete after cycle 1, that
+        identified operation derives and appends the mandatory ``convergence_checkpoint``
+        atomically. Its ``frozen_boundary`` is computed from the post-reverification wave-current
+        synthesis heads; callers do not author a separate lightweight checkpoint event.
 
         Args:
             wave_id: Wave ID or unique prefix.
@@ -21015,7 +22094,26 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         bad = _ensure_no_extra_args("wave_implement", kwargs)
         if bad is not None:
             return bad
-        return wave_implement_response(get_handler().root, wave_id, mode=mode, cache=get_handler().cache)
+        handler = get_handler()
+        mutating = (mode or "").strip().lower() in {"create", "apply"}
+        lock = review_event_write_lock(handler.root) if mutating else contextlib.nullcontext()
+        with lock:
+            result = wave_implement_response(
+                handler.root, wave_id, mode=mode, cache=handler.cache
+            )
+            canonical = str(_context_data(result).get("wave_id") or wave_id)
+            return _lifecycle_context_result(
+                handler,
+                "wave_implement",
+                canonical,
+                result,
+                focus_stage="implement",
+                credit=_lifecycle_milestone_completed(
+                    "wave_implement", result, mutating=mutating
+                ),
+                flush=mutating,
+                request_arguments={"wave_id": wave_id, "mode": mode},
+            )
 
     @mcp.tool(annotations=_MUTATING_TOOL)
     def wave_reopen(wave_id: str, **kwargs: Any) -> dict[str, Any]:
@@ -21030,7 +22128,17 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         bad = _ensure_no_extra_args("wave_reopen", kwargs)
         if bad is not None:
             return bad
-        return wave_reopen_response(get_handler().root, wave_id)
+        handler = get_handler()
+        with review_event_write_lock(handler.root):
+            result = wave_reopen_response(handler.root, wave_id)
+            if result.get("status") == "ok":
+                try:
+                    handler.telemetry.reopen_focus()
+                except Exception:
+                    pass
+                projection, _ = _flush_context_efficiency(handler, wave_id)
+                _context_data(result)["context_efficiency_persistence"] = projection
+            return result
 
     @mcp.tool(annotations=_DESTRUCTIVE_TOOL)
     def wave_close(wave_id: str, mode: str = "dry_run", **kwargs: Any) -> dict[str, Any]:
@@ -21060,7 +22168,26 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         bad = _ensure_no_extra_args("wave_close", kwargs)
         if bad is not None:
             return bad
-        return wave_close_response(get_handler().root, wave_id, mode=mode, cache=get_handler().cache)
+        handler = get_handler()
+        mutating = (mode or "").strip().lower() in {"create", "apply"}
+        lock = review_event_write_lock(handler.root) if mutating else contextlib.nullcontext()
+        with lock:
+            result = wave_close_response(
+                handler.root, wave_id, mode=mode, cache=handler.cache
+            )
+            canonical = str(_context_data(result).get("wave_id") or wave_id)
+            return _lifecycle_context_result(
+                handler,
+                "wave_close",
+                canonical,
+                result,
+                focus_stage="close",
+                credit=_lifecycle_milestone_completed(
+                    "wave_close", result, mutating=mutating
+                ),
+                flush=mutating,
+                request_arguments={"wave_id": wave_id, "mode": mode},
+            )
 
     # --- Change creation ---
 
@@ -21266,7 +22393,23 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         bad = _ensure_no_extra_args("wave_audit", kwargs)
         if bad is not None:
             return bad
-        return wave_audit_response(get_handler().root, wave_id=wave_id, index=get_handler().index, cache=get_handler().cache)
+        handler = get_handler()
+        result = wave_audit_response(
+            handler.root,
+            wave_id=wave_id,
+            index=handler.index,
+            cache=handler.cache,
+        )
+        wave = _context_data(result).get("wave", {})
+        resolved_wave_id = (
+            str(wave.get("wave_id") or wave.get("id") or wave_id)
+            if isinstance(wave, dict)
+            else wave_id
+        )
+        _context_data(result)["context_efficiency"] = (
+            _context_efficiency_state(handler, [resolved_wave_id])
+        )
+        return result
 
     @mcp.tool(annotations=_MUTATING_TOOL)
     def wave_index_build(content: str = "docs", mode: str = "update", layer: str = "project", **kwargs: Any) -> dict[str, Any]:
@@ -21506,7 +22649,26 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         bad = _ensure_no_extra_args("wave_upgrade", kwargs)
         if bad is not None:
             return bad
-        return wave_upgrade_response(get_handler().root, phase=phase)
+        handler = get_handler()
+        projection = project_pending_context_efficiency(handler)
+        if not projection.get("ok"):
+            return _response(
+                "error",
+                {
+                    "failed": True,
+                    "stage": "context_efficiency_projection",
+                    "projection": projection,
+                },
+                diagnostics=[
+                    _diagnostic(
+                        "context_efficiency_projection_failed",
+                        "Upgrade was refused because pending durable context-"
+                        "efficiency telemetry could not be projected.",
+                    )
+                ],
+                usage="Resolve the projection failure, then retry wave_upgrade.",
+            )
+        return wave_upgrade_response(handler.root, phase=phase)
 
     @mcp.tool(annotations=_READONLY_TOOL)
     def wave_upgrade_status(**kwargs: Any) -> dict[str, Any]:
@@ -21614,7 +22776,17 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         bad = _ensure_no_extra_args("wave_garden", kwargs)
         if bad is not None:
             return bad
-        return wave_garden_response(get_handler().root, mode=mode, cache=get_handler().cache)
+        handler = get_handler()
+        mutating = (mode or "").strip().lower() == "run"
+        lock = (
+            review_event_write_lock(handler.root)
+            if mutating
+            else contextlib.nullcontext()
+        )
+        with lock:
+            return wave_garden_response(
+                handler.root, mode=mode, cache=handler.cache
+            )
 
     @mcp.tool(annotations=_MUTATING_TOOL)
     def wave_sync_surfaces(mode: str = "dry_run", **kwargs: Any) -> dict[str, Any]:
@@ -21761,7 +22933,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             return bad
         return code_list_files_response(get_handler().root, glob=glob)
 
-    @mcp.tool(annotations=_READONLY_TOOL)
+    @mcp.tool(annotations=_OBSERVATIONAL_TOOL)
     def code_read(path: str, start_line: Optional[int] = None, end_line: Optional[int] = None, with_line_numbers: bool = True, **kwargs: Any) -> dict[str, Any]:
         """Read a file with rich metadata for read-then-edit workflows.
 
@@ -21773,7 +22945,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
           built-in ``Read`` tool to satisfy Edit's read-first precondition
         - ``mtime`` (ISO-8601 UTC) and ``size_bytes`` for staleness / paging
         - ``edit_governance`` (when applicable): required edit gate + current state
-        - ``marker_regions``: ``<!-- waveframework:* begin --> ... <!-- end -->`` blocks
+        - ``marker_regions``: canonical or legacy ``<!-- wave:* begin/end -->`` blocks
           overlapping the requested range (renderer-owned; do not edit)
         - ``total_lines`` (full reads) OR ``has_more`` (mid-file partial reads)
 
@@ -21796,13 +22968,24 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         bad = _ensure_no_extra_args("code_read", kwargs)
         if bad is not None:
             return bad
-        return code_read_response(
+        result = code_read_response(
             get_handler().root, path,
             start_line=start_line, end_line=end_line,
             with_line_numbers=with_line_numbers,
         )
+        return _record_retrieval_context(
+            get_handler(),
+            "code_read",
+            result,
+            request_arguments={
+                "path": path,
+                "start_line": start_line,
+                "end_line": end_line,
+                "with_line_numbers": with_line_numbers,
+            },
+        )
 
-    @mcp.tool(annotations=_READONLY_TOOL)
+    @mcp.tool(annotations=_OBSERVATIONAL_TOOL)
     def code_keyword(
         query: str = "",
         glob: str = "",
@@ -21854,9 +23037,22 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             result, get_handler().root,
             tool_key="code_keyword", graph=graph, graph_limit=graph_limit, layer=layer,
         )
-        return _inject_timing(result, t_start, "code_keyword")
+        return _record_retrieval_context(
+            get_handler(),
+            "code_keyword",
+            _inject_timing(result, t_start, "code_keyword"),
+            request_arguments={
+                "query": query,
+                "glob": glob,
+                "queries": queries,
+                "limit": limit,
+                "graph": graph,
+                "graph_limit": graph_limit,
+                "layer": layer,
+            },
+        )
 
-    @mcp.tool(annotations=_READONLY_TOOL)
+    @mcp.tool(annotations=_OBSERVATIONAL_TOOL)
     def code_lexical(
         query: str = "",
         table: str = "both",
@@ -21912,9 +23108,20 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         result = code_lexical_response(get_handler().root, query, table=table, kind=kind, limit=limit)
         if _epoch_state(get_handler().root) != _tok:
             return _index_rebuilding_response("code_lexical", {"query": query})
-        return _inject_timing(result, t_start, "code_lexical")
+        return _record_retrieval_context(
+            get_handler(),
+            "code_lexical",
+            _inject_timing(result, t_start, "code_lexical"),
+            indexed_epoch_stable=True,
+            request_arguments={
+                "query": query,
+                "table": table,
+                "kind": kind,
+                "limit": limit,
+            },
+        )
 
-    @mcp.tool(annotations=_READONLY_TOOL)
+    @mcp.tool(annotations=_OBSERVATIONAL_TOOL)
     def code_constants(symbols: list[str], glob: str = "", **kwargs: Any) -> dict[str, Any]:
         """Look up current values of named module-/type-level constants in one call.
 
@@ -21958,9 +23165,19 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         if bad is not None:
             return bad
         t_start = time.monotonic()
-        return _inject_timing(code_constants_response(get_handler().root, symbols, glob=glob), t_start, "code_constants")
+        result = _inject_timing(
+            code_constants_response(get_handler().root, symbols, glob=glob),
+            t_start,
+            "code_constants",
+        )
+        return _record_retrieval_context(
+            get_handler(),
+            "code_constants",
+            result,
+            request_arguments={"symbols": symbols, "glob": glob},
+        )
 
-    @mcp.tool(annotations=_READONLY_TOOL)
+    @mcp.tool(annotations=_OBSERVATIONAL_TOOL)
     def code_pattern(
         pattern: str,
         glob: str = "",
@@ -21999,11 +23216,32 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         if bad is not None:
             return bad
         t_start = time.monotonic()
-        return _inject_timing(code_pattern_response(get_handler().root, pattern, glob=glob,
-                                     limit=limit, ignore_case=ignore_case,
-                                     max_results=max_results), t_start, "code_pattern")
+        result = _inject_timing(
+            code_pattern_response(
+                get_handler().root,
+                pattern,
+                glob=glob,
+                limit=limit,
+                ignore_case=ignore_case,
+                max_results=max_results,
+            ),
+            t_start,
+            "code_pattern",
+        )
+        return _record_retrieval_context(
+            get_handler(),
+            "code_pattern",
+            result,
+            request_arguments={
+                "pattern": pattern,
+                "glob": glob,
+                "limit": limit,
+                "max_results": max_results,
+                "ignore_case": ignore_case,
+            },
+        )
 
-    @mcp.tool(annotations=_READONLY_TOOL)
+    @mcp.tool(annotations=_OBSERVATIONAL_TOOL)
     def code_outline(path: str, **kwargs: Any) -> dict[str, Any]:
         """Return a structural symbol map of a source file.
 
@@ -22033,9 +23271,19 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         if bad is not None:
             return bad
         t_start = time.monotonic()
-        return _inject_timing(code_outline_response(get_handler().root, path), t_start, "code_outline")
+        result = _inject_timing(
+            code_outline_response(get_handler().root, path),
+            t_start,
+            "code_outline",
+        )
+        return _record_retrieval_context(
+            get_handler(),
+            "code_outline",
+            result,
+            request_arguments={"path": path},
+        )
 
-    @mcp.tool(annotations=_READONLY_TOOL)
+    @mcp.tool(annotations=_OBSERVATIONAL_TOOL)
     def code_definition(symbol_or_path_position: str, graph: bool = True, graph_limit: int = 5, layer: str = "project", **kwargs: Any) -> dict[str, Any]:
         """Find definition(s) for a symbol name across supported languages.
 
@@ -22070,9 +23318,19 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             result, get_handler().root,
             tool_key="code_definition", graph=graph, graph_limit=graph_limit, layer=layer,
         )
-        return _inject_timing(result, t_start, "code_definition")
+        return _record_retrieval_context(
+            get_handler(),
+            "code_definition",
+            _inject_timing(result, t_start, "code_definition"),
+            request_arguments={
+                "symbol_or_path_position": symbol_or_path_position,
+                "graph": graph,
+                "graph_limit": graph_limit,
+                "layer": layer,
+            },
+        )
 
-    @mcp.tool(annotations=_READONLY_TOOL)
+    @mcp.tool(annotations=_OBSERVATIONAL_TOOL)
     def code_references(
         symbol_or_path_position: str,
         exclude_tests: bool = False,
@@ -22125,9 +23383,23 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             result, get_handler().root,
             tool_key="code_references", graph=graph, graph_limit=graph_limit, layer=layer,
         )
-        return _inject_timing(result, t_start, "code_references")
+        return _record_retrieval_context(
+            get_handler(),
+            "code_references",
+            _inject_timing(result, t_start, "code_references"),
+            request_arguments={
+                "symbol_or_path_position": symbol_or_path_position,
+                "exclude_tests": exclude_tests,
+                "exclude_docs": exclude_docs,
+                "call_sites_only": call_sites_only,
+                "limit": limit,
+                "graph": graph,
+                "graph_limit": graph_limit,
+                "layer": layer,
+            },
+        )
 
-    @mcp.tool(annotations=_READONLY_TOOL)
+    @mcp.tool(annotations=_OBSERVATIONAL_TOOL)
     def code_callhierarchy(
         symbol: str,
         file: str = "",
@@ -22188,9 +23460,32 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         if bad is not None:
             return bad
         t_start = time.monotonic()
-        return _inject_timing(code_callhierarchy_response(get_handler().root, symbol, file or None, direction, context_depth=context_depth, include_external=include_external), t_start, "code_callhierarchy")
+        result = _inject_timing(
+            code_callhierarchy_response(
+                get_handler().root,
+                symbol,
+                file or None,
+                direction,
+                context_depth=context_depth,
+                include_external=include_external,
+            ),
+            t_start,
+            "code_callhierarchy",
+        )
+        return _record_retrieval_context(
+            get_handler(),
+            "code_callhierarchy",
+            result,
+            request_arguments={
+                "symbol": symbol,
+                "file": file,
+                "direction": direction,
+                "context_depth": context_depth,
+                "include_external": include_external,
+            },
+        )
 
-    @mcp.tool(annotations=_READONLY_TOOL)
+    @mcp.tool(annotations=_OBSERVATIONAL_TOOL)
     def code_graph_path(
         from_symbol: str,
         to_symbol: str,
@@ -22258,7 +23553,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         if bad is not None:
             return bad
         t_start = time.monotonic()
-        return _inject_timing(code_graph_path_response(
+        result = _inject_timing(code_graph_path_response(
             get_handler().root,
             from_symbol,
             to_symbol,
@@ -22268,8 +23563,22 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             direction=direction,
             min_confidence=min_confidence,
         ), t_start, "code_graph_path")
+        return _record_retrieval_context(
+            get_handler(),
+            "code_graph_path",
+            result,
+            request_arguments={
+                "from_symbol": from_symbol,
+                "to_symbol": to_symbol,
+                "relations": relations,
+                "max_hops": max_hops,
+                "layer": layer,
+                "direction": direction,
+                "min_confidence": min_confidence,
+            },
+        )
 
-    @mcp.tool(annotations=_READONLY_TOOL)
+    @mcp.tool(annotations=_OBSERVATIONAL_TOOL)
     def code_graph_community(
         community_id: str = "",
         hub_node_id: str = "",
@@ -22337,7 +23646,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         if bad is not None:
             return bad
         t_start = time.monotonic()
-        return _inject_timing(code_graph_community_response(
+        result = _inject_timing(code_graph_community_response(
             get_handler().root,
             community_id,
             hub_node_id=hub_node_id,
@@ -22346,6 +23655,19 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             offset=offset,
             exclude_generated=exclude_generated,
         ), t_start, "code_graph_community")
+        return _record_retrieval_context(
+            get_handler(),
+            "code_graph_community",
+            result,
+            request_arguments={
+                "community_id": community_id,
+                "hub_node_id": hub_node_id,
+                "layer": layer,
+                "limit": limit,
+                "offset": offset,
+                "exclude_generated": exclude_generated,
+            },
+        )
 
     # --- Read-only MCP Resources ---
     # These expose stable context as MCP resources rather than tool calls.

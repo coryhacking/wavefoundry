@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: accepted
-Last verified: 2026-06-29
+Last verified: 2026-07-17
 
 ## Context
 
@@ -13,7 +13,7 @@ A consumer (**teton**) surfaced a proposal to (1) validate the gate by documente
 Verified against the framework:
 
 - **No validator enforces the gate headings** (or any root `AGENTS.md` content) today — `wave_lint_lib` has zero gate checks and `AGENTS.md` is not even a required file. The contradiction is **latent** (no failure today); the only required-section checks target wave/change/journal/persona docs.
-- The `waveframework:` markers cited as anchor precedent are **all begin/end RENDER-REGION delimiters** for renderer-injected generated content (`auto-guru`, `root-bridge`, `repo-index-modules`) — **not** cross-document addressing anchors; nothing resolves to one by id. "Anchors already exist here" is not accurate for addressing.
+- The `wave:` markers cited as anchor precedent are **all begin/end RENDER-REGION delimiters** for renderer-injected generated content (`auto-guru`, `root-bridge`, `repo-index-modules`) — **not** cross-document addressing anchors; nothing resolves to one by id. "Anchors already exist here" is not accurate for addressing.
 - **Grounding:** wavefoundry is the framework's heaviest user (99 waves, 530 changes) and uses the prescribed two-section form with **zero** consolidation and resolving references — the canonical form is frictionless at scale. **Load-bearing caveat:** that is the *authors* not drifting from their own design, so our corpus cannot measure *consumer* drift. teton — a low-experience consumer (few waves) — drifted to consolidation **early and unprompted**, which is the relevant signal for the typical user base and proves the contradiction is **active** (it already misled a consumer), not merely latent.
 
 ## Decision

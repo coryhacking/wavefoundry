@@ -2794,7 +2794,7 @@ class LanceDriftDetectionTests(unittest.TestCase):
         """AC-5 (1p3jc): renderer-owned marker-region-only files produce no
         semantic chunks, so chunks_emitted remains 0 and drift detection skips
         them on subsequent updates."""
-        source = "<!-- waveframework:agent-surface begin -->\nGenerated\n<!-- end -->\n"
+        source = "<!-- wave:agent-surface begin -->\nGenerated\n<!-- wave:agent-surface end -->\n"
         dc, cc = self.bi._chunks_for_file("src/generated.py", source)
         self.assertEqual(dc, [])
         self.assertEqual(cc, [])

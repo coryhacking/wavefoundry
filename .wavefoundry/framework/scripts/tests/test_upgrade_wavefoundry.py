@@ -6,6 +6,7 @@ import importlib.util
 import io
 import json
 import os
+import shutil
 import sys
 import tempfile
 import unittest
@@ -30,6 +31,15 @@ def _stage_review_protocol_seeds(root: Path) -> Path:
         target_seeds.joinpath(name).write_bytes(
             (SCRIPTS_ROOT.parent / "seeds" / name).read_bytes()
         )
+    shutil.copytree(
+        SCRIPTS_ROOT.parent / "install" / "lifecycle-prompts",
+        root
+        / ".wavefoundry"
+        / "framework"
+        / "install"
+        / "lifecycle-prompts",
+        dirs_exist_ok=True,
+    )
     return target_seeds
 
 
@@ -1502,7 +1512,10 @@ class PublicUpgradeReviewProtocolIntegrationTests(unittest.TestCase):
             ):
                 created = root / rel
                 self.assertTrue(created.is_file(), rel)
-                self.assertIn(ras.REVIEW_PROTOCOL_MARKER_BEGIN, created.read_text(encoding="utf-8"))
+                created_text = created.read_text(encoding="utf-8")
+                self.assertIn(ras.REVIEW_PROTOCOL_MARKER_BEGIN, created_text)
+                self.assertNotIn("waveframework:", created_text)
+                self.assertNotIn("wavefoundry:context-efficiency", created_text)
             self.assertIn(
                 "zero unintended skips",
                 (root / "docs" / "agents" / "qa-reviewer.md").read_text(encoding="utf-8"),
@@ -1533,6 +1546,10 @@ class PublicUpgradeReviewProtocolIntegrationTests(unittest.TestCase):
                 b"# Historical target wave\n\nproject-authored bytes: do not parse or rewrite\n"
             )
             historical_snapshot = historical.read_bytes()
+            historical_events = historical.parent / "events.jsonl"
+            historical_events.write_bytes(b'{"historical":true,"opaque":"keep"}\n')
+            historical_events_snapshot = historical_events.read_bytes()
+            prompt_root = root / "docs" / "prompts"
 
             def assert_carriers_before_index(_root):
                 self.assertEqual(_root, root)
@@ -1569,17 +1586,45 @@ class PublicUpgradeReviewProtocolIntegrationTests(unittest.TestCase):
             ):
                 path = root / rel
                 self.assertTrue(path.is_file(), rel)
-                self.assertIn(ras.REVIEW_PROTOCOL_MARKER_BEGIN, path.read_text(encoding="utf-8"))
+                path_text = path.read_text(encoding="utf-8")
+                self.assertIn(ras.REVIEW_PROTOCOL_MARKER_BEGIN, path_text)
+                self.assertNotIn("waveframework:", path_text)
+                self.assertNotIn("wavefoundry:context-efficiency", path_text)
             _assert_review_protocol_contract(self, root)
             create_text = (
                 root / "docs" / "prompts" / "create-wave.prompt.md"
             ).read_text(encoding="utf-8")
             self.assertIn("review-evidence-source: events.jsonl", create_text)
+            self.assertEqual(
+                create_text.count(ras.CONTEXT_EFFICIENCY_CARRIER_MARKER_BEGIN), 1
+            )
+            self.assertEqual(
+                create_text.count(ras.CONTEXT_EFFICIENCY_CARRIER_MARKER_END), 1
+            )
+            self.assertIn(ras._context_efficiency_carrier_block(), create_text)
             self.assertNotIn("review-evidence-protocol: 1", create_text)
             self.assertNotIn("```jsonl", create_text)
             self.assertEqual(historical.read_bytes(), historical_snapshot)
-            self.assertFalse((historical.parent / "events.jsonl").exists())
-
+            self.assertEqual(historical_events.read_bytes(), historical_events_snapshot)
+            for prompt_name in (
+                "create-wave.prompt.md",
+                "prepare-wave.prompt.md",
+                "implement-wave.prompt.md",
+                "review-wave.prompt.md",
+                "close-wave.prompt.md",
+            ):
+                self.assertTrue(prompt_root.joinpath(prompt_name).is_file())
+                self.assertGreater(
+                    prompt_root.joinpath(prompt_name).stat().st_size,
+                    500,
+                )
+            self.assertIn(
+                ".wavefoundry/logs/",
+                (root / ".gitignore").read_text(encoding="utf-8"),
+            )
+            self.assertFalse(
+                (root / ".wavefoundry" / "logs" / "context-efficiency.sqlite").exists()
+            )
     def test_full_upgrade_extracts_compact_review_authoring_into_target_project(self):
         """A real upgrade extraction replaces the target's old server/protocol modules."""
 
@@ -1597,11 +1642,22 @@ class PublicUpgradeReviewProtocolIntegrationTests(unittest.TestCase):
             historical_snapshot = historical.read_bytes()
             zip_path = root / "wavefoundry-upgrade.zip"
             with zipfile.ZipFile(zip_path, "w") as zf:
-                for name in ("review_evidence.py", "server_impl.py"):
+                for name in (
+                    "review_evidence.py",
+                    "server_impl.py",
+                    "context_efficiency.py",
+                    "score_context_efficiency_pairs.py",
+                ):
                     zf.writestr(
                         f".wavefoundry/framework/scripts/{name}",
                         SCRIPTS_ROOT.joinpath(name).read_text(encoding="utf-8"),
                     )
+                zf.writestr(
+                    ".wavefoundry/framework/evals/context-efficiency-pairs.schema.json",
+                    SCRIPTS_ROOT.parent.joinpath(
+                        "evals", "context-efficiency-pairs.schema.json"
+                    ).read_text(encoding="utf-8"),
+                )
 
             with patch.object(
                 mod,
@@ -1649,6 +1705,23 @@ class PublicUpgradeReviewProtocolIntegrationTests(unittest.TestCase):
             self.assertIn(
                 "EVENTS_FILENAME = \"events.jsonl\"",
                 scripts.joinpath("review_evidence.py").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "class ProcessTelemetry",
+                scripts.joinpath("context_efficiency.py").read_text(
+                    encoding="utf-8"
+                ),
+            )
+            self.assertIn(
+                "def score_pairs",
+                scripts.joinpath(
+                    "score_context_efficiency_pairs.py"
+                ).read_text(encoding="utf-8"),
+            )
+            self.assertTrue(
+                scripts.parent.joinpath(
+                    "evals", "context-efficiency-pairs.schema.json"
+                ).is_file()
             )
             self.assertEqual(historical.read_bytes(), historical_snapshot)
             self.assertFalse((historical.parent / "events.jsonl").exists())

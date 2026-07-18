@@ -2791,12 +2791,12 @@ class SymbolessCodeFileSummaryTests(unittest.TestCase):
     def test_marker_region_only_code_file_emits_zero_chunks(self):
         """AC-5 (1p3jc): generated marker-region-only files are not semantic
         content and still emit zero chunks."""
-        source = "<!-- waveframework:agent-surface begin -->\nGenerated\n<!-- end -->\n"
+        source = "<!-- wave:agent-surface begin -->\nGenerated\n<!-- wave:agent-surface end -->\n"
         self.assertEqual(self.chunker.chunk_file(source, "src/generated.py"), [])
 
     def test_marker_region_only_markdown_file_emits_zero_chunks(self):
         """AC-5 (1p3jc): marker-region-only markdown remains zero-chunk too."""
-        source = "<!-- waveframework:agent-surface begin -->\nGenerated\n<!-- end -->\n"
+        source = "<!-- waveframework:agent-surface begin -->\nGenerated\n<!-- waveframework:agent-surface end -->\n"
         self.assertEqual(self.chunker.chunk_file(source, "docs/generated.md"), [])
 
 

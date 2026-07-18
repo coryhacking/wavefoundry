@@ -1,0 +1,515 @@
+# Wave Record
+
+Owner: Engineering
+Status: closed
+Last verified: 2026-07-17
+review-evidence-source: events.jsonl
+
+wave-id: `1stwj context-efficiency-telemetry`
+Title: Context Efficiency Telemetry
+
+## Objective
+
+Ship enterprise-defensible per-wave, per-stage context-efficiency telemetry with one conservative estimated-token-savings total: phase-unique content/structural source-version gross credits, mapped workflow-prompt gross credits, exact request/response debits, and only a same-key quality-gated paired residual for saved model output and avoided reasoning/tool loops. Fewer tool calls are supporting evidence rather than a multiplier, and lower-quality assisted runs earn no residual. Each eligible call commits one fail-isolated event or durable accounting-gap poison to the host-local authority before returning; if neither persistence path succeeds, it returns `telemetry_persistence_failed`. Lifecycle, reload, and upgrade boundaries project durable generations into conflict-safe `wave.md` checkpoints. Telemetry otherwise does not affect retrieval, lifecycle results, ranking, gates, or approval semantics. Repair the executable-review authoring contradiction exposed by this wave so one truthful repair cycle can contain several findings and progressive lane-scoped reverification without fabricated cycle increments.
+
+## Changes
+
+Change ID: `1stwi-feat per-wave-context-efficiency-telemetry`
+Change Status: `implemented`
+
+Change ID: `1sua7-bug multi-finding-repair-cycle-authoring`
+Change Status: `implemented`
+
+## Participants
+
+- `wave-council` — readiness moderator and synthesis
+- `red-team` — full-depth adversarial primer
+- `architecture-reviewer`, `security-reviewer`, `qa-reviewer`, `reality-checker` — fixed readiness seats
+- `docs-contract-reviewer` — rotating fifth seat (seed/render/install/upgrade carrier propagation)
+- `performance-reviewer` — additional applicable seat (retrieval hot path, SQLite write-through, contention/projection budgets)
+
+Completed At: 2026-07-17
+
+## Wave Summary
+
+Wave `1stwj` (Context Efficiency Telemetry) delivered two changes: Per-wave context-efficiency telemetry (estimated context avoided) and Multi-finding repair-cycle authoring. Notable adjustments during implementation: Per-wave context-efficiency telemetry (estimated context avoided): Operator accepted the plan-review repairs before implementation: explicit focus replaces status inference; one UTF-8 estimator; content-bearing graph eligibility; exactly-once/fail-isolated telemetry; durable checkpoint + disposable sidecar; full install/upgrade propagation; independent-reference verification; exact-navigation coverage expanded with `code_keyword`, `code_pattern`, and `code_constants`. Prior readiness withdrawn pending a new council pass over this contract.; Per-wave context-efficiency telemetry (estimated context avoided): Operator expanded the value surface to deterministic lifecycle tools. Initial wording treated whole-prompt deltas as additive avoided context; the readiness council found that causal claim unprovable because lifecycle prompts still contain agent-owned work.; Per-wave context-efficiency telemetry (estimated context avoided): Required docs-contract seat found seeds 100/110 alone cannot update an existing rendered Create-wave prompt. The renderer and a shared canonical carrier owner are now explicit scope, with preservation/install/upgrade fixtures.
+
+**Changes delivered:**
+
+- **Per-wave context-efficiency telemetry (estimated context avoided)** (`1stwi-feat per-wave-context-efficiency-telemetry`) — 20 ACs completed. Key decisions: Measured per-call delta, bounded to cited files; Whole-file baseline initially limited to content-bearing sources; superseded 2026-07-17 by the exact structural public-field census
+- **Multi-finding repair-cycle authoring** (`1sua7-bug multi-finding-repair-cycle-authoring`) — 9 ACs completed. Key decisions: Keep per-finding tool calls and aggregate them by cycle.; A cycle completes only when every started finding reaches a valid terminal head.
+## Journal Watchpoints
+
+- `server_impl.py` is edited under the `framework_edit_allowed` gate — open before editing, close immediately after.
+- `context_efficiency.py` is the single owner for estimator/store/focus/projection behavior; do not spread telemetry state logic across tool handlers.
+- Watchpoint: telemetry isolation (AC-8) is load-bearing — after stripping telemetry fields, committed-event and durable-poison paths preserve core envelopes and lifecycle/gate/approval behavior; an undurable double failure must instead return `telemetry_persistence_failed`.
+- Watchpoint: only returned content or structural facts authorize source credit. Cross-process durable identity is `(wave, phase_id, opaque source, version)` across both content and structural evidence; hidden graph fan-out never counts, repeated calls do not re-credit, and every request/response cost remains additive.
+- Watchpoint: exactly five lifecycle milestones map to one project-local prompt. Every genuine completed invocation adds one gross prompt credit plus one canonical request and complete-response debit; persistence replay does not. Raw artifact size, uncalibrated reasoning, and call-count multipliers remain zero.
+- Watchpoint: paired evaluation is exact-key and quality-gated. At least five assisted runs must meet or exceed blinded baseline quality componentwise; the minimum residual excludes direct net already credited and remains zero without sufficient comparable evidence.
+- Watchpoint: focus is process-local, while producer-scoped `_general` events are durable. Only the invoking producer transfers at successful create/mutating prepare; another MCP process cannot redirect or capture it.
+- Watchpoint: eligible calls commit one fail-isolated SQLite telemetry transaction or durable poison before returning. `captured`/`persistence` distinguish durable, poisoned, and failed state; lifecycle, reload, and upgrade boundaries project pending generations to `wave.md`.
+- Watchpoint: a write that still fails after bounded retry activates the durable accounting-gap barrier; no positive headline is projected while a request/response debit may be missing.
+- Watchpoint: `wave_review`'s existing annotation drift is repaired in scope: no background refresh and no adoption persistence on the registered read-only path; mutating evidence/lifecycle paths retain persistence.
+- Watchpoint: all touched framework `wave.md` writers share cross-process serialization; telemetry replaces only its marker and becomes pending on conflict/failure rather than overwriting status/evidence/operator edits.
+- Watchpoint: SQLite is the live host-local telemetry authority and `wave.md` is its portable published snapshot; a missing/reset store never reconstructs phase identities or totals from the snapshot. `events.jsonl` remains the sole review-evidence authority.
+- Seeds 100/110 are edited under `seed_edit_allowed`; install/package/upgrade tests must prove historical target waves remain byte-identical.
+- `render_agent_surfaces.py` must consume the canonical carrier from `context_efficiency.py` and update only its owned Create-wave region; do not hand-edit rendered prompts as the source of truth.
+- `1sua7` keeps the compact review-evidence API and append-only ledger stable: exactly one repair start per finding/cycle, multiple lane-scoped reverification progress events, and aggregate cycle/convergence completion.
+
+## Finding Synthesis
+
+<!-- wave:finding-synthesis begin -->
+| Current finding | Disposition | Open block | Repair | Approval recheck |
+| --- | --- | --- | --- | --- |
+| capped-provenance-not-promoted | do_now | no | completed | qa-reviewer, code-reviewer, wave-council-delivery |
+| checkpoint-lint-schema-absent | do_now | no | completed | code-reviewer, qa-reviewer, docs-contract-reviewer, wave-council-delivery |
+| corrupt-sidecar-reported-zero | do_now | no | completed | code-reviewer, architecture-reviewer, qa-reviewer, docs-contract-reviewer, wave-council-delivery |
+| evaluation-register-scope-overwrite | do_now | no | completed | qa-reviewer, docs-contract-reviewer, architecture-reviewer, wave-council-delivery |
+| graph-neighbor-content-inflation | do_now | no | completed | code-reviewer, architecture-reviewer, qa-reviewer, performance-reviewer, wave-council-delivery |
+| incomplete-review-focus-attribution | do_now | no | completed | architecture-reviewer, qa-reviewer, wave-council-delivery |
+| lifecycle-prompt-install-evidence-vacuous | do_now | no | completed | docs-contract-reviewer, qa-reviewer, wave-council-delivery |
+| paired-direct-net-unbound | do_now | no | completed | architecture-reviewer, qa-reviewer, wave-council-delivery |
+| paired-quality-state-contract-gap | do_now | no | completed | qa-reviewer, docs-contract-reviewer, architecture-reviewer, wave-council-delivery |
+| paired-residual-only-stage-omitted | do_now | no | completed | code-reviewer, qa-reviewer, wave-council-delivery |
+| pending-enumeration-fail-open | do_now | no | completed | architecture-reviewer, qa-reviewer, performance-reviewer, wave-council-delivery |
+| pre-release-telemetry-retention | do_now | no | completed | code-reviewer, architecture-reviewer, qa-reviewer, docs-contract-reviewer, wave-council-delivery |
+| premature-lifecycle-credit | do_now | no | completed | code-reviewer, architecture-reviewer, qa-reviewer, docs-contract-reviewer, wave-council-delivery |
+| readiness-approval-retroactively-staled | do_now | no | completed | architecture-reviewer, qa-reviewer, wave-council-delivery |
+| telemetry-precommit-exception-gap | do_now | no | completed | code-reviewer, architecture-reviewer, qa-reviewer, wave-council-delivery |
+| terminal-self-reverification | do_now | no | completed | qa-reviewer, architecture-reviewer, wave-council-delivery |
+| wave-garden-writer-lock-gap | do_now | no | completed | code-reviewer, architecture-reviewer, qa-reviewer, performance-reviewer, docs-contract-reviewer, wave-council-delivery |
+| wave-total-floor-overstatement | do_now | no | completed | architecture-reviewer, qa-reviewer, performance-reviewer, wave-council-delivery |
+
+<details class="wavefoundry-review-evidence">
+<summary>Machine review evidence — 324 records; 90 runs; 18 findings; current: do_now 18, maybe_later 0, dont_do_later 0, not_issue 0</summary>
+</details>
+<!-- wave:finding-synthesis end -->
+
+## Review Checkpoints
+
+- **Delivery repair cycle 3 — 2026-07-17: APPROVED; only operator closure authority remains.** The post-cycle-2 close dry-run found one adjacent protocol defect: the shared approval-chronology validator treated historical `wave-council-readiness` evidence as though it had to postdate delivery repairs. The bounded repair preserves readiness as required, exact-actor, fresh, independent prepare-phase authority while excluding it from delivery-repair staleness; operator approval remains final after every repair, delivery council remains post-affected/full-repair, and specialist approvals remain per-lane. Fresh architecture and QA reviewers replayed the old failure, a 17-case chronology matrix, public close behavior, full-review triggers, and known-bad/non-vacuity controls; both returned PASS. A fresh Wave Council moderator challenged adjacent approval weakening, confirmed all 18 finding heads terminal with no unresolved lane, found no full-review boundary change, and returned APPROVED with max severity none. Canonical verification is 5,744 tests across 52 isolated files, all green; WaveLifecycleMutationTests are 47/47 and review-evidence tests are 79/79. The refreshed executable `wave-council-delivery` approval is recorded; only operator signoff and operator-owned closure remain.
+- **Delivery repair cycle 2 — 2026-07-17: APPROVED; all 17 findings independently reverified.** Ten recorded delivery blockers are repaired: first-shipped-schema reset, pre-commit persistence, typed pending projection, paired direct-net/quality authority, incomplete-review focus, terminal independence, wave-total flooring, cap provenance, and non-vacuous lifecycle install/upgrade coverage. The review-and-repair loop found three adjacent omissions on the current bytes and fixed them in the same open cycle: active paired residuals surface even with no direct telemetry rows; explicit metric-builder failures durably poison or return `telemetry_persistence_failed`; and applicability registration validates the complete caller key before matching its wave/phase/stage to durable authority. Fresh code/architecture, QA/docs/install, protocol-architecture, and registration-architecture reviewers cleared every required lane; the ledger emitted one aggregate cycle-2 convergence checkpoint covering 17 findings. A fresh Wave Council moderator challenged correlated telemetry, paired-evaluation, and repair-protocol failure modes and returned unanimous APPROVED with max severity none and no full-review boundary change. Post-final-repair canonical verification passed 5,742 of 5,743 tests; only the untouched 100K-row indexer timing threshold missed by 5.7 ms under parallel load, then passed 3/3 isolated at 102–108 ms and independently at 116 ms. Focused telemetry/server/review/render/setup/upgrade/package suites are 30/31/79/54/18/302/95 OK; docs lint and `git diff --check` are clean. The executable `wave-council-delivery` approval is recorded; only operator signoff and operator-owned closure remain.
+- **Pre-release compatibility simplification — 2026-07-17: COMPLETE; delivery review pending.** No released target has consumed this telemetry code, so the v1 preservation table/checkpoint payload and migration-only parser/test surface are removed. The current write-through store and checkpoint are schema 1—the first shipped contract—and this repository's earlier experimental telemetry was reset instead of carried into product behavior. Requirement/AC-17, architecture/reference docs, runtime projection, and install/upgrade coverage are narrowed accordingly. Canonical verification is 5,725 tests across 52 isolated files, all green; focused setup 29, upgrade 302, package 94, render 54, context efficiency 21, server telemetry 25, server tools 1,385, and docs lint 807 are green. Delivery approval remains withheld pending independent review.
+- **Unified telemetry implementation checkpoint — 2026-07-17: SUPERSEDED ONLY FOR PRE-RELEASE V1 PRESERVATION; delivery review pending.** The write-through authority, closed source/prompt-credit minus request/response-debit ledger, exact structural census, accounting-gap poison, phase/source/version deduplication, source-cap diagnostics, typed paired-evaluation registration/attachment, frozen store-identity recovery, lifecycle/reload/upgrade projection barriers, canonical `wave:` carrier, and install/package/upgrade distribution are implemented. The prior v1-audit-preservation claim is withdrawn by operator direction before release. Canonical exact-tree evidence before that simplification was 5,728 tests across 52 isolated files, all green; fresh verification follows the narrowed tree. No delivery approval is inferred from implementer-authored evidence.
+- **Unified-savings readiness council — 2026-07-17: PASS after bounded repair.** Fresh red-team/performance and QA/docs-contract rechecks challenged the amended plan through four focused rounds. The final contract closes double-debit and cross-class-credit inflation, uses the exact six-tool structural file census, freezes missing/reset v2 authority by store instance, records every reached handler's interaction debits, fails closed through a durable accounting-gap poison (or `telemetry_persistence_failed` when neither persistence path works), pre-registers immutable wave/phase/stage paired-evaluation applicability, enforces quality parity and globally single-target evaluation IDs, and includes install/package/upgrade plus reload/upgrade projection barriers. Both lanes returned PASS on the current bytes; docs lint and `git diff --check` are clean. This supersedes the prior `wave-council-readiness: withdrawn` for the unified amendment.
+- **Historical unified-savings amendment — 2026-07-17: PLAN REPAIRED AFTER CHANGES REQUESTED; pre-release v1 clause later superseded.** Replace gross per-call accumulation and separate public retrieval/lifecycle totals with one conservative per-stage calculation. Fresh red-team and QA/docs-contract review blocked successive drafts for double-debit algebra, contradictory graph scope, undefined reset recovery, cross-class duplicate credit, an incorrect graph field, unscoped residual transfer, missing pre-run applicability authority, phase/stage ambiguity, failed-write debit loss, and non-executable output/scale boundaries. The durable closed-ledger, structural census, store-identity freeze, paired-evaluation, write-through, and projection decisions remain current. Its v1-preservation clause is superseded by the operator-directed pre-release simplification above because no released target consumed that schema.
+- **Operator-requested marker/projection amendment — 2026-07-17: IMPLEMENTED; focused delivery re-review pending.** Generated marker owners now emit `wave:` and recognize legacy `wavefoundry:`/`waveframework:` regions for validation and in-place migration without bulk-rewriting history. The Context Efficiency projection now reports tool calls and explicitly labeled estimated token savings, plus retrieval measurement coverage or lifecycle proxy basis. The live legacy 1stwj checkpoint migrated successfully through the public lifecycle boundary. The canonical runner reports setup 29, upgrade 302, Context Efficiency 26, and docs lint 807 green. The 5,724-test run had only the untouched load-sensitive 100K-row indexer threshold at 206.5 ms; its exact test passed 3/3 in isolation at 118–139 ms. The prior delivery approval is withdrawn because it predates this amendment.
+- **Operator-requested lifecycle accounting amendment — 2026-07-17: IMPLEMENTED; delivery re-review pending.** The once-per-wave/tool key materially undercounted legitimate repeated prepare/review/repair cycles. Every genuine completed invocation now receives a replay-safe ID; failed-flush retry and same-ID cross-process replay count once, while later cycles accumulate. Existing sidecars gain the event ledger lazily without losing aggregate floors. The live projection uses concise headings, comma formatting, and separate totals. GrapeRoot's compact calls/savings presentation informed the display; its unexposed proprietary savings formula, percentages, and dollar claims are not adopted. Focused tests are 29 + 19 OK; the canonical suite is 5,727/5,727 OK and docs-lint is clean.
+- **Delivery council final — 2026-07-17: PASS; operator signoff pending.** Fresh code/architecture, QA/docs-contract, and red-team/performance reviewers replayed the five telemetry repairs and the grouped-cycle correction on current bytes. All affected lanes passed after two adjacent findings were repaired in the same loop: truthful actionable-to-non-actionable reverification now terminalizes without absorbing checkpoint-only boundary rows, and every direct telemetry focus/buffer operation is fail-isolated from core lifecycle results. The registered writer then recorded 20 lane-scoped cycle-1 reverifications—each actor cleared only its own lane. Final exact-tree verification: 5,710 tests across 52 files, OK; docs-lint and `git diff --check` clean.
+- **Prepare-phase Wave Council [prepare-council] — 2026-07-17: PASS** (moderator: wave-council; primer-depth: standard; seats: red-team, docs-contract-reviewer; rotating-seat: docs-contract-reviewer; seat-agreement: unanimous after repair; max-severity: none; strongest-challenge: the first draft would still strand multi-lane findings, reject valid legacy batch histories, and misstate waiver/carrier semantics; strongest-alternative: add a batch MCP request, rejected because the existing per-finding identity and append-only schema support the truthful aggregate model without a new public contract)
+- **Expanded readiness council — 2026-07-17: PASS.** After `1sua7` was admitted, fresh red-team and docs-contract reviewers first blocked the draft for forbidding required multi-lane reverification, omitting legacy multi-candidate repair histories, conflating operator waiver with completion, naming the wrong protocol carrier, and leaving the wave packet scoped to one change. The repaired plan now preserves one start per finding, progressive exact-lane reassessment, aggregate terminality/convergence, legacy batch validity, distinct waiver semantics, canonical seed/tool/distribution scope, and the expanded two-change objective. Both reviewers independently re-read the current packet and returned PASS; `wave-council-readiness` was re-recorded for this expanded scope before implementation resumes.
+- **Delivery repair re-verification — 2026-07-17: FIVE FINDINGS CLOSED; delivery approval still withheld.** A fresh independent replay closed graph-neighbor inflation, checkpoint-schema lint, corrupt-sidecar reporting, and the gardener writer-lock defect, but found an adjacent AC-12 retry leak: already-implementing, already-active prepare, and already-closed calls could still create lifecycle proxy credit. The bounded repair now gates credit on explicit new-milestone signals (`created`, `transitioned_to_active`, `transitioned_to_implementing`, `transitioned_to_closed`) while leaving focus and pending-buffer flush independent. A second fresh registered-FastMCP replay verified every no-op/true-transition pair plus incomplete/complete review behavior and found no remaining leak. Focused telemetry suite: 16 OK. Post-repair canonical run: 5,696 passed; one unrelated temporary-directory cleanup race failed and its exact test passed 3/3 in isolation. Delivery approval is not inferred from repair verification.
+- **Delivery round-1 repair checkpoint — 2026-07-17: IMPLEMENTED, independent re-verification pending.** Explicit content-bearing extractors exclude graph metadata; runtime and docs lint share strict checkpoint validation; focus is separated from completed-milestone credit; sidecar health is `absent | healthy | failed` with attributed floor fallback; and mutating `wave_garden` shares the project-global writer lock. Focused suites are green; the 5,695-test canonical run had only the untouched parallel-load indexer timing threshold failure, which passed 3/3 in isolation at 0.115–0.123s. Live reload/state smoke is clean. No delivery approval is self-restored.
+- **Delivery council round 1 — 2026-07-17: CHANGES REQUESTED.** Full-depth fresh-context review recorded five reproduced P1 `do_now` defects: graph-only neighbor paths inflate retrieval avoidance; checkpoint marker/schema validation is absent from docs-lint; dry runs and incomplete reviews can receive durable lifecycle credit; an unreadable sidecar is reported as authoritative zero without failed/unknown health; and `wave_garden` rewrites `wave.md` outside the shared writer lock. AC-3/6/7/9/12 and the affected tasks are reopened. Delivery approval is withdrawn pending repair and affected-lane re-verification.
+- **Implementation checkpoint — 2026-07-17: COMPLETE, delivery review pending.** All twelve required ACs and implementation tasks are met. Canonical verification is 5,680 tests across 52 files, OK; docs-lint and `git diff --check` are clean; the reloaded live server exposes the read-only Context Efficiency state without creating the sidecar. No delivery approval is inferred from implementer-authored evidence.
+- **Historical prepare-phase Wave Council [prepare-council] — 2026-07-16: PASS, superseded by the unified-savings amendment.** (moderator: wave-council; primer-depth: full; seats: architecture-reviewer, security-reviewer, qa-reviewer, reality-checker, docs-contract-reviewer, performance-reviewer; rotating-seat: docs-contract-reviewer; seat-agreement: unanimous; max-severity: none; strongest-challenge: repository-global attribution, stale-result/current-size pairing, causal whole-prompt savings, and an unowned rendered carrier could inflate, misattribute, or fail to distribute telemetry unless attribution is process-local, source eligibility is same-version and fail-closed, lifecycle value remains explicitly qualified, and the public renderer owns one canonical carrier)
+- pre-implementation-review: passed (2026-07-16) — highest risks were cross-tool envelope variance, same-version provenance, read-only purity/flush ordering, concurrent wave projection, and renderer/install propagation. The repaired required ACs name each failure oracle; ordered builder sequence is core estimator/buffer/store → server wiring/purity/serialization → renderer/carriers/docs → public-path/concurrency/distribution/performance verification.
+- Thought: begin implementation with a cross-cutting `implementer` coordinator; isolate renderer/carrier work and test-census work where file ownership does not overlap, then integrate through `server_impl.py`.
+- Observe: MCP orientation confirmed `ImplHandler` is the process-state seam, all 17 public registrations are enumerable, `wave_review` has the reproduced write paths, index metadata/epoch seams exist, and `render_agent_surfaces.py` already owns marker-region reconciliation primitives.
+- Historical readiness block (2026-07-16): the superseded plan inferred stages from status, auto-credited unrelated `_general`, mixed estimator units, counted graph fan-out, and overstated sidecar/projection authority. It was blocked pending the full repaired council below.
+- historical readiness seat — red-team: the original 14-tool review verified that `file_meta` carries byte `size`, found the non-existent token-estimator claim, and required a telemetry-invariance test. Its conclusions are retained as chronology but superseded where the amended plan now uses a 17-tool census, same-version authority, AC-8 core-envelope invariance, and shape-only projection lint.
+- historical readiness seat — security-reviewer: the original plan allowed aggregate + cited-path persistence and called the sidecar rebuildable. Its no-content/no-query/no-secret boundary remains, but the amended plan further narrows storage to aggregates/credit/checkpoint metadata and correctly calls the sidecar disposable.
+- plan-review amendment — supersedes the two historical seat summaries where the contract changed: the retrieval census is 17; one UTF-8-byte estimator applies; durable paths are not stored; graph reference-only paths do not count; install/package/upgrade and seed propagation are required; seed-209 independent-reference probes are named in AC-11.
+- historical readiness-repair amendment — the full primer and five seats found grounded reporting-integrity defects and no security vulnerability. Its buffered/mutating-flush and separate-proxy design is superseded by the operator-approved SQLite write-through closed ledger; its process-local focus, source-proof, carrier ownership, writer serialization, and invariance constraints remain applicable.
+- red-team (readiness primer): full-depth primer challenged repository-global attribution, whole-prompt causality, and stale-result/live-size pairing; all three became explicit repaired invariants rather than terminal objections.
+- architecture-reviewer (readiness): APPROVED after the focused repair added actual `wave_review` read-only purity; process-local attribution, same-version authority, logs-domain ownership, and serialized projection map to existing seams.
+- security-reviewer (readiness): APPROVED; security severity none under the grounded local single-operator threat model. Reporting-integrity and privacy boundaries are explicit, aggregate-only, and fail closed.
+- historical qa-reviewer (readiness): APPROVED the superseded buffered contract; the unified amendment requires fresh verification of write-through, v1 preservation, exact source census, closed algebra, and paired evaluation.
+- historical reality-checker (readiness): APPROVED the superseded buffered contract; the process-exit undercount conclusion no longer applies after write-through.
+- historical performance-reviewer (readiness, additional applicable seat): APPROVED the superseded zero-write contract; Requirement 18 now owns the write-through latency budgets.
+- docs-contract-reviewer (readiness, required rotating seat): APPROVED on focused recheck after the propagation gap was repaired in-plan — `context_efficiency.py` owns the canonical carrier; `render_agent_surfaces.py` updates exactly one owned Create-wave region while preserving surrounding prose; public-render/install/upgrade fixtures enforce propagation.
+
+## Review Evidence
+
+- wave-council-readiness: withdrawn 2026-07-17 — the operator-directed unified-savings amendment materially changes durable identity, aggregation, graph eligibility, lifecycle output attribution, checkpoint schema, paired evaluation, and install/upgrade migration; it must be re-readied before implementation.
+- wave-council-delivery: withdrawn 2026-07-17 — prior delivery evidence predates the unified-savings amendment.
+- wave-council-readiness: withdrawn 2026-07-16 — operator-directed plan review materially replaced attribution, estimator, graph eligibility, durability/projection, propagation, tool census, and verification contracts; the amended plan must be re-readied before implementation.
+- product-owner: acknowledged 2026-07-16 — operator directed enterprise-visible evidence of quality plus token/context efficiency, expanded the retrieval census, requested create+prepare association, and required lifecycle-tool efficiency to be represented honestly.
+- operator-signoff: pending operator closure confirmation
+- wave-council-readiness: approved — Full-depth readiness council unanimously approved the repaired plan after independent architecture, security, QA, reality, and performance verification; max severity none.
+- wave-council-readiness: approved — Full-depth readiness council unanimously approved the repaired plan after independent architecture, security, QA, reality, docs-contract, and performance verification; max severity none.
+- code-reviewer: withdrawn — graph-neighbor-content-inflation requires affected-lane re-verification
+- architecture-reviewer: withdrawn — graph-neighbor-content-inflation requires affected-lane re-verification
+- qa-reviewer: withdrawn — graph-neighbor-content-inflation requires affected-lane re-verification
+- performance-reviewer: withdrawn — graph-neighbor-content-inflation requires affected-lane re-verification
+- wave-council-delivery: withdrawn — graph-neighbor-content-inflation requires affected-lane re-verification
+- code-reviewer: withdrawn — checkpoint-lint-schema-absent requires affected-lane re-verification
+- qa-reviewer: withdrawn — checkpoint-lint-schema-absent requires affected-lane re-verification
+- docs-contract-reviewer: withdrawn — checkpoint-lint-schema-absent requires affected-lane re-verification
+- wave-council-delivery: withdrawn — checkpoint-lint-schema-absent requires affected-lane re-verification
+- code-reviewer: withdrawn — premature-lifecycle-credit requires affected-lane re-verification
+- architecture-reviewer: withdrawn — premature-lifecycle-credit requires affected-lane re-verification
+- qa-reviewer: withdrawn — premature-lifecycle-credit requires affected-lane re-verification
+- docs-contract-reviewer: withdrawn — premature-lifecycle-credit requires affected-lane re-verification
+- wave-council-delivery: withdrawn — premature-lifecycle-credit requires affected-lane re-verification
+- code-reviewer: withdrawn — corrupt-sidecar-reported-zero requires affected-lane re-verification
+- architecture-reviewer: withdrawn — corrupt-sidecar-reported-zero requires affected-lane re-verification
+- qa-reviewer: withdrawn — corrupt-sidecar-reported-zero requires affected-lane re-verification
+- docs-contract-reviewer: withdrawn — corrupt-sidecar-reported-zero requires affected-lane re-verification
+- wave-council-delivery: withdrawn — corrupt-sidecar-reported-zero requires affected-lane re-verification
+- code-reviewer: withdrawn — wave-garden-writer-lock-gap requires affected-lane re-verification
+- architecture-reviewer: withdrawn — wave-garden-writer-lock-gap requires affected-lane re-verification
+- qa-reviewer: withdrawn — wave-garden-writer-lock-gap requires affected-lane re-verification
+- performance-reviewer: withdrawn — wave-garden-writer-lock-gap requires affected-lane re-verification
+- docs-contract-reviewer: withdrawn — wave-garden-writer-lock-gap requires affected-lane re-verification
+- wave-council-delivery: withdrawn — wave-garden-writer-lock-gap requires affected-lane re-verification
+- code-reviewer: withdrawn — graph-neighbor-content-inflation requires affected-lane re-verification
+- architecture-reviewer: withdrawn — graph-neighbor-content-inflation requires affected-lane re-verification
+- qa-reviewer: withdrawn — graph-neighbor-content-inflation requires affected-lane re-verification
+- performance-reviewer: withdrawn — graph-neighbor-content-inflation requires affected-lane re-verification
+- wave-council-delivery: withdrawn — graph-neighbor-content-inflation requires affected-lane re-verification
+- wave-council-readiness: approved — Fresh red-team and docs-contract plan reviewers independently rechecked the repaired 1sua7 scope; progressive multi-lane reverification, legacy batch compatibility, distinct waiver semantics, canonical carrier/tool scope, and the expanded two-change wave packet all passed with no remaining blocker.
+- code-reviewer: withdrawn — checkpoint-lint-schema-absent requires affected-lane re-verification
+- qa-reviewer: withdrawn — checkpoint-lint-schema-absent requires affected-lane re-verification
+- docs-contract-reviewer: withdrawn — checkpoint-lint-schema-absent requires affected-lane re-verification
+- wave-council-delivery: withdrawn — checkpoint-lint-schema-absent requires affected-lane re-verification
+- code-reviewer: withdrawn — premature-lifecycle-credit requires affected-lane re-verification
+- architecture-reviewer: withdrawn — premature-lifecycle-credit requires affected-lane re-verification
+- qa-reviewer: withdrawn — premature-lifecycle-credit requires affected-lane re-verification
+- docs-contract-reviewer: withdrawn — premature-lifecycle-credit requires affected-lane re-verification
+- wave-council-delivery: withdrawn — premature-lifecycle-credit requires affected-lane re-verification
+- code-reviewer: withdrawn — corrupt-sidecar-reported-zero requires affected-lane re-verification
+- architecture-reviewer: withdrawn — corrupt-sidecar-reported-zero requires affected-lane re-verification
+- qa-reviewer: withdrawn — corrupt-sidecar-reported-zero requires affected-lane re-verification
+- docs-contract-reviewer: withdrawn — corrupt-sidecar-reported-zero requires affected-lane re-verification
+- wave-council-delivery: withdrawn — corrupt-sidecar-reported-zero requires affected-lane re-verification
+- code-reviewer: withdrawn — wave-garden-writer-lock-gap requires affected-lane re-verification
+- architecture-reviewer: withdrawn — wave-garden-writer-lock-gap requires affected-lane re-verification
+- qa-reviewer: withdrawn — wave-garden-writer-lock-gap requires affected-lane re-verification
+- performance-reviewer: withdrawn — wave-garden-writer-lock-gap requires affected-lane re-verification
+- docs-contract-reviewer: withdrawn — wave-garden-writer-lock-gap requires affected-lane re-verification
+- wave-council-delivery: withdrawn — wave-garden-writer-lock-gap requires affected-lane re-verification
+- code-reviewer: withdrawn — graph-neighbor-content-inflation requires affected-lane re-verification
+- architecture-reviewer: withdrawn — graph-neighbor-content-inflation requires affected-lane re-verification
+- qa-reviewer: withdrawn — graph-neighbor-content-inflation requires affected-lane re-verification
+- performance-reviewer: withdrawn — graph-neighbor-content-inflation requires affected-lane re-verification
+- wave-council-delivery: withdrawn — graph-neighbor-content-inflation requires affected-lane re-verification
+- code-reviewer: withdrawn — graph-neighbor-content-inflation requires affected-lane re-verification
+- architecture-reviewer: withdrawn — graph-neighbor-content-inflation requires affected-lane re-verification
+- qa-reviewer: withdrawn — graph-neighbor-content-inflation requires affected-lane re-verification
+- performance-reviewer: withdrawn — graph-neighbor-content-inflation requires affected-lane re-verification
+- wave-council-delivery: withdrawn — graph-neighbor-content-inflation requires affected-lane re-verification
+- code-reviewer: withdrawn — graph-neighbor-content-inflation requires affected-lane re-verification
+- architecture-reviewer: withdrawn — graph-neighbor-content-inflation requires affected-lane re-verification
+- qa-reviewer: withdrawn — graph-neighbor-content-inflation requires affected-lane re-verification
+- performance-reviewer: withdrawn — graph-neighbor-content-inflation requires affected-lane re-verification
+- wave-council-delivery: withdrawn — graph-neighbor-content-inflation requires affected-lane re-verification
+- code-reviewer: withdrawn — graph-neighbor-content-inflation requires affected-lane re-verification
+- architecture-reviewer: withdrawn — graph-neighbor-content-inflation requires affected-lane re-verification
+- qa-reviewer: withdrawn — graph-neighbor-content-inflation requires affected-lane re-verification
+- performance-reviewer: withdrawn — graph-neighbor-content-inflation requires affected-lane re-verification
+- wave-council-delivery: withdrawn — graph-neighbor-content-inflation requires affected-lane re-verification
+- code-reviewer: withdrawn — checkpoint-lint-schema-absent requires affected-lane re-verification
+- qa-reviewer: withdrawn — checkpoint-lint-schema-absent requires affected-lane re-verification
+- docs-contract-reviewer: withdrawn — checkpoint-lint-schema-absent requires affected-lane re-verification
+- wave-council-delivery: withdrawn — checkpoint-lint-schema-absent requires affected-lane re-verification
+- code-reviewer: withdrawn — checkpoint-lint-schema-absent requires affected-lane re-verification
+- qa-reviewer: withdrawn — checkpoint-lint-schema-absent requires affected-lane re-verification
+- docs-contract-reviewer: withdrawn — checkpoint-lint-schema-absent requires affected-lane re-verification
+- wave-council-delivery: withdrawn — checkpoint-lint-schema-absent requires affected-lane re-verification
+- code-reviewer: withdrawn — checkpoint-lint-schema-absent requires affected-lane re-verification
+- qa-reviewer: withdrawn — checkpoint-lint-schema-absent requires affected-lane re-verification
+- docs-contract-reviewer: withdrawn — checkpoint-lint-schema-absent requires affected-lane re-verification
+- wave-council-delivery: withdrawn — checkpoint-lint-schema-absent requires affected-lane re-verification
+- code-reviewer: withdrawn — premature-lifecycle-credit requires affected-lane re-verification
+- architecture-reviewer: withdrawn — premature-lifecycle-credit requires affected-lane re-verification
+- qa-reviewer: withdrawn — premature-lifecycle-credit requires affected-lane re-verification
+- docs-contract-reviewer: withdrawn — premature-lifecycle-credit requires affected-lane re-verification
+- wave-council-delivery: withdrawn — premature-lifecycle-credit requires affected-lane re-verification
+- code-reviewer: withdrawn — premature-lifecycle-credit requires affected-lane re-verification
+- architecture-reviewer: withdrawn — premature-lifecycle-credit requires affected-lane re-verification
+- qa-reviewer: withdrawn — premature-lifecycle-credit requires affected-lane re-verification
+- docs-contract-reviewer: withdrawn — premature-lifecycle-credit requires affected-lane re-verification
+- wave-council-delivery: withdrawn — premature-lifecycle-credit requires affected-lane re-verification
+- code-reviewer: withdrawn — premature-lifecycle-credit requires affected-lane re-verification
+- architecture-reviewer: withdrawn — premature-lifecycle-credit requires affected-lane re-verification
+- qa-reviewer: withdrawn — premature-lifecycle-credit requires affected-lane re-verification
+- docs-contract-reviewer: withdrawn — premature-lifecycle-credit requires affected-lane re-verification
+- wave-council-delivery: withdrawn — premature-lifecycle-credit requires affected-lane re-verification
+- code-reviewer: withdrawn — premature-lifecycle-credit requires affected-lane re-verification
+- architecture-reviewer: withdrawn — premature-lifecycle-credit requires affected-lane re-verification
+- qa-reviewer: withdrawn — premature-lifecycle-credit requires affected-lane re-verification
+- docs-contract-reviewer: withdrawn — premature-lifecycle-credit requires affected-lane re-verification
+- wave-council-delivery: withdrawn — premature-lifecycle-credit requires affected-lane re-verification
+- code-reviewer: withdrawn — corrupt-sidecar-reported-zero requires affected-lane re-verification
+- architecture-reviewer: withdrawn — corrupt-sidecar-reported-zero requires affected-lane re-verification
+- qa-reviewer: withdrawn — corrupt-sidecar-reported-zero requires affected-lane re-verification
+- docs-contract-reviewer: withdrawn — corrupt-sidecar-reported-zero requires affected-lane re-verification
+- wave-council-delivery: withdrawn — corrupt-sidecar-reported-zero requires affected-lane re-verification
+- code-reviewer: withdrawn — corrupt-sidecar-reported-zero requires affected-lane re-verification
+- architecture-reviewer: withdrawn — corrupt-sidecar-reported-zero requires affected-lane re-verification
+- qa-reviewer: withdrawn — corrupt-sidecar-reported-zero requires affected-lane re-verification
+- docs-contract-reviewer: withdrawn — corrupt-sidecar-reported-zero requires affected-lane re-verification
+- wave-council-delivery: withdrawn — corrupt-sidecar-reported-zero requires affected-lane re-verification
+- code-reviewer: withdrawn — corrupt-sidecar-reported-zero requires affected-lane re-verification
+- architecture-reviewer: withdrawn — corrupt-sidecar-reported-zero requires affected-lane re-verification
+- qa-reviewer: withdrawn — corrupt-sidecar-reported-zero requires affected-lane re-verification
+- docs-contract-reviewer: withdrawn — corrupt-sidecar-reported-zero requires affected-lane re-verification
+- wave-council-delivery: withdrawn — corrupt-sidecar-reported-zero requires affected-lane re-verification
+- code-reviewer: withdrawn — corrupt-sidecar-reported-zero requires affected-lane re-verification
+- architecture-reviewer: withdrawn — corrupt-sidecar-reported-zero requires affected-lane re-verification
+- qa-reviewer: withdrawn — corrupt-sidecar-reported-zero requires affected-lane re-verification
+- docs-contract-reviewer: withdrawn — corrupt-sidecar-reported-zero requires affected-lane re-verification
+- wave-council-delivery: withdrawn — corrupt-sidecar-reported-zero requires affected-lane re-verification
+- code-reviewer: withdrawn — wave-garden-writer-lock-gap requires affected-lane re-verification
+- architecture-reviewer: withdrawn — wave-garden-writer-lock-gap requires affected-lane re-verification
+- qa-reviewer: withdrawn — wave-garden-writer-lock-gap requires affected-lane re-verification
+- performance-reviewer: withdrawn — wave-garden-writer-lock-gap requires affected-lane re-verification
+- docs-contract-reviewer: withdrawn — wave-garden-writer-lock-gap requires affected-lane re-verification
+- wave-council-delivery: withdrawn — wave-garden-writer-lock-gap requires affected-lane re-verification
+- code-reviewer: withdrawn — wave-garden-writer-lock-gap requires affected-lane re-verification
+- architecture-reviewer: withdrawn — wave-garden-writer-lock-gap requires affected-lane re-verification
+- qa-reviewer: withdrawn — wave-garden-writer-lock-gap requires affected-lane re-verification
+- performance-reviewer: withdrawn — wave-garden-writer-lock-gap requires affected-lane re-verification
+- docs-contract-reviewer: withdrawn — wave-garden-writer-lock-gap requires affected-lane re-verification
+- wave-council-delivery: withdrawn — wave-garden-writer-lock-gap requires affected-lane re-verification
+- code-reviewer: withdrawn — wave-garden-writer-lock-gap requires affected-lane re-verification
+- architecture-reviewer: withdrawn — wave-garden-writer-lock-gap requires affected-lane re-verification
+- qa-reviewer: withdrawn — wave-garden-writer-lock-gap requires affected-lane re-verification
+- performance-reviewer: withdrawn — wave-garden-writer-lock-gap requires affected-lane re-verification
+- docs-contract-reviewer: withdrawn — wave-garden-writer-lock-gap requires affected-lane re-verification
+- wave-council-delivery: withdrawn — wave-garden-writer-lock-gap requires affected-lane re-verification
+- code-reviewer: withdrawn — wave-garden-writer-lock-gap requires affected-lane re-verification
+- architecture-reviewer: withdrawn — wave-garden-writer-lock-gap requires affected-lane re-verification
+- qa-reviewer: withdrawn — wave-garden-writer-lock-gap requires affected-lane re-verification
+- performance-reviewer: withdrawn — wave-garden-writer-lock-gap requires affected-lane re-verification
+- docs-contract-reviewer: withdrawn — wave-garden-writer-lock-gap requires affected-lane re-verification
+- wave-council-delivery: withdrawn — wave-garden-writer-lock-gap requires affected-lane re-verification
+- code-reviewer: withdrawn — wave-garden-writer-lock-gap requires affected-lane re-verification
+- architecture-reviewer: withdrawn — wave-garden-writer-lock-gap requires affected-lane re-verification
+- qa-reviewer: withdrawn — wave-garden-writer-lock-gap requires affected-lane re-verification
+- performance-reviewer: withdrawn — wave-garden-writer-lock-gap requires affected-lane re-verification
+- docs-contract-reviewer: withdrawn — wave-garden-writer-lock-gap requires affected-lane re-verification
+- wave-council-delivery: withdrawn — wave-garden-writer-lock-gap requires affected-lane re-verification
+- wave-council-delivery: approved — Fresh code/architecture, QA/docs-contract, and red-team/performance reviewers independently replayed all five telemetry repairs and the grouped-cycle correction on current bytes; all affected lanes passed, the live typed ledger recorded every lane-scoped reverification, and the exact final tree passed 5,710 tests plus docs lint.
+- wave-council-readiness: approved — The final fresh code/architecture, QA/docs-contract, and red-team/performance council re-evaluated the full-boundary garden serialization repair, telemetry invariance, and grouped-cycle contract on current bytes; all seats passed and no readiness contradiction remains.
+- wave-council-delivery: withdrawn — operator-requested marker namespace and Context Efficiency projection amendments postdate the prior delivery approval; focused independent re-verification is required.
+- wave-council-readiness: approved — Fresh red-team/performance and QA/docs-contract reviewers independently rechecked the final unified-savings plan and returned PASS after exact repairs to the closed ledger, source identity, graph census, write-through failure barrier, v1/store-instance freeze, lifecycle debits, paired-evaluation applicability authority, projection barriers, and distribution scope.
+- code-reviewer: withdrawn — pre-release-telemetry-retention requires affected-lane re-verification
+- architecture-reviewer: withdrawn — pre-release-telemetry-retention requires affected-lane re-verification
+- qa-reviewer: withdrawn — pre-release-telemetry-retention requires affected-lane re-verification
+- docs-contract-reviewer: withdrawn — pre-release-telemetry-retention requires affected-lane re-verification
+- wave-council-delivery: withdrawn — pre-release-telemetry-retention requires affected-lane re-verification
+- code-reviewer: withdrawn — telemetry-precommit-exception-gap requires affected-lane re-verification
+- architecture-reviewer: withdrawn — telemetry-precommit-exception-gap requires affected-lane re-verification
+- qa-reviewer: withdrawn — telemetry-precommit-exception-gap requires affected-lane re-verification
+- wave-council-delivery: withdrawn — telemetry-precommit-exception-gap requires affected-lane re-verification
+- architecture-reviewer: withdrawn — pending-enumeration-fail-open requires affected-lane re-verification
+- qa-reviewer: withdrawn — pending-enumeration-fail-open requires affected-lane re-verification
+- performance-reviewer: withdrawn — pending-enumeration-fail-open requires affected-lane re-verification
+- wave-council-delivery: withdrawn — pending-enumeration-fail-open requires affected-lane re-verification
+- architecture-reviewer: withdrawn — paired-direct-net-unbound requires affected-lane re-verification
+- qa-reviewer: withdrawn — paired-direct-net-unbound requires affected-lane re-verification
+- wave-council-delivery: withdrawn — paired-direct-net-unbound requires affected-lane re-verification
+- qa-reviewer: withdrawn — paired-quality-state-contract-gap requires affected-lane re-verification
+- docs-contract-reviewer: withdrawn — paired-quality-state-contract-gap requires affected-lane re-verification
+- architecture-reviewer: withdrawn — paired-quality-state-contract-gap requires affected-lane re-verification
+- wave-council-delivery: withdrawn — paired-quality-state-contract-gap requires affected-lane re-verification
+- qa-reviewer: withdrawn — terminal-self-reverification requires affected-lane re-verification
+- architecture-reviewer: withdrawn — terminal-self-reverification requires affected-lane re-verification
+- wave-council-delivery: withdrawn — terminal-self-reverification requires affected-lane re-verification
+- architecture-reviewer: withdrawn — incomplete-review-focus-attribution requires affected-lane re-verification
+- qa-reviewer: withdrawn — incomplete-review-focus-attribution requires affected-lane re-verification
+- wave-council-delivery: withdrawn — incomplete-review-focus-attribution requires affected-lane re-verification
+- architecture-reviewer: withdrawn — wave-total-floor-overstatement requires affected-lane re-verification
+- qa-reviewer: withdrawn — wave-total-floor-overstatement requires affected-lane re-verification
+- performance-reviewer: withdrawn — wave-total-floor-overstatement requires affected-lane re-verification
+- wave-council-delivery: withdrawn — wave-total-floor-overstatement requires affected-lane re-verification
+- qa-reviewer: withdrawn — capped-provenance-not-promoted requires affected-lane re-verification
+- code-reviewer: withdrawn — capped-provenance-not-promoted requires affected-lane re-verification
+- wave-council-delivery: withdrawn — capped-provenance-not-promoted requires affected-lane re-verification
+- docs-contract-reviewer: withdrawn — lifecycle-prompt-install-evidence-vacuous requires affected-lane re-verification
+- qa-reviewer: withdrawn — lifecycle-prompt-install-evidence-vacuous requires affected-lane re-verification
+- wave-council-delivery: withdrawn — lifecycle-prompt-install-evidence-vacuous requires affected-lane re-verification
+- code-reviewer: withdrawn — pre-release-telemetry-retention requires affected-lane re-verification
+- architecture-reviewer: withdrawn — pre-release-telemetry-retention requires affected-lane re-verification
+- qa-reviewer: withdrawn — pre-release-telemetry-retention requires affected-lane re-verification
+- docs-contract-reviewer: withdrawn — pre-release-telemetry-retention requires affected-lane re-verification
+- wave-council-delivery: withdrawn — pre-release-telemetry-retention requires affected-lane re-verification
+- code-reviewer: withdrawn — telemetry-precommit-exception-gap requires affected-lane re-verification
+- architecture-reviewer: withdrawn — telemetry-precommit-exception-gap requires affected-lane re-verification
+- qa-reviewer: withdrawn — telemetry-precommit-exception-gap requires affected-lane re-verification
+- wave-council-delivery: withdrawn — telemetry-precommit-exception-gap requires affected-lane re-verification
+- architecture-reviewer: withdrawn — pending-enumeration-fail-open requires affected-lane re-verification
+- qa-reviewer: withdrawn — pending-enumeration-fail-open requires affected-lane re-verification
+- performance-reviewer: withdrawn — pending-enumeration-fail-open requires affected-lane re-verification
+- wave-council-delivery: withdrawn — pending-enumeration-fail-open requires affected-lane re-verification
+- architecture-reviewer: withdrawn — paired-direct-net-unbound requires affected-lane re-verification
+- qa-reviewer: withdrawn — paired-direct-net-unbound requires affected-lane re-verification
+- wave-council-delivery: withdrawn — paired-direct-net-unbound requires affected-lane re-verification
+- qa-reviewer: withdrawn — paired-quality-state-contract-gap requires affected-lane re-verification
+- docs-contract-reviewer: withdrawn — paired-quality-state-contract-gap requires affected-lane re-verification
+- architecture-reviewer: withdrawn — paired-quality-state-contract-gap requires affected-lane re-verification
+- wave-council-delivery: withdrawn — paired-quality-state-contract-gap requires affected-lane re-verification
+- qa-reviewer: withdrawn — terminal-self-reverification requires affected-lane re-verification
+- architecture-reviewer: withdrawn — terminal-self-reverification requires affected-lane re-verification
+- wave-council-delivery: withdrawn — terminal-self-reverification requires affected-lane re-verification
+- architecture-reviewer: withdrawn — incomplete-review-focus-attribution requires affected-lane re-verification
+- qa-reviewer: withdrawn — incomplete-review-focus-attribution requires affected-lane re-verification
+- wave-council-delivery: withdrawn — incomplete-review-focus-attribution requires affected-lane re-verification
+- architecture-reviewer: withdrawn — wave-total-floor-overstatement requires affected-lane re-verification
+- qa-reviewer: withdrawn — wave-total-floor-overstatement requires affected-lane re-verification
+- performance-reviewer: withdrawn — wave-total-floor-overstatement requires affected-lane re-verification
+- wave-council-delivery: withdrawn — wave-total-floor-overstatement requires affected-lane re-verification
+- qa-reviewer: withdrawn — capped-provenance-not-promoted requires affected-lane re-verification
+- code-reviewer: withdrawn — capped-provenance-not-promoted requires affected-lane re-verification
+- wave-council-delivery: withdrawn — capped-provenance-not-promoted requires affected-lane re-verification
+- docs-contract-reviewer: withdrawn — lifecycle-prompt-install-evidence-vacuous requires affected-lane re-verification
+- qa-reviewer: withdrawn — lifecycle-prompt-install-evidence-vacuous requires affected-lane re-verification
+- wave-council-delivery: withdrawn — lifecycle-prompt-install-evidence-vacuous requires affected-lane re-verification
+- code-reviewer: withdrawn — paired-residual-only-stage-omitted requires affected-lane re-verification
+- qa-reviewer: withdrawn — paired-residual-only-stage-omitted requires affected-lane re-verification
+- wave-council-delivery: withdrawn — paired-residual-only-stage-omitted requires affected-lane re-verification
+- code-reviewer: withdrawn — paired-residual-only-stage-omitted requires affected-lane re-verification
+- qa-reviewer: withdrawn — paired-residual-only-stage-omitted requires affected-lane re-verification
+- wave-council-delivery: withdrawn — paired-residual-only-stage-omitted requires affected-lane re-verification
+- qa-reviewer: withdrawn — capped-provenance-not-promoted requires affected-lane re-verification
+- code-reviewer: withdrawn — capped-provenance-not-promoted requires affected-lane re-verification
+- wave-council-delivery: withdrawn — capped-provenance-not-promoted requires affected-lane re-verification
+- architecture-reviewer: withdrawn — incomplete-review-focus-attribution requires affected-lane re-verification
+- qa-reviewer: withdrawn — incomplete-review-focus-attribution requires affected-lane re-verification
+- wave-council-delivery: withdrawn — incomplete-review-focus-attribution requires affected-lane re-verification
+- architecture-reviewer: withdrawn — paired-direct-net-unbound requires affected-lane re-verification
+- qa-reviewer: withdrawn — paired-direct-net-unbound requires affected-lane re-verification
+- wave-council-delivery: withdrawn — paired-direct-net-unbound requires affected-lane re-verification
+- qa-reviewer: withdrawn — paired-quality-state-contract-gap requires affected-lane re-verification
+- docs-contract-reviewer: withdrawn — paired-quality-state-contract-gap requires affected-lane re-verification
+- architecture-reviewer: withdrawn — paired-quality-state-contract-gap requires affected-lane re-verification
+- wave-council-delivery: withdrawn — paired-quality-state-contract-gap requires affected-lane re-verification
+- code-reviewer: withdrawn — paired-residual-only-stage-omitted requires affected-lane re-verification
+- qa-reviewer: withdrawn — paired-residual-only-stage-omitted requires affected-lane re-verification
+- wave-council-delivery: withdrawn — paired-residual-only-stage-omitted requires affected-lane re-verification
+- architecture-reviewer: withdrawn — pending-enumeration-fail-open requires affected-lane re-verification
+- qa-reviewer: withdrawn — pending-enumeration-fail-open requires affected-lane re-verification
+- performance-reviewer: withdrawn — pending-enumeration-fail-open requires affected-lane re-verification
+- wave-council-delivery: withdrawn — pending-enumeration-fail-open requires affected-lane re-verification
+- code-reviewer: withdrawn — pre-release-telemetry-retention requires affected-lane re-verification
+- architecture-reviewer: withdrawn — pre-release-telemetry-retention requires affected-lane re-verification
+- qa-reviewer: withdrawn — pre-release-telemetry-retention requires affected-lane re-verification
+- docs-contract-reviewer: withdrawn — pre-release-telemetry-retention requires affected-lane re-verification
+- wave-council-delivery: withdrawn — pre-release-telemetry-retention requires affected-lane re-verification
+- code-reviewer: withdrawn — pre-release-telemetry-retention requires affected-lane re-verification
+- architecture-reviewer: withdrawn — pre-release-telemetry-retention requires affected-lane re-verification
+- qa-reviewer: withdrawn — pre-release-telemetry-retention requires affected-lane re-verification
+- docs-contract-reviewer: withdrawn — pre-release-telemetry-retention requires affected-lane re-verification
+- wave-council-delivery: withdrawn — pre-release-telemetry-retention requires affected-lane re-verification
+- code-reviewer: withdrawn — telemetry-precommit-exception-gap requires affected-lane re-verification
+- architecture-reviewer: withdrawn — telemetry-precommit-exception-gap requires affected-lane re-verification
+- qa-reviewer: withdrawn — telemetry-precommit-exception-gap requires affected-lane re-verification
+- wave-council-delivery: withdrawn — telemetry-precommit-exception-gap requires affected-lane re-verification
+- code-reviewer: withdrawn — telemetry-precommit-exception-gap requires affected-lane re-verification
+- architecture-reviewer: withdrawn — telemetry-precommit-exception-gap requires affected-lane re-verification
+- qa-reviewer: withdrawn — telemetry-precommit-exception-gap requires affected-lane re-verification
+- wave-council-delivery: withdrawn — telemetry-precommit-exception-gap requires affected-lane re-verification
+- architecture-reviewer: withdrawn — wave-total-floor-overstatement requires affected-lane re-verification
+- qa-reviewer: withdrawn — wave-total-floor-overstatement requires affected-lane re-verification
+- performance-reviewer: withdrawn — wave-total-floor-overstatement requires affected-lane re-verification
+- wave-council-delivery: withdrawn — wave-total-floor-overstatement requires affected-lane re-verification
+- qa-reviewer: withdrawn — evaluation-register-scope-overwrite requires affected-lane re-verification
+- docs-contract-reviewer: withdrawn — evaluation-register-scope-overwrite requires affected-lane re-verification
+- architecture-reviewer: withdrawn — evaluation-register-scope-overwrite requires affected-lane re-verification
+- wave-council-delivery: withdrawn — evaluation-register-scope-overwrite requires affected-lane re-verification
+- qa-reviewer: withdrawn — evaluation-register-scope-overwrite requires affected-lane re-verification
+- docs-contract-reviewer: withdrawn — evaluation-register-scope-overwrite requires affected-lane re-verification
+- architecture-reviewer: withdrawn — evaluation-register-scope-overwrite requires affected-lane re-verification
+- wave-council-delivery: withdrawn — evaluation-register-scope-overwrite requires affected-lane re-verification
+- qa-reviewer: withdrawn — terminal-self-reverification requires affected-lane re-verification
+- architecture-reviewer: withdrawn — terminal-self-reverification requires affected-lane re-verification
+- wave-council-delivery: withdrawn — terminal-self-reverification requires affected-lane re-verification
+- qa-reviewer: withdrawn — capped-provenance-not-promoted requires affected-lane re-verification
+- code-reviewer: withdrawn — capped-provenance-not-promoted requires affected-lane re-verification
+- wave-council-delivery: withdrawn — capped-provenance-not-promoted requires affected-lane re-verification
+- architecture-reviewer: withdrawn — incomplete-review-focus-attribution requires affected-lane re-verification
+- qa-reviewer: withdrawn — incomplete-review-focus-attribution requires affected-lane re-verification
+- wave-council-delivery: withdrawn — incomplete-review-focus-attribution requires affected-lane re-verification
+- docs-contract-reviewer: withdrawn — lifecycle-prompt-install-evidence-vacuous requires affected-lane re-verification
+- qa-reviewer: withdrawn — lifecycle-prompt-install-evidence-vacuous requires affected-lane re-verification
+- wave-council-delivery: withdrawn — lifecycle-prompt-install-evidence-vacuous requires affected-lane re-verification
+- docs-contract-reviewer: withdrawn — lifecycle-prompt-install-evidence-vacuous requires affected-lane re-verification
+- qa-reviewer: withdrawn — lifecycle-prompt-install-evidence-vacuous requires affected-lane re-verification
+- wave-council-delivery: withdrawn — lifecycle-prompt-install-evidence-vacuous requires affected-lane re-verification
+- architecture-reviewer: withdrawn — paired-direct-net-unbound requires affected-lane re-verification
+- qa-reviewer: withdrawn — paired-direct-net-unbound requires affected-lane re-verification
+- wave-council-delivery: withdrawn — paired-direct-net-unbound requires affected-lane re-verification
+- qa-reviewer: withdrawn — paired-quality-state-contract-gap requires affected-lane re-verification
+- docs-contract-reviewer: withdrawn — paired-quality-state-contract-gap requires affected-lane re-verification
+- architecture-reviewer: withdrawn — paired-quality-state-contract-gap requires affected-lane re-verification
+- wave-council-delivery: withdrawn — paired-quality-state-contract-gap requires affected-lane re-verification
+- qa-reviewer: withdrawn — paired-quality-state-contract-gap requires affected-lane re-verification
+- docs-contract-reviewer: withdrawn — paired-quality-state-contract-gap requires affected-lane re-verification
+- architecture-reviewer: withdrawn — paired-quality-state-contract-gap requires affected-lane re-verification
+- wave-council-delivery: withdrawn — paired-quality-state-contract-gap requires affected-lane re-verification
+- code-reviewer: withdrawn — paired-residual-only-stage-omitted requires affected-lane re-verification
+- qa-reviewer: withdrawn — paired-residual-only-stage-omitted requires affected-lane re-verification
+- wave-council-delivery: withdrawn — paired-residual-only-stage-omitted requires affected-lane re-verification
+- architecture-reviewer: withdrawn — pending-enumeration-fail-open requires affected-lane re-verification
+- qa-reviewer: withdrawn — pending-enumeration-fail-open requires affected-lane re-verification
+- performance-reviewer: withdrawn — pending-enumeration-fail-open requires affected-lane re-verification
+- wave-council-delivery: withdrawn — pending-enumeration-fail-open requires affected-lane re-verification
+- code-reviewer: withdrawn — pre-release-telemetry-retention requires affected-lane re-verification
+- architecture-reviewer: withdrawn — pre-release-telemetry-retention requires affected-lane re-verification
+- qa-reviewer: withdrawn — pre-release-telemetry-retention requires affected-lane re-verification
+- docs-contract-reviewer: withdrawn — pre-release-telemetry-retention requires affected-lane re-verification
+- wave-council-delivery: withdrawn — pre-release-telemetry-retention requires affected-lane re-verification
+- code-reviewer: withdrawn — pre-release-telemetry-retention requires affected-lane re-verification
+- architecture-reviewer: withdrawn — pre-release-telemetry-retention requires affected-lane re-verification
+- qa-reviewer: withdrawn — pre-release-telemetry-retention requires affected-lane re-verification
+- docs-contract-reviewer: withdrawn — pre-release-telemetry-retention requires affected-lane re-verification
+- wave-council-delivery: withdrawn — pre-release-telemetry-retention requires affected-lane re-verification
+- code-reviewer: withdrawn — telemetry-precommit-exception-gap requires affected-lane re-verification
+- architecture-reviewer: withdrawn — telemetry-precommit-exception-gap requires affected-lane re-verification
+- qa-reviewer: withdrawn — telemetry-precommit-exception-gap requires affected-lane re-verification
+- wave-council-delivery: withdrawn — telemetry-precommit-exception-gap requires affected-lane re-verification
+- qa-reviewer: withdrawn — terminal-self-reverification requires affected-lane re-verification
+- architecture-reviewer: withdrawn — terminal-self-reverification requires affected-lane re-verification
+- wave-council-delivery: withdrawn — terminal-self-reverification requires affected-lane re-verification
+- architecture-reviewer: withdrawn — wave-total-floor-overstatement requires affected-lane re-verification
+- qa-reviewer: withdrawn — wave-total-floor-overstatement requires affected-lane re-verification
+- performance-reviewer: withdrawn — wave-total-floor-overstatement requires affected-lane re-verification
+- wave-council-delivery: withdrawn — wave-total-floor-overstatement requires affected-lane re-verification
+- qa-reviewer: withdrawn — evaluation-register-scope-overwrite requires affected-lane re-verification
+- docs-contract-reviewer: withdrawn — evaluation-register-scope-overwrite requires affected-lane re-verification
+- architecture-reviewer: withdrawn — evaluation-register-scope-overwrite requires affected-lane re-verification
+- wave-council-delivery: withdrawn — evaluation-register-scope-overwrite requires affected-lane re-verification
+- qa-reviewer: withdrawn — evaluation-register-scope-overwrite requires affected-lane re-verification
+- docs-contract-reviewer: withdrawn — evaluation-register-scope-overwrite requires affected-lane re-verification
+- architecture-reviewer: withdrawn — evaluation-register-scope-overwrite requires affected-lane re-verification
+- wave-council-delivery: withdrawn — evaluation-register-scope-overwrite requires affected-lane re-verification
+- qa-reviewer: withdrawn — evaluation-register-scope-overwrite requires affected-lane re-verification
+- docs-contract-reviewer: withdrawn — evaluation-register-scope-overwrite requires affected-lane re-verification
+- architecture-reviewer: withdrawn — evaluation-register-scope-overwrite requires affected-lane re-verification
+- wave-council-delivery: withdrawn — evaluation-register-scope-overwrite requires affected-lane re-verification
+- wave-council-delivery: approved — APPROVED with max severity none and unanimous fresh seat agreement. The ledger ends in one aggregate cycle-2 convergence checkpoint covering all 17 findings; every current head is complete with no unresolved required lane. Telemetry 30, server telemetry 31, review evidence 79, six registered public-path repair-protocol probes, renderer 54, setup 18, upgrade 302, and package 95 passed. The untouched indexer scale test passed independently in 0.116 seconds; docs lint and git diff --check passed.
+- architecture-reviewer: withdrawn — readiness-approval-retroactively-staled requires affected-lane re-verification
+- qa-reviewer: withdrawn — readiness-approval-retroactively-staled requires affected-lane re-verification
+- wave-council-delivery: withdrawn — readiness-approval-retroactively-staled requires affected-lane re-verification
+- architecture-reviewer: withdrawn — readiness-approval-retroactively-staled requires affected-lane re-verification
+- qa-reviewer: withdrawn — readiness-approval-retroactively-staled requires affected-lane re-verification
+- wave-council-delivery: withdrawn — readiness-approval-retroactively-staled requires affected-lane re-verification
+- architecture-reviewer: withdrawn — readiness-approval-retroactively-staled requires affected-lane re-verification
+- qa-reviewer: withdrawn — readiness-approval-retroactively-staled requires affected-lane re-verification
+- wave-council-delivery: withdrawn — readiness-approval-retroactively-staled requires affected-lane re-verification
+- architecture-reviewer: withdrawn — readiness-approval-retroactively-staled requires affected-lane re-verification
+- qa-reviewer: withdrawn — readiness-approval-retroactively-staled requires affected-lane re-verification
+- wave-council-delivery: withdrawn — readiness-approval-retroactively-staled requires affected-lane re-verification
+- wave-council-delivery: approved — APPROVED, max severity none. All 18 finding heads are terminal with no unresolved lanes. Cycle 3 is focused with all full-review triggers false. Architecture and QA used distinct fresh contexts and complementary known-bad, 17-case chronology, lifecycle, review-evidence, and public close probes. Canonical verification is 5,744/5,744; readiness remains required and valid while delivery and operator approval remain pending after the repair.
+- operator-signoff: approved — Operator directed 'close the wave' after the independent delivery review returned VERDICT: PASS (full suite 5,744 OK, docs-lint clean; the measured metric verified honest on every inflation axis, and the 1sua7 fix proven non-vacuous).
+
+## Dependencies
+
+- No external wave dependencies.
+
+<!-- wave:context-efficiency begin -->
+## Context Efficiency
+
+Estimated token savings use phase-unique returned source versions and mapped workflow prompts, minus recorded request and response tokens. Saved model output or avoided tool loops count only through quality-equivalent paired evidence.
+
+| Stage | Tool calls | Estimated token savings |
+| --- | ---: | ---: |
+| close | 8 | 0 |
+| implement | 37 | 339,799 |
+| review | 22 | 321,463 |
+| **Total** | **67** | **658,523** |
+
+<!-- wave:context-efficiency-state {"generation":67,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"close":{"calls":8,"content_source_credit":0,"direct_net":-2739,"estimated_tokens_saved":0,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":72,"response_debit":3664,"source_credit_count":0,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":997},"implement":{"calls":37,"content_source_credit":433258,"direct_net":339799,"estimated_tokens_saved":339799,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":1398,"response_debit":92061,"source_credit_count":13,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":0},"review":{"calls":22,"content_source_credit":341433,"direct_net":321463,"estimated_tokens_saved":321463,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":625,"response_debit":19345,"source_credit_count":8,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":0}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":67,"content_source_credit":774691,"direct_net":658523,"estimated_tokens_saved":658523,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":2095,"response_debit":115070,"source_credit_count":21,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":997},"wave_id":"1stwj context-efficiency-telemetry"} -->
+<!-- wave:context-efficiency end -->

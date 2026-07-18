@@ -4,6 +4,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -14,6 +15,11 @@ SCRIPTS_ROOT = TESTS_ROOT.parent
 PROJECT_ROOT = SCRIPTS_ROOT.parents[3]
 FIXTURE_ROOT = TESTS_ROOT / "fixtures" / "docs_lint" / "base"
 DOCS_LINT_SCRIPT = SCRIPTS_ROOT / "docs_lint.py"
+if str(SCRIPTS_ROOT) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_ROOT))
+
+import context_efficiency as ce
+from wave_lint_lib.wave_validators import check_wave_docs
 
 
 class DocsLintFixtureTests(unittest.TestCase):
@@ -54,6 +60,65 @@ class DocsLintFixtureTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("docs-lint: ok", result.stdout)
 
+    def test_context_efficiency_checkpoint_shape_is_linted(self) -> None:
+        root = self.copy_fixture()
+        try:
+            wave_md = root / self.WAVE_DOC_PATH
+            original = wave_md.read_text(encoding="utf-8")
+            valid = ce.replace_checkpoint_block(
+                original,
+                ce.empty_checkpoint(self.VALID_WAVE_ID),
+            )
+            wave_md.write_text(valid, encoding="utf-8")
+            self.assertFalse(
+                [
+                    error
+                    for error in check_wave_docs(root, only={wave_md})
+                    if "Context Efficiency checkpoint" in error
+                ]
+            )
+
+            state_prefix = "<!-- wave:context-efficiency-state "
+            state_start = valid.index(state_prefix)
+            state_end = valid.index(" -->", state_start)
+            state_comment = valid[state_start : state_end + 4]
+            cases = {
+                "duplicate": valid + "\n" + ce.render_checkpoint_block(
+                    ce.empty_checkpoint(self.VALID_WAVE_ID)
+                ),
+                "unmatched": valid.replace(
+                    ce.CONTEXT_EFFICIENCY_MARKER_END, "", 1
+                ),
+                "malformed_json": valid.replace(
+                    state_comment, f"{state_prefix}{{ -->"
+                ),
+                "wrong_schema": valid.replace(
+                    f'"schema_version":{ce.STORE_SCHEMA_VERSION}',
+                    '"schema_version":999',
+                ),
+                "invalid_shape": valid.replace(
+                    '"stages":{}', '"stages":[]'
+                ),
+                "altered_table": valid.replace(
+                    "| — | 0 | 0 |",
+                    "| — | 9 | 0 |",
+                    1,
+                ),
+            }
+            for name, text in cases.items():
+                with self.subTest(case=name):
+                    wave_md.write_text(text, encoding="utf-8")
+                    failures = check_wave_docs(root, only={wave_md})
+                    self.assertTrue(
+                        any(
+                            "Context Efficiency checkpoint" in error
+                            for error in failures
+                        ),
+                        failures,
+                    )
+        finally:
+            shutil.rmtree(root)
+
     def test_external_review_event_ledger_missing_fails_closed(self) -> None:
         root = self.copy_fixture()
         ledger = root / self.WAVE_DOC_PATH.parent / "events.jsonl"
@@ -92,6 +157,27 @@ class DocsLintFixtureTests(unittest.TestCase):
             shutil.rmtree(root)
         self.assertEqual(result.returncode, 1)
         self.assertIn("review evidence projection is stale", result.stderr)
+
+    def test_legacy_review_projection_markers_are_validation_equivalent(self) -> None:
+        root = self.copy_fixture()
+        wave_md = root / self.WAVE_DOC_PATH
+        wave_md.write_text(
+            wave_md.read_text(encoding="utf-8")
+            .replace(
+                "<!-- wave:finding-synthesis begin -->",
+                "<!-- waveframework:finding-synthesis begin -->",
+            )
+            .replace(
+                "<!-- wave:finding-synthesis end -->",
+                "<!-- waveframework:finding-synthesis end -->",
+            ),
+            encoding="utf-8",
+        )
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_inline_review_evidence_is_not_a_runtime_fallback(self) -> None:
         root = self.copy_fixture()

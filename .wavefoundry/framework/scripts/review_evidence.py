@@ -16,6 +16,7 @@ import json
 import hashlib
 import os
 import re
+import threading
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -23,8 +24,14 @@ from typing import Any, Iterable, Mapping
 
 
 PROTOCOL_VERSION = 1
-FINDING_SYNTHESIS_MARKER_BEGIN = "<!-- waveframework:finding-synthesis begin -->"
-FINDING_SYNTHESIS_MARKER_END = "<!-- waveframework:finding-synthesis end -->"
+FINDING_SYNTHESIS_MARKER_BEGIN = "<!-- wave:finding-synthesis begin -->"
+FINDING_SYNTHESIS_MARKER_END = "<!-- wave:finding-synthesis end -->"
+_LEGACY_FINDING_SYNTHESIS_MARKER_BEGIN = (
+    "<!-- waveframework:finding-synthesis begin -->"
+)
+_LEGACY_FINDING_SYNTHESIS_MARKER_END = (
+    "<!-- waveframework:finding-synthesis end -->"
+)
 REVIEW_EVIDENCE_DETAILS_BEGIN = '<details class="wavefoundry-review-evidence">'
 REVIEW_EVIDENCE_DETAILS_END = "</details>"
 ADOPTION_LEDGER_REL = Path("docs/waves/review-evidence-adoptions.json")
@@ -35,6 +42,9 @@ REVIEW_EVIDENCE_SOURCE_DECLARATION = f"review-evidence-source: {REVIEW_EVIDENCE_
 REVIEW_EVENT_HASH_DOMAIN = b"wavefoundry-review-events\0"
 EVENT_IDENTITY_FIELD = "event_identity"
 REQUEST_DIGEST_FIELD = "request_digest"
+
+_WRITE_THREAD_LOCK = threading.RLock()
+_WRITE_LOCK_STATE = threading.local()
 
 _MARKER_RE = re.compile(
     r"(?mi)^review-evidence-protocol:\s*`?(?P<version>\d+)`?\s*$"
@@ -49,6 +59,24 @@ _SECTION_RE = re.compile(
 _JSONL_FENCE_RE = re.compile(
     r"(?ms)^```jsonl\s*$\n(?P<body>.*?)^```\s*$"
 )
+
+
+def _canonicalize_finding_synthesis_markers(text: str) -> str:
+    """Accept legacy projections while emitting only the canonical namespace."""
+
+    return text.replace(
+        _LEGACY_FINDING_SYNTHESIS_MARKER_BEGIN,
+        FINDING_SYNTHESIS_MARKER_BEGIN,
+    ).replace(
+        _LEGACY_FINDING_SYNTHESIS_MARKER_END,
+        FINDING_SYNTHESIS_MARKER_END,
+    )
+
+
+def canonicalize_finding_synthesis_markers(text: str) -> str:
+    """Normalize marker spelling for validation without rewriting historical files."""
+
+    return _canonicalize_finding_synthesis_markers(text)
 
 RUN_KINDS = frozenset(
     {"readiness", "initial_delivery", "repair_start", "reverification", "convergence_checkpoint"}
@@ -555,10 +583,29 @@ def _adoption_write_lock(repo_root: Path):
 
 @contextmanager
 def review_event_write_lock(repo_root: Path):
-    """Public project-global lock for one event/adoption/projection transaction."""
+    """Public re-entrant project-global lock for wave/event/projection writes.
 
-    with _adoption_write_lock(repo_root):
-        yield
+    Public lifecycle handlers may hold this lock across a wave.md mutation and
+    the telemetry projection that follows it. Existing event/adoption helpers
+    also acquire the same lock internally, so same-thread nesting must not
+    deadlock while other threads and processes remain serialized.
+    """
+
+    with _WRITE_THREAD_LOCK:
+        depth = int(getattr(_WRITE_LOCK_STATE, "depth", 0))
+        if depth:
+            _WRITE_LOCK_STATE.depth = depth + 1
+            try:
+                yield
+            finally:
+                _WRITE_LOCK_STATE.depth = depth
+            return
+        with _adoption_write_lock(repo_root):
+            _WRITE_LOCK_STATE.depth = 1
+            try:
+                yield
+            finally:
+                _WRITE_LOCK_STATE.depth = 0
 
 
 def _read_adoption_ledger(repo_root: Path) -> tuple[dict[str, Any], str | None]:
@@ -922,6 +969,7 @@ def review_evidence_human_table(records: Iterable[Mapping[str, Any]]) -> str:
 def render_review_evidence_records(text: str, records: Iterable[Mapping[str, Any]]) -> str:
     """Render records under a collapsed summary without changing surrounding wave prose."""
 
+    text = _canonicalize_finding_synthesis_markers(text)
     rows = tuple(dict(record) for record in records)
     section_matches = list(_SECTION_RE.finditer(text))
     if len(section_matches) != 1:
@@ -968,6 +1016,7 @@ def render_review_evidence_projection(
 ) -> str:
     """Rebuild the marker-owned Markdown projection without embedding authority."""
 
+    text = _canonicalize_finding_synthesis_markers(text)
     rows = tuple(dict(record) for record in records)
     section_matches = list(_SECTION_RE.finditer(text))
     if len(section_matches) != 1:
@@ -1210,6 +1259,15 @@ def build_compact_review_event(
     recheck_lanes = list(event["approval_recheck_lanes"])
     heads = current_synthesis_heads(prior)
     prior_head = heads.get(str(finding_id))
+    if run_kind in {"readiness", "initial_delivery"} and prior_head is not None:
+        return (), (
+            "readiness/initial_delivery may introduce only a new finding; "
+            "use repair_start or reverification for an existing finding",
+        )
+    if run_kind in {"repair_start", "reverification"} and prior_head is None:
+        return (), (
+            f"{run_kind} requires an earlier finding synthesis for `{finding_id}`",
+        )
     evidence_id = _unique_record_id(prior, "ev", str(finding_id))
     run_id = _unique_record_id(prior, "run", f"{run_kind}-{cycle}-{finding_id}")
     synthesis_id = _unique_record_id(prior, "syn", f"{finding_id}-{cycle}")
@@ -1262,6 +1320,18 @@ def build_compact_review_event(
         "source_record_ids": [evidence_id],
         "dedup_evidence_id": evidence_id,
     }
+    frozen_boundary: set[str] | None = None
+    for prior_run in prior:
+        if (
+            prior_run.get("record_type") == "review_run"
+            and prior_run.get("run_kind") == "convergence_checkpoint"
+        ):
+            frozen_boundary = set(_string_items(prior_run.get("frozen_boundary", [])))
+    if frozen_boundary is not None and str(finding_id) not in frozen_boundary:
+        # A post-convergence review may discover a genuinely new deviation.
+        # Derive this mechanically so callers do not hand-author protocol
+        # bookkeeping merely to continue a bounded review/fix/review loop.
+        run["deviation_ids"] = [str(finding_id)]
     for field in ("frozen_boundary", "deviation_ids", "reopened_finding_ids"):
         if event.get(field) is not None:
             run[field] = list(event[field])
@@ -1290,6 +1360,28 @@ def build_compact_review_event(
     synthesis["disposition"] = derive_disposition(synthesis)
     synthesis["blocking"] = derive_blocking(synthesis)
     synthesis["review_depth"] = derive_review_depth(synthesis)
+    terminal_reverification = (
+        run_kind == "reverification"
+        and not blocking_lanes
+        and (
+            (
+                synthesis["disposition"] in {"do_now", "maybe_later"}
+                and synthesis["repair_execution_state"] == "completed"
+            )
+            or (
+                synthesis["disposition"] in {"not_issue", "dont_do_later"}
+                and synthesis["repair_execution_state"] == "not_required"
+            )
+        )
+    )
+    if terminal_reverification and (
+        event.get("fresh_context") is not True
+        or event.get("independent") is not True
+    ):
+        return (), (
+            "terminal reverification requires fresh_context=true and "
+            "independent=true unless a distinct operator waiver is recorded",
+        )
     if prior_head is not None:
         synthesis["supersedes_record_id"] = prior_head["record_id"]
     if _nonempty_string(promotion_trigger):
@@ -1322,35 +1414,31 @@ def build_compact_review_event(
             and record.get("run_kind") == "convergence_checkpoint"
             for record in prior
         )
-        and any(
-            record.get("record_type") == "review_run"
-            and record.get("run_kind") == "reverification"
-            and record.get("cycle") == 1
-            for record in prior
-        )
     ):
         combined = (*prior, *rows)
-        checkpoint_id = _unique_record_id(
-            combined, "run", f"convergence-{cycle}"
-        )
-        rows.append(
-            {
-                "record_type": "review_run",
-                "review_run_id": checkpoint_id,
-                "run_kind": "convergence_checkpoint",
-                "cycle": cycle,
-                "candidate_finding_ids": [],
-                "source_record_ids": [],
-                "dedup_evidence_id": None,
-                "frozen_boundary": sorted(current_synthesis_heads(combined)),
-                "verification_context": {
-                    "actor": actor,
-                    "context_id": context_id,
-                    "fresh_context": bool(event.get("fresh_context")),
-                    "independent": bool(event.get("independent")),
-                },
-            }
-        )
+        completed_cycles, _cycle_errors = _repair_cycle_progress(combined)
+        if {1, 2}.issubset(completed_cycles):
+            checkpoint_id = _unique_record_id(
+                combined, "run", f"convergence-{cycle}"
+            )
+            rows.append(
+                {
+                    "record_type": "review_run",
+                    "review_run_id": checkpoint_id,
+                    "run_kind": "convergence_checkpoint",
+                    "cycle": cycle,
+                    "candidate_finding_ids": [],
+                    "source_record_ids": [],
+                    "dedup_evidence_id": None,
+                    "frozen_boundary": sorted(current_synthesis_heads(combined)),
+                    "verification_context": {
+                        "actor": actor,
+                        "context_id": context_id,
+                        "fresh_context": bool(event.get("fresh_context")),
+                        "independent": bool(event.get("independent")),
+                    },
+                }
+            )
     return tuple(rows), ()
 
 
@@ -1368,6 +1456,7 @@ def _marker_version(text: str) -> tuple[int | None, list[str]]:
 
 
 def _parse_records(text: str) -> tuple[list[dict[str, Any]], list[str]]:
+    text = _canonicalize_finding_synthesis_markers(text)
     errors: list[str] = []
     section_matches = list(_SECTION_RE.finditer(text))
     if len(section_matches) != 1:
@@ -1834,6 +1923,145 @@ def _safe_material_blocker(record: Mapping[str, Any]) -> bool:
     )
 
 
+def _repair_cycle_progress(
+    records: Iterable[Mapping[str, Any]],
+) -> tuple[frozenset[int], tuple[str, ...]]:
+    """Derive aggregate repair-cycle completion across per-finding and batch runs."""
+
+    rows = [dict(record) for record in records]
+    runs = [record for record in rows if record.get("record_type") == "review_run"]
+    by_run: dict[str, list[dict[str, Any]]] = {}
+    evidence_by_id = {
+        str(record.get("evidence_record_id")): record
+        for record in rows
+        if record.get("record_type") == "executable_evidence"
+        and isinstance(record.get("evidence_record_id"), str)
+    }
+    for record in rows:
+        if record.get("record_type") == "finding_synthesis":
+            by_run.setdefault(str(record.get("review_run_id")), []).append(record)
+
+    initial_delivery_positions: list[int] = []
+    starts: dict[int, dict[str, int]] = {}
+    terminal: dict[int, set[str]] = {}
+    completed: set[int] = set()
+    errors: list[str] = []
+
+    for position, run in enumerate(runs):
+        cycle = run.get("cycle")
+        kind = run.get("run_kind")
+        if not isinstance(cycle, int) or isinstance(cycle, bool):
+            continue
+        if kind == "initial_delivery":
+            initial_delivery_positions.append(position)
+            continue
+        run_syntheses = by_run.get(str(run.get("review_run_id")), [])
+        actionable = [
+            row
+            for row in run_syntheses
+            if derive_disposition(row) in {"do_now", "maybe_later"}
+        ]
+        if kind == "repair_start":
+            if cycle < 1:
+                errors.append(
+                    f"review run `{run.get('review_run_id')}` repair_start requires cycle >= 1"
+                )
+            if not initial_delivery_positions or initial_delivery_positions[0] >= position:
+                errors.append(
+                    f"review run `{run.get('review_run_id')}` repair_start requires preceding initial_delivery synthesis"
+                )
+            if cycle > 1 and cycle - 1 not in completed:
+                errors.append(
+                    f"repair cycle {cycle} starts before cycle {cycle - 1} completes"
+                )
+            if cycle in completed:
+                errors.append(
+                    f"repair cycle {cycle} cannot add a repair_start after aggregate completion"
+                )
+            if not actionable:
+                errors.append(
+                    f"review run `{run.get('review_run_id')}` repair_start requires an actionable synthesis row"
+                )
+            cycle_starts = starts.setdefault(cycle, {})
+            for row in actionable:
+                finding_id = row.get("finding_id")
+                if not isinstance(finding_id, str):
+                    continue
+                if finding_id in cycle_starts:
+                    errors.append(
+                        f"repair cycle {cycle} has more than one repair_start for `{finding_id}`"
+                    )
+                else:
+                    cycle_starts[finding_id] = position
+        elif kind in {"reverification", "convergence_checkpoint"}:
+            if kind == "reverification" and not run_syntheses:
+                errors.append(
+                    f"review run `{run.get('review_run_id')}` reverification requires a synthesis row"
+                )
+            cycle_starts = starts.get(cycle, {})
+            cycle_terminal = terminal.setdefault(cycle, set())
+            # A reverification may truthfully reclassify a started finding as
+            # non-actionable. Convergence checkpoints, however, may also carry
+            # newly observed non-actionable boundary rows that were never part
+            # of the repair cycle; only their actionable rows participate.
+            progress_rows = run_syntheses if kind == "reverification" else actionable
+            for row in progress_rows:
+                finding_id = row.get("finding_id")
+                if not isinstance(finding_id, str):
+                    continue
+                start_position = cycle_starts.get(finding_id)
+                if start_position is None or start_position >= position:
+                    errors.append(
+                        f"reverification cycle {cycle} for `{finding_id}` has no preceding repair_start"
+                    )
+                    continue
+                if finding_id in cycle_terminal and kind == "reverification":
+                    errors.append(
+                        f"repair cycle {cycle} cannot reverify terminal finding `{finding_id}` again"
+                    )
+                    continue
+                no_required_lanes = not _string_items(
+                    row.get("blocking_required_lanes", [])
+                )
+                repair_state = row.get("repair_execution_state")
+                disposition = derive_disposition(row)
+                actionable_terminal = (
+                    disposition in {"do_now", "maybe_later"}
+                    and repair_state in {"completed", "operator_waived"}
+                )
+                reclassified_terminal = (
+                    disposition in {"not_issue", "dont_do_later"}
+                    and repair_state == "not_required"
+                )
+                if no_required_lanes and (
+                    actionable_terminal or reclassified_terminal
+                ):
+                    if repair_state != "operator_waived":
+                        evidence = evidence_by_id.get(
+                            str(row.get("evidence_record_id"))
+                        )
+                        context = (
+                            evidence.get("verification_context")
+                            if isinstance(evidence, Mapping)
+                            else None
+                        )
+                        if not isinstance(context, Mapping) or (
+                            context.get("fresh_context") is not True
+                            or context.get("independent") is not True
+                        ):
+                            errors.append(
+                                f"terminal reverification cycle {cycle} for "
+                                f"`{finding_id}` requires fresh independent evidence"
+                            )
+                            continue
+                    cycle_terminal.add(finding_id)
+            started_findings = set(cycle_starts)
+            if started_findings and started_findings.issubset(cycle_terminal):
+                completed.add(cycle)
+
+    return frozenset(completed), tuple(errors)
+
+
 def _validate_relationships(records: list[dict[str, Any]], *, closure: bool) -> list[str]:
     errors: list[str] = []
     runs: list[dict[str, Any]] = [record for record in records if record.get("record_type") == "review_run"]
@@ -2043,59 +2271,21 @@ def _validate_relationships(records: list[dict[str, Any]], *, closure: bool) -> 
                 )
 
     last_cycle = -1
-    initial_delivery_positions: list[int] = []
-    repair_starts: dict[int, int] = {}
-    reverifications: dict[int, int] = {}
-    completed_cycles: set[int] = set()
+    completed_cycles, cycle_errors = _repair_cycle_progress(records)
+    errors.extend(cycle_errors)
     frozen_boundary: set[str] | None = None
     for position, run in enumerate(runs):
         cycle = run.get("cycle")
         kind = run.get("run_kind")
         if not isinstance(cycle, int) or isinstance(cycle, bool):
             continue
-        if cycle < last_cycle:
-            errors.append(f"review run `{run.get('review_run_id')}` decreases the wave cycle")
-        last_cycle = max(last_cycle, cycle)
+        if kind not in {"readiness", "initial_delivery"}:
+            if cycle < last_cycle:
+                errors.append(f"review run `{run.get('review_run_id')}` decreases the wave cycle")
+            last_cycle = max(last_cycle, cycle)
         if kind in {"readiness", "initial_delivery"} and cycle != 0:
             errors.append(f"review run `{run.get('review_run_id')}` kind `{kind}` requires cycle 0")
-        if kind == "initial_delivery":
-            initial_delivery_positions.append(position)
-        if kind == "repair_start":
-            if cycle < 1:
-                errors.append(f"review run `{run.get('review_run_id')}` repair_start requires cycle >= 1")
-            if not initial_delivery_positions or initial_delivery_positions[0] >= position:
-                errors.append(f"review run `{run.get('review_run_id')}` repair_start requires preceding initial_delivery synthesis")
-            if cycle in repair_starts:
-                errors.append(f"repair cycle {cycle} has more than one repair_start")
-            if cycle > 1 and cycle - 1 not in completed_cycles:
-                errors.append(f"repair cycle {cycle} starts before cycle {cycle - 1} reverification")
-            if not any(
-                derive_disposition(row) in {"do_now", "maybe_later"}
-                for row in by_run.get(str(run.get("review_run_id")), [])
-            ):
-                errors.append(f"review run `{run.get('review_run_id')}` repair_start requires an actionable synthesis row")
-            repair_starts[cycle] = position
-        elif kind == "reverification":
-            if cycle not in repair_starts or repair_starts[cycle] >= position:
-                errors.append(f"reverification cycle {cycle} has no preceding repair_start")
-            if cycle in reverifications:
-                errors.append(f"repair cycle {cycle} has more than one reverification")
-            reverifications[cycle] = position
-            actionable_rows = [
-                row
-                for row in by_run.get(str(run.get("review_run_id")), [])
-                if derive_disposition(row) in {"do_now", "maybe_later"}
-            ]
-            if actionable_rows and all(
-                row.get("repair_execution_state") in {"completed", "operator_waived"}
-                for row in actionable_rows
-            ):
-                completed_cycles.add(cycle)
-            else:
-                errors.append(
-                    f"reverification cycle {cycle} does not complete every actionable synthesis"
-                )
-        elif kind == "convergence_checkpoint":
+        if kind == "convergence_checkpoint":
             if cycle < 2 or not {1, 2}.issubset(completed_cycles):
                 errors.append("convergence_checkpoint requires two completed repair cycles")
             frozen_boundary = set(_string_items(run.get("frozen_boundary", [])))
@@ -2197,7 +2387,9 @@ def validate_external_review_evidence(
     if wave_md.name != "wave.md":
         wave_md = wave_md / "wave.md"
     try:
-        text = wave_md.read_text(encoding="utf-8")
+        text = _canonicalize_finding_synthesis_markers(
+            wave_md.read_text(encoding="utf-8")
+        )
     except (OSError, UnicodeError) as exc:
         authority_errors = (f"wave record is unreadable: {exc}",)
         return ReviewEvidenceValidation(
@@ -2307,6 +2499,7 @@ __all__ = [
     "adopted_protocol_state",
     "build_compact_review_event",
     "build_identified_review_event",
+    "canonicalize_finding_synthesis_markers",
     "canonical_review_event_bytes",
     "canonical_review_events_bytes",
     "current_synthesis_heads",

@@ -270,7 +270,12 @@ class ReviewEvidenceStateMachineTests(unittest.TestCase):
             "Lane reassessment evidence must be executed in delivery",
             "Mandatory project orientation may disclose status or review history",
             "formed its own current-tree/test assessment before relying on prior findings",
-            "automatically appends the mandatory `convergence_checkpoint` in the same identified event bundle",
+            "One physical batch run may start several findings",
+            "ordered same-cycle `reverification` progress",
+            "truthfully reclassifies the finding to `not_issue` or `dont_do_later`",
+            "continue ordered same-cycle lane reverifications",
+            "A later review pass may discover a new finding",
+            "final outstanding reverification",
         ):
             self.assertIn(phrase, seed)
 
@@ -361,6 +366,114 @@ class ReviewEvidenceStateMachineTests(unittest.TestCase):
         result = subject.validate_review_evidence(rendered)
         self.assertTrue(result.ok, "\n".join(result.errors))
         self.assertIn("| public-path-regression | do_now | yes | pending | qa-reviewer |", rendered)
+
+    def test_later_review_pass_can_discover_and_repair_new_findings(self) -> None:
+        base_event = {
+            "event": "finding",
+            "actor": "qa-reviewer",
+            "context_id": "looping-review",
+            "finding_id": "finding-a",
+            "run_kind": "initial_delivery",
+            "cycle": 0,
+            "judgment": {
+                "validation_status": "real",
+                "scope_relation": "admitted",
+                "introduced_or_worsened_by_wave": True,
+                "contract_relevance": "required_ac",
+                "supported_reachability": True,
+                "attacker_reachability": False,
+                "authority_domain": "integrity",
+                "authority_delta": "low",
+                "observable_impact": "material",
+                "containment": "none",
+            },
+            "proposition": "the changed behavior satisfies its required contract",
+            "failure_condition": "the public path reproduces the defect",
+            "public_path": "wave_record_review_evidence",
+            "command_or_fixture": "looping review public-path fixture",
+            "expected": "each later review finding remains recordable and repairable",
+            "observed": "the controlled finding was reproduced",
+            "artifact_or_test_id": "test:looping-review",
+            "known_bad_detection_method": "the pre-fix authoring path rejected the later finding as a cycle decrease",
+            "limitations": "local disposable event ledger",
+            "safety_and_authorization": "local fixture only",
+            "disposition_rationale": "a required-contract regression must be repaired now",
+            "integrity_confirmed": True,
+            "fresh_context": True,
+            "independent": True,
+            "review_boundaries_changed": [],
+            "source_lanes": ["qa-reviewer"],
+            "blocking_required_lanes": ["qa-reviewer"],
+            "approval_recheck_lanes": ["qa-reviewer"],
+        }
+
+        records: tuple[dict[str, object], ...] = ()
+
+        def append_event(**updates: object) -> tuple[dict[str, object], ...]:
+            nonlocal records
+            event = dict(base_event)
+            event.update(updates)
+            rows, errors = subject.build_compact_review_event(records, event)
+            self.assertEqual(errors, ())
+            records = (*records, *rows)
+            result = subject.validate_review_evidence(
+                subject.render_review_evidence_records(raw_wave_text([]), records)
+            )
+            self.assertTrue(result.ok, "\n".join(result.errors))
+            return rows
+
+        append_event()
+        append_event(run_kind="repair_start", cycle=1, context_id="repair-a")
+
+        later = append_event(
+            finding_id="finding-b",
+            run_kind="initial_delivery",
+            cycle=0,
+            context_id="later-review-b",
+        )
+        self.assertNotIn("deviation_ids", later[1])
+        append_event(
+            finding_id="finding-b",
+            run_kind="repair_start",
+            cycle=1,
+            context_id="repair-b",
+        )
+        append_event(
+            run_kind="reverification",
+            cycle=1,
+            context_id="verify-a",
+            blocking_required_lanes=[],
+        )
+        completed_b = append_event(
+            finding_id="finding-b",
+            run_kind="reverification",
+            cycle=1,
+            context_id="verify-b",
+            blocking_required_lanes=[],
+        )
+        self.assertEqual(
+            [
+                row["run_kind"]
+                for row in completed_b
+                if row.get("record_type") == "review_run"
+            ],
+            ["reverification"],
+        )
+
+        after_completed_cycle = append_event(
+            finding_id="finding-c",
+            run_kind="initial_delivery",
+            cycle=0,
+            context_id="later-review-c",
+        )
+        self.assertNotIn("deviation_ids", after_completed_cycle[1])
+        repair_c = append_event(
+            finding_id="finding-c",
+            run_kind="repair_start",
+            cycle=2,
+            context_id="repair-c",
+        )
+        self.assertNotIn("deviation_ids", repair_c[1])
 
     def test_compact_finding_can_report_vacuous_reviewed_evidence(self) -> None:
         """Integrity flags describe this finding's proof, not the defective evidence it reviews."""
@@ -1194,6 +1307,47 @@ class ReviewEvidenceConvergenceTests(unittest.TestCase):
         result = subject.validate_review_evidence(wave_text(rows))
         self.assertIn("no preceding repair_start", "\n".join(result.errors))
 
+    def test_terminal_reverification_requires_fresh_independent_evidence(self) -> None:
+        evidence = executable_evidence(
+            "terminal-self-check",
+            "finding-1",
+            fresh_context=False,
+            independent=False,
+        )
+        rows = [
+            review_run(),
+            synthesis(),
+            review_run("start", kind="repair_start", cycle=1),
+            synthesis(
+                "start-row",
+                run_id="start",
+                cycle=1,
+                supersedes_record_id="synthesis-0",
+            ),
+            evidence,
+            review_run(
+                "verify",
+                kind="reverification",
+                cycle=1,
+                candidates=["finding-1"],
+                source_record_ids=["terminal-self-check"],
+                dedup_evidence_id="terminal-self-check",
+            ),
+            synthesis(
+                "verify-row",
+                run_id="verify",
+                cycle=1,
+                supersedes_record_id="start-row",
+                blocking_required_lanes=[],
+                repair_execution_state="completed",
+                evidence_record_id="terminal-self-check",
+            ),
+        ]
+        result = subject.validate_review_evidence(wave_text(rows))
+        self.assertIn(
+            "requires fresh independent evidence", "\n".join(result.errors)
+        )
+
     def test_repair_start_requires_initial_delivery_and_actionable_row(self) -> None:
         start = review_run("start", kind="repair_start", cycle=1)
         rejected = synthesis(
@@ -1232,11 +1386,398 @@ class ReviewEvidenceConvergenceTests(unittest.TestCase):
                 row["repair_execution_state"] = "pending"
         result = subject.validate_review_evidence(wave_text(rows))
         joined = "\n".join(result.errors)
-        self.assertIn("does not complete every actionable synthesis", joined)
+        self.assertIn("repair cycle 2 starts before cycle 1 completes", joined)
         self.assertIn("two completed repair cycles", joined)
+
+    def test_multiple_findings_share_cycle_and_complete_aggregate(self) -> None:
+        initial_run = review_run(
+            "initial-batch", candidates=["finding-a", "finding-b"]
+        )
+        initial_a = synthesis(
+            "initial-a", run_id="initial-batch", finding_id="finding-a"
+        )
+        initial_b = synthesis(
+            "initial-b", run_id="initial-batch", finding_id="finding-b"
+        )
+        start_a = review_run(
+            "start-a", kind="repair_start", cycle=1, candidates=["finding-a"]
+        )
+        start_a_row = synthesis(
+            "start-a-row",
+            run_id="start-a",
+            finding_id="finding-a",
+            cycle=1,
+            supersedes_record_id="initial-a",
+        )
+        start_b = review_run(
+            "start-b", kind="repair_start", cycle=1, candidates=["finding-b"]
+        )
+        start_b_row = synthesis(
+            "start-b-row",
+            run_id="start-b",
+            finding_id="finding-b",
+            cycle=1,
+            supersedes_record_id="initial-b",
+        )
+        verify_a = review_run(
+            "verify-a", kind="reverification", cycle=1, candidates=["finding-a"]
+        )
+        verify_a_row = synthesis(
+            "verify-a-row",
+            run_id="verify-a",
+            finding_id="finding-a",
+            cycle=1,
+            supersedes_record_id="start-a-row",
+            repair_execution_state="completed",
+        )
+        premature_cycle_2 = review_run(
+            "start-cycle-2",
+            kind="repair_start",
+            cycle=2,
+            candidates=["finding-a"],
+        )
+        premature_cycle_2_row = synthesis(
+            "start-cycle-2-row",
+            run_id="start-cycle-2",
+            finding_id="finding-a",
+            cycle=2,
+            supersedes_record_id="verify-a-row",
+        )
+        partial = [
+            initial_run,
+            initial_a,
+            initial_b,
+            start_a,
+            start_a_row,
+            start_b,
+            start_b_row,
+            verify_a,
+            verify_a_row,
+            premature_cycle_2,
+            premature_cycle_2_row,
+        ]
+        result = subject.validate_review_evidence(wave_text(partial))
+        self.assertIn(
+            "repair cycle 2 starts before cycle 1 completes",
+            "\n".join(result.errors),
+        )
+
+        verify_b = review_run(
+            "verify-b", kind="reverification", cycle=1, candidates=["finding-b"]
+        )
+        verify_b_row = synthesis(
+            "verify-b-row",
+            run_id="verify-b",
+            finding_id="finding-b",
+            cycle=1,
+            supersedes_record_id="start-b-row",
+            repair_execution_state="completed",
+        )
+        complete = partial[:-2] + [verify_b, verify_b_row]
+        result = subject.validate_review_evidence(wave_text(complete))
+        self.assertTrue(result.ok, "\n".join(result.errors))
+
+    def test_reverification_can_terminally_reclassify_started_finding(self) -> None:
+        rows = [
+            review_run(),
+            synthesis(),
+            review_run("start", kind="repair_start", cycle=1),
+            synthesis(
+                "start-row",
+                run_id="start",
+                cycle=1,
+                supersedes_record_id="synthesis-0",
+            ),
+            review_run("verify", kind="reverification", cycle=1),
+            synthesis(
+                "verify-row",
+                run_id="verify",
+                cycle=1,
+                supersedes_record_id="start-row",
+                validation_status="conforming",
+                optional_value="none",
+                rejection_basis="none",
+                repair_execution_state="not_required",
+                disposition="not_issue",
+                review_depth="none",
+                approval_recheck_lanes=[],
+                disposition_rationale="reverification disproved the reported behavior",
+            ),
+            review_run("cycle-2", kind="repair_start", cycle=2),
+            synthesis(
+                "cycle-2-row",
+                run_id="cycle-2",
+                cycle=2,
+                supersedes_record_id="verify-row",
+            ),
+        ]
+        result = subject.validate_review_evidence(wave_text(rows))
+        self.assertTrue(result.ok, "\n".join(result.errors))
+
+    def test_duplicate_start_for_same_finding_in_cycle_fails(self) -> None:
+        rows = [
+            review_run(),
+            synthesis(),
+            review_run("start-a", kind="repair_start", cycle=1),
+            synthesis(
+                "start-a-row",
+                run_id="start-a",
+                cycle=1,
+                supersedes_record_id="synthesis-0",
+            ),
+            review_run("start-b", kind="repair_start", cycle=1),
+            synthesis(
+                "start-b-row",
+                run_id="start-b",
+                cycle=1,
+                supersedes_record_id="start-a-row",
+            ),
+        ]
+        result = subject.validate_review_evidence(wave_text(rows))
+        self.assertIn(
+            "more than one repair_start for `finding-1`",
+            "\n".join(result.errors),
+        )
+
+    def test_completed_cycle_rejects_late_start_and_terminal_reverification(self) -> None:
+        initial = review_run(
+            "initial-batch", candidates=["finding-a", "finding-b"]
+        )
+        initial_a = synthesis(
+            "initial-a", run_id="initial-batch", finding_id="finding-a"
+        )
+        initial_b = synthesis(
+            "initial-b", run_id="initial-batch", finding_id="finding-b"
+        )
+        start = review_run(
+            "start-a", kind="repair_start", cycle=1, candidates=["finding-a"]
+        )
+        start_row = synthesis(
+            "start-a-row",
+            run_id="start-a",
+            finding_id="finding-a",
+            cycle=1,
+            supersedes_record_id="initial-a",
+        )
+        verify = review_run(
+            "verify-a", kind="reverification", cycle=1, candidates=["finding-a"]
+        )
+        verify_row = synthesis(
+            "verify-a-row",
+            run_id="verify-a",
+            finding_id="finding-a",
+            cycle=1,
+            supersedes_record_id="start-a-row",
+            repair_execution_state="completed",
+        )
+        late_start = review_run(
+            "late-start-b",
+            kind="repair_start",
+            cycle=1,
+            candidates=["finding-b"],
+        )
+        late_start_row = synthesis(
+            "late-start-b-row",
+            run_id="late-start-b",
+            finding_id="finding-b",
+            cycle=1,
+            supersedes_record_id="initial-b",
+        )
+        result = subject.validate_review_evidence(
+            wave_text(
+                [
+                    initial,
+                    initial_a,
+                    initial_b,
+                    start,
+                    start_row,
+                    verify,
+                    verify_row,
+                    late_start,
+                    late_start_row,
+                ]
+            )
+        )
+        self.assertIn(
+            "cannot add a repair_start after aggregate completion",
+            "\n".join(result.errors),
+        )
+
+        repeat = review_run(
+            "verify-a-again",
+            kind="reverification",
+            cycle=1,
+            candidates=["finding-a"],
+        )
+        repeat_row = synthesis(
+            "verify-a-again-row",
+            run_id="verify-a-again",
+            finding_id="finding-a",
+            cycle=1,
+            supersedes_record_id="verify-a-row",
+            repair_execution_state="completed",
+        )
+        result = subject.validate_review_evidence(
+            wave_text(
+                [
+                    initial,
+                    initial_a,
+                    initial_b,
+                    start,
+                    start_row,
+                    verify,
+                    verify_row,
+                    repeat,
+                    repeat_row,
+                ]
+            )
+        )
+        self.assertIn(
+            "cannot reverify terminal finding `finding-a` again",
+            "\n".join(result.errors),
+        )
+
+    def test_operator_waiver_is_distinct_cycle_terminal_state(self) -> None:
+        waived = synthesis(
+            "waived-row",
+            run_id="waive-1",
+            cycle=1,
+            supersedes_record_id="start-row",
+            contract_relevance="public_contract",
+            optional_value="none",
+            repair_execution_state="operator_waived",
+            decision_authority="operator",
+            waiver_id="waiver-cycle-1",
+            waiver_scope="accept one scoped residual risk",
+            waiver_reason="operator accepts the bounded compatibility tradeoff",
+            waiver_risk="one named residual behavior remains",
+        )
+        derive(waived)
+        rows = [
+            executable_evidence(
+                "approval-waiver-cycle",
+                "approval:operator-signoff",
+                claim_kind="approval",
+                required_for_approval=True,
+            ),
+            review_run(),
+            synthesis(),
+            review_run("start-1", kind="repair_start", cycle=1),
+            synthesis(
+                "start-row",
+                run_id="start-1",
+                cycle=1,
+                supersedes_record_id="synthesis-0",
+            ),
+            review_run("waive-1", kind="reverification", cycle=1),
+            waived,
+        ]
+        result = subject.validate_review_evidence(wave_text(rows), closure=True)
+        self.assertTrue(result.ok, "\n".join(result.errors))
+        self.assertEqual(waived["repair_execution_state"], "operator_waived")
+        self.assertTrue(waived["blocking"])
+
+    def test_legacy_batch_repair_runs_remain_valid(self) -> None:
+        findings = ["finding-a", "finding-b", "finding-deferred"]
+        initial = review_run("initial-batch", candidates=findings)
+        initial_rows = [
+            synthesis(
+                f"initial-{finding}",
+                run_id="initial-batch",
+                finding_id=finding,
+            )
+            for finding in findings
+        ]
+        start = review_run(
+            "start-batch", kind="repair_start", cycle=1, candidates=findings
+        )
+        start_rows = [
+            synthesis(
+                f"start-{finding}",
+                run_id="start-batch",
+                finding_id=finding,
+                cycle=1,
+                supersedes_record_id=f"initial-{finding}",
+            )
+            for finding in findings[:2]
+        ]
+        deferred = synthesis(
+            "start-finding-deferred",
+            run_id="start-batch",
+            finding_id="finding-deferred",
+            cycle=1,
+            supersedes_record_id="initial-finding-deferred",
+            optional_value="none",
+            rejection_basis="categorical",
+            disposition="dont_do_later",
+            review_depth="none",
+            repair_execution_state="not_required",
+        )
+        verify = review_run(
+            "verify-batch",
+            kind="reverification",
+            cycle=1,
+            candidates=findings[:2],
+        )
+        verify_rows = [
+            synthesis(
+                f"verify-{finding}",
+                run_id="verify-batch",
+                finding_id=finding,
+                cycle=1,
+                supersedes_record_id=f"start-{finding}",
+                repair_execution_state="completed",
+            )
+            for finding in findings[:2]
+        ]
+        result = subject.validate_review_evidence(
+            wave_text(
+                [
+                    initial,
+                    *initial_rows,
+                    start,
+                    *start_rows,
+                    deferred,
+                    verify,
+                    *verify_rows,
+                ]
+            )
+        )
+        self.assertTrue(result.ok, "\n".join(result.errors))
 
     def test_two_cycles_and_checkpoint_are_valid(self) -> None:
         result = subject.validate_review_evidence(wave_text(self._cycle_records()), closure=True)
+        self.assertTrue(result.ok, "\n".join(result.errors))
+
+    def test_legacy_checkpoint_synthesis_can_terminalize_cycle_two(self) -> None:
+        rows = self._cycle_records()
+        rows = [
+            row
+            for row in rows
+            if row.get("review_run_id") not in {"verify-2", "checkpoint-2"}
+            and row.get("review_run_id") != "checkpoint-2"
+        ]
+        start_two_index = next(
+            index
+            for index, row in enumerate(rows)
+            if row.get("review_run_id") == "start-2"
+            and row.get("record_type") == "finding_synthesis"
+        )
+        legacy_checkpoint = review_run(
+            "legacy-checkpoint-2",
+            kind="convergence_checkpoint",
+            cycle=2,
+            frozen_boundary=["finding-1"],
+        )
+        legacy_row = synthesis(
+            "legacy-checkpoint-row-2",
+            run_id="legacy-checkpoint-2",
+            cycle=2,
+            supersedes_record_id="start-s-2",
+            repair_execution_state="completed",
+        )
+        rows[start_two_index + 1 :] = [legacy_checkpoint, legacy_row]
+        result = subject.validate_review_evidence(wave_text(rows))
         self.assertTrue(result.ok, "\n".join(result.errors))
 
     def test_two_completed_cycles_require_convergence_checkpoint(self) -> None:
@@ -1395,6 +1936,25 @@ class ExternalReviewEventLedgerTests(unittest.TestCase):
         self.assertNotIn("```jsonl", rendered)
         self.assertIn("Machine review evidence — 1 records", rendered)
         self.assertIn("## Notes\nkeep me", rendered)
+
+    def test_external_projection_migrates_legacy_owned_markers(self) -> None:
+        legacy = (
+            "# Wave\nreview-evidence-source: events.jsonl\n\n"
+            + subject.empty_external_finding_synthesis_section()
+            .replace(
+                "<!-- wave:finding-synthesis begin -->",
+                "<!-- waveframework:finding-synthesis begin -->",
+            )
+            .replace(
+                "<!-- wave:finding-synthesis end -->",
+                "<!-- waveframework:finding-synthesis end -->",
+            )
+        )
+        rendered = subject.render_review_evidence_projection(
+            legacy, [synthesis()]
+        )
+        self.assertIn("<!-- wave:finding-synthesis begin -->", rendered)
+        self.assertNotIn("waveframework:finding-synthesis", rendered)
 
     def test_structured_identity_distinguishes_finding_and_lifecycle_variants(self) -> None:
         common = {

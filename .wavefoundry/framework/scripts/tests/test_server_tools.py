@@ -2789,7 +2789,7 @@ class WaveCreateScaffoldAlignmentTests(unittest.TestCase):
         self.assertNotIn("review-evidence-protocol", text)
         self.assertNotIn("```jsonl", text)
         self.assertIn("## Finding Synthesis", text)
-        self.assertIn("waveframework:finding-synthesis begin", text)
+        self.assertIn("wave:finding-synthesis begin", text)
         events = wave_md.parent / "events.jsonl"
         self.assertEqual(events.read_bytes(), b"")
         validation = self.srv.validate_external_review_evidence(wave_md)
@@ -3375,6 +3375,46 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         self.assertIn("operator-signoff", diagnostics[0]["message"])
         self.assertIn("wave-council-delivery", diagnostics[0]["message"])
 
+    def test_prepare_readiness_approval_is_not_staled_by_delivery_repairs(self):
+        readiness = self._approval_record(
+            "wave-council-readiness",
+            actor="wave-council",
+            fresh=True,
+            independent=True,
+        )
+        full_repair = {
+            "record_type": "finding_synthesis",
+            "record_id": "full-delivery-repair-head",
+            "finding_id": "finding-1",
+            "cycle": 1,
+            "approval_recheck_lanes": [
+                "wave-council-readiness",
+                "wave-council-delivery",
+            ],
+            "review_depth": "full",
+        }
+        delivery = self._approval_record(
+            "wave-council-delivery",
+            actor="wave-council",
+            fresh=True,
+            independent=True,
+        )
+        self.assertEqual(
+            self.srv._approval_evidence_diagnostics(
+                "marked",
+                ["wave-council-readiness", "wave-council-delivery"],
+                records=(readiness, full_repair, delivery),
+            ),
+            [],
+        )
+        self.assertTrue(
+            self.srv._approval_evidence_diagnostics(
+                "marked",
+                ["wave-council-readiness", "wave-council-delivery"],
+                records=(readiness, delivery, full_repair),
+            )
+        )
+
     def test_typed_review_evidence_tool_previews_then_writes_lightweight_run(self):
         created = self.srv.wave_create_wave_response(
             self.root, "typed-review-run", mode="create"
@@ -3797,6 +3837,322 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         self.assertEqual(checkpoints[0]["cycle"], 2)
         self.assertEqual(checkpoints[0]["frozen_boundary"], ["convergence-finding"])
 
+    def test_typed_multi_finding_repair_cycle_supports_progressive_lanes(self):
+        created = self.srv.wave_create_wave_response(
+            self.root, "typed-multi-repair-cycle", mode="create"
+        )
+        wave_id = created["data"]["wave_id"]
+        judgment = {
+            "validation_status": "real",
+            "scope_relation": "admitted",
+            "introduced_or_worsened_by_wave": True,
+            "contract_relevance": "required_ac",
+            "supported_reachability": True,
+            "attacker_reachability": False,
+            "authority_domain": "integrity",
+            "authority_delta": "low",
+            "observable_impact": "material",
+            "containment": "none",
+        }
+        evidence = {
+            "proposition": "the finding follows the shared repair cycle",
+            "failure_condition": "the public writer fabricates cycles or strands a required lane",
+            "public_path": "wave_record_review_evidence",
+            "command_or_fixture": "five-finding progressive-lane fixture",
+            "expected": "all findings share cycle one and each lane clears independently",
+            "observed": "the public transition reached the requested state",
+            "artifact_or_test_id": "test:multi-repair-cycle",
+            "known_bad_detection_method": "the old validator rejects the second repair_start",
+            "limitations": "local temporary wave",
+            "safety_and_authorization": "local non-destructive fixture",
+            "disposition_rationale": "required lifecycle state is actionable",
+        }
+        lanes = ["code-reviewer", "qa-reviewer"]
+
+        def record(finding, kind, cycle, actor, context, blocking):
+            return self.srv.wave_record_review_evidence_response(
+                self.root,
+                wave_id,
+                "finding",
+                actor,
+                context,
+                mode="create",
+                finding_id=finding,
+                run_kind=kind,
+                cycle=cycle,
+                judgment=judgment,
+                evidence=evidence,
+                source_lanes=lanes,
+                blocking_required_lanes=blocking,
+                approval_recheck_lanes=lanes,
+                review_boundaries_changed=[],
+                fresh_context=True,
+                independent=True,
+                integrity_confirmed=True,
+            )
+
+        findings = [f"finding-{index}" for index in range(5)]
+        for finding in findings:
+            result = record(
+                finding, "initial_delivery", 0, "qa-reviewer",
+                f"initial-{finding}", lanes,
+            )
+            self.assertEqual(result["status"], "ok", result)
+        for finding in findings:
+            result = record(
+                finding, "repair_start", 1, "implementer",
+                f"start-{finding}", lanes,
+            )
+            self.assertEqual(result["status"], "ok", result)
+
+        replay = record(
+            findings[0], "repair_start", 1, "implementer",
+            f"start-{findings[0]}", lanes,
+        )
+        self.assertEqual(replay["status"], "ok", replay)
+        self.assertTrue(replay["data"]["replayed"])
+        duplicate = record(
+            findings[0], "repair_start", 1, "implementer",
+            "conflicting-second-start", lanes,
+        )
+        self.assertEqual(duplicate["status"], "error", duplicate)
+        self.assertIn(
+            "more than one repair_start",
+            "\n".join(item["message"] for item in duplicate["diagnostics"]),
+        )
+
+        for finding in findings:
+            first_lane = record(
+                finding, "reverification", 1, "code-reviewer",
+                f"verify-code-{finding}", ["qa-reviewer"],
+            )
+            self.assertEqual(first_lane["status"], "ok", first_lane)
+            if finding != findings[-1]:
+                final_lane = record(
+                    finding, "reverification", 1, "qa-reviewer",
+                    f"verify-qa-{finding}", [],
+                )
+                self.assertEqual(final_lane["status"], "ok", final_lane)
+
+        premature = record(
+            findings[0], "repair_start", 2, "implementer",
+            "premature-cycle-two", lanes,
+        )
+        self.assertEqual(premature["status"], "error", premature)
+        self.assertIn(
+            "starts before cycle 1 completes",
+            "\n".join(item["message"] for item in premature["diagnostics"]),
+        )
+        final_lane = record(
+            findings[-1], "reverification", 1, "qa-reviewer",
+            f"verify-qa-{findings[-1]}", [],
+        )
+        self.assertEqual(final_lane["status"], "ok", final_lane)
+
+        records, errors = self.srv.read_review_event_ledger(
+            self.root / created["data"]["path"]
+        )
+        self.assertFalse(errors)
+        syntheses = [
+            row for row in records if row.get("record_type") == "finding_synthesis"
+        ]
+        superseded = {
+            row["supersedes_record_id"]
+            for row in syntheses
+            if row.get("supersedes_record_id")
+        }
+        heads = {
+            row["finding_id"]: row
+            for row in syntheses
+            if row["record_id"] not in superseded
+        }
+        self.assertEqual(set(heads), set(findings))
+        self.assertTrue(all(row["cycle"] == 1 for row in heads.values()))
+        self.assertTrue(
+            all(row["repair_execution_state"] == "completed" for row in heads.values())
+        )
+        self.assertTrue(
+            all(row["blocking_required_lanes"] == [] for row in heads.values())
+        )
+
+    def test_typed_reverification_can_reclassify_started_finding(self):
+        created = self.srv.wave_create_wave_response(
+            self.root, "typed-reclassification", mode="create"
+        )
+        wave_id = created["data"]["wave_id"]
+        actionable = {
+            "validation_status": "real",
+            "scope_relation": "admitted",
+            "introduced_or_worsened_by_wave": True,
+            "contract_relevance": "required_ac",
+            "supported_reachability": True,
+            "attacker_reachability": False,
+            "authority_domain": "integrity",
+            "authority_delta": "low",
+            "observable_impact": "material",
+            "containment": "none",
+        }
+        conforming = {
+            "validation_status": "conforming",
+            "scope_relation": "admitted",
+            "introduced_or_worsened_by_wave": False,
+            "contract_relevance": "none",
+            "supported_reachability": False,
+            "attacker_reachability": False,
+            "authority_domain": "none",
+            "authority_delta": "none",
+            "observable_impact": "none",
+            "containment": "preventive",
+        }
+        evidence = {
+            "proposition": "reverification may disprove an actionable finding",
+            "failure_condition": "a truthful reclassification strands the repair cycle",
+            "public_path": "wave_record_review_evidence",
+            "command_or_fixture": "typed reclassification fixture",
+            "expected": "the not_issue head terminalizes cycle one",
+            "observed": "the public transition reached the requested state",
+            "artifact_or_test_id": "test:typed-reclassification",
+            "known_bad_detection_method": "the old validator requires an actionable reverification row",
+            "limitations": "local temporary wave",
+            "safety_and_authorization": "local non-destructive fixture",
+            "disposition_rationale": "fresh evidence disproved the reported behavior",
+        }
+
+        def record(kind, cycle, context, judgment, blocking):
+            return self.srv.wave_record_review_evidence_response(
+                self.root,
+                wave_id,
+                "finding",
+                "qa-reviewer",
+                context,
+                mode="create",
+                finding_id="reclassified-finding",
+                run_kind=kind,
+                cycle=cycle,
+                judgment=judgment,
+                evidence=evidence,
+                source_lanes=["qa-reviewer"],
+                blocking_required_lanes=blocking,
+                approval_recheck_lanes=["qa-reviewer"],
+                review_boundaries_changed=[],
+                fresh_context=True,
+                independent=True,
+                integrity_confirmed=True,
+            )
+
+        self.assertEqual(
+            record("initial_delivery", 0, "initial", actionable, ["qa-reviewer"])["status"],
+            "ok",
+        )
+        self.assertEqual(
+            record("repair_start", 1, "start-1", actionable, ["qa-reviewer"])["status"],
+            "ok",
+        )
+        reclassified = record("reverification", 1, "verify-1", conforming, [])
+        self.assertEqual(reclassified["status"], "ok", reclassified)
+        cycle_two = record(
+            "repair_start", 2, "reopened-cycle-2", actionable, ["qa-reviewer"]
+        )
+        self.assertEqual(cycle_two["status"], "ok", cycle_two)
+
+    def test_convergence_waits_for_final_outstanding_finding(self):
+        created = self.srv.wave_create_wave_response(
+            self.root, "typed-aggregate-convergence", mode="create"
+        )
+        wave_id = created["data"]["wave_id"]
+        judgment = {
+            "validation_status": "real",
+            "scope_relation": "admitted",
+            "introduced_or_worsened_by_wave": True,
+            "contract_relevance": "required_ac",
+            "supported_reachability": True,
+            "attacker_reachability": False,
+            "authority_domain": "integrity",
+            "authority_delta": "low",
+            "observable_impact": "material",
+            "containment": "none",
+        }
+        evidence = {
+            "proposition": "aggregate convergence waits for every finding",
+            "failure_condition": "a checkpoint freezes a partial second cycle",
+            "public_path": "wave_record_review_evidence",
+            "command_or_fixture": "aggregate convergence fixture",
+            "expected": "the checkpoint appears only after the final finding",
+            "observed": "the requested transition committed",
+            "artifact_or_test_id": "test:aggregate-convergence",
+            "known_bad_detection_method": "the old builder checkpoints on the first cycle-two reverification",
+            "limitations": "local temporary wave",
+            "safety_and_authorization": "local non-destructive fixture",
+            "disposition_rationale": "required lifecycle state is actionable",
+        }
+
+        def record(finding, kind, cycle, context, blocking):
+            return self.srv.wave_record_review_evidence_response(
+                self.root,
+                wave_id,
+                "finding",
+                "qa-reviewer",
+                context,
+                mode="create",
+                finding_id=finding,
+                run_kind=kind,
+                cycle=cycle,
+                judgment=judgment,
+                evidence=evidence,
+                source_lanes=["qa-reviewer"],
+                blocking_required_lanes=blocking,
+                approval_recheck_lanes=["qa-reviewer"],
+                review_boundaries_changed=[],
+                fresh_context=True,
+                independent=True,
+                integrity_confirmed=True,
+            )
+
+        findings = ["finding-a", "finding-b"]
+        for finding in findings:
+            self.assertEqual(
+                record(finding, "initial_delivery", 0, f"initial-{finding}", ["qa-reviewer"])["status"],
+                "ok",
+            )
+        for cycle in (1, 2):
+            for finding in findings:
+                self.assertEqual(
+                    record(finding, "repair_start", cycle, f"start-{cycle}-{finding}", ["qa-reviewer"])["status"],
+                    "ok",
+                )
+            first = record(
+                findings[0], "reverification", cycle,
+                f"verify-{cycle}-{findings[0]}", [],
+            )
+            self.assertEqual(first["status"], "ok", first)
+            if cycle == 2:
+                self.assertFalse(
+                    any(
+                        row.get("run_kind") == "convergence_checkpoint"
+                        for row in first["data"]["appended_records"]
+                    )
+                )
+            second = record(
+                findings[1], "reverification", cycle,
+                f"verify-{cycle}-{findings[1]}", [],
+            )
+            self.assertEqual(second["status"], "ok", second)
+
+        records, errors = self.srv.read_review_event_ledger(
+            self.root / created["data"]["path"]
+        )
+        self.assertFalse(errors)
+        checkpoints = [
+            row for row in records
+            if row.get("record_type") == "review_run"
+            and row.get("run_kind") == "convergence_checkpoint"
+        ]
+        self.assertEqual(len(checkpoints), 1)
+        self.assertEqual(
+            checkpoints[0]["frozen_boundary"],
+            ["finding-a", "finding-b"],
+        )
+
     def test_event_commit_and_projection_failure_boundaries(self):
         created = self.srv.wave_create_wave_response(
             self.root, "typed-review-faults", mode="create"
@@ -4032,11 +4388,17 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         )
         with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
             with patch.object(self.srv, "_trigger_background_index_refresh_for_paths") as trigger:
-                result = self.srv.wave_review_response(self.root, "1200a test-wave")
+                with patch.object(
+                    self.srv,
+                    "_review_evidence_diagnostics",
+                    wraps=self.srv._review_evidence_diagnostics,
+                ) as evidence_diagnostics:
+                    result = self.srv.wave_review_response(self.root, "1200a test-wave")
         self.assertEqual(result["status"], "ok")
         self.assertTrue(result["data"]["lint_passed"])
         self.assertIn("required_lanes", result["data"])
-        trigger.assert_called_once()
+        trigger.assert_not_called()
+        self.assertFalse(evidence_diagnostics.call_args.kwargs["persist_adoption"])
 
     def test_wave_review_ok_when_signoffs_recorded(self):
         wave_md = self.root / "docs" / "waves" / "1200a test-wave" / "wave.md"
@@ -7333,14 +7695,14 @@ class CodeReadEnrichmentTests(unittest.TestCase):
         self.assertNotIn("edit_governance", result["data"])
 
     def test_marker_regions_detected_when_in_range(self):
-        """AC-14: marker_regions returns overlapping waveframework:* blocks."""
+        """AC-14: marker_regions returns overlapping wave:* blocks."""
         content = (
             "line 1\n"
             "line 2\n"
-            "<!-- waveframework:auto-guru begin -->\n"
+            "<!-- wave:auto-guru begin -->\n"
             "marker content 1\n"
             "marker content 2\n"
-            "<!-- end -->\n"
+            "<!-- wave:auto-guru end -->\n"
             "line 7\n"
         )
         self._write("foo.md", content)
@@ -7351,6 +7713,17 @@ class CodeReadEnrichmentTests(unittest.TestCase):
         self.assertEqual(regions[0]["start_line"], 3)
         self.assertEqual(regions[0]["end_line"], 6)
         self.assertIn("renderer-owned", regions[0]["warning"])
+
+    def test_marker_regions_accept_legacy_namespace(self):
+        content = (
+            "<!-- waveframework:auto-guru begin -->\n"
+            "legacy content\n"
+            "<!-- waveframework:auto-guru end -->\n"
+        )
+        self._write("legacy.md", content)
+        result = self.srv.code_read_response(self.root, "legacy.md")
+        regions = result["data"]["marker_regions"]
+        self.assertEqual([(row["name"], row["start_line"], row["end_line"]) for row in regions], [("auto-guru", 1, 3)])
 
     def test_marker_regions_empty_list_when_none(self):
         """AC-15: marker_regions is empty list (not omitted) when no markers overlap."""
@@ -23967,10 +24340,12 @@ class CodeLexicalToolTests(unittest.TestCase):
         self.assertEqual(resp["data"]["result_count"], 0)
         self.assertIn("compound identifiers", resp["data"].get("note", ""))
 
-    def test_mcp_tool_is_registered_readonly(self):
+    def test_mcp_tool_discloses_observational_telemetry_write(self):
         src = Path(self.srv.__file__).read_text(encoding="utf-8")
         pos = src.index("def code_lexical(")
-        deco = src.rindex("@mcp.tool(annotations=_READONLY_TOOL)", 0, pos)
+        deco = src.rindex(
+            "@mcp.tool(annotations=_OBSERVATIONAL_TOOL)", 0, pos
+        )
         self.assertGreater(pos - deco, 0)
         self.assertLess(pos - deco, 120)
 

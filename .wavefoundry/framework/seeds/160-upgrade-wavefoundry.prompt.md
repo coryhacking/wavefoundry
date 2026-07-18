@@ -377,7 +377,7 @@ Agents performing **Upgrade Wavefoundry** in a target repository must apply **al
    This materializes hooks, MCP host config (`.cursor/mcp.json`, `.mcp.json`, `.junie/mcp/mcp.json`), `.wavefoundry/bin/` launchers, and always calls **`render_agent_surfaces.py`**. Its `reconcile_review_protocol_surfaces(repo_root)` operation runs before the Guru-presence check; auto-Guru tier 2–3 rendering remains conditional on `docs/agents/guru.md`. It owns no target wave-history migration: it never scans or writes existing `docs/waves/*/{wave.md,events.jsonl}` records.
 3. **Reconcile executable review-evidence carriers** (part of step 2, verify explicitly):
    - Ensure the canonical QA source exists at `docs/agents/qa-reviewer.md` from seed 239, and that Review-wave prompt sources exist before rendering.
-   - Verify each registry-enumerated enabled carrier has exactly one `waveframework:executable-review-evidence` marker pair, points to seed 209 for the full protocol, and describes the fixed sibling `events.jsonl` authority rather than inline JSONL in `wave.md`.
+   - Verify each registry-enumerated enabled carrier has exactly one `wave:executable-review-evidence` marker pair, points to seed 209 for the full protocol, and describes the fixed sibling `events.jsonl` authority rather than inline JSONL in `wave.md`.
    - Preserve all project-authored text outside the owned marker region. A malformed marker pair is a failed reconciliation, not permission to replace the file.
    - Keep repo-local docs-contract/release reviewers and native wrappers conditional on their existing/enabled surfaces.
 4. **Backfill tier 1 in `AGENTS.md`** (merge-safe; not overwritten by the renderer):
@@ -391,7 +391,7 @@ Agents performing **Upgrade Wavefoundry** in a target repository must apply **al
    ```bash
    python3 .wavefoundry/framework/scripts/render_agent_surfaces.py
    ```
-   Or re-run step 2. **Do not hand-edit** regions between `<!-- waveframework:auto-guru begin` and `end -->` — change `.wavefoundry/framework/scripts/render_agent_surfaces.py` in the framework source repo instead.
+   Or re-run step 2. **Do not hand-edit** regions between `<!-- wave:auto-guru begin` and `end -->` — change `.wavefoundry/framework/scripts/render_agent_surfaces.py` in the framework source repo instead.
 7. **Verify generated outputs** (see validation checklist bullets for executable review evidence and auto-Guru).
 8. **Per-host operator follow-up** (document in upgrade summary; operator executes):
    - **Cursor:** enable `wavefoundry` MCP from `.cursor/mcp.json` if not auto-loaded
@@ -456,7 +456,7 @@ Validation areas that should be checked explicitly:
 - `docs/agents/guru.md` exists when the project uses Guru (`seed-211`)
 - `wf render-surfaces` ran during upgrade (hooks + MCP + bin launchers + `render_agent_surfaces.py`)
 - review-protocol reconciliation ran through that public renderer path even when Guru is absent; `docs/agents/qa-reviewer.md` reflects seed 239, every enabled registry destination has one valid owned marker pair, and project prose outside markers was preserved
-- when `docs/agents/guru.md` exists: `.codex/skills/auto-guru/SKILL.md` present; `.cursor/rules/auto-guru.mdc` when `.cursor/` exists; `.claude/agents/guru.md` when `.claude/` exists; tier-2 `waveframework:auto-guru` marker blocks on `CLAUDE.md` and each enabled thin pointer (`project-context.mdc`, `.junie/guidelines.md`, `WARP.md`, `.github/copilot-instructions.md`) with no duplicate unmarked bullets outside markers
+- when `docs/agents/guru.md` exists: `.codex/skills/auto-guru/SKILL.md` present; `.cursor/rules/auto-guru.mdc` when `.cursor/` exists; `.claude/agents/guru.md` when `.claude/` exists; tier-2 `wave:auto-guru` marker blocks on `CLAUDE.md` and each enabled thin pointer (`project-context.mdc`, `.junie/guidelines.md`, `WARP.md`, `.github/copilot-instructions.md`) with no duplicate unmarked bullets outside markers
 - `docs/agents/platform-mapping.md` documents auto-Guru tier 1–3 routing when present in the repo
 - do not hand-maintain hook logic or auto-Guru marker bodies when the renderer can own them
 - Hook regeneration may manage Copilot agent files under `.github/hooks/`, but it must not create or modify GitHub Actions workflows under `.github/workflows/` and must not touch local git hooks under `.git/hooks/`

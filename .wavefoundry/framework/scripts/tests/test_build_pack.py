@@ -244,6 +244,18 @@ class BuildPackTests(unittest.TestCase):
             names,
         )
         self.assertIn(
+            ".wavefoundry/framework/scripts/context_efficiency.py",
+            names,
+        )
+        self.assertIn(
+            ".wavefoundry/framework/scripts/score_context_efficiency_pairs.py",
+            names,
+        )
+        self.assertIn(
+            ".wavefoundry/framework/evals/context-efficiency-pairs.schema.json",
+            names,
+        )
+        self.assertIn(
             ".wavefoundry/framework/dashboard/dashboard.html",
             names,
         )
@@ -1093,6 +1105,22 @@ class InstallTemplateInjectionTests(unittest.TestCase):
         # Live log MUST NOT be in the zip — that's the operator-preserved instance.
         self.assertNotIn("install-log.md", names)
         self.assertNotIn(".wavefoundry/install-log.md", names)
+
+    def test_lifecycle_prompt_baselines_ship_in_framework_tree(self):
+        zp = self._build()
+        names = set(self._zip_names(zp))
+        expected = {
+            ".wavefoundry/framework/install/lifecycle-prompts/"
+            + prompt
+            for prompt in (
+                "create-wave.prompt.md",
+                "prepare-wave.prompt.md",
+                "implement-wave.prompt.md",
+                "review-wave.prompt.md",
+                "close-wave.prompt.md",
+            )
+        }
+        self.assertTrue(expected.issubset(names), expected - names)
 
     def test_install_md_no_longer_present(self):
         """AC-8: INSTALL.md is removed; not aliased."""
