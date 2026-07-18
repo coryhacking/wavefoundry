@@ -8250,7 +8250,19 @@ def wave_memory_search_response(
         ]
     ranked = _memory_ranked(root, records)
     if query and semantic_hit_order:
-        ranked.sort(key=lambda pair: semantic_hit_order.get(pair[0]["memory_id"], MEMORY_SEARCH_CAP))
+        # Semantic rank is a tie-break WITHIN the trust/decay policy, not a
+        # wholesale override (1svuj). The policy's primary key is the decayed
+        # confidence tier (`round(effective_confidence, 2)`, matching
+        # `_memory_ranked`); semantic rank only orders records within the same
+        # tier, replacing the arbitrary memory_id tie-break there. So a
+        # higher-trust record is never demoted below a lower-trust one by text
+        # relevance alone. (No-index path is untouched: `semantic_hit_order` is
+        # empty then, so this re-sort never runs.)
+        ranked.sort(key=lambda pair: (
+            -round(float(pair[1].get("effective_confidence") or 0.0), 2),
+            semantic_hit_order.get(pair[0]["memory_id"], MEMORY_SEARCH_CAP),
+            pair[0]["memory_id"],
+        ))
     views = [_memory_view(record, decay) for record, decay in ranked[:n]]
     diagnostics = []
     if not views:

@@ -35,7 +35,7 @@ between the markers is machine-maintained; the surrounding narrative is not.
 
 | Area | Path | Kind | Size (nodes) |
 | ---- | ---- | ---- | ------------ |
-| tests | `.wavefoundry/framework/scripts/tests` | code | 8585 |
+| tests | `.wavefoundry/framework/scripts/tests` | code | 8599 |
 | server_impl | `.wavefoundry/framework/scripts` | code | 870 |
 | graph | `.wavefoundry/framework/scripts` | code | 352 |
 | dashboard | `.wavefoundry/framework/dashboard` | code | 212 |

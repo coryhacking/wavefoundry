@@ -1,10 +1,10 @@
 # Memory search: semantic rank should tie-break within policy, not override it
 
 Change ID: `1svuj-bug memory-search-semantic-override-policy-fix`
-Change Status: `planned`
+Change Status: `implemented`
 Owner: framework
-Status: planned
-Last verified: 2026-07-17
+Status: implemented
+Last verified: 2026-07-18
 
 Wave: `1sufo memory-retrieval-eval-and-fusion`
 
@@ -37,16 +37,16 @@ Scope clarification the red-team surfaced: the pre-filter just above (records mu
 
 ## Acceptance Criteria
 
-- [ ] AC-1: In `wave_memory_search_response`, the policy order (`_memory_ranked`) is primary and semantic rank is only a secondary tie-break; the wholesale override is removed. (required)
-- [ ] AC-2: A test shows a high-trust record (e.g. `operator_preference`/`fragile_file` or a fresh higher-confidence record) is not demoted below a lower-trust strong-text-match record by the semantic path. (required)
-- [ ] AC-3: With no semantic index, search behavior is byte-identical to today (text-containment fallback + policy order); the change is anchored by symbol, not line. (required)
-- [ ] AC-4: Full framework suite green; docs-lint clean. (required)
+- [x] AC-1: In `wave_memory_search_response`, the policy order (`_memory_ranked`) is primary and semantic rank is only a secondary tie-break; the wholesale override is removed. (required) — sort key is now `(-round(effective_confidence,2), semantic_rank, memory_id)`: the same decayed-confidence tier as `_memory_ranked` is primary, semantic orders only within a tier.
+- [x] AC-2: A test shows a high-trust record (e.g. `operator_preference`/`fragile_file` or a fresh higher-confidence record) is not demoted below a lower-trust strong-text-match record by the semantic path. (required) — `test_semantic_does_not_demote_high_trust_record` (0.9-confidence record stays ahead of a 0.3-confidence top-semantic-hit); this test fails on the pre-fix wholesale override.
+- [x] AC-3: With no semantic index, search behavior is byte-identical to today (text-containment fallback + policy order); the change is anchored by symbol, not line. (required) — the re-sort is gated on `query and semantic_hit_order`, so the no-index path is unchanged; `test_no_index_path_is_policy_order`. Anchored by symbol `wave_memory_search_response`.
+- [x] AC-4: Full framework suite green; docs-lint clean. (required) — full suite 5797 OK; `wave_validate` docs-lint ok.
 
 ## Tasks
 
-- [ ] Replace the wholesale semantic re-sort with policy-primary + semantic-tie-break in `wave_memory_search_response`.
-- [ ] Test: high-trust record not demoted by text relevance; no-index path unchanged.
-- [ ] Full suite + docs-lint.
+- [x] Replace the wholesale semantic re-sort with policy-primary + semantic-tie-break in `wave_memory_search_response`.
+- [x] Test: high-trust record not demoted by text relevance; no-index path unchanged. — `MemorySearchOrderingTests` (3 tests).
+- [x] Full suite + docs-lint.
 
 ## Agent Execution Graph
 

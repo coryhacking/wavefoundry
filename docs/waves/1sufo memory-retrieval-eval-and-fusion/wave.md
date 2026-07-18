@@ -1,8 +1,8 @@
 # Wave Record
 
 Owner: Engineering
-Status: planned
-Last verified: 2026-07-17
+Status: closed
+Last verified: 2026-07-18
 review-evidence-source: events.jsonl
 
 wave-id: `1sufo memory-retrieval-eval-and-fusion`
@@ -15,15 +15,21 @@ Fix the validated relevance-overrides-policy defect in memory search (`wave_memo
 ## Changes
 
 Change ID: `1sufm-enh memory-retrieval-eval-baseline`
-Change Status: `planned`
+Change Status: `implemented`
 
 Change ID: `1svuj-bug memory-search-semantic-override-policy-fix`
-Change Status: `planned`
+Change Status: `implemented`
+
+Completed At: 2026-07-18
 
 ## Wave Summary
 
-Two changes: `1sufm` lands a hermetic memory-retrieval golden set + runner + baseline (paraphrase, exact-target, no-index, decay, supersession) that measures the current `wave_memory_search`/`brief` paths (measurement-only, corpus-independent); `1svuj` applies the minimal defect fix (policy order primary, semantic rank a secondary tie-break in `wave_memory_search_response`, no wholesale override). The full RRF fusion `1sufn` was split out and deferred to `docs/plans/` per the council review.
+Wave `1sufo` (Memory Retrieval Eval And Fusion) delivered two changes: Memory-retrieval evaluation baseline and Memory search: semantic rank should tie-break within policy, not override it.
 
+**Changes delivered:**
+
+- **Memory-retrieval evaluation baseline** (`1sufm-enh memory-retrieval-eval-baseline`) — 6 ACs completed. Key decisions: Eval baseline before any fusion change; Memory-specific harness, hermetic fixtures
+- **Memory search: semantic rank should tie-break within policy, not override it** (`1svuj-bug memory-search-semantic-override-policy-fix`) — 4 ACs completed. Key decisions: Semantic-as-tie-break, not full RRF fusion; Leave the pre-filter as-is
 ## Journal Watchpoints
 
 - `server_impl.py` edited under `framework_edit_allowed`; open before editing, close immediately after.
@@ -34,15 +40,15 @@ Two changes: `1sufm` lands a hermetic memory-retrieval golden set + runner + bas
 
 ## Finding Synthesis
 
-<!-- waveframework:finding-synthesis begin -->
+<!-- wave:finding-synthesis begin -->
 | Current finding | Disposition | Open block | Repair | Approval recheck |
 | --- | --- | --- | --- | --- |
 | — | — | — | — | — |
 
 <details class="wavefoundry-review-evidence">
-<summary>Machine review evidence — 1 records; 1 runs; 0 findings; current: do_now 0, maybe_later 0, dont_do_later 0, not_issue 0</summary>
+<summary>Machine review evidence — 5 records; 2 runs; 0 findings; current: do_now 0, maybe_later 0, dont_do_later 0, not_issue 0</summary>
 </details>
-<!-- waveframework:finding-synthesis end -->
+<!-- wave:finding-synthesis end -->
 
 ## Review Checkpoints
 
@@ -54,7 +60,24 @@ Two changes: `1sufm` lands a hermetic memory-retrieval golden set + runner + bas
 
 - wave-council-readiness: approved 2026-07-17 — eval-before-fusion sequencing is explicit and blocking; the fusion change is gated on beating a measured baseline and ships default-off otherwise; relevance/policy separation is the load-bearing design and is guarded by AC-3 (trust records not demoted). The defect being fixed is verified in the tree (`wave_memory_search_response`, semantic re-sort over `_memory_ranked`). No blocking concerns.
 - operator-signoff: pending operator closure confirmation
+- wave-council-delivery: approved — Ran run_tests.py --no-cache (5797 OK), wave_validate (ok), and executed run_memory_eval.py standalone (5/5 invariants PASS; comparison baseline=1.00 vs semantic_only=0.00 vs lexical_only=0.00).
+- wave-council-readiness: approved — Inspected wave_memory_search_response and _memory_ranked during the 2026-07-17 prepare-phase council review.
+- operator-signoff: approved — Operator close instruction received this session following the structured review report.
 
 ## Dependencies
 
 - No external wave dependencies.
+
+<!-- wave:context-efficiency begin -->
+## Context Efficiency
+
+Estimated token savings use phase-unique returned source versions and mapped workflow prompts, minus recorded request and response tokens. Saved model output or avoided tool loops count only through quality-equivalent paired evidence.
+
+| Stage | Tool calls | Estimated token savings |
+| --- | ---: | ---: |
+| close | 2 | 503 |
+| implement | 2 | 680 |
+| **Total** | **4** | **1,183** |
+
+<!-- wave:context-efficiency-state {"generation":4,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"close":{"calls":2,"content_source_credit":0,"direct_net":503,"estimated_tokens_saved":503,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":18,"response_debit":476,"source_credit_count":0,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":997},"implement":{"calls":2,"content_source_credit":0,"direct_net":680,"estimated_tokens_saved":680,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":18,"response_debit":727,"source_credit_count":0,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":1425}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":4,"content_source_credit":0,"direct_net":1183,"estimated_tokens_saved":1183,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":36,"response_debit":1203,"source_credit_count":0,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":2422},"wave_id":"1sufo memory-retrieval-eval-and-fusion"} -->
+<!-- wave:context-efficiency end -->

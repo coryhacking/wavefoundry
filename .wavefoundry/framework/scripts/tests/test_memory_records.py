@@ -1711,3 +1711,47 @@ class ExplorationAvoidedTests(_MemoryCase):
         self.assertEqual(good["status"], "ok")
         self.assertEqual(good["data"]["advisories"], degraded["data"]["advisories"],
                          "credit success/failure must not change the advisory output")
+
+
+class MemorySearchOrderingTests(_MemoryCase):
+    """Wave 1svuj: semantic rank tie-breaks within the trust policy, never overrides it."""
+
+    def setUp(self):
+        super().setUp()
+        self.srv = load_server()
+
+    def _semantic_index(self, *memory_ids):
+        """A mock index whose search_docs ranks the given memory ids, in order."""
+        idx = MagicMock()
+        idx.search_docs.return_value = (
+            [{"path": f"{self.mem.MEMORY_DIR}/{mid}.md"} for mid in memory_ids], False)
+        return idx
+
+    def test_semantic_does_not_demote_high_trust_record(self):
+        # A: high confidence; B: low confidence but the top semantic hit.
+        self._add("mem-a", "operator_preference", confidence=0.9, targets=("src/a.py",))
+        self._add("mem-b", "review_finding", confidence=0.3, targets=("src/b.py",))
+        idx = self._semantic_index("mem-b", "mem-a")  # semantic wants B first
+        resp = self.srv.wave_memory_search_response(self.root, query="regress", index=idx)
+        ids = [r["memory_id"] for r in resp["data"]["records"]]
+        self.assertLess(ids.index("mem-a"), ids.index("mem-b"),
+                        "the higher-confidence record must not be demoted by text relevance")
+
+    def test_semantic_tiebreaks_within_a_confidence_tier(self):
+        # Same confidence tier → semantic rank decides the order within it.
+        self._add("mem-a", "review_finding", confidence=0.5, targets=("src/a.py",))
+        self._add("mem-b", "review_finding", confidence=0.5, targets=("src/b.py",))
+        idx = self._semantic_index("mem-b", "mem-a")
+        resp = self.srv.wave_memory_search_response(self.root, query="q", index=idx)
+        ids = [r["memory_id"] for r in resp["data"]["records"]]
+        self.assertEqual(ids, ["mem-b", "mem-a"],
+                         "within one confidence tier, semantic rank orders the records")
+
+    def test_no_index_path_is_policy_order(self):
+        self._add("mem-a", "operator_preference", confidence=0.9)
+        self._add("mem-b", "review_finding", confidence=0.3)
+        # No index → semantic_hit_order stays empty → the re-sort never runs.
+        resp = self.srv.wave_memory_search_response(self.root, query="lesson")
+        ids = [r["memory_id"] for r in resp["data"]["records"]]
+        self.assertEqual(ids, ["mem-a", "mem-b"],
+                         "no-index path stays in policy order (confidence desc)")

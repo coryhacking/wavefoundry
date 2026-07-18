@@ -1,10 +1,10 @@
 # Memory-retrieval evaluation baseline
 
 Change ID: `1sufm-enh memory-retrieval-eval-baseline`
-Change Status: `planned`
+Change Status: `implemented`
 Owner: framework
-Status: planned
-Last verified: 2026-07-17
+Status: implemented
+Last verified: 2026-07-18
 
 Wave: `1sufo memory-retrieval-eval-and-fusion`
 
@@ -39,19 +39,19 @@ The project already has a standing golden-query retrieval eval policy for code/d
 
 ## Acceptance Criteria
 
-- [ ] AC-1: A memory-specific golden fixture set exists covering all five categories: paraphrase, exact target/symbol, degraded no-index, decay, supersession. (required)
-- [ ] AC-2: A deterministic runner scores the current `wave_memory_search`/`brief` paths on the fixtures (recall@k / MRR) and asserts explicit pass/fail on the policy-invariant cases. (required)
-- [ ] AC-3: The runner records a baseline plus lexical-only and semantic-only comparison points, consumable by the fusion change as its adoption gate. (required)
-- [ ] AC-4: This change alters no ranking or surfaced behavior — `_memory_ranked` and the search/brief paths are unchanged; the harness is measurement-only. (required)
-- [ ] AC-5: Fixtures are hermetic (build their own corpus/index or the deterministic no-index fallback); no dependency on the live corpus. (required)
-- [ ] AC-6: Full framework suite green; docs-lint clean. (required)
+- [x] AC-1: A memory-specific golden fixture set exists covering all five categories: paraphrase, exact target/symbol, degraded no-index, decay, supersession. (required) — `tests/eval/memory_golden.json` (6 records, 5 cases, one per category); `test_fixture_covers_all_five_categories`.
+- [x] AC-2: A deterministic runner scores the current `wave_memory_search`/`brief` paths on the fixtures (recall@k / MRR) and asserts explicit pass/fail on the policy-invariant cases. (required) — `tests/eval/run_memory_eval.py` reports recall@k/MRR per case + `top_is`/`ranked_above`/`excludes` invariant pass/fail; `test_all_policy_invariants_pass`, `test_recall_and_mrr_reported_per_case`.
+- [x] AC-3: The runner records a baseline plus lexical-only and semantic-only comparison points, consumable by the fusion change as its adoption gate. (required) — `comparison` block (paraphrase recall@1: baseline 1.00 vs semantic_only 0.00 vs lexical_only 0.00); `test_recorded_baseline_beats_semantic_and_lexical_only`.
+- [x] AC-4: This change alters no ranking or surfaced behavior — `_memory_ranked` and the search/brief paths are unchanged; the harness is measurement-only. (required) — 1sufm adds only fixtures/runner/test/docs; it touches no product ranking code (the runner only calls the shipped paths).
+- [x] AC-5: Fixtures are hermetic (build their own corpus/index or the deterministic no-index fallback); no dependency on the live corpus. (required) — `build_corpus` writes the synthetic records into a throwaway repo; a fixed `_StubIndex` models semantic retrieval; `test_hermetic_reproducible` (two independent runs agree).
+- [x] AC-6: Full framework suite green; docs-lint clean. (required) — full suite 5797 OK; `wave_validate` docs-lint ok.
 
 ## Tasks
 
-- [ ] Author the synthetic memory-record corpus + `(query/target) → expected` fixtures for the five categories.
-- [ ] Build the deterministic runner over `wave_memory_search`/`brief`; report recall@k / MRR + invariant pass/fail; record baseline + lexical-only + semantic-only.
-- [ ] Reference doc for the memory eval set + gating; pointer from the code/docs eval doc.
-- [ ] Full suite + docs-lint.
+- [x] Author the synthetic memory-record corpus + `(query/target) → expected` fixtures for the five categories. — `tests/eval/memory_golden.json`.
+- [x] Build the deterministic runner over `wave_memory_search`/`brief`; report recall@k / MRR + invariant pass/fail; record baseline + lexical-only + semantic-only. — `tests/eval/run_memory_eval.py` (+ CLI); `test_memory_eval.py` (5 tests).
+- [x] Reference doc for the memory eval set + gating; pointer from the code/docs eval doc. — `docs/references/memory-retrieval-eval.md`; `docs/architecture/testing-architecture.md` tier row. (Brief note: exercised via search-path fixtures; `wave_memory_brief` shares the same `_memory_ranked` policy.)
+- [x] Full suite + docs-lint.
 
 ## Agent Execution Graph
 

@@ -50,14 +50,20 @@
       "version": 1
     },
     "1sufo memory-retrieval-eval-and-fusion": {
-      "prefix_sha256": "746a38376d25e09166aaf9dfb775dd2cce4bc7611e7487c9bde349fc5d3a4510",
-      "record_count": 1,
+      "prefix_sha256": "f18cef3cdac2c20ba71b37f894551fb3b78e0d50bde0d59de2b07a56e60ba335",
+      "record_count": 5,
       "source": "events.jsonl",
       "version": 1
     },
     "1sufq commit-reasoning-provenance": {
       "prefix_sha256": "56848e299d4b11b6e006cb536e0c207a0426873b8f0e37c0f50cb95f2a2288d6",
       "record_count": 5,
+      "source": "events.jsonl",
+      "version": 1
+    },
+    "1sxj7 self-populating-memory-and-telemetry-reconciliation": {
+      "prefix_sha256": "7c084e00e8d30be88718bf3c171fbd527b9252b7eaedc413cae071ae008fd550",
+      "record_count": 0,
       "source": "events.jsonl",
       "version": 1
     }
