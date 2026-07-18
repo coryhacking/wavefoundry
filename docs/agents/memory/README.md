@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-13
+Last verified: 2026-07-17
 
 Typed, evidence-backed memory records for the agent memory layer: prior failed
 attempts, operator preferences, fragile files, review findings, environment
@@ -65,6 +65,56 @@ Optional: `## Notes`.
 Decay affects advisory ranking and briefing inclusion only. Status and
 supersession are the ONLY lifecycle mechanisms — decay never deletes,
 auto-supersedes, or rewrites a record.
+
+## Duplicate detection
+
+Adding a record runs a deterministic, DETECTION-ONLY duplicate check against
+existing `active`/`candidate` records (retired history is never a duplicate).
+Two independent signals are reported:
+
+- `evidence_ref`: the new record shares at least one `## Evidence` ref (an
+  originating event id, a wave/change id, or a path) with an existing record.
+- `normalized_content`: the `(kind, sorted targets, summary)` identities match,
+  where the summary is compared after a fixed normalization (lowercased, every
+  run of non-alphanumeric characters collapsed to one space, trimmed).
+
+`wave_memory_add` still writes the record and attaches a `possible_duplicate`
+advisory naming the matched ids and signals; pass `abort_if_duplicate=True` to
+refuse the write instead (no mutation). This detection is what keeps evidence
+derived candidate supply idempotent. It NEVER marks a record superseded, merges,
+or deletes: reconciliation stays an explicit operator action. Semantic
+contradiction detection (conflicting but not duplicate claims) is deliberately
+not attempted here.
+
+## Proposing candidates from review evidence
+
+`wave_memory_propose(wave_id, mode)` fills the corpus from work a wave already
+did, instead of waiting for hand-authored records. It reads two local, typed
+sources and NEVER a raw transcript:
+
+- each admitted change doc's `## Decision Log` becomes a `decision` candidate,
+- the canonical `events.jsonl` repaired real-defect findings become a
+  `failed_attempt` candidate (or a `fragile_file` candidate for a file repaired
+  more than once in the same wave).
+
+Drafting is CONSERVATIVE: only durable-shaped signals that carry a concrete code
+anchor (a path or `symbol:` ref) are drafted, never every material finding, and
+the conversational kinds (`operator_preference`, `environment_gotcha`,
+`dependency_gotcha`) are structurally unavailable from the typed ledger and left
+to operator authoring. `mode='dry_run'` (default) returns the drafts;
+`mode='create'` writes them as `candidate` records through the normal write path
+(forbidden-content scanned, exact/normalized duplicates skipped so re-runs are
+idempotent). Candidates never become `active` without an explicit
+`wave_memory_reconcile`. Each proposed record carries a `Source exploration cost:`
+line (see below).
+
+### `Source exploration cost:` (optional metadata)
+
+An optional frontmatter line recording the measured consumed-token cost of the
+wave that produced an evidence-derived candidate (its 1stwj context-efficiency
+`request_debit + response_debit`). It is a measured number, never a constant,
+and grounds the separately-labeled "estimated exploration avoided" wave metric.
+Absent on manually-authored records.
 
 ## Forbidden content
 

@@ -35,21 +35,20 @@ between the markers is machine-maintained; the surrounding narrative is not.
 
 | Area | Path | Kind | Size (nodes) |
 | ---- | ---- | ---- | ------------ |
-| tests | `.wavefoundry/framework/scripts/tests` | code | 8544 |
-| server_impl | `.wavefoundry/framework/scripts` | code | 740 |
+| tests | `.wavefoundry/framework/scripts/tests` | code | 8585 |
+| server_impl | `.wavefoundry/framework/scripts` | code | 870 |
 | graph | `.wavefoundry/framework/scripts` | code | 352 |
 | dashboard | `.wavefoundry/framework/dashboard` | code | 212 |
-| subprocess_util | `.wavefoundry/framework/scripts` | code | 201 |
+| subprocess_util | `.wavefoundry/framework/scripts` | code | 200 |
 | wave_lint_lib | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 183 |
 | chunker | `.wavefoundry/framework/scripts` | code | 179 |
 | indexer | `.wavefoundry/framework/scripts` | code | 120 |
 | dashboard/dashboard | `.wavefoundry/framework/scripts` | code | 116 |
-| upgrade_wavefoundry | `.wavefoundry/framework/scripts` | code | 91 |
+| review_evidence | `.wavefoundry/framework/scripts` | code | 91 |
+| upgrade_wavefoundry | `.wavefoundry/framework/scripts` | code | 89 |
 | render_agent_surfaces | `.wavefoundry/framework/scripts` | code | 86 |
 | context_efficiency | `.wavefoundry/framework/scripts` | code | 83 |
-| review_evidence | `.wavefoundry/framework/scripts` | code | 82 |
 | gen_codebase_map | `.wavefoundry/framework/scripts` | code | 58 |
-| build_pack | `.wavefoundry/framework/scripts` | code | 55 |
 | graph_di_signals | `.wavefoundry/framework/scripts` | code | 44 |
 | graph_cluster | `.wavefoundry/framework/scripts` | code | 40 |
 | graph_query | `.wavefoundry/framework/scripts` | code | 29 |
@@ -59,6 +58,7 @@ between the markers is machine-maintained; the surrounding narrative is not.
 | server | `.wavefoundry/framework/scripts` | code | 13 |
 | commit_provenance | `.wavefoundry/framework/scripts` | code | 12 |
 | tokens | `docs/design-system/tokens` | config | 320 |
+| docs | `docs` | config | 247 |
 <!-- wave:repo-index-modules end -->
 
 No shipped product implementation sources exist yet. The MCP Python package (`src/wavefoundry/`) is planned but not scaffolded.

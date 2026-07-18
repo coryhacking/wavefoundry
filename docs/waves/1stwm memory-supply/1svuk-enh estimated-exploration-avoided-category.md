@@ -1,9 +1,9 @@
 # Estimated exploration-avoided — a separate, grounded wave-metric category
 
 Change ID: `1svuk-enh estimated-exploration-avoided-category`
-Change Status: `planned`
+Change Status: `implemented`
 Owner: framework
-Status: planned
+Status: implemented
 Last verified: 2026-07-17
 
 Wave: `1stwm memory-supply`
@@ -41,21 +41,21 @@ This change adds a SEPARATE, explicitly-labeled ESTIMATE category — "estimated
 
 ## Acceptance Criteria
 
-- [ ] AC-1: The credit unit is the record's measured `source_exploration_cost` (from `1stwk`), never a hardcoded constant, and the baseline is bounded (a single record's real origin cost), so it cannot inflate with corpus size. (required)
-- [ ] AC-2: Credit is added only on an actual advisory-surface event in a matching context; with no surface event, nothing accrues (test). (required)
-- [ ] AC-3: `attribution_factor` is bounded well below 1.0, scaled by semantic-match confidence, and the formula is fixed + documented. (required)
-- [ ] AC-4: The value is surfaced as a SEPARATE, explicitly-labeled estimate (its own line/block), never summed into the measured `## Context Efficiency` total, and carries the causal caveat. (required)
-- [ ] AC-5: Surfaced-vs-cited is recorded distinctly; the attribution honestly reflects that surface is not proof of use. (required)
-- [ ] AC-6: Telemetry-only invariance — retrieval, ranking, gating, and the advisory surface are byte-identical with this credit path on vs off (test). (required)
-- [ ] AC-7: Full framework suite green; docs-lint clean. (required)
+- [x] AC-1: The credit unit is the record's measured `source_exploration_cost` (from `1stwk`), never a hardcoded constant, and the baseline is bounded (a single record's real origin cost), so it cannot inflate with corpus size. (required) — `estimate_credit` reads each record's `source_exploration_cost`; costless records contribute nothing (`test_estimate_credit_grounded_and_skips_costless`).
+- [x] AC-2: Credit is added only on an actual advisory-surface event in a matching context; with no surface event, nothing accrues (test). (required) — credit only via `_credit_exploration_avoided_surface` on `wave_memory_brief`; tests `test_existence_alone_does_not_accrue`, `test_no_open_wave_no_accrual`, `test_brief_surface_credits_open_wave`.
+- [x] AC-3: `attribution_factor` is bounded well below 1.0, scaled by semantic-match confidence, and the formula is fixed + documented. (required) — `attribution_factor = ATTRIBUTION_BASE(0.5 surfaced / 0.75 cited) × clamped match_confidence`; `test_attribution_factor_bounded_below_one`; documented in `docs/references/estimated-exploration-avoided.md`.
+- [x] AC-4: The value is surfaced as a SEPARATE, explicitly-labeled estimate (its own line/block), never summed into the measured `## Context Efficiency` total, and carries the causal caveat. (required) — separate `estimated_exploration_avoided` block on `wave_current`/`wave_audit` (own disposable sidecar, `measured: false`, `caveat`); `test_wave_current_surfaces_separate_labeled_estimate`. Note: surfaced via `wave_current`/`wave_audit` line/block + reference doc; a `wave.md` marker-section render was intentionally not added (the marker renderer is out of scope; the estimate is fully surfaced through the tools) — this is the "line/block" AC-4 allows.
+- [x] AC-5: Surfaced-vs-cited is recorded distinctly; the attribution honestly reflects that surface is not proof of use. (required) — separate `surfaced_events`/`cited_events` counters, `ATTRIBUTION_BASE_SURFACED < ATTRIBUTION_BASE_CITED`; brief credits as surfaced.
+- [x] AC-6: Telemetry-only invariance — retrieval, ranking, gating, and the advisory surface are byte-identical with this credit path on vs off (test). (required) — credit is fail-isolated and never touches `data`/`advisories`; `test_advisory_output_invariant_to_credit_failure` (advisories identical when the sidecar write fails).
+- [x] AC-7: Full framework suite green; docs-lint clean. (required) — full suite 5788 OK; `wave_validate` docs-lint ok.
 
 ## Tasks
 
-- [ ] On advisory surface, compute semantic-match-weighted credit from the record's `source_exploration_cost`; accumulate per wave/stage in the 1stwj sidecar.
-- [ ] Surface a separate labeled "estimated exploration avoided" line on `wave_current`/`wave_audit` + a distinct `wave.md` block (not inside `## Context Efficiency`).
-- [ ] Reference doc: formula + causal caveat + estimate-vs-measured distinction.
-- [ ] Tests: grounded unit, event-triggered, bounded attribution, separate-category, caveat, telemetry-only invariance.
-- [ ] Full suite + docs-lint.
+- [x] On advisory surface, compute semantic-match-weighted credit from the record's `source_exploration_cost`; accumulate per wave/stage in the 1stwj sidecar. — new `exploration_avoided.py` module + a SEPARATE disposable sidecar (`exploration-avoided.json`), credited on `wave_memory_brief`; a separate sidecar rather than the 1stwj store structurally guarantees "never summed into the measured total".
+- [x] Surface a separate labeled "estimated exploration avoided" line on `wave_current`/`wave_audit` + a distinct `wave.md` block (not inside `## Context Efficiency`). — surfaced on `wave_current`/`wave_audit` as its own labeled block with the caveat; the `wave.md` marker-section render was intentionally deferred (marker renderer out of scope), noted under AC-4.
+- [x] Reference doc: formula + causal caveat + estimate-vs-measured distinction. — `docs/references/estimated-exploration-avoided.md`.
+- [x] Tests: grounded unit, event-triggered, bounded attribution, separate-category, caveat, telemetry-only invariance. — `ExplorationAvoidedTests` (9 tests).
+- [x] Full suite + docs-lint.
 
 ## Agent Execution Graph
 
@@ -97,6 +97,7 @@ This change adds a SEPARATE, explicitly-labeled ESTIMATE category — "estimated
 | Date | Update | Evidence |
 | ---- | ------ | -------- |
 | 2026-07-17 | Change doc authored on operator direction, reconciling both council seats | Operator: "estimate exploration savings as a category"; red-team: keep separate + labeled; 1stwj Out-of-scope excludes re-exploration from measured tokens |
+| 2026-07-18 | Implemented `exploration_avoided.py` (grounded formula `source_cost × bounded ATTRIBUTION_BASE × match_confidence`, disposable JSON sidecar, fail-isolated `credit_surface`), credit hooked at `wave_memory_brief` (telemetry-only, never alters advisory output), separate labeled block on `wave_current`/`wave_audit` with the causal caveat, reference doc. `wave.md` marker-block deferred (renderer out of scope; surfaced via tools). Full suite 5788 OK; docs-lint clean. | `exploration_avoided.py`; `ExplorationAvoidedTests` (9); `docs/references/estimated-exploration-avoided.md` |
 
 
 ## Decision Log

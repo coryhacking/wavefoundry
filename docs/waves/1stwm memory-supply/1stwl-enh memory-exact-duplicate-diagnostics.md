@@ -1,9 +1,9 @@
 # Memory exact-duplicate diagnostics (detection only)
 
 Change ID: `1stwl-enh memory-exact-duplicate-diagnostics`
-Change Status: `planned`
+Change Status: `implemented`
 Owner: framework
-Status: planned
+Status: implemented
 Last verified: 2026-07-17
 
 Wave: `1stwm memory-supply`
@@ -38,19 +38,19 @@ We looked at `agentmemory`'s approach and validated it against its own source (v
 
 ## Acceptance Criteria
 
-- [ ] AC-1: A deterministic detector flags a candidate/new record as a possible duplicate when it shares an originating evidence ID with, or normalized-matches `(kind, sorted targets, summary)` of, an existing non-history record. (required)
-- [ ] AC-2: Detection is diagnostic-only — it never marks superseded/stale, merges, or deletes; record status/history is unchanged by detection. (required)
-- [ ] AC-3: `wave_memory_add` returns a `possible_duplicate` diagnostic (naming the matched record IDs + signal) without blocking the write; `wave_memory_propose` consumes the same detector for idempotency. (required)
-- [ ] AC-4: Normalization (whitespace/case/punctuation) is fixed and documented; identical inputs yield identical verdicts (determinism test). (required)
-- [ ] AC-5: Full framework suite green; docs-lint clean. (required)
+- [x] AC-1: A deterministic detector flags a candidate/new record as a possible duplicate when it shares an originating evidence ID with, or normalized-matches `(kind, sorted targets, summary)` of, an existing non-history record. (required) — `find_duplicates(record, existing)` in `memory_records.py`; signals `evidence_ref` (shared `## Evidence` ref) + `normalized_content`; tests `test_evidence_id_overlap_flags_duplicate`, `test_normalized_summary_match_flags_duplicate`.
+- [x] AC-2: Detection is diagnostic-only — it never marks superseded/stale, merges, or deletes; record status/history is unchanged by detection. (required) — pure function, returns a payload only; `abort_if_duplicate` refuses the write without mutating; test `test_abort_if_duplicate_refuses_without_mutation` asserts the on-disk set is unchanged.
+- [x] AC-3: `wave_memory_add` returns a `possible_duplicate` diagnostic (naming the matched record IDs + signal) without blocking the write; `wave_memory_propose` consumes the same detector for idempotency. (required) — advisory attached on the success path (non-blocking); `find_duplicates` is the shared detector 1stwk consumes; tests `test_duplicate_add_written_with_advisory`, `test_non_duplicate_add_has_no_advisory`.
+- [x] AC-4: Normalization (whitespace/case/punctuation) is fixed and documented; identical inputs yield identical verdicts (determinism test). (required) — `normalize_summary` (lowercase, non-alphanumeric runs to single space, trim); documented in the README; tests `test_determinism`, `test_normalize_summary_is_fixed`.
+- [x] AC-5: Full framework suite green; docs-lint clean. (required) — full suite 5788 OK; `wave_validate` docs-lint ok.
 
 ## Tasks
 
-- [ ] Add `find_duplicates` to `memory_records.py` (evidence-ID overlap + normalized (kind, targets, summary)).
-- [ ] Surface `possible_duplicate` on `wave_memory_add`; expose detector to `wave_memory_propose`; optional corpus report.
-- [ ] Memory README: signals + detection-only posture.
-- [ ] Tests: both signals, non-match, detection-only invariance, determinism.
-- [ ] Full suite + docs-lint.
+- [x] Add `find_duplicates` to `memory_records.py` (evidence-ID overlap + normalized (kind, targets, summary)). — `find_duplicates` + `normalize_summary` + `_dup_content_key`.
+- [x] Surface `possible_duplicate` on `wave_memory_add`; expose detector to `wave_memory_propose`; optional corpus report. — advisory + `abort_if_duplicate` on add; `find_duplicates` consumed by `wave_memory_propose` for idempotency. (Standalone corpus report not added; the detector is exposed for callers to use.)
+- [x] Memory README: signals + detection-only posture. — "Duplicate detection" section in `docs/agents/memory/README.md`.
+- [x] Tests: both signals, non-match, detection-only invariance, determinism. — `FindDuplicatesTests` + `MemoryAddDuplicateDiagnosticTests` (11 tests).
+- [x] Full suite + docs-lint. — full suite 5789 OK; `wave_validate` docs-lint ok.
 
 ## Agent Execution Graph
 

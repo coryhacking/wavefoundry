@@ -41,6 +41,13 @@ tools and as capped advisories on read/impact tools. The two link but do not rep
 role retrospectives, handoff stays session state, and memory records stay retrieval/action artifacts distilled
 from them at lifecycle checkpoints.
 
+At review and close, do not start the typed memory layer from an empty corpus: `wave_memory_propose(wave_id)`
+drafts `candidate` records from the wave's own typed review evidence (change-doc Decision Logs and repaired
+real-defect findings), so the durable lessons the wave already produced become records instead of being
+re-derived. It is conservative and human-gated (drafts are `candidate` only; an explicit `wave_memory_reconcile`
+promotes them), and re-running it is idempotent. Operator authoring still covers the conversational kinds the
+typed ledger cannot supply.
+
 ## Relationship To Other Framework Systems
 
 - Wave artifacts capture the current execution slice.

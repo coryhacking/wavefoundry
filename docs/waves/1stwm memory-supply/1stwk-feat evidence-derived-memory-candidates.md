@@ -1,9 +1,9 @@
 # Evidence-derived memory candidates from the review ledger
 
 Change ID: `1stwk-feat evidence-derived-memory-candidates`
-Change Status: `planned`
+Change Status: `implemented`
 Owner: framework
-Status: planned
+Status: implemented
 Last verified: 2026-07-17
 
 Wave: `1stwm memory-supply`
@@ -48,25 +48,25 @@ The agent-memory layer (wave 1ro44) shipped in 1.13.0, but the corpus is empty b
 
 ## Acceptance Criteria
 
-- [ ] AC-1: `wave_memory_propose` drafts candidate records from a wave's `events.jsonl` current heads + admitted change-doc Decision Logs; it reads no raw transcript/conversational source. (required)
-- [ ] AC-2: Each drafted candidate carries the originating event ID(s) + wave/change IDs + touched paths as `## Evidence` refs, satisfying the evidence-backing schema. (required)
-- [ ] AC-3: Kinds map deterministically to the existing 8 kinds; ambiguous drafts are `candidate` with the mapping noted, never silently guessed. (required)
-- [ ] AC-4: `mode='dry_run'` returns drafts only; `mode='create'` writes `status: candidate` via the existing write path (forbidden-content scan applied); the tool never writes `active`, supersedes, or deletes. (required)
-- [ ] AC-5: Re-running over the same evidence is idempotent — no duplicate records — via the exact-duplicate diagnostics. (required)
-- [ ] AC-6: Bounded per run, each draft cites its source event; empty/immaterial ledger returns a `no_material_evidence` diagnostic. (important)
-- [ ] AC-7: Drafting is conservative — only durable-shaped signals (`fragile_file` from repeated repairs, `successful_pattern`, a lasting `decision`, a real-defect `failed_attempt`), NOT every material finding; the conversational kinds (`operator_preference`/`environment_gotcha`/`dependency_gotcha`) are explicitly not attempted. (required)
-- [ ] AC-8: Each drafted candidate is stamped with a measured `source_exploration_cost` read from its source wave's `## Context Efficiency` telemetry (never a constant), as the grounding for the exploration-avoided category. (required)
-- [ ] AC-9: The tool reports `records_proposed` / `records_promoted` as the wave's supply signal; there is no per-wave token-savings target/AC. (important)
-- [ ] AC-10: Full framework suite green; docs-lint clean. (required)
+- [x] AC-1: `wave_memory_propose` drafts candidate records from a wave's `events.jsonl` current heads + admitted change-doc Decision Logs; it reads no raw transcript/conversational source. (required) — `memory_supply.draft_candidates` reads `read_review_event_ledger` heads + change-doc Decision Logs only; no transcript source. Tests `test_drafts_only_code_anchored_decisions`, `test_finding_path_fragile_and_failed_attempt`.
+- [x] AC-2: Each drafted candidate carries the originating event ID(s) + wave/change IDs + touched paths as `## Evidence` refs, satisfying the evidence-backing schema. (required) — decision drafts carry `[change_id, wave_id]`; finding drafts carry `[finding_id, evidence_record_id, wave_id]`; targets are the code anchors. Test `test_create_writes_candidate_and_stamps_cost` asserts evidence/target refs on the written record.
+- [x] AC-3: Kinds map deterministically to the existing 8 kinds; ambiguous drafts are `candidate` with the mapping noted, never silently guessed. (required) — deterministic mapping: Decision Log → `decision`; repaired do_now finding → `failed_attempt`, or `fragile_file` when a file is repaired more than once in the wave. All drafts are `candidate` status.
+- [x] AC-4: `mode='dry_run'` returns drafts only; `mode='create'` writes `status: candidate` via the existing write path (forbidden-content scan applied); the tool never writes `active`, supersedes, or deletes. (required) — `wave_memory_propose_response`; create fences the seqlock, scans `MEMORY_DISALLOWED_PATTERNS`, writes via `create_memory_record`. Tests `test_dry_run_writes_nothing`, `test_create_writes_candidate_and_stamps_cost`.
+- [x] AC-5: Re-running over the same evidence is idempotent — no duplicate records — via the exact-duplicate diagnostics. (required) — dedup keys on the 1stwl `normalized_content` signal (the shared wave-id ref is not a skip reason); test `test_create_is_idempotent` (second run promotes 0, one file on disk).
+- [x] AC-6: Bounded per run, each draft cites its source event; empty/immaterial ledger returns a `no_material_evidence` diagnostic. (important) — `MEMORY_PROPOSE_CAP`; each draft carries `source_event`; test `test_no_material_evidence_diagnostic`.
+- [x] AC-7: Drafting is conservative — only durable-shaped signals (`fragile_file` from repeated repairs, `successful_pattern`, a lasting `decision`, a real-defect `failed_attempt`), NOT every material finding; the conversational kinds (`operator_preference`/`environment_gotcha`/`dependency_gotcha`) are explicitly not attempted. (required) — only code-anchored Decision Logs and repaired (do_now + completed) findings draft; unrepaired/maybe_later findings and prose-only decisions are skipped (`test_conservative_skips_unrepaired_findings`, `test_drafts_only_code_anchored_decisions`). `successful_pattern` is not auto-derivable from the typed ledger and is left to operator authoring (noted below).
+- [x] AC-8: Each drafted candidate is stamped with a measured `source_exploration_cost` read from its source wave's `## Context Efficiency` telemetry (never a constant), as the grounding for the exploration-avoided category. (required) — `source_exploration_cost` = `request_debit + response_debit` parsed from the wave's committed `<!-- wave:context-efficiency-state -->` projection; persisted as a `Source exploration cost:` frontmatter line (render/parse in `memory_records.py`). Test asserts `50` for totals `{10,40}`.
+- [x] AC-9: The tool reports `records_proposed` / `records_promoted` as the wave's supply signal; there is no per-wave token-savings target/AC. (important) — both counts + `skipped_duplicates` in the response.
+- [x] AC-10: Full framework suite green; docs-lint clean. (required) — full suite 5788 OK; `wave_validate` docs-lint ok.
 
 ## Tasks
 
-- [ ] Add candidate drafting from typed `events.jsonl` heads + Decision Logs (kind mapping, evidence-ref assembly) reusing `review_evidence.py` + `memory_records.py`.
-- [ ] Add the `wave_memory_propose` MCP tool (dry_run/create), diagnostics, surfacing.
-- [ ] Wire exact-duplicate skip/flag (depends on `1stwl`).
-- [ ] Lifecycle-prompt pointer (review/close suggest proposing) + memory README + tool-surface note.
-- [ ] Tests: drafting, evidence preservation, kind mapping, modes, forbidden-content refusal, idempotency.
-- [ ] Full suite + docs-lint.
+- [x] Add candidate drafting from typed `events.jsonl` heads + Decision Logs (kind mapping, evidence-ref assembly) reusing `review_evidence.py` + `memory_records.py`. — new module `memory_supply.py` (`draft_candidates`).
+- [x] Add the `wave_memory_propose` MCP tool (dry_run/create), diagnostics, surfacing. — `wave_memory_propose_response` + `@mcp.tool`.
+- [x] Wire exact-duplicate skip/flag (depends on `1stwl`). — dedup on the `normalized_content` signal.
+- [x] Lifecycle-prompt pointer (review/close suggest proposing) + memory README + tool-surface note. — seed `004-wave-memory-overview.md` pointer (generic); memory README proposal section (the memory family's tool-surface home).
+- [x] Tests: drafting, evidence preservation, kind mapping, modes, forbidden-content refusal, idempotency. — `MemoryProposeTests` (8 tests).
+- [x] Full suite + docs-lint.
 
 ## Agent Execution Graph
 
@@ -109,6 +109,7 @@ The agent-memory layer (wave 1ro44) shipped in 1.13.0, but the corpus is empty b
 | Date | Update | Evidence |
 | ---- | ------ | -------- |
 | 2026-07-17 | Change doc authored from the validated memory-enhancement roadmap | Enhancement plan; guru map of the 1ro44 memory layer |
+| 2026-07-18 | Implemented `memory_supply.py` (draft_candidates: code-anchored Decision Log rows → `decision`, repaired do_now findings → `failed_attempt`/`fragile_file`), `wave_memory_propose` tool (dry_run/create, fenced write, forbidden scan, idempotent via 1stwl normalized_content), `Source exploration cost:` render/parse in `memory_records.py` (from the wave's committed telemetry projection). Verified on real waves (1rsh9 → 6 code-anchored decisions; 1sufq → 0, prose-only). `successful_pattern` ceded to operator authoring (not cleanly derivable from the typed ledger). Docs: seed 004 pointer + README. Memory suite 93 OK. | `memory_supply.py`; `MemoryProposeTests`; live dry-run on 1rsh9/1sufq |
 
 
 ## Decision Log

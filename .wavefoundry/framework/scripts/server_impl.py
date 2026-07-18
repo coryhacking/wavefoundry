@@ -5058,9 +5058,28 @@ def wave_current_response(root: Path, cache: Optional[McpRepoCache] = None) -> d
             pass  # Drift detection is advisory; never let it block the response
     first_entry = entries[0]
     usage = f"wave_get_change(change_id={first_entry['changes'][0]['id']!r})" if first_entry.get("changes") else ""
+    data: dict[str, Any] = {"waves": entries}
+    # 1svuk: a SEPARATE, labeled estimate for the active wave — never summed into
+    # the measured Context Efficiency total, always carrying its causal caveat.
+    if active_entry is not None:
+        try:
+            ea = _load_script("exploration_avoided")
+            wid = str(active_entry.get("wave_id") or active_entry.get("id") or "")
+            est = ea.read_wave(root, wid) if wid else None
+            if est and est.get("estimated_exploration_avoided", 0) > 0:
+                data["estimated_exploration_avoided"] = {
+                    "wave_id": wid,
+                    "tokens": est["estimated_exploration_avoided"],
+                    "surfaced_events": est["surfaced_events"],
+                    "cited_events": est["cited_events"],
+                    "measured": False,
+                    "caveat": ea.CAVEAT,
+                }
+        except Exception:
+            pass
     return _response(
         "ok",
-        {"waves": entries},
+        data,
         diagnostics=diagnostics,
         next_tools=["wave_get_change"],
         usage=usage,
@@ -7470,6 +7489,7 @@ def wave_index_health_response(index: WaveIndex) -> dict[str, Any]:
 # agent actually reads before acting.
 MEMORY_BRIEF_CAP = 5
 MEMORY_SEARCH_CAP = 20
+MEMORY_PROPOSE_CAP = 20
 MEMORY_SUMMARY_EXCERPT_CHARS = 280
 MEMORY_BRIEF_CONTEXTS = (
     "session_start", "pre_implementation", "review", "close", "setup", "file_edit",
@@ -7787,6 +7807,45 @@ def _memory_advisories_for_wave(root: Path, wave: dict[str, Any]) -> list[dict[s
         return []
 
 
+def _credit_exploration_avoided_surface(
+    root: Path, surfaced_pairs: list, target_list: list, mem: Any
+) -> None:
+    """Fail-isolated 1svuk credit for advisories surfaced by wave_memory_brief.
+
+    Telemetry-only: resolves the current OPEN wave and accrues the SEPARATE,
+    labeled estimated-exploration-avoided metric grounded in each surfaced
+    record's measured ``source_exploration_cost`` (discounted by a bounded
+    attribution). Never raises, never changes the advisory output, and never
+    touches the measured Context Efficiency total.
+    """
+    try:
+        # Attribute to the OPEN (active/implementing) wave specifically — not
+        # `current_wave`, which returns the first open wave in lifecycle order
+        # and can surface a readied (planned) wave that sorts ahead of the
+        # implementing one (they coexist under the single-OPEN rule).
+        wave = next(
+            (w for w in list_waves(root) if w.get("status") in ("active", "implementing")),
+            None,
+        )
+        if not wave:
+            return
+        wave_id = str(wave.get("wave_id") or wave.get("id") or "").strip()
+        if not wave_id:
+            return
+        ea = _load_script("exploration_avoided")
+        items = []
+        for record, _decay in surfaced_pairs:
+            matched = bool(target_list) and any(
+                mem.match_targets(record, path=t) for t in target_list)
+            items.append({
+                "source_exploration_cost": record.get("source_exploration_cost"),
+                "match_confidence": 1.0 if matched else ea.WEAK_MATCH_CONFIDENCE,
+            })
+        ea.credit_surface(root, wave_id, items, cited=False)
+    except Exception:
+        return
+
+
 def wave_memory_add_response(
     root: Path,
     kind: str,
@@ -7798,6 +7857,7 @@ def wave_memory_add_response(
     status: str = "candidate",
     supersedes: str = "",
     memory_id: str = "",
+    abort_if_duplicate: bool = False,
 ) -> dict[str, Any]:
     mem = _memory_mod()
     problems: list[str] = []
@@ -7878,6 +7938,35 @@ def wave_memory_add_response(
     explicit = bool(memory_id)
     base_id = memory_id or f"mem-{mem.slugify(title or summary)}"
 
+    # Duplicate detection (wave 1stwl) — DETECTION ONLY. Compare a pseudo-record
+    # of this add against existing active/candidate records. Non-blocking by
+    # default (the record is still written and a possible_duplicate advisory is
+    # attached); with abort_if_duplicate the write is refused without mutating
+    # anything. Detection never marks superseded/merges/deletes.
+    _dup_matches = mem.find_duplicates(
+        {"memory_id": memory_id or "", "kind": kind, "summary": summary,
+         "evidence_refs": list(evidence), "target_refs": list(targets),
+         "status": status},
+        mem.load_memory_records(root, statuses=("active", "candidate")),
+    )
+
+    def _dup_phrase() -> str:
+        return ", ".join(
+            f"{m['memory_id']} ({'/'.join(m['signals'])})" for m in _dup_matches
+        )
+
+    if _dup_matches and abort_if_duplicate:
+        return _response(
+            "error", {"written": False, "duplicates": _dup_matches},
+            diagnostics=[_diagnostic(
+                "possible_duplicate",
+                "Refused: possible duplicate of " + _dup_phrase()
+                + " (abort_if_duplicate=True; nothing was written or changed).",
+                recovery_tools=["wave_memory_search", "wave_memory_add"],
+                recovery_usage="wave_memory_add(..., abort_if_duplicate=False) to write anyway")],
+            next_tools=["wave_memory_search"], usage="",
+        )
+
     def _render(mid: str) -> str:
         return mem.render_memory_record(
             memory_id=mid, kind=kind, summary=summary, evidence=evidence,
@@ -7901,6 +7990,14 @@ def wave_memory_add_response(
             next_tools=["wave_memory_add"], usage="",
         )
     diagnostics: list[dict[str, Any]] = []
+    if _dup_matches:
+        diagnostics.append(_diagnostic(
+            "possible_duplicate",
+            "Written as requested, but this record possibly duplicates "
+            + _dup_phrase() + " — detection only; reconcile explicitly if it is "
+            "a duplicate (nothing was auto-superseded or merged).",
+            recovery_tools=["wave_memory_search", "wave_memory_reconcile"],
+            recovery_usage="wave_memory_search(target=...) to compare"))
     try:
         # Atomic creation: exclusive-create, retry only generated-id
         # collisions, surface the conflict for an explicit id. No TOCTOU.
@@ -7946,6 +8043,152 @@ def wave_memory_add_response(
         next_tools=["wave_memory_search", "wave_memory_brief"],
         usage=f"wave_memory_search(target={targets[0]!r})",
     )
+
+
+def _draft_view(d: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "kind": d["kind"], "title": d["title"], "summary": d["summary"],
+        "evidence": list(d["evidence"]), "targets": list(d["targets"]),
+        "source_event": d["source_event"],
+        "source_exploration_cost": d["source_exploration_cost"],
+    }
+
+
+def wave_memory_propose_response(
+    root: Path, wave_id: str = "", mode: str = "dry_run", limit: int = MEMORY_PROPOSE_CAP
+) -> dict[str, Any]:
+    """Draft candidate memory records from a wave's typed review evidence.
+
+    Reads the wave's ``events.jsonl`` heads + admitted change-doc Decision Logs
+    and drafts durable-shaped ``candidate`` records (never auto-promoted).
+    ``dry_run`` (default) returns the drafts; ``create`` writes them through the
+    existing candidate write path, skipping exact/normalized duplicates so
+    re-runs are idempotent (1stwl detector). Local-only, read-then-draft.
+    """
+    mem = _memory_mod()
+    supply = _load_script("memory_supply")
+    wave_id = (wave_id or "").strip()
+    mode = (mode or "dry_run").strip()
+    if mode not in ("dry_run", "create"):
+        return _response(
+            "error", {"valid_modes": ["dry_run", "create"]},
+            diagnostics=[_diagnostic(
+                "invalid_arguments", f"unknown mode {mode!r}; use 'dry_run' or 'create'",
+                recovery_tools=["wave_memory_propose"],
+                recovery_usage="wave_memory_propose(wave_id='<id>', mode='dry_run')")],
+            next_tools=["wave_memory_propose"], usage="")
+    if not wave_id:
+        return _response(
+            "error", {"proposed": []},
+            diagnostics=[_diagnostic(
+                "invalid_arguments", "provide a wave_id to draft memory candidates from",
+                recovery_tools=["wave_current", "wave_memory_propose"],
+                recovery_usage="wave_memory_propose(wave_id='<id>')")],
+            next_tools=["wave_current"], usage="")
+    try:
+        n = max(1, min(int(limit), MEMORY_PROPOSE_CAP))
+    except (TypeError, ValueError):
+        n = MEMORY_PROPOSE_CAP
+    drafts = supply.draft_candidates(root, wave_id, limit=n)
+
+    # Idempotent supply (AC-5): skip a draft whose (kind, targets, normalized
+    # summary) already exists (existing corpus + earlier in this run). The
+    # shared wave-id evidence ref is deliberately NOT a skip reason — every
+    # same-wave draft carries it — so dedup keys on normalized_content only.
+    accumulated = list(mem.load_memory_records(root, statuses=("active", "candidate")))
+    unique: list[dict[str, Any]] = []
+    skipped_duplicates = 0
+    for d in drafts:
+        pseudo = {"memory_id": "", "kind": d["kind"], "summary": d["summary"],
+                  "evidence_refs": list(d["evidence"]), "target_refs": list(d["targets"]),
+                  "status": "candidate"}
+        matches = mem.find_duplicates(pseudo, accumulated)
+        if any("normalized_content" in m["signals"] for m in matches):
+            skipped_duplicates += 1
+            continue
+        unique.append(d)
+        accumulated.append(pseudo)
+
+    if not drafts:
+        return _response(
+            "ok",
+            {"proposed": [], "records_proposed": 0, "records_promoted": 0,
+             "skipped_duplicates": 0, "mode": mode},
+            diagnostics=[_diagnostic(
+                "no_material_evidence",
+                "No durable-shaped evidence to draft from this wave (Decision Logs "
+                "with a code anchor, or repaired real-defect findings). Sparse by design.",
+                recovery_tools=["wave_memory_propose"], recovery_usage="")],
+            next_tools=["wave_memory_search"], usage="")
+
+    if mode == "dry_run":
+        return _response(
+            "ok",
+            {"proposed": [_draft_view(d) for d in unique],
+             "records_proposed": len(unique), "records_promoted": 0,
+             "skipped_duplicates": skipped_duplicates, "mode": "dry_run"},
+            diagnostics=[], next_tools=["wave_memory_propose"],
+            usage=f"wave_memory_propose(wave_id={wave_id!r}, mode='create')")
+
+    # create: fence the seqlock, then write each unique draft as a candidate.
+    try:
+        from wave_lint_lib.constants import MEMORY_DISALLOWED_PATTERNS as _FORBIDDEN
+    except ImportError:
+        _FORBIDDEN = ()
+    _fence_token = _memory_fence(root)
+    if _fence_token is None:
+        return _response(
+            "error", {"written": []},
+            diagnostics=[_diagnostic(
+                "memory_state_unwritable",
+                "Cannot establish the memory-state fence; refusing the batch write.",
+                recovery_tools=["wave_memory_propose"], recovery_usage="")],
+            next_tools=["wave_memory_propose"], usage="")
+    written: list[dict[str, Any]] = []
+    diagnostics: list[dict[str, Any]] = []
+    try:
+        for d in unique:
+            fields = [d["summary"], d["title"], *d["evidence"], *d["targets"]]
+            if any(p.search(line) for f in fields
+                   for line in str(f).splitlines() for p in _FORBIDDEN):
+                diagnostics.append(_diagnostic(
+                    "memory_draft_skipped_forbidden",
+                    f"A draft from {d['source_event']} was skipped: content matched a "
+                    "forbidden pattern (not echoed).",
+                    recovery_tools=[], recovery_usage=""))
+                continue
+            base_id = f"mem-{mem.slugify(d['title'] or d['summary'])}"
+
+            def _render(mid: str, _d: dict[str, Any] = d) -> str:
+                return mem.render_memory_record(
+                    memory_id=mid, kind=_d["kind"], summary=_d["summary"],
+                    evidence=list(_d["evidence"]), targets=list(_d["targets"]),
+                    title=_d["title"], status="candidate",
+                    source_exploration_cost=_d["source_exploration_cost"])
+
+            try:
+                path, mid = mem.create_memory_record(root, _render, base_id, explicit=False)
+                written.append({
+                    "memory_id": mid, "kind": d["kind"],
+                    "path": str(path.relative_to(root)).replace("\\", "/"),
+                    "source_event": d["source_event"]})
+            except (ValueError, FileExistsError, OSError) as exc:
+                diagnostics.append(_diagnostic(
+                    "memory_draft_write_failed",
+                    f"A draft from {d['source_event']} could not be written: {exc}",
+                    recovery_tools=[], recovery_usage=""))
+    finally:
+        _memory_finalize(root, _fence_token)
+    if written:
+        _trigger_background_index_refresh_for_paths(root, [root / w["path"] for w in written])
+    return _response(
+        "ok",
+        {"proposed": [_draft_view(d) for d in unique], "written": written,
+         "records_proposed": len(unique), "records_promoted": len(written),
+         "skipped_duplicates": skipped_duplicates, "mode": "create"},
+        diagnostics=diagnostics,
+        next_tools=["wave_memory_search", "wave_memory_reconcile"],
+        usage="wave_memory_reconcile(memory_id=<id>, status='active') to promote a candidate")
 
 
 def wave_memory_search_response(
@@ -8072,6 +8315,14 @@ def wave_memory_brief_response(
     }
     if community_scoped:
         data["community_scoped"] = community_scoped
+    # 1svuk (telemetry-only, fail-isolated): accrue the SEPARATE estimated
+    # exploration-avoided metric for the advisories actually surfaced here. This
+    # never alters `data`/`advisories` (AC-6 invariance) and never touches the
+    # measured Context Efficiency total.
+    try:
+        _credit_exploration_avoided_surface(root, ranked[:n], target_list, mem)
+    except Exception:
+        pass
     return _response(
         "ok", data,
         diagnostics=[],
@@ -8366,6 +8617,24 @@ def wave_audit_response(
     # 1p8gy AC-6: memory advisories relevant to the audited wave.
     _mem_advisories = _memory_advisories_for_wave(root, wave_data) if wave_data else []
 
+    # 1svuk: the SEPARATE, labeled estimated-exploration-avoided line for the
+    # audited wave — never summed into the measured Context Efficiency total.
+    _est_avoided: dict[str, Any] = {}
+    if wave_data:
+        try:
+            ea = _load_script("exploration_avoided")
+            wid = str(wave_data.get("wave_id") or wave_data.get("id") or "")
+            est = ea.read_wave(root, wid) if wid else None
+            if est and est.get("estimated_exploration_avoided", 0) > 0:
+                _est_avoided = {
+                    "tokens": est["estimated_exploration_avoided"],
+                    "surfaced_events": est["surfaced_events"],
+                    "cited_events": est["cited_events"],
+                    "measured": False, "caveat": ea.CAVEAT,
+                }
+        except Exception:
+            _est_avoided = {}
+
     return _response(
         "ok",
         {
@@ -8375,6 +8644,7 @@ def wave_audit_response(
             "index": index_data,
             "doc_drift": doc_drift_data,
             **({"memory_advisories": _mem_advisories} if _mem_advisories else {}),
+            **({"estimated_exploration_avoided": _est_avoided} if _est_avoided else {}),
             "commit_governance": commit_governance,
             "harnessability": harnessability,
             "harness_coverage": harness_coverage,
@@ -22867,7 +23137,8 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
     @mcp.tool(annotations=_MUTATING_TOOL)
     def wave_memory_add(kind: str, summary: str, evidence: list, targets: list,
                         title: str = "", confidence: float = 0.6, status: str = "candidate",
-                        supersedes: str = "", memory_id: str = "", **kwargs: Any) -> dict[str, Any]:
+                        supersedes: str = "", memory_id: str = "",
+                        abort_if_duplicate: bool = False, **kwargs: Any) -> dict[str, Any]:
         """Create an agent memory record (typed, evidence-backed, repo-visible markdown).
 
         Memory records surface prior learning at action time: failed attempts,
@@ -22892,6 +23163,10 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             supersedes: Optional memory id this record replaces (the old
                 record is marked superseded, preserving history).
             memory_id: Optional explicit id; defaults to a slug of the title.
+            abort_if_duplicate: When True, refuse the write (no mutation) if the
+                record possibly duplicates an existing active/candidate record.
+                Default False: the record is written and a possible_duplicate
+                advisory is attached. Detection only — never auto-supersedes.
         """
         bad = _ensure_no_extra_args("wave_memory_add", kwargs)
         if bad is not None:
@@ -22899,7 +23174,38 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         return wave_memory_add_response(
             get_handler().root, kind, summary, evidence, targets, title=title,
             confidence=confidence, status=status, supersedes=supersedes, memory_id=memory_id,
+            abort_if_duplicate=abort_if_duplicate,
         )
+
+    @mcp.tool(annotations=_MUTATING_TOOL)
+    def wave_memory_propose(wave_id: str = "", mode: str = "dry_run",
+                            limit: int = MEMORY_PROPOSE_CAP, **kwargs: Any) -> dict[str, Any]:
+        """Draft candidate memory records from a wave's own typed review evidence.
+
+        Fills the memory corpus from work a wave already did instead of waiting
+        for hand-authored records. Two local, read-only sources: each admitted
+        change doc's ## Decision Log (-> `decision` candidates) and the canonical
+        events.jsonl repaired real-defect findings (-> `failed_attempt`, or
+        `fragile_file` for a file repaired more than once in the wave). No raw
+        transcripts. CONSERVATIVE: only durable-shaped signals with a concrete
+        code anchor are drafted; the conversational kinds are not attempted.
+
+        Never auto-promotes: drafts are written as `status: candidate` (an
+        explicit wave_memory_reconcile promotes them). Re-running is idempotent
+        (exact/normalized duplicates are skipped). Each record is stamped with
+        the measured source_exploration_cost from the wave's 1stwj telemetry.
+
+        Args:
+            wave_id: Wave id (or unique prefix) to draft from.
+            mode: "dry_run" (default) returns drafts only; "create" writes the
+                candidate records through the existing candidate write path.
+            limit: Max drafts per run (capped).
+        """
+        bad = _ensure_no_extra_args("wave_memory_propose", kwargs)
+        if bad is not None:
+            return bad
+        return wave_memory_propose_response(
+            get_handler().root, wave_id=wave_id, mode=mode, limit=limit)
 
     @mcp.tool(annotations=_READONLY_TOOL)
     def wave_memory_search(query: str = "", target: str = "", symbol: str = "",

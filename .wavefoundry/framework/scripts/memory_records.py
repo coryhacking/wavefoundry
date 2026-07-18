@@ -76,6 +76,9 @@ _CREATED_RE = re.compile(r"^Created:\s*(\d{4}-\d{2}-\d{2})\s*$", re.MULTILINE)
 _UPDATED_RE = re.compile(r"^Updated:\s*(\d{4}-\d{2}-\d{2})\s*$", re.MULTILINE)
 _SUPERSEDES_RE = re.compile(r"^Supersedes:\s*`([a-z0-9][a-z0-9-]*)`\s*$", re.MULTILINE)
 _SUPERSEDED_BY_RE = re.compile(r"^Superseded by:\s*`([a-z0-9][a-z0-9-]*)`\s*$", re.MULTILINE)
+# Optional 1stwk metadata: the measured consumed-token cost of the wave that
+# produced an evidence-derived candidate (grounds the 1svuk avoided estimate).
+_SOURCE_COST_RE = re.compile(r"^Source exploration cost:\s*(\d+)\s*$", re.MULTILINE)
 _TITLE_RE = re.compile(r"^#\s+(.+)$", re.MULTILINE)
 _BACKTICK_RE = re.compile(r"`([^`]+)`")
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
@@ -180,6 +183,9 @@ def parse_memory_record(path: Path, text: Optional[str] = None) -> Optional[dict
         "updated_at": updated.group(1),
         "supersedes": (m.group(1) if (m := _SUPERSEDES_RE.search(text)) else None),
         "superseded_by": (m.group(1) if (m := _SUPERSEDED_BY_RE.search(text)) else None),
+        "source_exploration_cost": (
+            int(m.group(1)) if (m := _SOURCE_COST_RE.search(text)) else None
+        ),
         "summary": summary,
         "evidence_refs": evidence_refs,
         "target_refs": target_refs,
@@ -311,9 +317,16 @@ def render_memory_record(
     confidence: float = 0.6,
     status: str = "candidate",
     supersedes: str = "",
+    source_exploration_cost: Optional[int] = None,
     date: Optional[str] = None,
 ) -> str:
-    """Render the canonical record markdown (the README template shape)."""
+    """Render the canonical record markdown (the README template shape).
+
+    ``source_exploration_cost`` (wave 1stwk), when set, records the measured
+    consumed-token cost of the wave/repair-cycle that produced this record. It
+    is the grounding unit the 1svuk estimated-exploration-avoided category
+    reads; it is optional metadata, absent on manually-authored records.
+    """
     today = date or time.strftime("%Y-%m-%d")
     lines = [
         f"# {title or memory_id}",
@@ -328,6 +341,8 @@ def render_memory_record(
         f"Created: {today}",
         f"Updated: {today}",
     ]
+    if source_exploration_cost is not None:
+        lines.append(f"Source exploration cost: {int(source_exploration_cost)}")
     if supersedes:
         lines.append(f"Supersedes: `{supersedes}`")
     lines += ["", "## Summary", "", summary.strip(), "", "## Evidence", ""]
@@ -515,3 +530,81 @@ def match_targets(record: dict[str, Any], path: str = "", symbol: str = "") -> b
             if norm == ref or norm.endswith("/" + ref) or ref.endswith("/" + norm):
                 return True
     return False
+
+
+# --- Exact/near-exact duplicate detection (wave 1stwm / change 1stwl) ---
+# DETECTION ONLY. This never marks a record superseded/stale, never merges, and
+# never deletes — reconciliation stays an explicit operator action, preserving
+# the never-auto-rewrite invariant in this module's header. It exists so
+# re-running candidate supply (`wave_memory_propose`) is idempotent and so a
+# manual add that echoes an existing record is surfaced, not silently
+# duplicated. This is exact/normalized detection, NOT fuzzy similarity: no
+# embeddings, no similarity model, so the same inputs always yield the same
+# verdict.
+
+_DUP_PUNCT_RE = re.compile(r"[^a-z0-9]+")
+
+
+def normalize_summary(summary: str) -> str:
+    """Fixed, documented normalization for duplicate comparison.
+
+    Lowercase, replace every run of non-alphanumeric characters (whitespace,
+    punctuation) with a single space, and trim. Deterministic: identical
+    inputs always yield the same key (the AC-4 determinism contract). Used
+    only for duplicate detection, never persisted.
+    """
+    return _DUP_PUNCT_RE.sub(" ", (summary or "").lower()).strip()
+
+
+def _dup_content_key(record: dict[str, Any]) -> tuple[str, tuple[str, ...], str]:
+    """The normalized ``(kind, sorted targets, normalized summary)`` identity."""
+    kind = record.get("kind") or ""
+    targets = tuple(sorted(record.get("target_refs") or []))
+    return (kind, targets, normalize_summary(record.get("summary") or ""))
+
+
+def find_duplicates(
+    record: dict[str, Any], existing: Iterable[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Existing non-history records that duplicate ``record`` — DETECTION ONLY.
+
+    Two independent signals, reported and never auto-resolved:
+
+    - ``evidence_ref``: the two records share at least one ``## Evidence`` ref
+      (an originating event id, a wave/change id, or a path). The shared refs
+      are returned so a caller (e.g. ``wave_memory_propose``) can decide
+      precisely — a re-draft of the same ledger event reproduces that event's
+      id ref exactly, which is what makes candidate supply idempotent.
+    - ``normalized_content``: the ``(kind, sorted targets, normalized summary)``
+      identities are equal (summary compared after ``normalize_summary``).
+
+    Only ``active``/``candidate`` records are compared — retired history
+    (``stale``/``superseded``/``rejected``) is never a duplicate. The record's
+    own id is skipped. Returns, per matched record,
+    ``{memory_id, signals, shared_evidence}``; this function mutates nothing.
+    """
+    rec_id = record.get("memory_id") or ""
+    rec_evidence = {e for e in (record.get("evidence_refs") or []) if e}
+    rec_key = _dup_content_key(record)
+    matches: list[dict[str, Any]] = []
+    for other in existing:
+        if other.get("status") not in ("active", "candidate"):
+            continue
+        other_id = other.get("memory_id") or ""
+        if rec_id and other_id and other_id == rec_id:
+            continue
+        signals: list[str] = []
+        shared = sorted(
+            rec_evidence & {e for e in (other.get("evidence_refs") or []) if e}
+        )
+        if shared:
+            signals.append("evidence_ref")
+        if _dup_content_key(other) == rec_key:
+            signals.append("normalized_content")
+        if signals:
+            matches.append({
+                "memory_id": other_id,
+                "signals": signals,
+                "shared_evidence": shared,
+            })
+    return matches

@@ -1,7 +1,7 @@
 # Wave Record
 
 Owner: Engineering
-Status: planned
+Status: closed
 Last verified: 2026-07-17
 review-evidence-source: events.jsonl
 
@@ -15,18 +15,25 @@ Fix the binding constraint on the 1.13.0 agent-memory layer: an empty corpus. Ad
 ## Changes
 
 Change ID: `1stwk-feat evidence-derived-memory-candidates`
-Change Status: `planned`
+Change Status: `implemented`
 
 Change ID: `1stwl-enh memory-exact-duplicate-diagnostics`
-Change Status: `planned`
+Change Status: `implemented`
 
 Change ID: `1svuk-enh estimated-exploration-avoided-category`
-Change Status: `planned`
+Change Status: `implemented`
+
+Completed At: 2026-07-17
 
 ## Wave Summary
 
-Three changes: `1stwk` adds `wave_memory_propose` (drafts `candidate` records from `events.jsonl` heads + Decision Logs, **conservative durable-signal selection** per the council re-scope, stamps each with its measured `source_exploration_cost`, operator-promoted, no raw transcripts); `1stwl` adds detection-only exact-duplicate diagnostics that keep proposal idempotent and never rewrite history; `1svuk` adds the **estimated-exploration-avoided** wave-metric category (grounded in the measured source cost, event-triggered on advisory surface, semantic-match-weighted, a SEPARATE labeled estimate never summed into the measured token total).
+Wave `1stwm` (Memory Supply) delivered 3 changes: Evidence-derived memory candidates from the review ledger, Memory exact-duplicate diagnostics (detection only), and Estimated exploration-avoided — a separate, grounded wave-metric category. Notable adjustments during implementation: Estimated exploration-avoided — a separate, grounded wave-metric category: Implemented `exploration_avoided.py` (grounded formula `source_cost × bounded ATTRIBUTION_BASE × match_confidence`, disposable JSON sidecar, fail-isolated `credit_surface`), credit hooked at `wave_memory_brief` (telemetry-only, never alters advisory output), separate labeled block on `wave_current`/`wave_audit` with the causal caveat, reference doc. `wave.md` marker-block deferred (renderer out of scope; surfaced via tools). Full suite 5788 OK; docs-lint clean.
 
+**Changes delivered:**
+
+- **Evidence-derived memory candidates from the review ledger** (`1stwk-feat evidence-derived-memory-candidates`) — 10 ACs completed. Key decisions: Draft from `events.jsonl` heads + Decision Logs only; Write `candidate` only; operator reconcile to promote
+- **Memory exact-duplicate diagnostics (detection only)** (`1stwl-enh memory-exact-duplicate-diagnostics`) — 5 ACs completed. Key decisions: Detection only, surfaced to operator; Exact/normalized signals, no similarity model
+- **Estimated exploration-avoided — a separate, grounded wave-metric category** (`1svuk-enh estimated-exploration-avoided-category`) — 7 ACs completed. Key decisions: Ground the estimate in measured `source_exploration_cost`; Separate labeled category, never summed into measured tokens
 ## Journal Watchpoints
 
 - `server_impl.py` / `memory_records.py` edited under `framework_edit_allowed`; open before editing, close immediately after.
@@ -38,15 +45,15 @@ Three changes: `1stwk` adds `wave_memory_propose` (drafts `candidate` records fr
 
 ## Finding Synthesis
 
-<!-- waveframework:finding-synthesis begin -->
+<!-- wave:finding-synthesis begin -->
 | Current finding | Disposition | Open block | Repair | Approval recheck |
 | --- | --- | --- | --- | --- |
 | — | — | — | — | — |
 
 <details class="wavefoundry-review-evidence">
-<summary>Machine review evidence — 1 records; 1 runs; 0 findings; current: do_now 0, maybe_later 0, dont_do_later 0, not_issue 0</summary>
+<summary>Machine review evidence — 5 records; 2 runs; 0 findings; current: do_now 0, maybe_later 0, dont_do_later 0, not_issue 0</summary>
 </details>
-<!-- waveframework:finding-synthesis end -->
+<!-- wave:finding-synthesis end -->
 
 ## Review Checkpoints
 
@@ -58,7 +65,25 @@ Three changes: `1stwk` adds `wave_memory_propose` (drafts `candidate` records fr
 
 - wave-council-readiness: approved 2026-07-17 — supply-first, additive to the memory lifecycle (candidate-only writes, detection-only dedup, no auto-promote/supersede/delete), sourced only from the typed `events.jsonl` ledger + Decision Logs. The foundation exists in 1.13.0 (ledger, `review_evidence.py` reader, `memory_records.py` write path, `candidate` status). Internal dependency `1stwl → 1stwk` sequenced. No blocking concerns.
 - operator-signoff: pending operator closure confirmation
+- wave-council-delivery: approved — Ran run_tests.py --no-cache (5789 OK), wave_validate (ok), and executed memory_supply/exploration_avoided against the live repo across multiple waves; performed an adversarial multi-wave attribution review that found and fixed a defect.
+- wave-council-readiness: approved — Inspected the review_evidence reader, memory_records write path, and 1stwj telemetry during the 2026-07-17 prepare-phase council review.
+- operator-signoff: approved — Operator close instruction received this session following the structured review report.
 
 ## Dependencies
 
 - No external wave dependencies.
+
+<!-- wave:context-efficiency begin -->
+## Context Efficiency
+
+Estimated token savings use phase-unique returned source versions and mapped workflow prompts, minus recorded request and response tokens. Saved model output or avoided tool loops count only through quality-equivalent paired evidence.
+
+| Stage | Tool calls | Estimated token savings |
+| --- | ---: | ---: |
+| close | 3 | 0 |
+| implement | 15 | 336,956 |
+| review | 2 | 0 |
+| **Total** | **20** | **335,951** |
+
+<!-- wave:context-efficiency-state {"generation":20,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"close":{"calls":3,"content_source_credit":0,"direct_net":-339,"estimated_tokens_saved":0,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":27,"response_debit":1309,"source_credit_count":0,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":997},"implement":{"calls":15,"content_source_credit":360253,"direct_net":336956,"estimated_tokens_saved":336956,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":453,"response_debit":24269,"source_credit_count":10,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":1425},"review":{"calls":2,"content_source_credit":0,"direct_net":-666,"estimated_tokens_saved":0,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":22,"response_debit":644,"source_credit_count":0,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":0}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":20,"content_source_credit":360253,"direct_net":335951,"estimated_tokens_saved":335951,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":502,"response_debit":26222,"source_credit_count":10,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":2422},"wave_id":"1stwm memory-supply"} -->
+<!-- wave:context-efficiency end -->

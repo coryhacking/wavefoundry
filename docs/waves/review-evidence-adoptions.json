@@ -44,8 +44,8 @@
       "version": 1
     },
     "1stwm memory-supply": {
-      "prefix_sha256": "4dd91a56d3b51da7fea42458fbec987f4efad290c1d35e8e12e844e2c8547464",
-      "record_count": 1,
+      "prefix_sha256": "99f6f1e9741dcc2cce36deb2ef0d6a19ff4ecc747acd02f5586f7f337f4b94d0",
+      "record_count": 5,
       "source": "events.jsonl",
       "version": 1
     },
