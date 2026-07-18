@@ -1,9 +1,9 @@
 # Commit-to-reasoning provenance (reverse wave lookup)
 
 Change ID: `1sufp-feat commit-to-reasoning-provenance`
-Change Status: `planned`
+Change Status: `implemented`
 Owner: framework
-Status: planned
+Status: implemented
 Last verified: 2026-07-17
 
 Wave: `1sufq commit-reasoning-provenance`
@@ -43,22 +43,22 @@ A field user running wavefoundry alongside other memory tools named this gap dir
 
 ## Acceptance Criteria
 
-- [ ] AC-1: Given a commit SHA, the tool resolves the producing wave(s)/change(s) via commit-message `Land wave` parse and via reverse-search of wave records/review evidence; conflicting/absent resolution is reported honestly, never guessed. (required)
-- [ ] AC-2: Given a file + line range, a contained `git blame` yields the producing commit(s), then AC-1 resolution applies, and the wave's Decision Log entries + change-doc rationale relevant to that file are surfaced. (required)
-- [ ] AC-3: The response returns wave/change IDs, relevant Decision Log rows, and change-doc pointers — the reasoning, not just a mapping. (required)
-- [ ] AC-4: Local-only and read-only — only local git + on-disk wave records; no network; no git/wave-state mutation. (required)
-- [ ] AC-5: A commit with no wave association returns a clear no-provenance result. (required)
-- [ ] AC-6: `code_commit_provenance` emits the existing 1stwj measured `context_avoided` envelope field via the `_CONTEXT_RETRIEVAL_TOOLS` roster + `_context_source_paths` (cited sources = resolved `wave.md` + change docs; avoided = whole-file bytes − response), per-phase-deduped and zero-clamped like the other retrieval tools — no new gauge, and no per-wave token-savings target. (required)
-- [ ] AC-7: The tool reports a `resolution_hit_rate` / `honest_absence_rate` non-token activity signal. (important)
-- [ ] AC-8: Full framework suite green; docs-lint clean. (required)
+- [x] AC-1: Given a commit SHA, the tool resolves the producing wave(s)/change(s) via commit-message `Land wave` parse and via reverse-search of wave records/review evidence; conflicting/absent resolution is reported honestly, never guessed. (required) — `resolve_via_message` + `resolve_via_evidence` combined in `resolve_commit_to_waves`; `conflict`/`method`/`resolved` fields; tests `test_message_path_resolves_landed_wave`, `test_evidence_path_resolves_non_conventional_commit`, `test_conflict_reports_both_never_reconciles`.
+- [x] AC-2: Given a file + line range, a contained `git blame` yields the producing commit(s), then AC-1 resolution applies, and the wave's Decision Log entries + change-doc rationale relevant to that file are surfaced. (required) — `blame_line_commits` (bounded `-L`, path-traversal guard) → `provenance_for_line`; tests `test_blame_line_to_commit`, `test_provenance_surfaces_decision_log`.
+- [x] AC-3: The response returns wave/change IDs, relevant Decision Log rows, and change-doc pointers — the reasoning, not just a mapping. (required) — `_decision_log_rows` + `_provenance_rows_for_wave` (path + decisions + excerpt); verified: SHA `79d779e6` → waves `[1shv4,1sq4a,1sq9i]`, 7 provenance rows.
+- [x] AC-4: Local-only and read-only — only local git + on-disk wave records; no network; no git/wave-state mutation. (required) — routed through argv-based `_run_git`; blame/log/rev-parse only; test `test_resolver_never_mutates_repo`.
+- [x] AC-5: A commit with no wave association returns a clear no-provenance result. (required) — `no_wave_provenance` diagnostic + `resolution: "honest_absence"`; tests `test_honest_absence_never_fabricates`, `test_honest_absence_signal`.
+- [x] AC-6: `code_commit_provenance` emits the existing 1stwj measured `context_avoided` envelope field via the `_CONTEXT_RETRIEVAL_TOOLS` roster + `_context_source_paths` (cited sources = resolved `wave.md` + change docs; avoided = whole-file bytes − response), per-phase-deduped and zero-clamped like the other retrieval tools — no new gauge, and no per-wave token-savings target. (required) — added to roster + `_context_source_paths` (`add_rows("provenance","path",("excerpt",))`); exact-census test `test_registered_envelope_census_is_exact` updated; verified 4 content-bearing sources credited.
+- [x] AC-7: The tool reports a `resolution_hit_rate` / `honest_absence_rate` non-token activity signal. (important) — per-call `data["resolution"]` ∈ {`resolved`, `honest_absence`, `conflict`}, the atom a hit-rate/absence-rate aggregates; tests `ResolutionSignalTests`.
+- [x] AC-8: Full framework suite green; docs-lint clean. (required) — `run_tests.py --no-cache`: 5760 tests OK; `wf docs-lint`: ok.
 
 ## Tasks
 
-- [ ] Resolver: commit-message `Land wave` parse + reverse-search of wave records/review evidence for a cited commit SHA.
-- [ ] `code_commit_provenance` tool (SHA or file+line); contained `git blame`; surface Decision Log + change-doc rationale; honest absence.
-- [ ] Reuse existing wave-record/change-doc parsers + contained git wrappers.
-- [ ] Docs (tool-surface + reference); tests (both resolution paths, blame, absence, local-only, no mutation).
-- [ ] Full suite + docs-lint.
+- [x] Resolver: commit-message `Land wave` parse + reverse-search of wave records/review evidence for a cited commit SHA.
+- [x] `code_commit_provenance` tool (SHA or file+line); contained `git blame`; surface Decision Log + change-doc rationale; honest absence.
+- [x] Reuse existing wave-record/change-doc parsers + contained git wrappers. — reuses sanctioned `_run_git`/`_sanitized_git_env`; Decision Log extraction is a small addition over the on-disk change docs, per the prepare-council note.
+- [x] Docs (tool-surface + reference); tests (both resolution paths, blame, absence, local-only, no mutation). — `docs/specs/mcp-tool-surface.md` tool entry + chooser row; `test_commit_provenance.py` (16 tests).
+- [x] Full suite + docs-lint.
 
 ## Agent Execution Graph
 
@@ -99,6 +99,8 @@ A field user running wavefoundry alongside other memory tools named this gap dir
 | Date | Update | Evidence |
 | ---- | ------ | -------- |
 | 2026-07-17 | Change doc authored; gap surfaced by a field user, buildable over existing local associations | Enhancement plan; `Land wave …` commit convention; waves cite landing commits in review evidence |
+| 2026-07-17 | Implementation begun: core resolver module `commit_provenance.py` (message-parse + evidence reverse-search resolution; bounded `git blame` with path-traversal guard, SHA validation, uncommitted-sentinel filter) reusing sanctioned `_run_git`. Smoke-tested on real commits (4f0c8d4e→1stwj; 79d779e6→1shv4/1sq4a/1sq9i; invalid→fail-closed; traversal blocked). REMAINING: the `code_commit_provenance` MCP tool (registration + Decision Log extraction + honest-absence response), the `context_avoided` emission (AC-6), the test file, and docs. | `commit_provenance.py`; smoke test |
+| 2026-07-18 | Implementation complete. `code_commit_provenance` tool registered (`@mcp.tool`, SHA or file+line), `code_commit_provenance_response` builder (honest-absence + conflict diagnostics, per-call `resolution` signal), wired into `_CONTEXT_RETRIEVAL_TOOLS` + `_context_source_paths` for measured `context_avoided`. Docs added (tool-surface entry + chooser row). Tests: `test_commit_provenance.py` (16, incl. server-layer resolution signal); exact-census test updated for the new roster member. Full suite 5760 OK; docs-lint ok. Hermetic tests caught + fixed a real evidence-path bug (returned wave dir-name, not the id token) the real-repo smoke test had masked. All ACs [x]. | `run_tests.py --no-cache`: 5760 OK; `wf docs-lint`: ok |
 
 
 ## Decision Log

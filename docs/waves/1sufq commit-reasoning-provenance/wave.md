@@ -1,7 +1,7 @@
 # Wave Record
 
 Owner: Engineering
-Status: planned
+Status: closed
 Last verified: 2026-07-17
 review-evidence-source: events.jsonl
 
@@ -15,12 +15,17 @@ Add a reverse-provenance lookup: from a commit SHA or a blamed line, resolve bac
 ## Changes
 
 Change ID: `1sufp-feat commit-to-reasoning-provenance`
-Change Status: `planned`
+Change Status: `implemented`
+
+Completed At: 2026-07-17
 
 ## Wave Summary
 
-One change (`1sufp`): a `code_commit_provenance` tool that resolves a commit SHA (or file+line via contained `git blame`) to its producing wave(s) by two local paths (commit-message `Land wave` parse and reverse-search of wave records/review-evidence for a cited commit SHA), and surfaces the wave's Decision Log + change-doc rationale. Local-only, read-only, honest on absence.
+Wave `1sufq` (Commit Reasoning Provenance) delivered one change: Commit-to-reasoning provenance (reverse wave lookup). Notable adjustments during implementation: Commit-to-reasoning provenance (reverse wave lookup): Implementation complete. `code_commit_provenance` tool registered (`@mcp.tool`, SHA or file+line), `code_commit_provenance_response` builder (honest-absence + conflict diagnostics, per-call `resolution` signal), wired into `_CONTEXT_RETRIEVAL_TOOLS` + `_context_source_paths` for measured `context_avoided`. Docs added (tool-surface entry + chooser row). Tests: `test_commit_provenance.py` (16, incl. server-layer resolution signal); exact-census test updated for the new roster member. Full suite 5760 OK; docs-lint ok. Hermetic tests caught + fixed a real evidence-path bug (returned wave dir-name, not the id token) the real-repo smoke test had masked. All ACs [x].
 
+**Changes delivered:**
+
+- **Commit-to-reasoning provenance (reverse wave lookup)** (`1sufp-feat commit-to-reasoning-provenance`) — 8 ACs completed. Key decisions: On-demand resolution from git + wave records; Two resolution paths (message parse + evidence reverse-search)
 ## Journal Watchpoints
 
 - `server_impl.py` edited under `framework_edit_allowed`; open before editing, close immediately after.
@@ -30,15 +35,15 @@ One change (`1sufp`): a `code_commit_provenance` tool that resolves a commit SHA
 
 ## Finding Synthesis
 
-<!-- waveframework:finding-synthesis begin -->
+<!-- wave:finding-synthesis begin -->
 | Current finding | Disposition | Open block | Repair | Approval recheck |
 | --- | --- | --- | --- | --- |
 | — | — | — | — | — |
 
 <details class="wavefoundry-review-evidence">
-<summary>Machine review evidence — 1 records; 1 runs; 0 findings; current: do_now 0, maybe_later 0, dont_do_later 0, not_issue 0</summary>
+<summary>Machine review evidence — 5 records; 2 runs; 0 findings; current: do_now 0, maybe_later 0, dont_do_later 0, not_issue 0</summary>
 </details>
-<!-- waveframework:finding-synthesis end -->
+<!-- wave:finding-synthesis end -->
 
 ## Review Checkpoints
 
@@ -49,8 +54,27 @@ One change (`1sufp`): a `code_commit_provenance` tool that resolves a commit SHA
 ## Review Evidence
 
 - wave-council-readiness: approved 2026-07-17 — small, self-contained, local-only read-only tool over data we already track forward (wave→commit); core risks (mutation, network, fabricated provenance) are gated by ACs (AC-4 read-only/local, AC-5 honest absence). Reuses existing git wrappers + wave-record parsers. No blocking concerns.
+- wave-council-delivery: approved 2026-07-18. Delivery verified by real-repo execution, not just green tests. Positive line-to-reasoning path confirmed (`context_efficiency.py:1` to commit `4f0c8d4e` to wave `1stwj`, two Decision Log excerpts surfaced); SHA resolution confirmed (`79d779e6` to `[1shv4,1sq4a,1sq9i]`); honest absence confirmed on non-wave commits, missing files, and uncommitted lines; adversarial inputs (path traversal, invalid range) return honest errors; the git trust surface stays on argv-based `_run_git` with SHA validation and a repo-root path guard (no shell). Measured `context_avoided` credits only content-bearing sources (4 of 7 rows). Full suite 5760 OK; docs-lint ok. Scope note: AC-7 is delivered as a per-call `resolution` atom (`resolved`/`honest_absence`/`conflict`) rather than a persisted aggregate rate, because a true cross-call rate needs state the wave deliberately avoids (AC-4, no new store); the rate is computable downstream from the atom. No blocking concerns.
 - operator-signoff: pending operator closure confirmation
+- wave-council-delivery: approved — Executed code_commit_provenance_response against the live repo across positive, absent, conflict-analog, and adversarial-path inputs; ran run_tests.py --no-cache (5760 OK) and wf docs-lint (ok).
+- operator-signoff: approved — Operator close instruction received this session following the delivery-review summary.
+- wave-council-readiness: approved — Inspected git history for the Land-wave convention and cited SHAs, and the _run_git/_sanitized_git_env primitives, during the 2026-07-17 prepare-phase council review.
 
 ## Dependencies
 
 - No external wave dependencies.
+
+<!-- wave:context-efficiency begin -->
+## Context Efficiency
+
+Estimated token savings use phase-unique returned source versions and mapped workflow prompts, minus recorded request and response tokens. Saved model output or avoided tool loops count only through quality-equivalent paired evidence.
+
+| Stage | Tool calls | Estimated token savings |
+| --- | ---: | ---: |
+| close | 3 | 54 |
+| implement | 1 | 1,137 |
+| review | 2 | 0 |
+| **Total** | **6** | **334** |
+
+<!-- wave:context-efficiency-state {"generation":6,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"close":{"calls":3,"content_source_credit":0,"direct_net":54,"estimated_tokens_saved":54,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":27,"response_debit":916,"source_credit_count":0,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":997},"implement":{"calls":1,"content_source_credit":0,"direct_net":1137,"estimated_tokens_saved":1137,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":9,"response_debit":279,"source_credit_count":0,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":1425},"review":{"calls":2,"content_source_credit":0,"direct_net":-857,"estimated_tokens_saved":0,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":22,"response_debit":835,"source_credit_count":0,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":0}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":6,"content_source_credit":0,"direct_net":334,"estimated_tokens_saved":334,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":58,"response_debit":2030,"source_credit_count":0,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":2422},"wave_id":"1sufq commit-reasoning-provenance"} -->
+<!-- wave:context-efficiency end -->

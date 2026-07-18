@@ -19831,6 +19831,7 @@ _CONTEXT_RETRIEVAL_TOOLS = frozenset(
         "code_callgraph",
         "code_graph_path",
         "code_graph_community",
+        "code_commit_provenance",
     }
 )
 _INDEXED_CONTEXT_TOOLS = frozenset(
@@ -19932,6 +19933,10 @@ def _context_source_paths(
     elif tool_name == "code_callhierarchy":
         add_rows("outgoing", "file", ("snippet",))
         add_rows("incoming", "file", ("snippet",))
+    elif tool_name == "code_commit_provenance":
+        # The resolved wave record / change docs whose recorded reasoning
+        # (Decision Log excerpt) the response surfaces in lieu of re-reading them.
+        add_rows("provenance", "path", ("excerpt",))
     return sorted(paths)
 
 
@@ -20076,6 +20081,63 @@ def _attach_retrieval_failure_context(
             _retrieval_failure_metric(response)
         )
     return response
+
+
+def code_commit_provenance_response(
+    root: Path,
+    commit: str = "",
+    path: str = "",
+    line_start: int = 0,
+    line_end: int = 0,
+) -> dict[str, Any]:
+    """Reverse provenance: a commit SHA (or file + line range) -> the wave(s)
+    that produced it and their recorded reasoning. Local, read-only, honest on
+    absence and on message/evidence conflict (both reported, never reconciled)."""
+    cp = _load_script("commit_provenance")
+    commit = (commit or "").strip()
+    path = (path or "").strip()
+    if commit:
+        data = cp.provenance_for_sha(root, commit)
+    elif path:
+        start = int(line_start or 1)
+        end = int(line_end or start)
+        data = cp.provenance_for_line(root, path, start, end)
+    else:
+        return _response(
+            "error", {"resolved": False, "waves": [], "provenance": []},
+            diagnostics=[_diagnostic(
+                "invalid_arguments",
+                "Provide a commit SHA, or a file path with a line range.",
+                recovery_tools=["code_commit_provenance"],
+                recovery_usage="code_commit_provenance(commit='<sha>') or code_commit_provenance(path='<file>', line_start=N, line_end=M)")],
+            next_tools=["code_commit_provenance"], usage="")
+    diagnostics = []
+    # Per-call activity signal (not a token target): the atom that a
+    # resolution_hit_rate / honest_absence_rate aggregates over. Honest, derived
+    # only from what this call actually resolved.
+    if not data.get("resolved"):
+        data["resolution"] = "honest_absence"
+    elif data.get("conflict"):
+        data["resolution"] = "conflict"
+    else:
+        data["resolution"] = "resolved"
+    if not data.get("resolved"):
+        diagnostics.append(_diagnostic(
+            "no_wave_provenance",
+            "No wave provenance found for this commit/line — it may predate the "
+            "framework, be a non-conventional commit, or have been rebased/squashed. "
+            "Reported honestly, not guessed.",
+            recovery_tools=["code_commit_provenance"], recovery_usage=""))
+    elif data.get("conflict"):
+        diagnostics.append(_diagnostic(
+            "provenance_conflict",
+            "The commit-message and evidence-search paths named different waves; "
+            "both are reported, not reconciled.",
+            recovery_tools=["code_commit_provenance"], recovery_usage=""))
+    return _response(
+        "ok", data, diagnostics=diagnostics,
+        next_tools=["wave_get_change", "code_read"],
+        usage="wave_get_change(change_id=...)")
 
 
 def _record_retrieval_context(
@@ -22982,6 +23044,40 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
                 "start_line": start_line,
                 "end_line": end_line,
                 "with_line_numbers": with_line_numbers,
+            },
+        )
+
+    @mcp.tool(annotations=_OBSERVATIONAL_TOOL)
+    def code_commit_provenance(commit: str = "", path: str = "", line_start: int = 0, line_end: int = 0, **kwargs: Any) -> dict[str, Any]:
+        """Reverse provenance: from a commit SHA (or a file + line range) back to the wave that produced it and its recorded reasoning.
+
+        Answers "why is this line here / what decided it" from the recorded Decision Log
+        instead of re-deriving it. Resolves by two local, read-only paths — the
+        ``Land wave(s) <id>`` commit-message convention and a reverse-search of wave
+        records for a cited landing SHA — and reports honestly when neither resolves
+        or when the two paths disagree (both reported, never a fabricated mapping).
+        Local git only, no network, no mutation.
+
+        Args:
+            commit: A commit SHA (7-40 hex) to resolve. OR use path + line range.
+            path: Repo-relative file path; blamed over the given line range.
+            line_start: First line (1-indexed) to blame. Defaults to 1.
+            line_end: Last line (1-indexed) to blame. Defaults to line_start.
+        """
+        bad = _ensure_no_extra_args("code_commit_provenance", kwargs)
+        if bad is not None:
+            return bad
+        result = code_commit_provenance_response(
+            get_handler().root, commit=commit, path=path,
+            line_start=line_start, line_end=line_end,
+        )
+        return _record_retrieval_context(
+            get_handler(),
+            "code_commit_provenance",
+            result,
+            request_arguments={
+                "commit": commit, "path": path,
+                "line_start": line_start, "line_end": line_end,
             },
         )
 

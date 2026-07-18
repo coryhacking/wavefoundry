@@ -56,8 +56,8 @@
       "version": 1
     },
     "1sufq commit-reasoning-provenance": {
-      "prefix_sha256": "8b29c4552a70431439a55a7521c79b5fb0b3d4e3599171101f5d1702fed2dc38",
-      "record_count": 1,
+      "prefix_sha256": "56848e299d4b11b6e006cb536e0c207a0426873b8f0e37c0f50cb95f2a2288d6",
+      "record_count": 5,
       "source": "events.jsonl",
       "version": 1
     }

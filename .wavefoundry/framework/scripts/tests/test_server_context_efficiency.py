@@ -44,6 +44,7 @@ RETRIEVAL_TOOLS = {
     "code_callgraph",
     "code_graph_path",
     "code_graph_community",
+    "code_commit_provenance",
 }
 LIFECYCLE_TOOLS = {
     "wave_create_wave",

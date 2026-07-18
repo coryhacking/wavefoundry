@@ -35,8 +35,8 @@ between the markers is machine-maintained; the surrounding narrative is not.
 
 | Area | Path | Kind | Size (nodes) |
 | ---- | ---- | ---- | ------------ |
-| tests | `.wavefoundry/framework/scripts/tests` | code | 8514 |
-| server_impl | `.wavefoundry/framework/scripts` | code | 843 |
+| tests | `.wavefoundry/framework/scripts/tests` | code | 8544 |
+| server_impl | `.wavefoundry/framework/scripts` | code | 740 |
 | graph | `.wavefoundry/framework/scripts` | code | 352 |
 | dashboard | `.wavefoundry/framework/dashboard` | code | 212 |
 | subprocess_util | `.wavefoundry/framework/scripts` | code | 201 |
@@ -44,21 +44,21 @@ between the markers is machine-maintained; the surrounding narrative is not.
 | chunker | `.wavefoundry/framework/scripts` | code | 179 |
 | indexer | `.wavefoundry/framework/scripts` | code | 120 |
 | dashboard/dashboard | `.wavefoundry/framework/scripts` | code | 116 |
-| upgrade_wavefoundry | `.wavefoundry/framework/scripts` | code | 89 |
+| upgrade_wavefoundry | `.wavefoundry/framework/scripts` | code | 91 |
 | render_agent_surfaces | `.wavefoundry/framework/scripts` | code | 86 |
 | context_efficiency | `.wavefoundry/framework/scripts` | code | 83 |
 | review_evidence | `.wavefoundry/framework/scripts` | code | 82 |
-| gen_codebase_map | `.wavefoundry/framework/scripts` | code | 57 |
+| gen_codebase_map | `.wavefoundry/framework/scripts` | code | 58 |
+| build_pack | `.wavefoundry/framework/scripts` | code | 55 |
 | graph_di_signals | `.wavefoundry/framework/scripts` | code | 44 |
 | graph_cluster | `.wavefoundry/framework/scripts` | code | 40 |
-| graph_query | `.wavefoundry/framework/scripts` | code | 39 |
+| graph_query | `.wavefoundry/framework/scripts` | code | 29 |
 | design_token_build | `.wavefoundry/framework/scripts` | code | 25 |
 | upgrade_extensions | `.wavefoundry/framework/scripts` | code | 21 |
 | docs_gardener | `.wavefoundry/framework/scripts` | code | 17 |
 | server | `.wavefoundry/framework/scripts` | code | 13 |
+| commit_provenance | `.wavefoundry/framework/scripts` | code | 12 |
 | tokens | `docs/design-system/tokens` | config | 320 |
-| docs | `docs` | config | 246 |
-| modes | `docs/design-system/tokens/modes` | config | 150 |
 <!-- wave:repo-index-modules end -->
 
 No shipped product implementation sources exist yet. The MCP Python package (`src/wavefoundry/`) is planned but not scaffolded.
