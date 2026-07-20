@@ -535,9 +535,9 @@ HARDCODED_EXCLUDE_PREFIXES = (
     ".wavefoundry/index/",
     ".wavefoundry/framework/index/",
     ".wavefoundry/logs/",
+    ".wavefoundry/locks/",
 )
 HARDCODED_EXCLUDE_PATHS = frozenset({
-    ".wavefoundry/dashboard-server.lock",  # 1p64x: merged lock + startup-metadata sidecar
     ".wavefoundry/guard-overrides.json",
 })
 # Wave 1p2q3 (1p2qd): consumer project indexes exclude `.wavefoundry/` blanket.
@@ -569,7 +569,7 @@ FRAMEWORK_FOLD_DOCS_PREFIXES = (
 # the project index stale even though they live under ``.wavefoundry/`` and may
 # be churned by the running tooling itself.
 _PROJECT_STALE_IGNORE_PATHS = {
-    ".wavefoundry/dashboard-server.lock",  # 1p64x: merged lock + startup-metadata sidecar
+    ".wavefoundry/locks/dashboard-server.lock",  # merged lock + startup-metadata sidecar
     ".wavefoundry/guard-overrides.json",
     ".wavefoundry/logs/dashboard.log",
     # Wave 1p601: the generated codebase map is a derived artifact, rewritten
@@ -2967,16 +2967,14 @@ def _index_build_lock_held(index_dir: Path) -> "tuple[Optional[bool], Optional[i
         return (False, None)
     try:
         if os.name == "nt":
-            import msvcrt
-            with open(lock_path, "r+b") as fh:
-                fh.seek(INDEX_BUILD_LOCK_SENTINEL)
-                try:
-                    msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
-                except OSError:
-                    return (True, None)  # could not lock -> a builder holds it
-                fh.seek(INDEX_BUILD_LOCK_SENTINEL)
-                msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)  # got it -> not held; release at once
-                return (False, None)
+            from runtime_lock import probe_runtime_lock
+
+            probe = probe_runtime_lock(
+                lock_path,
+                offset=INDEX_BUILD_LOCK_SENTINEL,
+                style="record",
+            )
+            return (probe.held, None)
         import fcntl
         import struct as _struct
         plat = "darwin" if sys.platform == "darwin" else ("linux" if sys.platform.startswith("linux") else None)
@@ -3007,7 +3005,8 @@ def _index_build_lock(index_dir: Path):
     cleanup correctness depend on unlinking after a crash.
     """
     lock_path = index_dir / INDEX_BUILD_LOCK_NAME
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    from runtime_lock import RuntimeFileLock, RuntimeLockBusy
+
     prior_owner = classify_index_build_lock_owner(read_index_build_lock_metadata(lock_path))
     # Wave 1p2q3 (1p2w5): proactively unlink lock-file metadata that records a
     # dead PID. The OS-held `flock()` is released when its holding process
@@ -3026,32 +3025,20 @@ def _index_build_lock(index_dir: Path):
             # Permission or filesystem issue — fall through and let the
             # `open()` below surface the underlying error.
             pass
-    fh = lock_path.open("a+", encoding="utf-8")
-    acquired = False
+    lock = RuntimeFileLock(
+        lock_path,
+        blocking=False,
+        offset=INDEX_BUILD_LOCK_SENTINEL,
+        style="record",
+    )
     lock_meta: Optional[dict] = None
     try:
-        if os.name == "nt":
-            import msvcrt
-            try:
-                fh.seek(INDEX_BUILD_LOCK_SENTINEL)
-                msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
-                acquired = True
-            except OSError as exc:
-                raise IndexBuildAlreadyRunning(
-                    format_index_build_lock_conflict(index_dir, lock_path=lock_path)
-                ) from exc
-        else:
-            import fcntl
-            try:
-                # Wave 1p99o: a fcntl record lock on the sentinel byte (was `flock`) — so status can
-                # probe it non-destructively via F_GETLK, and it is not fork-inherited (a pool worker
-                # can't hold it out from under a finished parent).
-                fcntl.lockf(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB, 1, INDEX_BUILD_LOCK_SENTINEL, 0)
-                acquired = True
-            except OSError as exc:  # BlockingIOError (EAGAIN/EACCES) when another builder holds it
-                raise IndexBuildAlreadyRunning(
-                    format_index_build_lock_conflict(index_dir, lock_path=lock_path)
-                ) from exc
+        try:
+            lock.acquire()
+        except RuntimeLockBusy as exc:
+            raise IndexBuildAlreadyRunning(
+                format_index_build_lock_conflict(index_dir, lock_path=lock_path)
+            ) from exc
 
         if prior_owner == "stale":
             print(
@@ -3066,33 +3053,20 @@ def _index_build_lock(index_dir: Path):
             "started_at": time.time(),
             "cmdline": " ".join(sys.argv),
         }
-        fh.seek(0)
-        fh.truncate()
-        fh.write(json.dumps(lock_meta))
-        fh.flush()
+        lock.write_metadata(lock_meta)
         yield
     finally:
-        if acquired:
+        if lock.acquired:
             if lock_meta is not None:
                 try:  # best-effort ended_at; a hard kill skips it → status sees an interrupted build
                     lock_meta["ended_at"] = time.time()
-                    fh.seek(0)
-                    fh.truncate()
-                    fh.write(json.dumps(lock_meta))
-                    fh.flush()
+                    lock.write_metadata(lock_meta)
                 except Exception:  # noqa: BLE001
                     pass
             try:
-                if os.name == "nt":
-                    import msvcrt
-                    fh.seek(INDEX_BUILD_LOCK_SENTINEL)
-                    msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
-                else:
-                    import fcntl
-                    fcntl.lockf(fh.fileno(), fcntl.LOCK_UN, 1, INDEX_BUILD_LOCK_SENTINEL, 0)
+                lock.release()
             except OSError:
                 pass
-        fh.close()
 
 
 @contextmanager

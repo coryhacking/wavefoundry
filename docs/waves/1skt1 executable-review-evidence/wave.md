@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: closed
-Last verified: 2026-07-14
+Last verified: 2026-07-20
 review-evidence-source: events.jsonl
 wave-id: `1skt1 executable-review-evidence`
 Title: Executable Review Evidence
@@ -84,7 +84,7 @@ Wave `1skt1` (Executable Review Evidence) delivered one change: Executable Revie
 
 ## Finding Synthesis
 
-<!-- waveframework:finding-synthesis begin -->
+<!-- wave:finding-synthesis begin -->
 | Current finding | Disposition | Open block | Repair | Approval recheck |
 | --- | --- | --- | --- | --- |
 | approval-actor-binding | do_now | no | completed | code-reviewer |
@@ -118,9 +118,23 @@ Wave `1skt1` (Executable Review Evidence) delivered one change: Executable Revie
 <details class="wavefoundry-review-evidence">
 <summary>Machine review evidence — 186 records; 19 runs; 27 findings; current: do_now 26, maybe_later 0, dont_do_later 1, not_issue 0</summary>
 </details>
-<!-- waveframework:finding-synthesis end -->
+<!-- wave:finding-synthesis end -->
 
 ## Review Evidence
+
+<!-- wave:review-status begin -->
+| Signoff | State | Why | Next action |
+| --- | --- | --- | --- |
+| wave-council-readiness | approved | current executed approval follows every affected repair | none |
+| wave-council-delivery | approved | current executed approval follows every affected repair | none |
+| code-reviewer | approved | current executed approval follows every affected repair | none |
+| qa-reviewer | approved | current executed approval follows every affected repair | none |
+| architecture-reviewer | approved | current executed approval follows every affected repair | none |
+| security-reviewer | approved | current executed approval follows every affected repair | none |
+| docs-contract-reviewer | approved | current executed approval follows every affected repair | none |
+| operator-signoff | approved | current executed approval follows every affected repair | none |
+| reality-checker | approved | current executed approval follows every affected repair | none |
+<!-- wave:review-status end -->
 
 - wave-council-readiness: approved 2026-07-14 — full-depth prepare council passed after all blocking amendments were incorporated; structured synthesis and seat evidence recorded above
 - wave-council-readiness: withdrawn 2026-07-14 — approval predates the material AC-13 finding-actionability/convergence amendment; refresh readiness before implementation
@@ -139,36 +153,6 @@ Wave `1skt1` (Executable Review Evidence) delivered one change: Executable Revie
 - reality-checker: withdrawn 2026-07-14 — approval predates cycle-6 platform-render ordering repair
 - wave-council-delivery: changes requested 2026-07-14 — `.claude` common-ancestor escape wrote six external files before late refusal
 - operator-signoff: <approved when operator confirms closure>
-- code-reviewer: withdrawn — approval-scope-and-authoring-burden requires affected-lane re-verification
-- qa-reviewer: withdrawn — approval-scope-and-authoring-burden requires affected-lane re-verification
-- architecture-reviewer: withdrawn — approval-scope-and-authoring-burden requires affected-lane re-verification
-- docs-contract-reviewer: withdrawn — approval-scope-and-authoring-burden requires affected-lane re-verification
-- wave-council-delivery: withdrawn — approval-scope-and-authoring-burden requires affected-lane re-verification
-- code-reviewer: withdrawn — approval-scope-and-authoring-burden requires affected-lane re-verification
-- qa-reviewer: withdrawn — approval-scope-and-authoring-burden requires affected-lane re-verification
-- architecture-reviewer: withdrawn — approval-scope-and-authoring-burden requires affected-lane re-verification
-- docs-contract-reviewer: withdrawn — approval-scope-and-authoring-burden requires affected-lane re-verification
-- wave-council-delivery: withdrawn — approval-scope-and-authoring-burden requires affected-lane re-verification
-- code-reviewer: withdrawn — typed-evidence-semantic-key-collision requires affected-lane re-verification
-- qa-reviewer: withdrawn — typed-evidence-semantic-key-collision requires affected-lane re-verification
-- architecture-reviewer: withdrawn — typed-evidence-semantic-key-collision requires affected-lane re-verification
-- security-reviewer: withdrawn — typed-evidence-semantic-key-collision requires affected-lane re-verification
-- docs-contract-reviewer: withdrawn — typed-evidence-semantic-key-collision requires affected-lane re-verification
-- wave-council-delivery: withdrawn — typed-evidence-semantic-key-collision requires affected-lane re-verification
-- code-reviewer: withdrawn — typed-evidence-semantic-key-collision requires affected-lane re-verification
-- qa-reviewer: withdrawn — typed-evidence-semantic-key-collision requires affected-lane re-verification
-- architecture-reviewer: withdrawn — typed-evidence-semantic-key-collision requires affected-lane re-verification
-- security-reviewer: withdrawn — typed-evidence-semantic-key-collision requires affected-lane re-verification
-- docs-contract-reviewer: withdrawn — typed-evidence-semantic-key-collision requires affected-lane re-verification
-- wave-council-delivery: withdrawn — typed-evidence-semantic-key-collision requires affected-lane re-verification
-- code-reviewer: approved — APPROVED — current merge-boundary source review and the registered MCP attack/control matrix show protected semantic keys are rejected before construction, exact actor binding remains enforced, and legitimate approvals remain accepted; the focused regression and canonical 5,516-test run pass.
-- qa-reviewer: approved — APPROVED — the exact actor collision is refused, the mismatch-only negative control is refused, the legitimate QA dry-run succeeds, the named regression ran one test with zero skips and passed, and the canonical isolated suite passed 5,516 tests across 49 files.
-- architecture-reviewer: approved — APPROVED — the repair is localized to the typed response merge chokepoint, derives protected keys from the semantic event itself, changes no schema or ownership boundary, preserves downstream actor validation, and passes the canonical 5,516-test run.
-- security-reviewer: approved — APPROVED — the registered actor-spoof collision now fails closed, the underlying mismatched-actor control also fails closed, and the legitimate exact-actor control succeeds; no replacement authority defect was found at the bounded merge boundary.
-- docs-contract-reviewer: approved — APPROVED — the current typed public path matches the explicit top-level actor and documented evidence-field contract, affected-lane chronology and compact authoring remain consistent, and the canonical isolated suite passed 5,516 tests.
-- wave-council-delivery: approved — APPROVED — cycle-7 approval-scope evidence and cycle-8 collision evidence are completed; every affected specialist lane approves; the exact registered attack and adjacent controls pass; no replacement defect or changed review boundary was found; canonical isolated suite: 5,516 tests across 49 files OK.
-- operator-signoff: approved — The operator explicitly instructed in the current thread: "Ok, close the wave, let's do this change next."
-- wave-council-readiness: approved — Existing refreshed readiness council approved the amended executable-review-evidence plan before implementation; this companion record supplies the machine linkage after the typed authoring surface became available.
 
 ## Dependencies
 

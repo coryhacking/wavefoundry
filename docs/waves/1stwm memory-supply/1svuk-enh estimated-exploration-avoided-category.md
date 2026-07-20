@@ -4,7 +4,7 @@ Change ID: `1svuk-enh estimated-exploration-avoided-category`
 Change Status: `implemented`
 Owner: framework
 Status: implemented
-Last verified: 2026-07-17
+Last verified: 2026-07-20
 
 Wave: `1stwm memory-supply`
 
@@ -98,6 +98,7 @@ This change adds a SEPARATE, explicitly-labeled ESTIMATE category — "estimated
 | ---- | ------ | -------- |
 | 2026-07-17 | Change doc authored on operator direction, reconciling both council seats | Operator: "estimate exploration savings as a category"; red-team: keep separate + labeled; 1stwj Out-of-scope excludes re-exploration from measured tokens |
 | 2026-07-18 | Implemented `exploration_avoided.py` (grounded formula `source_cost × bounded ATTRIBUTION_BASE × match_confidence`, disposable JSON sidecar, fail-isolated `credit_surface`), credit hooked at `wave_memory_brief` (telemetry-only, never alters advisory output), separate labeled block on `wave_current`/`wave_audit` with the causal caveat, reference doc. `wave.md` marker-block deferred (renderer out of scope; surfaced via tools). Full suite 5788 OK; docs-lint clean. | `exploration_avoided.py`; `ExplorationAvoidedTests` (9); `docs/references/estimated-exploration-avoided.md` |
+| 2026-07-18 | Post-close correction in wave 1sxj7: the disposable JSON sidecar and weak default-match credit are superseded. Events now use the existing telemetry SQLite authority with stable dedup keys, per-origin phase budgets, exact target-match attribution across explicit and passive surfaces, live source-cost grounding, surfaced/cited separation, and a distinct durable `wave.md` projection at lifecycle/reload/upgrade flush gates. The estimate still never enters measured Context Efficiency totals. | `1sxmy-bug memory-supply-and-exploration-estimate-integrity`; repeat/origin/concurrency/passive/projection/install/upgrade fixtures |
 
 
 ## Decision Log

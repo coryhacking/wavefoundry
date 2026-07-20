@@ -15,7 +15,7 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import Any, Callable, Iterable, Literal, Optional
+from typing import Any, Callable, Iterable, Literal, Mapping, Optional
 
 sys.dont_write_bytecode = True
 
@@ -45,6 +45,8 @@ from review_evidence import (
     PROTOCOL_VERSION,
     REQUEST_DIGEST_FIELD,
     REVIEW_EVIDENCE_SOURCE_DECLARATION,
+    REVIEW_STATUS_MARKER_BEGIN,
+    REVIEW_STATUS_MARKER_END,
     adopted_protocol_state,
     build_identified_review_event,
     canonical_review_events_bytes,
@@ -55,10 +57,14 @@ from review_evidence import (
     record_protocol_state,
     record_protocol_state_locked,
     render_review_evidence_projection,
+    render_review_status_projection,
+    required_review_status_keys,
     review_event_path,
     review_event_request_digest,
     review_event_write_lock,
     review_evidence_summary,
+    review_status_rows,
+    review_status_signoff_keys,
     validate_adopted_protocol_state,
     validate_external_review_evidence,
     validate_review_evidence_records,
@@ -2731,9 +2737,10 @@ def resolve_path_under_root(repo_root: Path, user_path: str) -> tuple[Optional[P
 
 def current_wave(root: Path, cache: Optional[McpRepoCache] = None) -> Optional[dict]:
     waves = cache.list_waves_cached() if cache else list_waves(root)
-    for wave in waves:
-        if wave["status"] in ("active", "implementing", "planned"):
-            return wave
+    for allowed in (("active", "implementing"), ("planned",)):
+        for wave in waves:
+            if wave["status"] in allowed:
+                return wave
     return None
 
 
@@ -5645,6 +5652,16 @@ def _lane_has_signoff_in_evidence(evidence_text: str, lane: str, *, authorizatio
             lane_l in ("operator", "operator-signoff")
             or lane_l.startswith("wave-council")
         )
+    # The bounded current-state projection is authoritative for keys it
+    # contains.  It deliberately appears before prose/history parsing so an
+    # older approval line cannot override a current withheld/pending row.
+    for raw in evidence_text.splitlines():
+        stripped = raw.strip()
+        if not (stripped.startswith("|") and stripped.endswith("|")):
+            continue
+        cells = [cell.strip().lower() for cell in stripped.strip("|").split("|")]
+        if len(cells) >= 2 and cells[0] == lane_l:
+            return cells[1] == "approved"
     state_values: list[str] = []
     any_prose_signoff = False
     for raw in evidence_text.splitlines():
@@ -7663,6 +7680,13 @@ def _memory_view(record: dict[str, Any], decay: dict[str, Any]) -> dict[str, Any
         "created_at": record.get("created_at"),
         "updated_at": record.get("updated_at"),
     }
+    for key in (
+        "source_event", "validation", "validated_by", "action_delta",
+        "validation_rationale", "evidence_verified",
+        "current_target_verified", "canonical_overlap",
+    ):
+        if record.get(key) is not None:
+            view[key] = record[key]
     if record.get("superseded_by"):
         view["superseded_by"] = record["superseded_by"]
     if decay.get("needs_reverification"):
@@ -7755,7 +7779,9 @@ def _memory_advisories_for_path(root: Path, path: str, symbol: str = "") -> list
         if not matched:
             return []
         ranked = _memory_ranked(root, matched)
-        return [_memory_view(r, d) for r, d in ranked[:MEMORY_ADVISORY_CAP]]
+        surfaced = ranked[:MEMORY_ADVISORY_CAP]
+        _credit_exploration_avoided_surface(root, surfaced, [path], mem)
+        return [_memory_view(r, d) for r, d in surfaced]
     except Exception:
         return []
 
@@ -7802,13 +7828,25 @@ def _memory_advisories_for_wave(root: Path, wave: dict[str, Any]) -> list[dict[s
             for record, decay in _memory_ranked(root, fragile):
                 if decay.get("needs_reverification") and len(views) < MEMORY_ADVISORY_CAP:
                     views.append(_memory_view(record, decay))
+        surfaced_matched = [
+            pair for pair in ranked[:MEMORY_ADVISORY_CAP]
+            if pair[0]["memory_id"] in {view["memory_id"] for view in views}
+        ]
+        _credit_exploration_avoided_surface(
+            root, surfaced_matched, sorted(wave_tokens), mem, evidence_match=True
+        )
         return views
     except Exception:
         return []
 
 
 def _credit_exploration_avoided_surface(
-    root: Path, surfaced_pairs: list, target_list: list, mem: Any
+    root: Path,
+    surfaced_pairs: list,
+    target_list: list,
+    mem: Any,
+    *,
+    evidence_match: bool = False,
 ) -> None:
     """Fail-isolated 1svuk credit for advisories surfaced by wave_memory_brief.
 
@@ -7835,13 +7873,41 @@ def _credit_exploration_avoided_surface(
         ea = _load_script("exploration_avoided")
         items = []
         for record, _decay in surfaced_pairs:
-            matched = bool(target_list) and any(
-                mem.match_targets(record, path=t) for t in target_list)
+            if evidence_match:
+                refs = (
+                    list(record.get("evidence_refs") or [])
+                    + list(record.get("target_refs") or [])
+                )
+                matched = bool(target_list) and any(
+                    target in _lifecycle_id_tokens(ref)
+                    for target in target_list for ref in refs
+                )
+            else:
+                matched = bool(target_list) and any(
+                    mem.match_targets(record, path=t) for t in target_list
+                )
+            if not matched:
+                continue
+            origin_tokens: set[str] = set()
+            for ref in record.get("evidence_refs") or []:
+                origin_tokens |= _lifecycle_id_tokens(str(ref))
             items.append({
+                "memory_id": record.get("memory_id"),
+                "source_origin": (
+                    sorted(origin_tokens)[0]
+                    if origin_tokens else record.get("memory_id")
+                ),
                 "source_exploration_cost": record.get("source_exploration_cost"),
-                "match_confidence": 1.0 if matched else ea.WEAK_MATCH_CONFIDENCE,
+                "match_confidence": 1.0,
             })
-        ea.credit_surface(root, wave_id, items, cited=False)
+        context_key = json.dumps(
+            sorted({str(target) for target in target_list}),
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        ea.credit_surface(
+            root, wave_id, items, cited=False, context_key=context_key
+        )
     except Exception:
         return
 
@@ -7858,6 +7924,37 @@ def wave_memory_add_response(
     supersedes: str = "",
     memory_id: str = "",
     abort_if_duplicate: bool = False,
+) -> dict[str, Any]:
+    """Validate without mutation, then serialize duplicate scan + write."""
+    return _wave_memory_add_response_locked(
+        root, kind, summary, evidence, targets, title=title,
+        confidence=confidence, status=status, supersedes=supersedes,
+        memory_id=memory_id, abort_if_duplicate=abort_if_duplicate,
+    )
+
+
+def _wave_memory_add_response_locked(
+    root: Path,
+    kind: str,
+    summary: str,
+    evidence: list,
+    targets: list,
+    title: str = "",
+    confidence: float = 0.6,
+    status: str = "candidate",
+    supersedes: str = "",
+    memory_id: str = "",
+    abort_if_duplicate: bool = False,
+    _lock_held: bool = False,
+    _source_event: str = "",
+    _validation: str = "",
+    _validated_by: str = "",
+    _action_delta: str = "",
+    _validation_rationale: str = "",
+    _evidence_verified: Optional[bool] = None,
+    _current_target_verified: Optional[bool] = None,
+    _canonical_overlap: str = "",
+    _defer_index_refresh: bool = False,
 ) -> dict[str, Any]:
     mem = _memory_mod()
     problems: list[str] = []
@@ -7935,6 +8032,20 @@ def wave_memory_add_response(
             next_tools=["wave_memory_add"],
             usage="",
         )
+    if not _lock_held:
+        with review_event_write_lock(root):
+            return _wave_memory_add_response_locked(
+                root, kind, summary, evidence, targets, title=title,
+                confidence=confidence, status=status, supersedes=supersedes,
+                memory_id=memory_id, abort_if_duplicate=abort_if_duplicate,
+                _lock_held=True,
+                _source_event=_source_event, _validation=_validation,
+                _validated_by=_validated_by, _action_delta=_action_delta,
+                _validation_rationale=_validation_rationale,
+                _evidence_verified=_evidence_verified,
+                _current_target_verified=_current_target_verified,
+                _canonical_overlap=_canonical_overlap,
+            )
     explicit = bool(memory_id)
     base_id = memory_id or f"mem-{mem.slugify(title or summary)}"
 
@@ -7972,6 +8083,12 @@ def wave_memory_add_response(
             memory_id=mid, kind=kind, summary=summary, evidence=evidence,
             targets=targets, title=title, confidence=confidence, status=status,
             supersedes=supersedes,
+            source_event=_source_event, validation=_validation,
+            validated_by=_validated_by, action_delta=_action_delta,
+            validation_rationale=_validation_rationale,
+            evidence_verified=_evidence_verified,
+            current_target_verified=_current_target_verified,
+            canonical_overlap=_canonical_overlap,
         )
 
     # Fence the durable seqlock BEFORE any filesystem write (delivery-review
@@ -8033,7 +8150,8 @@ def wave_memory_add_response(
         # Clear THIS writer's fence + advance the generation. A concurrent
         # writer's fence survives (only our token is removed).
         _memory_finalize(root, _fence_token)
-    _trigger_background_index_refresh_for_paths(root, [path])
+    if not _defer_index_refresh:
+        _trigger_background_index_refresh_for_paths(root, [path])
     record = mem.parse_memory_record(path)
     decay = mem.apply_decay(record, index_dir=root / ".wavefoundry" / "index") if record else {}
     return _response(
@@ -8055,7 +8173,36 @@ def _draft_view(d: dict[str, Any]) -> dict[str, Any]:
 
 
 def wave_memory_propose_response(
-    root: Path, wave_id: str = "", mode: str = "dry_run", limit: int = MEMORY_PROPOSE_CAP
+    root: Path,
+    wave_id: str = "",
+    mode: str = "dry_run",
+    limit: int = MEMORY_PROPOSE_CAP,
+    *,
+    _defer_index_refresh: bool = False,
+) -> dict[str, Any]:
+    """Serialize create-mode duplicate scan + batch write as one operation."""
+    lock = (
+        review_event_write_lock(root)
+        if (mode or "").strip() == "create"
+        else contextlib.nullcontext()
+    )
+    with lock:
+        return _wave_memory_propose_response_locked(
+            root,
+            wave_id=wave_id,
+            mode=mode,
+            limit=limit,
+            defer_index_refresh=_defer_index_refresh,
+        )
+
+
+def _wave_memory_propose_response_locked(
+    root: Path,
+    wave_id: str = "",
+    mode: str = "dry_run",
+    limit: int = MEMORY_PROPOSE_CAP,
+    *,
+    defer_index_refresh: bool = False,
 ) -> dict[str, Any]:
     """Draft candidate memory records from a wave's typed review evidence.
 
@@ -8089,16 +8236,42 @@ def wave_memory_propose_response(
         n = max(1, min(int(limit), MEMORY_PROPOSE_CAP))
     except (TypeError, ValueError):
         n = MEMORY_PROPOSE_CAP
-    drafts = supply.draft_candidates(root, wave_id, limit=n)
+    _wave_dir, wave_error = supply.resolve_wave_dir(root, wave_id)
+    if wave_error:
+        return _response(
+            "error",
+            {"proposed": [], "records_proposed": 0, "records_promoted": 0,
+             "records_written": 0},
+            diagnostics=[_diagnostic(
+                wave_error,
+                "Wave id is ambiguous." if wave_error == "ambiguous_wave_id"
+                else "Wave was not found.",
+                recovery_tools=["wave_list_waves", "wave_memory_propose"],
+                recovery_usage="wave_list_waves()")],
+            next_tools=["wave_list_waves"], usage="")
+    # Read the complete eligible set, then page AFTER suppressing durable
+    # dispositions. Otherwise the first 20 already-validated sources would
+    # permanently hide source 21+ on every subsequent run.
+    drafts = supply.draft_candidates(root, wave_id, limit=None)
 
     # Idempotent supply (AC-5): skip a draft whose (kind, targets, normalized
     # summary) already exists (existing corpus + earlier in this run). The
     # shared wave-id evidence ref is deliberately NOT a skip reason — every
     # same-wave draft carries it — so dedup keys on normalized_content only.
-    accumulated = list(mem.load_memory_records(root, statuses=("active", "candidate")))
+    accumulated = list(mem.load_memory_records(root))
+    disposition_sources = {
+        str(record.get("source_event") or "")
+        for record in accumulated
+        if record.get("source_event")
+    }
     unique: list[dict[str, Any]] = []
+    eligible_count = 0
     skipped_duplicates = 0
+    skipped_dispositions = 0
     for d in drafts:
+        if d["source_event"] in disposition_sources:
+            skipped_dispositions += 1
+            continue
         pseudo = {"memory_id": "", "kind": d["kind"], "summary": d["summary"],
                   "evidence_refs": list(d["evidence"]), "target_refs": list(d["targets"]),
                   "status": "candidate"}
@@ -8106,14 +8279,22 @@ def wave_memory_propose_response(
         if any("normalized_content" in m["signals"] for m in matches):
             skipped_duplicates += 1
             continue
-        unique.append(d)
+        eligible_count += 1
+        if len(unique) < n:
+            unique.append(d)
+        # Continue tracking the complete eligible set after the response page
+        # fills. This lets the coordinator distinguish an exactly-full final
+        # page from a page with additional durable sources without returning
+        # those source bodies.
         accumulated.append(pseudo)
+        disposition_sources.add(d["source_event"])
 
     if not drafts:
         return _response(
             "ok",
             {"proposed": [], "records_proposed": 0, "records_promoted": 0,
-             "skipped_duplicates": 0, "mode": mode},
+             "records_written": 0,
+             "skipped_duplicates": 0, "skipped_dispositions": 0, "mode": mode},
             diagnostics=[_diagnostic(
                 "no_material_evidence",
                 "No durable-shaped evidence to draft from this wave (Decision Logs "
@@ -8126,7 +8307,11 @@ def wave_memory_propose_response(
             "ok",
             {"proposed": [_draft_view(d) for d in unique],
              "records_proposed": len(unique), "records_promoted": 0,
-             "skipped_duplicates": skipped_duplicates, "mode": "dry_run"},
+             "records_written": 0,
+             "records_remaining": max(0, eligible_count - len(unique)),
+             "exhausted": eligible_count <= len(unique),
+             "skipped_duplicates": skipped_duplicates,
+             "skipped_dispositions": skipped_dispositions, "mode": "dry_run"},
             diagnostics=[], next_tools=["wave_memory_propose"],
             usage=f"wave_memory_propose(wave_id={wave_id!r}, mode='create')")
 
@@ -8164,7 +8349,8 @@ def wave_memory_propose_response(
                     memory_id=mid, kind=_d["kind"], summary=_d["summary"],
                     evidence=list(_d["evidence"]), targets=list(_d["targets"]),
                     title=_d["title"], status="candidate",
-                    source_exploration_cost=_d["source_exploration_cost"])
+                    source_exploration_cost=_d["source_exploration_cost"],
+                    source_event=_d["source_event"], validation="pending")
 
             try:
                 path, mid = mem.create_memory_record(root, _render, base_id, explicit=False)
@@ -8179,16 +8365,536 @@ def wave_memory_propose_response(
                     recovery_tools=[], recovery_usage=""))
     finally:
         _memory_finalize(root, _fence_token)
-    if written:
+    if written and not defer_index_refresh:
         _trigger_background_index_refresh_for_paths(root, [root / w["path"] for w in written])
     return _response(
         "ok",
         {"proposed": [_draft_view(d) for d in unique], "written": written,
-         "records_proposed": len(unique), "records_promoted": len(written),
-         "skipped_duplicates": skipped_duplicates, "mode": "create"},
+         "records_proposed": len(unique), "records_promoted": 0,
+         "records_written": len(written),
+         "records_remaining": max(0, eligible_count - len(unique)),
+         "exhausted": eligible_count <= len(unique),
+         "skipped_duplicates": skipped_duplicates,
+         "skipped_dispositions": skipped_dispositions, "mode": "create"},
         diagnostics=diagnostics,
-        next_tools=["wave_memory_search", "wave_memory_reconcile"],
-        usage="wave_memory_reconcile(memory_id=<id>, status='active') to promote a candidate")
+        next_tools=["wave_memory_validate", "wave_memory_search"],
+        usage="wave_memory_validate(memory_id=<id>, verdict='promote', action_delta=..., rationale=..., evidence_verified=True, current_target_verified=True, canonical_overlap='none')")
+
+
+def wave_memory_backfill_response(
+    root: Path,
+    mode: str = "dry_run",
+    limit: int = 20,
+    *,
+    entry_path: str = "manual",
+) -> dict[str, Any]:
+    """Inventory and mechanically draft one bounded historical-memory batch."""
+
+    backfill = _load_script("memory_backfill")
+    mode_s = str(mode or "dry_run").strip().lower()
+    if mode_s not in {"dry_run", "create"}:
+        return _response(
+            "error",
+            {"mode": mode_s},
+            diagnostics=[_diagnostic("invalid_arguments", "mode must be dry_run or create")],
+            next_tools=["wave_memory_backfill"],
+        )
+    entry_path_s = str(entry_path or "manual").strip().lower()
+    if entry_path_s not in backfill.ENTRY_PATHS:
+        return _response(
+            "error",
+            {
+                "valid_entry_paths": sorted(backfill.ENTRY_PATHS),
+            },
+            diagnostics=[
+                _diagnostic(
+                    "invalid_arguments",
+                    "entry_path must be manual, setup, or upgrade",
+                )
+            ],
+            next_tools=["wave_memory_backfill"],
+        )
+    try:
+        candidate_budget = max(1, min(int(limit), backfill.MAX_CANDIDATES_PER_CALL))
+    except (TypeError, ValueError):
+        candidate_budget = backfill.MAX_CANDIDATES_PER_CALL
+    try:
+        inventory = backfill.inventory_closed_waves(root)
+    except OSError as exc:
+        return _response(
+            "error",
+            {"mode": mode_s, "entry_path": entry_path_s},
+            diagnostics=[
+                _diagnostic(
+                    "historical_memory_inventory_failed",
+                    f"Historical wave inventory was refused: {exc}",
+                    recovery_tools=["wave_memory_backfill"],
+                    recovery_usage="repair the local docs/waves path, then retry",
+                )
+            ],
+            next_tools=["wave_memory_backfill"],
+        )
+    if mode_s == "dry_run":
+        return _response(
+            "dry_run",
+            {
+                "mode": mode_s,
+                "entry_path": entry_path_s,
+                "eligible_waves": sum(
+                    1 for item in inventory if item["status"] in backfill._CLOSED_STATES
+                ),
+                "unsupported_waves": sum(
+                    1 for item in inventory if item["status"] == "unsupported"
+                ),
+                "unreadable_waves": sum(
+                    1 for item in inventory if item["status"] == "unreadable"
+                ),
+                "limits": {
+                    "waves": backfill.MAX_WAVES_PER_CALL,
+                    "candidates": candidate_budget,
+                    "response_bytes": backfill.MAX_RESPONSE_BYTES,
+                },
+            },
+            next_tools=["wave_memory_backfill"],
+            usage="wave_memory_backfill(mode='create')",
+        )
+
+    processed: list[dict[str, Any]] = []
+    with review_event_write_lock(root):
+        run_id = backfill.ensure_run(root, entry_path_s)
+        backfill.sync_inventory(root, run_id, inventory=inventory)
+        for _ in range(backfill.MAX_WAVES_PER_CALL):
+            if candidate_budget <= 0:
+                break
+            claim = backfill.claim_next(root, run_id)
+            if claim is None:
+                break
+            wave_id = claim["wave_id"]
+            try:
+                proposed = _wave_memory_propose_response_locked(
+                    root,
+                    wave_id=wave_id,
+                    mode="create",
+                    limit=candidate_budget,
+                    defer_index_refresh=True,
+                )
+                if proposed.get("status") != "ok":
+                    message = "; ".join(
+                        str(item.get("message") or item.get("code") or "backfill failed")
+                        for item in proposed.get("diagnostics", [])
+                    )
+                    backfill.fail_claim(
+                        root, run_id, wave_id, claim["claim_token"], message
+                    )
+                    processed.append(
+                        {"wave_id": wave_id, "outcome": "failed", "error": message}
+                    )
+                    continue
+                data = proposed.get("data", {})
+                count = int(data.get("records_written") or 0)
+                unique_count = int(data.get("records_proposed") or 0)
+                draft_write_failures = [
+                    item
+                    for item in proposed.get("diagnostics", [])
+                    if item.get("code")
+                    in {"memory_draft_skipped_forbidden", "memory_draft_write_failed"}
+                ]
+                if draft_write_failures:
+                    message = "; ".join(
+                        str(item.get("message") or item.get("code"))
+                        for item in draft_write_failures
+                    )
+                    backfill.fail_claim(
+                        root, run_id, wave_id, claim["claim_token"], message
+                    )
+                    processed.append(
+                        {"wave_id": wave_id, "outcome": "failed", "error": message}
+                    )
+                    continue
+                no_source = any(
+                    item.get("code") == "no_material_evidence"
+                    for item in proposed.get("diagnostics", [])
+                )
+                supply = _load_script("memory_supply")
+                wave_dir, _wave_error = supply.resolve_wave_dir(root, wave_id)
+                ledger_errors: tuple[str, ...] = ()
+                if wave_dir is not None:
+                    _ledger_rows, ledger_errors = read_review_event_ledger(wave_dir)
+                if no_source and ledger_errors:
+                    outcome = "unsupported"
+                else:
+                    outcome = "no_source" if no_source else "extracted"
+                exhausted = no_source or bool(data.get("exhausted"))
+                source_records = list(data.get("written") or ())
+                # Crash recovery: a previous attempt may have committed the
+                # candidate file but died before completing the SQLite claim.
+                # Recover stable source identities from the current record
+                # corpus so the pending-validation census cannot go false-zero.
+                if wave_dir is not None:
+                    source_events = {
+                        str(draft.get("source_event") or "")
+                        for draft in supply.draft_candidates(root, wave_id, limit=None)
+                    }
+                    for record in _memory_mod().load_memory_records(root):
+                        if str(record.get("source_event") or "") in source_events:
+                            source_records.append(
+                                {
+                                    "source_event": record.get("source_event"),
+                                    "memory_id": record.get("memory_id"),
+                                }
+                            )
+                backfill.complete_claim(
+                    root,
+                    run_id,
+                    wave_id,
+                    claim["claim_token"],
+                    outcome=outcome,
+                    candidate_count=count,
+                    source_records=source_records,
+                    exhausted=exhausted,
+                )
+                candidate_budget -= count
+                processed.append(
+                    {
+                        "wave_id": wave_id,
+                        "outcome": outcome,
+                        "candidates_written": count,
+                        "exhausted": exhausted,
+                    }
+                )
+            except Exception as exc:  # noqa: BLE001 — persist exact failed wave
+                backfill.fail_claim(
+                    root, run_id, wave_id, claim["claim_token"], str(exc)
+                )
+                processed.append(
+                    {"wave_id": wave_id, "outcome": "failed", "error": str(exc)}
+                )
+        summary = backfill.run_summary(root, run_id)
+        worklist = backfill.validation_worklist(
+            root, run_id, limit=backfill.MAX_CANDIDATES_PER_CALL
+        )
+    payload = {
+        **summary,
+        **worklist,
+        "mode": "create",
+        "processed": processed,
+        "limits": {
+            "waves": backfill.MAX_WAVES_PER_CALL,
+            "candidates": min(
+                int(limit) if isinstance(limit, int) else backfill.MAX_CANDIDATES_PER_CALL,
+                backfill.MAX_CANDIDATES_PER_CALL,
+            ),
+            "response_bytes": backfill.MAX_RESPONSE_BYTES,
+        },
+    }
+    if len(json.dumps(payload, ensure_ascii=False).encode("utf-8")) > backfill.MAX_RESPONSE_BYTES:
+        payload["processed"] = [
+            {
+                key: (
+                    str(value)[:2048]
+                    if key in {"error", "message"}
+                    else value
+                )
+                for key, value in row.items()
+            }
+            for row in processed[:1]
+        ]
+        payload["last_failure"] = str(payload.get("last_failure") or "")[:2048]
+        payload["response_truncated"] = True
+    if len(json.dumps(payload, ensure_ascii=False).encode("utf-8")) > backfill.MAX_RESPONSE_BYTES:
+        # Retain the run-level state/census contract and drop only per-wave
+        # presentation detail. Candidate bodies never appear in this response.
+        payload["processed"] = []
+        payload["last_failure"] = str(payload.get("last_failure") or "")[:256]
+    if summary["state"] == "awaiting_validation":
+        next_tools = ["wave_memory_validate", "wave_memory_backfill"]
+        usage = (
+            "validate each data.validation_worklist[].memory_id, then call "
+            "wave_memory_backfill(mode='create') for the next exact page"
+        )
+    elif entry_path_s == "upgrade":
+        next_tools = ["wave_upgrade"]
+        usage = "wave_upgrade(phase='resume_after_memory')"
+    elif entry_path_s == "setup":
+        next_tools = []
+        usage = "Rerun ordinary `wf setup`; it resumes the durable setup run."
+    else:
+        next_tools = []
+        usage = "Historical memory validation is complete."
+    return _response(
+        "ok",
+        payload,
+        diagnostics=[],
+        next_tools=next_tools,
+        usage=usage,
+    )
+
+
+def _memory_file_target_exists(root: Path, target: str) -> bool:
+    """Best-effort current-tree proof for a file target; symbols are agent-verified."""
+    target = str(target or "").strip().strip("`")
+    if not target or target.startswith(("symbol:", "community:")):
+        return True
+    direct = root / target
+    if direct.is_file():
+        return True
+    name = Path(target).name
+    if not name:
+        return False
+    try:
+        return any(
+            path.is_file()
+            and str(path.relative_to(root)).replace("\\", "/").endswith(target)
+            for path in root.rglob(name)
+        )
+    except OSError:
+        return False
+
+
+def wave_memory_validate_response(
+    root: Path,
+    memory_id: str,
+    verdict: str,
+    action_delta: str,
+    rationale: str,
+    evidence_verified: bool,
+    current_target_verified: bool,
+    canonical_overlap: str,
+    *,
+    rewrite_kind: str = "",
+    rewrite_title: str = "",
+    rewrite_summary: str = "",
+    rewrite_evidence: Optional[list] = None,
+    rewrite_targets: Optional[list] = None,
+    rewrite_confidence: float = 0.8,
+) -> dict[str, Any]:
+    """Record a focused agent judgment over one evidence-derived candidate."""
+    mem = _memory_mod()
+    memory_id = str(memory_id or "").strip()
+    verdict = str(verdict or "").strip()
+    canonical_overlap = str(canonical_overlap or "").strip()
+    problems: list[str] = []
+    try:
+        mem.validate_memory_id(memory_id)
+    except ValueError as exc:
+        problems.append(str(exc))
+    if verdict not in ("promote", "retain", "reject", "rewrite"):
+        problems.append("verdict must be promote, retain, reject, or rewrite")
+    if canonical_overlap not in ("none", "supplements", "duplicates"):
+        problems.append("canonical_overlap must be none, supplements, or duplicates")
+    for label, value in (("action_delta", action_delta), ("rationale", rationale)):
+        value = str(value or "")
+        if not value.strip() or any(c in value for c in ("\r", "\n")):
+            problems.append(f"{label} must be a non-empty single line")
+    if verdict in ("promote", "retain", "rewrite"):
+        if not evidence_verified:
+            problems.append(f"{verdict} requires evidence_verified=True")
+        if not current_target_verified:
+            problems.append(f"{verdict} requires current_target_verified=True")
+        if canonical_overlap == "duplicates":
+            problems.append(
+                f"{verdict} cannot duplicate a canonical contract; reject the draft"
+            )
+    rewrite_evidence = [
+        str(value).strip() for value in (rewrite_evidence or []) if str(value).strip()
+    ]
+    rewrite_targets = [
+        str(value).strip() for value in (rewrite_targets or []) if str(value).strip()
+    ]
+    if verdict == "rewrite":
+        if rewrite_kind not in mem.MEMORY_KINDS:
+            problems.append(f"rewrite_kind must be one of {', '.join(mem.MEMORY_KINDS)}")
+        if not str(rewrite_summary or "").strip():
+            problems.append("rewrite_summary is required for rewrite")
+        if not rewrite_evidence:
+            problems.append("rewrite_evidence is required for rewrite")
+        if not rewrite_targets:
+            problems.append("rewrite_targets is required for rewrite")
+        try:
+            rewrite_confidence = float(rewrite_confidence)
+            if not 0.0 <= rewrite_confidence <= 1.0:
+                raise ValueError
+        except (TypeError, ValueError):
+            problems.append("rewrite_confidence must be a number in [0.0, 1.0]")
+    # Every caller-controlled field that can reach the record must pass the
+    # same pre-write forbidden-content boundary as wave_memory_add. Report only
+    # field names so rejected secrets never echo into responses or logs.
+    try:
+        from wave_lint_lib.constants import MEMORY_DISALLOWED_PATTERNS as _FORBIDDEN
+    except ImportError:
+        _FORBIDDEN = ()
+    validation_fields = (
+        ("action_delta", [action_delta]),
+        ("rationale", [rationale]),
+        ("rewrite_title", [rewrite_title]),
+        ("rewrite_summary", [rewrite_summary]),
+        ("rewrite_evidence", rewrite_evidence),
+        ("rewrite_targets", rewrite_targets),
+    )
+    forbidden_fields: list[str] = []
+    for field_name, chunks in validation_fields:
+        if any(
+            pattern.search(line)
+            for chunk in chunks
+            for line in str(chunk).splitlines()
+            for pattern in _FORBIDDEN
+        ):
+            forbidden_fields.append(field_name)
+    if forbidden_fields:
+        problems.append(
+            "content looks like a secret, raw transcript, or personal fact in "
+            f"{', '.join(forbidden_fields)} — forbidden by the memory schema "
+            "(the offending text is not echoed back)"
+        )
+    if problems:
+        return _response(
+            "error", {"validated": False, "problems": problems},
+            diagnostics=[_diagnostic(
+                "invalid_memory_validation", "; ".join(problems),
+                recovery_tools=["wave_memory_validate"], recovery_usage="")],
+            next_tools=["wave_memory_validate"], usage="")
+
+    with review_event_write_lock(root):
+        records = {record["memory_id"]: record for record in mem.load_memory_records(root)}
+        record = records.get(memory_id)
+        if record is None:
+            return _response(
+                "error", {"validated": False},
+                diagnostics=[_diagnostic(
+                    "memory_record_not_found", f"Memory record {memory_id!r} was not found.",
+                    recovery_tools=["wave_memory_search"], recovery_usage="wave_memory_search()")],
+                next_tools=["wave_memory_search"], usage="")
+        if not record.get("source_event"):
+            return _response(
+                "error", {"validated": False},
+                diagnostics=[_diagnostic(
+                    "memory_not_evidence_derived",
+                    "Only evidence-derived records carrying Source event can use agent validation.",
+                    recovery_tools=["wave_memory_reconcile"], recovery_usage="")],
+                next_tools=["wave_memory_reconcile"], usage="")
+        if record.get("validation") != "pending":
+            return _response(
+                "error", {"validated": False, "record": _memory_view(record, {})},
+                diagnostics=[_diagnostic(
+                    "memory_validation_not_pending",
+                    "Agent validation requires an evidence-derived candidate with "
+                    "Validation: pending. Finalized or malformed records are not rewritten "
+                    "implicitly.",
+                    recovery_tools=["wave_memory_search"],
+                    recovery_usage="wave_memory_search(include_history=True)")],
+                next_tools=["wave_memory_search"], usage="")
+        backfill_run = _load_script("memory_backfill").paused_run_for_source(
+            root, str(record.get("source_event") or "")
+        )
+        missing_targets = [
+            target for target in record.get("target_refs") or []
+            if not _memory_file_target_exists(root, target)
+        ]
+        if verdict in ("promote", "retain", "rewrite") and missing_targets:
+            return _response(
+                "error", {"validated": False, "missing_targets": missing_targets},
+                diagnostics=[_diagnostic(
+                    "memory_target_not_current",
+                    "One or more file targets are not present in the current tree.",
+                    recovery_tools=["wave_memory_validate"], recovery_usage="")],
+                next_tools=["wave_memory_validate"], usage="")
+
+        rewritten: Optional[dict[str, Any]] = None
+        if verdict == "rewrite":
+            # A previous attempt may have created the replacement and then
+            # failed while superseding the source. Reuse that exact corrected
+            # record so retry converges instead of creating suffixed duplicates.
+            existing_rewrite = next((
+                candidate for candidate in records.values()
+                if candidate["memory_id"] != memory_id
+                and candidate.get("source_event") == record["source_event"]
+                and candidate.get("validation") == "promote"
+                and candidate.get("status") == "active"
+                and candidate.get("kind") == rewrite_kind
+                and candidate.get("summary") == str(rewrite_summary).strip()
+                and sorted(candidate.get("evidence_refs") or [])
+                == sorted(rewrite_evidence)
+                and sorted(candidate.get("target_refs") or [])
+                == sorted(rewrite_targets)
+                and (not rewrite_title or candidate.get("title") == rewrite_title)
+            ), None)
+            if existing_rewrite is not None:
+                rewritten = _memory_view(existing_rewrite, {})
+            else:
+                add = _wave_memory_add_response_locked(
+                    root, rewrite_kind, rewrite_summary, rewrite_evidence, rewrite_targets,
+                    title=rewrite_title, confidence=rewrite_confidence, status="active",
+                    abort_if_duplicate=False, _lock_held=True,
+                    _source_event=record["source_event"], _validation="promote",
+                    _validated_by="agent", _action_delta=str(action_delta).strip(),
+                    _validation_rationale=str(rationale).strip(),
+                    _evidence_verified=True, _current_target_verified=True,
+                    _canonical_overlap=canonical_overlap,
+                    _defer_index_refresh=bool(backfill_run),
+                )
+                if add.get("status") != "ok" or not add.get("data", {}).get("written"):
+                    return _response(
+                        "error", {"validated": False, "rewrite": add},
+                        diagnostics=[_diagnostic(
+                            "memory_rewrite_create_failed",
+                            "The corrected record was not created; the source candidate is unchanged.",
+                            recovery_tools=["wave_memory_validate"], recovery_usage="")],
+                        next_tools=["wave_memory_validate"], usage="")
+                rewritten = add["data"]["record"]
+            replacement_id = rewritten["memory_id"]
+        else:
+            replacement_id = ""
+
+        fence = _memory_fence(root)
+        if fence is None:
+            return _response(
+                "error", {"validated": False, "rewrite_record": rewritten},
+                diagnostics=[_diagnostic(
+                    "memory_state_unwritable",
+                    "Cannot establish the memory-state fence; validation was not recorded."
+                    + (" The corrected record exists and must be reconciled manually."
+                       if rewritten else ""),
+                    recovery_tools=["wave_memory_reconcile", "wave_memory_validate"],
+                    recovery_usage="")],
+                next_tools=["wave_memory_search"], usage="")
+        try:
+            path = mem.record_memory_validation(
+                root, memory_id, verdict=verdict,
+                action_delta=str(action_delta).strip(),
+                rationale=str(rationale).strip(),
+                evidence_verified=bool(evidence_verified),
+                current_target_verified=bool(current_target_verified),
+                canonical_overlap=canonical_overlap,
+                superseded_by=replacement_id,
+            )
+        except (OSError, ValueError, FileNotFoundError) as exc:
+            return _response(
+                "error", {"validated": False, "rewrite_record": rewritten},
+                diagnostics=[_diagnostic(
+                    "memory_validation_write_failed",
+                    f"Validation could not be recorded: {exc}."
+                    + (" The corrected record exists; retry the same validation to "
+                       "reuse it, or supersede the source manually."
+                       if rewritten else ""),
+                    recovery_tools=["wave_memory_reconcile", "wave_memory_validate"],
+                    recovery_usage="")],
+                next_tools=["wave_memory_search"], usage="")
+        finally:
+            _memory_finalize(root, fence)
+        changed = [path]
+        if rewritten and rewritten.get("path"):
+            changed.append(root / rewritten["path"])
+        if not backfill_run:
+            _trigger_background_index_refresh_for_paths(root, changed)
+        updated = mem.parse_memory_record(path)
+        return _response(
+            "ok",
+            {"validated": True, "verdict": verdict,
+             "record": _memory_view(updated, {}) if updated else {"memory_id": memory_id},
+             "rewrite_record": rewritten},
+            diagnostics=[],
+            next_tools=["wave_memory_search", "wave_memory_brief"],
+            usage="wave_memory_search(include_history=True)")
 
 
 def wave_memory_search_response(
@@ -9748,7 +10454,6 @@ def wave_dashboard_start_response(root: Path, port: int | None = None) -> dict[s
             pass
         return False
 
-    start_succeeded = False
     try:
         meta = running_meta()
         if meta is not None:
@@ -9858,11 +10563,11 @@ def wave_dashboard_start_response(root: Path, port: int | None = None) -> dict[s
                 )],
             )
 
-        # Confirm the child holds the lifetime lock before declaring success so the
-        # transient start.lock is only unlinked once another file (dashboard-server.lock)
-        # gates concurrent starts — no double-spawn window.
-        if server_lock_held():
-            start_succeeded = True
+        # Confirm the child holds the lifetime lock before declaring success.
+        # Releasing the persistent launch-mutex OS lock is then safe because
+        # dashboard-server.lock already gates concurrent starts; the carrier
+        # itself deliberately remains under .wavefoundry/locks/.
+        server_lock_held()
         return _response(
             "ok",
             {"started": True, "pid": proc.pid, "url": url},
@@ -9871,17 +10576,6 @@ def wave_dashboard_start_response(root: Path, port: int | None = None) -> dict[s
         )
     finally:
         start_lock.__exit__(None, None, None)
-        # PART B: make dashboard-start.lock transient. Unlink it ONLY after the child
-        # is confirmed up and holding dashboard-server.lock. On a failed/timed-out start
-        # we leave start.lock in place (its flock is already released by __exit__ above,
-        # so a leftover file is harmless and re-acquirable). Best-effort; never raises.
-        if start_succeeded:
-            try:
-                dashboard_lib.dashboard_lock_path(
-                    root, dashboard_lib.DASHBOARD_START_LOCK_NAME
-                ).unlink()
-            except OSError:
-                pass
 
 
 def wave_dashboard_open_response(root: Path) -> dict[str, Any]:
@@ -10280,6 +10974,13 @@ def _upgrade_next_step(phase: str) -> tuple[str, list[str]]:
             "wave_upgrade(phase='update_index') and wave_upgrade(phase='cleanup').",
             ["wave_upgrade_status"],
         )
+    if phase == "resume_after_memory":
+        return (
+            "When the response reports indexed, call wave_upgrade(phase='cleanup'). "
+            "If it remains awaiting validation, continue bounded backfill and "
+            "wave_memory_validate calls first.",
+            ["wave_memory_backfill", "wave_memory_validate", "wave_upgrade_status"],
+        )
     return ("Check wave_upgrade_status for the current lock state.", ["wave_upgrade_status"])
 
 
@@ -10309,10 +11010,15 @@ def wave_upgrade_response(
           Use when update_index is insufficient (e.g. index corruption, or
           a chunker bump that the auto-escalation did not catch).
       "cleanup" — phase 5: remove upgrade lock + print operator summary.
-      "resume_after_gate" — re-run ONLY docs-gardener + docs-lint against the
-          already-extracted tree (no extract/render/prune), to recover from a
-          docs-gate failure. Requires a retained lock with failed_phase ==
-          "docs_gate" (wave 1p44o/1p44r); exits non-zero if the gate fails again.
+      "resume_after_gate" — rebuild and persist current review-status projection,
+          then re-run docs-gardener + docs-lint against the already-extracted
+          tree (no extract/render/prune). Recovers a retained lock whose
+          failed_phase is "review_status_projection" or "docs_gate"; preserves
+          the actual failing phase on retry and clears it only after both pass.
+      "resume_after_memory" — recompute the authoritative historical-memory
+          pending set and publish Phase 4 only after it reaches zero. This and
+          every index/cleanup phase refuse while review projection or docs lint
+          has a retained failed phase; recover through "resume_after_gate".
     """
     valid_modes = ("apply", "dry_run")
     if mode not in valid_modes:
@@ -10322,7 +11028,14 @@ def wave_upgrade_response(
             diagnostics=[_diagnostic("invalid_mode", f"Unknown mode {mode!r}. Valid: {valid_modes}")],
         )
 
-    valid_phases = ("preflight_to_docs_gate", "update_index", "rebuild_index", "cleanup", "resume_after_gate")
+    valid_phases = (
+        "preflight_to_docs_gate",
+        "update_index",
+        "rebuild_index",
+        "cleanup",
+        "resume_after_gate",
+        "resume_after_memory",
+    )
     if mode == "apply" and phase not in valid_phases:
         return _response(
             "error",
@@ -10360,7 +11073,9 @@ def wave_upgrade_response(
         elif phase == "cleanup":
             cmd.append("--cleanup")
         elif phase == "resume_after_gate":
-            cmd.append("--resume-after-gate")  # wave 1p44r — re-run only the docs gate
+            cmd.append("--resume-after-gate")  # rebuild review projection, then re-run docs gate
+        elif phase == "resume_after_memory":
+            cmd.append("--resume-after-memory")
         # phase == "preflight_to_docs_gate": --yes only (default run)
 
     try:
@@ -10402,13 +11117,59 @@ def wave_upgrade_response(
         data["summary"] = summary
 
     # Wave 1p8eu / F2 — compute the phase-aware next step + next_tools BEFORE the returncode check so
-    # both the success AND the failure response carry them. On a docs-gate failure the
-    # `resume_after_gate` hint is exactly what the agent needs next.
+    # both the success AND the failure response carry them.
     _next_step, _next_tools = _upgrade_next_step(phase)
+    if result.returncode != 0 and (
+        phase == "resume_after_gate" or "--resume-after-gate" in output
+    ):
+        _next_step = (
+            "Resolve the typed review-state or docs findings, then retry "
+            "wave_upgrade(phase='resume_after_gate'). Index publication and "
+            "cleanup remain blocked until that recovery succeeds."
+        )
+        _next_tools = ["wave_upgrade_status", "wave_upgrade"]
 
+    if result.returncode == 4:
+        memory_gate: dict[str, Any] = {}
+        try:
+            _ulib = _load_upgrade_lib()
+            lock = _ulib.read_upgrade_lock(root) if _ulib is not None else None
+            run_id = (
+                str(lock.get("memory_backfill_run_id") or "").strip()
+                if isinstance(lock, dict)
+                else ""
+            )
+            if run_id:
+                backfill = _load_script("memory_backfill")
+                memory_gate = {
+                    **backfill.run_summary(root, run_id),
+                    **backfill.validation_worklist(root, run_id),
+                }
+        except (OSError, RuntimeError, ValueError) as exc:
+            memory_gate = {"status_error": str(exc)}
+        action = _response(
+            "ok",
+            {
+                **data,
+                "state": "awaiting_memory_validation",
+                "memory_backfill": memory_gate,
+            },
+            diagnostics=[],
+            next_tools=["wave_mcp_reload", "wave_memory_backfill", "wave_memory_validate"],
+        )
+        action["next_step"] = (
+            "Reload the newly installed MCP implementation, run bounded historical "
+            "memory backfill and focused validation, then call "
+            "wave_upgrade(phase='resume_after_memory')."
+        )
+        return action
     if result.returncode != 0:
         exit_meanings = {1: "docs gate failed", 2: "surface rendering failed", 3: "pre-flight check failed"}
         reason = exit_meanings.get(result.returncode, f"exited {result.returncode}")
+        if result.returncode == 1 and (
+            phase == "resume_after_gate" or "--resume-after-gate" in output
+        ):
+            reason = "review-state projection or docs gate failed"
         err = _response(
             "error",
             data,
@@ -10466,6 +11227,19 @@ def wave_upgrade_status_response(root: Path) -> dict[str, Any]:
             "to_version": lock.get("to_version"),
             "pid": lock.get("pid"),
         }
+        run_id = str(lock.get("memory_backfill_run_id") or "").strip()
+        if run_id:
+            try:
+                backfill = _load_script("memory_backfill")
+                data["memory_backfill"] = {
+                    **backfill.run_summary(root, run_id),
+                    **backfill.validation_worklist(root, run_id),
+                }
+            except (OSError, RuntimeError, ValueError) as exc:
+                data["memory_backfill"] = {
+                    "run_id": run_id,
+                    "status_error": str(exc),
+                }
     return _response("ok", data, usage="wave_upgrade_status()")
 
 
@@ -11410,6 +12184,21 @@ def _review_evidence_diagnostics(
                             "Finding Synthesis projection is stale relative to canonical events.jsonl; "
                             "replay the last typed review event to reconcile it"
                         )
+                    marker_present = (
+                        REVIEW_STATUS_MARKER_BEGIN in raw_projection
+                        or REVIEW_STATUS_MARKER_END in raw_projection
+                    )
+                    if marker_present and render_review_status_projection(
+                        raw_projection,
+                        result.records,
+                        _review_status_signoff_keys(
+                            root, raw_projection, result.records
+                        ),
+                    ) != raw_projection:
+                        errors.append(
+                            "Review Status projection is stale relative to canonical "
+                            "events.jsonl; replay the last typed review event to reconcile it"
+                        )
                 except (OSError, ValueError) as exc:
                     errors.append(f"Finding Synthesis projection could not be checked: {exc}")
     if result is not None and required_run_kind is not None:
@@ -11465,100 +12254,51 @@ def _approval_evidence_diagnostics(
         rows = result.records
     else:
         rows = tuple(records)
-    repair_rows = [
-        (position, record)
-        for position, record in enumerate(rows)
-        if record.get("record_type") == "finding_synthesis"
-        and isinstance(record.get("cycle"), int)
-        and record.get("cycle", 0) > 0
-    ]
-    approval_rows = {
-        str(record.get("claim_id")): (position, record)
-        for position, record in enumerate(rows)
-        if record.get("record_type") == "executable_evidence"
-        and record.get("claim_kind") == "approval"
-        and record.get("required_for_approval") is True
-        and record.get("phase") == "delivery"
-        and record.get("execution_status") == "executed"
-    }
-    missing: list[str] = []
-    invalid: list[str] = []
-    for key in required_signoff_keys:
-        approval_entry = approval_rows.get(f"approval:{key}")
-        if approval_entry is None:
-            missing.append(key)
-            continue
-        position, row = approval_entry
-        context = row.get("verification_context")
-        actor = context.get("actor") if isinstance(context, dict) else None
-        expected_actor = "operator" if key == "operator-signoff" else (
-            "wave-council" if key.startswith("wave-council-") else key
-        )
-        actor_valid = actor == expected_actor
-        independence_valid = bool(
-            key == "operator-signoff"
-            or (
-                isinstance(context, dict)
-                and context.get("fresh_context") is True
-                and context.get("independent") is True
-            )
-        )
-        affected_positions: list[int] = []
-        for repair_position, repair in repair_rows:
-            explicit = repair.get("approval_recheck_lanes")
-            affected_lanes = (
-                {str(lane) for lane in explicit}
-                if isinstance(explicit, list)
-                else {
-                    str(lane)
-                    for lane in [
-                        *repair.get("source_lanes", []),
-                        *repair.get("blocking_required_lanes", []),
-                    ]
-                }
-            )
-            if key == "operator-signoff":
-                affected = True
-            elif key == "wave-council-readiness":
-                # Readiness is historical prepare-phase authority: it proves the
-                # plan was reviewed before implementation began. Delivery repairs
-                # can stale delivery/specialist approvals, but cannot retroactively
-                # move that already-crossed stage gate.
-                affected = False
-            elif key.startswith("wave-council-"):
-                affected = (
-                    key in affected_lanes
-                    or "wave-council" in affected_lanes
-                    or repair.get("review_depth") == "full"
-                )
-            else:
-                affected = key in affected_lanes
-            if affected:
-                affected_positions.append(repair_position)
-        latest_affected_repair = max(affected_positions, default=-1)
-        chronology_valid = position > latest_affected_repair
-        if not actor_valid or not independence_valid or not chronology_valid:
-            invalid.append(key)
-    if not missing and not invalid:
+    status = review_status_rows(rows, required_signoff_keys)
+    blocked = [row for row in status if row["state"] != "approved"]
+    if not blocked:
         return []
-    details: list[str] = []
-    if missing:
-        details.append(f"missing: {', '.join(missing)}")
-    if invalid:
-        details.append(
-            "invalid actor, independence, or post-repair chronology: " + ", ".join(invalid)
-        )
+    details = "; ".join(
+        f"{row['signoff_key']}={row['state']} ({row['why']})" for row in blocked
+    )
     return [
         _diagnostic(
             "missing_executable_approval_evidence",
             "Marked wave approval signoffs require executed delivery Evidence Records with "
             "claim_kind `approval`, claim_id `approval:<signoff-key>`, and a matching actor "
             "(`operator` for operator-signoff, `wave-council` for council signoffs, or the exact "
-            f"specialist lane); specialist/council evidence must be fresh and independent; {'; '.join(details)}.",
+            "specialist lane); specialist/council evidence must be fresh and independent, and its "
+            f"chronology must follow every affected repair; {details}.",
             recovery_tools=["wave_review", "wave_current"],
             recovery_usage="wave_review()",
         )
     ]
+
+
+def _review_status_signoff_keys(
+    root: Path,
+    wave_text: str,
+    records: Iterable[Mapping[str, Any]] = (),
+) -> tuple[str, ...]:
+    """Return the canonical keys represented by the bounded status projection."""
+
+    return required_review_status_keys(root, wave_text, records)
+
+
+def _project_current_review_status(root: Path, wave_md: Path, text: str) -> str:
+    """Rebuild both human projections from the canonical ledger."""
+
+    if not _wave_uses_external_review_evidence(root, wave_md):
+        return text
+    validation = validate_external_review_evidence(wave_md)
+    if validation.errors:
+        raise ValueError("; ".join(validation.errors))
+    projected = render_review_evidence_projection(text, validation.records)
+    return render_review_status_projection(
+        projected,
+        validation.records,
+        _review_status_signoff_keys(root, projected, validation.records),
+    )
 
 
 def _append_review_evidence_state_line(text: str, key: str, state: str, note: str) -> str:
@@ -11753,32 +12493,12 @@ def wave_record_review_evidence_response(
                     {"wave_id": wave_id, "mode": mode_s, "event": event},
                     diagnostics=[_diagnostic("review_evidence_invalid", error) for error in record_errors],
                 )
-        projected = original
-        note = str((evidence or {}).get("observed") or finding_id or event)
-        if event == "approval" and signoff_key:
-            if not (
-                replayed
-                and _lane_has_signoff_in_evidence(
-                    _combined_review_evidence(projected), signoff_key, authorization=True
-                )
-            ):
-                projected = _append_review_evidence_state_line(
-                    projected, signoff_key, "approved", note
-                )
-        elif event == "finding":
-            for lane in approval_recheck_lanes or []:
-                already_withdrawn = replayed and any(
-                    _normalize_signoff_line(line.lower()).startswith(f"{lane.lower()}: withdrawn")
-                    and str(finding_id).lower() in line.lower()
-                    for line in _combined_review_evidence(projected).splitlines()
-                )
-                if already_withdrawn:
-                    continue
-                projected = _append_review_evidence_state_line(
-                    projected, lane, "withdrawn",
-                    f"{finding_id} requires affected-lane re-verification",
-                )
-        projected = render_review_evidence_projection(projected, proposed_records)
+        projected = render_review_evidence_projection(original, proposed_records)
+        projected = render_review_status_projection(
+            projected,
+            proposed_records,
+            _review_status_signoff_keys(root, projected, proposed_records),
+        )
         payload = {
             "wave_id": wave_md.parent.name,
             "path": str(wave_md.relative_to(root.resolve())).replace("\\", "/"),
@@ -12113,9 +12833,25 @@ def wave_prepare_response(root: Path, wave_id: str, mode: str = "dry_run", cache
         status_match = _STATUS_PATTERN.search(text)
         if status_match and status_match.group(1) != "active":
             text = text[:status_match.start(1)] + "active" + text[status_match.end(1):]
-            wave_md.write_text(text, encoding="utf-8")
             updated = True
             transitioned_to_active = True
+    if _mutating:
+        try:
+            projected_text = _project_current_review_status(root, wave_md, text)
+        except ValueError as exc:
+            return _response(
+                "error",
+                {"wave_id": wave_id, "mode": mode_s},
+                diagnostics=[
+                    _diagnostic("review_projection_failed", str(exc))
+                ],
+                next_tools=["wave_record_review_evidence", "wave_validate"],
+            )
+        if projected_text != wave_md.read_text(encoding="utf-8"):
+            wave_md.write_text(projected_text, encoding="utf-8", newline="")
+            text = projected_text
+            updated = True
+    if mode_s == "create":
         if cache and updated:
             cache.invalidate()
         _trigger_background_index_refresh_for_paths(
@@ -12713,6 +13449,82 @@ def _replace_wave_summary_section(text: str, summary: str) -> str:
     return text[:body_start] + "\n" + summary + "\n" + text[body_end:]
 
 
+def _auto_populate_memory_for_wave(root: Path, wave_id: str) -> dict[str, Any]:
+    """Fail-isolated close fallback: create candidates, never semantic verdicts."""
+    try:
+        result = wave_memory_propose_response(
+            root, wave_id=wave_id, mode="create", limit=MEMORY_PROPOSE_CAP
+        )
+        data = result.get("data") or {}
+        written = list(data.get("written") or [])
+        if not written:
+            return {}
+        return {
+            "drafted": len(written), "promoted": 0,
+            "candidate": len(written), "validation_required": len(written),
+            "records": written,
+        }
+    except Exception:
+        return {}
+
+
+def _memory_validation_diagnostics(root: Path, wave_id: str) -> list[dict[str, Any]]:
+    """Block close until every structurally eligible source has an agent verdict."""
+    try:
+        supply = _load_script("memory_supply")
+        mem = _memory_mod()
+        # Closure is an exhaustive gate, not a display page.
+        drafts = supply.draft_candidates(root, wave_id, limit=None)
+        if not drafts:
+            return []
+        by_source: dict[str, list[dict[str, Any]]] = {}
+        for record in mem.load_memory_records(root):
+            source = str(record.get("source_event") or "")
+            if source:
+                by_source.setdefault(source, []).append(record)
+        missing = [
+            draft["source_event"] for draft in drafts
+            if draft["source_event"] not in by_source
+        ]
+        pending = [
+            record["memory_id"]
+            for draft in drafts
+            for record in by_source.get(draft["source_event"], [])
+            if record.get("validation") in (None, "pending")
+        ]
+        diagnostics: list[dict[str, Any]] = []
+        if missing:
+            diagnostics.append(_diagnostic(
+                "memory_validation_candidates_missing",
+                f"{len(missing)} evidence-derived memory source(s) need candidate "
+                "records before close. Zero-memory waves remain valid when drafting "
+                "finds no material source.",
+                recovery_tools=["wave_memory_propose"],
+                recovery_usage=f"wave_memory_propose(wave_id={wave_id!r}, mode='create')",
+            ))
+        if pending:
+            diagnostics.append(_diagnostic(
+                "memory_validation_required",
+                f"{len(pending)} evidence-derived memory candidate(s) need focused "
+                "agent validation before close: " + ", ".join(pending[:10]),
+                recovery_tools=["wave_memory_validate", "wave_memory_search"],
+                recovery_usage=(
+                    "wave_memory_validate(memory_id=<id>, verdict='promote|retain|"
+                    "reject|rewrite', action_delta=..., rationale=..., "
+                    "evidence_verified=True, current_target_verified=True, "
+                    "canonical_overlap='none|supplements|duplicates')"
+                ),
+            ))
+        return diagnostics
+    except Exception as exc:
+        return [_diagnostic(
+            "memory_validation_check_failed",
+            f"Memory validation readiness could not be established: {exc}",
+            recovery_tools=["wave_memory_propose", "wave_validate"],
+            recovery_usage=f"wave_memory_propose(wave_id={wave_id!r}, mode='dry_run')",
+        )]
+
+
 def wave_close_response(root: Path, wave_id: str, mode: str = "dry_run", cache: Optional[McpRepoCache] = None) -> dict[str, Any]:
     mode_s = "create" if (mode or "").strip().lower() == "apply" else (mode or "").strip().lower()
     _WAVE_CLOSE_VALID_MODES = ["dry_run", "create"]
@@ -12829,6 +13641,7 @@ def wave_close_response(root: Path, wave_id: str, mode: str = "dry_run", cache: 
     # as a non-blocking standing reminder (secrets_notice) on every close (success + error).
     canonical_wave_id_m = _WAVE_ID_PATTERN.search(text)
     canonical_wave_id = canonical_wave_id_m.group(1) if canonical_wave_id_m else wave_id
+    diagnostics.extend(_memory_validation_diagnostics(root, canonical_wave_id))
     diagnostics.extend(_check_secrets_gate(root, canonical_wave_id))
     secrets_notice = _confirmed_secret_notice(root) or {}
     # Wave 1p31b (1p32k): close-time hard gate — every AC and task across admitted changes
@@ -12866,6 +13679,7 @@ def wave_close_response(root: Path, wave_id: str, mode: str = "dry_run", cache: 
     transitioned_to_closed = False
     handoff_rel = ""
     close_optimize: Optional[dict[str, Any]] = None
+    memory_summary: dict[str, Any] = {}
     if mode_s == "create":
         status_match = _STATUS_PATTERN.search(text)
         if status_match and status_match.group(1) != "closed":
@@ -12875,6 +13689,18 @@ def wave_close_response(root: Path, wave_id: str, mode: str = "dry_run", cache: 
             text = text[:status_match.start(1)] + "closed" + text[status_match.end(1):]
             if "Completed At:" not in text:
                 text = text.replace("## Wave Summary", f"Completed At: {time.strftime('%Y-%m-%d')}\n\n## Wave Summary", 1)
+            try:
+                text = _project_current_review_status(root, wave_md, text)
+            except ValueError as exc:
+                return _response(
+                    "error",
+                    {"wave_id": wave_id, "mode": mode_s},
+                    diagnostics=[
+                        _diagnostic("review_projection_failed", str(exc)),
+                        *gate_diagnostics,
+                    ],
+                    next_tools=["wave_record_review_evidence", "wave_validate"],
+                )
             wave_md.write_text(text, encoding="utf-8")
             updated = True
             transitioned_to_closed = True
@@ -12894,6 +13720,10 @@ def wave_close_response(root: Path, wave_id: str, mode: str = "dry_run", cache: 
             if handoff_rel:
                 refresh_paths.append(handoff)
             _trigger_background_index_refresh_for_paths(root, refresh_paths)
+            # Defensive fallback: the pre-close validation gate normally means
+            # every source already has a disposition. If evidence changed after
+            # the gate, create candidates only; never invent a semantic verdict.
+            memory_summary = _auto_populate_memory_for_wave(root, wave_id)
     # Wave 1p601: refresh the codebase map at the close-wave lifecycle
     # checkpoint (fail-safe — never affects the close result).
     if mode_s == "create":
@@ -12901,7 +13731,8 @@ def wave_close_response(root: Path, wave_id: str, mode: str = "dry_run", cache: 
     envelope = _response(
         "dry_run" if mode_s == "dry_run" else "ok",
         {"wave_id": wave_id, "mode": mode_s, "updated": updated, "transitioned_to_closed": transitioned_to_closed, "handoff_path": handoff_rel, "wave_summary": wave_summary,
-         **({"index_optimize": close_optimize} if close_optimize else {}), **secrets_notice},
+         **({"index_optimize": close_optimize} if close_optimize else {}),
+         **({"memory": memory_summary} if memory_summary else {}), **secrets_notice},
         diagnostics=gate_diagnostics if gate_diagnostics else None,
         next_tools=["wave_current"],
         usage="wave_current()",
@@ -20218,7 +21049,7 @@ def _context_source_paths(
     elif tool_name == "code_commit_provenance":
         # The resolved wave record / change docs whose recorded reasoning
         # (Decision Log excerpt) the response surfaces in lieu of re-reading them.
-        add_rows("provenance", "path", ("excerpt",))
+        add_rows("provenance", "path", ("excerpt", "rationale"))
     return sorted(paths)
 
 
@@ -20378,39 +21209,67 @@ def code_commit_provenance_response(
     cp = _load_script("commit_provenance")
     commit = (commit or "").strip()
     path = (path or "").strip()
-    if commit:
-        data = cp.provenance_for_sha(root, commit)
-    elif path:
-        start = int(line_start or 1)
-        end = int(line_end or start)
-        data = cp.provenance_for_line(root, path, start, end)
-    else:
+    if bool(commit) == bool(path):
         return _response(
             "error", {"resolved": False, "waves": [], "provenance": []},
             diagnostics=[_diagnostic(
                 "invalid_arguments",
-                "Provide a commit SHA, or a file path with a line range.",
+                "Provide exactly one input mode: commit SHA, or file path with a line range.",
                 recovery_tools=["code_commit_provenance"],
                 recovery_usage="code_commit_provenance(commit='<sha>') or code_commit_provenance(path='<file>', line_start=N, line_end=M)")],
             next_tools=["code_commit_provenance"], usage="")
+    if commit:
+        if not cp.is_valid_sha(commit):
+            return _response(
+                "error", {"resolved": False, "waves": [], "provenance": []},
+                diagnostics=[_diagnostic(
+                    "invalid_arguments", "commit must be a 7-40 character hexadecimal SHA",
+                    recovery_tools=["code_commit_provenance"],
+                    recovery_usage="code_commit_provenance(commit='<sha>')")],
+                next_tools=["code_commit_provenance"], usage="")
+        data = cp.provenance_for_sha(root, commit)
+    else:
+        try:
+            start = int(line_start)
+            end = int(line_end or start)
+        except (TypeError, ValueError):
+            start = 0
+            end = -1
+        if start < 1 or end < start:
+            return _response(
+                "error", {"resolved": False, "waves": [], "provenance": []},
+                diagnostics=[_diagnostic(
+                    "invalid_arguments", "line range must satisfy 1 <= line_start <= line_end",
+                    recovery_tools=["code_commit_provenance"],
+                    recovery_usage="code_commit_provenance(path='<file>', line_start=N, line_end=M)")],
+                next_tools=["code_commit_provenance"], usage="")
+        data = cp.provenance_for_line(root, path, start, end)
     diagnostics = []
     # Per-call activity signal (not a token target): the atom that a
     # resolution_hit_rate / honest_absence_rate aggregates over. Honest, derived
     # only from what this call actually resolved.
-    if not data.get("resolved"):
-        data["resolution"] = "honest_absence"
-    elif data.get("conflict"):
+    if data.get("conflict"):
         data["resolution"] = "conflict"
+    elif data.get("partial"):
+        data["resolution"] = "partial"
+    elif not data.get("resolved"):
+        data["resolution"] = "honest_absence"
     else:
         data["resolution"] = "resolved"
-    if not data.get("resolved"):
+    if data.get("partial"):
+        diagnostics.append(_diagnostic(
+            "partial_provenance",
+            "The requested range includes uncommitted lines; committed provenance is "
+            "reported with explicit coverage and is not presented as complete.",
+            recovery_tools=["code_commit_provenance"], recovery_usage=""))
+    if not data.get("resolved") and not data.get("partial"):
         diagnostics.append(_diagnostic(
             "no_wave_provenance",
             "No wave provenance found for this commit/line — it may predate the "
             "framework, be a non-conventional commit, or have been rebased/squashed. "
             "Reported honestly, not guessed.",
             recovery_tools=["code_commit_provenance"], recovery_usage=""))
-    elif data.get("conflict"):
+    if data.get("conflict"):
         diagnostics.append(_diagnostic(
             "provenance_conflict",
             "The commit-message and evidence-search paths named different waves; "
@@ -20617,8 +21476,11 @@ def _flush_context_efficiency(
             )
         canonical_wave = wave_md.parent.name
         floor = _wave_checkpoint_floor(root, canonical_wave)
+        initial_markdown = wave_md.read_text(encoding="utf-8")
+        status_match = _STATUS_PATTERN.search(initial_markdown)
+        sealed = bool(status_match and status_match.group(1) == "closed")
         context_efficiency.reconcile_checkpoint_authority(
-            root, canonical_wave, floor
+            root, canonical_wave, floor, sealed=sealed
         )
         flushed = handler.telemetry.flush(
             root,
@@ -20647,6 +21509,10 @@ def _flush_context_efficiency(
             updated = context_efficiency.replace_checkpoint_block(
                 current, published
             )
+            exploration = _load_script("exploration_avoided")
+            updated = exploration.replace_checkpoint_block(
+                updated, root, canonical_wave
+            )
             if updated != current:
                 _atomic_replace_text(
                     wave_md, updated, "context-efficiency-projection"
@@ -20656,11 +21522,25 @@ def _flush_context_efficiency(
                 canonical_wave,
                 published,
                 expected_generation=int(snapshot.get("generation", 0)),
+                seal=sealed,
             )
+            compacted = (
+                context_efficiency.compact_published_wave(
+                    root,
+                    canonical_wave,
+                    expected_generation=int(snapshot.get("generation", 0)),
+                )
+                if marked and sealed
+                else not sealed
+            )
+            if marked and sealed and compacted:
+                handler.telemetry.clear_focus()
         return (
             {
                 "persistence": "durable",
-                "projection": "published" if marked else "pending",
+                "projection": "published" if marked and compacted else "pending",
+                "sealed": sealed,
+                "compacted": bool(marked and sealed and compacted),
                 "credited_invocations": sorted(
                     f"{wave}:{invocation_id}"
                     for wave, invocation_id in flushed.credited_keys
@@ -20976,7 +21856,7 @@ def _lifecycle_context_result(
     projection, flushed = _flush_context_efficiency(
         handler,
         wave_id,
-        transfer_general=transfer_general,
+        transfer_general=transfer_general and bool(credit),
     )
     data = _context_data(response)
     data["context_efficiency_persistence"] = projection
@@ -21075,6 +21955,10 @@ class ImplHandler:
     def close(self) -> None:
         try:
             self._stop_staleness_monitor()
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            self.telemetry.close()
         except Exception:  # noqa: BLE001
             pass
         self.cache.invalidate()
@@ -22477,7 +23361,13 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             result = wave_reopen_response(handler.root, wave_id)
             if result.get("status") == "ok":
                 try:
-                    handler.telemetry.reopen_focus()
+                    canonical = str(
+                        _context_data(result).get("wave_id") or wave_id
+                    )
+                    context_efficiency.unseal_wave(handler.root, canonical)
+                    handler.telemetry.set_focus(
+                        canonical, "implement", new_phase=True
+                    )
                 except Exception:
                     pass
                 projection, _ = _flush_context_efficiency(handler, wave_id)
@@ -22969,15 +23859,24 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
                 corruption or a manual forced refresh.
               - ``"cleanup"`` — phase 5: remove the upgrade lock file and print the
                 operator summary. Call after ``update_index`` or ``rebuild_index``.
-              - ``"resume_after_gate"`` — re-run ONLY docs-gardener + docs-lint
-                against the already-extracted tree (no extract/render/prune) to
-                recover from a docs-gate failure. Requires a retained lock with
-                ``failed_phase == "docs_gate"``; exits non-zero if the gate fails
-                again, zero when it passes (wave 1p44r).
+              - ``"resume_after_gate"`` — rebuild and persist current
+                review-status projection, then re-run docs-gardener + docs-lint
+                against the already-extracted tree (no extract/render/prune).
+                Accepts retained ``failed_phase`` values
+                ``"review_status_projection"`` and ``"docs_gate"``; preserves
+                the actual failing phase on retry and clears it only after both
+                pass.
+              - ``"resume_after_memory"`` — after bounded historical candidate
+                extraction and focused validation, recompute the SQLite pending
+                set and publish Phase 4 only when it is zero. This and every
+                index/cleanup phase refuse while review projection or docs lint
+                has a retained failed phase; recover through
+                ``"resume_after_gate"`` first.
 
         Response fields:
           - ``exit_code``: 0 = success, 1 = docs gate failed, 2 = surface rendering
-            failed, 3 = pre-flight check failed (downgrade detected, lock conflict).
+            failed, 3 = pre-flight check failed (downgrade detected, lock conflict),
+            4 = action required for historical-memory validation.
           - ``output``: combined stdout + stderr from the upgrade script.
           - ``phase``: echoes the phase that was run.
 
@@ -23202,10 +24101,11 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         transcripts. CONSERVATIVE: only durable-shaped signals with a concrete
         code anchor are drafted; the conversational kinds are not attempted.
 
-        Never auto-promotes: drafts are written as `status: candidate` (an
-        explicit wave_memory_reconcile promotes them). Re-running is idempotent
-        (exact/normalized duplicates are skipped). Each record is stamped with
-        the measured source_exploration_cost from the wave's 1stwj telemetry.
+        Never auto-promotes: drafts are written as `status: candidate` with a
+        stable source event and pending validation. A focused agent uses
+        wave_memory_validate to promote, retain, reject, or rewrite. Re-running
+        is idempotent across every disposition, including rejected/superseded
+        history. Each record is stamped with measured source exploration cost.
 
         Args:
             wave_id: Wave id (or unique prefix) to draft from.
@@ -23218,6 +24118,72 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             return bad
         return wave_memory_propose_response(
             get_handler().root, wave_id=wave_id, mode=mode, limit=limit)
+
+    @mcp.tool(annotations=_MUTATING_TOOL)
+    def wave_memory_backfill(
+        mode: str = "dry_run",
+        limit: int = 20,
+        entry_path: str = "manual",
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        """Inventory closed waves and create one bounded historical candidate batch.
+
+        The inventory is local and Git-independent. ``create`` checkpoints
+        progress in memory-state.sqlite, processes at most 10 waves / 20
+        candidates / 64 KiB per call, and suppresses background publication
+        while install or upgrade is awaiting agent validation. Re-run until the
+        response reports zero remaining waves, then validate every pending
+        candidate with wave_memory_validate and invoke the entry path's resume
+        tool.
+        """
+        bad = _ensure_no_extra_args("wave_memory_backfill", kwargs)
+        if bad is not None:
+            return bad
+        return wave_memory_backfill_response(
+            get_handler().root,
+            mode=mode,
+            limit=limit,
+            entry_path=entry_path,
+        )
+
+    @mcp.tool(annotations=_MUTATING_TOOL)
+    def wave_memory_validate(
+        memory_id: str, verdict: str, action_delta: str, rationale: str,
+        evidence_verified: bool, current_target_verified: bool,
+        canonical_overlap: str, rewrite_kind: str = "", rewrite_title: str = "",
+        rewrite_summary: str = "", rewrite_evidence: Optional[list] = None,
+        rewrite_targets: Optional[list] = None, rewrite_confidence: float = 0.8,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        """Validate one evidence-derived memory candidate with focused agent judgment.
+
+        The tool owns mechanical mutation and history; the calling agent owns the
+        semantic judgment after reading the linked evidence and current target.
+        Outcomes: promote, retain, reject, or rewrite. A rewrite creates a corrected
+        active record and supersedes the generated candidate in one serialized
+        operation; partial failures are surfaced with explicit recovery.
+
+        Args:
+            memory_id: Generated candidate memory id.
+            verdict: promote | retain | reject | rewrite.
+            action_delta: One line stating what changes the next action (or why
+                no durable action exists for a rejection).
+            rationale: Concise validation rationale grounded in evidence/current tree.
+            evidence_verified: True only after following the evidence references.
+            current_target_verified: True only after checking the current target.
+            canonical_overlap: none | supplements | duplicates.
+            rewrite_*: Required corrected record fields when verdict is rewrite.
+        """
+        bad = _ensure_no_extra_args("wave_memory_validate", kwargs)
+        if bad is not None:
+            return bad
+        return wave_memory_validate_response(
+            get_handler().root, memory_id, verdict, action_delta, rationale,
+            evidence_verified, current_target_verified, canonical_overlap,
+            rewrite_kind=rewrite_kind, rewrite_title=rewrite_title,
+            rewrite_summary=rewrite_summary, rewrite_evidence=rewrite_evidence,
+            rewrite_targets=rewrite_targets, rewrite_confidence=rewrite_confidence,
+        )
 
     @mcp.tool(annotations=_READONLY_TOOL)
     def wave_memory_search(query: str = "", target: str = "", symbol: str = "",
@@ -24115,23 +25081,40 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         raw = path.read_text(encoding="utf-8")
         projection_status = "current"
         try:
-            rendered = render_review_evidence_projection(raw, validation.records)
+            rendered = _project_current_review_status(
+                get_handler().root, path, raw
+            )
             if rendered != raw or validation.projection_errors:
                 projection_status = "stale"
         except ValueError:
             projection_status = "missing"
-            rendered = (
+            recovery_source = (
                 raw.rstrip()
                 + "\n\n"
-                + render_review_evidence_projection(
-                    empty_external_finding_synthesis_section(), validation.records
-                ).strip()
+                + empty_external_finding_synthesis_section().strip()
                 + "\n"
             )
+            try:
+                rendered = render_review_evidence_projection(
+                    recovery_source, validation.records
+                )
+                rendered = render_review_status_projection(
+                    rendered,
+                    validation.records,
+                    _review_status_signoff_keys(
+                        get_handler().root, rendered, validation.records
+                    ),
+                )
+            except ValueError as exc:
+                return (
+                    "# Wave Review Evidence Unavailable\n\n"
+                    "The canonical ledger is valid, but the Markdown projection "
+                    f"cannot be derived safely: {exc}.\n"
+                )
         if projection_status != "current":
             return (
                 rendered.rstrip()
-                + "\n\n> Wavefoundry diagnostic: the on-disk Finding Synthesis projection "
+                + "\n\n> Wavefoundry diagnostic: the on-disk review projection "
                 f"is {projection_status}; this response was derived from validated `events.jsonl`. "
                 "Replay the last typed review event to repair it.\n"
             )

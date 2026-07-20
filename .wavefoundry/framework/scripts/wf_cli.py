@@ -56,6 +56,16 @@ _SUBCOMMANDS: dict[str, dict] = {
     "render-surfaces": {"module": "render_platform_surfaces", "script": "render_platform_surfaces.py"},
     "secrets-scan": {"module": "run_secrets_scan", "script": "run_secrets_scan.py"},
     "gpu-doctor": {"module": "gpu_doctor", "script": "gpu_doctor.py"},
+    "memory-backfill": {
+        "module": "memory_cli",
+        "script": "memory_cli.py",
+        "prefix": ["backfill"],
+    },
+    "memory-validate": {
+        "module": "memory_cli",
+        "script": "memory_cli.py",
+        "prefix": ["validate"],
+    },
     # NOTE: `prune_framework.py` is intentionally NOT a wf subcommand. It is a manual,
     # source-host/upgrade-cleanup fallback run directly (it needs the pre-upgrade MANIFEST,
     # which only the operator running the upgrade has); routing it through `wf` added no value
@@ -91,6 +101,8 @@ def _build_parser() -> argparse.ArgumentParser:
         "render-surfaces": "Regenerate host configs, hooks, bin shims, and agent surfaces (render_platform_surfaces.py).",
         "secrets-scan": "Run the secrets scanner fallback CLI (run_secrets_scan.py).",
         "gpu-doctor": "Embedding-provider / GPU capability diagnostic — same report as wave_gpu_doctor (gpu_doctor.py).",
+        "memory-backfill": "Inventory historical waves and draft one bounded memory batch.",
+        "memory-validate": "Record focused agent judgment for one historical candidate.",
     }
     for name in _SUBCOMMANDS:
         sub.add_parser(

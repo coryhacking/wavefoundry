@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: closed
-Last verified: 2026-07-18
+Last verified: 2026-07-20
 review-evidence-source: events.jsonl
 
 wave-id: `1sufo memory-retrieval-eval-and-fusion`
@@ -58,11 +58,16 @@ Wave `1sufo` (Memory Retrieval Eval And Fusion) delivered two changes: Memory-re
 
 ## Review Evidence
 
+<!-- wave:review-status begin -->
+| Signoff | State | Why | Next action |
+| --- | --- | --- | --- |
+| wave-council-readiness | approved | current executed approval follows every affected repair | none |
+| wave-council-delivery | approved | current executed approval follows every affected repair | none |
+| operator-signoff | approved | current executed approval follows every affected repair | none |
+<!-- wave:review-status end -->
+
 - wave-council-readiness: approved 2026-07-17 — eval-before-fusion sequencing is explicit and blocking; the fusion change is gated on beating a measured baseline and ships default-off otherwise; relevance/policy separation is the load-bearing design and is guarded by AC-3 (trust records not demoted). The defect being fixed is verified in the tree (`wave_memory_search_response`, semantic re-sort over `_memory_ranked`). No blocking concerns.
 - operator-signoff: pending operator closure confirmation
-- wave-council-delivery: approved — Ran run_tests.py --no-cache (5797 OK), wave_validate (ok), and executed run_memory_eval.py standalone (5/5 invariants PASS; comparison baseline=1.00 vs semantic_only=0.00 vs lexical_only=0.00).
-- wave-council-readiness: approved — Inspected wave_memory_search_response and _memory_ranked during the 2026-07-17 prepare-phase council review.
-- operator-signoff: approved — Operator close instruction received this session following the structured review report.
 
 ## Dependencies
 

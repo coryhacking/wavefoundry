@@ -971,6 +971,37 @@ class SetupLayerSchedulingTests(unittest.TestCase):
                             self.mod.main(["--root", "/tmp/repo", "--background-code"])
         spawn.assert_called_once()
 
+    def test_detached_layer_does_not_inherit_memory_publication_receipt(self):
+        args = MagicMock(
+            full=False,
+            rechunk=False,
+            include_tests=False,
+            include_generated=False,
+            verbose=False,
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            root.joinpath(".wavefoundry", "index").mkdir(parents=True)
+            with patch.dict(
+                os.environ,
+                {"WAVEFOUNDRY_MEMORY_BACKFILL_RUN_ID": "run-receipt"},
+            ), patch.object(
+            self.mod.subprocess_util,
+            "windowless_pythonw",
+            return_value=None,
+            ), patch.object(
+            self.mod,
+            "_tool_venv_python",
+            return_value=Path(sys.executable),
+            ), patch.object(
+            self.mod.subprocess_util,
+            "isolated_popen",
+            return_value=MagicMock(pid=123),
+            ) as popen:
+                self.mod._spawn_background_semantic_build(root, args, "code")
+        child_env = popen.call_args.kwargs["env"]
+        self.assertNotIn("WAVEFOUNDRY_MEMORY_BACKFILL_RUN_ID", child_env)
+
     def test_include_code_takes_precedence_over_background_code(self):
         """--include-code with --background-code should behave as --include-code (synchronous)."""
         with self._runtime_patches():

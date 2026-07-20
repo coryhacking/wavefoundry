@@ -79,6 +79,24 @@ _SUPERSEDED_BY_RE = re.compile(r"^Superseded by:\s*`([a-z0-9][a-z0-9-]*)`\s*$", 
 # Optional 1stwk metadata: the measured consumed-token cost of the wave that
 # produced an evidence-derived candidate (grounds the 1svuk avoided estimate).
 _SOURCE_COST_RE = re.compile(r"^Source exploration cost:\s*(\d+)\s*$", re.MULTILINE)
+_SOURCE_EVENT_RE = re.compile(r"^Source event:\s*`([^`\r\n]+)`\s*$", re.MULTILINE)
+_VALIDATION_RE = re.compile(
+    r"^Validation:\s*(pending|promote|retain|reject|rewrite)\s*$", re.MULTILINE
+)
+_VALIDATED_BY_RE = re.compile(r"^Validated by:\s*([^\r\n]+)\s*$", re.MULTILINE)
+_ACTION_DELTA_RE = re.compile(r"^Action delta:\s*([^\r\n]+)\s*$", re.MULTILINE)
+_VALIDATION_RATIONALE_RE = re.compile(
+    r"^Validation rationale:\s*([^\r\n]+)\s*$", re.MULTILINE
+)
+_EVIDENCE_VERIFIED_RE = re.compile(
+    r"^Evidence verified:\s*(true|false)\s*$", re.MULTILINE
+)
+_CURRENT_TARGET_VERIFIED_RE = re.compile(
+    r"^Current target verified:\s*(true|false)\s*$", re.MULTILINE
+)
+_CANONICAL_OVERLAP_RE = re.compile(
+    r"^Canonical overlap:\s*(none|supplements|duplicates)\s*$", re.MULTILINE
+)
 _TITLE_RE = re.compile(r"^#\s+(.+)$", re.MULTILINE)
 _BACKTICK_RE = re.compile(r"`([^`]+)`")
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
@@ -185,6 +203,34 @@ def parse_memory_record(path: Path, text: Optional[str] = None) -> Optional[dict
         "superseded_by": (m.group(1) if (m := _SUPERSEDED_BY_RE.search(text)) else None),
         "source_exploration_cost": (
             int(m.group(1)) if (m := _SOURCE_COST_RE.search(text)) else None
+        ),
+        "source_event": (
+            m.group(1).strip() if (m := _SOURCE_EVENT_RE.search(text)) else None
+        ),
+        "validation": (
+            m.group(1) if (m := _VALIDATION_RE.search(text)) else None
+        ),
+        "validated_by": (
+            m.group(1).strip() if (m := _VALIDATED_BY_RE.search(text)) else None
+        ),
+        "action_delta": (
+            m.group(1).strip() if (m := _ACTION_DELTA_RE.search(text)) else None
+        ),
+        "validation_rationale": (
+            m.group(1).strip()
+            if (m := _VALIDATION_RATIONALE_RE.search(text))
+            else None
+        ),
+        "evidence_verified": (
+            m.group(1) == "true" if (m := _EVIDENCE_VERIFIED_RE.search(text)) else None
+        ),
+        "current_target_verified": (
+            m.group(1) == "true"
+            if (m := _CURRENT_TARGET_VERIFIED_RE.search(text))
+            else None
+        ),
+        "canonical_overlap": (
+            m.group(1) if (m := _CANONICAL_OVERLAP_RE.search(text)) else None
         ),
         "summary": summary,
         "evidence_refs": evidence_refs,
@@ -318,6 +364,14 @@ def render_memory_record(
     status: str = "candidate",
     supersedes: str = "",
     source_exploration_cost: Optional[int] = None,
+    source_event: str = "",
+    validation: str = "",
+    validated_by: str = "",
+    action_delta: str = "",
+    validation_rationale: str = "",
+    evidence_verified: Optional[bool] = None,
+    current_target_verified: Optional[bool] = None,
+    canonical_overlap: str = "",
     date: Optional[str] = None,
 ) -> str:
     """Render the canonical record markdown (the README template shape).
@@ -343,6 +397,25 @@ def render_memory_record(
     ]
     if source_exploration_cost is not None:
         lines.append(f"Source exploration cost: {int(source_exploration_cost)}")
+    if source_event:
+        if any(char in source_event for char in ("`", "\r", "\n")):
+            raise ValueError("source_event must be a single line without backticks")
+        lines.append(f"Source event: `{source_event}`")
+        lines.append(f"Validation: {validation or 'pending'}")
+    if validated_by:
+        lines.append(f"Validated by: {validated_by}")
+    if action_delta:
+        lines.append(f"Action delta: {action_delta}")
+    if validation_rationale:
+        lines.append(f"Validation rationale: {validation_rationale}")
+    if evidence_verified is not None:
+        lines.append(f"Evidence verified: {str(bool(evidence_verified)).lower()}")
+    if current_target_verified is not None:
+        lines.append(
+            f"Current target verified: {str(bool(current_target_verified)).lower()}"
+        )
+    if canonical_overlap:
+        lines.append(f"Canonical overlap: {canonical_overlap}")
     if supersedes:
         lines.append(f"Supersedes: `{supersedes}`")
     lines += ["", "## Summary", "", summary.strip(), "", "## Evidence", ""]
@@ -405,6 +478,93 @@ def create_memory_record(
 
 _STATUS_LINE_RE = re.compile(r"^(Status:\s+)\S+\s*$", re.MULTILINE)
 _UPDATED_LINE_RE = re.compile(r"^(Updated:\s*)\d{4}-\d{2}-\d{2}\s*$", re.MULTILINE)
+
+
+def _replace_or_insert_metadata(text: str, pattern: re.Pattern[str], line: str) -> str:
+    """Replace one frontmatter line or insert it before the first section."""
+    if pattern.search(text):
+        return pattern.sub(line, text, count=1)
+    marker = "\n## Summary"
+    if marker not in text:
+        raise ValueError("memory record has no Summary section")
+    return text.replace(marker, f"\n{line}{marker}", 1)
+
+
+def record_memory_validation(
+    root: Path,
+    memory_id: str,
+    *,
+    verdict: str,
+    action_delta: str,
+    rationale: str,
+    evidence_verified: bool,
+    current_target_verified: bool,
+    canonical_overlap: str,
+    validated_by: str = "agent",
+    superseded_by: str = "",
+    date: Optional[str] = None,
+) -> Path:
+    """Persist a compact semantic validation judgment on a generated record."""
+    if verdict not in ("promote", "retain", "reject", "rewrite"):
+        raise ValueError("verdict must be promote, retain, reject, or rewrite")
+    if canonical_overlap not in ("none", "supplements", "duplicates"):
+        raise ValueError("canonical_overlap must be none, supplements, or duplicates")
+    for label, value in (
+        ("action_delta", action_delta),
+        ("rationale", rationale),
+        ("validated_by", validated_by),
+    ):
+        if not str(value or "").strip() or any(c in str(value) for c in ("\r", "\n")):
+            raise ValueError(f"{label} must be a non-empty single line")
+    path = _contained_record_path(root, memory_id)
+    if not path.is_file():
+        raise FileNotFoundError(f"memory record not found: {memory_id}")
+    text = path.read_text(encoding="utf-8")
+    parsed = parse_memory_record(path, text)
+    if parsed is None:
+        raise ValueError(f"{memory_id}: malformed memory record")
+    if not parsed.get("source_event"):
+        raise ValueError(f"{memory_id}: only evidence-derived records can be validated")
+    if verdict in ("promote", "retain", "rewrite"):
+        if not evidence_verified or not current_target_verified:
+            raise ValueError(
+                f"{verdict} requires evidence_verified and current_target_verified"
+            )
+        if canonical_overlap == "duplicates":
+            raise ValueError(
+                f"{verdict} cannot use canonical_overlap='duplicates'; reject the draft"
+            )
+    new_status = {
+        "promote": "active",
+        "retain": "candidate",
+        "reject": "rejected",
+        "rewrite": "superseded",
+    }[verdict]
+    if verdict == "rewrite":
+        superseded_by = validate_memory_id(superseded_by)
+    today = date or time.strftime("%Y-%m-%d")
+    text = _STATUS_LINE_RE.sub(rf"\g<1>{new_status}", text, count=1)
+    text = _UPDATED_LINE_RE.sub(rf"\g<1>{today}", text, count=1)
+    replacements = (
+        (_VALIDATION_RE, f"Validation: {verdict}"),
+        (_VALIDATED_BY_RE, f"Validated by: {validated_by.strip()}"),
+        (_ACTION_DELTA_RE, f"Action delta: {action_delta.strip()}"),
+        (_VALIDATION_RATIONALE_RE, f"Validation rationale: {rationale.strip()}"),
+        (_EVIDENCE_VERIFIED_RE, f"Evidence verified: {str(bool(evidence_verified)).lower()}"),
+        (
+            _CURRENT_TARGET_VERIFIED_RE,
+            f"Current target verified: {str(bool(current_target_verified)).lower()}",
+        ),
+        (_CANONICAL_OVERLAP_RE, f"Canonical overlap: {canonical_overlap}"),
+    )
+    for pattern, line in replacements:
+        text = _replace_or_insert_metadata(text, pattern, line)
+    if superseded_by:
+        text = _replace_or_insert_metadata(
+            text, _SUPERSEDED_BY_RE, f"Superseded by: `{superseded_by}`"
+        )
+    path.write_text(text, encoding="utf-8", newline="")
+    return path
 
 
 def reconcile_memory_record(
@@ -542,24 +702,45 @@ def match_targets(record: dict[str, Any], path: str = "", symbol: str = "") -> b
 # embeddings, no similarity model, so the same inputs always yield the same
 # verdict.
 
-_DUP_PUNCT_RE = re.compile(r"[^a-z0-9]+")
-
-
 def normalize_summary(summary: str) -> str:
     """Fixed, documented normalization for duplicate comparison.
 
-    Lowercase, replace every run of non-alphanumeric characters (whitespace,
-    punctuation) with a single space, and trim. Deterministic: identical
+    Unicode-casefold, replace every run of non-letter/number characters
+    (whitespace, punctuation) with a single space, and trim. Deterministic: identical
     inputs always yield the same key (the AC-4 determinism contract). Used
     only for duplicate detection, never persisted.
     """
-    return _DUP_PUNCT_RE.sub(" ", (summary or "").lower()).strip()
+    folded = (summary or "").casefold()
+    out: list[str] = []
+    separating = False
+    for char in folded:
+        if char.isalnum():
+            if separating and out:
+                out.append(" ")
+            out.append(char)
+            separating = False
+        else:
+            separating = True
+    return "".join(out).strip()
+
+
+def _canonical_ref(value: Any) -> str:
+    return str(value or "").strip().strip("`").strip()
+
+
+def _evidence_identity(value: Any) -> str:
+    """Typed originating evidence identity; generic wave/path refs are context."""
+    ref = _canonical_ref(value)
+    return ref if re.match(r"^(?:ev-|finding[:-]|syn-)", ref) else ""
 
 
 def _dup_content_key(record: dict[str, Any]) -> tuple[str, tuple[str, ...], str]:
     """The normalized ``(kind, sorted targets, normalized summary)`` identity."""
     kind = record.get("kind") or ""
-    targets = tuple(sorted(record.get("target_refs") or []))
+    targets = tuple(sorted(
+        _canonical_ref(value) for value in (record.get("target_refs") or [])
+        if _canonical_ref(value)
+    ))
     return (kind, targets, normalize_summary(record.get("summary") or ""))
 
 
@@ -584,7 +765,10 @@ def find_duplicates(
     ``{memory_id, signals, shared_evidence}``; this function mutates nothing.
     """
     rec_id = record.get("memory_id") or ""
-    rec_evidence = {e for e in (record.get("evidence_refs") or []) if e}
+    rec_evidence = {
+        identity for value in (record.get("evidence_refs") or [])
+        if (identity := _evidence_identity(value))
+    }
     rec_key = _dup_content_key(record)
     matches: list[dict[str, Any]] = []
     for other in existing:
@@ -595,11 +779,15 @@ def find_duplicates(
             continue
         signals: list[str] = []
         shared = sorted(
-            rec_evidence & {e for e in (other.get("evidence_refs") or []) if e}
+            rec_evidence & {
+                identity for value in (other.get("evidence_refs") or [])
+                if (identity := _evidence_identity(value))
+            }
         )
         if shared:
             signals.append("evidence_ref")
-        if _dup_content_key(other) == rec_key:
+        other_key = _dup_content_key(other)
+        if rec_key[2] and other_key[2] and other_key == rec_key:
             signals.append("normalized_content")
         if signals:
             matches.append({

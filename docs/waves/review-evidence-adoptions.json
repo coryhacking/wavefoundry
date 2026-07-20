@@ -44,8 +44,8 @@
       "version": 1
     },
     "1stwm memory-supply": {
-      "prefix_sha256": "99f6f1e9741dcc2cce36deb2ef0d6a19ff4ecc747acd02f5586f7f337f4b94d0",
-      "record_count": 5,
+      "prefix_sha256": "c744a331b91be3325bc4fd7ad537952dc0ccc59666eb5d1df0732dbbdb121fc9",
+      "record_count": 35,
       "source": "events.jsonl",
       "version": 1
     },
@@ -56,14 +56,26 @@
       "version": 1
     },
     "1sufq commit-reasoning-provenance": {
-      "prefix_sha256": "56848e299d4b11b6e006cb536e0c207a0426873b8f0e37c0f50cb95f2a2288d6",
-      "record_count": 5,
+      "prefix_sha256": "5a6a7a8f7ac799ed2adfc7543d4706c1e2d544d3da2e028c95332c65f7d49fdb",
+      "record_count": 29,
       "source": "events.jsonl",
       "version": 1
     },
     "1sxj7 self-populating-memory-and-telemetry-reconciliation": {
-      "prefix_sha256": "7c084e00e8d30be88718bf3c171fbd527b9252b7eaedc413cae071ae008fd550",
-      "record_count": 0,
+      "prefix_sha256": "20de0e96e8dc6022b6fae9695666ff48e4279ff363cc003c93deae0a6a9c7475",
+      "record_count": 160,
+      "source": "events.jsonl",
+      "version": 1
+    },
+    "1t1uo dashboard-multiline-ac-tasks": {
+      "prefix_sha256": "919bbaad694c6a4df68caf446bb74cb35e3ce75d6b0d90d1e59901143b0db00c",
+      "record_count": 5,
+      "source": "events.jsonl",
+      "version": 1
+    },
+    "1t3dm memory-backfill-and-review-evidence-clarity": {
+      "prefix_sha256": "0bf5627a1507f4758c3efc56f8aa49a5522fbcffc64993cc7f2e7b6d9dfb892b",
+      "record_count": 150,
       "source": "events.jsonl",
       "version": 1
     }

@@ -167,9 +167,15 @@ def _err(msg: str) -> None:
 
 def _detect_dashboard(root: Path) -> tuple[bool, int | None, str | None]:
     """Return (running, pid, url) for the local dashboard."""
-    # Wave 1p64x: dashboard metadata now lives in the server lock file (one sidecar).
-    meta = root / ".wavefoundry" / "dashboard-server.lock"
-    if not meta.exists():
+    # Upgrade-only compatibility probe: recognize the canonical carrier first
+    # and the pre-cutover root carrier second so the one-way migration can stop
+    # an old dashboard before installing canonical-only runtime code.
+    candidates = (
+        root / ".wavefoundry" / "locks" / "dashboard-server.lock",
+        root / ".wavefoundry" / "dashboard-server.lock",
+    )
+    meta = next((path for path in candidates if path.exists()), None)
+    if meta is None:
         return False, None, None
     try:
         data = json.loads(meta.read_text(encoding="utf-8"))
@@ -1186,6 +1192,24 @@ def phase_dry_run(root: Path) -> int:
 
 # ── Phase 0 — Pre-flight ──────────────────────────────────────────────────────
 
+def _clear_stale_upgrade_lock_for_preflight(root: Path, upgrade_lib: Any) -> None:
+    """Clear ordinary stale locks, but retain failed dashboard restart intent."""
+    existing_lock = upgrade_lib.read_upgrade_lock(root)
+    if existing_lock is None or not upgrade_lib.is_lock_stale(root):
+        return
+    if (
+        existing_lock.get("failed_phase")
+        and existing_lock.get("dashboard_restart_pending")
+    ):
+        _log(
+            "⚠  Failed upgrade lock detected (PID not running) — "
+            "preserving dashboard restart intent for the recovery run."
+        )
+        return
+    _log("⚠  Stale upgrade lock detected (PID not running) — clearing it.")
+    upgrade_lib.remove_upgrade_lock(root)
+
+
 def phase_preflight(root: Path, yes: bool) -> tuple[str | None, str | None, Path | None]:
     """Run pre-flight checks, compute seed diffs, and print change plan.
 
@@ -1198,8 +1222,7 @@ def phase_preflight(root: Path, yes: bool) -> tuple[str | None, str | None, Path
     existing_lock = upgrade_lib.read_upgrade_lock(root)
     if existing_lock is not None:
         if upgrade_lib.is_lock_stale(root):
-            _log("⚠  Stale upgrade lock detected (PID not running) — clearing it.")
-            upgrade_lib.remove_upgrade_lock(root)
+            _clear_stale_upgrade_lock_for_preflight(root, upgrade_lib)
         else:
             _err(
                 "Upgrade already in progress (upgrade-in-progress.json exists and PID is running).\n"
@@ -1430,6 +1453,162 @@ def phase_pruning(root: Path) -> int:
 
 # ── Phase 3 — Docs gate ───────────────────────────────────────────────────────
 
+def _atomic_write_text(path: Path, text: str, label: str) -> None:
+    """Atomically replace one UTF-8 text file beside its destination."""
+
+    temp = path.with_name(f".{path.name}.{os.getpid()}.{label}.tmp")
+    try:
+        temp.write_text(text, encoding="utf-8", newline="")
+        os.replace(temp, path)
+    finally:
+        temp.unlink(missing_ok=True)
+
+
+def phase_review_status_projection(root: Path) -> dict[str, int]:
+    """Compact adopted wave review state through the canonical projection.
+
+    Historical prose outside the owned block is byte-preserved.  A malformed
+    adopted ledger/marker fails the upgrade; non-adopted closed waves are
+    reported only.  Active/readied prose-only authority is not guessed.
+    """
+
+    import re
+
+    from review_evidence import (
+        externalize_adopted_inline_wave_locked,
+        parse_review_evidence_source,
+        render_review_evidence_projection,
+        render_review_status_projection,
+        required_review_status_keys,
+        review_event_write_lock,
+        validate_external_review_evidence,
+    )
+
+    counts = {
+        "projected": 0,
+        "adopted_inline": 0,
+        "reported_legacy": 0,
+        "blocked_legacy": 0,
+    }
+    blocked_legacy_waves: list[str] = []
+    waves_dir = root / "docs" / "waves"
+    if not waves_dir.is_dir():
+        return counts
+    try:
+        root_real = root.resolve(strict=True)
+    except OSError as exc:
+        raise SystemExit(f"cannot resolve upgrade root for review projection: {exc}")
+    with review_event_write_lock(root):
+        for wave_dir in sorted(path for path in waves_dir.iterdir() if path.is_dir()):
+            try:
+                wave_real = wave_dir.resolve(strict=True)
+            except OSError as exc:
+                raise SystemExit(
+                    f"{wave_dir.name}: cannot resolve wave directory safely: {exc}"
+                )
+            if wave_dir.is_symlink() or not wave_real.is_relative_to(root_real):
+                raise SystemExit(
+                    f"{wave_dir.name}: review projection wave directory escapes "
+                    "the repository root through a symlink"
+                )
+            wave_md = wave_dir / "wave.md"
+            if not wave_md.is_file():
+                continue
+            try:
+                wave_md_real = wave_md.resolve(strict=True)
+            except OSError as exc:
+                raise SystemExit(
+                    f"{wave_dir.name}: cannot resolve wave.md safely: {exc}"
+                )
+            if wave_md.is_symlink() or not wave_md_real.is_relative_to(wave_real):
+                raise SystemExit(
+                    f"{wave_dir.name}: review projection wave.md escapes its "
+                    "wave directory through a symlink"
+                )
+            ledger = wave_dir / "events.jsonl"
+            if ledger.is_symlink():
+                raise SystemExit(
+                    f"{wave_dir.name}: review projection events.jsonl may not "
+                    "be a symlink"
+                )
+            if ledger.exists():
+                try:
+                    ledger_real = ledger.resolve(strict=True)
+                except OSError as exc:
+                    raise SystemExit(
+                        f"{wave_dir.name}: cannot resolve events.jsonl safely: {exc}"
+                    )
+                if not ledger_real.is_relative_to(wave_real):
+                    raise SystemExit(
+                        f"{wave_dir.name}: review projection events.jsonl escapes "
+                        "its wave directory"
+                    )
+            text = wave_md.read_text(encoding="utf-8")
+            source, source_errors = parse_review_evidence_source(text)
+            status_match = re.search(r"(?mi)^Status:\s*(\S+)", text)
+            status = status_match.group(1).lower() if status_match else ""
+            active = status in {"planned", "readied", "ready", "active", "implementing"}
+            adopted_records = None
+            if source_errors:
+                raise SystemExit(
+                    f"{wave_dir.name}: malformed review-evidence source: "
+                    + "; ".join(source_errors)
+                )
+            if source is None:
+                adopted_records, adoption_error = externalize_adopted_inline_wave_locked(
+                    root,
+                    wave_dir.name,
+                    wave_md,
+                )
+                if adoption_error:
+                    raise SystemExit(
+                        f"{wave_dir.name}: typed-inline review evidence adoption failed: "
+                        f"{adoption_error}"
+                    )
+                if adopted_records is not None:
+                    counts["adopted_inline"] += 1
+                    text = wave_md.read_text(encoding="utf-8")
+                    source = "events.jsonl"
+                if active and "## Review Evidence" in text:
+                    if source is None:
+                        counts["blocked_legacy"] += 1
+                        blocked_legacy_waves.append(wave_dir.name)
+                        continue
+                if source is None:
+                    counts["reported_legacy"] += 1
+                    continue
+            if source == "events.jsonl" and adopted_records is not None:
+                records = adopted_records
+            else:
+                validation = validate_external_review_evidence(wave_md)
+                if validation.errors:
+                    raise SystemExit(
+                        f"{wave_dir.name}: invalid canonical events.jsonl: "
+                        + "; ".join(validation.errors)
+                    )
+                records = validation.records
+            projected = render_review_evidence_projection(text, records)
+            projected = render_review_status_projection(
+                projected,
+                records,
+                required_review_status_keys(root, projected, records),
+            )
+            if projected != text:
+                _atomic_write_text(wave_md, projected, "review-status-projection")
+                counts["projected"] += 1
+    if blocked_legacy_waves:
+        raise SystemExit(
+            "active/readied prose-only review evidence cannot be adopted losslessly "
+            "for: "
+            + ", ".join(blocked_legacy_waves)
+            + ". Record canonical typed evidence with wave_record_review_evidence, "
+            "then rerun `wf upgrade`; arbitrary review prose is never parsed as "
+            "approval authority. External-ledger waves were still projected before "
+            "this action-required report."
+        )
+    return counts
+
+
 def phase_docs_gate(root: Path) -> None:
     _log("\n── Phase 3: Docs gate ──")
     # Wave 1p7tz: the `bin/docs-gardener`/`bin/docs-lint` wrappers were retired (the cross-OS `wf`
@@ -1462,13 +1641,27 @@ def phase_index_update(root: Path) -> None:
         return
 
     _log("  Phase 4a: updating docs index (blocking) ...")
+    memory_run_id = os.environ.get(
+        "WAVEFOUNDRY_MEMORY_BACKFILL_RUN_ID", ""
+    ).strip()
+    child_env = None
+    if memory_run_id:
+        child_env = dict(os.environ)
+        child_env["WAVEFOUNDRY_MEMORY_BACKFILL_RUN_ID"] = str(memory_run_id)
     result = subprocess_util.isolated_run(
         [_preferred_python(), str(setup_script), "--root", str(root)],
         cwd=str(root),
         check=False,
+        env=child_env,
     )
     if result.returncode != 0:
-        _log(f"  ⚠  Docs index update exited {result.returncode} — continuing.")
+        message = f"Docs index update exited {result.returncode}"
+        if memory_run_id:
+            raise RuntimeError(
+                message
+                + " — historical-memory publication remains incomplete and retryable"
+            )
+        _log(f"  ⚠  {message} — continuing.")
 
     # Phase 4b: update the GRAPH index too (blocking; graph-only is fast, ~seconds,
     # no embedding). Symmetric with the semantic update: `--graph-only` (no --full)
@@ -1476,13 +1669,23 @@ def phase_index_update(root: Path) -> None:
     # advanced (graph_indexer's version check) — so a graph-builder bump materializes
     # during the upgrade instead of waiting for the first-query lazy rebuild.
     _log("  Phase 4b: updating graph index (blocking) ...")
+    followup_env = subprocess_util.utf8_child_env()
+    followup_env.pop("WAVEFOUNDRY_MEMORY_BACKFILL_RUN_ID", None)
     graph_result = subprocess_util.isolated_run(
         [_preferred_python(), str(setup_script), "--root", str(root), "--graph-only"],
         cwd=str(root),
         check=False,
+        env=followup_env,
     )
     if graph_result.returncode != 0:
         _log(f"  ⚠  Graph index update exited {graph_result.returncode} — continuing (first-query rebuild remains the safety net).")
+
+    if memory_run_id:
+        _log(
+            "  Phase 4c: skipped — the receipt-owned foreground pass already "
+            "converged both semantic layers."
+        )
+        return
 
     _log("  Phase 4c: launching code index update in background ...")
     background_cmd = [
@@ -1501,10 +1704,10 @@ def phase_index_update(root: Path) -> None:
     try:
         subprocess_util.isolated_popen(
             background_cmd,
-            stdout=_bg_log_file,
-            stderr=_bg_log_file,
-            cwd=str(root),
-            env=subprocess_util.utf8_child_env(),  # 1p8gv: UTF-8 stdio in the child (cp1252 safety)
+        stdout=_bg_log_file,
+        stderr=_bg_log_file,
+        cwd=str(root),
+        env=followup_env,  # 1p8gv: UTF-8 stdio in the child (cp1252 safety)
         )
     finally:
         _bg_log_file.close()
@@ -1592,15 +1795,70 @@ def phase_cleanup(
         _log("     The upgrade may not have run, or cleanup already completed.")
         return
 
-    upgrade_lib.remove_upgrade_lock(root)
+    lock_state = upgrade_lib.read_upgrade_lock(root) or {}
+    restart_pending = bool(lock_state.get("dashboard_restart_pending"))
+    restart_port = lock_state.get("dashboard_restart_port")
     if failed_phase:
         _log(
-            f"  Upgrade lock removed — it carried a failure marker (phase: "
-            f"{failed_phase}); the tree may be half-replaced. Re-run the upgrade "
-            "to restore a clean state."
+            f"  Upgrade lock retained — it carries a failure marker (phase: "
+            f"{failed_phase}) and the tree may be half-replaced."
         )
-    else:
-        _log("  Upgrade lock removed — dashboard will trigger post-upgrade reindex.")
+        if restart_pending:
+            _log(
+                "  Dashboard restart intent retained; it will run only after a "
+                "successful recovery cleanup."
+            )
+        if failed_phase in {"review_status_projection", "docs_gate"}:
+            _log(
+                "  Resolve the typed review-state or docs findings, run "
+                "--resume-after-gate, then --update-index and --cleanup."
+            )
+        else:
+            _log("  Re-run the full upgrade to restore a clean state.")
+        _print_operator_summary(
+            from_version=from_version,
+            to_version=to_version,
+            zip_path=zip_path,
+            pruned_count=pruned_count,
+            ran_index_rebuild=ran_index_rebuild,
+            failed_phase=failed_phase,
+            root=root,
+        )
+        raise SystemExit(1)
+
+    if restart_pending:
+        try:
+            import server_impl
+
+            previous = os.environ.get("WAVEFOUNDRY_SUPPRESS_DASHBOARD_BROWSER")
+            os.environ["WAVEFOUNDRY_SUPPRESS_DASHBOARD_BROWSER"] = "1"
+            try:
+                restart = server_impl.wave_dashboard_start_response(
+                    root,
+                    port=restart_port if isinstance(restart_port, int) else None,
+                )
+            finally:
+                if previous is None:
+                    os.environ.pop("WAVEFOUNDRY_SUPPRESS_DASHBOARD_BROWSER", None)
+                else:
+                    os.environ["WAVEFOUNDRY_SUPPRESS_DASHBOARD_BROWSER"] = previous
+            if restart.get("status") != "ok":
+                raise RuntimeError("dashboard restart returned an error")
+            upgrade_lib.update_upgrade_lock(root, dashboard_restart_pending=False)
+            _log("  Dashboard restarted on the pre-upgrade port.")
+        except Exception as exc:
+            upgrade_lib.update_upgrade_lock(
+                root,
+                failed_phase="dashboard_restart",
+                failed_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            )
+            _err(
+                f"Dashboard restart failed; upgrade lock retained for recovery: {exc}"
+            )
+            raise SystemExit(1)
+
+    upgrade_lib.remove_upgrade_lock(root)
+    _log("  Upgrade lock removed — dashboard will trigger post-upgrade reindex.")
 
     _warn_if_background_code_incomplete(root)
     _warn_if_migration_errors(root)
@@ -1615,14 +1873,13 @@ def phase_cleanup(
     # would otherwise never generate docs/references/codebase-map.md (field report).
     # Regenerate it once here, after the index phase, fail-safe — a generator error
     # must never fail the upgrade. ``generate_safe`` is change-only/idempotent.
-    if not failed_phase:
-        _regenerate_codebase_map_on_upgrade(root)
-        # End-of-upgrade lifecycle-policy backstop (operator directive): Phase 2c
-        # already provisioned scheme v2 earlier in the pipeline; re-verify here at
-        # reconciliation time and heal via the idempotent materialization if it
-        # somehow did not land (soft failure, out-of-band edit, or a transition
-        # upgrade that ran an older pipeline without Phase 2c).
-        _ensure_lifecycle_policy_backstop(root)
+    _regenerate_codebase_map_on_upgrade(root)
+    # End-of-upgrade lifecycle-policy backstop (operator directive): Phase 2c
+    # already provisioned scheme v2 earlier in the pipeline; re-verify here at
+    # reconciliation time and heal via the idempotent materialization if it
+    # somehow did not land (soft failure, out-of-band edit, or a transition
+    # upgrade that ran an older pipeline without Phase 2c).
+    _ensure_lifecycle_policy_backstop(root)
 
     _print_operator_summary(
         from_version=from_version,
@@ -2101,18 +2358,30 @@ def _finalize_failed_upgrade(root: Path, tree_mutated: bool, current_phase: str)
     """
     import upgrade_lib
 
-    if tree_mutated:
+    state = upgrade_lib.read_upgrade_lock(root) or {}
+    restart_pending = bool(state.get("dashboard_restart_pending"))
+    if tree_mutated or restart_pending:
         upgrade_lib.update_upgrade_lock(
             root,
             failed_phase=current_phase,
             failed_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
         )
+        if current_phase in {"review_status_projection", "docs_gate"}:
+            recovery = (
+                "Resolve the typed review-state or docs findings, then run "
+                "--resume-after-gate. Index publication and cleanup remain "
+                "blocked until that recovery succeeds."
+            )
+        else:
+            recovery = (
+                "Resolve the failure, then re-run the full upgrade to restore "
+                "a clean state."
+            )
         _err(
-            f"Upgrade failed during phase '{current_phase}' after the tree was "
-            "modified. The upgrade lock has been RETAINED with a failure marker "
-            "so the dashboard stays paused and the half-replaced tree is not "
-            "reindexed. Inspect .wavefoundry/upgrade-in-progress.json, resolve "
-            "the failure, then re-run the upgrade or run --cleanup to acknowledge."
+            f"Upgrade failed during phase '{current_phase}'. The upgrade lock "
+            "has been RETAINED with a failure marker so dashboard restart intent "
+            "and any partially replaced tree remain visible. Inspect "
+            f".wavefoundry/upgrade-in-progress.json. {recovery}"
         )
     else:
         upgrade_lib.remove_upgrade_lock(root)
@@ -2355,9 +2624,20 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         dest="resume_after_gate",
         help=(
-            "Resume a docs-gate-failed upgrade: re-run ONLY docs-gardener + docs-lint "
-            "against the already-extracted tree (no extract/render/prune). Requires a "
-            "retained lock whose failed_phase is 'docs_gate' (wave 1p44r)."
+            "Resume a review-projection/docs-gate-failed upgrade: rebuild current "
+            "review-status projection, then re-run docs-gardener + docs-lint against "
+            "the already-extracted tree (no extract/render/prune). Requires a retained "
+            "lock whose failed_phase is 'review_status_projection' or 'docs_gate'."
+        ),
+    )
+    parser.add_argument(
+        "--resume-after-memory",
+        action="store_true",
+        dest="resume_after_memory",
+        help=(
+            "Resume the retained upgrade after bounded historical-memory "
+            "extraction and agent validation; publishes the index only when "
+            "the authoritative SQLite pending census is zero."
         ),
     )
     parser.add_argument(
@@ -2460,6 +2740,169 @@ def main(argv: list[str] | None = None) -> int:
                     return p
         return _find_zip(root)
 
+    def _memory_gate(lock: dict | None) -> tuple[object | None, str | None, dict | None]:
+        if not isinstance(lock, dict):
+            return None, None, None
+        run_id = str(lock.get("memory_backfill_run_id") or "").strip()
+        if not run_id:
+            return None, None, None
+        import memory_backfill
+
+        return memory_backfill, run_id, memory_backfill.run_summary(root, run_id)
+
+    def _unrecovered_review_or_docs_gate(lock: dict | None) -> bool:
+        """Refuse every publication/cleanup path while a typed gate is failed."""
+
+        failed_phase = (
+            lock.get("failed_phase") if isinstance(lock, dict) else None
+        )
+        if failed_phase not in {"review_status_projection", "docs_gate"}:
+            return False
+        _err(
+            "Index publication and cleanup are refused while the retained "
+            f"upgrade lock has failed_phase={failed_phase!r}. Resolve the typed "
+            "review-state or docs findings, run --resume-after-gate, then retry "
+            "the requested phase."
+        )
+        return True
+
+    def _new_code_upgrade_backstop(
+        lock: dict | None,
+    ) -> tuple[object | None, str | None, dict | None, int | None]:
+        """Materialize migrations that a pre-upgrade runner could not know.
+
+        The parent process may have loaded an older ``upgrade_wavefoundry``
+        before extracting this release.  Its next ``--update-index`` or
+        ``--cleanup`` invocation does run this newly installed module, so this
+        is the mandatory fail-closed boundary before index publication.
+        """
+
+        if not isinstance(lock, dict):
+            return None, None, None, None
+        try:
+            projection_counts = phase_review_status_projection(root)
+        except SystemExit as exc:
+            message = str(exc)
+            upgrade_lib.update_upgrade_lock(
+                root,
+                failed_phase="review_status_projection",
+                review_status_projection_failure=message,
+            )
+            _err(
+                "Review-state migration requires operator action before index "
+                f"publication: {message}. Resolve the typed review evidence, "
+                "then run --resume-after-gate."
+            )
+            return None, None, None, 1
+        import memory_backfill
+
+        try:
+            run_id = str(lock.get("memory_backfill_run_id") or "").strip()
+            if not run_id:
+                run_id = memory_backfill.ensure_run(root, "upgrade")
+            summary = memory_backfill.sync_inventory(root, run_id)
+        except Exception as exc:
+            message = f"{type(exc).__name__}: {exc}"
+            upgrade_lib.update_upgrade_lock(
+                root,
+                failed_phase="historical_memory_backfill",
+                memory_backfill_last_failure=message,
+            )
+            _err(
+                "Historical-memory migration could not establish durable state; "
+                f"index publication is refused: {message}"
+            )
+            return None, None, None, memory_backfill.ACTION_REQUIRED_EXIT
+        upgrade_lib.update_upgrade_lock(
+            root,
+            review_status_projection=projection_counts,
+            memory_backfill_run_id=run_id,
+            memory_backfill_state=summary["state"],
+            memory_backfill_pending=(
+                summary["remaining_waves"]
+                + summary["candidates_pending"]
+                + summary["failures"]
+            ),
+            memory_backfill_last_failure=summary["last_failure"],
+        )
+        return memory_backfill, run_id, summary, None
+
+    # ── Standalone --resume-after-memory ──────────────────────────────────
+    if getattr(args, "resume_after_memory", False):
+        _open_log(root, mode="a")
+        try:
+            lock = upgrade_lib.read_upgrade_lock(root)
+            if _unrecovered_review_or_docs_gate(lock):
+                return 1
+            backfill, run_id, summary = _memory_gate(lock)
+            if backfill is None or run_id is None or summary is None:
+                _err("No retained upgrade memory gate was found — nothing to resume.")
+                return 1
+            summary = backfill.sync_inventory(root, run_id)
+            summary = backfill.reconcile_index_publication(root, run_id)
+            if summary["state"] == "indexed":
+                _log("Historical memory index publication is already complete.")
+                return 0
+            if summary["state"] != "ready_for_index":
+                _err(
+                    json.dumps(summary, sort_keys=True)
+                    + "\nHistorical memory remains awaiting validation. Run "
+                    "`wf memory-backfill --entry-path upgrade`, validate the "
+                    "candidates, then retry --resume-after-memory."
+                )
+                return backfill.ACTION_REQUIRED_EXIT
+            try:
+                publication_pending = int(summary.get("candidates_drafted") or 0) > 0
+                if publication_pending:
+                    with backfill.index_publication_scope(run_id):
+                        phase_index_update(root)
+                    backfill.complete_index_publication(root, run_id)
+                else:
+                    phase_index_update(root)
+                    backfill.mark_indexed(root, run_id)
+            except Exception as exc:
+                recovered = backfill.reconcile_index_publication(root, run_id)
+                upgrade_lib.update_upgrade_lock(
+                    root,
+                    failed_phase="index_update",
+                    memory_backfill_state=recovered["state"],
+                    memory_backfill_last_failure=f"{type(exc).__name__}: {exc}",
+                )
+                _err(f"Historical memory index publication failed: {exc}")
+                return (
+                    backfill.ACTION_REQUIRED_EXIT
+                    if recovered["state"] == "awaiting_validation"
+                    else 1
+                )
+            upgrade_lib.update_upgrade_lock(
+                root,
+                memory_backfill_state="indexed",
+                index_rebuilt_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            )
+            _log("Historical memory validated; Phase 4 index publication complete.")
+            return 0
+        finally:
+            _close_log()
+
+    # Index/cleanup verbs cannot bypass an active historical-memory gate.
+    if args.update_index or args.rebuild_index or args.cleanup:
+        lock = upgrade_lib.read_upgrade_lock(root)
+        if _unrecovered_review_or_docs_gate(lock):
+            return 1
+        backfill, _run_id, summary, gate_error = _new_code_upgrade_backstop(lock)
+        if gate_error is not None:
+            return gate_error
+        if (
+            backfill is not None
+            and summary is not None
+            and summary["state"] != "indexed"
+        ):
+            _err(
+                "Historical memory validation is pending; index/cleanup is refused. "
+                "Run bounded memory backfill + validation, then --resume-after-memory."
+            )
+            return backfill.ACTION_REQUIRED_EXIT
+
     # ── Standalone --update-index ──────────────────────────────────────────────
     if args.update_index:
         _open_log(root, mode="a")
@@ -2554,7 +2997,7 @@ def main(argv: list[str] | None = None) -> int:
             _close_log()
         return 0
 
-    # ── Standalone --resume-after-gate (wave 1p44r) ────────────────────────
+    # ── Standalone --resume-after-gate (waves 1p44r / 1t3dm) ──────────────
     if getattr(args, "resume_after_gate", False):
         _open_log(root, mode="a")
         try:
@@ -2563,36 +3006,65 @@ def main(argv: list[str] | None = None) -> int:
                 _err("No upgrade lock found — nothing to resume.")
                 return 1
             failed_phase = lock.get("failed_phase") if isinstance(lock, dict) else None
-            if failed_phase != "docs_gate":
+            resumable_gate_phases = {"review_status_projection", "docs_gate"}
+            if failed_phase not in resumable_gate_phases:
                 _err(
                     "Resume-after-gate requires a retained lock whose failed_phase is "
-                    f"'docs_gate'; found failed_phase={failed_phase!r}. Resolve the "
-                    "upgrade manually or re-run the full upgrade."
+                    "'review_status_projection' or 'docs_gate'; found "
+                    f"failed_phase={failed_phase!r}. Resolve the upgrade manually "
+                    "or re-run the full upgrade."
                 )
                 return 1
-            _log("\n── Resume: re-running docs gate against the already-extracted tree ──")
+            _log(
+                "\n── Resume: rebuilding review state and re-running the docs "
+                "gate against the already-extracted tree ──"
+            )
             try:
-                # Re-run ONLY docs-gardener + docs-lint; no extract/render/prune.
-                phase_docs_gate(root)
+                # The ledger or required-lane set may have changed while the
+                # upgrade was paused. Rebuild the projection on EVERY retry
+                # before docs lint; a prior lock marker is evidence only, not a
+                # substitute for this current-authority read.
+                projection_counts = phase_review_status_projection(root)
             except SystemExit:
-                # Refresh failed_at so the retained lock reflects the LATEST
-                # attempt (forensics); failed_phase stays 'docs_gate' (delivery
-                # review nit).
                 upgrade_lib.update_upgrade_lock(
-                    root, failed_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                    root,
+                    failed_phase="review_status_projection",
+                    failed_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
                 )
                 _err(
-                    "Docs gate still failing — lock retained (failed_phase=docs_gate); "
-                    "resolve the findings and run --resume-after-gate again."
+                    "Review-state projection still requires action — lock retained "
+                    "(failed_phase=review_status_projection); resolve the typed "
+                    "review evidence and run --resume-after-gate again."
                 )
                 _close_log()
-                raise  # propagate sys.exit(1) — non-zero exit on repeated failure
+                raise
+            upgrade_lib.update_upgrade_lock(
+                root, review_status_projection=projection_counts
+            )
+            try:
+                # Re-run only the current-authority projection plus
+                # docs-gardener/docs-lint; no extract/render/prune.
+                phase_docs_gate(root)
+            except SystemExit:
+                upgrade_lib.update_upgrade_lock(
+                    root,
+                    failed_phase="docs_gate",
+                    failed_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                )
+                _err(
+                    "Docs gate still failing — lock retained "
+                    "(failed_phase=docs_gate); resolve the findings and run "
+                    "--resume-after-gate again."
+                )
+                _close_log()
+                raise
             # Gate passed — clear the failure marker so downstreams (dashboard,
             # --cleanup) see a clean (non-failed) lock again.
             upgrade_lib.update_upgrade_lock(root, failed_phase=None, failed_at=None)
             _log(
-                "  Docs gate PASSED on resume — failure marker cleared. Run "
-                "--update-index then --cleanup to finish the upgrade."
+                "  Review-state projection and docs gate PASSED on resume — "
+                "failure marker cleared. Run --update-index then --cleanup to "
+                "finish the upgrade."
             )
         finally:
             _close_log()
@@ -2645,6 +3117,15 @@ def main(argv: list[str] | None = None) -> int:
     current_phase = "init"
 
     try:
+        # Packaged upgrades execute the new pre-extract migration from the zip.
+        # A current-tree upgrade has no extension module, so run that same
+        # shipped migration directly before any framework mutation.
+        if zip_path is None:
+            current_phase = "runtime_lock_cutover"
+            import upgrade_extensions
+
+            upgrade_extensions.pre_extract(ctx)
+
         # Wave 1p3dk / 1p3ho: snapshot the consumer's pre-existing framework
         # version constants BEFORE extract so we can log any transitions in
         # the upgrade output. The transitions themselves are operator-visible
@@ -2762,12 +3243,55 @@ def main(argv: list[str] | None = None) -> int:
             _err(f"  ERROR: {exc}")
             raise SystemExit(1)
 
+        current_phase = "review_status_projection"
+        projection_counts = phase_review_status_projection(root)
+        upgrade_lib.update_upgrade_lock(
+            root, review_status_projection=projection_counts
+        )
+        _log(
+            "\n── Phase 2d: Review-state projection ──\n  "
+            + json.dumps(projection_counts, sort_keys=True)
+        )
+
         # Phase 3
         current_phase = "docs_gate"
         _run_hook("pre_docs_gate", ctx, ext_mod)
         phase_docs_gate(root)
         _run_hook("post_docs_gate", ctx, ext_mod)
 
+        # Historical memory is reconciled by the newly extracted implementation
+        # before index publication.  The retained upgrade lock mirrors only the
+        # run id/current gate; memory-state.sqlite owns the authoritative work.
+        current_phase = "awaiting_memory_validation"
+        import memory_backfill
+
+        memory_run_id = memory_backfill.ensure_run(root, "upgrade")
+        memory_summary = memory_backfill.sync_inventory(root, memory_run_id)
+        memory_summary = memory_backfill.reconcile_index_publication(
+            root, memory_run_id
+        )
+        upgrade_lib.update_upgrade_lock(
+            root,
+            memory_backfill_run_id=memory_run_id,
+            memory_backfill_state=memory_summary["state"],
+            memory_backfill_pending=(
+                memory_summary["remaining_waves"]
+                + memory_summary["candidates_pending"]
+                + memory_summary["failures"]
+            ),
+            memory_backfill_last_failure=memory_summary["last_failure"],
+        )
+        if memory_summary["state"] == "awaiting_validation":
+            _log(
+                "\nHistorical memory requires bounded extraction and agent validation "
+                "before Phase 4.\n"
+                + json.dumps(memory_summary, sort_keys=True)
+                + "\nReload MCP, run wave_memory_backfill(mode='create', "
+                "entry_path='upgrade') and wave_memory_validate, then call "
+                "wave_upgrade(phase='resume_after_memory')."
+            )
+            _close_log()
+            return memory_backfill.ACTION_REQUIRED_EXIT
         # Phase 4 — Wave 1p3dk / 1p3ho: always run index update at the end of
         # upgrade so operators don't have to remember a separate
         # `--update-index` invocation. The indexer's `build_index`
@@ -2777,10 +3301,21 @@ def main(argv: list[str] | None = None) -> int:
         # the operator what to expect.
         current_phase = "index_update"
         _run_hook("pre_index_update", ctx, ext_mod)
-        phase_index_update(root)
+        publication_pending = (
+            int(memory_summary.get("candidates_drafted") or 0) > 0
+            and memory_summary["state"] == "ready_for_index"
+        )
+        if publication_pending:
+            with memory_backfill.index_publication_scope(memory_run_id):
+                phase_index_update(root)
+        else:
+            phase_index_update(root)
+        if publication_pending:
+            memory_backfill.complete_index_publication(root, memory_run_id)
         _run_hook("post_index_update", ctx, ext_mod)
         upgrade_lib.update_upgrade_lock(
             root,
+            memory_backfill_state="indexed",
             index_rebuilt_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
         )
 

@@ -83,10 +83,14 @@
 
 html {
   font-size: 106.25%; /* ~17px — scales all rem values proportionally */
+  max-width: 100%;
+  overflow-x: clip;
 }
 
 body {
   margin: 0;
+  max-width: 100%;
+  overflow-x: clip;
   background: var(--page-bg);
   color: var(--ink);
   font-family: var(--font-body);
@@ -832,6 +836,13 @@ td .wave-change-id {
   margin: 0;
 }
 
+.timeline p,
+.timeline .muted,
+.timeline code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .wave-change-desc code,
 .timeline code,
 .metric-dialog-ac-text code,
@@ -1255,9 +1266,20 @@ html[data-theme="dark"] .metric-diff-removed { color: #f87171; }
   display: grid;
   grid-template-columns: 1fr 1.05fr;
   gap: var(--space-5);
+  min-width: 0;
 }
 
-.card-grid { display: grid; gap: var(--space-4); align-content: start; }
+.content-grid > *,
+.card-grid > * {
+  min-width: 0;
+}
+
+.card-grid {
+  display: grid;
+  gap: var(--space-4);
+  align-content: start;
+  min-width: 0;
+}
 
 .table-card,
 .timeline-card { padding: var(--space-5); }
@@ -2535,6 +2557,7 @@ tbody tr:hover td { background: rgba(25, 118, 210, 0.04); }
   padding: 0;
   display: grid;
   gap: var(--space-3);
+  min-width: 0;
 }
 
 .mini-list li,
@@ -2544,6 +2567,7 @@ tbody tr:hover td { background: rgba(25, 118, 210, 0.04); }
   border: 1px solid var(--panel-border);
   background: rgba(255, 255, 255, 0.48);
   transition: background 0.15s;
+  min-width: 0;
 }
 
 .mini-list li:hover,
@@ -2560,6 +2584,10 @@ tbody tr:hover td { background: rgba(25, 118, 210, 0.04); }
 /* ── Activity groups ─────────────────────────────────────────────────────── */
 
 .activity-group + .activity-group { margin-top: var(--space-5); }
+
+.activity-group {
+  min-width: 0;
+}
 
 .activity-date {
   font-size: 0.72rem;
@@ -3119,6 +3147,38 @@ html[data-theme="dark"] .diff-line--removed { color: #f87171; background: rgba(2
   .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .status-row { flex-direction: column; align-items: flex-start; }
   .progress-pct { font-size: 2rem; }
+  .open-wave-card,
+  .wip-section,
+  .lanes-list,
+  .lanes-item,
+  .lanes-item--stacked,
+  .lanes-scope,
+  .wave-change-item,
+  .wave-change-header,
+  .wave-change-title,
+  .wave-change-desc {
+    min-width: 0;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+  .open-wave-id,
+  .wave-change-id {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .table-wrap {
+    min-width: 0;
+    max-width: 100%;
+  }
+  .table-wrap table {
+    width: 100%;
+    table-layout: fixed;
+  }
+  .table-wrap th,
+  .table-wrap td {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
 }
 
 @media (max-width: 480px) {
@@ -3663,6 +3723,12 @@ html[data-theme="dark"] .index-build-badge--current {
   letter-spacing: -0.01em;
 }
 
+.doc-dialog .agent-dialog-title,
+.doc-dialog .agent-dialog-subtitle {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .doc-dialog {
   max-width: min(860px, 95vw);
   width: min(860px, 95vw);
@@ -3671,6 +3737,9 @@ html[data-theme="dark"] .index-build-badge--current {
 .doc-dialog-body {
   font-size: 0.92rem;
   line-height: 1.65;
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 
 .doc-dialog-body h1 {
@@ -3701,6 +3770,7 @@ html[data-theme="dark"] .index-build-badge--current {
 .doc-dialog-body p {
   margin: 0.4rem 0 0.7rem;
   color: var(--text);
+  max-width: 100%;
 }
 
 .doc-dialog-body ul {
@@ -3710,6 +3780,7 @@ html[data-theme="dark"] .index-build-badge--current {
 
 .doc-dialog-body li {
   margin-bottom: 0.25rem;
+  max-width: 100%;
 }
 
 .doc-dialog-body pre {
@@ -3733,6 +3804,9 @@ html[data-theme="dark"] .index-build-badge--current {
 
 .doc-dialog-body table {
   width: 100%;
+  max-width: 100%;
+  display: block;
+  overflow-x: auto;
   border-collapse: collapse;
   font-size: 0.87rem;
   margin: 0.5rem 0 0.9rem;

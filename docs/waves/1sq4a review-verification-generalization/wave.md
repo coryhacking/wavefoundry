@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: closed
-Last verified: 2026-07-16
+Last verified: 2026-07-20
 review-evidence-source: events.jsonl
 
 wave-id: `1sq4a review-verification-generalization`
@@ -34,7 +34,7 @@ Wave `1sq4a` (Review Verification Generalization) delivered one change: Generali
 
 ## Finding Synthesis
 
-<!-- waveframework:finding-synthesis begin -->
+<!-- wave:finding-synthesis begin -->
 | Current finding | Disposition | Open block | Repair | Approval recheck |
 | --- | --- | --- | --- | --- |
 | — | — | — | — | — |
@@ -42,7 +42,7 @@ Wave `1sq4a` (Review Verification Generalization) delivered one change: Generali
 <details class="wavefoundry-review-evidence">
 <summary>Machine review evidence — 5 records; 2 runs; 0 findings; current: do_now 0, maybe_later 0, dont_do_later 0, not_issue 0</summary>
 </details>
-<!-- waveframework:finding-synthesis end -->
+<!-- wave:finding-synthesis end -->
 
 ## Review Checkpoints
 
@@ -53,12 +53,17 @@ Wave `1sq4a` (Review Verification Generalization) delivered one change: Generali
 
 ## Review Evidence
 
+<!-- wave:review-status begin -->
+| Signoff | State | Why | Next action |
+| --- | --- | --- | --- |
+| wave-council-readiness | approved | current executed approval follows every affected repair | none |
+| wave-council-delivery | approved | current executed approval follows every affected repair | none |
+| operator-signoff | approved | current executed approval follows every affected repair | none |
+<!-- wave:review-status end -->
+
 - wave-council-readiness: approved 2026-07-16 — single well-scoped prose/seed change; intent-faithful (generic trigger + vendor rename); the two material risks (invariant regression, rename residue) are each gated by an AC (AC-4, AC-7); scope census verified against the tree and expanded (AC-6/AC-8) before activation. No blocking concerns.
 - wave-council-delivery: pending fresh independent focused recheck after delivery-review-1 repairs
 - operator-signoff: pending operator closure confirmation
-- wave-council-readiness: approved — Reconciles the missing machine approval row for the pre-implementation prepare council already recorded contemporaneously in wave.md: the red-team and docs-contract-reviewer reviewed the then-unimplemented plan, expanded the scope census, preserved the finite-probe and no-reference limitation, and the council verdict was PASS before activation. This append records that existing approval; it does not claim a new post-implementation readiness review.
-- wave-council-delivery: approved — Fresh independent adversarial review vs the working tree: residue grep clean on all live surfaces (only lifecycle-history hits remain); render_agent_surfaces idempotent (carriers genuinely re-rendered); INDEPENDENT_REFERENCE_CARRIER_BLOCK verbatim in both carriers; seed 209 retains all six invariants + the no-reference escape (test-guarded); four affected modules 450 OK; full suite 5,643 OK across 50 files; docs-lint ok; VERDICT PASS, no blockers.
-- operator-signoff: approved — Operator directed 'close the wave, commit, and do the full release build' in-session after the fresh independent delivery review returned VERDICT: PASS.
 
 ## Dependencies
 

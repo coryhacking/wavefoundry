@@ -52,6 +52,7 @@ def write_upgrade_lock(
     Raises OSError if the file cannot be written.
     """
     p = upgrade_lock_path(root)
+    prior = read_upgrade_lock(root) or {}
     p.parent.mkdir(parents=True, exist_ok=True)
     data: dict[str, Any] = {
         "started_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
@@ -68,6 +69,14 @@ def write_upgrade_lock(
         "failed_phase": None,
         "failed_at": None,
     }
+    # A failed prior run may have stopped a dashboard before mutating the tree.
+    # A full recovery run replaces the lock, but must carry that restart intent
+    # until a successful cleanup has actually restarted the dashboard.
+    if prior.get("failed_phase") and prior.get("dashboard_restart_pending"):
+        data["dashboard_restart_pending"] = True
+        port = prior.get("dashboard_restart_port")
+        if isinstance(port, int):
+            data["dashboard_restart_port"] = port
     p.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
     return p
 

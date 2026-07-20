@@ -6,10 +6,13 @@ from dataclasses import dataclass, field
 from typing import Iterable
 
 from review_evidence import (
+    REVIEW_STATUS_MARKER_BEGIN,
     adopted_protocol_state,
     canonicalize_finding_synthesis_markers,
     parse_review_evidence_source,
     render_review_evidence_projection,
+    render_review_status_projection,
+    required_review_status_keys,
     validate_adopted_protocol_state,
     validate_external_review_evidence,
 )
@@ -998,6 +1001,13 @@ def check_wave_docs(root: Path, only: set[Path] | None = None, skip: set[Path] |
                         expected_projection = render_review_evidence_projection(
                             text, review_evidence.records
                         )
+                        expected_projection = render_review_status_projection(
+                            expected_projection,
+                            review_evidence.records,
+                            required_review_status_keys(
+                                root, expected_projection, review_evidence.records
+                            ),
+                        )
                     except ValueError as exc:
                         failures.append(f"{rel}: review evidence projection: {exc}")
                     else:
@@ -1184,6 +1194,10 @@ def check_memory_docs(root: Path, only: set[Path] | None = None, skip: set[Path]
     failures: list[str] = []
     memory_root = root / MEMORY_RECORD_DIR
     status_line = re.compile(r"^Status:\s+(\S+)\s*$", re.MULTILINE)
+    source_event_line = re.compile(r"^Source event:\s*`([^`\r\n]+)`\s*$", re.MULTILINE)
+    validation_line = re.compile(
+        r"^Validation:\s*(pending|promote|retain|reject|rewrite)\s*$", re.MULTILINE
+    )
     for path in sorted(memory_root.rglob("*.md")):
         rel = relative_to_root(root, path)
         if path.name == "README.md":
@@ -1220,6 +1234,42 @@ def check_memory_docs(root: Path, only: set[Path] | None = None, skip: set[Path]
                 f"{rel}: memory `Status` must be one of {', '.join(MEMORY_STATUSES)} "
                 f"(got {status.group(1)!r})"
             )
+        source_event = source_event_line.search(text)
+        validation = validation_line.search(text)
+        if source_event and not validation:
+            failures.append(
+                f"{rel}: evidence-derived records with `Source event:` require "
+                "`Validation: pending|promote|retain|reject|rewrite`"
+            )
+        if validation and not source_event:
+            failures.append(f"{rel}: `Validation:` requires a backticked `Source event:`")
+        if validation:
+            verdict = validation.group(1)
+            expected_status = {
+                "pending": "candidate",
+                "promote": "active",
+                "retain": "candidate",
+                "reject": "rejected",
+                "rewrite": "superseded",
+            }[verdict]
+            if status and status.group(1) != expected_status:
+                failures.append(
+                    f"{rel}: `Validation: {verdict}` requires `Status: {expected_status}`"
+                )
+            if verdict != "pending":
+                required_validation_lines = (
+                    "Validated by:",
+                    "Action delta:",
+                    "Validation rationale:",
+                    "Evidence verified:",
+                    "Current target verified:",
+                    "Canonical overlap:",
+                )
+                for required in required_validation_lines:
+                    if not re.search(rf"^{re.escape(required)}\s*\S+", text, re.MULTILINE):
+                        failures.append(
+                            f"{rel}: finalized validation requires `{required} ...`"
+                        )
         confidence = MEMORY_CONFIDENCE_PATTERN.search(text)
         if not confidence:
             failures.append(f"{rel}: missing `Confidence: <0.0-1.0>` line")

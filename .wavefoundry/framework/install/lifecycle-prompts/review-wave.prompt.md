@@ -22,6 +22,12 @@ contracts, failure modes, and current repository state.
    earlier review pass already ran.
 7. Re-run only affected lanes for bounded repairs unless a load-bearing
    boundary objectively requires a full council.
+8. After current finding heads are reconciled, run
+   `wave_memory_propose(wave_id, mode='create')`. For each evidence-derived
+   candidate, follow the evidence and current target, state the future action
+   delta, check canonical overlap and confidence, then record `promote`,
+   `retain`, `reject`, or `rewrite` with `wave_memory_validate`. This is a
+   focused curation pass, not another council; zero-memory waves are valid.
 
 ## Approval
 
@@ -29,4 +35,3 @@ Approval requires current, lane-authorized evidence after every repair that
 affects that lane. Implementer-authored verification can prove behavior but is
 not independent delivery approval. Keep operator signoff pending until the
 operator explicitly supplies it.
-

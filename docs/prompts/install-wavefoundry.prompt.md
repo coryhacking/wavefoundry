@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-06
+Last verified: 2026-07-20
 
 Shortcut: **`Init Wavefoundry`** | Legacy: **`Install Wavefoundry`** / **`Init wave framework`** / **`Install wave framework`** / **`Init wave context`** / **`Install wave context`**
 
@@ -38,11 +38,29 @@ After installing Wave Framework, enable the local MCP server in your agent host 
 
 **Versioning:** Wavefoundry uses `MAJOR.MINOR.PATCH` semver internally. Distribution zips use `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` and land in `~/.wavefoundry/dist/` after packaging.
 
-**Step 1 — Build the semantic index:**
+**Step 1 — Provision dependencies and pass the historical-memory gate:**
 
 ```bash
 wf setup
 ```
+
+For a fresh project with no closed wave history, setup continues directly to
+index publication. For an existing Wavefoundry project, setup may return
+action-required exit 4 with `awaiting_memory_validation` after dependency setup
+and the MCP smoke test but before publishing any index. This is a durable pause,
+not failure or completion:
+
+1. Reload/restart the MCP host.
+2. Repeatedly call
+   `wave_memory_backfill(mode="create", entry_path="setup")`.
+3. Validate every run-scoped `validation_worklist` item with
+   `wave_memory_validate`.
+4. Rerun ordinary `wf setup`.
+
+The repeated setup invocation reuses the durable run, recomputes the
+authoritative `memory-state.sqlite` pending census, and owns the single index
+publication. There is no setup-memory-specific MCP tool or public resume flag.
+Do not bypass the pause with `wave_index_build`.
 
 If this setup step fails specifically because a required model cannot be downloaded, keep recovery on the canonical setup path. In agent-driven sessions, the agent should ask the operator for permission to rerun the same setup command with network access or host escalation enabled instead of switching to an out-of-band manual model download.
 
@@ -102,13 +120,15 @@ Register each additional Wavefoundry repo with its own project-local MCP config 
 wf dashboard --root . --open
 ```
 
-**Step 3 — Restart MCP and update indexes:**
+**Step 3 — Restart MCP and verify the setup-owned index:**
 
-After registration, restart the MCP server in your host so the newly installed server picks up all rendered surfaces. Then update the semantic index so docs_search reflects the installed content:
-
-```
-wave_index_build(content="docs", mode="update")   ← the single project index
-```
+After registration, restart the MCP server in your host so the newly installed
+server picks up all rendered surfaces. If setup paused for historical-memory
+validation, complete the run-scoped validation and rerun ordinary `wf setup`
+now. The repeated setup invocation owns the initial semantic and graph index
+publication; do not run `wave_index_build` as a substitute. Use
+`wave_index_health()` and `wave_index_build_status()` to verify the published
+layers.
 
 The framework's seeds fold into this project docs index — there is no separate framework index to build.
 

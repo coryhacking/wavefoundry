@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: closed
-Last verified: 2026-07-15
+Last verified: 2026-07-20
 review-evidence-source: events.jsonl
 
 wave-id: `1so5p specialist-carrier-frontmatter`
@@ -35,7 +35,7 @@ Wave `1so5p` (Specialist Carrier Frontmatter) delivered one change: Specialist C
 
 ## Finding Synthesis
 
-<!-- waveframework:finding-synthesis begin -->
+<!-- wave:finding-synthesis begin -->
 | Current finding | Disposition | Open block | Repair | Approval recheck |
 | --- | --- | --- | --- | --- |
 | — | — | — | — | — |
@@ -43,7 +43,7 @@ Wave `1so5p` (Specialist Carrier Frontmatter) delivered one change: Specialist C
 <details class="wavefoundry-review-evidence">
 <summary>Machine review evidence — 5 records; 2 runs; 0 findings; current: do_now 0, maybe_later 0, dont_do_later 0, not_issue 0</summary>
 </details>
-<!-- waveframework:finding-synthesis end -->
+<!-- wave:finding-synthesis end -->
 
 ## Review Checkpoints
 
@@ -52,10 +52,15 @@ Wave `1so5p` (Specialist Carrier Frontmatter) delivered one change: Specialist C
 
 ## Review Evidence
 
+<!-- wave:review-status begin -->
+| Signoff | State | Why | Next action |
+| --- | --- | --- | --- |
+| wave-council-readiness | approved | current executed approval follows every affected repair | none |
+| wave-council-delivery | approved | current executed approval follows every affected repair | none |
+| operator-signoff | approved | current executed approval follows every affected repair | none |
+<!-- wave:review-status end -->
+
 - operator-signoff: <approved when operator confirms closure>
-- wave-council-readiness: approved — All premises corroborated. Verdict ready-with-notes, no blockers. Notes folded into the plan: pin injection to fresh-only _initial_review_carrier_text (drop _write_review_carrier_text); AC-3 must expose the seeds dir in the temp root and cover a review-category carrier; reviewer carriers share the fresh-install failure class (fallback load-bearing for ~10 carriers); renderer->validator import-edge risk noted; reality-checker resolves to specialist (consistent).
-- wave-council-delivery: approved — Independent fresh-context delivery review CONFIRMED all five areas. Reviewer reproduced the pre-fix failure (10 role + 10 category failures across specialists + reviewer carriers) and confirmed the fix drives it to zero; confirmed fresh-only injection (never update path), no clobber/duplicate, docs/prompts/** untouched, Role==dest stem, Category via _expected_agent_category (reality-checker→specialist correct), and that neutralizing the fallback fails the test (archetype-council + 5 reviewer carriers). Full suite 5,600 OK; targeted test_render_agent_surfaces 46 OK; docs-lint clean. Verdict approved, max severity none, no blockers.
-- operator-signoff: approved — Independent readiness (ready-with-notes, all notes folded in) and delivery (approved, severity none, no blockers) reviews complete; full suite 5,600 OK; docs-lint clean; both fix layers verified inside wavefoundry-1.13.0.pcfw.zip. Operator approved closure.
 
 ## Dependencies
 

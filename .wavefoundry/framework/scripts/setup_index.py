@@ -1607,11 +1607,20 @@ def _spawn_background_semantic_build(root: Path, args: argparse.Namespace, conte
         # stdin + the detached/no-window Windows creationflags (no flashing console on Windows).
         # Wave 1p8gv: force UTF-8 stdio in the spawned child so its non-ASCII prints (e.g. `→`) never
         # raise UnicodeEncodeError on a cp1252 Windows console and silently fail the background build.
+        child_env = {
+            **os.environ,
+            TIMESTAMP_LOGS_ENV: "1",
+        }
+        # A lifecycle-owned historical-memory receipt authorizes exactly the
+        # foreground publication pass. Detached follow-up layers must never
+        # inherit and consume that one-shot authorization after the lifecycle
+        # command has checkpointed the run.
+        child_env.pop("WAVEFOUNDRY_MEMORY_BACKFILL_RUN_ID", None)
         proc = subprocess_util.isolated_popen(
             cmd,
             stdout=log_file,
             stderr=log_file,
-            env=subprocess_util.utf8_child_env({**os.environ, TIMESTAMP_LOGS_ENV: "1"}),
+            env=subprocess_util.utf8_child_env(child_env),
         )
     finally:
         log_file.close()
@@ -2012,6 +2021,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--graph-only", action="store_true", help="Rebuild only the graph index without re-embedding semantic vectors")
     p.add_argument("--include-tests", action="store_true", help="Include target test files in semantic code indexing")
     p.add_argument("--include-generated", action="store_true", help="Include generated platform hook files in semantic code indexing")
+    p.add_argument(
+        "--deps-only",
+        action="store_true",
+        help="Provision the tool environment without warming models or publishing indexes.",
+    )
     p.add_argument("--verbose", "-v", action="store_true")
     return p.parse_args(argv)
 
@@ -2030,6 +2044,9 @@ def main(argv: list[str] | None = None) -> int:
             pass
     ensure_deps(root)
     _reexec_with_venv_if_needed()
+    if args.deps_only:
+        print("Done. Wavefoundry dependencies provisioned; indexes were not published.", flush=True)
+        return 0
     # Wave 1p9it: establish the in-process model-warm deadline for THIS run from workflow-config (the
     # default applies when unset). Read once here; `_warm_model` reads it when its `deadline_seconds`
     # arg is left default. This keeps the `prewarm_models`/`_prewarm_required_model` warm_fn contract

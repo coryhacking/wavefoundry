@@ -4,7 +4,7 @@ Change ID: `1sufp-feat commit-to-reasoning-provenance`
 Change Status: `implemented`
 Owner: framework
 Status: implemented
-Last verified: 2026-07-17
+Last verified: 2026-07-20
 
 Wave: `1sufq commit-reasoning-provenance`
 
@@ -101,6 +101,7 @@ A field user running wavefoundry alongside other memory tools named this gap dir
 | 2026-07-17 | Change doc authored; gap surfaced by a field user, buildable over existing local associations | Enhancement plan; `Land wave …` commit convention; waves cite landing commits in review evidence |
 | 2026-07-17 | Implementation begun: core resolver module `commit_provenance.py` (message-parse + evidence reverse-search resolution; bounded `git blame` with path-traversal guard, SHA validation, uncommitted-sentinel filter) reusing sanctioned `_run_git`. Smoke-tested on real commits (4f0c8d4e→1stwj; 79d779e6→1shv4/1sq4a/1sq9i; invalid→fail-closed; traversal blocked). REMAINING: the `code_commit_provenance` MCP tool (registration + Decision Log extraction + honest-absence response), the `context_avoided` emission (AC-6), the test file, and docs. | `commit_provenance.py`; smoke test |
 | 2026-07-18 | Implementation complete. `code_commit_provenance` tool registered (`@mcp.tool`, SHA or file+line), `code_commit_provenance_response` builder (honest-absence + conflict diagnostics, per-call `resolution` signal), wired into `_CONTEXT_RETRIEVAL_TOOLS` + `_context_source_paths` for measured `context_avoided`. Docs added (tool-surface entry + chooser row). Tests: `test_commit_provenance.py` (16, incl. server-layer resolution signal); exact-census test updated for the new roster member. Full suite 5760 OK; docs-lint ok. Hermetic tests caught + fixed a real evidence-path bug (returned wave dir-name, not the id token) the real-repo smoke test had masked. All ACs [x]. | `run_tests.py --no-cache`: 5760 OK; `wf docs-lint`: ok |
+| 2026-07-18 | Post-close correction in wave 1sxj7: the original evidence reverse-search was too broad, mixed blame coverage was incomplete, reasoning relevance was overstated, and public input/message parsing failed open. The implementation now requires a canonical local commit plus an explicit top-level landing association or anchored landing subject; preserves committed/uncommitted coverage and conflict; labels file-relevant versus wave-level reasoning; and validates exactly one input mode. Historical delivery evidence above records the original shipped state and is not retroactively rewritten. | `1sxmz-bug commit-provenance-authority-and-completeness`; 23 provenance tests; live `context_efficiency.py:1` probe resolves only `1stwj` |
 
 
 ## Decision Log

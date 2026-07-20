@@ -11,6 +11,7 @@ import sys
 import tempfile
 import threading
 import time
+import types
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -19,6 +20,7 @@ SCRIPTS_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 import context_efficiency as ce  # noqa: E402
+import exploration_avoided as exploration  # noqa: E402
 import score_context_efficiency_pairs as scorer  # noqa: E402
 
 
@@ -261,10 +263,13 @@ class WriteThroughLedgerTests(TempRootTest):
                 "meta",
                 "phase_state",
                 "telemetry_event",
+                "event_tombstone",
                 "source_credit",
+                "producer_state",
                 "wave_state",
                 "evaluation_scope",
                 "evaluation_attachment",
+                "exploration_credit_event",
             },
         )
         self.assertEqual(
@@ -279,6 +284,31 @@ class WriteThroughLedgerTests(TempRootTest):
         ce.read_wave_snapshot(self.root, "1wave")
         ce.read_general_totals(self.root)
         self.assertFalse(ce.store_path(self.root).exists())
+
+    def test_producer_lease_lock_and_native_windows_sentinel_branch(self) -> None:
+        lease = ce.producer_lease_path(self.root, "producer")
+        handle, locked = ce._try_lock_lease(lease, create=True)
+        self.assertTrue(locked)
+        self.assertIsNotNone(handle)
+        ce._unlock_lease(handle)
+
+        calls: list[tuple[int, int]] = []
+        fake_msvcrt = types.SimpleNamespace(
+            LK_NBLCK=10,
+            LK_UNLCK=11,
+            locking=lambda _fd, mode, count: calls.append((mode, count)),
+        )
+        windows_lease = ce.producer_lease_path(self.root, "windows")
+        with patch.object(ce.os, "name", "nt"), patch.dict(
+            sys.modules, {"msvcrt": fake_msvcrt}
+        ):
+            windows_handle, windows_locked = ce._try_lock_lease(
+                windows_lease, create=True
+            )
+            self.assertTrue(windows_locked)
+            ce._unlock_lease(windows_handle)
+        self.assertEqual(calls, [(10, 1), (11, 1)])
+        self.assertEqual(windows_lease.read_bytes()[:1], b"\0")
 
     def test_write_through_closed_ledger_and_event_replay(self) -> None:
         telemetry = ce.ProcessTelemetry(self.root)
@@ -454,7 +484,7 @@ t.record_retrieval({
         conn.close()
         self.assertEqual(row, ("content", "both"))
 
-    def test_wave_total_applies_nonnegative_floor_once_across_stages(self) -> None:
+    def test_wave_total_is_sum_of_floored_stage_savings(self) -> None:
         telemetry = ce.ProcessTelemetry(self.root)
         telemetry.set_focus("1wave", "prepare", new_phase=True)
         telemetry.record_retrieval(
@@ -477,6 +507,11 @@ t.record_retrieval({
             event_id="positive",
         )
         snapshot = ce.read_wave_snapshot(self.root, "1wave")
+        # 1sx2f: a net-negative stage counts as 0 in its row, and the TOTAL is
+        # the sum of the floored per-stage savings (0 + 200), so the displayed
+        # stages always reconcile with the displayed total. (The raw signed
+        # direct_net is still 100 in the stored accounting; only the displayed
+        # savings total changed from flooring-the-sum to summing-the-floors.)
         self.assertEqual(
             snapshot["stages"]["prepare"]["estimated_tokens_saved"], 0
         )
@@ -484,7 +519,12 @@ t.record_retrieval({
             snapshot["stages"]["review"]["estimated_tokens_saved"], 200
         )
         self.assertEqual(snapshot["totals"]["direct_net"], 100)
-        self.assertEqual(snapshot["totals"]["estimated_tokens_saved"], 100)
+        self.assertEqual(snapshot["totals"]["estimated_tokens_saved"], 200)
+        # The reconciliation invariant: displayed stages sum to the displayed total.
+        self.assertEqual(
+            sum(s["estimated_tokens_saved"] for s in snapshot["stages"].values()),
+            snapshot["totals"]["estimated_tokens_saved"],
+        )
 
     def test_double_persistence_failure_is_explicitly_fatal(self) -> None:
         logs = self.root / ".wavefoundry" / "logs"
@@ -564,6 +604,251 @@ t.record_retrieval({
         self.assertEqual(result["pending"], [])
         self.assertIn("wave_state", result["error"])
 
+    def test_general_transfer_preserves_live_peer_and_claims_abandoned_once(self) -> None:
+        first = ce.ProcessTelemetry(self.root)
+        second = ce.ProcessTelemetry(self.root)
+        first.record_retrieval(
+            _metric(source_id="first"), event_id="general-first"
+        )
+        second.record_retrieval(
+            _metric(source_id="second"), event_id="general-second"
+        )
+
+        initial = first.flush(self.root, transfer_general_to="1wave")
+        self.assertTrue(initial.success)
+        self.assertEqual(
+            ce.read_wave_snapshot(self.root, "1wave")["stages"]["pre-wave"][
+                "calls"
+            ],
+            1,
+        )
+        self.assertEqual(ce.read_general_totals(self.root, second.producer_id)["calls"], 1)
+
+        second.close()
+        second_lease = ce.producer_lease_path(self.root, second.producer_id)
+        self.assertTrue(second_lease.exists())
+        claimed = first.flush(self.root, transfer_general_to="1wave")
+        replay = first.flush(self.root, transfer_general_to="1wave")
+        self.assertTrue(claimed.success)
+        self.assertTrue(replay.success)
+        stage = ce.read_wave_snapshot(self.root, "1wave")["stages"]["pre-wave"]
+        self.assertEqual(stage["calls"], 2)
+        self.assertEqual(stage["source_credit_count"], 2)
+        self.assertEqual(ce.read_general_totals(self.root)["calls"], 0)
+        self.assertFalse(second_lease.exists())
+        first.close()
+
+    def test_general_merge_conserves_events_and_deduplicates_shared_source(self) -> None:
+        first = ce.ProcessTelemetry(self.root)
+        second = ce.ProcessTelemetry(self.root)
+        first.record_retrieval(_metric(), event_id="first")
+        second.record_retrieval(_metric(kind="structural"), event_id="second")
+        second.close()
+        self.assertTrue(
+            first.flush(self.root, transfer_general_to="1wave").success
+        )
+        stage = ce.read_wave_snapshot(self.root, "1wave")["stages"]["pre-wave"]
+        self.assertEqual(stage["calls"], 2)
+        self.assertEqual(stage["request_debit"], 10)
+        self.assertEqual(stage["response_debit"], 20)
+        self.assertEqual(stage["source_credit_count"], 1)
+        self.assertEqual(stage["content_source_credit"], 100)
+        conn = sqlite3.connect(ce.store_path(self.root))
+        provenance = conn.execute(
+            "SELECT provenance FROM source_credit WHERE wave_key='1wave'"
+        ).fetchone()[0]
+        conn.close()
+        self.assertEqual(provenance, "both")
+        first.close()
+
+    def test_concurrent_sweeps_claim_one_abandoned_producer_once(self) -> None:
+        orphan = ce.ProcessTelemetry(self.root)
+        orphan.record_retrieval(_metric(), event_id="orphan-event")
+        orphan.close()
+        sweepers = [ce.ProcessTelemetry(self.root), ce.ProcessTelemetry(self.root)]
+        barrier = threading.Barrier(2)
+        results: list[ce.FlushResult] = []
+
+        def run(index: int) -> None:
+            barrier.wait()
+            results.append(
+                sweepers[index].flush(
+                    self.root, transfer_general_to=f"1wave-{index}"
+                )
+            )
+
+        threads = [threading.Thread(target=run, args=(index,)) for index in range(2)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=10)
+        self.assertEqual(len(results), 2)
+        self.assertTrue(all(result.success for result in results))
+        conn = sqlite3.connect(ce.store_path(self.root))
+        rows = conn.execute(
+            "SELECT wave_id,COUNT(*) FROM telemetry_event "
+            "WHERE event_id='orphan-event' GROUP BY wave_id"
+        ).fetchall()
+        conn.close()
+        self.assertEqual(len(rows), 1)
+        self.assertIn(rows[0][0], {"1wave-0", "1wave-1"})
+        self.assertEqual(rows[0][1], 1)
+        for sweeper in sweepers:
+            sweeper.close()
+
+    def test_ambiguous_or_missing_peer_lease_fails_safe_as_live(self) -> None:
+        peer = ce.ProcessTelemetry(self.root)
+        peer.record_retrieval(_metric(), event_id="peer-event")
+        sweeper = ce.ProcessTelemetry(self.root)
+        missing = self.root / "missing-peer-lease"
+        original = ce.producer_lease_path
+
+        def path_for(root: Path, producer_id: str) -> Path:
+            if producer_id == peer.producer_id:
+                return missing
+            return original(root, producer_id)
+
+        with patch.object(ce, "producer_lease_path", side_effect=path_for):
+            result = sweeper.flush(
+                self.root, transfer_general_to="1wave"
+            )
+        self.assertTrue(result.success)
+        self.assertEqual(
+            ce.read_general_totals(self.root, peer.producer_id)["calls"], 1
+        )
+        self.assertNotIn("pre-wave", ce.read_wave_snapshot(self.root, "1wave")["stages"])
+        peer.close()
+        sweeper.close()
+
+    def test_sealed_compaction_preserves_snapshot_and_redirects_stale_writer(self) -> None:
+        telemetry = ce.ProcessTelemetry(self.root)
+        telemetry.set_focus("1wave", "review", new_phase=True)
+        telemetry.record_retrieval(_metric(), event_id="before-close")
+        snapshot = ce.read_wave_snapshot(self.root, "1wave")
+        published = dict(snapshot)
+        published["pending"] = False
+        generation = int(snapshot["generation"])
+        self.assertTrue(
+            ce.mark_checkpoint_published(
+                self.root,
+                "1wave",
+                published,
+                expected_generation=generation,
+                seal=True,
+            )
+        )
+        self.assertIn("1wave", ce.pending_wave_ids(self.root)["pending"])
+        self.assertTrue(
+            ce.compact_published_wave(
+                self.root, "1wave", expected_generation=generation
+            )
+        )
+        self.assertEqual(ce.read_wave_snapshot(self.root, "1wave"), published)
+        conn = sqlite3.connect(ce.store_path(self.root))
+        self.assertEqual(
+            conn.execute(
+                "SELECT COUNT(*) FROM telemetry_event WHERE wave_id='1wave'"
+            ).fetchone()[0],
+            0,
+        )
+        conn.close()
+
+        telemetry.record_retrieval(_metric(), event_id="after-close")
+        self.assertEqual(ce.read_wave_snapshot(self.root, "1wave"), published)
+        self.assertEqual(
+            ce.read_general_totals(self.root, telemetry.producer_id)["calls"], 1
+        )
+        replay = telemetry.record_retrieval(
+            _metric(), event_id="before-close"
+        )
+        self.assertEqual(replay["persistence"], "duplicate")
+        self.assertEqual(
+            ce.read_general_totals(self.root, telemetry.producer_id)["calls"], 1
+        )
+        telemetry.close()
+
+    def test_sealed_compaction_preserves_exploration_estimate_and_dedup(self) -> None:
+        telemetry = ce.ProcessTelemetry(self.root)
+        telemetry.set_focus("1wave", "review", new_phase=True)
+        telemetry.record_retrieval(_metric(), event_id="before-close")
+        item = {
+            "memory_id": "mem-a",
+            "source_origin": "1source",
+            "source_exploration_cost": 1000,
+            "match_confidence": 1.0,
+        }
+        exploration.credit_surface(
+            self.root,
+            "1wave",
+            [item],
+            stage="review",
+            phase_id="review-1",
+            context_key="src/hot.py",
+        )
+        before = exploration.read_wave(self.root, "1wave")
+        snapshot = ce.read_wave_snapshot(self.root, "1wave")
+        published = dict(snapshot)
+        published["pending"] = False
+        generation = int(snapshot["generation"])
+        self.assertTrue(
+            ce.mark_checkpoint_published(
+                self.root,
+                "1wave",
+                published,
+                expected_generation=generation,
+                seal=True,
+            )
+        )
+        self.assertTrue(
+            ce.compact_published_wave(
+                self.root, "1wave", expected_generation=generation
+            )
+        )
+        self.assertEqual(exploration.read_wave(self.root, "1wave"), before)
+        exploration.credit_surface(
+            self.root,
+            "1wave",
+            [item],
+            stage="review",
+            phase_id="review-1",
+            context_key="src/hot.py",
+        )
+        self.assertEqual(exploration.read_wave(self.root, "1wave"), before)
+        telemetry.close()
+
+    def test_reopened_wave_adds_new_phase_above_compacted_floor(self) -> None:
+        telemetry = ce.ProcessTelemetry(self.root)
+        telemetry.set_focus("1wave", "review", new_phase=True)
+        telemetry.record_retrieval(_metric(), event_id="before")
+        published = ce.read_wave_snapshot(self.root, "1wave")
+        published["pending"] = False
+        generation = int(published["generation"])
+        self.assertTrue(
+            ce.mark_checkpoint_published(
+                self.root,
+                "1wave",
+                published,
+                expected_generation=generation,
+                seal=True,
+            )
+        )
+        self.assertTrue(
+            ce.compact_published_wave(
+                self.root, "1wave", expected_generation=generation
+            )
+        )
+        self.assertTrue(ce.unseal_wave(self.root, "1wave"))
+        telemetry.set_focus("1wave", "implement", new_phase=True)
+        telemetry.record_retrieval(
+            _metric(source_id="new", version_id="new"), event_id="after"
+        )
+        current = ce.read_wave_snapshot(self.root, "1wave")
+        self.assertEqual(current["totals"]["calls"], 2)
+        self.assertEqual(current["totals"]["content_source_credit"], 200)
+        self.assertEqual(current["stages"]["review"]["calls"], 1)
+        self.assertEqual(current["stages"]["implement"]["calls"], 1)
+        telemetry.close()
+
 
 class CheckpointTests(TempRootTest):
     def sample(self) -> dict[str, object]:
@@ -602,6 +887,58 @@ class CheckpointTests(TempRootTest):
         self.assertIn("Operator prose.", inserted)
         self.assertEqual(inserted.count(ce.CONTEXT_EFFICIENCY_MARKER_BEGIN), 1)
 
+    def test_negative_and_positive_stages_reconcile_through_checkpoint_path(self) -> None:
+        negative = {
+            key: 0 for key in ce._STAGE_KEYS
+        }
+        negative.update(
+            calls=1,
+            content_source_credit=100,
+            response_debit=200,
+            direct_net=-100,
+            estimated_tokens_saved=0,
+        )
+        positive = {
+            key: 0 for key in ce._STAGE_KEYS
+        }
+        positive.update(
+            calls=1,
+            content_source_credit=300,
+            response_debit=100,
+            direct_net=200,
+            estimated_tokens_saved=200,
+        )
+        raw = {
+            "wave_id": "1wave",
+            "generation": 9,
+            "pending": False,
+            "store_instance_id": "store-a",
+            "measurement_status": "healthy",
+            "stages": {"prepare": negative, "review": positive},
+        }
+        normalized = ce._normalized_checkpoint_state(raw)
+        self.assertEqual(normalized["totals"]["estimated_tokens_saved"], 200)
+        self.assertEqual(
+            sum(
+                stage["estimated_tokens_saved"]
+                for stage in normalized["stages"].values()
+            ),
+            normalized["totals"]["estimated_tokens_saved"],
+        )
+        block = ce.render_checkpoint_block(normalized)
+        parsed = ce.parse_checkpoint_block(block)
+        self.assertEqual(parsed, normalized)
+        replaced = ce.replace_checkpoint_block("# Wave\n\nOperator prose.\n", normalized)
+        self.assertEqual(ce.parse_checkpoint_block(replaced), normalized)
+        unhealthy = dict(raw)
+        unhealthy["measurement_status"] = "accounting_gap"
+        self.assertEqual(
+            ce._normalized_checkpoint_state(unhealthy)["totals"][
+                "estimated_tokens_saved"
+            ],
+            0,
+        )
+
     def test_malformed_and_tampered_blocks_fail_closed(self) -> None:
         canonical = ce.render_checkpoint_block(self.sample())
         cases = [
@@ -638,6 +975,34 @@ class CheckpointTests(TempRootTest):
             current["measurement_status"], "credit_history_unavailable"
         )
         self.assertEqual(current["totals"]["estimated_tokens_saved"], 0)
+
+    def test_closed_checkpoint_restores_sealed_floor_after_store_loss(self) -> None:
+        telemetry = ce.ProcessTelemetry(self.root)
+        telemetry.set_focus("1wave", "close")
+        telemetry.record_retrieval(_metric(), event_id="a")
+        published = ce.read_wave_snapshot(self.root, "1wave")
+        published["pending"] = False
+        expected_tokens = published["totals"]["estimated_tokens_saved"]
+        telemetry.close()
+        ce.store_path(self.root).unlink()
+        self.assertTrue(
+            ce.reconcile_checkpoint_authority(
+                self.root, "1wave", published, sealed=True
+            )
+        )
+        current = ce.read_wave_snapshot(self.root, "1wave")
+        self.assertEqual(current["measurement_status"], "healthy")
+        self.assertEqual(
+            current["totals"]["estimated_tokens_saved"], expected_tokens
+        )
+        conn = sqlite3.connect(ce.store_path(self.root))
+        state = conn.execute(
+            "SELECT sealed,compacted_generation,generation,floor_json "
+            "FROM wave_state WHERE wave_id='1wave'"
+        ).fetchone()
+        conn.close()
+        self.assertEqual(state[:3], (1, published["generation"], published["generation"]))
+        self.assertIsNotNone(state[3])
 
 
 class PairedEvaluationTests(TempRootTest):

@@ -2,9 +2,9 @@
 """Wavefoundry harness bootstrap entrypoint.
 
 Single command that completes install Phase 1: platform host configs + bin/
-launchers (via render_platform_surfaces.py), venv + framework deps + semantic
-indexes (via setup_index.py), and an MCP server dry-run smoke test (via
-`server.py --dry-run`).
+launchers (via render_platform_surfaces.py), venv + framework dependencies,
+an MCP server dry-run smoke test, historical-memory inventory/validation, and
+only then semantic + graph index publication (via setup_index.py).
 
 Run after the lifecycle epoch is set in `docs/workflow-config.json` (Phase 1
 step 1.1 in `wavefoundry-install-log.md`). On clean exit, restart your AI agent
@@ -13,13 +13,17 @@ so the MCP server becomes available; Phase 2 begins.
 Forwards argv to setup_index.py for venv / dep / index configuration. The
 render and dry-run steps receive the resolved target repository root. Setup
 installs prospective framework/carrier behavior only: it never creates,
-migrates, repairs, or rewrites target-project wave event state.
+migrates, repairs, or rewrites target-project review event state. Historical
+memory backfill writes only rebuildable candidate/disposition state and memory
+records selected by an agent.
 """
 from __future__ import annotations
 
 import importlib.util
+import json
 import subprocess
 import sys
+from contextlib import nullcontext
 from pathlib import Path
 
 _SCRIPTS_DIR = Path(__file__).resolve().parent
@@ -51,6 +55,23 @@ def _load_setup_index():
 
 def _print_step(label: str) -> None:
     print(f"\n=== {label} ===", flush=True)
+
+
+def _print_help() -> None:
+    print(
+        "usage: wf setup [--root PATH] [setup-index options]\n\n"
+        "Provision Wavefoundry dependencies and surfaces, verify the MCP server, "
+        "gate on agent-owned historical-memory validation when required, and "
+        "publish the index.\n\n"
+        "options:\n"
+        "  --root PATH    target repository (defaults to the current project)\n"
+        "  --check-gpu    print the provider diagnostic without running setup\n"
+        "  -h, --help     show this help without changing the project\n\n"
+        "Other index/provider options are forwarded to setup_index.py. During "
+        "candidate-bearing historical-memory publication, --background-code "
+        "and --background-docs are intentionally ignored so both semantic "
+        "layers converge synchronously under the publication receipt."
+    )
 
 
 def _run_render_platform_surfaces(repo_root: Path) -> int:
@@ -190,13 +211,16 @@ def _run_gpu_check() -> int:
 def main(argv: list[str] | None = None) -> int:
     # Wave 1p6et: `--check-gpu` prints the GPU/provider diagnostic and exits WITHOUT running setup.
     args = list(sys.argv[1:] if argv is None else argv)
+    if "-h" in args or "--help" in args:
+        _print_help()
+        return 0
     if "--check-gpu" in args:
         return _run_gpu_check()
+    repo_root = _resolve_setup_root(args)
     # Step 0: provision the lifecycle-ID policy for un-provisioned (fresh) repos.
     # Runs BEFORE indexing so no ID is ever minted pre-policy and the docs index
     # embeds the final config. No-op when a policy block already exists.
-    _print_step("Step 0/3: lifecycle-ID policy (fresh repos auto-provision; existing configs untouched)")
-    repo_root = _resolve_setup_root(args)
+    _print_step("Step 0/4: lifecycle-ID policy (fresh repos auto-provision; existing configs untouched)")
     rc = _provision_lifecycle_policy_if_absent(repo_root)
     if rc != 0:
         print(
@@ -208,7 +232,7 @@ def main(argv: list[str] | None = None) -> int:
     # Step 1: materialize docs/prompt carriers before setup_index walks the
     # repository. Otherwise a fresh install publishes a completed docs epoch
     # and then immediately creates unindexed framework-owned documents.
-    _print_step("Step 1/3: render bin/ launchers and host configs (render_platform_surfaces.py)")
+    _print_step("Step 1/4: render bin/ launchers and host configs (render_platform_surfaces.py)")
     rc = _run_render_platform_surfaces(repo_root)
     if rc != 0:
         print(
@@ -218,14 +242,15 @@ def main(argv: list[str] | None = None) -> int:
         )
         return rc
 
-    # Step 2: venv + framework deps + semantic indexes (via setup_index.py).
-    # argv is forwarded so operators can pass --root, --full, etc.
-    _print_step("Step 2/3: venv + framework deps + semantic indexes (setup_index.py)")
+    # Step 2: provision dependencies first. Historical projects pause before
+    # model warm/index publication so newly derived candidates are validated
+    # before the first completed epoch includes them.
+    _print_step("Step 2/4: provision framework dependencies (no index publication)")
     setup_index = _load_setup_index()
-    rc = int(setup_index.main(argv))
+    rc = int(setup_index.main([*args, "--deps-only"]))
     if rc != 0:
         print(
-            f"\nERROR: setup_index.py exited with rc={rc}. Harness setup aborted.",
+            f"\nERROR: setup dependency provisioning exited with rc={rc}. Harness setup aborted.",
             file=sys.stderr,
         )
         return rc
@@ -238,7 +263,7 @@ def main(argv: list[str] | None = None) -> int:
     venv_bootstrap.ensure_python_resolves(strict=True)
 
     # Step 3: MCP server dry-run smoke test.
-    _print_step("Step 3/3: verify MCP server can start (server.py --dry-run)")
+    _print_step("Step 3/4: verify MCP server can start (server.py --dry-run)")
     rc = _run_mcp_server_dry_run(repo_root)
     if rc != 0:
         print(
@@ -249,6 +274,80 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return rc
+
+    import memory_backfill
+
+    try:
+        run_id = memory_backfill.ensure_run(repo_root, "setup")
+        summary = memory_backfill.sync_inventory(repo_root, run_id)
+        summary = memory_backfill.reconcile_index_publication(repo_root, run_id)
+    except OSError as exc:
+        print(
+            f"\nERROR: historical wave inventory was refused: {exc}",
+            file=sys.stderr,
+        )
+        return 1
+    if summary["eligible_waves"] > 0 and summary["state"] not in {
+        "ready_for_index",
+        "indexed",
+    }:
+        print(
+            "\nHistorical wave memory requires agent validation before index publication.\n"
+            + json.dumps(summary, indent=2, sort_keys=True)
+            + "\nRestart/reload the MCP host, run "
+            "wave_memory_backfill(mode='create', entry_path='setup') and "
+            "wave_memory_validate for each candidate, then rerun ordinary `wf setup`. "
+            "Setup will reuse the durable run and publish the index only after its "
+            "authoritative pending census reaches zero.",
+            flush=True,
+        )
+        return memory_backfill.ACTION_REQUIRED_EXIT
+
+    if not summary.get("publication_recovered"):
+        _print_step("Step 4/4: build semantic indexes")
+        publication_pending = (
+            int(summary.get("candidates_drafted") or 0) > 0
+            and summary["state"] == "ready_for_index"
+        )
+        scope = (
+            memory_backfill.index_publication_scope(run_id)
+            if publication_pending
+            else nullcontext()
+        )
+        index_args = list(args)
+        if publication_pending:
+            # The receipt identifies one foreground epoch. A detached layer
+            # could begin before the lifecycle reconciles that receipt and
+            # overwrite the latest attempt identity, so lifecycle publication
+            # deliberately converges both semantic layers synchronously.
+            index_args = [
+                arg
+                for arg in index_args
+                if arg not in {"--background-code", "--background-docs"}
+            ]
+        with scope:
+            rc = int(setup_index.main(index_args))
+        if rc != 0:
+            recovered = memory_backfill.reconcile_index_publication(repo_root, run_id)
+            if recovered["state"] == "awaiting_validation":
+                print(
+                    "\nHistorical wave sources changed before index publication; "
+                    "the changed waves were requeued for validation.",
+                    file=sys.stderr,
+                )
+                return memory_backfill.ACTION_REQUIRED_EXIT
+            return rc
+        if publication_pending:
+            try:
+                memory_backfill.complete_index_publication(repo_root, run_id)
+            except Exception as exc:
+                print(
+                    "\nERROR: the index epoch published but its historical-memory "
+                    f"checkpoint was not confirmed: {exc}. Rerun ordinary `wf setup`; "
+                    "the durable epoch receipt prevents a second index pass.",
+                    file=sys.stderr,
+                )
+                return 1
 
     print(
         "\n=== Wavefoundry harness setup complete. ===\n"

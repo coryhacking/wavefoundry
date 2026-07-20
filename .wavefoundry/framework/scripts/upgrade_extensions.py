@@ -73,11 +73,313 @@ disk writes occur.
 from __future__ import annotations
 
 import json
+import importlib.util
+import os
 import re
 import sys
 import traceback
 from datetime import datetime, timezone
 from pathlib import Path
+
+
+_LEGACY_RUNTIME_LOCKS = (
+    ("review-evidence-adoptions.lock", 0),
+    ("dashboard-start.lock", 1 << 30),
+    ("dashboard-server.lock", 1 << 30),
+)
+
+
+def _read_json_object(path: Path) -> dict:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _update_upgrade_state(root: Path, **fields) -> None:
+    path = root / ".wavefoundry" / "upgrade-in-progress.json"
+    data = _read_json_object(path)
+    if not path.exists():
+        raise RuntimeError("upgrade-in-progress.json is missing during lock cutover")
+    data.update(fields)
+    path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+
+
+def _legacy_lock_is_held(path: Path, offset: int) -> bool:
+    """Probe a pre-cutover lock without importing not-yet-extracted code."""
+
+    if not path.exists():
+        return False
+    handle = path.open("r+b")
+    acquired = False
+    try:
+        if os.name == "nt":
+            import msvcrt
+
+            handle.seek(offset)
+            try:
+                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+            except OSError:
+                return True
+        else:
+            import fcntl
+
+            try:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except (BlockingIOError, OSError):
+                return True
+        acquired = True
+        return False
+    finally:
+        if acquired:
+            try:
+                if os.name == "nt":
+                    import msvcrt
+
+                    handle.seek(offset)
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+                else:
+                    import fcntl
+
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            finally:
+                handle.close()
+        else:
+            handle.close()
+
+
+def _stop_dashboard_for_lock_cutover(root: Path) -> tuple[bool, int | None]:
+    """Stop the old-path dashboard through the installed lifecycle implementation."""
+
+    meta_paths = (
+        root / ".wavefoundry" / "locks" / "dashboard-server.lock",
+        root / ".wavefoundry" / "dashboard-server.lock",
+    )
+    meta = next(
+        (_read_json_object(path) for path in meta_paths if path.exists()),
+        {},
+    )
+    port = meta.get("port")
+    restart_port = port if isinstance(port, int) and port > 0 else None
+    scripts = root / ".wavefoundry" / "framework" / "scripts"
+    if str(scripts) not in sys.path:
+        sys.path.insert(0, str(scripts))
+    try:
+        import server_impl
+
+        response = server_impl.wave_dashboard_stop_response(root)
+    except Exception as exc:
+        raise RuntimeError(f"unable to stop dashboard before lock cutover: {exc}") from exc
+    if response.get("status") != "ok":
+        raise RuntimeError("dashboard stop failed before runtime-lock cutover")
+    data = response.get("data") if isinstance(response.get("data"), dict) else {}
+    stopped = bool(data.get("stopped"))
+    already_stopped = bool(data.get("already_stopped"))
+    if not (stopped or already_stopped):
+        raise RuntimeError("dashboard could not be verified stopped before lock cutover")
+    return stopped, restart_port
+
+
+def _cut_over_runtime_locks(root: Path) -> None:
+    """Perform the one-way old-path cleanup before new runtime code is extracted."""
+
+    was_running, restart_port = _stop_dashboard_for_lock_cutover(root)
+    _update_upgrade_state(
+        root,
+        dashboard_restart_pending=was_running,
+        dashboard_restart_port=restart_port,
+        runtime_lock_cutover_complete=False,
+    )
+    old_root = root / ".wavefoundry"
+    held = [
+        name
+        for name, offset in _LEGACY_RUNTIME_LOCKS
+        if _legacy_lock_is_held(old_root / name, offset)
+    ]
+    legacy_producers = old_root / "logs" / "context-efficiency-producers"
+    legacy_producer_leases = (
+        list(legacy_producers.glob("*.lock"))
+        if legacy_producers.exists()
+        else []
+    )
+    producer_held = [
+        lease.name
+        for lease in legacy_producer_leases
+        if _legacy_lock_is_held(lease, 0)
+    ]
+    if held:
+        raise RuntimeError(
+            "old runtime lock still held; quiesce/reload lifecycle writers before upgrade: "
+            + ", ".join(held)
+        )
+    if producer_held:
+        raise RuntimeError(
+            "old context-efficiency producer lease is still held; reload active agents before upgrade: "
+            + ", ".join(producer_held)
+        )
+    # The migration is deliberately check-then-delete: no old carrier is
+    # removed until every carrier has been proven unlocked.
+    for name, _offset in _LEGACY_RUNTIME_LOCKS:
+        try:
+            (old_root / name).unlink()
+        except FileNotFoundError:
+            pass
+    if legacy_producers.exists():
+        for lease in legacy_producer_leases:
+            lease.unlink(missing_ok=True)
+        try:
+            legacy_producers.rmdir()
+        except OSError:
+            pass
+    _update_upgrade_state(root, runtime_lock_cutover_complete=True)
+
+
+def pre_extract(ctx):
+    """Quiesce old dedicated lock carriers before installing canonical-only paths."""
+
+    _cut_over_runtime_locks(ctx.root)
+
+
+def _installed_memory_backfill(root: Path):
+    """Load the just-extracted coordinator, even under a pre-upgrade runner."""
+
+    scripts = root / ".wavefoundry" / "framework" / "scripts"
+    if str(scripts) not in sys.path:
+        sys.path.insert(0, str(scripts))
+    import memory_backfill
+
+    return memory_backfill
+
+
+def _installed_upgrade_module(root: Path):
+    """Load the just-extracted upgrader without reusing the old runner module."""
+
+    scripts = root / ".wavefoundry" / "framework" / "scripts"
+    path = scripts / "upgrade_wavefoundry.py"
+    if not path.is_file():
+        raise RuntimeError(f"newly extracted upgrader is missing: {path}")
+    if str(scripts) not in sys.path:
+        sys.path.insert(0, str(scripts))
+    spec = importlib.util.spec_from_file_location(
+        "_wavefoundry_installed_upgrade_projection",
+        path,
+    )
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"cannot load newly extracted upgrader: {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def pre_docs_gate(ctx):
+    """Project review state before a newly extracted validator can enforce it.
+
+    A pre-upgrade runner has already loaded its old ``upgrade_wavefoundry``
+    module, but it executes this extension from the new archive.  Loading the
+    installed module by file path avoids the old ``sys.modules`` entry and gives
+    that runner the new one-way projection migration before docs-lint runs.
+    """
+
+    lock = _read_json_object(
+        ctx.root / ".wavefoundry" / "upgrade-in-progress.json"
+    )
+    if "review_status_projection" in lock:
+        return
+    installed = _installed_upgrade_module(ctx.root)
+    counts = installed.phase_review_status_projection(ctx.root)
+    _update_upgrade_state(ctx.root, review_status_projection=counts)
+
+
+def post_docs_gate(ctx):
+    """Bootstrap the memory pause under both old and new upgrade runners."""
+
+    backfill = _installed_memory_backfill(ctx.root)
+    run_id = backfill.ensure_run(ctx.root, "upgrade")
+    summary = backfill.sync_inventory(ctx.root, run_id)
+    _update_upgrade_state(
+        ctx.root,
+        memory_backfill_run_id=run_id,
+        memory_backfill_state=summary["state"],
+        memory_backfill_pending=(
+            summary["remaining_waves"]
+            + summary["candidates_pending"]
+            + summary["failures"]
+        ),
+        memory_backfill_last_failure=summary["last_failure"],
+    )
+    if summary["state"] == "awaiting_validation":
+        print(
+            "\nHistorical memory requires bounded extraction and agent validation "
+            "before index publication.\n"
+            + json.dumps(summary, sort_keys=True)
+            + "\nReload MCP, inspect wave_upgrade_status(), run "
+            "wave_memory_backfill(mode='create', entry_path='upgrade') and "
+            "wave_memory_validate for each validation_worklist item, then call "
+            "wave_upgrade(phase='resume_after_memory').",
+            flush=True,
+        )
+        raise SystemExit(backfill.ACTION_REQUIRED_EXIT)
+
+
+def pre_index_update(ctx):
+    """Keep candidate publication on the newly installed runner."""
+
+    lock = _read_json_object(
+        ctx.root / ".wavefoundry" / "upgrade-in-progress.json"
+    )
+    run_id = str(lock.get("memory_backfill_run_id") or "").strip()
+    if not run_id:
+        return
+    backfill = _installed_memory_backfill(ctx.root)
+    summary = backfill.reconcile_index_publication(ctx.root, run_id)
+    if summary["state"] == "awaiting_validation":
+        raise SystemExit(backfill.ACTION_REQUIRED_EXIT)
+    if (
+        summary["state"] == "ready_for_index"
+        and int(summary.get("candidates_drafted") or 0) > 0
+    ):
+        print(
+            "\nHistorical memory is ready for receipt-owned publication. "
+            "Reload the installed MCP/runtime and call "
+            "wave_upgrade(phase='resume_after_memory').",
+            flush=True,
+        )
+        raise SystemExit(backfill.ACTION_REQUIRED_EXIT)
+    _update_upgrade_state(
+        ctx.root,
+        memory_backfill_state=summary["state"],
+        memory_backfill_pending=(
+            summary["remaining_waves"]
+            + summary["candidates_pending"]
+            + summary["failures"]
+        ),
+    )
+
+
+def post_index_update(ctx):
+    """Seal an old runner's zero-candidate/no-source historical run."""
+
+    lock = _read_json_object(
+        ctx.root / ".wavefoundry" / "upgrade-in-progress.json"
+    )
+    run_id = str(lock.get("memory_backfill_run_id") or "").strip()
+    if not run_id:
+        return
+    backfill = _installed_memory_backfill(ctx.root)
+    summary = backfill.reconcile_index_publication(ctx.root, run_id)
+    if (
+        summary["state"] == "ready_for_index"
+        and int(summary.get("candidates_drafted") or 0) == 0
+    ):
+        backfill.mark_indexed(ctx.root, run_id)
+        summary = backfill.run_summary(ctx.root, run_id)
+    if summary["state"] != "indexed":
+        raise RuntimeError(
+            "candidate-bearing historical-memory publication requires the "
+            "newly installed resume_after_memory runner"
+        )
+    _update_upgrade_state(ctx.root, memory_backfill_state="indexed")
 
 # ---------------------------------------------------------------------------
 # 1.4.x → 1.5.0 migration (wave 1p35d / 1p3ay)

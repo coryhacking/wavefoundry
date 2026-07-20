@@ -4,7 +4,7 @@ Change ID: `1stwl-enh memory-exact-duplicate-diagnostics`
 Change Status: `implemented`
 Owner: framework
 Status: implemented
-Last verified: 2026-07-17
+Last verified: 2026-07-20
 
 Wave: `1stwm memory-supply`
 
@@ -90,6 +90,7 @@ We looked at `agentmemory`'s approach and validated it against its own source (v
 | Date | Update | Evidence |
 | ---- | ------ | -------- |
 | 2026-07-17 | Change doc authored; detection-only posture validated against agentmemory source | agentmemory v0.9.27 auto-forget/remember (Jaccard auto-supersede); `memory_records.py:8` invariant |
+| 2026-07-18 | Post-close correction in wave 1sxj7: exact identity now uses Unicode-safe normalization, rejects empty normalized summaries as equality, canonicalizes refs, and treats only typed event/finding identities—not generic wave/path refs—as evidence identity. The public scan+write critical section is serialized so concurrent creators remain idempotent. | `1sxmy-bug memory-supply-and-exploration-estimate-integrity`; Unicode/evidence/concurrency fixtures |
 
 
 ## Decision Log

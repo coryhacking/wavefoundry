@@ -405,14 +405,14 @@ class TimestampedLogTests(unittest.TestCase):
 
     def test_excludes_wavefoundry_runtime_state_files(self):
         _make_repo(self.root, {"src/foo.py": "x = 1\n"})
-        (self.root / ".wavefoundry" / "dashboard-server.lock").parent.mkdir(parents=True, exist_ok=True)
-        (self.root / ".wavefoundry" / "dashboard-server.lock").write_text('{"pid": 1}\n', encoding="utf-8")
+        (self.root / ".wavefoundry" / "locks" / "dashboard-server.lock").parent.mkdir(parents=True, exist_ok=True)
+        (self.root / ".wavefoundry" / "locks" / "dashboard-server.lock").write_text('{"pid": 1}\n', encoding="utf-8")
         (self.root / ".wavefoundry" / "logs").mkdir(parents=True, exist_ok=True)
         (self.root / ".wavefoundry" / "logs" / "dashboard.log").write_text("started\n", encoding="utf-8")
         (self.root / ".wavefoundry" / "guard-overrides.json").write_text('{"seed_edit_allowed": {"enabled": false}}\n', encoding="utf-8")
         files = self.bi.walk_repo(self.root)
         rel_strs = {str(f.relative_to(self.root)).replace("\\", "/") for f in files}
-        self.assertNotIn(".wavefoundry/dashboard-server.lock", rel_strs)
+        self.assertNotIn(".wavefoundry/locks/dashboard-server.lock", rel_strs)
         self.assertNotIn(".wavefoundry/logs/dashboard.log", rel_strs)
         self.assertNotIn(".wavefoundry/guard-overrides.json", rel_strs)
 

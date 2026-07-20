@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-17
+Last verified: 2026-07-20
 
 ## Primary Control Paths
 
@@ -93,19 +93,25 @@ The `scheme_version: "v2"` policy is provisioned by code, not agents: fresh inst
 
 ### Path 6a: Context-Efficiency Capture and Projection
 
-1. Exactly 17 retrieval/navigation tools attach `context_avoided` after producing their complete core response: `code_ask`, `code_search`, `code_lexical`, `docs_search`, `code_keyword`, `code_pattern`, `code_constants`, `code_read`, `code_outline`, `code_definition`, `code_references`, `code_callhierarchy`, `code_impact`, `code_dependencies`, `code_callgraph`, `code_graph_path`, and `code_graph_community`.
+1. Exactly 18 retrieval/navigation tools attach `context_avoided` after producing their complete core response: `code_ask`, `code_search`, `code_lexical`, `docs_search`, `code_keyword`, `code_pattern`, `code_constants`, `code_read`, `code_outline`, `code_definition`, `code_references`, `code_callhierarchy`, `code_impact`, `code_dependencies`, `code_callgraph`, `code_graph_path`, `code_graph_community`, and `code_commit_provenance`.
 2. Each event canonically estimates the request and complete response as `ceil(UTF-8 bytes / 4)`. Contained content-returning paths and the documented structural path fields provide source-size credit. Paths and versions become opaque IDs before persistence. SQLite credits a source version once per wave phase across content and structural retrieval; a changed version or new phase may be credited again.
 3. Five lifecycle tools record request/response debits whenever their handler is reached. A newly completed create, prepare, implement, full review, or close milestone may also credit exactly one contained project-local shortcut prompt. Dry runs, refusals, lifecycle no-ops, and incomplete reviews retain their debits but receive no prompt credit.
-4. `ImplHandler` retains only producer identity and current focus in memory. Every eligible event writes through atomically to `.wavefoundry/logs/context-efficiency.sqlite`; event IDs and phase/source/version uniqueness are enforced across processes. General events remain producer-scoped and successful create/prepare can transfer only that producer's rows to the wave's `pre-wave` stage.
+4. `ImplHandler` retains a random producer identity, a lazily acquired crash-released OS lease, and current focus in memory. Every eligible event writes through atomically to `.wavefoundry/logs/context-efficiency.sqlite`; event IDs and phase/source/version uniqueness are enforced across processes. Successful create/prepare transfers its own general rows and atomically claims only persisted peer identities whose lease is provably unheld; live or ambiguous peers remain isolated.
 5. The per-stage ledger is closed: content source credit + structural source credit + workflow prompt credit − request debit − response debit. Saved output and avoided tool loops enter only as the conservative residual from a pre-registered, quality-equivalent paired evaluation (at least five completed pairs, assisted quality componentwise no worse, minimum residual across qualifying pairs).
-6. Lifecycle projection boundaries re-read durable state under the project-global `wave.md` lock and atomically replace only the marker-owned block. MCP reload and framework upgrade first project every pending wave generation. A generation compare-and-set prevents an older projection from marking newer events published.
+6. Lifecycle projection boundaries re-read durable state under the project-global `wave.md` lock and atomically replace only the marker-owned block. MCP reload and framework upgrade first project every pending wave generation. A generation compare-and-set is the exact covered-row cutoff: an older projection cannot mark newer events published. Close additionally seals that generation, then transactionally replaces payload rows with the cumulative checkpoint floor plus compact event-ID replay tombstones. Reads combine the floor with later raw rows after reopen; a failed post-publication compaction stays pending and retries.
 7. Runtime parsing and docs lint share one strict validator for marker uniqueness, schema, and canonical rendering. The human table has only stage, tool calls, and estimated token savings; detailed ledger components remain machine-readable. Legacy `wavefoundry:` markers migrate when touched.
-8. The store carries a random instance ID. Loss or replacement cannot reconstruct numeric history from `wave.md`; the wave freezes as `credit_history_unavailable`. This is the first shipped schema: a recognized pre-release prototype store is reset atomically before the first current-schema write, and none of its tables or numeric payload are retained.
+8. The store carries a random instance ID. Loss or replacement freezes active history as `credit_history_unavailable`; a closed validator-valid checkpoint may restore its sealed compact floor because no uncovered mutation is possible. This is the first shipped schema and has no versioned pre-release compatibility layer.
 9. A failed transaction durably writes `.wavefoundry/logs/context-efficiency.gap`, suppressing all positive publication. Exceptions before the normal event commit route through the same poison barrier. Only failure to persist both event and poison changes the public call, returning `telemetry_persistence_failed`.
 10. Fresh install, package install, public render, and upgrade deliver the implementation, scorer/schema, five missing-only lifecycle prompt baselines from packaged install templates, and `.wavefoundry/logs/` ignore rule without eagerly creating telemetry state or bulk-rewriting historical wave artifacts. Existing project prompt prose remains authoritative and is never replaced by a baseline.
+11. Exact-match memory-advisory events use a distinct
+    `exploration_credit_event` table in the same SQLite authority. The event key
+    is phase/context idempotent and all memories from one source wave share a
+    receiving-phase budget. Lifecycle/reload/upgrade projection writes a separate
+    `## Estimated Exploration Avoided` block; these counterfactual estimates are
+    never added to measured Context Efficiency.
 
 **State read:** current request/response, current/captured file-size and same-version metadata, five project-local lifecycle prompts, strict marker-owned checkpoint, and the SQLite authority when present; health is `absent | healthy | accounting_gap | failed`
-**State written:** write-through opaque event/source/evaluation accounting in `.wavefoundry/logs/context-efficiency.sqlite`; durable gap poison on failed transactions; marker-owned `wave.md` projection at lifecycle/reload/upgrade barriers
+**State written:** write-through opaque event/source/evaluation accounting, producer lease files, sealed checkpoint floors and compact replay tombstones, plus separately labeled memory-advisory estimates in `.wavefoundry/logs/`; durable gap poison on failed transactions; marker-owned Context Efficiency and Estimated Exploration Avoided `wave.md` projections at lifecycle/reload/upgrade barriers
 **Failure semantics:** ordinary measurement uncertainty undercounts; a durable accounting gap suppresses the headline; only the inability to persist both an event and the poison barrier fails the public tool call
 
 ### Path 6b: MCP Resource and Resource-Template Reads
@@ -120,15 +126,15 @@ The `scheme_version: "v2"` policy is provisioned by code, not agents: fresh inst
 **Transport:** stdio (FastMCP MCP resources protocol)
 
 **State read (Path 6):** `.wavefoundry/index/`, `.wavefoundry/logs/context-efficiency.sqlite` when present, `docs/waves/`, `docs/plans/`, `docs/prompts/`, `docs/agents/session-handoff.md`
-**State written (Path 6):** process-local context-efficiency focus; write-through `.wavefoundry/logs/context-efficiency.sqlite` accounting and optional gap poison; `docs/plans/`, `docs/waves/` (including project-visible `review-evidence-adoptions.json` and marker-owned context-efficiency projection), `docs/agents/session-handoff.md` (handoff tools), `docs/` metadata (garden tool), and ignored host-local `.wavefoundry/review-evidence-adoptions.lock`
+**State written (Path 6):** process-local context-efficiency focus; write-through `.wavefoundry/logs/context-efficiency.sqlite` accounting and optional gap poison; `docs/plans/`, `docs/waves/` (including project-visible `review-evidence-adoptions.json` and marker-owned context-efficiency projection), `docs/agents/session-handoff.md` (handoff tools), `docs/` metadata (garden tool), and ignored host-local `.wavefoundry/locks/review-evidence-adoptions.lock`
 **Transport:** stdio (FastMCP)
 
 ### Path 7: Local Dashboard
 
 1. Operator or agent runs `python3 .wavefoundry/framework/scripts/dashboard_server.py --root . [--open]`
 2. Script reads `docs/workflow-config.json` `dashboard` settings to determine host, preferred port, fallback range, poll interval, and optional `include_dirs` for file-activity metrics
-3. Script resolves the runtime port using a preference-then-fallback strategy across a configured range; reuses the recorded port from `.wavefoundry/dashboard-server.json` when available and free
-4. Script writes host-local endpoint metadata to `.wavefoundry/dashboard-server.json` (pid, host, port, url, started_at)
+3. Script resolves the runtime port using a preference-then-fallback strategy across a configured range; reuses the recorded port from `.wavefoundry/locks/dashboard-server.lock` when available and free
+4. Script holds `.wavefoundry/locks/dashboard-server.lock` for its lifetime and writes endpoint metadata into that same persistent inode (pid, host, port, url, started_at); launchers serialize the check/spawn/readiness handoff through `.wavefoundry/locks/dashboard-start.lock`
 5. Browser loads `dashboard.html` (shell), `dashboard.css` (design system tokens + layout), and `dashboard.js` (React application) from the loopback server; pinned React, React DOM, force-graph, and elkjs load from unpkg CDN URLs embedded in the HTML. No build toolchain required in target repos; graph scripts need network (or cache) on first load.
 6. Browser React app polls `/api/dashboard` on a graduated backoff schedule (2 → 5 → 8 → 13 → 21 → 30 s); resets to 2 s when the snapshot hash changes; UI state (selected agent, scroll) stays in browser memory
 7. On each poll, `dashboard_lib.collect_dashboard_snapshot` assembles the snapshot from:
@@ -141,24 +147,19 @@ The `scheme_version: "v2"` policy is provisioned by code, not agents: fresh inst
    - File-system mtime scan for `files_updated_today` and `files_updated_week` activity metrics
 
 **State read:** `docs/workflow-config.json`, `docs/repo-profile.json`, `docs/waves/`, `docs/plans/`, `docs/prompts/prompt-surface-manifest.json`, `docs/agents/` tree, `.wavefoundry/framework/VERSION`, repo file mtimes
-**State written:** `.wavefoundry/dashboard-server.json`
+**State written:** `.wavefoundry/locks/dashboard-start.lock`, `.wavefoundry/locks/dashboard-server.lock`
 **Transport:** localhost HTTP on loopback only; browser never speaks to MCP or git directly
 
-### Path 8: Daemon-Triggered Incremental Index Rebuild
+### Path 8: Hook- and MCP-Owned Incremental Index Refresh
 
-Opt-in via `dashboard.auto_index: true` in `docs/workflow-config.json` (default: false).
+1. Post-edit hooks and explicit MCP lifecycle/index tools request incremental refreshes.
+2. `indexer.py` serializes each build with the resource-scoped `.wavefoundry/index/index-build.lock`; the lock remains co-located because deleting/rebuilding the index is its lifecycle boundary.
+3. The dashboard only reads bounded build summaries and index row counts. It never starts an indexer or owns index freshness policy.
+4. Dashboard snapshots observe external build-state changes on later reads and expose the resulting status without becoming an indexing writer.
 
-1. `SnapshotStore._watch_loop` runs every `_WATCH_INTERVAL` seconds; when any watched path (excluding `.wavefoundry/index/index-build-stats.json`) has a changed mtime, it calls `IndexBuilder.signal_change()`
-2. On startup and every `_STALENESS_CHECK_INTERVAL` seconds (default 60 s), `SnapshotStore` calls `_index_is_stale()` — no-completed-build-epoch reads as stale, otherwise the store's build snapshot is compared against current file inputs (wave 1sed7); a stale result calls `IndexBuilder.signal_change()`
-3. `IndexBuilder` arms a debounce timer for `auto_index_delay_seconds` (default 30 s, min 10 s); if a second signal arrives during an active build, the rebuild is re-armed for after completion — only one build runs at a time
-4. After the settling delay, `IndexBuilder` spawns an incremental indexer subprocess using the same Python interpreter that started the server, with `start_new_session=True` and `close_fds=True` to prevent file-handle leakage
-5. `SnapshotStore._rebuild()` overlays `IndexBuilder.get_status()` (`idle` | `running` | `done` | `failed`) onto `health.index.project` after `collect_dashboard_snapshot()` returns; build status is injected at the server layer, not in `dashboard_lib`
-6. On build completion, `SnapshotStore._on_index_build_done` calls `_rebuild()` **before** `_notify_sse()` so the browser fetches a snapshot that already contains the fresh `index-build-stats.json` data
-7. External index builds (manual CLI, MCP `wave_index_build`) are detected when `_watch_loop` sees a mtime change on `.wavefoundry/index/index-build-stats.json`; this triggers `SnapshotStore._rebuild()` so the dashboard reflects the new chunk counts without any daemon rebuild
-
-**State read:** `docs/workflow-config.json` (auto_index config), `.wavefoundry/index/index-build-stats.json`, repo file mtimes, git state (staleness check)
-**State written:** `.wavefoundry/index/` (via indexer subprocess — idempotent, atomic temp-then-rename)
-**Transport:** loopback only; subprocess uses the same Python interpreter as the server
+**State read:** repository inputs, `.wavefoundry/index/index-state.sqlite`, `.wavefoundry/index/*.lance`
+**State written:** `.wavefoundry/index/` by hooks/MCP/indexer only; none by the dashboard
+**Transport:** local hook or MCP request; indexer subprocesses use the configured project Python
 
 ## State Ownership
 
@@ -172,19 +173,128 @@ Opt-in via `dashboard.auto_index: true` in `docs/workflow-config.json` (default:
 | `.junie/mcp/mcp.json` | Engineering | JetBrains Junie / AI Assistant MCP | render_platform_surfaces.py |
 | `.wavefoundry/index/` | indexer.py | server.py | indexer.py (incremental) |
 | `.wavefoundry/index/index-state.sqlite` | index_state_store.py (wave 1rsh9) | server.py (read-only per-operation connections: FTS fusion, freshness primitive, health probe), scan_secrets.py / run_secrets_scan.py (scan cache) | indexer.py build passes, secrets-scan record, `wave_index_optimize` maintenance |
-| `.wavefoundry/dashboard-server.json` | dashboard_server.py | dashboard_server.py | dashboard_server.py |
+| `.wavefoundry/locks/dashboard-server.lock` | dashboard_server.py | dashboard lifecycle and upgrade tools | dashboard_server.py; persistent lifetime lock plus in-place process metadata |
 | Background refresh state `.wavefoundry/index/background-refresh.json` | MCP server runtime | server.py background refresh helper | MCP mutation/review tools that request detached docs-index refresh |
 | Context-efficiency focus | One MCP `ImplHandler` process | that process's lifecycle attribution | lifecycle transitions only; no event totals live solely in memory |
-| `.wavefoundry/logs/context-efficiency.sqlite` | MCP operational telemetry | eligible retrieval/lifecycle calls, paired-evaluation attachment, lifecycle/reload/upgrade projection, `wave_current`, `wave_audit` | write-through opaque accounting; ignored and lazy |
+| `.wavefoundry/logs/context-efficiency.sqlite` | MCP operational telemetry | eligible retrieval/lifecycle calls, exact-match memory-advisory estimates, paired-evaluation attachment, lifecycle/reload/upgrade projection, `wave_current`, `wave_audit` | write-through opaque accounting plus separate origin-bounded exploration events; ignored and lazy |
 | Wave records `docs/waves/<id>/wave.md` | wave-coordinator | wave inspection tools | wave lifecycle commands |
 | Wave event ledger `docs/waves/<id>/events.jsonl` | wave-coordinator | prepare/review/close, dashboard/resources | `wave_create_wave` (empty) and locked `wave_record_review_evidence`; sole canonical review-event authority |
 | Review adoption ledger `docs/waves/review-evidence-adoptions.json` | lifecycle evidence validator | prepare/review/close validation | `review_evidence.py`; bounded `record_count` + canonical-prefix SHA-256 per adopted wave |
-| Review adoption lock `.wavefoundry/review-evidence-adoptions.lock` | lifecycle evidence validator | `review_evidence.py` | `review_evidence.py`; host-local, ignored, crash-safe coordination only |
+| Review adoption lock `.wavefoundry/locks/review-evidence-adoptions.lock` | lifecycle evidence validator | `review_evidence.py` | `review_evidence.py`; host-local, ignored, crash-safe coordination only |
 | Change docs `docs/plans/<id>.md` | Engineering | wave_get_change | wave_new_* tools, operator, wave_remove_change |
 | Change docs `docs/waves/<wave-id>/<id>.md` | Active wave | wave_get_change, wave lifecycle tools | wave_add_change, wave_prepare |
 | Session handoff `docs/agents/session-handoff.md` | Active session | wave_get_handoff, MCP resource `wavefoundry://session-handoff` | wave_set_handoff |
 
+## Runtime Lock Convention
+
+Dedicated project-runtime OS-lock carriers live under `.wavefoundry/locks/`:
+the dashboard launch mutex and lifetime/metadata carrier, the review-evidence
+adoption lock, and context-efficiency producer leases under `locks/producers/`.
+`runtime_lock.py` is the mechanical authority for lazy parent creation, binary
+open, POSIX/Windows acquire and release, byte ranges, typed busy versus I/O
+outcomes, held probing, handle closure, and in-place JSON metadata. Lock files
+persist after release; pathname existence never proves a live holder.
+
+Resource wrappers retain policy. Dashboard code owns check → launch-lock →
+recheck → spawn → lifetime-lock ordering; review evidence owns same-thread
+re-entrancy; context-efficiency owns producer abandonment and reap; the indexer
+owns stale-owner, F_GETLK holder-PID, `ended_at`, and interrupted-build
+interpretation. `.wavefoundry/index/index-build.lock` therefore remains
+co-located with the nuke-and-rebuild index resource, while
+`.wavefoundry/upgrade-in-progress.json` remains a root-level transaction/state
+marker rather than an OS-lock carrier. SQLite/Lance locks intrinsic to their
+resource files and the framework test-run lock are outside this path convention.
+
+Upgrade performs a one-way cutover with no runtime fallback. Before extraction,
+the new pack's upgrade extension records dashboard restart intent, stops the
+installed dashboard, proves the old dashboard/adoption/producer carriers are
+not held, and deletes those old paths. The extracted runtime recognizes only
+`.wavefoundry/locks/`. Cleanup restarts a previously running dashboard on its
+prior port before removing the upgrade marker; restart failure retains the
+marker and intent for recovery. Every creator provisions its own lock parent,
+so fresh installs and upgraded projects do not require eager directory setup.
+
 ## Temporal Metadata and Agent Memory Flows (wave 1ro44)
+
+### Historical memory adoption
+
+Install, upgrade, and migration inventory closed local waves without Git or a
+semantic index. The canonical `docs/waves` root and each inventoried source
+must resolve inside the repository. An escaped parent refuses the inventory
+with a typed failure; an unsafe child/source is omitted as unsupported rather
+than fingerprinted. `memory-state.sqlite` owns the backfill
+run (`inventory_pending → awaiting_validation → ready_for_index →
+publishing_index → indexed`),
+per-wave fingerprints, random short claim tokens, source identities, counts,
+and failures. Mechanical extraction creates candidates only; an agent follows
+the evidence/current target and records promote/retain/reject/rewrite through
+`wave_memory_validate`. While a lifecycle run awaits validation, candidate and
+validation writes advance the memory seqlock but suppress background index
+refresh. Upgrade resumes through its existing phase API; setup and migration
+resume by rerunning ordinary `wf setup`. The owning lifecycle command performs
+the single publication pass under a run-scoped receipt protocol. Immediately
+before the index epoch compare-and-set, the index-store finalizer holds the
+shared review/memory mutation lock, re-inventories historical sources, syncs
+changed fingerprints, proves zero pending work, and records the exact index
+attempt, expected generation, and inventory digest as `publishing_index`.
+Only then may that attempt become the complete index generation. The lifecycle
+command reconciles that receipt to `indexed`; if it crashes after the index CAS
+but before the final checkpoint, retry observes the completed generation and
+finishes the checkpoint without running the index pass again. A changed source
+requeues validation and refuses publication. Receipt-authorized publication is
+foreground and synchronous: the owning setup/upgrade command converges both
+semantic layers itself, and detached index jobs never inherit the receipt.
+
+An indexed setup/upgrade run remains the durable fingerprint baseline.
+Unchanged ordinary setup calls reuse it without reopening validation; a later
+new or changed eligible wave reopens only the affected inventory work. There is no
+setup-memory-specific MCP tool or public resume flag. Upgrade/install state
+mirrors only the run id and gate; there is no JSON/Markdown fallback authority.
+Active-run lookup and
+creation are one SQLite immediate transaction with one non-indexed run allowed
+per entry path, so concurrent setup/upgrade processes share a census. A
+new-code `update-index`/`rebuild-index`/cleanup backstop first projects review
+state and establishes this run when the retained lock came from an older
+in-memory upgrade runner; action-required state is returned before any index
+publication. A candidate-bearing run remains `ready_for_index` for the newly
+installed runner to publish; the old loaded runner never forwards publication
+authority into its older index-child choreography. Before the old runner
+reaches its docs gate, the newly extracted
+`upgrade_extensions.pre_docs_gate` loads the newly installed upgrader by file
+path under a unique module name and repairs the review-status projection. The
+upgrade lock records that repair, so a resumed current runner does not repeat
+it. This bridge deliberately executes new validation code rather than falling
+back to the old in-memory implementation. If that projection or the following
+docs gate needs repair, `resume_after_gate` accepts either retained failure
+phase and always rebuilds/persists current projection before rerunning lint;
+the earlier lock marker is never treated as current authority.
+Every index-publication and cleanup entry point checks that retained phase
+before doing work: resume-after-memory, update/rebuild-index, and cleanup all
+refuse until `resume_after_gate` succeeds and clears the marker.
+
+### Review history and current state
+
+For adopted waves, `events.jsonl` is the complete machine history. A serialized
+ledger-first write updates the adoption proof, then regenerates two bounded
+Markdown views: Finding Synthesis and `wave:review-status`. The latter contains
+one row per canonical signoff key with current state, causal reason, and next
+action. Lifecycle gates consume the same typed derivation; human prose outside
+the owned marker is not approval authority and is preserved.
+
+### Dashboard document presentation
+
+`/api/doc` returns raw Markdown unchanged. The shared `renderMarkdownish`
+presentation path hides HTML control comments outside fences, joins soft
+physical lines into Markdown paragraphs/list items, and constrains ordinary
+prose to the dialog. Fenced code preserves literal marker text; intrinsically
+wide code and tables scroll locally. Wave and change documents have no
+type-specific preprocessing. The other prose contexts—framework-process
+details, wave-change descriptions, activity update/evidence, and agent
+details—intentionally use the same renderer; an exact caller-census regression
+forces review when a new consumer is added. The checked-in browser regression
+loads the real renderer and stylesheet in exact-size desktop and mobile
+iframes, then asserts document/dialog/body scroll bounds, prose and inline-code
+containment, hidden comments, and table-local overflow.
 
 **Build-time temporal passes** (optional residents at the semantic-build tail, inside the index-build lock,
 after the mandatory residents and before epoch finalize — never fail a build):
@@ -213,6 +323,20 @@ the record files directly (source of truth), decay confidence kind-awarely throu
 rank with persisted-betweenness tie-breaks, and degrade gracefully without index/graph layers.
 `wave_memory_reconcile` transitions status in place (supersession preserves history; nothing deletes), under the
 same fence. Hot read tools and lifecycle tools attach capped advisories from the same record store.
+
+Evidence-derived supply adds a semantic checkpoint without adding another event
+store: `memory_supply.draft_candidates` assigns each source a stable identity →
+`wave_memory_propose(create)` writes a repo-visible `candidate` with
+`Validation: pending` → the active agent follows the evidence and current target
+→ `wave_memory_validate` records promote/retain/reject/rewrite plus the action
+delta and compact judgment. Rewrites create the corrected record and supersede
+the generated candidate under the shared cross-process lock; multi-file crash
+atomicity is not claimed and partial failures return explicit recovery.
+Proposal scans every status by source identity, so rejected and superseded
+history suppress regeneration. `wave_close` blocks on missing or pending
+eligible sources; a wave with no eligible source passes with no memory.
+Deterministic Python owns extraction/linkage/mutation while the agent owns
+semantic usefulness. Contradictions remain surfaced, never auto-resolved.
 
 **`memory-state.sqlite` (advisory-cache invalidation seqlock).** A DEDICATED store in `.wavefoundry/index/`,
 owned exclusively by the memory layer — never the canonical `index-state.sqlite`, so a memory write can never

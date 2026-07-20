@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-14
+Last verified: 2026-07-20
 
 Shortcut: **`Close wave`**
 
@@ -42,12 +42,18 @@ Finalize and archive the wave. Closure requires full reconciliation — not just
 - If seed prompts changed: confirm guard-overrides reset to `false`
 - If Wave Council is enabled: confirm `wave-council` recorded both council signoffs in `## Review Evidence`
 
-## Memory Distillation Checkpoint
+## Agent Memory Validation Checkpoint
 
-Before closure, list open memory candidates (`wave_memory_search(status='candidate')`) and decide each one:
+Before closure, run `wave_memory_propose(wave_id, mode='create')`, then validate
+every evidence-derived candidate with `wave_memory_validate`:
 
-- **promote** — `wave_memory_reconcile(memory_id, 'active')` for lessons that should surface at action time
-- **reject** — `wave_memory_reconcile(memory_id, 'rejected')` for candidates that did not hold up
-- **defer** — leave `candidate` and record the deferral in the wave record
+- Follow the linked evidence and inspect the current target.
+- State what changes the next action.
+- Check durability, canonical overlap, target accuracy, existing
+  duplicates/contradictions, and confidence.
+- Choose **promote**, **retain**, **reject**, or **rewrite**.
 
-This is a cheap decide-pass over proposed candidates, not an authoring session; an undecided candidate at close is a process gap. History is preserved through supersession, never deletion.
+This is a bounded focused curation pass, not a new council. A wave may correctly
+yield no memories. A pending candidate blocks close; rejected and superseded
+source-event dispositions persist and prevent regeneration. History is preserved
+through supersession, never deletion, and contradictions are never auto-resolved.

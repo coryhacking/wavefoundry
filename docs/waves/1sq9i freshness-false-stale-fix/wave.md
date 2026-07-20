@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: closed
-Last verified: 2026-07-16
+Last verified: 2026-07-20
 review-evidence-source: events.jsonl
 
 wave-id: `1sq9i freshness-false-stale-fix`
@@ -34,7 +34,7 @@ Wave `1sq9i` (Freshness False Stale Fix) delivered one change: Freshness reports
 
 ## Finding Synthesis
 
-<!-- waveframework:finding-synthesis begin -->
+<!-- wave:finding-synthesis begin -->
 | Current finding | Disposition | Open block | Repair | Approval recheck |
 | --- | --- | --- | --- | --- |
 | — | — | — | — | — |
@@ -42,7 +42,7 @@ Wave `1sq9i` (Freshness False Stale Fix) delivered one change: Freshness reports
 <details class="wavefoundry-review-evidence">
 <summary>Machine review evidence — 5 records; 2 runs; 0 findings; current: do_now 0, maybe_later 0, dont_do_later 0, not_issue 0</summary>
 </details>
-<!-- waveframework:finding-synthesis end -->
+<!-- wave:finding-synthesis end -->
 
 ## Review Checkpoints
 
@@ -52,11 +52,16 @@ Wave `1sq9i` (Freshness False Stale Fix) delivered one change: Freshness reports
 
 ## Review Evidence
 
+<!-- wave:review-status begin -->
+| Signoff | State | Why | Next action |
+| --- | --- | --- | --- |
+| wave-council-readiness | approved | current executed approval follows every affected repair | none |
+| wave-council-delivery | approved | current executed approval follows every affected repair | none |
+| operator-signoff | approved | current executed approval follows every affected repair | none |
+<!-- wave:review-status end -->
+
 - wave-council-readiness: approved 2026-07-16 — root cause is confirmed against the tree (field report + local reproduction); the fix is a minimal, read-side uniform ignore filter with a clear non-vacuity requirement (AC-3 fails pre-fix); scope is one function + one regression test; no boundary/contract change. No blocking concerns.
 - operator-signoff: pending operator closure confirmation
-- wave-council-delivery: approved — Fresh independent adversarial review vs the working tree: fix covers forward (state-loop continue) and symmetric (eligible -=) branches; exact 4-member set with exact membership so only ignore paths are skipped (no over-broad masking; test_simple_edit_reads_stale + test_added_and_deleted_paths_read_stale still detect real staleness); git diff shows only project_layer_freshness + the comment (no build/stamp path touched); non-vacuity re-proven by disabling the skip (fails 'layer behind broad snapshot') then restoring exactly; full suite 5,644 OK; comment verified accurate against resource_codebase_map (regenerates only when the map is missing). No blockers.
-- operator-signoff: approved — Operator confirmed the downstream upgrade to 1.13.0+pcnz succeeded and index_freshness now reads current, and directed 'close and release'.
-- wave-council-readiness: approved — Prepare-phase Wave Council (red-team + architecture-reviewer) recorded PASS in ## Review Checkpoints: root cause confirmed (codebase-map.md in docs state, ignore-listed, absent from filtered_file_meta); filtering ignore paths cannot hide genuine staleness; no contract/boundary change; read-side heal-in-place.
 
 ## Dependencies
 

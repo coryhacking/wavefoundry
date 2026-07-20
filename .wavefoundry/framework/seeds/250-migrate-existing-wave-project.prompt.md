@@ -121,7 +121,14 @@ Do not install the canonical framework at top-level `framework/` inside arbitrar
    - `package-wave-framework` should normally be removed or replaced with target-appropriate guidance, because packaging canonical framework source belongs in Wavefoundry, not ordinary target repositories
 8. If the compatibility gate passes, update platform hook/config surfaces that reference old framework script paths.
 9. If the compatibility gate passes, re-render generated surfaces using the migrated renderer path.
-10. Leave `agent-workflows/wave-context-framework/` in place as a temporary migration backup unless the operator explicitly approves removal after validation.
+10. Run `wf setup` through the newly activated framework. This is the same
+    install coordinator, not a migration-specific fallback: if historical
+    closed waves exist it returns `awaiting_memory_validation`/exit 4 before
+    index publication. Reload MCP, run bounded
+    `wave_memory_backfill(mode="create", entry_path="setup")` plus focused
+    `wave_memory_validate`, then rerun ordinary `wf setup`. It reuses the
+    durable setup run and publishes the index only after validation is clear.
+11. Leave `agent-workflows/wave-context-framework/` in place as a temporary migration backup unless the operator explicitly approves removal after validation.
 
 ## Compatibility Gate
 

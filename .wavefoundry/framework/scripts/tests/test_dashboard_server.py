@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import errno
 import io
 import hashlib
 import json
@@ -122,6 +123,15 @@ Verify dashboard snapshot rendering.
 - Prepare wave — readiness verdict: pass
 
 ## Review Evidence
+
+<!-- wave:review-status begin -->
+| Signoff | State | Why | Next action |
+| --- | --- | --- | --- |
+| wave-council-readiness | pending | no current executed approval | record approval evidence for wave-council-readiness |
+| wave-council-delivery | pending | no current executed approval | record approval evidence for wave-council-delivery |
+| code-reviewer | pending | no current executed approval | record approval evidence for code-reviewer |
+| operator-signoff | pending | no current executed approval | record approval evidence for operator-signoff |
+<!-- wave:review-status end -->
 
 - wave-council-readiness: approved
 - code-reviewer: approved
@@ -362,7 +372,8 @@ class DashboardSnapshotTests(unittest.TestCase):
         self.assertEqual(wave["review_evidence_status"]["projection"], "current")
         self.assertEqual(wave["review_evidence_status"]["diagnostics"], [])
         self.assertEqual(
-            wave["review_evidence"], [],
+            [row["value"] for row in wave["review_evidence"]],
+            ["pending", "pending", "pending", "pending"],
             "prose signoff bullets must not be served as canonical approval state",
         )
         self.assertIn("| — | — | — | — | — |", wave["review_evidence_projection"])
@@ -396,9 +407,29 @@ class DashboardSnapshotTests(unittest.TestCase):
             wave["review_evidence"],
             [
                 {
+                    "key": "wave-council-readiness",
+                    "value": "pending",
+                    "why": "no current executed approval",
+                    "next_action": "record approval evidence for wave-council-readiness",
+                },
+                {
                     "key": "wave-council-delivery",
-                    "value": "approved from external authority",
-                }
+                    "value": "approved",
+                    "why": "current executed approval follows every affected repair",
+                    "next_action": "none",
+                },
+                {
+                    "key": "code-reviewer",
+                    "value": "pending",
+                    "why": "no current executed approval",
+                    "next_action": "record approval evidence for code-reviewer",
+                },
+                {
+                    "key": "operator-signoff",
+                    "value": "pending",
+                    "why": "no current executed approval",
+                    "next_action": "record approval evidence for operator-signoff",
+                },
             ],
         )
 
@@ -899,6 +930,234 @@ Wave: `12x test-wave`
         self.assertEqual(len(result["items"]), 3)
         self.assertTrue(result["items"][2]["deferred"])
         self.assertFalse(result["items"][2]["done"])
+
+    def test_ac_and_task_items_include_indented_prose_continuations(self):
+        ac_section = (
+            "- [x] AC-1: A mixed fixture containing modern-ledger, pre-ledger,\n"
+            "  zero-source, and `inline-code` cases preserves\n"
+            "  the complete operator-visible criterion. (required)\n"
+            "2. [~] AC-2: A second criterion remains distinct.\n"
+        )
+        priorities = (
+            "| AC | Priority | Rationale |\n"
+            "| --- | --- | --- |\n"
+            "| AC-1 | required | Core. |\n"
+            "| AC-2 | important | Deferred. |\n"
+        )
+        acs = self.lib._parse_ac_items(ac_section, priorities, "planned")
+        self.assertEqual(len(acs), 2)
+        self.assertEqual(
+            acs[0]["text"],
+            "AC-1: A mixed fixture containing modern-ledger, pre-ledger, "
+            "zero-source, and `inline-code` cases preserves the complete "
+            "operator-visible criterion. (required)",
+        )
+        self.assertEqual(acs[0]["id"], "AC-1")
+        self.assertTrue(acs[0]["done"])
+        self.assertEqual(acs[0]["priority"], "required")
+        self.assertEqual(acs[1]["id"], "AC-2")
+        self.assertTrue(acs[1]["deferred"])
+        self.assertEqual(acs[1]["priority"], "important")
+
+        task_section = (
+            "- [x] Add the shared parser and retain\n"
+            "  every hard-wrapped continuation line\n"
+            "  with normal word spacing.\n"
+            "- [ ] Verify the next task remains distinct.\n"
+        )
+        tasks = self.lib._parse_tasks(task_section, "planned")
+        self.assertEqual(tasks["total"], 2)
+        self.assertEqual(tasks["completed"], 1)
+        self.assertEqual(
+            tasks["items"][0]["label"],
+            "Add the shared parser and retain every hard-wrapped continuation "
+            "line with normal word spacing.",
+        )
+        self.assertEqual(
+            tasks["items"][1]["label"],
+            "Verify the next task remains distinct.",
+        )
+
+    def test_dashboard_snapshot_preserves_full_multiline_ac_and_task_text(self):
+        wave_dir = self.root / "docs" / "waves" / "12x test-wave"
+        _write(
+            wave_dir / "12x1-enh sample-dashboard.md",
+            """# Sample Dashboard Change
+
+Change ID: `12x1-enh sample-dashboard`
+Change Status: `active`
+Owner: Engineering
+Wave: `12x test-wave`
+
+## Acceptance Criteria
+
+  - [x] AC-1: A mixed fixture containing modern-ledger, pre-ledger, zero-source,
+    unsupported-source, and agent-validated cases appears in the dashboard
+    without truncating the operator-visible criterion.
+  - [ ] AC-2: A sibling criterion remains distinct.
+
+## AC Priority
+
+| AC | Priority | Rationale |
+| -- | -------- | --------- |
+| AC-1 | required | Core. |
+| AC-2 | important | Follow-up. |
+
+## Tasks
+
+  - [x] Parse hard-wrapped task prose and preserve every
+    continuation line in the dashboard payload.
+  - [ ] Keep the next task distinct.
+""",
+        )
+
+        snapshot = self.lib.collect_dashboard_snapshot(self.root)
+        change = snapshot["changes"]["in_waves"][0]
+
+        self.assertEqual(
+            change["ac_items"][0]["text"],
+            "AC-1: A mixed fixture containing modern-ledger, pre-ledger, "
+            "zero-source, unsupported-source, and agent-validated cases "
+            "appears in the dashboard without truncating the operator-visible "
+            "criterion.",
+        )
+        self.assertEqual(change["ac_items"][0]["priority"], "required")
+        self.assertTrue(change["ac_items"][0]["done"])
+        self.assertEqual(change["ac_items"][1]["id"], "AC-2")
+        self.assertEqual(
+            change["tasks_items"][0]["label"],
+            "Parse hard-wrapped task prose and preserve every continuation line "
+            "in the dashboard payload.",
+        )
+        self.assertTrue(change["tasks_items"][0]["done"])
+        self.assertEqual(change["tasks_items"][1]["label"], "Keep the next task distinct.")
+
+    def test_pipe_less_markdown_table_does_not_join_ac_or_task_text(self):
+        acs = self.lib._parse_ac_items(
+            "- [ ] AC-1: first line\n"
+            "  accepted continuation\n"
+            "  Column A | Column B\n"
+            "  --- | ---\n"
+            "  value A | value B\n"
+            "- [x] AC-2: second item\n",
+            "| AC | Priority |\n| --- | --- |\n| AC-1 | required |\n| AC-2 | important |\n",
+            "planned",
+        )
+        self.assertEqual([ac["id"] for ac in acs], ["AC-1", "AC-2"])
+        self.assertEqual(acs[0]["text"], "AC-1: first line accepted continuation")
+
+        tasks = self.lib._parse_tasks(
+            "- [ ] first task\n"
+            "  accepted continuation\n"
+            "  Column A | Column B\n"
+            "  --- | ---\n"
+            "  value A | value B\n"
+            "- [x] second task\n",
+            "planned",
+        )
+        self.assertEqual(tasks["total"], 2)
+        self.assertEqual(tasks["items"][0]["label"], "first task accepted continuation")
+
+    def test_inline_pipe_prose_remains_a_continuation_without_table_separator(self):
+        tasks = self.lib._parse_tasks(
+            "- [ ] explain the operator\n"
+            "  where `left | right` is ordinary inline prose\n"
+            "- [x] second task\n",
+            "planned",
+        )
+        self.assertEqual(
+            tasks["items"][0]["label"],
+            "explain the operator where `left | right` is ordinary inline prose",
+        )
+
+    def test_setext_heading_does_not_join_ac_or_task_text(self):
+        priorities = (
+            "| AC | Priority | Rationale |\n"
+            "| --- | --- | --- |\n"
+            "| AC-1 | required | Core. |\n"
+            "| AC-2 | important | Follow-up. |\n"
+        )
+        for underline in ("=", "=================="):
+            with self.subTest(kind="ac", underline=underline):
+                acs = self.lib._parse_ac_items(
+                    "- [ ] AC-1: first line\n"
+                    "  accepted continuation\n"
+                    "  Structural heading\n"
+                    f"  {underline}\n"
+                    "  must not be absorbed\n"
+                    "- [x] AC-2: second item\n",
+                    priorities,
+                    "planned",
+                )
+                self.assertEqual([ac["id"] for ac in acs], ["AC-1", "AC-2"])
+                self.assertEqual(acs[0]["text"], "AC-1: first line accepted continuation")
+
+            with self.subTest(kind="task", underline=underline):
+                tasks = self.lib._parse_tasks(
+                    "- [ ] first task\n"
+                    "  accepted continuation\n"
+                    "  Structural heading\n"
+                    f"  {underline}\n"
+                    "  must not be absorbed\n"
+                    "- [x] second task\n",
+                    "planned",
+                )
+                self.assertEqual(tasks["total"], 2)
+                self.assertEqual(
+                    tasks["items"][0]["label"],
+                    "first task accepted continuation",
+                )
+
+    def test_ac_and_task_continuations_stop_at_markdown_boundaries(self):
+        boundaries = {
+            "blank": "",
+            "unindented prose": "Unrelated prose.",
+            "nested list": "  - nested item",
+            "heading": "  ### Nested heading",
+            "blockquote": "  > quoted block",
+            "table": "  | A | B |",
+            "fence": "  ```python",
+            "thematic break": "  ---",
+        }
+        priorities = (
+            "| AC | Priority | Rationale |\n"
+            "| --- | --- | --- |\n"
+            "| AC-1 | required | Core. |\n"
+            "| AC-2 | important | Follow-up. |\n"
+        )
+        for name, boundary in boundaries.items():
+            with self.subTest(kind="ac", boundary=name):
+                ac_section = (
+                    "- [ ] AC-1: first line\n"
+                    "  accepted continuation\n"
+                    f"{boundary}\n"
+                    "  must not be absorbed\n"
+                    "- [x] AC-2: second item\n"
+                )
+                acs = self.lib._parse_ac_items(ac_section, priorities, "planned")
+                self.assertEqual([ac["id"] for ac in acs], ["AC-1", "AC-2"])
+                self.assertEqual(acs[0]["text"], "AC-1: first line accepted continuation")
+                self.assertEqual(acs[0]["priority"], "required")
+                self.assertFalse(acs[0]["done"])
+                self.assertTrue(acs[1]["done"])
+
+            with self.subTest(kind="task", boundary=name):
+                task_section = (
+                    "- [ ] first task\n"
+                    "  accepted continuation\n"
+                    f"{boundary}\n"
+                    "  must not be absorbed\n"
+                    "- [x] second task\n"
+                    "1. [x] ordered task is outside the supported task surface\n"
+                )
+                tasks = self.lib._parse_tasks(task_section, "planned")
+                self.assertEqual(tasks["total"], 2)
+                self.assertEqual(tasks["completed"], 1)
+                self.assertEqual(
+                    tasks["items"][0]["label"],
+                    "first task accepted continuation",
+                )
+                self.assertEqual(tasks["items"][1]["label"], "second task")
 
     def test_completed_counts_are_x_only_deferred_counts_bucket_them(self):
         """Wave 1p458 (1p45a): `_completed_ac_counts` counts only `[x]` ACs (the open-wave
@@ -2095,7 +2354,7 @@ class DashboardServerLockTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def _server_lock_path(self) -> Path:
-        return self.root / ".wavefoundry" / "dashboard-server.lock"
+        return self.root / ".wavefoundry" / "locks" / "dashboard-server.lock"
 
     def _flock_try_busy(self) -> bool:
         """Non-blocking flock-try on dashboard-server.lock: busy => alive."""
@@ -2237,7 +2496,7 @@ class DashboardWindowsSentinelLockTests(unittest.TestCase):
             offset = os.lseek(fileno, 0, os.SEEK_CUR)
             if mode == 1:  # LK_NBLCK
                 if offset in held:
-                    raise OSError("lock violation")
+                    raise OSError(errno.EACCES, "lock violation")
                 held.add(offset)
             else:  # LK_UNLCK
                 held.discard(offset)
@@ -3389,7 +3648,7 @@ class IndexStalenessTests(unittest.TestCase):
         self.assertTrue(result)
 
     def test_project_not_stale_when_only_dashboard_runtime_state_differs_from_file_meta(self):
-        runtime_file = self.root / ".wavefoundry" / "dashboard-server.lock"
+        runtime_file = self.root / ".wavefoundry" / "locks" / "dashboard-server.lock"
         runtime_file.parent.mkdir(parents=True, exist_ok=True)
         runtime_file.write_text('{"pid": 1}\n', encoding="utf-8")
         stat = runtime_file.stat()
@@ -3397,7 +3656,7 @@ class IndexStalenessTests(unittest.TestCase):
             {
                 "built_at": "2026-01-01T00:00:00+00:00",
                 "file_meta": {
-                    ".wavefoundry/dashboard-server.lock": {
+                    ".wavefoundry/locks/dashboard-server.lock": {
                         "hash": "stale-hash",
                         "mtime": stat.st_mtime - 1,
                         "size": max(stat.st_size - 1, 0),
@@ -3739,6 +3998,386 @@ process.stdout.write(JSON.stringify(out));
                          f"fenced --- must stay a single <pre>, no <hr>: {out['fenced_types']}")
         self.assertIn("---", out["fenced_code_text"],
                       "the --- inside the fenced block must remain literal text")
+
+
+class RenderMarkdownishDocumentContractTests(unittest.TestCase):
+    """The shared document renderer hides metadata and joins soft-wrapped prose."""
+
+    _DRIVER = r"""
+const fs = require("fs");
+const vm = require("vm");
+function createElement(type, props, ...children) {
+  const flat = [];
+  for (const c of children) {
+    if (Array.isArray(c)) flat.push(...c); else flat.push(c);
+  }
+  return { type, props: props || {}, children: flat };
+}
+const root = { React: { createElement, useState(){}, useEffect(){}, useRef(){}, useCallback(){} } };
+vm.runInNewContext(fs.readFileSync(process.argv[2], "utf8"),
+  { window: root, globalThis: root, console }, { filename: "wfds.js" });
+const WFDS = root.WFDS;
+function text(node) {
+  if (node == null) return "";
+  if (typeof node === "string") return node;
+  return (node.children || []).map(text).join("");
+}
+const prose = WFDS.renderMarkdownish(
+  "<!-- wave:context-efficiency begin -->\n" +
+  "First soft-wrapped\nparagraph stays together.\n\n" +
+  "- one list item\n  continued on the next source line\n" +
+  "- second item\n" +
+  "<!-- wave:context-efficiency end -->"
+);
+const fenced = WFDS.renderMarkdownish("```\n<!-- literal -->\n```");
+process.stdout.write(JSON.stringify({
+  types: prose.map(n => n.type),
+  text: prose.map(text),
+  fenced: fenced.map(text)
+}));
+"""
+    _FIXTURE = (
+        SCRIPTS_ROOT
+        / "tests"
+        / "fixtures"
+        / "dashboard-wave-rendering.md"
+    )
+    _FIXTURE_DRIVER = r"""
+const fs = require("fs");
+const vm = require("vm");
+function createElement(type, props, ...children) {
+  const flat = [];
+  for (const c of children) {
+    if (Array.isArray(c)) flat.push(...c); else flat.push(c);
+  }
+  return { type, props: props || {}, children: flat };
+}
+const root = { React: { createElement, useState(){}, useEffect(){}, useRef(){}, useCallback(){} } };
+vm.runInNewContext(fs.readFileSync(process.argv[2], "utf8"),
+  { window: root, globalThis: root, console }, { filename: "wfds.js" });
+function text(node) {
+  if (node == null) return "";
+  if (typeof node === "string") return node;
+  return (node.children || []).map(text).join("");
+}
+const rendered = root.WFDS.renderMarkdownish(fs.readFileSync(process.argv[3], "utf8"));
+process.stdout.write(JSON.stringify({
+  types: rendered.map(n => n.type),
+  text: rendered.map(text)
+}));
+"""
+    _GEOMETRY_DRIVER = r"""
+const fs = require("fs");
+const vm = require("vm");
+function createElement(type, props, ...children) {
+  const flat = [];
+  for (const child of children) {
+    if (Array.isArray(child)) flat.push(...child); else flat.push(child);
+  }
+  return { type, props: props || {}, children: flat };
+}
+const root = {
+  React: {
+    createElement,
+    useState(){},
+    useEffect(){},
+    useRef(){ return { current: null }; },
+    useCallback(){},
+  },
+};
+vm.runInNewContext(
+  fs.readFileSync(process.argv[2], "utf8"),
+  { window: root, globalThis: root, console },
+  { filename: "wfds.js" },
+);
+const body = root.WFDS.renderMarkdownish(fs.readFileSync(process.argv[3], "utf8"));
+const dialog = root.WFDS.Dialog({
+  className: "doc-dialog",
+  title: "Wave rendering fixture",
+  subtitle: "fixed-viewport browser contract",
+  onClose(){},
+  children: createElement("div", { className: "doc-dialog-body" }, body),
+});
+function esc(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+function markup(node) {
+  if (node == null || node === false) return "";
+  if (Array.isArray(node)) return node.map(markup).join("");
+  if (typeof node === "string" || typeof node === "number") return esc(node);
+  if (typeof node.type === "function") {
+    return markup(node.type({ ...node.props, children: node.children }));
+  }
+  const attrs = [];
+  for (const [key, value] of Object.entries(node.props || {})) {
+    if (key === "className") attrs.push(`class="${esc(value)}"`);
+    else if (key.startsWith("aria-")) attrs.push(`${key}="${esc(value)}"`);
+  }
+  if (node.type === "dialog") attrs.push("open");
+  return `<${node.type}${attrs.length ? " " + attrs.join(" ") : ""}>`
+    + node.children.map(markup).join("")
+    + `</${node.type}>`;
+}
+const css = fs.readFileSync(process.argv[4], "utf8");
+fs.writeFileSync(
+  process.argv[5],
+  "<!doctype html><meta charset=utf-8><style>" + css + "</style>"
+    + markup(dialog),
+);
+"""
+
+    def test_shared_renderer_contains_comment_and_soft_wrap_logic(self):
+        source = WFDS_PATH.read_text(encoding="utf-8")
+        self.assertIn('visible.indexOf("<!--")', source)
+        self.assertIn('paragraphLines.join(" ")', source)
+        self.assertIn('currentListItem.join(" ")', source)
+
+    def test_checked_in_operator_fixture_carries_required_dimensions(self):
+        fixture = self._FIXTURE.read_text(encoding="utf-8")
+        self.assertIn("<!-- wave:context-efficiency begin -->", fixture)
+        self.assertIn("four physical source lines", fixture)
+        self.assertIn("continues on another physical source line", fixture)
+        self.assertIn("<!-- wave:literal-example begin -->", fixture)
+
+    def test_document_css_contains_responsive_overflow_contract(self):
+        css = (
+            SCRIPTS_ROOT.parent / "dashboard" / "dashboard.css"
+        ).read_text(encoding="utf-8")
+        for fragment in (
+            ".doc-dialog-body",
+            "overflow-wrap: anywhere",
+            "overflow-x: auto",
+            "@media (max-width: 720px)",
+            "table-layout: fixed",
+        ):
+            self.assertIn(fragment, css)
+
+    def test_shared_renderer_caller_census_is_explicit_and_complete(self):
+        """Every dashboard caller is a prose surface that adopts this behavior.
+
+        This exact census prevents a new snippet/activity consumer from silently
+        inheriting comment suppression or soft-wrap coalescing without review.
+        """
+
+        dashboard = (
+            SCRIPTS_ROOT.parent / "dashboard" / "dashboard.js"
+        ).read_text(encoding="utf-8")
+        expected_calls = (
+            "renderMarkdownish(process.body)",
+            "renderMarkdownish(c.description)",
+            'renderMarkdownish(item.update || "")',
+            "renderMarkdownish(item.evidence)",
+            "renderMarkdownish(bodyText)",
+            "renderMarkdownish(agent.body)",
+        )
+        self.assertEqual(dashboard.count("renderMarkdownish("), len(expected_calls))
+        for call in expected_calls:
+            self.assertEqual(
+                dashboard.count(call),
+                1,
+                f"shared-renderer caller census drifted for {call}",
+            )
+
+    @unittest.skipUnless(shutil.which("node"), "node not available — JS execution test skipped")
+    def test_shared_renderer_hides_markers_and_coalesces_prose(self):
+        import subprocess
+        with tempfile.TemporaryDirectory() as td:
+            driver = Path(td) / "driver.js"
+            driver.write_text(self._DRIVER, encoding="utf-8")
+            proc = subprocess.run(
+                ["node", str(driver), str(WFDS_PATH)],
+                capture_output=True, text=True, timeout=30,
+            )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        out = json.loads(proc.stdout)
+        self.assertEqual(out["types"], ["p", "ul"])
+        self.assertEqual(
+            out["text"],
+            [
+                "First soft-wrapped paragraph stays together.",
+                "one list item continued on the next source linesecond item",
+            ],
+        )
+        self.assertNotIn("wave:context-efficiency", " ".join(out["text"]))
+        self.assertIn("<!-- literal -->", out["fenced"][0])
+
+    @unittest.skipUnless(shutil.which("node"), "node not available — JS execution test skipped")
+    def test_checked_in_wave_fixture_uses_shared_renderer_without_visible_markers(self):
+        import subprocess
+
+        with tempfile.TemporaryDirectory() as td:
+            driver = Path(td) / "driver.js"
+            driver.write_text(self._FIXTURE_DRIVER, encoding="utf-8")
+            proc = subprocess.run(
+                ["node", str(driver), str(WFDS_PATH), str(self._FIXTURE)],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        out = json.loads(proc.stdout)
+        visible = " ".join(out["text"])
+        self.assertNotIn("wave:context-efficiency", visible)
+        self.assertIn(
+            "This paragraph is deliberately hard wrapped across four physical source lines",
+            visible,
+        )
+        self.assertIn("literal-example begin", visible)
+
+    @unittest.skipUnless(shutil.which("node"), "node not available — browser fixture skipped")
+    def test_fixed_viewport_browser_geometry_has_no_document_overflow(self):
+        """Execute the real renderer and CSS in Chrome at both required widths."""
+
+        import html
+        import re
+        import subprocess
+
+        if os.environ.get("WAVEFOUNDRY_BROWSER_TESTS") != "1":
+            self.skipTest(
+                "set WAVEFOUNDRY_BROWSER_TESTS=1 to execute fixed-viewport Chrome tests"
+            )
+        chrome_candidates = (
+            shutil.which("google-chrome"),
+            shutil.which("chromium"),
+            shutil.which("chromium-browser"),
+            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        )
+        chrome = next(
+            (
+                str(candidate)
+                for candidate in chrome_candidates
+                if candidate and Path(candidate).is_file()
+            ),
+            None,
+        )
+        if chrome is None:
+            self.skipTest("Chrome/Chromium not available — geometry browser test skipped")
+
+        css_path = SCRIPTS_ROOT.parent / "dashboard" / "dashboard.css"
+        with tempfile.TemporaryDirectory() as td:
+            temp = Path(td)
+            driver = temp / "geometry-driver.js"
+            page = temp / "geometry.html"
+            driver.write_text(self._GEOMETRY_DRIVER, encoding="utf-8")
+            built = subprocess.run(
+                [
+                    "node",
+                    str(driver),
+                    str(WFDS_PATH),
+                    str(self._FIXTURE),
+                    str(css_path),
+                    str(page),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            self.assertEqual(built.returncode, 0, built.stderr)
+
+            for width, height in ((1440, 900), (390, 844)):
+                profile = temp / f"profile-{width}"
+                wrapper = temp / f"geometry-{width}.html"
+                wrapper.write_text(
+                    f"""<!doctype html><meta charset="utf-8">
+<style>html,body{{margin:0}} iframe{{display:block;border:0}}</style>
+<iframe id="frame" width="{width}" height="{height}" src="{page.as_uri()}"></iframe>
+<pre id="result" style="display:none"></pre>
+<script>
+document.querySelector("#frame").addEventListener("load", () => {{
+  const frame = document.querySelector("#frame");
+  const view = frame.contentWindow;
+  const doc = frame.contentDocument;
+  const page = doc.documentElement;
+  const dialog = doc.querySelector(".doc-dialog");
+  const body = doc.querySelector(".doc-dialog-body");
+  const prose = [...body.querySelectorAll("p, li, h1, h2, h3")];
+  const inline = [...body.querySelectorAll("code")].filter(el => !el.closest("pre"));
+  const tables = [...body.querySelectorAll("table")];
+  const result = {{
+    viewport: {{ width: view.innerWidth, height: view.innerHeight }},
+    page: {{ scrollWidth: page.scrollWidth, clientWidth: page.clientWidth }},
+    dialog: {{ scrollWidth: dialog.scrollWidth, clientWidth: dialog.clientWidth }},
+    body: {{ scrollWidth: body.scrollWidth, clientWidth: body.clientWidth }},
+    proseCount: prose.length,
+    proseOverflow: prose.filter(el => el.scrollWidth > el.clientWidth + 1).length,
+    inlineCount: inline.length,
+    inlineOverflow: inline.filter(el => el.scrollWidth > el.clientWidth + 1).length,
+    tableCount: tables.length,
+    tablesLocal: tables.every(el => {{
+      const style = view.getComputedStyle(el);
+      return style.overflowX === "auto" && el.scrollWidth >= el.clientWidth;
+    }}),
+    markerVisible: doc.body.innerText.includes("wave:context-efficiency"),
+  }};
+  document.querySelector("#result").textContent = JSON.stringify(result);
+}});
+</script>""",
+                    encoding="utf-8",
+                )
+                command = [
+                    chrome,
+                    "--headless",
+                    "--disable-gpu",
+                    "--no-sandbox",
+                    "--disable-background-networking",
+                    "--disable-component-update",
+                    "--disable-default-apps",
+                    "--disable-sync",
+                    "--metrics-recording-only",
+                    "--no-first-run",
+                    "--allow-file-access-from-files",
+                    f"--user-data-dir={profile}",
+                    f"--window-size={max(width + 20, 520)},{height + 20}",
+                    "--virtual-time-budget=2000",
+                    "--dump-dom",
+                    wrapper.as_uri(),
+                ]
+                try:
+                    rendered = subprocess.run(
+                        command,
+                        capture_output=True,
+                        text=True,
+                        timeout=12,
+                    )
+                    stdout = rendered.stdout
+                    stderr = rendered.stderr
+                    self.assertEqual(rendered.returncode, 0, stderr)
+                except subprocess.TimeoutExpired as exc:
+                    # Some macOS Chrome builds emit the complete dump but keep
+                    # a helper process attached to the output pipe. `run`
+                    # terminates the process on timeout; accept only a complete
+                    # result block, never a partial page.
+                    stdout = exc.stdout or ""
+                    stderr = exc.stderr or ""
+                    if isinstance(stdout, bytes):
+                        stdout = stdout.decode("utf-8", errors="replace")
+                    if isinstance(stderr, bytes):
+                        stderr = stderr.decode("utf-8", errors="replace")
+                match = re.search(
+                    r'<pre id="result"[^>]*>(.*?)</pre>',
+                    stdout,
+                    re.DOTALL,
+                )
+                self.assertIsNotNone(match, stderr[-1000:] + stdout[-2000:])
+                result = json.loads(html.unescape(match.group(1)))
+                self.assertEqual(result["viewport"]["width"], width)
+                for surface in ("page", "dialog", "body"):
+                    self.assertLessEqual(
+                        result[surface]["scrollWidth"],
+                        result[surface]["clientWidth"],
+                        (width, surface, result),
+                    )
+                self.assertGreater(result["proseCount"], 0)
+                self.assertEqual(result["proseOverflow"], 0, result)
+                self.assertGreater(result["inlineCount"], 0)
+                self.assertEqual(result["inlineOverflow"], 0, result)
+                self.assertGreater(result["tableCount"], 0)
+                self.assertTrue(result["tablesLocal"], result)
+                self.assertFalse(result["markerVisible"], result)
 
 
 import threading  # noqa: E402 (already imported above, but needed in test scope)

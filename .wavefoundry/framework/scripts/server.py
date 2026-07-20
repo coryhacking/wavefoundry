@@ -155,10 +155,11 @@ def _isolate_native_stdout_from_protocol() -> None:
 
 def _refresh_mcp_tool_surface(
     mcp_instance: Any,
-) -> tuple[int, list[str], list[dict[str, Any]]]:
+) -> tuple[int, list[str], list[str], list[str], list[dict[str, Any]]]:
     """Tear down and re-register the FastMCP first-party tool set (wave 131d8).
 
-    Returns ``(tools_reregistered_count, description_changed_tools, warnings)``.
+    Returns ``(tools_reregistered_count, description_changed_tools,
+    added_tools, removed_tools, warnings)``.
     ``description_changed_tools`` lists tools whose docstring-derived description
     differs between the pre-reload and post-reload FastMCP registry snapshots —
     when non-empty, the operator's MCP host must perform a full restart to
@@ -185,7 +186,7 @@ def _refresh_mcp_tool_surface(
                 "until a full server restart.",
             )
         )
-        return 0, [], warnings
+        return 0, [], [], [], warnings
     pre_reload = server_impl._registered_mcp_tool_names(mcp_instance)
     pre_descriptions = server_impl._registered_mcp_tool_descriptions(mcp_instance)
     to_refresh = pre_reload - _RELOAD_SURVIVOR_TOOLS
@@ -210,7 +211,7 @@ def _refresh_mcp_tool_surface(
                 f"register_mcp_surface re-registration failed: {exc}",
             )
         )
-        return 0, [], warnings
+        return 0, [], [], [], warnings
     post_reload = server_impl._registered_mcp_tool_names(mcp_instance)
     post_descriptions = server_impl._registered_mcp_tool_descriptions(mcp_instance)
     re_added = len(post_reload & to_refresh)
@@ -222,7 +223,9 @@ def _refresh_mcp_tool_surface(
         for name in (pre_reload | post_reload) - _RELOAD_SURVIVOR_TOOLS
         if pre_descriptions.get(name, "") != post_descriptions.get(name, "")
     )
-    return re_added, description_changed, warnings
+    added_tools = sorted(post_reload - pre_reload)
+    removed_tools = sorted(pre_reload - post_reload)
+    return re_added, description_changed, added_tools, removed_tools, warnings
 
 
 def perform_mcp_reload() -> dict[str, Any]:
@@ -284,10 +287,17 @@ def perform_mcp_reload() -> dict[str, Any]:
         # spec-conformant client honors by re-fetching. If the host doesn't
         # honor the notification, a full restart remains the fallback — the
         # response surfaces that fallback with description_changed_tools.
-        tools_reregistered, description_changed, refresh_warnings = _refresh_mcp_tool_surface(_mcp)
+        (
+            tools_reregistered,
+            description_changed,
+            added_tools,
+            removed_tools,
+            refresh_warnings,
+        ) = _refresh_mcp_tool_surface(_mcp)
         notification_sent = False
         notification_send_error: str | None = None
-        if description_changed:
+        tool_list_changed = bool(description_changed or added_tools or removed_tools)
+        if tool_list_changed:
             try:
                 ctx = _mcp.get_context()
                 session = ctx.request_context.session
@@ -312,38 +322,49 @@ def perform_mcp_reload() -> dict[str, Any]:
         payload["ok"] = True
         payload["tools_reregistered"] = tools_reregistered
         payload["description_changed_tools"] = description_changed
+        payload["added_tools"] = added_tools
+        payload["removed_tools"] = removed_tools
         payload["tool_list_changed_notification_sent"] = notification_sent
         diagnostics = close_warnings + refresh_warnings
-        if description_changed:
+        if tool_list_changed:
+            change_summary = ", ".join(
+                part
+                for part in (
+                    (
+                        "description changes: " + ", ".join(description_changed)
+                        if description_changed
+                        else ""
+                    ),
+                    "added: " + ", ".join(added_tools) if added_tools else "",
+                    "removed: " + ", ".join(removed_tools) if removed_tools else "",
+                )
+                if part
+            )
             if notification_sent:
                 diagnostics.append(
                     server_impl._diagnostic(
                         "tool_list_changed_notification_sent",
-                        "Tool descriptions changed for {n} tool(s): {tools}. "
+                        "The MCP tool list changed ({changes}). "
                         "Sent `notifications/tools/list_changed` to the connected "
                         "MCP client; spec-conformant clients re-fetch `tools/list` "
                         "on receipt and surface the new descriptions without "
                         "operator action. If the new descriptions are not visible "
                         "after this reload, the client may not honor the "
                         "notification — fall back to a full host restart "
-                        "(quit and relaunch Claude Code).".format(
-                            n=len(description_changed),
-                            tools=", ".join(description_changed),
-                        ),
+                        "(quit and relaunch Claude Code).".format(changes=change_summary),
                     )
                 )
             else:
                 diagnostics.append(
                     server_impl._diagnostic(
                         "tool_list_changed_notification_failed",
-                        "Tool descriptions changed for {n} tool(s): {tools}. "
+                        "The MCP tool list changed ({changes}). "
                         "Attempted to send `notifications/tools/list_changed` but "
                         "could not reach the active session ({err}). The MCP host "
                         "will not be told to re-fetch — fall back to a full host "
                         "restart (quit and relaunch Claude Code) to surface the "
-                        "new descriptions.".format(
-                            n=len(description_changed),
-                            tools=", ".join(description_changed),
+                        "new tool list.".format(
+                            changes=change_summary,
                             err=notification_send_error or "unknown",
                         ),
                     )
@@ -381,8 +402,9 @@ def build_server(root: Path):
         description-change-propagation fields (wave 131bt 131bu):
 
         - ``description_changed_tools`` (list[str]): tool names whose docstring-
-          derived description differs from the pre-reload snapshot. Empty list
-          when no descriptions changed.
+          derived description differs from the pre-reload snapshot.
+        - ``added_tools`` / ``removed_tools`` (list[str]): callable tool-set
+          changes detected across the reload.
         - ``tool_list_changed_notification_sent`` (bool): ``True`` when the
           server sent the MCP `notifications/tools/list_changed` protocol
           notification to the connected client after detecting description
@@ -390,7 +412,7 @@ def build_server(root: Path):
           and surface the new descriptions without operator action — no
           restart, no ``/mcp`` reconnect required.
 
-        When description changes were detected, the response also includes a
+        When descriptions or the callable tool set changed, the response also includes a
         structured diagnostic (``tool_list_changed_notification_sent`` on
         success or ``tool_list_changed_notification_failed`` on failure) with
         actionable next steps. If the client does not honor the notification,

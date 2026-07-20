@@ -361,12 +361,30 @@
       const lines = text.split("\n");
       const result = [];
       let listItems = [];
+      let currentListItem = null;
+      let paragraphLines = [];
       let tableLines = [];
       let codeLines = null; // null = not in a code block; [] = collecting
+      let inHtmlComment = false;
       let key = 0;
       let lastH2 = "";
 
+      const flushParagraph = () => {
+        if (paragraphLines.length) {
+          result.push(h("p", { key: key++ }, renderInline(paragraphLines.join(" "))));
+          paragraphLines = [];
+        }
+      };
+
+      const flushCurrentListItem = () => {
+        if (currentListItem && currentListItem.length) {
+          listItems.push(h("li", { key: key++ }, renderInline(currentListItem.join(" "))));
+        }
+        currentListItem = null;
+      };
+
       const flushList = () => {
+        flushCurrentListItem();
         if (listItems.length) {
           result.push(h("ul", { key: key++ }, listItems));
           listItems = [];
@@ -419,10 +437,11 @@
       };
 
       for (const raw of lines) {
-        const line = raw.trim();
+        let visible = raw;
 
         // Fenced code block handling
         if (codeLines !== null) {
+          const line = raw.trim();
           if (line.startsWith("```")) {
             // Closing fence — emit the block
             result.push(h("pre", { key: key++ }, h("code", null, codeLines.join("\n"))));
@@ -432,45 +451,84 @@
           }
           continue;
         }
+
+        // HTML comments are metadata in rendered documents. Strip complete or
+        // multi-line comments outside fences while preserving surrounding text.
+        let rebuilt = "";
+        while (visible.length || inHtmlComment) {
+          if (inHtmlComment) {
+            const end = visible.indexOf("-->");
+            if (end < 0) { visible = ""; break; }
+            visible = visible.slice(end + 3);
+            inHtmlComment = false;
+          }
+          const start = visible.indexOf("<!--");
+          if (start < 0) { rebuilt += visible; break; }
+          rebuilt += visible.slice(0, start);
+          visible = visible.slice(start + 4);
+          inHtmlComment = true;
+        }
+        visible = rebuilt;
+        const line = visible.trim();
+        const commentOnly = !line && raw.trim() && (
+          raw.includes("<!--") || inHtmlComment || raw.includes("-->")
+        );
+        if (commentOnly) continue;
+
         if (line.startsWith("```")) {
+          flushParagraph();
           flushList();
           flushTable();
           codeLines = [];
           continue;
         }
 
-        if (line.startsWith("|")) {
+        if (!line) {
+          flushParagraph();
+          flushList();
+          flushTable();
+        } else if (line.startsWith("|")) {
+          flushParagraph();
           flushList();
           tableLines.push(line);
         } else if (line.startsWith("### ")) {
+          flushParagraph();
           flushList();
           flushTable();
           result.push(h("h3", { key: key++ }, renderInline(line.slice(4))));
         } else if (line.startsWith("## ")) {
+          flushParagraph();
           flushList();
           flushTable();
           lastH2 = line.slice(3).trim();
           result.push(h("h2", { key: key++ }, renderInline(line.slice(3))));
         } else if (line.startsWith("# ")) {
+          flushParagraph();
           flushList();
           flushTable();
           result.push(h("h1", { key: key++ }, renderInline(line.slice(2))));
         } else if (line.startsWith("- ")) {
+          flushParagraph();
           flushTable();
-          listItems.push(h("li", { key: key++ }, renderInline(line.slice(2))));
+          flushCurrentListItem();
+          currentListItem = [line.slice(2)];
+        } else if (currentListItem !== null && /^\s{2,}\S/.test(visible)) {
+          currentListItem.push(line);
         } else if (/^(-{3,}|\*{3,}|_{3,})$/.test(line)) {
           // Thematic break (1p8pg): a standalone rule line (`---`/`***`/`___`) → <hr>. The fenced-code
           // collector above already `continue`d, so a `---` inside a code block stays literal; a `- `
           // list item is unaffected (it requires the trailing space this regex disallows).
+          flushParagraph();
           flushList();
           flushTable();
           result.push(h("hr", { key: key++ }));
         } else {
           flushList();
           flushTable();
-          if (line) result.push(h("p", { key: key++ }, renderInline(line)));
+          paragraphLines.push(line);
         }
       }
+      flushParagraph();
       flushList();
       flushTable();
       // Unclosed fence — emit whatever was collected

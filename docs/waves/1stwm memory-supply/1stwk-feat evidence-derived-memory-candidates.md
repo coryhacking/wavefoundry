@@ -4,7 +4,7 @@ Change ID: `1stwk-feat evidence-derived-memory-candidates`
 Change Status: `implemented`
 Owner: framework
 Status: implemented
-Last verified: 2026-07-17
+Last verified: 2026-07-20
 
 Wave: `1stwm memory-supply`
 
@@ -110,6 +110,7 @@ The agent-memory layer (wave 1ro44) shipped in 1.13.0, but the corpus is empty b
 | ---- | ------ | -------- |
 | 2026-07-17 | Change doc authored from the validated memory-enhancement roadmap | Enhancement plan; guru map of the 1ro44 memory layer |
 | 2026-07-18 | Implemented `memory_supply.py` (draft_candidates: code-anchored Decision Log rows → `decision`, repaired do_now findings → `failed_attempt`/`fragile_file`), `wave_memory_propose` tool (dry_run/create, fenced write, forbidden scan, idempotent via 1stwl normalized_content), `Source exploration cost:` render/parse in `memory_records.py` (from the wave's committed telemetry projection). Verified on real waves (1rsh9 → 6 code-anchored decisions; 1sufq → 0, prose-only). `successful_pattern` ceded to operator authoring (not cleanly derivable from the typed ledger). Docs: seed 004 pointer + README. Memory suite 93 OK. | `memory_supply.py`; `MemoryProposeTests`; live dry-run on 1rsh9/1sufq |
+| 2026-07-18 | Post-close correction in wave 1sxj7: repaired-finding targets now come from linked executable-evidence records; decisions come only from admitted changes and use the escaped-pipe-safe table parser; implementation anchors follow the source-extension policy; source cost reads the live SQLite authority before projection fallback; and public add/propose scan+write regions are serialized. Historical evidence above records the original shipped state. | `1sxmy-bug memory-supply-and-exploration-estimate-integrity`; real-ledger, historical-calibration, concurrency, install/upgrade fixtures |
 
 
 ## Decision Log

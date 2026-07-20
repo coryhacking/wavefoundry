@@ -17,6 +17,12 @@ from typing import Any
 
 import server
 import subprocess_util  # shared subprocess isolation (wave 1p8gu)
+from runtime_lock import (
+    RuntimeFileLock,
+    RuntimeLockBusy,
+    RuntimeLockError,
+    write_json_in_place,
+)
 from review_evidence import (
     REVIEW_EVIDENCE_SOURCE,
     adopted_protocol_state,
@@ -24,6 +30,10 @@ from review_evidence import (
     parse_review_evidence_source,
     read_review_event_ledger,
     render_review_evidence_projection,
+    render_review_status_projection,
+    required_review_status_keys,
+    review_status_human_table,
+    review_status_rows,
     validate_adopted_protocol_state,
     validate_review_evidence_records,
 )
@@ -36,7 +46,27 @@ _SECTION_RE = re.compile(r"^##\s+(.+)$", re.MULTILINE)
 # Wave 1p31b (1p32k): include `~` as a valid checkbox mark for intentionally-deferred
 # tasks and ACs. The dashboard renders `[~]` as a distinct third state (not done, not
 # pending) and excludes `[~]` items from progress denominators.
-_TASK_RE = re.compile(r"^\s*-\s+(?:(?:\[(?P<mark>[ xX~])\])\s+)?(?P<label>.+?)\s*$", re.MULTILINE)
+_TASK_ITEM_START_RE = re.compile(
+    r"^(?P<indent>[ \t]*)-\s+(?:(?:\[(?P<mark>[ xX~])\])\s+)?(?P<text>.+?)\s*$"
+)
+_AC_ITEM_START_RE = re.compile(
+    r"^(?P<indent>[ \t]*)(?:-|\d+\.)\s+"
+    r"(?:(?:\[(?P<mark>[ xX~])\])\s+)?(?P<text>.+?)\s*$"
+)
+_ANY_LIST_ITEM_RE = re.compile(r"^(?:[-+*]|\d+[.)])(?:\s+|$)")
+_MARKDOWN_STRUCTURAL_LINE_RE = re.compile(
+    r"^(?:#{1,6}(?:\s+|$)|>|`{3,}|~{3,}|\|)"
+)
+_MARKDOWN_THEMATIC_BREAK_RE = re.compile(
+    r"^(?:(?:\*\s*){3,}|(?:-\s*){3,}|(?:_\s*){3,})$"
+)
+_MARKDOWN_TABLE_SEPARATOR_RE = re.compile(
+    r"^\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?$"
+)
+# `---` is intentionally reserved for the section grammar's thematic-break
+# boundary. Recognizing it as a Setext underline would retroactively consume
+# the preceding accepted continuation; `=` is the unambiguous Setext form.
+_MARKDOWN_SETEXT_UNDERLINE_RE = re.compile(r"^=+\s*$")
 _ACTIVE_WAVE_RE = re.compile(r"^\*\*Active wave:\*\*\s+(.+)$", re.MULTILINE)
 # Wave 1p9hl: extract the `--root` value from a process command line, quote-aware. Handles both
 # `--root <value>` and `--root=<value>`, each either double-quoted (spaces allowed — the Windows
@@ -193,60 +223,38 @@ def dashboard_metadata_path(root: Path) -> Path:
     # Wave 1p8pf: on Windows `msvcrt.locking` is mandatory, so the lifetime lock is taken on a
     # SENTINEL byte at `_LOCK_BYTE_OFFSET` (not byte 0) — the metadata JSON written at byte 0+ stays
     # disjoint from the lock region, so the holder's own metadata rewrite is not blocked.
-    return root / ".wavefoundry" / DASHBOARD_SERVER_LOCK_NAME
+    return root / ".wavefoundry" / "locks" / DASHBOARD_SERVER_LOCK_NAME
 
 
 def dashboard_lock_path(root: Path, name: str) -> Path:
-    return root / ".wavefoundry" / name
+    return root / ".wavefoundry" / "locks" / name
 
 
 @contextlib.contextmanager
 def dashboard_lock(root: Path, name: str):
     """Acquire a non-blocking OS lock for dashboard process coordination."""
     lock_path = dashboard_lock_path(root, name)
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    fh = lock_path.open("a+", encoding="utf-8")
-    acquired = False
+    lock = RuntimeFileLock(
+        lock_path,
+        blocking=False,
+        offset=_LOCK_BYTE_OFFSET,
+    )
     try:
-        if os.name == "nt":
-            import msvcrt
-            try:
-                # Wave 1p8pf: lock a SENTINEL byte at a high fixed offset, NOT byte 0 — msvcrt.locking
-                # is mandatory byte-range, so a byte-0 lock would block the daemon's own separate-handle
-                # metadata rewrite (write_dashboard_metadata at byte 0+) and stop it publishing `url`.
-                fh.seek(_LOCK_BYTE_OFFSET)
-                msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
-                acquired = True
-            except OSError as exc:
-                raise DashboardLockBusy(f"Dashboard lock busy: {lock_path}") from exc
-        else:
-            import fcntl
-            try:
-                fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-                acquired = True
-            except BlockingIOError as exc:
-                raise DashboardLockBusy(f"Dashboard lock busy: {lock_path}") from exc
-
-        # Initial content write lives at byte 0+ (a small JSON), far below the Windows sentinel offset,
-        # so the truncate does not disturb the beyond-EOF sentinel-byte lock.
-        fh.seek(0)
-        fh.truncate()
-        fh.write(json.dumps({"pid": os.getpid(), "started_at": time.time(), "lock": name}))
-        fh.flush()
+        lock.acquire()
+    except RuntimeLockBusy as exc:
+        raise DashboardLockBusy(f"Dashboard lock busy: {lock_path}") from exc
+    try:
+        lock.write_metadata({"pid": os.getpid(), "started_at": time.time(), "lock": name})
         yield
     finally:
-        if acquired:
-            try:
-                if os.name == "nt":
-                    import msvcrt
-                    fh.seek(_LOCK_BYTE_OFFSET)  # unlock the SAME sentinel byte we locked
-                    msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
-                else:
-                    import fcntl
-                    fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
-            except OSError:
-                pass
-        fh.close()
+        # Preserve the dashboard wrapper's established best-effort release
+        # policy. The generic engine exposes typed release errors so stricter
+        # consumers may fail closed; dashboard shutdown must not mask the
+        # result of the operation that ran while the lock was held.
+        try:
+            lock.release()
+        except RuntimeLockError:
+            pass
 
 
 def dashboard_start_lock(root: Path):
@@ -273,8 +281,7 @@ def write_dashboard_metadata(root: Path, payload: dict[str, Any]) -> None:
     # sentinel byte at `_LOCK_BYTE_OFFSET`, so this byte-0+ rewrite no longer collides with the
     # daemon's own mandatory byte-range lock (the bug: it could not publish `url`).
     path = dashboard_metadata_path(root)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    write_json_in_place(path, payload)
 
 
 def _windows_process_cmdlines() -> str | None:
@@ -549,7 +556,9 @@ def _extract_section(text: str, heading: str) -> str:
     body = text[match.end() :].lstrip("\r\n")
     end_match = re.search(r"(?m)^##\s+", body)
     section = body[: end_match.start()] if end_match else body
-    return section.strip()
+    # Preserve horizontal indentation. The AC/task parser uses common marker
+    # indentation to distinguish top-level siblings from nested list content.
+    return section.strip("\r\n")
 
 
 def _markdown_table_rows(section_text: str) -> list[list[str]]:
@@ -608,12 +617,109 @@ def _parse_progress_log(section_text: str) -> list[dict[str, str]]:
     return result
 
 
+def _indent_width(indent: str) -> int:
+    """Return a stable display width for list indentation."""
+
+    return len(indent.expandtabs(4))
+
+
+def _is_list_item_boundary(stripped: str) -> bool:
+    """Return whether a nonblank indented line is structural, not prose continuation."""
+
+    if _ANY_LIST_ITEM_RE.match(stripped):
+        return True
+    if _MARKDOWN_STRUCTURAL_LINE_RE.match(stripped):
+        return True
+    if _MARKDOWN_THEMATIC_BREAK_RE.match(stripped):
+        return True
+    # A conventional Markdown table row may omit the leading pipe.
+    if stripped.endswith("|") and "|" in stripped[:-1]:
+        return True
+    return False
+
+
+def _parse_bounded_list_items(
+    section_text: str,
+    start_re: re.Pattern[str],
+) -> list[dict[str, str]]:
+    """Parse top-level list items and their indented prose continuations.
+
+    This intentionally implements only the dashboard's AC/task section grammar,
+    not general Markdown. The shallowest accepted marker indentation defines the
+    section's top level. Blank, unindented, structural, or nested-list lines end
+    the current item and are never absorbed into its inline dialog text.
+    """
+
+    lines = section_text.splitlines()
+    paired_structural_boundaries: set[int] = set()
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if _MARKDOWN_TABLE_SEPARATOR_RE.match(stripped):
+            paired_structural_boundaries.add(index)
+            if index > 0 and "|" in lines[index - 1]:
+                paired_structural_boundaries.add(index - 1)
+        if _MARKDOWN_SETEXT_UNDERLINE_RE.match(stripped):
+            paired_structural_boundaries.add(index)
+            if index > 0 and lines[index - 1].strip():
+                paired_structural_boundaries.add(index - 1)
+    starts = [
+        match
+        for line in lines
+        if (match := start_re.match(line)) is not None
+    ]
+    if not starts:
+        return []
+    base_indent = min(_indent_width(match.group("indent")) for match in starts)
+    items: list[dict[str, str]] = []
+    current: dict[str, Any] | None = None
+
+    def finish_current() -> None:
+        nonlocal current
+        if current is None:
+            return
+        items.append(
+            {
+                "mark": str(current["mark"]),
+                "text": " ".join(current["parts"]),
+            }
+        )
+        current = None
+
+    for index, line in enumerate(lines):
+        match = start_re.match(line)
+        if match is not None and _indent_width(match.group("indent")) == base_indent:
+            finish_current()
+            current = {
+                "mark": (match.group("mark") or "").strip().lower(),
+                "parts": [match.group("text").strip()],
+            }
+            continue
+        if current is None:
+            continue
+        stripped = line.strip()
+        if not stripped:
+            finish_current()
+            continue
+        leading = line[: len(line) - len(line.lstrip(" \t"))]
+        if (
+            _indent_width(leading) <= base_indent
+            or index in paired_structural_boundaries
+            or _is_list_item_boundary(stripped)
+        ):
+            finish_current()
+            continue
+        current["parts"].append(stripped)
+
+    finish_current()
+    return items
+
+
 def _parse_tasks(tasks_section: str, change_status: str) -> dict[str, Any]:
     tasks = []
     completed = 0
     deferred = 0
-    for match in _TASK_RE.finditer(tasks_section):
-        mark = (match.group("mark") or "").strip().lower()
+    for parsed in _parse_bounded_list_items(tasks_section, _TASK_ITEM_START_RE):
+        mark = parsed["mark"]
         # Wave 1p31b (1p32k): `[~]` = intentionally deferred. Wave 1p458 (1p45a): deferred
         # tasks stay in the denominator and read as outstanding while the wave is open;
         # they fold into done only once the wave is closed (see the progress builder).
@@ -624,7 +730,7 @@ def _parse_tasks(tasks_section: str, change_status: str) -> dict[str, Any]:
         elif done:
             completed += 1
         tasks.append({
-            "label": match.group("label").strip(),
+            "label": parsed["text"],
             "done": done,
             "deferred": is_deferred,
         })
@@ -638,9 +744,6 @@ def _parse_tasks(tasks_section: str, change_status: str) -> dict[str, Any]:
         "deferred": deferred,
         "items": tasks,
     }
-
-
-_AC_LINE_RE = re.compile(r"^\s*(?:-|\d+\.)\s+(?:(?:\[(?P<mark>[ xX~])\])\s+)?(?P<text>.+?)\s*$", re.MULTILINE)
 
 
 def _parse_ac_items(ac_section: str, priority_section: str, change_status: str) -> list[dict[str, Any]]:
@@ -662,11 +765,13 @@ def _parse_ac_items(ac_section: str, priority_section: str, change_status: str) 
             priority_map[ac_id] = priority
 
     items = []
-    for index, match in enumerate(_AC_LINE_RE.finditer(ac_section)):
-        mark = (match.group("mark") or "").strip().lower()
+    for index, parsed in enumerate(
+        _parse_bounded_list_items(ac_section, _AC_ITEM_START_RE)
+    ):
+        mark = parsed["mark"]
         is_deferred = mark == "~"
         done = (mark == "x") if mark else _is_terminal_change_status(change_status)
-        text = match.group("text").strip()
+        text = parsed["text"]
         id_match = _AC_ID_RE.search(text)
         ac_id = id_match.group(1) if id_match else ""
         priority = priority_map.get(ac_id)
@@ -870,11 +975,21 @@ def _review_evidence_dashboard_state(
             "diagnostics": diagnostics,
         }
 
-    projection = render_review_evidence_projection(
-        empty_external_finding_synthesis_section(), records
-    ).strip()
+    status_keys = required_review_status_keys(root, text, records)
+    projection = (
+        render_review_evidence_projection(
+            empty_external_finding_synthesis_section(), records
+        ).strip()
+        + "\n\n"
+        + review_status_human_table(records, status_keys)
+    )
     try:
         expected_wave = render_review_evidence_projection(text, records)
+        expected_wave = render_review_status_projection(
+            expected_wave,
+            records,
+            status_keys,
+        )
     except ValueError:
         projection_status = "missing"
     else:
@@ -885,26 +1000,20 @@ def _review_evidence_dashboard_state(
             "wave.md review evidence projection is "
             f"{projection_status}; current state was derived from events.jsonl"
         )
-    approvals_by_key: dict[str, dict[str, str]] = {}
-    for record in records:
-        if (
-            record.get("record_type") != "executable_evidence"
-            or record.get("claim_kind") != "approval"
-        ):
-            continue
-        claim_id = str(record.get("claim_id", ""))
-        if not claim_id.startswith("approval:"):
-            continue
-        key = claim_id.removeprefix("approval:")
-        approvals_by_key[key] = {
-            "key": key,
-            "value": str(record.get("observed", "recorded")),
+    approvals = [
+        {
+            "key": str(row["signoff_key"]),
+            "value": str(row["state"]),
+            "why": str(row["why"]),
+            "next_action": str(row["next_action"]),
         }
+        for row in review_status_rows(records, status_keys)
+    ]
     return {
         "integrity": "ok",
         "projection_status": projection_status,
         "projection": projection,
-        "approvals": list(approvals_by_key.values()),
+        "approvals": approvals,
         "diagnostics": projection_diagnostics,
     }
 

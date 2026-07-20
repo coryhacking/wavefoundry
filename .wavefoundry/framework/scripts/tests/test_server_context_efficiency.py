@@ -813,6 +813,16 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
                 },
                 ["h.py"],
             ),
+            "code_commit_provenance": (
+                {
+                    "provenance": [
+                        {"path": "wave.md", "rationale": "why"},
+                        {"path": "change.md", "excerpt": "decision"},
+                        {"path": "empty.md", "relevance": "wave_level"},
+                    ]
+                },
+                ["change.md", "wave.md"],
+            ),
         }
         for tool_name, (data, expected) in cases.items():
             with self.subTest(tool=tool_name):
@@ -1034,6 +1044,60 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
             }
             self.assertFalse(srv._implementation_review_complete(incomplete))
             self.assertTrue(srv._implementation_review_complete(complete))
+
+    def test_failed_mutating_lifecycle_does_not_transfer_general(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            wave_id = "1aaaa failed"
+            wave_md = root / "docs" / "waves" / wave_id / "wave.md"
+            wave_md.parent.mkdir(parents=True)
+            wave_md.write_text(
+                "# Wave Record\n\nStatus: planned\n", encoding="utf-8"
+            )
+            handler = SimpleNamespace(
+                root=root, telemetry=ce.ProcessTelemetry(root)
+            )
+            handler.telemetry.record_retrieval(
+                {
+                    "estimated_request_tokens": 1,
+                    "estimated_returned_tokens": 1,
+                    "estimated_source_tokens": 10,
+                    "estimated_avoided_tokens": 8,
+                    "source_files_counted": 0,
+                    "source_files_verified": 0,
+                    "source_files_estimated": 0,
+                    "captured": True,
+                    "persistence": "pending",
+                    "method": ce.RETRIEVAL_METHOD,
+                },
+                event_id="general",
+            )
+            failed = {
+                "status": "error",
+                "data": {"wave_id": wave_id, "failed": True},
+                "diagnostics": [],
+            }
+            srv._lifecycle_context_result(
+                handler,
+                "wave_prepare",
+                wave_id,
+                failed,
+                focus_stage="prepare",
+                credit=False,
+                flush=True,
+                transfer_general=True,
+            )
+            self.assertEqual(
+                ce.read_general_totals(root, handler.telemetry.producer_id)[
+                    "calls"
+                ],
+                1,
+            )
+            self.assertNotIn(
+                "pre-wave", ce.read_wave_snapshot(root, wave_id)["stages"]
+            )
+            handler.telemetry.close()
 
     def test_incomplete_error_review_still_sets_review_focus_without_credit(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1545,6 +1609,97 @@ if flushed is None or not flushed.success:
                 25.0,
                 f"lifecycle flush/projection warm p95 {flush_p95:.3f}ms",
             )
+
+    def test_closed_projection_seals_compacts_and_clears_process_focus(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            wave_id = "1aaaa closed"
+            wave_md = root / "docs" / "waves" / wave_id / "wave.md"
+            wave_md.parent.mkdir(parents=True)
+            wave_md.write_text(
+                "# Wave Record\n\nStatus: closed\n", encoding="utf-8"
+            )
+            handler = SimpleNamespace(
+                root=root, telemetry=ce.ProcessTelemetry(root)
+            )
+            handler.telemetry.set_focus(wave_id, "close", new_phase=True)
+            handler.telemetry.record_retrieval(
+                {
+                    "estimated_request_tokens": 1,
+                    "estimated_returned_tokens": 1,
+                    "estimated_source_tokens": 0,
+                    "estimated_avoided_tokens": 0,
+                    "source_files_counted": 0,
+                    "source_files_verified": 0,
+                    "source_files_estimated": 0,
+                    "captured": True,
+                    "persistence": "pending",
+                    "method": ce.RETRIEVAL_METHOD,
+                },
+                event_id="close-event",
+            )
+            projection, flushed = srv._flush_context_efficiency(
+                handler, wave_id
+            )
+            self.assertIsNotNone(flushed)
+            self.assertEqual(projection["projection"], "published")
+            self.assertTrue(projection["sealed"])
+            self.assertTrue(projection["compacted"])
+            self.assertIsNone(handler.telemetry.focus.wave_id)
+            conn = sqlite3.connect(ce.store_path(root))
+            self.assertEqual(
+                conn.execute(
+                    "SELECT COUNT(*) FROM telemetry_event WHERE wave_id=?",
+                    (wave_id,),
+                ).fetchone()[0],
+                0,
+            )
+            conn.close()
+            handler.telemetry.close()
+
+    def test_failed_close_compaction_stays_pending_and_retries(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            wave_id = "1aaaa retry"
+            wave_md = root / "docs" / "waves" / wave_id / "wave.md"
+            wave_md.parent.mkdir(parents=True)
+            wave_md.write_text(
+                "# Wave Record\n\nStatus: closed\n", encoding="utf-8"
+            )
+            handler = SimpleNamespace(
+                root=root, telemetry=ce.ProcessTelemetry(root)
+            )
+            handler.telemetry.set_focus(wave_id, "close", new_phase=True)
+            handler.telemetry.record_retrieval(
+                {
+                    "estimated_request_tokens": 1,
+                    "estimated_returned_tokens": 1,
+                    "estimated_source_tokens": 0,
+                    "estimated_avoided_tokens": 0,
+                    "source_files_counted": 0,
+                    "source_files_verified": 0,
+                    "source_files_estimated": 0,
+                    "captured": True,
+                    "persistence": "pending",
+                    "method": ce.RETRIEVAL_METHOD,
+                },
+                event_id="close-event",
+            )
+            with patch.object(
+                srv.context_efficiency,
+                "compact_published_wave",
+                return_value=False,
+            ):
+                first, _ = srv._flush_context_efficiency(handler, wave_id)
+            self.assertEqual(first["projection"], "pending")
+            self.assertIn(wave_id, ce.pending_wave_ids(root)["pending"])
+            second, _ = srv._flush_context_efficiency(handler, wave_id)
+            self.assertEqual(second["projection"], "published")
+            self.assertTrue(second["compacted"])
+            self.assertNotIn(wave_id, ce.pending_wave_ids(root)["pending"])
+            handler.telemetry.close()
 
 
 if __name__ == "__main__":

@@ -61,6 +61,21 @@ def _make_completed_process(returncode: int):
 class SetupWavefoundryTests(unittest.TestCase):
     def setUp(self):
         self.mod = load_setup_wavefoundry()
+        import memory_backfill
+        gate = patch.object(
+            memory_backfill,
+            "sync_inventory",
+            return_value={
+                "run_id": "test-run",
+                "state": "ready_for_index",
+                "eligible_waves": 0,
+            },
+        )
+        gate.start()
+        self.addCleanup(gate.stop)
+        mark = patch.object(memory_backfill, "mark_indexed", return_value=None)
+        mark.start()
+        self.addCleanup(mark.stop)
         # Wave 1p7pm: setup `main` calls venv_bootstrap.ensure_python_resolves() after Step 1, which
         # is SIDE-EFFECTING (creates ~/.local/bin/python3 + may append to the shell rc). These tests
         # mock Step 1 to succeed, so they would reach that heal against the REAL machine — patch it to
@@ -88,7 +103,13 @@ class SetupWavefoundryTests(unittest.TestCase):
             result = self.mod.main(["--root", "/tmp/repo", "--full"])
 
         self.assertEqual(result, 0)
-        self.assertEqual(delegated, [["--root", "/tmp/repo", "--full"]])
+        self.assertEqual(
+            delegated,
+            [
+                ["--root", "/tmp/repo", "--full", "--deps-only"],
+                ["--root", "/tmp/repo", "--full"],
+            ],
+        )
 
     def test_step_2_failure_aborts_before_step_3(self):
         class FakeSetupIndex:
@@ -122,7 +143,7 @@ class SetupWavefoundryTests(unittest.TestCase):
 
         self.assertEqual(result, 0)
         render_mock.assert_called_once_with(Path.cwd().resolve())
-        self.assertEqual(events, ["render", "index"])
+        self.assertEqual(events, ["render", "index", "index"])
 
     def test_step_1_failure_aborts_before_index_and_step_3(self):
         class FakeSetupIndex:
@@ -331,9 +352,14 @@ class PublicSetupReviewProtocolIntegrationTests(unittest.TestCase):
             except OSError as exc:
                 self.skipTest(f"directory symlinks unavailable: {exc}")
 
+            import memory_backfill
             with patch.object(mod, "_load_setup_index", return_value=FakeSetupIndex), \
                  patch.object(mod, "_run_mcp_server_dry_run", return_value=0), \
                  patch.object(mod.venv_bootstrap, "ensure_python_resolves", return_value="ok"), \
+                 patch.object(memory_backfill, "sync_inventory", return_value={
+                     "run_id": "test-run", "state": "ready_for_index", "eligible_waves": 0,
+                 }), \
+                 patch.object(memory_backfill, "mark_indexed", return_value=None), \
                  patch.dict(os.environ, {"WAVEFOUNDRY_SKIP_PYTHON_HEAL": "1"}, clear=False), \
                  redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
                 self.assertNotEqual(mod.main(["--root", str(root)]), 0)
@@ -460,7 +486,11 @@ class PublicSetupReviewProtocolIntegrationTests(unittest.TestCase):
 
             text = first.decode("utf-8")
             self.assertTrue(first.startswith(original), "project-authored bytes must remain an exact prefix")
-            self.assertEqual(observed, [True, True], "both setup index passes must see rendered carriers")
+            self.assertEqual(
+                observed,
+                [True, True, True, True],
+                "dependency and index passes must both see rendered carriers",
+            )
             self.assertTrue(text.startswith(prefix))
             self.assertIn(suffix.strip(), text)
             self.assertIn(ras.REVIEW_PROTOCOL_MARKER_BEGIN, text)
@@ -532,8 +562,24 @@ class PublicSetupReviewProtocolIntegrationTests(unittest.TestCase):
                     500,
                 )
             self.assertIn(
+                "wave_memory_validate",
+                prompt_root.joinpath("review-wave.prompt.md").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "wave_memory_validate",
+                prompt_root.joinpath("close-wave.prompt.md").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
                 ".wavefoundry/logs/",
                 (root / ".gitignore").read_text(encoding="utf-8"),
+            )
+            self.assertFalse(
+                (
+                    root
+                    / ".wavefoundry"
+                    / "locks"
+                    / "producers"
+                ).exists()
             )
             self.assertFalse(
                 (root / ".wavefoundry" / "logs" / "context-efficiency.sqlite").exists()
@@ -569,10 +615,6 @@ class PublicSetupReviewProtocolIntegrationTests(unittest.TestCase):
 
         self.assertEqual(result, 29)
         self.assertEqual(observed, [False])
-
-
-if __name__ == "__main__":
-    unittest.main()
 
 
 class GpuDoctorCheckTests(unittest.TestCase):
@@ -694,7 +736,6 @@ class LifecyclePolicyStepZeroTests(unittest.TestCase):
         self.assertEqual(rc, 0)
         pol = json.loads(self.cfg.read_text(encoding="utf-8"))["lifecycle_id_policy"]
         self.assertEqual(pol["scheme_version"], "v2")
-
     def test_existing_policy_block_left_untouched(self):
         import json
         original = json.dumps({"lifecycle_id_policy": {
@@ -743,7 +784,11 @@ class LifecyclePolicyStepZeroTests(unittest.TestCase):
         class FakeSetupIndex:
             @staticmethod
             def main(argv):
-                order.append("setup_index")
+                order.append(
+                    "setup_deps"
+                    if "--deps-only" in (argv or [])
+                    else "setup_index"
+                )
                 return 0
 
         real = self.mod._provision_lifecycle_policy_if_absent
@@ -759,6 +804,10 @@ class LifecyclePolicyStepZeroTests(unittest.TestCase):
              redirect_stdout(io.StringIO()):
             rc = self.mod.main(["--root", str(self.root)])
         self.assertEqual(rc, 0)
-        self.assertEqual(order, ["provision", "setup_index"])
+        self.assertEqual(order, ["provision", "setup_deps", "setup_index"])
         pol = json.loads(self.cfg.read_text(encoding="utf-8"))["lifecycle_id_policy"]
         self.assertEqual(pol["scheme_version"], "v2")
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -11,13 +11,15 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import sqlite3
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
 
@@ -274,11 +276,6 @@ class MemoryToolTests(_MemoryCase):
         self.assertEqual(
             brief["data"]["community_scoped"][0]["memory_id"], "mem-fragile-area")
 
-
-if __name__ == "__main__":
-    unittest.main()
-
-
 class ActionTimeAdvisoryTests(_MemoryCase):
     """1p8gy AC-5/AC-6: capped memory advisories on hot read tools and
     lifecycle surfaces, with graceful absence everywhere."""
@@ -346,10 +343,10 @@ class LifecyclePromptTextTests(unittest.TestCase):
             self.skipTest(f"surface not present: {rel}")
         return path.read_text(encoding="utf-8")
 
-    def test_close_prompt_requires_the_distillation_checkpoint(self):
+    def test_close_prompt_requires_the_agent_validation_checkpoint(self):
         text = self._text("docs/prompts/close-wave.prompt.md")
-        self.assertIn("Memory Distillation Checkpoint", text)
-        for word in ("promote", "reject", "defer", "wave_memory_reconcile"):
+        self.assertIn("Agent Memory Validation Checkpoint", text)
+        for word in ("promote", "reject", "retain", "rewrite", "wave_memory_validate"):
             self.assertIn(word, text)
 
     def test_review_and_pause_prompts_propose_candidates(self):
@@ -365,7 +362,8 @@ class LifecyclePromptTextTests(unittest.TestCase):
 
     def test_seed_100_carries_the_canonical_directives(self):
         text = self._text(".wavefoundry/framework/seeds/100-project-prompt-surface-bootstrap.prompt.md")
-        self.assertIn("Memory distillation checkpoint", text)
+        self.assertIn("Memory validation checkpoint", text)
+        self.assertIn("wave_memory_validate", text)
         self.assertIn("wave_memory_brief(context='pre_implementation'", text)
         self.assertIn("- **pause-wave**:", text)
 
@@ -1360,7 +1358,7 @@ class FindDuplicatesTests(_MemoryCase):
         self.assertEqual(len(dups), 1)
         self.assertIn("evidence_ref", dups[0]["signals"])
         self.assertEqual(dups[0]["memory_id"], "mem-a")
-        self.assertEqual(dups[0]["shared_evidence"], ["`ev-42`"])
+        self.assertEqual(dups[0]["shared_evidence"], ["ev-42"])
 
     def test_normalized_summary_match_flags_duplicate(self):
         existing = [self._rec("mem-a", summary="The Chunker regresses, silently!")]
@@ -1382,6 +1380,24 @@ class FindDuplicatesTests(_MemoryCase):
         existing = [self._rec("mem-a", summary="same words", targets=["src/a.py"])]
         cand = self._rec("mem-b", summary="same words", targets=["src/b.py"],
                          evidence=["`ev-2`"])
+        self.assertEqual(self.mem.find_duplicates(cand, existing), [])
+
+    def test_unicode_letters_are_not_erased_into_a_false_duplicate(self):
+        existing = [self._rec("mem-a", summary="修复解析器", targets=["src/a.py"])]
+        cand = self._rec(
+            "mem-b", summary="修复缓存", targets=["src/a.py"], evidence=["`ev-2`"]
+        )
+        self.assertEqual(self.mem.find_duplicates(cand, existing), [])
+        self.assertNotEqual(
+            self.mem.normalize_summary(existing[0]["summary"]),
+            self.mem.normalize_summary(cand["summary"]),
+        )
+
+    def test_generic_wave_reference_is_not_duplicate_evidence(self):
+        existing = [self._rec("mem-a", summary="first", evidence=["`1abcd`"])]
+        cand = self._rec(
+            "mem-b", summary="second", evidence=["1abcd"], targets=["src/a.py"]
+        )
         self.assertEqual(self.mem.find_duplicates(cand, existing), [])
 
     def test_history_records_are_never_duplicates(self):
@@ -1457,6 +1473,31 @@ class MemoryAddDuplicateDiagnosticTests(_MemoryCase):
         self.assertFalse(any(d["code"] == "possible_duplicate"
                              for d in resp["diagnostics"]))
 
+    def test_concurrent_abort_if_duplicate_serializes_scan_and_write(self):
+        barrier = threading.Barrier(2)
+        results = []
+
+        def run(index):
+            barrier.wait()
+            results.append(
+                self._add(
+                    "Same concurrent lesson.", ["`ev-concurrent`"],
+                    ["src/a.py"], f"mem-concurrent-{index}",
+                    abort_if_duplicate=True,
+                )
+            )
+
+        threads = [threading.Thread(target=run, args=(index,)) for index in range(2)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=10)
+        self.assertFalse(any(thread.is_alive() for thread in threads))
+        self.assertEqual(sorted(result["status"] for result in results), ["error", "ok"])
+        self.assertEqual(
+            len(list((self.root / self.mem.MEMORY_DIR).glob("*.md"))), 1
+        )
+
 
 class MemoryProposeTests(_MemoryCase):
     """Wave 1stwk: draft candidate records from a wave's typed review evidence."""
@@ -1483,7 +1524,10 @@ class MemoryProposeTests(_MemoryCase):
             ce = ("\n## Context Efficiency\n\n<!-- wave:context-efficiency-state "
                   + json.dumps({"totals": ce_totals}) + " -->\n")
         (d / "wave.md").write_text(
-            f"# Wave\n\nwave-id: `{wave_id} {slug}`\n{ce}", encoding="utf-8")
+            f"# Wave\n\nwave-id: `{wave_id} {slug}`\n\n"
+            f"Change ID: `{change_id}`\n\n"
+            f"review-evidence-source: events.jsonl\n{ce}", encoding="utf-8")
+        (d / "events.jsonl").write_bytes(b"")
         return change_id
 
     def test_drafts_only_code_anchored_decisions(self):
@@ -1499,12 +1543,40 @@ class MemoryProposeTests(_MemoryCase):
         self.assertEqual(draft["targets"], ["src/foo.py"])
         self.assertEqual(draft["source_exploration_cost"], 1000)
 
+    def test_only_admitted_change_docs_supply_decisions(self):
+        self._wave(
+            "1aaaa", "demo",
+            decision_rows=[("Use `src/kept.py`", "admitted")],
+        )
+        wave_dir = self.root / "docs" / "waves" / "1aaaa demo"
+        (wave_dir / "1zzzz-feat stray.md").write_text(
+            "# Stray\n\nChange ID: `1zzzz-feat stray`\n\n## Decision Log\n\n"
+            "| Date | Decision | Reason | Alternatives |\n"
+            "| --- | --- | --- | --- |\n"
+            "| 2026-01-01 | Use `src/stray.py` | unadmitted | none |\n",
+            encoding="utf-8",
+        )
+        drafts = self.supply.draft_candidates(self.root, "1aaaa")
+        self.assertEqual([draft["targets"] for draft in drafts], [["src/kept.py"]])
+
+    def test_decision_parser_preserves_escaped_and_inline_code_pipes(self):
+        rows = self.supply._decision_log_rows(
+            "## Decision Log\n\n"
+            "| Date | Decision | Reason | Alternatives |\n"
+            "| --- | --- | --- | --- |\n"
+            "| 2026-01-01 | Use `src/a.py` with `x|y` | left \\| right | none |\n"
+        )
+        self.assertEqual(len(rows), 1)
+        self.assertIn("`x|y`", rows[0]["decision"])
+        self.assertEqual(rows[0]["reason"], "left \\| right")
+
     def test_create_writes_candidate_and_stamps_cost(self):
         cid = self._wave("1aaaa", "demo",
                          decision_rows=[("Fix `src/foo.py`", "reason")],
                          ce_totals={"request_debit": 10, "response_debit": 40})
         r = self.srv.wave_memory_propose_response(self.root, "1aaaa", "create")
-        self.assertEqual(r["data"]["records_promoted"], 1)
+        self.assertEqual(r["data"]["records_written"], 1)
+        self.assertEqual(r["data"]["records_promoted"], 0)
         rec = self.mem.parse_memory_record(self.root / r["data"]["written"][0]["path"])
         self.assertEqual(rec["status"], "candidate", "never auto-promotes to active")
         self.assertEqual(rec["source_exploration_cost"], 50)
@@ -1512,21 +1584,127 @@ class MemoryProposeTests(_MemoryCase):
         self.assertIn(cid, rec["evidence_refs"])
         self.assertIn("src/foo.py", rec["target_refs"])
 
+    def test_live_sqlite_cost_supersedes_stale_markdown_projection(self):
+        self._wave(
+            "1aaaa", "demo",
+            decision_rows=[("Fix `src/foo.py`", "reason")],
+            ce_totals={"request_debit": 1, "response_debit": 2},
+        )
+        ce = _load("context_efficiency")
+        conn = ce._open_write_store(self.root)
+        conn.execute(
+            "INSERT INTO phase_state(wave_id,phase_id,stage,ordinal,created_at)"
+            " VALUES('1aaaa demo','implement-1','implement',1,1)"
+        )
+        conn.execute(
+            "INSERT INTO telemetry_event("
+            "event_id,producer_id,wave_id,phase_id,stage,tool_name,event_kind,"
+            "request_tokens,response_tokens,workflow_prompt_tokens,"
+            "source_credits_dropped,created_at"
+            ") VALUES('event-1','producer','1aaaa demo','implement-1',"
+            "'implement','code_read','retrieval',40,60,0,0,1)"
+        )
+        conn.commit()
+        conn.close()
+        wave_dir = self.root / "docs" / "waves" / "1aaaa demo"
+        self.assertEqual(self.supply.source_exploration_cost(wave_dir), 100)
+
+    def test_authoritative_zero_sqlite_cost_does_not_revive_stale_projection(self):
+        self._wave(
+            "1aaaa", "demo",
+            decision_rows=[("Fix `src/foo.py`", "reason")],
+            ce_totals={"request_debit": 400, "response_debit": 600},
+        )
+        ce = _load("context_efficiency")
+        conn = ce._open_write_store(self.root)
+        conn.execute(
+            "INSERT INTO wave_state(wave_id,generation,pending,measurement_status)"
+            " VALUES('1aaaa demo',1,0,'healthy')"
+        )
+        conn.commit()
+        conn.close()
+        wave_dir = self.root / "docs" / "waves" / "1aaaa demo"
+        self.assertEqual(self.supply.source_exploration_cost(wave_dir), 0)
+
     def test_create_is_idempotent(self):
         self._wave("1aaaa", "demo", decision_rows=[("Fix `src/foo.py`", "reason")])
         first = self.srv.wave_memory_propose_response(self.root, "1aaaa", "create")
-        self.assertEqual(first["data"]["records_promoted"], 1)
+        self.assertEqual(first["data"]["records_written"], 1)
+        self.assertEqual(first["data"]["records_promoted"], 0)
         second = self.srv.wave_memory_propose_response(self.root, "1aaaa", "create")
         self.assertEqual(second["data"]["records_promoted"], 0)
-        self.assertEqual(second["data"]["skipped_duplicates"], 1)
+        self.assertEqual(second["data"]["skipped_dispositions"], 1)
         files = list((self.root / self.mem.MEMORY_DIR).glob("*.md"))
         self.assertEqual(len(files), 1, "re-running must not flood duplicates")
+
+    def test_disposition_pagination_reaches_sources_beyond_public_cap(self):
+        self._wave(
+            "1many",
+            "many",
+            decision_rows=[
+                (f"Use `src/file_{index}.py` for boundary {index}", "durable reason")
+                for index in range(25)
+            ],
+        )
+        first = self.srv.wave_memory_propose_response(
+            self.root, "1many", "create", limit=20
+        )
+        self.assertEqual(first["data"]["records_written"], 20)
+        second = self.srv.wave_memory_propose_response(
+            self.root, "1many", "dry_run", limit=20
+        )
+        self.assertEqual(second["data"]["records_proposed"], 5)
+        self.assertEqual(second["data"]["skipped_dispositions"], 20)
+        codes = [
+            item["code"]
+            for item in self.srv._memory_validation_diagnostics(self.root, "1many")
+        ]
+        self.assertIn("memory_validation_candidates_missing", codes)
+        self.assertIn("memory_validation_required", codes)
+
+    def test_concurrent_public_create_serializes_dedup_and_write(self):
+        self._wave("1aaaa", "demo", decision_rows=[("Fix `src/foo.py`", "reason")])
+        barrier = threading.Barrier(2)
+        results = []
+
+        def run():
+            barrier.wait()
+            results.append(
+                self.srv.wave_memory_propose_response(
+                    self.root, "1aaaa", "create"
+                )
+            )
+
+        threads = [threading.Thread(target=run) for _ in range(2)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=10)
+        self.assertFalse(any(thread.is_alive() for thread in threads))
+        self.assertEqual(
+            sorted(result["data"]["records_written"] for result in results),
+            [0, 1],
+        )
+        self.assertEqual(
+            len(list((self.root / self.mem.MEMORY_DIR).glob("*.md"))), 1
+        )
 
     def test_no_material_evidence_diagnostic(self):
         self._wave("1aaaa", "demo", decision_rows=[("prose only", "no anchor")])
         r = self.srv.wave_memory_propose_response(self.root, "1aaaa", "dry_run")
         self.assertEqual(r["data"]["records_proposed"], 0)
         self.assertIn("no_material_evidence", [x["code"] for x in r["diagnostics"]])
+
+    def test_docs_and_config_paths_are_not_code_anchors(self):
+        self._wave(
+            "1aaaa", "demo",
+            decision_rows=[
+                ("Update `docs/guide.md`", "docs"),
+                ("Update `config/settings.json`", "config"),
+            ],
+        )
+        r = self.srv.wave_memory_propose_response(self.root, "1aaaa", "dry_run")
+        self.assertEqual(r["data"]["records_proposed"], 0)
 
     def test_dry_run_writes_nothing(self):
         self._wave("1aaaa", "demo", decision_rows=[("Fix `src/foo.py`", "reason")])
@@ -1542,9 +1720,33 @@ class MemoryProposeTests(_MemoryCase):
         none = self.srv.wave_memory_propose_response(self.root, "", "dry_run")
         self.assertEqual(none["status"], "error")
 
+    def test_unique_prefix_resolves_and_ambiguous_prefix_fails(self):
+        self._wave("1aaaa", "one", decision_rows=[("Fix `src/a.py`", "reason")])
+        resolved = self.srv.wave_memory_propose_response(
+            self.root, "1aaa", "dry_run"
+        )
+        self.assertEqual(resolved["status"], "ok")
+        self._wave("1aaab", "two", decision_rows=[("Fix `src/b.py`", "reason")])
+        ambiguous = self.srv.wave_memory_propose_response(
+            self.root, "1aaa", "dry_run"
+        )
+        self.assertEqual(ambiguous["status"], "error")
+        self.assertIn(
+            "ambiguous_wave_id",
+            [diagnostic["code"] for diagnostic in ambiguous["diagnostics"]],
+        )
+
     def test_finding_path_fragile_and_failed_attempt(self):
         self._wave("1aaaa", "demo", decision_rows=[])
         heads = (
+            {"record_type": "executable_evidence", "evidence_record_id": "ev-1",
+             "artifact_or_test_id": "src/bug.py"},
+            {"record_type": "executable_evidence", "evidence_record_id": "ev-2",
+             "artifact_or_test_id": "src/frag.py"},
+            {"record_type": "executable_evidence", "evidence_record_id": "ev-3",
+             "artifact_or_test_id": "src/frag.py"},
+            {"record_type": "executable_evidence", "evidence_record_id": "ev-4",
+             "artifact_or_test_id": "src/x.py"},
             {"record_type": "finding_synthesis", "finding_id": "finding-1",
              "disposition": "do_now", "repair_execution_state": "completed",
              "disposition_rationale": "Fixed a real bug in `src/bug.py`.",
@@ -1572,8 +1774,83 @@ class MemoryProposeTests(_MemoryCase):
         self.assertIn("fragile_file", by_kind, "frag.py repaired twice → fragile_file")
         self.assertIn("failed_attempt", by_kind, "bug.py repaired once → failed_attempt")
         self.assertEqual(by_kind["fragile_file"]["targets"], ["src/frag.py"])
+        self.assertEqual(
+            by_kind["failed_attempt"]["source_event"],
+            "finding:1aaaa:finding-1",
+        )
         self.assertNotIn("src/x.py", [t for d in drafts for t in d["targets"]],
                          "maybe_later finding is ephemeral and skipped")
+
+    def test_real_event_ledger_repair_chain_supplies_executable_anchor(self):
+        self._wave("1aaaa", "demo", decision_rows=[])
+        review = _load("review_evidence")
+        base = {
+            "event": "finding",
+            "actor": "qa-reviewer",
+            "context_id": "memory-supply-finding",
+            "finding_id": "real-ledger-defect",
+            "run_kind": "initial_delivery",
+            "cycle": 0,
+            "judgment": {
+                "validation_status": "real",
+                "scope_relation": "admitted",
+                "introduced_or_worsened_by_wave": True,
+                "contract_relevance": "required_ac",
+                "supported_reachability": True,
+                "attacker_reachability": False,
+                "authority_domain": "integrity",
+                "authority_delta": "low",
+                "observable_impact": "material",
+                "containment": "none",
+            },
+            "proposition": "the repaired implementation preserves the code path",
+            "failure_condition": "the code path loses the repaired behavior",
+            "public_path": "memory candidate supply",
+            "command_or_fixture": "test_real_event_ledger_repair_chain",
+            "expected": "a durable candidate targets the executable artifact",
+            "observed": "the defect reproduced before repair",
+            "artifact_or_test_id": "src/real_bug.py",
+            "known_bad_detection_method": "pre-repair behavior probe",
+            "limitations": "local disposable fixture",
+            "safety_and_authorization": "local fixture only",
+            "disposition_rationale": "a reproduced required-contract defect",
+            "integrity_confirmed": True,
+            "review_boundaries_changed": [],
+            "source_lanes": ["qa-reviewer"],
+            "blocking_required_lanes": ["qa-reviewer"],
+            "approval_recheck_lanes": ["qa-reviewer"],
+        }
+        records = ()
+        for run_kind, cycle in (
+            ("initial_delivery", 0),
+            ("repair_start", 1),
+            ("reverification", 1),
+        ):
+            event = dict(base, run_kind=run_kind, cycle=cycle,
+                         context_id=f"memory-supply-{run_kind}")
+            if run_kind == "reverification":
+                event["blocking_required_lanes"] = []
+                event["fresh_context"] = True
+                event["independent"] = True
+            rows, errors = review.build_compact_review_event(records, event)
+            self.assertEqual(errors, ())
+            records = (*records, *rows)
+        events = self.root / "docs" / "waves" / "1aaaa demo" / "events.jsonl"
+        events.write_text(
+            "".join(
+                json.dumps(row, sort_keys=True, separators=(",", ":")) + "\n"
+                for row in records
+            ),
+            encoding="utf-8",
+        )
+        drafts = self.supply.draft_candidates(self.root, "1aaaa")
+        self.assertEqual(len(drafts), 1)
+        self.assertEqual(drafts[0]["kind"], "failed_attempt")
+        self.assertEqual(drafts[0]["targets"], ["src/real_bug.py"])
+        self.assertEqual(
+            drafts[0]["source_event"],
+            "finding:1aaaa:real-ledger-defect",
+        )
 
     def test_conservative_skips_unrepaired_findings(self):
         self._wave("1aaaa", "demo", decision_rows=[])
@@ -1636,16 +1913,179 @@ class ExplorationAvoidedTests(_MemoryCase):
 
     def test_credit_accumulates_and_reads(self):
         self.ea.credit_surface(self.root, "1zaaa demo",
-                               [{"source_exploration_cost": 1000, "match_confidence": 1.0}])
+                               [{"memory_id": "mem-a", "source_origin": "1srca",
+                                 "source_exploration_cost": 1000,
+                                 "match_confidence": 1.0}],
+                               context_key="src/a.py")
         self.ea.credit_surface(self.root, "1zaaa demo",
-                               [{"source_exploration_cost": 400, "match_confidence": 1.0}])
+                               [{"memory_id": "mem-b", "source_origin": "1srcb",
+                                 "source_exploration_cost": 400,
+                                 "match_confidence": 1.0}],
+                               context_key="src/b.py")
         est = self.ea.read_wave(self.root, "1zaaa demo")
         self.assertEqual(est["estimated_exploration_avoided"], 500 + 200)
         self.assertEqual(est["surfaced_events"], 2)
 
+    def test_same_phase_context_deduplicates_and_origin_budget_caps(self):
+        item_a = {"memory_id": "mem-a", "source_origin": "1same",
+                  "source_exploration_cost": 1000, "match_confidence": 1.0}
+        item_b = {"memory_id": "mem-b", "source_origin": "1same",
+                  "source_exploration_cost": 1000, "match_confidence": 1.0}
+        self.ea.credit_surface(
+            self.root, "1zaaa demo", [item_a], stage="review", phase_id="review-1",
+            context_key="src/hot.py")
+        self.ea.credit_surface(
+            self.root, "1zaaa demo", [item_a], stage="review", phase_id="review-1",
+            context_key="src/hot.py")
+        self.ea.credit_surface(
+            self.root, "1zaaa demo", [item_b], stage="review", phase_id="review-1",
+            context_key="src/other.py")
+        est = self.ea.read_wave(self.root, "1zaaa demo")
+        self.assertEqual(est["estimated_exploration_avoided"], 500,
+                         "one source wave gets one bounded phase budget")
+        self.assertEqual(est["surfaced_events"], 2,
+                         "the repeated identical event is deduplicated")
+
+    def test_new_phase_can_credit_same_memory_again(self):
+        item = {"memory_id": "mem-a", "source_origin": "1same",
+                "source_exploration_cost": 1000, "match_confidence": 1.0}
+        for phase in ("review-1", "repair-1"):
+            self.ea.credit_surface(
+                self.root, "1zaaa demo", [item], stage="review", phase_id=phase,
+                context_key="src/hot.py")
+        self.assertEqual(
+            self.ea.read_wave(self.root, "1zaaa demo")[
+                "estimated_exploration_avoided"
+            ],
+            1000,
+        )
+
+    def test_concurrent_distinct_origins_are_lossless(self):
+        barrier = threading.Barrier(8)
+        results = []
+
+        def run(index):
+            barrier.wait()
+            results.append(
+                self.ea.credit_surface(
+                    self.root, "1zaaa demo",
+                    [{"memory_id": f"mem-{index}", "source_origin": f"1src{index}",
+                      "source_exploration_cost": 100, "match_confidence": 1.0}],
+                    stage="review", phase_id="review-1",
+                    context_key=f"src/{index}.py",
+                )
+            )
+
+        threads = [threading.Thread(target=run, args=(index,)) for index in range(8)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=10)
+        self.assertFalse(any(thread.is_alive() for thread in threads))
+        self.assertTrue(all(result is not None for result in results))
+        totals = self.ea.read_wave(self.root, "1zaaa demo")
+        self.assertEqual(totals["estimated_exploration_avoided"], 400)
+        self.assertEqual(totals["surfaced_events"], 8)
+
+    def test_cited_state_is_distinct_and_can_use_cited_budget(self):
+        item = {"memory_id": "mem-a", "source_origin": "1same",
+                "source_exploration_cost": 1000, "match_confidence": 1.0}
+        self.ea.credit_surface(
+            self.root, "1zaaa demo", [item], cited=False,
+            stage="review", phase_id="review-1", context_key="src/a.py")
+        self.ea.credit_surface(
+            self.root, "1zaaa demo", [item], cited=True,
+            stage="review", phase_id="review-1", context_key="src/a.py")
+        totals = self.ea.read_wave(self.root, "1zaaa demo")
+        self.assertEqual(totals["estimated_exploration_avoided"], 750)
+        self.assertEqual(totals["surfaced_events"], 1)
+        self.assertEqual(totals["cited_events"], 1)
+
+    def test_non_exact_match_gets_no_credit(self):
+        result = self.ea.credit_surface(
+            self.root, "1zaaa demo",
+            [{"memory_id": "mem-a", "source_origin": "1same",
+              "source_exploration_cost": 1000, "match_confidence": 0.25}],
+            context_key="unmatched")
+        self.assertIsNone(result)
+        self.assertEqual(
+            self.ea.read_wave(self.root, "1zaaa demo")[
+                "estimated_exploration_avoided"
+            ],
+            0,
+        )
+
     def test_read_absent_wave_is_zero(self):
         self.assertEqual(
             self.ea.read_wave(self.root, "9none")["estimated_exploration_avoided"], 0)
+
+    def test_first_credit_lazily_extends_existing_sqlite_authority(self):
+        self.ea.credit_surface(
+            self.root, "1zaaa demo",
+            [{"memory_id": "mem-a", "source_origin": "1srca",
+              "source_exploration_cost": 1000, "match_confidence": 1.0}],
+            context_key="src/a.py")
+        store = self.root / ".wavefoundry" / "logs" / "context-efficiency.sqlite"
+        self.assertTrue(store.is_file())
+        conn = sqlite3.connect(store)
+        try:
+            tables = {
+                row[0] for row in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                )
+            }
+        finally:
+            conn.close()
+        self.assertIn("telemetry_event", tables)
+        self.assertIn("exploration_credit_event", tables)
+        self.assertFalse(
+            (self.root / ".wavefoundry" / "index" / "exploration-avoided.json").exists()
+        )
+
+    def test_lazy_schema_upgrade_preserves_existing_store_state(self):
+        ce = _load("context_efficiency")
+        conn = ce._open_write_store(self.root)
+        conn.execute("DROP TABLE exploration_credit_event")
+        conn.execute("INSERT INTO meta(key,value) VALUES('fixture_sentinel','kept')")
+        conn.commit()
+        conn.close()
+        self.ea.credit_surface(
+            self.root, "1zaaa demo",
+            [{"memory_id": "mem-a", "source_origin": "1srca",
+              "source_exploration_cost": 1000, "match_confidence": 1.0}],
+            context_key="src/a.py")
+        conn = sqlite3.connect(ce.store_path(self.root))
+        try:
+            self.assertEqual(
+                conn.execute(
+                    "SELECT value FROM meta WHERE key='fixture_sentinel'"
+                ).fetchone()[0],
+                "kept",
+            )
+            self.assertIsNotNone(
+                conn.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' "
+                    "AND name='exploration_credit_event'"
+                ).fetchone()
+            )
+        finally:
+            conn.close()
+
+    def test_projection_is_separate_from_context_efficiency(self):
+        self.ea.credit_surface(
+            self.root, "1zaaa demo",
+            [{"memory_id": "mem-a", "source_origin": "1srca",
+              "source_exploration_cost": 1000, "match_confidence": 1.0}],
+            context_key="src/a.py")
+        projected = self.ea.replace_checkpoint_block(
+            "# Wave\n\n## Context Efficiency\n\nMeasured.\n",
+            self.root,
+            "1zaaa demo",
+        )
+        self.assertIn("## Estimated Exploration Avoided", projected)
+        self.assertIn("Estimated tokens avoided", projected)
+        self.assertIn("## Context Efficiency", projected)
+        self.assertNotIn("estimated_tokens_saved", projected)
 
     # --- integration with the advisory surface ---
 
@@ -1656,6 +2096,82 @@ class ExplorationAvoidedTests(_MemoryCase):
         est = self.ea.read_wave(self.root, wid)
         self.assertEqual(est["estimated_exploration_avoided"], 1000)  # 2000*0.5*1.0
         self.assertEqual(est["surfaced_events"], 1)
+
+    def test_passive_path_advisory_uses_same_credit_api(self):
+        wid = self._open_wave()
+        self._record("mem-hot", cost=2000, targets=("src/hot.py",))
+        advisories = self.srv._memory_advisories_for_path(
+            self.root, "src/hot.py"
+        )
+        self.assertEqual([item["memory_id"] for item in advisories], ["mem-hot"])
+        est = self.ea.read_wave(self.root, wid)
+        self.assertEqual(est["estimated_exploration_avoided"], 1000)
+        self.assertEqual(est["surfaced_events"], 1)
+
+    def test_passive_advisory_records_current_stage_and_phase(self):
+        wid = self._open_wave()
+        ce = _load("context_efficiency")
+        conn = ce._open_write_store(self.root)
+        conn.execute(
+            "INSERT INTO phase_state(wave_id,phase_id,stage,ordinal,created_at)"
+            " VALUES(?,?,?,?,?)",
+            (wid, "review-7", "review", 1, 1),
+        )
+        conn.commit()
+        conn.close()
+        self._record("mem-hot", cost=2000, targets=("src/hot.py",))
+        self.srv._memory_advisories_for_path(self.root, "src/hot.py")
+        conn = sqlite3.connect(ce.store_path(self.root))
+        try:
+            row = conn.execute(
+                "SELECT stage,phase_id FROM exploration_credit_event"
+            ).fetchone()
+        finally:
+            conn.close()
+        self.assertEqual(row, ("review", "review-7"))
+
+    def test_lifecycle_flush_projects_sqlite_estimate_into_wave(self):
+        wid = self._open_wave()
+        self.ea.credit_surface(
+            self.root, wid,
+            [{"memory_id": "mem-a", "source_origin": "1srca",
+              "source_exploration_cost": 1000, "match_confidence": 1.0}],
+            context_key="src/a.py")
+
+        class Telemetry:
+            def flush(self, *_args, **_kwargs):
+                ce = _load("context_efficiency")
+                return ce.FlushResult(success=True, persistence="durable")
+
+        handler = type("Handler", (), {"root": self.root, "telemetry": Telemetry()})()
+        result, _ = self.srv._flush_context_efficiency(handler, wid)
+        self.assertEqual(result["projection"], "published")
+        wave_md = self.root / "docs" / "waves" / wid / "wave.md"
+        text = wave_md.read_text(encoding="utf-8")
+        self.assertIn("<!-- wave:exploration-avoided begin -->", text)
+        self.assertIn("| 1 | 0 | 1 | 500 |", text)
+
+    def test_pending_projection_covers_reload_and_upgrade_barrier(self):
+        wid = self._open_wave()
+        self.ea.credit_surface(
+            self.root, wid,
+            [{"memory_id": "mem-a", "source_origin": "1srca",
+              "source_exploration_cost": 1000, "match_confidence": 1.0}],
+            context_key="src/a.py")
+
+        class Telemetry:
+            def flush(self, *_args, **_kwargs):
+                ce = _load("context_efficiency")
+                return ce.FlushResult(success=True, persistence="durable")
+
+        handler = type("Handler", (), {"root": self.root, "telemetry": Telemetry()})()
+        result = self.srv.project_pending_context_efficiency(handler)
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["projected"], [wid])
+        text = (
+            self.root / "docs" / "waves" / wid / "wave.md"
+        ).read_text(encoding="utf-8")
+        self.assertIn("<!-- wave:exploration-avoided begin -->", text)
 
     def test_existence_alone_does_not_accrue(self):
         wid = self._open_wave()
@@ -1755,3 +2271,327 @@ class MemorySearchOrderingTests(_MemoryCase):
         ids = [r["memory_id"] for r in resp["data"]["records"]]
         self.assertEqual(ids, ["mem-a", "mem-b"],
                          "no-index path stays in policy order (confidence desc)")
+
+
+class MemoryAutoPopulateTests(_MemoryCase):
+    """Wave 1svr6/1syle: close fallback creates candidates, never verdicts."""
+
+    def setUp(self):
+        super().setUp()
+        self.srv = load_server()
+        self.supply = _load("memory_supply")
+
+    def _wave(self, wave_id, slug, decision_rows):
+        d = self.root / "docs" / "waves" / f"{wave_id} {slug}"
+        d.mkdir(parents=True)
+        change_id = f"{wave_id}k-feat {slug}"
+        rows = "\n".join(f"| 2026-01-0{i + 1} | {dec} | {reason} | alt |"
+                         for i, (dec, reason) in enumerate(decision_rows))
+        change = (
+            f"# {slug}\n\nChange ID: `{change_id}`\n\n## Decision Log\n\n"
+            "| Date | Decision | Reason | Alternatives |\n"
+            "| ---- | -------- | ------ | ------------ |\n" + rows + "\n"
+        )
+        (d / f"{change_id}.md").write_text(change, encoding="utf-8")
+        (d / "wave.md").write_text(
+            f"# Wave\n\nwave-id: `{wave_id} {slug}`\n\n"
+            f"Change ID: `{change_id}`\n",
+            encoding="utf-8",
+        )
+
+    def test_close_drafts_candidates_without_promotion(self):
+        self._wave("1aaaa", "demo", [
+            ("Use `src/foo.py` for X", "because Y"),   # rationale -> active
+            ("Bare choice on `src/bar.py`", ""),        # no rationale -> candidate
+        ])
+        summary = self.srv._auto_populate_memory_for_wave(self.root, "1aaaa")
+        self.assertEqual(summary["drafted"], 2)
+        self.assertEqual(summary["promoted"], 0)
+        self.assertEqual(summary["candidate"], 2)
+        self.assertEqual(summary["validation_required"], 2)
+        recs = self.mem.load_memory_records(self.root, statuses=("active", "candidate"))
+        self.assertEqual([r["status"] for r in recs], ["candidate", "candidate"])
+        self.assertTrue(all(r["validation"] == "pending" for r in recs))
+        self.assertEqual(len({r["source_event"] for r in recs}), 2)
+
+    def test_close_is_idempotent(self):
+        self._wave("1aaaa", "demo", [("Use `src/foo.py`", "because")])
+        first = self.srv._auto_populate_memory_for_wave(self.root, "1aaaa")
+        self.assertEqual(first["drafted"], 1)
+        second = self.srv._auto_populate_memory_for_wave(self.root, "1aaaa")
+        self.assertEqual(second, {}, "re-close must not re-draft")
+        self.assertEqual(len(list((self.root / self.mem.MEMORY_DIR).glob("*.md"))), 1)
+
+    def test_never_auto_supersedes_existing(self):
+        self._add("mem-existing", "decision", status="active", targets=("src/existing.py",))
+        before = (self.root / self.mem.MEMORY_DIR / "mem-existing.md").read_text(encoding="utf-8")
+        self._wave("1aaaa", "demo", [("Use `src/foo.py`", "because")])
+        self.srv._auto_populate_memory_for_wave(self.root, "1aaaa")
+        after = (self.root / self.mem.MEMORY_DIR / "mem-existing.md").read_text(encoding="utf-8")
+        self.assertEqual(before, after, "auto-populate must never rewrite an existing record")
+
+    def test_empty_wave_returns_empty_summary(self):
+        self._wave("1aaaa", "demo", [("prose only, no code anchor", "reason")])
+        self.assertEqual(self.srv._auto_populate_memory_for_wave(self.root, "1aaaa"), {})
+
+
+class MemoryAgentValidationTests(_MemoryCase):
+    """1syle: compact agent judgment + durable source disposition."""
+
+    def setUp(self):
+        super().setUp()
+        self.srv = load_server()
+        (self.root / "src").mkdir(parents=True)
+
+    def _candidate(self, memory_id: str, source_event: str, target: str = "src/a.py"):
+        (self.root / target).parent.mkdir(parents=True, exist_ok=True)
+        (self.root / target).write_text("value = 1\n", encoding="utf-8")
+        content = self.mem.render_memory_record(
+            memory_id=memory_id, kind="failed_attempt",
+            title=f"Candidate {memory_id}",
+            summary="Generated prose that requires semantic validation.",
+            evidence=["ev-proof", "1aaaa"], targets=[target],
+            source_event=source_event, validation="pending",
+        )
+        self.mem.write_memory_record(self.root, content, memory_id)
+
+    def _validate(self, memory_id: str, verdict: str, **kwargs):
+        return self.srv.wave_memory_validate_response(
+            self.root, memory_id, verdict,
+            kwargs.pop("action_delta", "Run the targeted regression before editing."),
+            kwargs.pop("rationale", "Evidence and current target support the lesson."),
+            kwargs.pop("evidence_verified", True),
+            kwargs.pop("current_target_verified", True),
+            kwargs.pop("canonical_overlap", "none"),
+            **kwargs,
+        )
+
+    def test_promote_retain_and_reject_persist_compact_judgment(self):
+        expected = {
+            "promote": ("active", "promote"),
+            "retain": ("candidate", "retain"),
+            "reject": ("rejected", "reject"),
+        }
+        for verdict, (status, validation) in expected.items():
+            with self.subTest(verdict=verdict):
+                mid = f"mem-{verdict}"
+                self._candidate(mid, f"finding:{verdict}")
+                result = self._validate(
+                    mid, verdict,
+                    evidence_verified=verdict != "reject",
+                    current_target_verified=verdict != "reject",
+                    canonical_overlap="duplicates" if verdict == "reject" else "none",
+                    action_delta=(
+                        "No memory action; the canonical contract already owns this."
+                        if verdict == "reject"
+                        else "Run the targeted regression before editing."
+                    ),
+                )
+                self.assertEqual(result["status"], "ok", result)
+                record = self.mem.parse_memory_record(
+                    self.root / self.mem.MEMORY_DIR / f"{mid}.md"
+                )
+                self.assertEqual(record["status"], status)
+                self.assertEqual(record["validation"], validation)
+                self.assertEqual(record["validated_by"], "agent")
+                self.assertTrue(record["action_delta"])
+
+    def test_rewrite_creates_corrected_record_and_supersedes_candidate(self):
+        self._candidate("mem-generated", "finding:rewrite")
+        result = self._validate(
+            "mem-generated", "rewrite",
+            rewrite_kind="successful_pattern",
+            rewrite_title="Verify parser parity",
+            rewrite_summary=(
+                "When editing the parser fallback, compare the exact public result "
+                "with the independent reference and expected specification."
+            ),
+            rewrite_evidence=["ev-proof", "1aaaa", "test_parser_parity"],
+            rewrite_targets=["src/a.py"],
+            rewrite_confidence=0.9,
+        )
+        self.assertEqual(result["status"], "ok", result)
+        replacement = result["data"]["rewrite_record"]["memory_id"]
+        old = self.mem.parse_memory_record(
+            self.root / self.mem.MEMORY_DIR / "mem-generated.md"
+        )
+        new = self.mem.parse_memory_record(
+            self.root / self.mem.MEMORY_DIR / f"{replacement}.md"
+        )
+        self.assertEqual(old["status"], "superseded")
+        self.assertEqual(old["validation"], "rewrite")
+        self.assertEqual(old["superseded_by"], replacement)
+        self.assertEqual(new["status"], "active")
+        self.assertEqual(new["validation"], "promote")
+        self.assertEqual(new["source_event"], "finding:rewrite")
+
+    def test_rewrite_retry_reuses_replacement_after_partial_failure(self):
+        self._candidate("mem-partial", "finding:partial")
+        kwargs = {
+            "rewrite_kind": "successful_pattern",
+            "rewrite_title": "Corrected durable lesson",
+            "rewrite_summary": "Run the exact parity regression before editing this parser.",
+            "rewrite_evidence": ["ev-proof", "1aaaa", "test_parser_parity"],
+            "rewrite_targets": ["src/a.py"],
+            "rewrite_confidence": 0.9,
+        }
+        server_mem = self.srv._memory_mod()
+        with patch.object(
+            server_mem,
+            "record_memory_validation",
+            side_effect=OSError("forced source-update failure"),
+        ):
+            first = self._validate("mem-partial", "rewrite", **kwargs)
+        self.assertEqual(first["status"], "error")
+        self.assertEqual(
+            len(list((self.root / self.mem.MEMORY_DIR).glob("*.md"))),
+            2,
+        )
+        second = self._validate("mem-partial", "rewrite", **kwargs)
+        self.assertEqual(second["status"], "ok", second)
+        self.assertEqual(
+            len(list((self.root / self.mem.MEMORY_DIR).glob("*.md"))),
+            2,
+            "retry must reuse the already-created replacement",
+        )
+
+    def test_validation_fails_closed_on_missing_judgment_or_target(self):
+        self._candidate("mem-invalid", "finding:invalid")
+        missing = self._validate(
+            "mem-invalid", "promote", evidence_verified=False
+        )
+        self.assertEqual(missing["status"], "error")
+        (self.root / "src" / "a.py").unlink()
+        stale = self._validate("mem-invalid", "promote")
+        self.assertEqual(stale["status"], "error")
+        record = self.mem.parse_memory_record(
+            self.root / self.mem.MEMORY_DIR / "mem-invalid.md"
+        )
+        self.assertEqual(record["validation"], "pending")
+
+    def test_validation_rejects_forbidden_metadata_without_echo_or_write(self):
+        self._candidate("mem-secret-validation", "finding:secret-validation")
+        before = (
+            self.root / self.mem.MEMORY_DIR / "mem-secret-validation.md"
+        ).read_bytes()
+        result = self._validate(
+            "mem-secret-validation",
+            "promote",
+            action_delta="set api_key: sk-live-validation-secret in env",
+        )
+        self.assertEqual(result["status"], "error")
+        blob = json.dumps(result)
+        self.assertIn("action_delta", blob)
+        self.assertNotIn("sk-live-validation-secret", blob)
+        self.assertEqual(
+            (self.root / self.mem.MEMORY_DIR / "mem-secret-validation.md").read_bytes(),
+            before,
+        )
+
+    def test_rejected_source_is_not_regenerated(self):
+        wave = self.root / "docs" / "waves" / "1aaaa demo"
+        wave.mkdir(parents=True)
+        change_id = "1aaaak-feat demo"
+        (wave / f"{change_id}.md").write_text(
+            "# Demo\n\n"
+            f"Change ID: `{change_id}`\n\n## Decision Log\n\n"
+            "| Date | Decision | Reason | Alternatives |\n"
+            "| --- | --- | --- | --- |\n"
+            "| 2026-01-01 | Use `src/a.py` | grounded | none |\n",
+            encoding="utf-8",
+        )
+        (wave / "wave.md").write_text(
+            f"# Wave\n\nwave-id: `1aaaa demo`\n\nChange ID: `{change_id}`\n",
+            encoding="utf-8",
+        )
+        created = self.srv.wave_memory_propose_response(
+            self.root, "1aaaa", "create"
+        )
+        mid = created["data"]["written"][0]["memory_id"]
+        rejected = self._validate(
+            mid, "reject", evidence_verified=False,
+            current_target_verified=False, canonical_overlap="duplicates",
+            action_delta="No memory action; the canonical contract owns the rule.",
+        )
+        self.assertEqual(rejected["status"], "ok", rejected)
+        rerun = self.srv.wave_memory_propose_response(
+            self.root, "1aaaa", "dry_run"
+        )
+        self.assertEqual(rerun["data"]["records_proposed"], 0)
+        self.assertEqual(rerun["data"]["skipped_dispositions"], 1)
+
+    def test_close_diagnostics_require_candidate_and_verdict_but_allow_zero_memory(self):
+        wave = self.root / "docs" / "waves" / "1valid validation"
+        wave.mkdir(parents=True)
+        change_id = "1validk-feat validation"
+        (wave / f"{change_id}.md").write_text(
+            "# Validation\n\n"
+            f"Change ID: `{change_id}`\n\n## Decision Log\n\n"
+            "| Date | Decision | Reason | Alternatives |\n"
+            "| --- | --- | --- | --- |\n"
+            "| 2026-01-01 | Use `src/a.py` | owns the durable boundary | none |\n",
+            encoding="utf-8",
+        )
+        (wave / "wave.md").write_text(
+            f"# Wave\n\nwave-id: `1valid validation`\n\nChange ID: `{change_id}`\n",
+            encoding="utf-8",
+        )
+        (self.root / "src" / "a.py").write_text("value = 1\n", encoding="utf-8")
+
+        missing = self.srv._memory_validation_diagnostics(self.root, "1valid")
+        self.assertEqual(
+            [item["code"] for item in missing],
+            ["memory_validation_candidates_missing"],
+        )
+        created = self.srv.wave_memory_propose_response(
+            self.root, wave_id="1valid", mode="create"
+        )
+        memory_id = created["data"]["written"][0]["memory_id"]
+        pending = self.srv._memory_validation_diagnostics(self.root, "1valid")
+        self.assertEqual([item["code"] for item in pending], ["memory_validation_required"])
+        with patch.object(
+            self.srv, "run_validate",
+            return_value={"passed": True, "errors": [], "warnings": []},
+        ):
+            close_pending = self.srv.wave_close_response(
+                self.root, "1valid", mode="dry_run"
+            )
+        self.assertIn(
+            "memory_validation_required",
+            [item["code"] for item in close_pending["diagnostics"]],
+        )
+
+        rejected = self._validate(
+            memory_id,
+            "reject",
+            action_delta="Do not inject this already-owned rule into future work.",
+            rationale="The canonical module contract already states the same boundary.",
+            evidence_verified=False,
+            current_target_verified=False,
+            canonical_overlap="duplicates",
+        )
+        self.assertEqual(rejected["status"], "ok")
+        self.assertEqual(self.srv._memory_validation_diagnostics(self.root, "1valid"), [])
+        with patch.object(
+            self.srv, "run_validate",
+            return_value={"passed": True, "errors": [], "warnings": []},
+        ):
+            close_validated = self.srv.wave_close_response(
+                self.root, "1valid", mode="dry_run"
+            )
+        self.assertNotIn(
+            "memory_validation_required",
+            [item["code"] for item in close_validated["diagnostics"]],
+        )
+
+        empty = self.root / "docs" / "waves" / "1empty empty"
+        empty.mkdir(parents=True)
+        (empty / "wave.md").write_text(
+            "# Wave\n\nwave-id: `1empty empty`\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(self.srv._memory_validation_diagnostics(self.root, "1empty"), [])
+
+
+if __name__ == "__main__":
+    unittest.main()

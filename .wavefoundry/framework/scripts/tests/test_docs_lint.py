@@ -19,6 +19,13 @@ if str(SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_ROOT))
 
 import context_efficiency as ce
+from review_evidence import (
+    read_review_event_ledger,
+    render_review_status_projection,
+    REVIEW_STATUS_MARKER_BEGIN,
+    REVIEW_STATUS_MARKER_END,
+    review_status_signoff_keys,
+)
 from wave_lint_lib.wave_validators import check_wave_docs
 
 
@@ -151,6 +158,56 @@ class DocsLintFixtureTests(unittest.TestCase):
             ),
             encoding="utf-8",
         )
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("review evidence projection is stale", result.stderr)
+
+    def test_external_review_status_projection_drift_is_reported(self) -> None:
+        root = self.copy_fixture()
+        wave_md = root / self.WAVE_DOC_PATH
+        records, errors = read_review_event_ledger(wave_md)
+        self.assertEqual(errors, ())
+        keys = review_status_signoff_keys(
+            records,
+            (
+                "wave-council-readiness",
+                "wave-council-delivery",
+                "operator-signoff",
+            ),
+        )
+        source_text = wave_md.read_text(encoding="utf-8")
+        current = render_review_status_projection(
+            source_text,
+            records,
+            keys,
+        )
+        wave_md.write_text(
+            current.replace(
+                "| wave-council-readiness |",
+                "| wave-council-readiness | stale |",
+                1,
+            ),
+            encoding="utf-8",
+        )
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("review evidence projection is stale", result.stderr)
+
+    def test_external_review_status_projection_missing_is_reported(self) -> None:
+        root = self.copy_fixture()
+        wave_md = root / self.WAVE_DOC_PATH
+        text = wave_md.read_text(encoding="utf-8")
+        start = text.index(REVIEW_STATUS_MARKER_BEGIN)
+        end = text.index(REVIEW_STATUS_MARKER_END, start) + len(
+            REVIEW_STATUS_MARKER_END
+        )
+        wave_md.write_text(text[:start] + text[end:], encoding="utf-8")
         try:
             result = self.run_docs_lint(root)
         finally:
@@ -2965,6 +3022,67 @@ class MemoryRecordLintTests(DocsLintFixtureTests):
         finally:
             shutil.rmtree(root)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_evidence_derived_validation_contract(self):
+        valid_cases = (
+            ("mem-pending", "candidate", "Source event: `finding:x`\nValidation: pending\n"),
+            (
+                "mem-promote", "active",
+                "Source event: `finding:y`\nValidation: promote\n"
+                "Validated by: agent\nAction delta: Run the regression.\n"
+                "Validation rationale: Evidence and target agree.\n"
+                "Evidence verified: true\nCurrent target verified: true\n"
+                "Canonical overlap: supplements\n",
+            ),
+        )
+        for memory_id, status, extra in valid_cases:
+            root = self.copy_fixture()
+            self._write_record(
+                root, memory_id,
+                self._record(memory_id, "decision", status=status, extra=extra),
+            )
+            result = self.run_docs_lint(root)
+            shutil.rmtree(root)
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+        invalid_cases = (
+            (
+                "source without validation",
+                self._record(
+                    "mem-a", "decision",
+                    extra="Source event: `finding:x`\n",
+                ),
+                "require `Validation:",
+            ),
+            (
+                "promote status mismatch",
+                self._record(
+                    "mem-a", "decision", status="candidate",
+                    extra=(
+                        "Source event: `finding:x`\nValidation: promote\n"
+                        "Validated by: agent\nAction delta: Act.\n"
+                        "Validation rationale: Grounded.\nEvidence verified: true\n"
+                        "Current target verified: true\nCanonical overlap: none\n"
+                    ),
+                ),
+                "requires `Status: active`",
+            ),
+            (
+                "final judgment missing fields",
+                self._record(
+                    "mem-a", "decision", status="rejected",
+                    extra="Source event: `finding:x`\nValidation: reject\n",
+                ),
+                "finalized validation requires",
+            ),
+        )
+        for label, content, expected in invalid_cases:
+            root = self.copy_fixture()
+            self._write_record(root, "mem-a", content)
+            result = self.run_docs_lint(root)
+            shutil.rmtree(root)
+            self.assertEqual(result.returncode, 1, label)
+            self.assertIn(expected, result.stderr, label)
 
 
 class MemoryRecordSchemaCompletenessTests(MemoryRecordLintTests):

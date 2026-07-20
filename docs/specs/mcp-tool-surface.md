@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-17
+Last verified: 2026-07-20
 
 Behavioral contract for the Wavefoundry local MCP server. This spec covers the
 tool names, response conventions, safety rules, and compatibility expectations that
@@ -248,12 +248,14 @@ the unified estimate rather than disappearing from it.
 
 ### Durable accounting and projection
 
-- Each `ImplHandler` has process-local producer/focus state, but eligible events
-  write through to `.wavefoundry/logs/context-efficiency.sqlite`.
+- Each `ImplHandler` has a random process-local producer identity, lazy
+  crash-released OS lease, and focus state; eligible events write through to
+  `.wavefoundry/logs/context-efficiency.sqlite`.
 - Event IDs prevent replay; phase/source/version uniqueness prevents double source
   credit across processes and across content/structural retrieval.
-- General events are producer-scoped. Successful create/prepare can associate only
-  the invoking producer's rows with the wave's `pre-wave` stage.
+- General events are producer-scoped. Successful create/prepare associates the
+  invoking producer's rows and may atomically claim persisted producers whose
+  lease is provably unheld. Live peers and ambiguous/missing leases stay general.
 - Each stage is displayed with
   `max(0, content + structural + workflow prompt - request - response + paired residual)`.
   The wave total is recomputed from the summed components and floored once; it
@@ -271,11 +273,16 @@ the unified estimate rather than disappearing from it.
   stay in the machine state.
 - Lifecycle boundaries project pending generations. MCP reload and framework
   upgrade refuse to proceed until all pending generations are projected.
-- Store-instance mismatch freezes the wave as `credit_history_unavailable`;
-  totals are never reconstructed from `wave.md`. This is the first shipped
-  telemetry schema, so no pre-release legacy-evidence layer is retained; a
-  recognized prototype table census is reset before the first current-schema
-  write.
+- The publication generation is the exact covered-row cutoff. Close seals that
+  generation; only after the atomic Markdown replacement and generation CAS does
+  SQLite replace payload rows with the cumulative checkpoint floor and compact
+  event-ID replay tombstones. Reopen adds new raw phases above the floor.
+  Interrupted compaction remains pending and retriable.
+- Store-instance mismatch freezes active history as
+  `credit_history_unavailable`. A closed validator-valid checkpoint may restore
+  the sealed compact floor after disposable-store loss. This is the first
+  shipped telemetry schema, so no versioned pre-release compatibility layer is
+  retained.
 - A failed event transaction writes `context-efficiency.gap`; health becomes
   `accounting_gap` and positive publication is suppressed. Precommit
   instrumentation exceptions use the same poison-or-fatal path.
@@ -305,7 +312,7 @@ report_path="", applicability=null)` is the typed authority:
 Fresh install/package, public surface rendering, and upgrade ship the telemetry
 implementation, pair schema/scorer, and packaged missing-only templates for all
 five project-local prompt baselines, plus a managed `.wavefoundry/logs/` ignore,
-without creating telemetry state. Existing project prompt prose is preserved.
+without creating telemetry state or producer lease files. Existing project prompt prose is preserved.
 Upgrade first projects existing pending state, then leaves historical wave/event
 bytes unchanged.
 
@@ -555,13 +562,68 @@ mapped prompt credit.
 - A one-candidate run reuses its finding evidence as the sealed-universe proof. An empty lightweight readiness/initial-delivery run emits one run row with reviewer `verification_context` and no separate dedup evidence row.
 - A repair cycle may contain several findings and several ordered same-finding reverification events as fresh independent actors clear their own required lanes. It is aggregate-complete only when every actionable finding started in the cycle has a terminal current head with no unresolved required lanes: completed reverification, truthful `not_issue` / `dont_do_later` reclassification with `not_required` repair state, or a valid distinct operator waiver. Historical multi-candidate batch runs and compact per-finding runs remain valid.
 - When the final outstanding `reverification` makes repair cycle 2 aggregate-complete after cycle 1, the same typed operation automatically includes the mandatory `convergence_checkpoint` in its identified bundle and atomic authority replacement. The caller does not submit a separate lightweight checkpoint; the server derives `frozen_boundary` from the wave-current synthesis heads after applying that final transition and carries its verification context.
-- The sibling JSONL ledger remains canonical. Each typed write regenerates a compact Markdown current-head projection in `wave.md`; that projection is presentation only and raw event fields are not semantically indexed.
-- `create` derives stable structured event identity from the existing compact inputs, rejects same-identity/different-request conflicts, and replays same-identity/same-request retries without appending. Under one project-global lock it validates the complete prospective ledger, atomically replaces `events.jsonl` as the authority commit point, advances bounded adoption proof, then refreshes the Markdown projection and matching `## Review Evidence` line. Post-commit adoption/projection failures return structured pending/stale diagnostics and converge on replay; only `wave.md` receives a background docs-index refresh.
+- The sibling JSONL ledger remains canonical. Each typed write regenerates the compact Finding Synthesis and `wave:review-status` projections in `wave.md`; the latter has one `Signoff | State | Why | Next action` row per canonical signoff key. Both are presentation only and raw event fields are not semantically indexed.
+- `create` derives stable structured event identity from the existing compact inputs, rejects same-identity/different-request conflicts, and replays same-identity/same-request retries without appending. Under one project-global lock it validates the complete prospective ledger, atomically replaces `events.jsonl` as the authority commit point, advances bounded adoption proof, then refreshes both Markdown projections. Post-commit adoption/projection failures return structured pending/stale diagnostics and converge on replay; only `wave.md` receives a background docs-index refresh.
 
 `wave_close(wave_id: str, mode: str = "dry_run")`
 
 - Dry-run or close a wave after docs validation passes.
+- Drafts are structurally eligible, not semantically approved. Close blocks when
+  an eligible source has no persisted candidate or its candidate still has
+  `Validation: pending`; zero-memory waves pass.
 - On apply/create writes, requests a background docs-index refresh for the closed wave record, archive summary, and handoff doc when present.
+
+`wave_memory_propose(wave_id: str, mode: str = "dry_run", limit: int = 20)`
+
+- Drafts conservative candidates from admitted Decision Logs and repaired
+  real-defect evidence.
+- `create` persists a stable source-event identity and `Validation: pending`.
+- Re-running suppresses any source already represented by active, candidate,
+  rejected, stale, or superseded history.
+
+`wave_memory_backfill(mode: str = "dry_run", limit: int = 20, entry_path: str = "manual")`
+
+- Inventories closed local waves deterministically without Git, network access,
+  an existing index, or transcript input.
+- `create` owns one bounded batch (at most 10 waves, 20 candidates, and 64 KiB
+  response) and checkpoints fingerprints, random short claims, outcomes, and
+  failures in `memory-state.sqlite`.
+- Calls are server-cursored and retryable; changed wave-source fingerprints
+  requeue only that wave. Mechanical extraction creates candidates only.
+- Inventory refuses a `docs/waves` root or source that resolves outside the
+  target repository; it never fingerprints external files through a symlinked
+  parent.
+- Every create response exposes the next exact run-scoped
+  `validation_worklist` page (`memory_id`, source, wave, state), the total
+  pending count, and the remaining count. Validate that page and call backfill
+  again; no global capped search is required to discover the run's work.
+- Install/upgrade batches suppress background memory-index refresh while the
+  lifecycle state is `awaiting_memory_validation`.
+- When a setup/migration batch becomes `ready_for_index`, rerun ordinary
+  `wf setup`; the reentrant setup command reuses the durable run and owns first
+  index publication. Finalization revalidates the source census at the index
+  epoch CAS and records a durable attempt/generation receipt. A retry after
+  publication but before checkpoint completion reconciles that receipt without
+  another index pass. Receipt-authorized publication is synchronous and
+  foreground for both semantic layers; detached index jobs never inherit the
+  receipt. An unchanged already-indexed run stays complete; later changed
+  history reopens the affected work. Upgrade retains
+  `wave_upgrade(phase="resume_after_memory")`. There is no setup-specific MCP
+  resume tool, and `wave_install_audit` remains read-only.
+
+`wave_memory_validate(memory_id, verdict, action_delta, rationale, evidence_verified, current_target_verified, canonical_overlap, rewrite_*=...)`
+
+- Captures a focused agent judgment; Python never guesses semantic usefulness.
+- `verdict` is `promote`, `retain`, `reject`, or `rewrite`.
+- Promote/retain/rewrite require verified evidence and current target and refuse
+  `canonical_overlap=duplicates`.
+- Rewrite creates the corrected active record and supersedes the generated
+  candidate under the project-global lock. Multi-file crash atomicity is not
+  claimed; partial failures return explicit recovery diagnostics.
+- The `wf memory-validate` CLI fallback accepts every rewrite field exposed by
+  this tool, including repeatable evidence and target arguments.
+- The durable source disposition prevents rejection or supersession from being
+  regenerated.
 
 ### Change Creation
 
@@ -663,8 +725,9 @@ not rely on `status` to signal index absence.
   - `preflight_to_docs_gate` *(default)* — phases 0–3: pre-flight, extract, surface render, prune, docs gate. Extract is **idempotent** — a re-run on a tree already at `to_version` skips the re-extract (wave 1p44r). **Emits `data.summary` (wave 1p8kz)** — including the `reconciliation` findings (the scan runs on **every** upgrade) — so the agent gets the structured summary on the primary call, not only at cleanup.
   - `update_index` / `rebuild_index` — phase 4: incremental vs full semantic index refresh.
   - `cleanup` — phase 5: remove the upgrade lock, **print the full human operator-summary prose**, and reload the server. Also re-emits `data.summary` (same builder as the primary phase).
-  - `resume_after_gate` — re-run ONLY docs-gardener + docs-lint against the already-extracted tree (no extract/render/prune) to recover from a docs-gate failure. Requires a **retained lock** with `failed_phase == "docs_gate"` (wave 1p44o/1p44r); exits non-zero if the gate fails again, zero (and clears the failure marker) when it passes.
-- A post-mutation failure RETAINS the lock with a `failed_phase` marker so the dashboard stays paused and the half-replaced tree is not reindexed (wave 1p44o); `resume_after_gate` then recovers without a destructive full re-extract.
+  - `resume_after_gate` — rebuild and persist current review-status projection, then re-run docs-gardener + docs-lint against the already-extracted tree (no extract/render/prune). Accepts a **retained lock** with `failed_phase == "review_status_projection"` or `"docs_gate"`; retry preserves the actual failing phase and clears it only after projection and lint both pass.
+  - `resume_after_memory` — recompute the authoritative historical-memory pending set and publish Phase 4 only when it is zero.
+- A post-mutation failure RETAINS the lock with a `failed_phase` marker so the dashboard stays paused and the half-replaced tree is not reindexed (wave 1p44o); `resume_after_gate` then recovers without a destructive full re-extract. While that retained phase is `review_status_projection` or `docs_gate`, resume-after-memory, update/rebuild-index, and cleanup all refuse and direct the caller back to `resume_after_gate`.
 - **Structured `summary` block (wave 1p8eu; surfaced on the primary phase in 1p8kz):** the response carries `data.summary` parsed from the upgrade's machine-readable sentinel line — `from_version`, `to_version`, `pruned_count`, `docs_gate` (PASSED/FAILED/NOT RUN), `index_update`, `failed_phase`, `is_major_or_minor`, `reconciliation` (the wave 1p8et retired-surface scan findings in **editable** repo surfaces: a list of `{file, line, retired_surface, matched, suggested}`), and `host_permission_flags` (wave 1p8o5 — the SAME-shape findings in host permission/allow-rule files the agent **cannot self-edit**: `.claude/settings.local.json`, `.claude/settings.json`, `.cursor/settings.json`, and per-host equivalents — flagged for the operator to edit; **additive** and independent of `reconciliation`, which never includes these) — plus a top-level `next_step` and populated `next_tools` (e.g. `wave_upgrade_status`, `wave_mcp_reload`). **Phase semantics (wave 1p8kz):** `data.summary` is present on the **primary `wave_upgrade()` call** (`preflight_to_docs_gate`); the reconciliation scan runs on **every upgrade** (any version delta — patch bumps and same-version build-successors included, since a patch can change/retire a surface during testing), so `reconciliation` / `host_permission_flags` populate whenever stale refs exist regardless of version delta. `is_major_or_minor` remains in the summary as an **informational** field only — it no longer gates the scan. The `cleanup` phase re-emits the same structured summary (one builder, no drift) and additionally prints the full human prose (incl. a distinct "Host permission/allow-rule files (flag for the OPERATOR …)" section). Read these fields instead of grepping `output`. Parsing is **fail-safe**: an absent/malformed summary simply omits `data.summary` and leaves the verbatim `output` (and `exit_code`) unchanged — back-compatible with existing callers.
 
 `wave_upgrade_status()`
@@ -720,7 +783,7 @@ is enforced; structured diagnostics are returned for rejected paths.
 - `code_impact` — upstream caller/importer blast-radius analysis; two modes: `symbol=` for graph-backed transitive caller traversal (`max_hops`, `relations`); `path=` for heuristic reverse-import scan; use before modifying a shared symbol to enumerate all affected callers and files. Graph mode returns `resolved` (bool — symbol found in the graph), with `affected` and `edges` capped at `max_results`, `edges_total` reporting the true pre-cap edge count (attribution counts are computed over the full set), and `truncated` true when either list was capped. **Dispatch-aware (wave `1p9qh`/`1p9qa`):** the default `relations` include `implements`/`extends` — changing a supertype/interface reaches its subtypes, and a supertype/interface METHOD seed additionally expands to subtype implementations of the same-named method (synthetic `derived: "dispatch"` edges in `edges`, bounded subtype walk). Dispatch is potential, not proven: inheritance hops are down-weighted to `_DISPATCH_EDGE_WEIGHT` (the EXTRACTED tier, 0.25) regardless of edge confidence, so `confidence_weight` on dispatch-reached nodes is visibly lower and the weakest-link path combining keeps everything downstream of a dispatch hop at that ceiling. Pass `relations=("calls","imports")` to opt out of dispatch traversal entirely. **External-supertype visibility (wave `1sbfi`):** an EXTERNAL supertype name (e.g. a third-party interface project classes implement) resolves as a graph-mode seed — the response is labeled `external_target`/`external_name` and `affected` holds the implementors/subtypes plus their dependents; a simple name matching multiple distinct external supertypes returns `external_candidates` (grouped by exact `external::` id) instead of a merged guess; every resolved node with declared supertypes carries a `supertypes` section with always-on `external_implements_count`/`external_extends_count`. Project symbols always shadow external names. **Data-layer aware (wave `1p9qi`/`1p9qd`, extended `1p9qf`/`1p9qg`):** DEFAULT traversals additionally follow `reads`/`writes`/`maps_to` edges that touch a SQL schema object (`sql_kind`-carrying table/view node) — impact on a base table includes its dependent views (transitively through view lineage), its writers, host-language methods whose embedded SQL touches it, and its mapped JPA/EF entities (and, through their existing `calls` edges, the code above them), while constant reads stay excluded from blast radius per the standing 1p4ls policy; embedded-SQL and entity-mapping edges are `LITERAL_DERIVED`, so their `confidence_weight` down-weights everything downstream of that hop exactly like other literal-derived edges; passing an explicit `relations` list opts out of the exception
 - `code_graph_path` — lowest-cost path between two symbols (weighted Dijkstra-equivalent; `direction` forward/backward/either, `min_confidence` filter). Edge costs are tiered: deterministic-attribution `calls` cost 1, heuristic `calls` cost 2, everything structural (`imports`/`defines` — and, wave `1p9qh`/`1p9qa`, `implements`/`extends`; wave `1p9qi`, the SQL data-layer `reads`/`writes`/`maps_to`) cost 100, so a real call chain always beats an inheritance/import/shared-table/shared-entity shortcut within the horizon; inheritance edges are deliberately NOT dispatch-boosted here — dispatch potential is `code_impact`'s concern, path answers "how does control actually flow"
 - `code_risk_score` — ranks the `function`/`method` symbols in a `scope=` (path, directory, or glob) by composite change-risk `risk = weighted_affected_file_count * log1p(weighted_fan_in)` (blast radius × log-dampened incoming call-degree, both **weighted by edge attribution confidence** — `EXTRACTED` heuristic edges count at `extracted_edge_weight` while `RECEIVER_RESOLVED`/`CONSTRUCTION_RESOLVED` count in full, so a ubiquitous accessor name like `getKey` can't top the rank purely on a name collision with an unrelated symbol); each result also carries raw `affected_file_count`/`fan_in`, `extracted_edge_fraction` (discount a high score when near 1.0), and `transitive_extracted_fraction` (Wave 1p7df: share of affected nodes reachable only via an `EXTRACTED`-traversing path — the blast radius's transitive confidence, now propagated along the whole path rather than the immediate hop); `fan_out` is surfaced as an independent `score_component`, not folded into `risk`; response carries `score_formula` + `score_components` so the score is transparent; `top` (default 20) caps output and `>200` candidates returns `over_candidate_cap`; **ranks many** symbols across a scope (vs `code_impact`, which sizes **one**); use before a cross-cutting change/refactor to prioritize which symbols to touch carefully. Structural (graph-derived), not git-commit churn; `risk` is a relative rank within the queried scope, not a cross-scope absolute
-- `code_commit_provenance` — reverse provenance: from a commit SHA (`commit=`) or a blamed line range (`path=` + `line_start`/`line_end`) back to the wave(s) that produced it and their recorded reasoning. Local git only (routed through the sanctioned argv-based `_run_git`, no shell, SHA-format-validated, file path confined to the repo root) and strictly read-only. Resolves by two paths — the `Land wave(s) <id>` commit-message convention and a reverse-search of on-disk wave records for a cited landing SHA — and reports `conflict: true` when they disagree (never silently reconciled) and an honest `no_wave_provenance` diagnostic when neither resolves (never a fabricated mapping). The `provenance` rows carry each resolved change doc's `## Decision Log` rows and change-doc pointers, so the caller gets the recorded reasoning instead of re-reading the whole wave record; content-bearing rows are credited by the 1stwj measured `context_avoided` envelope field. Use to answer "why is this line here / what decided it" from the recorded wave reasoning rather than re-deriving it
+- `code_commit_provenance` — reverse provenance: from exactly one input mode — an existing local commit SHA (`commit=`), or a blamed line range (`path=` + `line_start`/`line_end`) — back to the wave(s) that produced it and their recorded reasoning. Local git only (routed through the sanctioned argv-based `_run_git`, no shell, canonical commit verification, file path confined to the repo root) and strictly read-only. Resolution accepts either an anchored `Land wave(s) <id-list>` commit subject or an explicit top-level `landing-commit: <sha>` wave association; arbitrary SHA prose, code-fenced examples, quoted/reverted landing text, and nonexistent commits never authorize ownership. `resolution` is `resolved`, `honest_absence`, `partial`, or `conflict`; line responses preserve committed/uncommitted coverage, and any contributing resolution conflict wins at the envelope while retaining the partial diagnostic. Each provenance row carries `change_id`, document path, Rationale, Decision Log rows, and `relevance: file_relevant|wave_level`; broad context is labeled rather than claimed as file-specific. Only content-bearing reasoning actually present in the response is eligible for measured `context_avoided` credit. Use to answer "why is this line here / what decided it" from recorded reasoning rather than re-deriving it.
 - `wave_graph_report` — structural whole-graph summary; sections: `fan_in` (most-called symbols by in-degree), `fan_out` (most-calling symbols), `chokepoints` (high fan-out nodes ≥ threshold), `orphan_docs` (doc nodes with no `doc_references_code` edges), `communities` (top communities by node_count with `community_id`/`label`/`hub_node_id`/`hub_label`), `betweenness` (bridge nodes by centrality, served from the ranking persisted at build time in the clusters artifact — size-tiered exact / bounded-`cutoff` / degree-fallback computation, no per-query cost and no graph-size cap; carries `betweenness_method` (`"exact"` / `"cutoff"` / `"degree_fallback"`), `betweenness_metadata` (node_count, edge_count, top_n, elapsed_ms, cutoff when applicable), `betweenness_computed` / `betweenness_dominated_by_generated`; a clusters artifact predating the build-time pass returns `betweenness_skipped_reason: "betweenness_not_in_artifact"` until the next graph rebuild); use for codebase orientation and hotspot identification
 
 ## MCP Resources

@@ -2287,17 +2287,49 @@ def finalize_build_epoch(index_dir: Path, attempt_id: str) -> bool:
     attempt) — the caller must treat that as a failed publication, never as
     success. Only this function may advance `generation`.
     """
-    conn = _full_durable_connection(index_dir)
-    try:
-        with conn:
-            cur = conn.execute(
-                "UPDATE build_state SET status = 'complete', generation = generation + 1, "
-                "completed_at = ? WHERE id = 1 AND attempt_id = ? AND status = 'building'",
-                (time.time(), str(attempt_id)),
-            )
-            return cur.rowcount == 1
-    finally:
-        conn.close()
+    backfill_run_id = os.environ.get("WAVEFOUNDRY_MEMORY_BACKFILL_RUN_ID", "").strip()
+
+    def _finalize() -> bool:
+        state = read_build_state(index_dir)
+        if (
+            state is None
+            or state.get("status") != "building"
+            or state.get("attempt_id") != str(attempt_id)
+        ):
+            return False
+        if backfill_run_id:
+            import memory_backfill
+
+            root = index_dir.parent.parent
+            if not memory_backfill.authorize_index_finalize(
+                root,
+                backfill_run_id,
+                str(attempt_id),
+                int(state["generation"]) + 1,
+            ):
+                return False
+        conn = _full_durable_connection(index_dir)
+        try:
+            with conn:
+                cur = conn.execute(
+                    "UPDATE build_state SET status = 'complete', generation = generation + 1, "
+                    "completed_at = ? WHERE id = 1 AND attempt_id = ? AND status = 'building'",
+                    (time.time(), str(attempt_id)),
+                )
+                return cur.rowcount == 1
+        finally:
+            conn.close()
+
+    if not backfill_run_id:
+        return _finalize()
+
+    # Candidate creation/validation uses this same process-released lock. Hold
+    # it across the last census and epoch CAS so no sanctioned memory writer
+    # can create new pending work inside the publication boundary.
+    import review_evidence
+
+    with review_evidence.review_event_write_lock(index_dir.parent.parent):
+        return _finalize()
 
 
 def read_build_state(index_dir: Path) -> Optional[dict[str, Any]]:

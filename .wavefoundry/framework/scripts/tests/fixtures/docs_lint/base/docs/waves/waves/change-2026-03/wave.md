@@ -31,6 +31,16 @@ Depends On: `00058-bug fixture-core`
 
 - Watchpoint: track docs-lint modularization and follow-up reconciliation for active wave work.
 
+## Review Evidence
+
+<!-- wave:review-status begin -->
+| Signoff | State | Why | Next action |
+| --- | --- | --- | --- |
+| wave-council-readiness | pending | no current executed approval | record approval evidence for wave-council-readiness |
+| wave-council-delivery | pending | no current executed approval | record approval evidence for wave-council-delivery |
+| operator-signoff | pending | no current executed approval | record approval evidence for operator-signoff |
+<!-- wave:review-status end -->
+
 ## Finding Synthesis
 
 <!-- wave:finding-synthesis begin -->

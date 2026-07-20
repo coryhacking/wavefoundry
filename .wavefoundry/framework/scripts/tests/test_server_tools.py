@@ -1600,6 +1600,12 @@ class CurrentWaveTests(unittest.TestCase):
         wave = self.srv.current_wave(self.root)
         self.assertIsNotNone(wave)
 
+    def test_open_wave_outranks_earlier_planned_wave(self):
+        _make_wave(self.root, "1200a planned", "planned", [])
+        _make_wave(self.root, "1200b open", "implementing", [])
+        wave = self.srv.current_wave(self.root)
+        self.assertEqual(wave["wave_id"], "1200b open")
+
     def test_returns_none_when_all_closed(self):
         _make_wave(self.root, "1200a wave", "closed", [])
         wave = self.srv.current_wave(self.root)
@@ -3321,6 +3327,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             "finding_id": "finding-1",
             "cycle": 1,
             "approval_recheck_lanes": ["qa-reviewer"],
+            "blocking": True,
         }
         diagnostics = self.srv._approval_evidence_diagnostics(
             "marked", ["qa-reviewer"], records=(approval, repair)
@@ -3365,6 +3372,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             "cycle": 1,
             "approval_recheck_lanes": [],
             "review_depth": "full",
+            "blocking": True,
         }
         diagnostics = self.srv._approval_evidence_diagnostics(
             "marked",
@@ -3392,6 +3400,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
                 "wave-council-delivery",
             ],
             "review_depth": "full",
+            "blocking": True,
         }
         delivery = self._approval_record(
             "wave-council-delivery",
@@ -3611,7 +3620,11 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         self.assertEqual(response["status"], "ok", response)
         wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
         text = wave_md.read_text(encoding="utf-8")
-        self.assertIn("- qa-reviewer: approved — public-path QA passed", text)
+        self.assertIn(
+            "| qa-reviewer | approved | current executed approval follows every affected repair | none |",
+            text,
+        )
+        self.assertNotIn("- qa-reviewer: approved —", text)
         self.assertEqual(
             self.srv._approval_evidence_diagnostics(
                 text, ["qa-reviewer"], root=self.root, wave_key=wave_id
@@ -6815,6 +6828,7 @@ class ServerToolRegistrationTests(unittest.TestCase):
             expected.issubset(tool_names),
             f"Missing tools: {expected - tool_names}",
         )
+        self.assertNotIn("wave_setup_resume_after_memory", tool_names)
 
     def test_registered_tools_obey_prefix_contract(self):
         try:
@@ -6825,6 +6839,31 @@ class ServerToolRegistrationTests(unittest.TestCase):
         names = self.srv._registered_mcp_tool_names(mcp)
         viol = self.srv.first_party_tool_names_violating_prefix(names)
         self.assertEqual(viol, [], f"Prefix violations: {viol}")
+
+    def test_agents_available_tools_census_matches_registration(self):
+        """The root guide labels this list exhaustive, so keep it executable."""
+        try:
+            mcp = load_thin_runner().build_server(self.root)
+        except ImportError:
+            self.skipTest("mcp package not installed")
+
+        import re
+
+        repo_root = Path(__file__).resolve().parents[4]
+        agents = repo_root.joinpath("AGENTS.md").read_text(encoding="utf-8")
+        match = re.search(
+            r"\*\*Available tools:\*\*(.*?)(?=\n\n\*\*Graph index:)",
+            agents,
+            flags=re.DOTALL,
+        )
+        self.assertIsNotNone(match, "AGENTS.md Available tools block is missing")
+        documented = set(re.findall(r"`([a-z][a-z0-9_]*)`", match.group(1)))
+        registered = self.srv._registered_mcp_tool_names(mcp)
+        self.assertEqual(
+            documented,
+            registered,
+            "AGENTS.md Available tools must exactly match live registration",
+        )
 
 
 class WaveMcpReloadTests(unittest.TestCase):
@@ -6946,6 +6985,8 @@ class WaveMcpReloadTests(unittest.TestCase):
         result = self.runner.perform_mcp_reload()
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["data"].get("description_changed_tools"), [])
+        self.assertEqual(result["data"].get("added_tools"), [])
+        self.assertEqual(result["data"].get("removed_tools"), [])
         self.assertFalse(
             result["data"].get("tool_list_changed_notification_sent"),
             "Notification should not fire when no descriptions changed",
@@ -6989,6 +7030,78 @@ class WaveMcpReloadTests(unittest.TestCase):
             or "tool_list_changed_notification_failed" in diag_codes,
             f"Expected one of the notification diagnostics; got: {diag_codes}",
         )
+
+    def test_perform_mcp_reload_notifies_when_new_tool_is_registered(self):
+        """A tool-set addition must invalidate the client tool list even when
+        no surviving tool description changed."""
+        try:
+            mcp = self.runner.build_server(self.root)
+        except ImportError:
+            self.skipTest("mcp package not installed")
+        target_name = "wave_memory_backfill"
+        self.assertIn(target_name, self.srv._registered_mcp_tool_names(mcp))
+        mcp.remove_tool(target_name)
+
+        result = self.runner.perform_mcp_reload()
+
+        self.assertEqual(result["status"], "ok", result)
+        self.assertIn(target_name, result["data"]["added_tools"])
+        self.assertIn(target_name, self.srv._registered_mcp_tool_names(mcp))
+        diag_codes = [d.get("code") for d in result.get("diagnostics", [])]
+        self.assertTrue(
+            "tool_list_changed_notification_sent" in diag_codes
+            or "tool_list_changed_notification_failed" in diag_codes,
+            f"Expected tool-list notification diagnostic; got: {diag_codes}",
+        )
+
+    def test_reload_keeps_resource_callback_behavior_current(self):
+        """Retained FastMCP resource wrappers resolve freshly reloaded globals.
+
+        FastMCP has no public resource-removal API and retains the registered
+        wrapper object on tool-only reload.  The wrapper must nevertheless
+        execute the current projection implementation rather than a frozen
+        pre-reload function body.
+        """
+
+        wave_result = self.srv.wave_create_wave_response(
+            self.root, "reload-resource-current", mode="create"
+        )
+        wave_id = wave_result["data"]["wave_id"]
+        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        text = wave_md.read_text(encoding="utf-8").replace(
+            "Status: planned", "Status: implementing"
+        )
+        text = re.sub(
+            r"(?ms)<!-- wave:review-status begin -->.*?"
+            r"<!-- wave:review-status end -->\n?",
+            "",
+            text,
+        )
+        wave_md.write_text(text, encoding="utf-8")
+        try:
+            mcp = self.runner.build_server(self.root)
+        except ImportError:
+            self.skipTest("mcp package not installed")
+        resource_before = mcp._resource_manager._resources[
+            "wavefoundry://wave/current"
+        ]
+
+        result = self.runner.perform_mcp_reload()
+
+        self.assertEqual(result["status"], "ok")
+        resource_after = mcp._resource_manager._resources[
+            "wavefoundry://wave/current"
+        ]
+        self.assertIs(resource_after, resource_before)
+        import asyncio
+
+        items = asyncio.run(mcp.read_resource("wavefoundry://wave/current"))
+        rendered = "\n".join(
+            str(getattr(item, "content", None) or getattr(item, "text", None) or "")
+            for item in items
+        )
+        self.assertIn("<!-- wave:review-status begin -->", rendered)
+        self.assertIn("projection is stale", rendered)
 
 
 class ServerHandlerLazyInitTests(unittest.TestCase):
@@ -8514,6 +8627,7 @@ class McpResourceReadTests(unittest.TestCase):
 
         stale = self._read_resource("wavefoundry://wave/current")
         self.assertIn("Machine review evidence — 0 records", stale)
+        self.assertIn("<!-- wave:review-status begin -->", stale)
         self.assertIn("projection is stale", stale)
         self.assertNotIn("999 records", stale)
 
@@ -8542,6 +8656,7 @@ class McpResourceReadTests(unittest.TestCase):
 
         self.assertNotIn("Wave Review Evidence Unavailable", derived)
         self.assertIn("Machine review evidence — 0 records", derived)
+        self.assertIn("<!-- wave:review-status begin -->", derived)
         self.assertIn("projection is missing", derived)
 
     def test_prompt_index_returns_content_when_exists(self):
@@ -19836,7 +19951,7 @@ class WaveDashboardOpenTests(unittest.TestCase):
         self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
-        self._meta_path = self.root / ".wavefoundry" / "dashboard-server.lock"
+        self._meta_path = self.root / ".wavefoundry" / "locks" / "dashboard-server.lock"
         self._prev_browser_suppress = os.environ.get("WAVEFOUNDRY_SUPPRESS_DASHBOARD_BROWSER")
         os.environ["WAVEFOUNDRY_SUPPRESS_DASHBOARD_BROWSER"] = "0"
         self._meta_path.parent.mkdir(parents=True, exist_ok=True)
@@ -19928,8 +20043,8 @@ class WaveDashboardOpenTests(unittest.TestCase):
         self.assertEqual(result["diagnostics"][0]["code"], "dashboard_start_in_progress")
 
 
-class WaveDashboardTransientStartLockTests(unittest.TestCase):
-    """1p5ya: dashboard-start.lock is transient — unlinked only after a confirmed start."""
+class WaveDashboardPersistentStartLockTests(unittest.TestCase):
+    """1sxxx: dashboard-start.lock persists; OS ownership is authoritative."""
 
     @classmethod
     def setUpClass(cls):
@@ -19949,7 +20064,7 @@ class WaveDashboardTransientStartLockTests(unittest.TestCase):
         self.server_lock_path = dashboard_lib.dashboard_lock_path(
             self.root, dashboard_lib.DASHBOARD_SERVER_LOCK_NAME
         )
-        self.meta_path = self.root / ".wavefoundry" / "dashboard-server.lock"
+        self.meta_path = self.root / ".wavefoundry" / "locks" / "dashboard-server.lock"
 
     def tearDown(self):
         if self._prev_browser_suppress is None:
@@ -19980,9 +20095,9 @@ class WaveDashboardTransientStartLockTests(unittest.TestCase):
 
         return _side_effect, fake_pid
 
-    def test_successful_start_unlinks_start_lock(self):
-        # AC-2: after a confirmed start (meta written + child holds server lock),
-        # dashboard-start.lock is unlinked; dashboard-server.lock remains held.
+    def test_successful_start_keeps_persistent_start_lock(self):
+        # AC-7: both carriers persist after a confirmed start; only OS ownership
+        # indicates contention.
         import server_impl
         holders: list = []
         side_effect, fake_pid = self._spawn_child(holders, hold_lock=True, write_meta=True)
@@ -19993,9 +20108,9 @@ class WaveDashboardTransientStartLockTests(unittest.TestCase):
                 result = self.srv.wave_dashboard_start_response(self.root)
             self.assertEqual(result["status"], "ok")
             self.assertTrue(result["data"].get("started"))
-            self.assertFalse(
+            self.assertTrue(
                 self.start_lock_path.exists(),
-                "start.lock must be unlinked after a confirmed start",
+                "start.lock remains as a persistent OS-lock carrier",
             )
             self.assertTrue(
                 self.server_lock_path.exists(),
@@ -20005,8 +20120,8 @@ class WaveDashboardTransientStartLockTests(unittest.TestCase):
             for cm in holders:
                 cm.__exit__(None, None, None)
 
-    def test_failed_start_does_not_unlink_start_lock(self):
-        # AC-2: if the child never comes up (no meta, no lock held), leave start.lock.
+    def test_failed_start_keeps_persistent_start_lock(self):
+        # AC-7: a failed child leaves an unlocked, re-acquirable carrier.
         import server_impl
         holders: list = []
         side_effect, _ = self._spawn_child(holders, hold_lock=False, write_meta=False)
@@ -20098,7 +20213,7 @@ class WaveDashboardBrowserSuppressTests(unittest.TestCase):
         self.assertNotIn("--open", cmd)
 
     def test_open_when_running_does_not_call_webbrowser_when_suppressed(self):
-        meta_path = self.root / ".wavefoundry" / "dashboard-server.lock"
+        meta_path = self.root / ".wavefoundry" / "locks" / "dashboard-server.lock"
         meta_path.parent.mkdir(parents=True, exist_ok=True)
         meta_path.write_text(
             json.dumps({"pid": os.getpid(), "url": "http://127.0.0.1:9/dashboard.html"}),
@@ -20130,7 +20245,7 @@ class WaveDashboardPidRaceTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
         os.environ["WAVEFOUNDRY_SUPPRESS_DASHBOARD_BROWSER"] = "1"
-        self.meta_path = self.root / ".wavefoundry" / "dashboard-server.lock"
+        self.meta_path = self.root / ".wavefoundry" / "locks" / "dashboard-server.lock"
         self.meta_path.parent.mkdir(parents=True, exist_ok=True)
 
     def tearDown(self):
@@ -20319,7 +20434,7 @@ class WaveUpgradeStatusTests(unittest.TestCase):
     def _lock_path(self):
         return self.root / ".wavefoundry" / "upgrade-in-progress.json"
 
-    def _write_lock(self, pid=None):
+    def _write_lock(self, pid=None, memory_run_id=""):
         p = self._lock_path()
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(json.dumps({
@@ -20327,6 +20442,7 @@ class WaveUpgradeStatusTests(unittest.TestCase):
             "from_version": "2026-05-10a",
             "to_version": "2026-05-19a",
             "pid": pid or os.getpid(),
+            "memory_backfill_run_id": memory_run_id,
         }), encoding="utf-8")
 
     def test_no_lock_returns_not_in_progress(self):
@@ -20342,6 +20458,29 @@ class WaveUpgradeStatusTests(unittest.TestCase):
         self.assertTrue(result["data"]["in_progress"])
         self.assertEqual(result["data"]["from_version"], "2026-05-10a")
         self.assertEqual(result["data"]["to_version"], "2026-05-19a")
+
+    def test_lock_exposes_structured_memory_gate_and_exact_worklist(self):
+        self._write_lock(memory_run_id="run-1")
+        backfill = MagicMock()
+        backfill.run_summary.return_value = {
+            "run_id": "run-1",
+            "state": "awaiting_validation",
+            "candidates_pending": 2,
+            "promoted": 1,
+            "last_failure": "one source unreadable",
+        }
+        backfill.validation_worklist.return_value = {
+            "validation_worklist": [{"memory_id": "1abc-memory"}],
+            "validation_worklist_count": 2,
+            "validation_worklist_remaining": 1,
+        }
+        with patch.object(self.srv, "_load_script", return_value=backfill):
+            result = self.srv.wave_upgrade_status_response(self.root)
+        gate = result["data"]["memory_backfill"]
+        self.assertEqual(gate["run_id"], "run-1")
+        self.assertEqual(gate["candidates_pending"], 2)
+        self.assertEqual(gate["last_failure"], "one source unreadable")
+        self.assertEqual(gate["validation_worklist"][0]["memory_id"], "1abc-memory")
 
 
 class WaveDashboardRestartUpgradeGuardTests(unittest.TestCase):
@@ -20373,7 +20512,7 @@ class WaveDashboardRestartUpgradeGuardTests(unittest.TestCase):
         """AC-4 (revised): restart is not blocked during upgrade — dashboard comes up in upgrade_paused."""
         self._write_lock()
         import sys
-        mock_lib = _make_mock_dashboard_lib(self.root / ".wavefoundry" / "dashboard-server.lock")
+        mock_lib = _make_mock_dashboard_lib(self.root / ".wavefoundry" / "locks" / "dashboard-server.lock")
         with patch.dict(sys.modules, {"dashboard_lib": mock_lib}), \
              patch.object(self.srv, "_pid_is_running", return_value=False), \
              patch.object(self.srv, "wave_dashboard_start_response",
@@ -20387,7 +20526,7 @@ class WaveDashboardRestartUpgradeGuardTests(unittest.TestCase):
         # No lock file — restart should attempt to stop/start (both will find nothing running).
         # Mock wave_dashboard_start_response to avoid spawning a real dashboard process.
         import sys
-        mock_lib = _make_mock_dashboard_lib(self.root / ".wavefoundry" / "dashboard-server.lock")
+        mock_lib = _make_mock_dashboard_lib(self.root / ".wavefoundry" / "locks" / "dashboard-server.lock")
         with patch.dict(sys.modules, {"dashboard_lib": mock_lib}), \
              patch.object(self.srv, "_pid_is_running", return_value=False), \
              patch.object(self.srv, "wave_dashboard_start_response",
@@ -20441,6 +20580,33 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
         self.assertEqual(result["data"]["exit_code"], 1)
         diag_codes = [d["code"] for d in result.get("diagnostics", [])]
         self.assertIn("upgrade_failed", diag_codes)
+
+    def test_action_required_exit_exposes_structured_memory_gate(self):
+        mock_proc = MagicMock(returncode=4, stdout="paused\n", stderr="")
+        backfill = MagicMock()
+        backfill.run_summary.return_value = {
+            "run_id": "run-2",
+            "state": "awaiting_validation",
+            "candidates_pending": 1,
+            "promoted": 3,
+            "last_failure": "",
+        }
+        backfill.validation_worklist.return_value = {
+            "validation_worklist": [{"memory_id": "1abd-memory"}],
+            "validation_worklist_count": 1,
+            "validation_worklist_remaining": 0,
+        }
+        lock = {"memory_backfill_run_id": "run-2"}
+        upgrade_lib = types.SimpleNamespace(read_upgrade_lock=lambda _root: lock)
+        with patch("subprocess.run", return_value=mock_proc), \
+             patch.object(self.srv, "_load_upgrade_lib", return_value=upgrade_lib), \
+             patch.object(self.srv, "_load_script", return_value=backfill):
+            result = self.srv.wave_upgrade_response(self.root)
+        self.assertEqual(result["data"]["state"], "awaiting_memory_validation")
+        gate = result["data"]["memory_backfill"]
+        self.assertEqual(gate["run_id"], "run-2")
+        self.assertEqual(gate["candidates_pending"], 1)
+        self.assertEqual(gate["validation_worklist"][0]["memory_id"], "1abd-memory")
 
     def test_update_index_phase_passes_flag(self):
         """AC-3a: update_index phase passes --update-index (incremental)."""
@@ -20502,6 +20668,32 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
         self.assertEqual(result["status"], "error")
         self.assertEqual(result["data"]["exit_code"], 1)
         self.assertIn("upgrade_failed", [d["code"] for d in result.get("diagnostics", [])])
+        self.assertIn("retry wave_upgrade(phase='resume_after_gate')", result["next_step"])
+        self.assertNotIn("update_index", result["next_step"])
+        self.assertNotIn("phase='cleanup'", result["next_step"])
+        self.assertEqual(
+            result["next_tools"], ["wave_upgrade_status", "wave_upgrade"]
+        )
+
+    def test_projection_backstop_failure_is_not_misreported_as_memory_action(self):
+        mock_proc = MagicMock()
+        mock_proc.returncode = 1
+        mock_proc.stdout = ""
+        mock_proc.stderr = (
+            "Review-state migration requires operator action before index "
+            "publication. Run --resume-after-gate."
+        )
+        with patch("subprocess.run", return_value=mock_proc):
+            result = self.srv.wave_upgrade_response(
+                self.root, phase="update_index", mode="apply"
+            )
+        self.assertEqual(result["status"], "error")
+        self.assertNotEqual(result.get("data", {}).get("state"), "awaiting_memory_validation")
+        self.assertIn("retry wave_upgrade(phase='resume_after_gate')", result["next_step"])
+        self.assertNotIn("phase='cleanup'", result["next_step"])
+        self.assertEqual(
+            result["next_tools"], ["wave_upgrade_status", "wave_upgrade"]
+        )
 
     def test_dry_run_mode_passes_flag_and_omits_yes(self):
         """mode='dry_run' passes --dry-run and must NOT pass --yes (read-only, no prompt)."""
@@ -20666,18 +20858,28 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
             self.assertIn(key, parsed)
 
     def test_failure_response_carries_next_step_and_next_tools(self):
-        # F2: the error path must also attach next_step + next_tools (resume_after_gate hint on a
-        # docs-gate failure).
+        # F2: the primary error path must route a retained typed-gate failure
+        # back through resume_after_gate rather than publication or cleanup.
         mock_proc = MagicMock()
         mock_proc.returncode = 1  # docs gate failed
         mock_proc.stdout = ""
-        mock_proc.stderr = "Docs gate failed"
+        mock_proc.stderr = (
+            "Upgrade failed during phase 'docs_gate'. Resolve the typed "
+            "review-state or docs findings, then run --resume-after-gate."
+        )
         with patch("subprocess.run", return_value=mock_proc):
             result = self.srv.wave_upgrade_response(self.root, phase="preflight_to_docs_gate")
         self.assertEqual(result["status"], "error")
-        self.assertIn("next_step", result)
-        self.assertTrue(result["next_step"])
-        self.assertTrue(result["next_tools"])
+        self.assertIn("retry wave_upgrade(phase='resume_after_gate')", result["next_step"])
+        self.assertNotIn("phase='update_index'", result["next_step"])
+        self.assertNotIn("phase='cleanup'", result["next_step"])
+        self.assertEqual(
+            result["next_tools"], ["wave_upgrade_status", "wave_upgrade"]
+        )
+        self.assertIn(
+            "review-state projection or docs gate failed",
+            result["diagnostics"][0]["message"],
+        )
 
 
 class ImplHandlerCloseTests(unittest.TestCase):

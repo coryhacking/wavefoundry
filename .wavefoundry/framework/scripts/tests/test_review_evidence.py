@@ -2156,7 +2156,200 @@ class ExternalReviewEventLedgerTests(unittest.TestCase):
             )
 
 
+class ReviewStatusProjectionTests(unittest.TestCase):
+    def approval(self, key: str, *, actor: str | None = None) -> dict[str, object]:
+        return executable_evidence(
+            f"approval-{key}",
+            f"approval:{key}",
+            claim_kind="approval",
+            actor=actor or ("wave-council" if key.startswith("wave-council-") else key),
+            required_for_approval=True,
+        )
+
+    def test_signoff_keys_stay_distinct_even_when_actor_is_shared(self) -> None:
+        rows = [
+            self.approval("wave-council-readiness"),
+            self.approval("wave-council-delivery"),
+        ]
+        states = {
+            row["signoff_key"]: row["state"]
+            for row in subject.review_status_rows(
+                rows, ["wave-council-readiness", "wave-council-delivery"]
+            )
+        }
+        self.assertEqual(
+            states,
+            {
+                "wave-council-readiness": "approved",
+                "wave-council-delivery": "approved",
+            },
+        )
+
+    def test_affected_repair_withholds_only_its_lane_and_names_recovery(self) -> None:
+        rows = [
+            self.approval("qa-reviewer"),
+            self.approval("code-reviewer"),
+            synthesis(
+                "repair-1",
+                cycle=1,
+                finding_id="F-1",
+                source_lanes=["qa-reviewer"],
+                blocking_required_lanes=["qa-reviewer"],
+                approval_recheck_lanes=["qa-reviewer"],
+                disposition="do_now",
+                blocking=True,
+                repair_execution_state="completed",
+            ),
+        ]
+        states = {
+            row["signoff_key"]: row
+            for row in subject.review_status_rows(
+                rows, ["qa-reviewer", "code-reviewer"]
+            )
+        }
+        self.assertEqual(states["qa-reviewer"]["state"], "withheld")
+        self.assertIn("F-1", states["qa-reviewer"]["why"])
+        self.assertIn("qa-reviewer", states["qa-reviewer"]["next_action"])
+        self.assertEqual(states["code-reviewer"]["state"], "approved")
+
+    def test_later_reapproval_restores_affected_lane(self) -> None:
+        rows = [
+            self.approval("qa-reviewer"),
+            synthesis(
+                "repair-1",
+                cycle=1,
+                finding_id="F-1",
+                source_lanes=["qa-reviewer"],
+                approval_recheck_lanes=["qa-reviewer"],
+                disposition="do_now",
+                blocking=True,
+                repair_execution_state="completed",
+            ),
+            self.approval("qa-reviewer"),
+        ]
+        status = subject.review_status_rows(rows, ["qa-reviewer"])
+        self.assertEqual(status[0]["state"], "approved")
+
+    def test_nonblocking_current_finding_does_not_withhold_approval(self) -> None:
+        rows = [
+            self.approval("qa-reviewer"),
+            synthesis(
+                "nonblocking-1",
+                cycle=1,
+                finding_id="F-NONBLOCKING",
+                source_lanes=["qa-reviewer"],
+                approval_recheck_lanes=["qa-reviewer"],
+                disposition="dont_do_later",
+                blocking=False,
+                repair_execution_state="not_required",
+            ),
+        ]
+        status = subject.review_status_rows(rows, ["qa-reviewer"])
+        self.assertEqual(status[0]["state"], "approved")
+        self.assertNotIn("F-NONBLOCKING", status[0]["why"])
+
+    def test_projection_replaces_generated_lines_but_preserves_human_prose(self) -> None:
+        text = (
+            "# Wave\n\n## Review Evidence\n\n"
+            "- qa-reviewer: approved — old generated state\n"
+            "- qa-reviewer was withdrawn during an exploratory review for context.\n"
+            "- operator-signoff: <approved when operator confirms closure>\n\n"
+            "## Dependencies\n\n- none\n"
+        )
+        rendered = subject.render_review_status_projection(
+            text, [self.approval("qa-reviewer")], ["qa-reviewer", "operator-signoff"]
+        )
+        self.assertNotIn("old generated state", rendered)
+        self.assertIn("withdrawn during an exploratory review", rendered)
+        self.assertIn("<approved when operator confirms closure>", rendered)
+        self.assertIn("| qa-reviewer | approved |", rendered)
+
+    def test_malformed_or_duplicate_marker_fails_closed(self) -> None:
+        text = (
+            "# Wave\n\n## Review Evidence\n\n"
+            f"{subject.REVIEW_STATUS_MARKER_BEGIN}\n"
+            f"{subject.REVIEW_STATUS_MARKER_BEGIN}\n"
+            f"{subject.REVIEW_STATUS_MARKER_END}\n"
+        )
+        with self.assertRaises(ValueError):
+            subject.render_review_status_projection(text, [], ["operator-signoff"])
+
+    def test_projection_size_is_bounded_by_current_heads_not_cycles(self) -> None:
+        records: list[dict[str, object]] = []
+        for cycle in range(100):
+            records.append(
+                synthesis(
+                    f"repair-{cycle}",
+                    cycle=cycle,
+                    finding_id="F-1",
+                    source_lanes=["qa-reviewer"],
+                    approval_recheck_lanes=["qa-reviewer"],
+                    disposition="do_now",
+                    blocking=True,
+                    repair_execution_state="completed",
+                    supersedes_record_id=(
+                        f"repair-{cycle - 1}" if cycle else None
+                    ),
+                )
+            )
+        table = subject.review_status_human_table(records, ["qa-reviewer"])
+        self.assertLess(len(table), 700)
+        self.assertIn("F-1", table)
+
+
 class ReviewEvidenceLintIntegrationTests(unittest.TestCase):
+    def test_adoption_ledger_symlink_is_rejected_without_reading_target(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "repo"
+            waves = root / "docs" / "waves"
+            waves.mkdir(parents=True)
+            outside = Path(temp_dir) / "outside-adoptions.json"
+            sentinel = '{"protocol_version": 1, "waves": {"outside": {}}}\n'
+            outside.write_text(sentinel, encoding="utf-8")
+            try:
+                waves.joinpath("review-evidence-adoptions.json").symlink_to(outside)
+            except OSError as exc:
+                self.skipTest(f"file symlinks unavailable: {exc}")
+
+            state, error = subject.adopted_protocol_state(root, "outside")
+
+            self.assertIsNone(state)
+            self.assertIn("may not be a symlink", error or "")
+            self.assertEqual(outside.read_text(encoding="utf-8"), sentinel)
+
+    def test_reading_missing_adoption_ledger_does_not_create_docs_tree(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+
+            state, error = subject.adopted_protocol_state(root, "missing")
+
+            self.assertIsNone(state)
+            self.assertIsNone(error)
+            self.assertFalse((root / "docs").exists())
+
+    def test_external_ledger_symlink_is_rejected_as_authority(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            wave = root / "docs" / "waves" / "1test unsafe-ledger" / "wave.md"
+            wave.parent.mkdir(parents=True)
+            wave.write_text(
+                "# Wave\n\nStatus: implementing\n"
+                "review-evidence-source: events.jsonl\n\n"
+                "## Review Evidence\n\n## Finding Synthesis\n\n",
+                encoding="utf-8",
+            )
+            outside = root / "outside-events.jsonl"
+            outside.write_bytes(b"")
+            try:
+                wave.parent.joinpath("events.jsonl").symlink_to(outside)
+            except OSError as exc:
+                self.skipTest(f"file symlinks unavailable: {exc}")
+
+            result = subject.validate_external_review_evidence(wave)
+
+            self.assertFalse(result.ok)
+            self.assertIn("events.jsonl may not be a symlink", "\n".join(result.errors))
+
     def test_wave_docs_routes_marked_records_through_shared_validator(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

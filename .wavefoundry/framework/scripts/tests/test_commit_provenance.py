@@ -13,6 +13,8 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import commit_provenance as cp  # noqa: E402
@@ -89,9 +91,9 @@ class ResolutionTests(_RepoCase):
     def test_evidence_path_resolves_non_conventional_commit(self):
         self._write("f.txt", "x\n")
         sha = self._commit("fix: something unconventional")
-        # a wave record that cites the (short) landing sha
+        # an explicit typed landing association (generic SHA prose is not authority)
         self._write("docs/waves/1zzzz slug/wave.md",
-                    f"# Wave\n\nLanded in commit `{sha[:7]}`\n")
+                    f"# Wave\n\nlanding-commit: {sha[:7]}\n")
         self._commit("Land wave 1zzzz: record the sha")
         v = cp.resolve_commit_to_waves(self.root, sha)
         self.assertIn("1zzzz", v["via_evidence"])
@@ -100,7 +102,8 @@ class ResolutionTests(_RepoCase):
     def test_conflict_reports_both_never_reconciles(self):
         self._write("f.txt", "x\n")
         sha = self._commit("Land wave 1aaaa: msg says aaaa")
-        self._write("docs/waves/1bbbb slug/wave.md", f"# Wave\n\ncommit `{sha[:7]}`\n")
+        self._write("docs/waves/1bbbb slug/wave.md",
+                    f"# Wave\n\nlanding-commit: {sha[:7]}\n")
         self._commit("Land wave 1bbbb: evidence says bbbb")
         v = cp.resolve_commit_to_waves(self.root, sha)
         self.assertTrue(v["conflict"])
@@ -113,6 +116,36 @@ class ResolutionTests(_RepoCase):
         self.assertFalse(v["resolved"])
         self.assertEqual(v["method"], "none")
         self.assertEqual(v["waves"], [])
+
+    def test_generic_sha_mention_is_not_authority(self):
+        self._write("f.txt", "x\n")
+        sha = self._commit("chore: no wave here")
+        self._write("docs/waves/1zzzz slug/wave.md",
+                    f"# Wave\n\nUnrelated fixture commit `{sha[:7]}`\n")
+        self.assertEqual(cp.resolve_via_evidence(self.root, sha), [])
+
+    def test_landing_marker_inside_code_fence_is_not_authority(self):
+        self._write("f.txt", "x\n")
+        sha = self._commit("chore: no wave here")
+        self._write(
+            "docs/waves/1zzzz slug/wave.md",
+            f"# Wave\n\n```text\nlanding-commit: {sha}\n```\n",
+        )
+        self.assertEqual(cp.resolve_via_evidence(self.root, sha), [])
+
+    def test_nonexistent_sha_cannot_resolve_from_prose(self):
+        sha = "deadbee"
+        self._write("docs/waves/1zzzz slug/wave.md",
+                    f"# Wave\n\nlanding-commit: {sha}\n")
+        self.assertFalse(cp.resolve_commit_to_waves(self.root, sha)["resolved"])
+
+    def test_subject_grammar_rejects_revert_and_stops_before_description(self):
+        self._write("f.txt", "x\n")
+        reverted = self._commit('Revert "Land wave 1aaaa: broken"')
+        self.assertEqual(cp.resolve_via_message(self.root, reverted), [])
+        self._write("g.txt", "y\n")
+        descriptive = self._commit("Land wave 1aaaa for change 1bbbbb")
+        self.assertEqual(cp.resolve_via_message(self.root, descriptive), ["1aaaa"])
 
     def test_invalid_sha_fails_closed(self):
         v = cp.resolve_commit_to_waves(self.root, "not-a-sha!!")
@@ -149,6 +182,15 @@ class BlameTests(_RepoCase):
         shas, err = cp.blame_line_commits(self.root, "src.txt", 2, 2)
         self.assertIsNone(err)
         self.assertNotIn("0" * 40, shas)  # the not-yet-committed sentinel is dropped
+
+    def test_mixed_range_reports_partial_coverage(self):
+        self._wave("1abcd", "myslug", ["keep coverage"])
+        self._write("src.txt", "committed\nsecond\n")
+        self._commit("Land wave 1abcd: seed")
+        self._write("src.txt", "committed\nmodified\n")
+        v = cp.provenance_for_line(self.root, "src.txt", 1, 2)
+        self.assertTrue(v["partial"])
+        self.assertGreater(v["coverage"]["uncommitted_lines"], 0)
 
     def test_path_traversal_guard(self):
         shas, err = cp.blame_line_commits(self.root, "../../../etc/passwd", 1, 1)
@@ -196,9 +238,46 @@ class ResolutionSignalTests(_RepoCase):
     def test_conflict_signal(self):
         self._write("f.txt", "x\n")
         sha = self._commit("Land wave 1aaaa: msg")
-        self._write("docs/waves/1bbbb slug/wave.md", f"# Wave\n\ncommit `{sha[:7]}`\n")
+        self._write("docs/waves/1bbbb slug/wave.md",
+                    f"# Wave\n\nlanding-commit: {sha[:7]}\n")
         self._commit("Land wave 1bbbb: evidence")
         self.assertEqual(self._resolution(commit=sha), "conflict")
+
+    def test_invalid_and_dual_inputs_are_errors(self):
+        import server_impl
+        invalid = server_impl.code_commit_provenance_response(
+            self.root, commit="not-a-sha")
+        self.assertEqual(invalid["status"], "error")
+        dual = server_impl.code_commit_provenance_response(
+            self.root, commit="deadbee", path="f.txt")
+        self.assertEqual(dual["status"], "error")
+        missing_range = server_impl.code_commit_provenance_response(
+            self.root, path="f.txt")
+        self.assertEqual(missing_range["status"], "error")
+        malformed_range = server_impl.code_commit_provenance_response(
+            self.root, path="f.txt", line_start="not-a-line")
+        self.assertEqual(malformed_range["status"], "error")
+
+    def test_conflict_takes_precedence_while_partial_remains_diagnostic(self):
+        import server_impl
+        fake = SimpleNamespace(
+            provenance_for_line=lambda *_args: {
+                "resolved": True,
+                "waves": ["1aaaa", "1bbbb"],
+                "provenance": [],
+                "partial": True,
+                "conflict": True,
+            }
+        )
+        with patch.object(server_impl, "_load_script", return_value=fake):
+            response = server_impl.code_commit_provenance_response(
+                self.root, path="f.txt", line_start=1, line_end=2
+            )
+        self.assertEqual(response["data"]["resolution"], "conflict")
+        self.assertEqual(
+            {item["code"] for item in response["diagnostics"]},
+            {"partial_provenance", "provenance_conflict"},
+        )
 
 
 if __name__ == "__main__":

@@ -24,9 +24,13 @@ import uuid
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Optional
+from runtime_lock import RuntimeFileLock, RuntimeLockBusy, RuntimeLockError
 
 
 STORE_RELATIVE_PATH = Path(".wavefoundry/logs/context-efficiency.sqlite")
+PRODUCER_LEASE_RELATIVE_DIR = Path(
+    ".wavefoundry/locks/producers"
+)
 GENERAL_ASSOCIATION_NOTE = (
     "associated unattributed context at successful wave creation or "
     "preparation; may include exploration not exclusive to this wave."
@@ -256,6 +260,36 @@ def store_path(root: Path) -> Path:
     return Path(root) / STORE_RELATIVE_PATH
 
 
+def producer_lease_path(root: Path, producer_id: str) -> Path:
+    return Path(root) / PRODUCER_LEASE_RELATIVE_DIR / f"{producer_id}.lock"
+
+
+def _try_lock_lease(path: Path, *, create: bool) -> tuple[Any | None, bool]:
+    """Try to hold one producer lease without waiting.
+
+    Missing probe files are deliberately indeterminate rather than abandoned:
+    only a persisted, unlocked lease is positive crash evidence.
+    """
+
+    if not create and not path.is_file():
+        return None, False
+    try:
+        lock = RuntimeFileLock(path, blocking=False)
+        lock.acquire()
+        return lock, True
+    except (RuntimeLockBusy, RuntimeLockError):
+        return None, False
+
+
+def _unlock_lease(handle: Any | None) -> None:
+    if handle is None:
+        return
+    try:
+        handle.release()
+    except RuntimeLockError:
+        pass
+
+
 
 def _open_read_store(root: Path) -> Optional[sqlite3.Connection]:
     path = store_path(root)
@@ -326,6 +360,7 @@ __all__ = [
     "WORKFLOW_PROXY_METHOD",
     "WORKFLOW_PROXY_METHOD_LABEL",
     "canonical_core_json",
+    "compact_published_wave",
     "checkpoint_validation_errors",
     "contained_stat_signature",
     "empty_checkpoint",
@@ -344,6 +379,7 @@ __all__ = [
     "replace_checkpoint_block",
     "retrieval_context_avoided",
     "store_path",
+    "unseal_wave",
     "workflow_instruction_proxy",
     "workflow_proxy_after_flush",
 ]
@@ -722,10 +758,13 @@ def _open_write_store_once(root: Path) -> sqlite3.Connection:
         "meta",
         "phase_state",
         "telemetry_event",
+        "event_tombstone",
         "source_credit",
+        "producer_state",
         "wave_state",
         "evaluation_scope",
         "evaluation_attachment",
+        "exploration_credit_event",
     }.issubset(
         {
             str(row[0])
@@ -735,8 +774,13 @@ def _open_write_store_once(root: Path) -> sqlite3.Connection:
         }
     )
     if schema_ready:
-        schema_ready = "source_credits_dropped" in _column_names(
-            conn, "telemetry_event"
+        schema_ready = (
+            "source_credits_dropped" in _column_names(conn, "telemetry_event")
+            and {
+                "floor_json",
+                "compacted_generation",
+                "sealed",
+            }.issubset(_column_names(conn, "wave_state"))
         )
     if schema_ready:
         if gap_path(root).exists():
@@ -807,6 +851,10 @@ def _open_write_store_once(root: Path) -> sqlite3.Connection:
             "ON telemetry_event(wave_id,stage)"
         )
         conn.execute(
+            "CREATE TABLE IF NOT EXISTS event_tombstone("
+            "event_id TEXT PRIMARY KEY, wave_id TEXT NOT NULL) WITHOUT ROWID"
+        )
+        conn.execute(
             "CREATE TABLE IF NOT EXISTS source_credit("
             "wave_key TEXT NOT NULL, phase_id TEXT NOT NULL, stage TEXT NOT NULL,"
             "source_id TEXT NOT NULL, version_id TEXT NOT NULL,"
@@ -815,10 +863,17 @@ def _open_write_store_once(root: Path) -> sqlite3.Connection:
             "PRIMARY KEY(wave_key,phase_id,source_id,version_id))"
         )
         conn.execute(
+            "CREATE TABLE IF NOT EXISTS producer_state("
+            "producer_id TEXT PRIMARY KEY, reclaimable INTEGER NOT NULL,"
+            "updated_at REAL NOT NULL)"
+        )
+        conn.execute(
             "CREATE TABLE IF NOT EXISTS wave_state("
             "wave_id TEXT PRIMARY KEY, generation INTEGER NOT NULL DEFAULT 0,"
             "pending INTEGER NOT NULL DEFAULT 0, published_json TEXT,"
-            "store_instance_id TEXT, measurement_status TEXT NOT NULL DEFAULT 'healthy')"
+            "store_instance_id TEXT, measurement_status TEXT NOT NULL DEFAULT 'healthy',"
+            "floor_json TEXT, compacted_generation INTEGER NOT NULL DEFAULT 0,"
+            "sealed INTEGER NOT NULL DEFAULT 0)"
         )
         columns = _column_names(conn, "wave_state")
         if "store_instance_id" not in columns:
@@ -827,6 +882,17 @@ def _open_write_store_once(root: Path) -> sqlite3.Connection:
             conn.execute(
                 "ALTER TABLE wave_state ADD COLUMN measurement_status TEXT"
                 " NOT NULL DEFAULT 'healthy'"
+            )
+        if "floor_json" not in columns:
+            conn.execute("ALTER TABLE wave_state ADD COLUMN floor_json TEXT")
+        if "compacted_generation" not in columns:
+            conn.execute(
+                "ALTER TABLE wave_state ADD COLUMN compacted_generation INTEGER"
+                " NOT NULL DEFAULT 0"
+            )
+        if "sealed" not in columns:
+            conn.execute(
+                "ALTER TABLE wave_state ADD COLUMN sealed INTEGER NOT NULL DEFAULT 0"
             )
         conn.execute(
             "CREATE TABLE IF NOT EXISTS evaluation_scope("
@@ -841,6 +907,19 @@ def _open_write_store_once(root: Path) -> sqlite3.Connection:
             "scope_digest TEXT NOT NULL, residual INTEGER NOT NULL,"
             "active INTEGER NOT NULL, supersedes_evaluation_id TEXT,"
             "report_digest TEXT NOT NULL, created_at REAL NOT NULL)"
+        )
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS exploration_credit_event("
+            "event_key TEXT PRIMARY KEY, wave_id TEXT NOT NULL,"
+            "phase_id TEXT NOT NULL, stage TEXT NOT NULL,"
+            "origin_id TEXT NOT NULL, memory_id TEXT NOT NULL,"
+            "context_key TEXT NOT NULL, cited INTEGER NOT NULL,"
+            "source_cost INTEGER NOT NULL, match_confidence REAL NOT NULL,"
+            "credit INTEGER NOT NULL, created_at REAL NOT NULL)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS exploration_credit_wave_stage "
+            "ON exploration_credit_event(wave_id,stage)"
         )
         if gap_path(root).exists():
             conn.execute(
@@ -906,6 +985,7 @@ def _public_metric(metric: Mapping[str, Any]) -> dict[str, Any]:
 def _commit_event(
     root: Path,
     producer_id: str,
+    producer_reclaimable: bool,
     focus: Focus,
     tool_name: str,
     event_kind: str,
@@ -923,6 +1003,27 @@ def _commit_event(
         wave_id = focus.wave_id
         stage = focus.stage or "general"
         phase_id = focus.phase_id or f"general:{producer_id}"
+        if conn.execute(
+            "SELECT 1 FROM event_tombstone WHERE event_id=?", (event_id,)
+        ).fetchone():
+            conn.commit()
+            return "duplicate", 0, 0, 0
+        if wave_id:
+            sealed = conn.execute(
+                "SELECT sealed FROM wave_state WHERE wave_id=?", (wave_id,)
+            ).fetchone()
+            if sealed is not None and bool(sealed[0]):
+                wave_id = None
+                stage = "general"
+                phase_id = f"general:{producer_id}"
+        conn.execute(
+            "INSERT INTO producer_state("
+            "producer_id,reclaimable,updated_at"
+            ") VALUES(?,?,?) ON CONFLICT(producer_id) DO UPDATE SET "
+            "reclaimable=excluded.reclaimable,"
+            "updated_at=excluded.updated_at",
+            (producer_id, int(producer_reclaimable), time.time()),
+        )
         inserted = conn.execute(
             "INSERT OR IGNORE INTO telemetry_event("
             "event_id,producer_id,wave_id,phase_id,stage,tool_name,event_kind,"
@@ -1052,6 +1153,9 @@ class ProcessTelemetry:
         self.producer_id = secrets.token_hex(16)
         self._lock = threading.RLock()
         self._focus = Focus()
+        self._lease_handle: Any | None = None
+        self._lease_attempted = False
+        self._lease_reclaimable = False
         # Compatibility-only buffers for direct unit callers that do not bind a
         # root. The production ImplHandler always binds one.
         self._compat_retrieval: list[dict[str, Any]] = []
@@ -1061,6 +1165,18 @@ class ProcessTelemetry:
     def focus(self) -> Focus:
         with self._lock:
             return self._focus
+
+    def _ensure_lease(self) -> bool:
+        if self.root is None:
+            return False
+        if not self._lease_attempted:
+            self._lease_attempted = True
+            handle, locked = _try_lock_lease(
+                producer_lease_path(self.root, self.producer_id), create=True
+            )
+            self._lease_handle = handle
+            self._lease_reclaimable = bool(locked)
+        return self._lease_reclaimable
 
     def set_focus(
         self, wave_id: str, stage: str, *, new_phase: bool = False
@@ -1111,6 +1227,22 @@ class ProcessTelemetry:
                     self._focus.paused_phase_id,
                 )
 
+    def clear_focus(self) -> None:
+        with self._lock:
+            self._focus = Focus()
+
+    def close(self) -> None:
+        with self._lock:
+            _unlock_lease(self._lease_handle)
+            self._lease_handle = None
+            self._lease_reclaimable = False
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            pass
+
     def record_retrieval(
         self,
         metric: Mapping[str, Any],
@@ -1127,9 +1259,11 @@ class ProcessTelemetry:
             public["persistence"] = "buffered"
             return public
         with self._lock:
+            reclaimable = self._ensure_lease()
             status, credited_tokens, credited_files, dropped_credits = _commit_event(
                 self.root,
                 self.producer_id,
+                reclaimable,
                 self._focus,
                 tool_name,
                 "retrieval",
@@ -1173,6 +1307,7 @@ class ProcessTelemetry:
             public.update(persistence="buffered", invocation_id=event_id)
             return public
         with self._lock:
+            reclaimable = self._ensure_lease()
             focus = self._focus
             if focus.wave_id != str(wave_id) or focus.stage != str(stage):
                 phase_id = focus.phase_id or f"{stage}-1"
@@ -1180,6 +1315,7 @@ class ProcessTelemetry:
             status, _tokens, _files, _dropped = _commit_event(
                 self.root,
                 self.producer_id,
+                reclaimable,
                 focus,
                 tool_name,
                 "workflow",
@@ -1231,38 +1367,102 @@ class ProcessTelemetry:
         touched: set[str] = set()
         try:
             if transfer_general_to:
+                with self._lock:
+                    self._ensure_lease()
                 conn = _open_write_store(self.root)
+                orphan_leases: dict[str, Any] = {}
+                claimed_orphans: set[str] = set()
+                committed = False
                 try:
+                    for row in conn.execute(
+                        "SELECT producer_id FROM producer_state "
+                        "WHERE reclaimable=1 AND producer_id<>?",
+                        (self.producer_id,),
+                    ):
+                        candidate = str(row[0])
+                        handle, abandoned = _try_lock_lease(
+                            producer_lease_path(self.root, candidate),
+                            create=False,
+                        )
+                        if abandoned:
+                            orphan_leases[candidate] = handle
                     conn.execute("BEGIN IMMEDIATE")
                     target = str(transfer_general_to)
-                    general_key = f"general:{self.producer_id}"
-                    conn.execute(
-                        "INSERT OR IGNORE INTO source_credit("
-                        "wave_key,phase_id,stage,source_id,version_id,tokens,"
-                        "credit_kind,provenance) "
-                        "SELECT ?,'pre-wave','pre-wave',source_id,version_id,"
-                        "tokens,credit_kind,provenance FROM source_credit "
-                        "WHERE wave_key=?",
-                        (target, general_key),
-                    )
-                    conn.execute(
-                        "DELETE FROM source_credit WHERE wave_key=?",
-                        (general_key,),
-                    )
-                    moved = conn.execute(
-                        "UPDATE telemetry_event SET wave_id=?,phase_id='pre-wave',"
-                        "stage='pre-wave' WHERE wave_id IS NULL AND producer_id=?",
-                        (target, self.producer_id),
-                    ).rowcount
+                    moved = 0
+                    for producer_id in (
+                        self.producer_id,
+                        *sorted(orphan_leases),
+                    ):
+                        if producer_id != self.producer_id:
+                            eligible = conn.execute(
+                                "SELECT 1 FROM producer_state WHERE producer_id=? "
+                                "AND reclaimable=1",
+                                (producer_id,),
+                            ).fetchone()
+                            if eligible is None:
+                                continue
+                        general_key = f"general:{producer_id}"
+                        source_count = int(
+                            conn.execute(
+                                "SELECT COUNT(*) FROM source_credit WHERE wave_key=?",
+                                (general_key,),
+                            ).fetchone()[0]
+                        )
+                        conn.execute(
+                            "INSERT OR IGNORE INTO source_credit("
+                            "wave_key,phase_id,stage,source_id,version_id,tokens,"
+                            "credit_kind,provenance) "
+                            "SELECT ?,'pre-wave','pre-wave',source_id,version_id,"
+                            "tokens,credit_kind,provenance FROM source_credit "
+                            "WHERE wave_key=?",
+                            (target, general_key),
+                        )
+                        conn.execute(
+                            "UPDATE source_credit SET provenance='both' "
+                            "WHERE wave_key=? AND phase_id='pre-wave' AND EXISTS("
+                            "SELECT 1 FROM source_credit AS incoming "
+                            "WHERE incoming.wave_key=? "
+                            "AND incoming.source_id=source_credit.source_id "
+                            "AND incoming.version_id=source_credit.version_id "
+                            "AND incoming.credit_kind<>source_credit.credit_kind)",
+                            (target, general_key),
+                        )
+                        conn.execute(
+                            "DELETE FROM source_credit WHERE wave_key=?",
+                            (general_key,),
+                        )
+                        moved += source_count
+                        moved += conn.execute(
+                            "UPDATE telemetry_event SET wave_id=?,"
+                            "phase_id='pre-wave',stage='pre-wave' "
+                            "WHERE wave_id IS NULL AND producer_id=?",
+                            (target, producer_id),
+                        ).rowcount
+                        if producer_id != self.producer_id:
+                            conn.execute(
+                                "DELETE FROM producer_state WHERE producer_id=?",
+                                (producer_id,),
+                            )
+                            claimed_orphans.add(producer_id)
                     if moved:
                         _touch_wave(conn, target)
                         touched.add(target)
                     conn.commit()
+                    committed = True
                 except Exception:
                     conn.rollback()
                     raise
                 finally:
                     conn.close()
+                    for producer_id, handle in orphan_leases.items():
+                        _unlock_lease(handle)
+                        if committed and producer_id in claimed_orphans:
+                            try:
+                                producer_lease_path(
+                                    self.root, producer_id
+                                ).unlink()
+                            except OSError:
+                                pass
             return FlushResult(
                 True, "durable", touched_waves=frozenset(touched)
             )
@@ -1356,25 +1556,35 @@ def _snapshot_from_conn(
     snapshot = empty_checkpoint(wave_id)
     snapshot["store_instance_id"] = _store_instance_id(conn)
     state = conn.execute(
-        "SELECT generation,pending,measurement_status FROM wave_state"
+        "SELECT generation,pending,measurement_status,floor_json,"
+        "compacted_generation,sealed FROM wave_state"
         " WHERE wave_id=?",
         (wave_id,),
     ).fetchone()
     if state:
+        if state[3]:
+            try:
+                floor = json.loads(str(state[3]))
+                snapshot = _normalized_checkpoint_state(floor)
+                snapshot["wave_id"] = wave_id
+            except (TypeError, ValueError, json.JSONDecodeError):
+                snapshot["measurement_status"] = "failed"
         snapshot["generation"] = int(state[0])
         snapshot["pending"] = bool(state[1])
         snapshot["measurement_status"] = str(state[2] or "healthy")
+        snapshot["store_instance_id"] = _store_instance_id(conn)
     if _accounting_gap(conn):
         snapshot["measurement_status"] = "accounting_gap"
     elif not state:
         snapshot["measurement_status"] = "healthy"
-    stages: set[str] = {
+    stages: set[str] = set(snapshot["stages"])
+    stages.update({
         str(row[0])
         for row in conn.execute(
             "SELECT DISTINCT stage FROM telemetry_event WHERE wave_id=?",
             (wave_id,),
         )
-    }
+    })
     stages.update(
         str(row[0])
         for row in conn.execute(
@@ -1391,7 +1601,9 @@ def _snapshot_from_conn(
         )
     )
     for stage_name in sorted(stages):
-        values = _empty_stage_totals()
+        values = dict(
+            snapshot["stages"].get(stage_name, _empty_stage_totals())
+        )
         event_row = conn.execute(
             "SELECT COUNT(*),COALESCE(SUM(request_tokens),0),"
             "COALESCE(SUM(response_tokens),0),"
@@ -1400,11 +1612,11 @@ def _snapshot_from_conn(
             "FROM telemetry_event WHERE wave_id=? AND stage=?",
             (wave_id, stage_name),
         ).fetchone()
-        values["calls"] = int(event_row[0])
-        values["request_debit"] = int(event_row[1])
-        values["response_debit"] = int(event_row[2])
-        values["workflow_prompt_credit"] = int(event_row[3])
-        values["source_credit_drop_count"] = int(event_row[4])
+        values["calls"] += int(event_row[0])
+        values["request_debit"] += int(event_row[1])
+        values["response_debit"] += int(event_row[2])
+        values["workflow_prompt_credit"] += int(event_row[3])
+        values["source_credit_drop_count"] += int(event_row[4])
         for kind, token_sum, count in conn.execute(
             "SELECT credit_kind,COALESCE(SUM(tokens),0),COUNT(*)"
             " FROM source_credit WHERE wave_key=? AND stage=? GROUP BY credit_kind",
@@ -1422,8 +1634,8 @@ def _snapshot_from_conn(
             " WHERE wave_id=? AND stage=? AND active=1",
             (wave_id, stage_name),
         ).fetchone()
-        values["matched_pair_residual"] = int(residual[0]) if residual else 0
-        values["paired_evaluation_count"] = int(residual[1]) if residual else 0
+        values["matched_pair_residual"] += int(residual[0]) if residual else 0
+        values["paired_evaluation_count"] += int(residual[1]) if residual else 0
         values["direct_net"] = (
             values["content_source_credit"]
             + values["structural_source_credit"]
@@ -1436,6 +1648,7 @@ def _snapshot_from_conn(
                 0, values["direct_net"] + values["matched_pair_residual"]
             )
         snapshot["stages"][stage_name] = values
+    snapshot["totals"] = _empty_stage_totals()
     for values in snapshot["stages"].values():
         for key in _STAGE_KEYS:
             snapshot["totals"][key] += int(values[key])
@@ -1447,11 +1660,13 @@ def _snapshot_from_conn(
         - totals["request_debit"]
         - totals["response_debit"]
     )
-    totals["estimated_tokens_saved"] = (
-        max(0, totals["direct_net"] + totals["matched_pair_residual"])
-        if snapshot["measurement_status"] == "healthy"
-        else 0
-    )
+    # Reconcile the total with the displayed rows (1sx2f): the total savings is
+    # the SUM of the per-stage floored savings (each already max(0, ...) above),
+    # which `totals["estimated_tokens_saved"]` accumulated in the stage loop, so
+    # a net-negative stage counts as 0 and the stages always add up to the total.
+    # Zero it when measurement is not healthy.
+    if snapshot["measurement_status"] != "healthy":
+        totals["estimated_tokens_saved"] = 0
     return snapshot
 
 
@@ -1570,7 +1785,9 @@ def pending_wave_ids(root: Path) -> dict[str, Any]:
             "pending": [
                 str(row[0])
                 for row in conn.execute(
-                    "SELECT wave_id FROM wave_state WHERE pending=1 ORDER BY wave_id"
+                    "SELECT wave_id FROM wave_state WHERE pending=1 "
+                    "OR (sealed=1 AND compacted_generation<generation) "
+                    "ORDER BY wave_id"
                 )
             ],
             "status": "healthy",
@@ -1588,7 +1805,11 @@ def pending_wave_ids(root: Path) -> dict[str, Any]:
 
 
 def reconcile_checkpoint_authority(
-    root: Path, wave_id: str, checkpoint: Mapping[str, Any]
+    root: Path,
+    wave_id: str,
+    checkpoint: Mapping[str, Any],
+    *,
+    sealed: bool = False,
 ) -> bool:
     """Freeze a measured wave when its published store identity is unavailable."""
 
@@ -1601,16 +1822,44 @@ def reconcile_checkpoint_authority(
             conn.execute("BEGIN IMMEDIATE")
             current = _store_instance_id(conn)
             if current != published_instance:
-                conn.execute(
-                    "INSERT INTO wave_state("
-                    "wave_id,generation,pending,published_json,store_instance_id,"
-                    "measurement_status) VALUES(?,0,0,NULL,?,'credit_history_unavailable')"
-                    " ON CONFLICT(wave_id) DO UPDATE SET "
-                    "measurement_status='credit_history_unavailable'",
-                    (str(wave_id), current),
-                )
+                if sealed:
+                    restored = _normalized_checkpoint_state(checkpoint)
+                    restored["store_instance_id"] = current
+                    restored["pending"] = False
+                    generation = max(0, int(restored.get("generation", 0)))
+                    payload = canonical_core_json(restored)
+                    conn.execute(
+                        "INSERT INTO wave_state("
+                        "wave_id,generation,pending,published_json,store_instance_id,"
+                        "measurement_status,floor_json,compacted_generation,sealed"
+                        ") VALUES(?,?,0,?,?,'healthy',?,?,1)"
+                        " ON CONFLICT(wave_id) DO UPDATE SET "
+                        "generation=excluded.generation,pending=0,"
+                        "published_json=excluded.published_json,"
+                        "store_instance_id=excluded.store_instance_id,"
+                        "measurement_status='healthy',floor_json=excluded.floor_json,"
+                        "compacted_generation=excluded.compacted_generation,sealed=1",
+                        (
+                            str(wave_id),
+                            generation,
+                            payload,
+                            current,
+                            payload,
+                            generation,
+                        ),
+                    )
+                else:
+                    conn.execute(
+                        "INSERT INTO wave_state("
+                        "wave_id,generation,pending,published_json,store_instance_id,"
+                        "measurement_status) "
+                        "VALUES(?,0,0,NULL,?,'credit_history_unavailable')"
+                        " ON CONFLICT(wave_id) DO UPDATE SET "
+                        "measurement_status='credit_history_unavailable'",
+                        (str(wave_id), current),
+                    )
             conn.commit()
-            return current == published_instance
+            return current == published_instance or sealed
         except Exception:
             conn.rollback()
             raise
@@ -1626,6 +1875,7 @@ def mark_checkpoint_published(
     snapshot: Mapping[str, Any],
     *,
     expected_generation: int,
+    seal: bool = False,
 ) -> bool:
     try:
         conn = _open_write_store(root)
@@ -1633,10 +1883,11 @@ def mark_checkpoint_published(
             conn.execute("BEGIN IMMEDIATE")
             changed = conn.execute(
                 "UPDATE wave_state SET pending=0,published_json=?,"
-                "store_instance_id=? WHERE wave_id=? AND generation=?",
+                "store_instance_id=?,sealed=? WHERE wave_id=? AND generation=?",
                 (
                     canonical_core_json(dict(snapshot)),
                     str(snapshot.get("store_instance_id", "")),
+                    int(seal),
                     str(wave_id),
                     int(expected_generation),
                 ),
@@ -1650,6 +1901,88 @@ def mark_checkpoint_published(
             conn.close()
     except Exception:
         return False
+
+
+def compact_published_wave(
+    root: Path, wave_id: str, *, expected_generation: int
+) -> bool:
+    """Replace a sealed wave's raw ledger with its cumulative published floor."""
+
+    conn: sqlite3.Connection | None = None
+    try:
+        conn = _open_write_store(root)
+        conn.execute("BEGIN IMMEDIATE")
+        state = conn.execute(
+            "SELECT generation,pending,published_json,sealed "
+            "FROM wave_state WHERE wave_id=?",
+            (str(wave_id),),
+        ).fetchone()
+        if (
+            state is None
+            or int(state[0]) != int(expected_generation)
+            or bool(state[1])
+            or not state[2]
+            or not bool(state[3])
+        ):
+            conn.rollback()
+            return False
+        conn.execute(
+            "UPDATE wave_state SET floor_json=published_json,"
+            "compacted_generation=generation WHERE wave_id=?",
+            (str(wave_id),),
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO event_tombstone(event_id,wave_id) "
+            "SELECT event_id,? FROM telemetry_event WHERE wave_id=?",
+            (str(wave_id), str(wave_id)),
+        )
+        conn.execute("DELETE FROM telemetry_event WHERE wave_id=?", (str(wave_id),))
+        conn.execute("DELETE FROM source_credit WHERE wave_key=?", (str(wave_id),))
+        conn.execute(
+            "DELETE FROM evaluation_attachment WHERE wave_id=?", (str(wave_id),)
+        )
+        conn.execute("DELETE FROM evaluation_scope WHERE wave_id=?", (str(wave_id),))
+        # Exploration-credit rows are the durable authority for the separately
+        # labeled estimate and its event/origin idempotency.  They are not raw
+        # retrieval telemetry, so retain them across wave compaction.
+        conn.execute("DELETE FROM phase_state WHERE wave_id=?", (str(wave_id),))
+        conn.commit()
+        return True
+    except Exception:
+        if conn is not None:
+            try:
+                conn.rollback()
+            except sqlite3.Error:
+                pass
+        return False
+    finally:
+        if conn is not None:
+            conn.close()
+
+
+def unseal_wave(root: Path, wave_id: str) -> bool:
+    """Allow a reopened wave to accept a new raw phase above its compacted floor."""
+
+    conn: sqlite3.Connection | None = None
+    try:
+        conn = _open_write_store(root)
+        conn.execute("BEGIN IMMEDIATE")
+        changed = conn.execute(
+            "UPDATE wave_state SET sealed=0 WHERE wave_id=?",
+            (str(wave_id),),
+        ).rowcount
+        conn.commit()
+        return bool(changed)
+    except Exception:
+        if conn is not None:
+            try:
+                conn.rollback()
+            except sqlite3.Error:
+                pass
+        return False
+    finally:
+        if conn is not None:
+            conn.close()
 
 
 def _normalized_checkpoint_state(snapshot: Mapping[str, Any]) -> dict[str, Any]:
@@ -1680,11 +2013,11 @@ def _normalized_checkpoint_state(snapshot: Mapping[str, Any]) -> dict[str, Any]:
         - totals["request_debit"]
         - totals["response_debit"]
     )
-    totals["estimated_tokens_saved"] = (
-        max(0, totals["direct_net"] + totals["matched_pair_residual"])
-        if state["measurement_status"] == "healthy"
-        else 0
-    )
+    # See 1sx2f: the total savings is the sum of the per-stage floored savings
+    # (accumulated in the stage loop above), so the stages reconcile with the
+    # total and a net-negative stage counts as 0. Zero when not healthy.
+    if state["measurement_status"] != "healthy":
+        totals["estimated_tokens_saved"] = 0
     return state
 
 
@@ -1916,6 +2249,11 @@ def attach_evaluation(
     conn = _open_write_store(root)
     try:
         conn.execute("BEGIN IMMEDIATE")
+        sealed = conn.execute(
+            "SELECT sealed FROM wave_state WHERE wave_id=?", (str(wave_id),)
+        ).fetchone()
+        if sealed is not None and bool(sealed[0]):
+            raise ValueError("closed wave telemetry is sealed; reopen the wave first")
         phase = conn.execute(
             "SELECT stage FROM phase_state WHERE wave_id=? AND phase_id=?",
             (str(wave_id), str(phase_id)),

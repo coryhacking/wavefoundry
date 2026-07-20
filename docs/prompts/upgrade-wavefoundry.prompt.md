@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-17
+Last verified: 2026-07-20
 
 Shortcut: **`Upgrade Wavefoundry`** | Legacy: **`Upgrade wave framework`** / **`Upgrade wave context`**
 
@@ -24,7 +24,7 @@ The expected operator flow is:
    - If a root `wavefoundry-*.zip` is present, upgrade automatically unpacks the newest matching zip first.
    - It then regenerates tracked platform surfaces, reconciles docs/prompts/config, and validates drift.
 3. Reload the MCP server **in-process** when the upgrade finishes.
-   - The upgrade reloads the server code in-process — call `wave_mcp_reload()` (or run `wave_upgrade` cleanup, which reloads automatically). A full host restart is only needed for hosts that cannot hot-reload.
+   - The upgrade reloads the server code in-process — call `wave_mcp_reload()` (or run `wave_upgrade` cleanup, which reloads automatically). Tool additions/removals and description changes emit `notifications/tools/list_changed`; a full host restart is only needed when the attached host does not honor that notification.
    - If you use Codex, the MCP server reloads from the committed `.codex/config.toml` automatically — no re-registration needed after upgrade.
 4. The index update runs **automatically** at the end of the upgrade.
    - The upgrade's final phase updates **both** the semantic indexes and the graph, each version-aware: an incremental update normally, auto-escalating to a full rebuild when its version advanced — semantic on a `CHUNKER_VERSION`/model bump (re-embed, minutes), graph on a `GRAPH_BUILDER_VERSION` bump (graph-only re-extract, ~10–30 s). You do **not** run a separate index command for a normal upgrade.
@@ -172,3 +172,36 @@ Inventory/drift-detection subagents run read-only. Broad edits to `docs/prompts/
 ## Aliases
 
 - **Upgrade wave framework** / **Upgrade wave context** — legacy; identical behavior
+
+## Historical-Memory Gate
+
+Established projects pause after the docs gate and before Phase 4 with
+lifecycle state `awaiting_memory_validation` (CLI exit 4: action required, not
+failure or completion). Reload the newly installed MCP, repeatedly call
+`wave_memory_backfill(mode="create", entry_path="upgrade")`, validate every
+exact `data.validation_worklist[].memory_id`, then call backfill again until
+the run is clear and call
+`wave_upgrade(phase="resume_after_memory")`. The resume recomputes the
+authoritative `memory-state.sqlite` pending set and alone publishes the index.
+Resume-after-memory, index, and cleanup verbs all refuse while review-state
+projection or docs lint has a retained failed phase; recover that typed gate
+through `resume_after_gate` first. Index and cleanup also refuse while memory
+work remains. Fresh/no-history projects continue directly. Upgrade/status responses expose the run id, outcome/pending
+counts, last failure, and next bounded worklist; do not scrape output or use a
+global candidate search. The no-MCP `wf memory-validate` fallback has full
+rewrite-field parity.
+
+When the upgrade was started by a pre-gate MCP process, the newly extracted
+pre-docs extension executes the new review-state projector before lint. A
+projection or lint repair leaves
+`failed_phase=review_status_projection` / `failed_phase=docs_gate`; after the
+repair, `wf upgrade --resume-after-gate` or
+`wave_upgrade(phase="resume_after_gate")` always rebuilds and persists current
+review state before rerunning lint. It does not trust an earlier projection
+marker. A later historical-memory exit 4 is action-required, not an index
+failure: reload/restart MCP, inspect the structured run worklist, then resume
+through `resume_after_memory`. New-code resume-after-memory, update, rebuild,
+and cleanup all refuse a retained review-projection/docs failure until
+`resume_after_gate` succeeds. Update, rebuild, and cleanup also run the
+publication backstop, so an old-shaped retained lock cannot publish or clean
+up around either migration.

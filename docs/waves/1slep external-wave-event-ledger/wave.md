@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: closed
-Last verified: 2026-07-15
+Last verified: 2026-07-20
 review-evidence-source: events.jsonl
 wave-id: `1slep external-wave-event-ledger`
 Title: External Wave Event Ledger
@@ -55,7 +55,7 @@ Wave `1slep` (External Wave Event Ledger) delivered one change: External Wave Ev
 
 ## Finding Synthesis
 
-<!-- waveframework:finding-synthesis begin -->
+<!-- wave:finding-synthesis begin -->
 | Current finding | Disposition | Open block | Repair | Approval recheck |
 | --- | --- | --- | --- | --- |
 | code-adoption-applicability-fail-open | do_now | no | completed | code-reviewer |
@@ -72,44 +72,27 @@ Wave `1slep` (External Wave Event Ledger) delivered one change: External Wave Ev
 <details class="wavefoundry-review-evidence">
 <summary>Machine review evidence — 87 records; 25 runs; 10 findings; current: do_now 10, maybe_later 0, dont_do_later 0, not_issue 0</summary>
 </details>
-<!-- waveframework:finding-synthesis end -->
+<!-- wave:finding-synthesis end -->
 
 ## Review Evidence
 
+<!-- wave:review-status begin -->
+| Signoff | State | Why | Next action |
+| --- | --- | --- | --- |
+| wave-council-readiness | approved | current executed approval follows every affected repair | none |
+| wave-council-delivery | approved | current executed approval follows every affected repair | none |
+| operator-signoff | approved | current executed approval follows every affected repair | none |
+| qa-reviewer | approved | current executed approval follows every affected repair | none |
+| architecture-reviewer | approved | current executed approval follows every affected repair | none |
+| security-reviewer | approved | current executed approval follows every affected repair | none |
+| reality-checker | approved | current executed approval follows every affected repair | none |
+| red-team | approved | current executed approval follows every affected repair | none |
+| code-reviewer | approved | current executed approval follows every affected repair | none |
+| docs-contract-reviewer | approved | current executed approval follows every affected repair | none |
+<!-- wave:review-status end -->
+
 - wave-council-readiness: approved (moderator: wave-council — full-depth readiness council completed; the amended plan resolves sole authority, bounded concurrency/retry, canonical integrity, self-host migration, target install/upgrade, reader, and indexing boundaries)
 - wave-council-readiness: approved (superseding prior readiness state after focused 2026-07-15 operator-plan recheck — security and QA PASS on the clarified per-event identity; no other review boundary changed)
-- operator-signoff: approved — Operator explicitly instructed closure after creating the follow-up credible-threat-gate wave.
-- qa-reviewer: withdrawn — qa-build-pack-direct-run requires affected-lane re-verification
-- qa-reviewer: withdrawn — qa-build-pack-direct-run requires affected-lane re-verification
-- qa-reviewer: withdrawn — qa-build-pack-direct-run requires affected-lane re-verification
-- code-reviewer: withdrawn — code-adoption-applicability-fail-open requires affected-lane re-verification
-- code-reviewer: withdrawn — code-adoption-applicability-fail-open requires affected-lane re-verification
-- code-reviewer: withdrawn — code-resource-missing-projection requires affected-lane re-verification
-- code-reviewer: withdrawn — code-resource-missing-projection requires affected-lane re-verification
-- code-reviewer: withdrawn — code-index-ledger-exclusion-scope requires affected-lane re-verification
-- code-reviewer: withdrawn — code-index-ledger-exclusion-scope requires affected-lane re-verification
-- qa-reviewer: withdrawn — qa-convergence-checkpoint-atomicity requires affected-lane re-verification
-- qa-reviewer: withdrawn — qa-convergence-checkpoint-atomicity requires affected-lane re-verification
-- security-reviewer: withdrawn — security-wave-directory-symlink-escape requires affected-lane re-verification
-- security-reviewer: withdrawn — security-wave-directory-symlink-escape requires affected-lane re-verification
-- security-reviewer: withdrawn — security-reserved-review-metadata-digest-poisoning requires affected-lane re-verification
-- security-reviewer: withdrawn — security-reserved-review-metadata-digest-poisoning requires affected-lane re-verification
-- docs-contract-reviewer: withdrawn — docs-convergence-checkpoint-atomic-contract requires affected-lane re-verification
-- docs-contract-reviewer: withdrawn — docs-convergence-checkpoint-atomic-contract requires affected-lane re-verification
-- docs-contract-reviewer: withdrawn — docs-session-handoff-external-ledger-state requires affected-lane re-verification
-- docs-contract-reviewer: withdrawn — docs-session-handoff-external-ledger-state requires affected-lane re-verification
-- red-team: withdrawn — redteam-adopted-ledger-index-tamper requires affected-lane re-verification
-- red-team: withdrawn — redteam-adopted-ledger-index-tamper requires affected-lane re-verification
-- qa-reviewer: approved — Final QA independently executed the repaired adoption-tamper matrix, stale-row cleanup, 264 indexer tests, and confirmed the 5,596-test canonical run with no skips in scope.
-- architecture-reviewer: approved — Independent architecture review found one external authority, one serialized commit point, rebuildable Markdown projection, bounded adoption proof, explicit consumer non-migration, and no dual reader or second event store.
-- security-reviewer: approved — Independent security replay closed wave-directory symlink escape before external reads/writes and reserved event metadata poisoning before digest/append; legitimate writer controls pass.
-- reality-checker: approved — Independent reality checks passed setup, full upgrade, package preservation, new/adopted wave lifecycle, dashboard/resources, self-host migration order, and full/incremental index paths.
-- red-team: approved — Independent red-team replay closed canonical-byte/adoption tamper, locking/replay/fault recovery, containment, convergence, reader, and index attacks; the final retained-adoption source-tamper reproduction and all controls pass.
-- code-reviewer: approved — Independent final code review verified exact structural scoping, valid-source or retained-adoption exclusion, shared full/incremental predicate, stale-row cleanup, and unadopted controls; focused matrix 3/3.
-- docs-contract-reviewer: approved — Independent final docs review verified Req 9, AC-8, seed 209, contributor guide, and architecture flow match the valid-source or retained-adoption implementation without overclaim; docs lint green.
-- wave-council-delivery: approved — Final Wave Council reconciled code, QA, architecture, security, docs-contract, reality, and red-team PASS; all ten findings are completed, canonical 5,596/5,596 and delivery gates are green, with no remaining blocker.
-- wave-council-readiness: approved — Final independent council revalidated the historical readiness record: the admitted plan, required lanes, pre-implementation review, one-format cutover boundaries, consumer non-migration, and ordered self-host migration were approved before implementation and remain accurately recorded after external-ledger migration.
-- operator-signoff: approved — The operator explicitly instructed Codex to close 1slep after creating the follow-up credible-threat-gate wave.
 
 ## Dependencies
 

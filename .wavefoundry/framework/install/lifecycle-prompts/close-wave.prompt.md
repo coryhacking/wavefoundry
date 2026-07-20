@@ -15,6 +15,12 @@ handoff state are fully reconciled.
 4. Architecture, specifications, public prompts, and release notes reflect the
    delivered behavior.
 5. Journals, durable memory candidates, and the session handoff are reconciled.
+   Run `wave_memory_propose(wave_id, mode='create')`, then use
+   `wave_memory_validate` on every evidence-derived candidate. The validating
+   agent follows the linked evidence and current target, states the future
+   action delta, checks canonical overlap and confidence, and records
+   `promote`, `retain`, `reject`, or `rewrite`. A wave may correctly produce
+   zero memories; a missing or pending eligible candidate blocks close.
 6. The canonical test suite, docs gate, and relevant packaging checks pass.
 7. The context-efficiency checkpoint has been projected from durable telemetry
    when telemetry is available.
@@ -26,4 +32,3 @@ Only an explicit operator instruction authorizes `wave_close(mode='create')`
 or equivalent apply mode. Passing dry-run, finishing implementation, or asking
 for review does not imply closure approval. Commit, tag, push, and release
 authority remain separately operator-owned.
-

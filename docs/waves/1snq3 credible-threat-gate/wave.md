@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: closed
-Last verified: 2026-07-15
+Last verified: 2026-07-20
 review-evidence-source: events.jsonl
 
 wave-id: `1snq3 credible-threat-gate`
@@ -48,7 +48,7 @@ Each finding remains `do_now` on required-AC grounds (`contract_relevance: requi
 
 ## Finding Synthesis
 
-<!-- waveframework:finding-synthesis begin -->
+<!-- wave:finding-synthesis begin -->
 | Current finding | Disposition | Open block | Repair | Approval recheck |
 | --- | --- | --- | --- | --- |
 | — | — | — | — | — |
@@ -56,7 +56,7 @@ Each finding remains `do_now` on required-AC grounds (`contract_relevance: requi
 <details class="wavefoundry-review-evidence">
 <summary>Machine review evidence — 6 records; 2 runs; 0 findings; current: do_now 0, maybe_later 0, dont_do_later 0, not_issue 0</summary>
 </details>
-<!-- waveframework:finding-synthesis end -->
+<!-- wave:finding-synthesis end -->
 
 ## Review Checkpoints
 
@@ -73,11 +73,15 @@ Each finding remains `do_now` on required-AC grounds (`contract_relevance: requi
 
 ## Review Evidence
 
+<!-- wave:review-status begin -->
+| Signoff | State | Why | Next action |
+| --- | --- | --- | --- |
+| wave-council-readiness | approved | current executed approval follows every affected repair | none |
+| wave-council-delivery | approved | current executed approval follows every affected repair | none |
+| operator-signoff | approved | current executed approval follows every affected repair | none |
+<!-- wave:review-status end -->
+
 - operator-signoff: <approved when operator confirms closure>
-- wave-council-readiness: approved — Independent fresh-reviewer readiness pass: VERDICT READY-WITH-NOTES, no blockers. Verified the three 1slep findings exist with the claimed attacker_reachability:true/authority_delta:material heads; confirmed attacker_reachability/authority_delta/disposition_rationale are real fields and disposition_rationale is already required non-empty (no new field needed); confirmed seeds 209/213 derive severity from facts so the gate composes without reverting 1skt1; confirmed append-only supersession keeps do_now via required_ac and yields focused (no council) review depth.
-- wave-council-delivery: approved — Independent fresh-context delivery review verified derivation untouched, the gate is authoring-time only (not in _validate_synthesis_shape), the 1skt1 severity line is intact, no new schema field, and no silent scope expansion; full suite 5,598 OK; targeted test_review_evidence 68 OK. Verdict approved-with-notes, max severity none, no blockers.
-- wave-council-delivery: approved — This supersedes the premature pre-repair council-delivery approval. All four findings repaired: seed 229 + rendered security-engineer.md reconciled to the symmetric gate; generic seed 213 de-Wavefoundry-ified and provenance-based; seeds 209/213 gained missing-threat-model behavior; the character-count check and _AUTHORITY_DELTA_RATIONALE_MIN_CHARS were removed (capability-naming is reviewer-owned semantic guidance); pre-implementation-review:passed mapped to the prepare council; wave/change records reconciled to the decision-record approach. Two new controls pass (missing-model external stays security-affecting; trusted operator-owned stays correctness-only); concise 'read API keys' basis accepted. Full suite 5,598 OK; targeted test_review_evidence 68 OK; docs-lint clean.
-- operator-signoff: approved — Operator final re-review PASS: seeds 209/213/229 consistent/project-neutral/provenance-based with safe missing-model handling; character-count validator removed (capability grounding reviewer-owned); both external-actor and trusted-operator controls pass; pre-implementation chronology honestly recorded; change status/wave metadata/decision-record wording reconciled; latest delivery approval fresh, independent, supersedes the premature one. Independent checks: test_review_evidence 68/68 OK, docs-lint clean, git diff --check clean, close dry-run blocks only on operator signoff.
 
 ## Dependencies
 

@@ -44,9 +44,13 @@ from them at lifecycle checkpoints.
 At review and close, do not start the typed memory layer from an empty corpus: `wave_memory_propose(wave_id)`
 drafts `candidate` records from the wave's own typed review evidence (change-doc Decision Logs and repaired
 real-defect findings), so the durable lessons the wave already produced become records instead of being
-re-derived. It is conservative and human-gated (drafts are `candidate` only; an explicit `wave_memory_reconcile`
-promotes them), and re-running it is idempotent. Operator authoring still covers the conversational kinds the
-typed ledger cannot supply.
+re-derived. It is conservative and agent-validated: drafts are `candidate` only, carry a stable source-event
+identity, and a focused agent uses `wave_memory_validate` to promote, retain, reject, or rewrite each draft after
+checking its evidence, current target, future-action delta, durability, canonical overlap, target accuracy,
+duplicates/contradictions, and confidence. Rejected and superseded source events are durable dispositions, so
+re-running does not regenerate them. This is a bounded memory-quality checkpoint, not a new full review council;
+many waves should correctly produce no memory. Operator authoring still covers the conversational kinds the typed
+ledger cannot supply.
 
 ## Relationship To Other Framework Systems
 

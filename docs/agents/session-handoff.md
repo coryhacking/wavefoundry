@@ -2,7 +2,32 @@
 
 Owner: Engineering
 Status: generated
-Last verified: 2026-07-18
+Last verified: 2026-07-20
+
+## Current Session
+
+- **Active wave:** `1t1uo dashboard-multiline-ac-tasks`. Change `1t1un` is
+  implemented and complete; the wave remains `implementing` pending the final
+  delivery record and operator-owned close.
+- The dashboard backend now joins hard-wrapped AC/task prose through one bounded
+  caller-specific list parser while preserving checkbox/deferred state, AC ID,
+  priority, counts, sibling boundaries, ordered-AC support, and dash-only Task
+  starters. Common list indentation survives section extraction. Structural
+  lines stop absorption, including ATX/`=` Setext headings, tables with or
+  without outer pipes, fences, blockquotes, list markers, and thematic breaks.
+- Independent delivery review reproduced common-indentation and pipe-less-table
+  defects; both repairs and the adjacent Setext/thematic ambiguity are now
+  regression-pinned. Technical and QA re-verification pass with no remaining
+  code finding. Package/install and post-upgrade probes import and execute the
+  copied parser rather than checking asset presence.
+- The live dashboard was restarted on the repaired backend. Active AC and Task
+  dialogs contain the complete strings; long rows span multiple rendered lines,
+  row scroll width equals available width, and the 1280px viewport has no
+  page-level horizontal overflow.
+- Verification: final canonical suite **5,978/5,978 across 56 isolated files**;
+  dashboard **188 OK** (one existing skip); package **97 OK**; upgrade **332
+  OK**; docs lint and `git diff --check` clean.
+- No commit or wave close has been performed. Both remain operator-owned.
 
 ## Current State (2026-07-15)
 
@@ -50,11 +75,58 @@ Last verified: 2026-07-18
 - Ranking changes are eval-gated, period.
 - Everything runs via `~/.wavefoundry/venv/bin/python3`; suite via `run_tests.py`.
 
-## Current Session
+## Prior Session Archive (superseded)
 
 **Active wave:** *(none)*
 
-- Both admitted changes are implemented. `1sua7` keeps multi-finding repair cycles truthful; `1stwi` replaces the earlier split/buffered telemetry with one SQLite write-through closed ledger: phase/source/version content and structural credit, mapped workflow-prompt credit, exact request/response debits, and only a quality-qualified paired residual.
-- Every eligible call commits its event or durable accounting-gap poison before returning; an undurable double failure returns `telemetry_persistence_failed`. Source credit is capped with explicit drop diagnostics. Lifecycle, reload, and upgrade boundaries project durable generations into one concise `wave.md` total. This is the first shipped telemetry schema; no pre-release compatibility layer is retained.
-- The machine checkpoint retains store identity, component provenance, source counts/drops, matched residual, and active paired-evaluation count. Fresh install, package, render, and real zip upgrade ship the telemetry module, scorer, schema, and typed attachment tool without creating runtime state eagerly.
-- Delivery repair cycle 2 closed the reviewed telemetry/protocol blockers plus three adjacent current-tree omissions and reached aggregate convergence across 17 findings. Its fresh Wave Council approval was subsequently withdrawn by the close dry-run's discovery of an eighteenth, bounded protocol defect: delivery repairs incorrectly staled historical prepare readiness. Cycle 3 now scopes approval freshness correctly—readiness remains required and identity-valid but historical; operator, delivery-council, and specialist chronology remain enforced. Fresh architecture and QA reviewers replayed the known-bad, a 17-case matrix, public close behavior, and adjacent controls; both returned PASS. A fresh Wave Council moderator confirmed all 18 finding heads terminal, max severity none, and no changed full-review boundary; the refreshed executable `wave-council-delivery` approval is recorded. Canonical verification is **5,744 tests across 52 isolated files, all green**; WaveLifecycleMutationTests are **47/47** and review-evidence tests are **79/79**. Only operator signoff, operator-owned close, and commit remain pending.
+- `1sxj7 self-populating-memory-and-telemetry-reconciliation` is closed by
+  operator direction. Follow-up wave `1t3dm` admits three planned changes:
+  `1t0u4` adds Git-independent, resumable historical-memory backfill to install,
+  upgrade, and migration; `1t3dl` keeps complete review history in
+  `events.jsonl` while rendering one causal current-state row per approval lane
+  in `wave.md`; and `1t3dn` repairs the dashboard's shared wave/change Markdown
+  renderer so ownership markers stay hidden and hard-wrapped prose/lists use
+  normal paragraph spacing and available width. The wave is planned, not
+  readied or opened, and no implementation or commit has started.
+
+- `1sxxx` is implemented: one shared `runtime_lock.py` owns the common
+  cross-platform mechanics; producer, review-adoption, dashboard-start, and
+  dashboard-server carriers now live under `.wavefoundry/locks/` with lazy
+  creator-owned provisioning. The index build lock remains co-located and keeps
+  its F_GETLK/interruption policy. Upgrade performs a pre-extract, one-way
+  stop/check/delete cutover with no runtime fallback, persists dashboard restart
+  intent, and restarts on successful cleanup. The dashboard launch mutex is a
+  persistent carrier and the dashboard remains read-only with respect to
+  indexing. Canonical verification: 5,868 tests across 55 files, OK; docs-lint
+  clean. The wave is implemented but not delivery-reviewed or closed.
+- The two retrospective repair changes are implemented: `1sxmz` makes commit provenance canonical, typed, complete across mixed blame, relevance-labeled, and exact-one-mode; `1sxmy` repairs real-ledger memory supply, admitted decision parsing, mutation idempotency, Unicode/evidence identity, response honesty, and canonical wave lookup.
+- Estimated exploration-avoided events now use the existing Context Efficiency SQLite authority in a distinct table. Stable event keys deduplicate repeats, one source origin has a bounded phase budget, unmatched/default surfacing earns zero, explicit and passive callers share the same stage/phase/cited API, live SQLite source cost is authoritative, and lifecycle/reload/upgrade flush a separate `wave.md` projection that never enters measured Context Efficiency totals.
+- `1syle` is implemented: evidence extraction is candidate-only; stable wave-scoped
+  source identities suppress every durable disposition; `wave_memory_validate`
+  records promote/retain/reject/rewrite with compact agent judgment; close blocks
+  missing/pending eligible candidates but permits zero-memory waves; rewrite retry
+  converges after a partial failure; setup and upgrade deliver the same review/close
+  checkpoint.
+- Historical backfill now covers 56 closed waves. Thirty-nine correctly produced
+  zero memories. Twenty-nine generated candidates were evidence/current-target
+  reviewed: 12 were rewritten into active actionable records and 17 were rejected
+  as stale, interim, wave-local, invalid-target, or canonical-contract duplicates.
+  The active corpus now covers Java differential verification, unittest discovery,
+  secret-scan candidate semantics, POSIX child reaping, upgrade bootstrap imports,
+  model-download TLS path census, dependency-version convergence, MCP stdout
+  isolation, generated-vs-patched newline handling, tolerant subprocess decoding,
+  filename-aware Python parsing, and static-analysis origin checks. Generated
+  drafts remain as superseded/rejected provenance; reruns suppress all 29 source
+  events and no candidate remains pending.
+- Historical corrections were appended to the closed `1sufq` and `1stwm` change docs. Their nine retrospective findings now have honest cycle-1 `repair_start` records. Both closed waves remain closed and their delivery approvals remain withdrawn; independent code-reviewer and QA reverification is still required before those findings can become terminal.
+- `1sxxw` is implemented. Random producer identities now hold crash-released OS
+  leases; create/prepare transfers its own general bucket and claims only
+  provably abandoned peers under one SQLite transaction. Close publication seals
+  the exact generation, replaces payload rows with a cumulative floor, retains
+  compact event replay tombstones, and reopens into a new phase. Failed lifecycle
+  calls do not transfer. The one-time self-host reconciliation moved 280 legacy
+  events, cleared all 17 general buckets, and correctly collapsed repeated source
+  versions from 10,524,850 gross tokens to 4,454,801 unique pre-wave credit.
+- Verification on the complete diff: **5,853 tests across 54 isolated files, all green**; focused telemetry **38 OK**; server context-efficiency **34 OK**; setup **18 OK**; upgrade **302 OK**; docs-lint clean. One intervening canonical run hit the pre-existing background-refresh cross-test timing flake; its exact fixture passed alone and the final canonical rerun was fully green. Live provenance probe for `context_efficiency.py:1` resolves only `1stwj`.
+- No commit or close has been performed. The current wave still requires review reconciliation and operator-owned closure.
+- Delivery repair pass (2026-07-19): exploration estimates now survive telemetry compaction; failed upgrade cleanup retains both failure and dashboard restart intent and carries it through a full recovery run; the superseded 1svr6 auto-promotion plan/ADR now defer to 1syle; the literal pre-implementation verdict maps to the genuine prepare councils; checkpoint normalization/render/parse/replace is fixture-pinned. A premature `unittest.main()` in `test_memory_records.py` was moved to EOF, increasing the actually executed file from 16 to 141 tests. Canonical `run_tests.py`: **5,873 tests across 55 files, OK**; docs-lint and diff check clean. All 12 findings have cycle-1 repair starts; independent required-lane reverification is the remaining delivery gate.

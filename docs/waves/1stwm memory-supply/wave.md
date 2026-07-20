@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: closed
-Last verified: 2026-07-17
+Last verified: 2026-07-20
 review-evidence-source: events.jsonl
 
 wave-id: `1stwm memory-supply`
@@ -48,10 +48,14 @@ Wave `1stwm` (Memory Supply) delivered 3 changes: Evidence-derived memory candid
 <!-- wave:finding-synthesis begin -->
 | Current finding | Disposition | Open block | Repair | Approval recheck |
 | --- | --- | --- | --- | --- |
-| — | — | — | — | — |
+| exploration-estimate-repeat-and-match-inflation | do_now | yes | pending | wave-council-delivery |
+| exploration-telemetry-authority-and-coverage | do_now | yes | pending | wave-council-delivery |
+| memory-duplicate-idempotency-and-identity | do_now | yes | pending | wave-council-delivery |
+| memory-supply-derivation-not-conservative-or-live | do_now | yes | pending | wave-council-delivery |
+| memory-supply-response-honesty | do_now | yes | pending | wave-council-delivery |
 
 <details class="wavefoundry-review-evidence">
-<summary>Machine review evidence — 5 records; 2 runs; 0 findings; current: do_now 0, maybe_later 0, dont_do_later 0, not_issue 0</summary>
+<summary>Machine review evidence — 35 records; 12 runs; 5 findings; current: do_now 5, maybe_later 0, dont_do_later 0, not_issue 0</summary>
 </details>
 <!-- wave:finding-synthesis end -->
 
@@ -63,11 +67,16 @@ Wave `1stwm` (Memory Supply) delivered 3 changes: Evidence-derived memory candid
 
 ## Review Evidence
 
+<!-- wave:review-status begin -->
+| Signoff | State | Why | Next action |
+| --- | --- | --- | --- |
+| wave-council-readiness | approved | current executed approval follows every affected repair | none |
+| wave-council-delivery | withheld | blocking findings: memory-supply-derivation-not-conservative-or-live, memory-duplicate-idempotency-and-identity, memory-supply-response-honesty, exploration-estimate-repeat-and-match-inflation, exploration-telemetry-authority-and-coverage; unresolved lanes: code-reviewer, qa-reviewer | record independent reverification for code-reviewer, qa-reviewer, then re-approve wave-council-delivery |
+| operator-signoff | withheld | blocking findings: memory-supply-derivation-not-conservative-or-live, memory-duplicate-idempotency-and-identity, memory-supply-response-honesty, exploration-estimate-repeat-and-match-inflation, exploration-telemetry-authority-and-coverage; unresolved lanes: code-reviewer, qa-reviewer | record independent reverification for code-reviewer, qa-reviewer, then re-approve operator-signoff |
+<!-- wave:review-status end -->
+
 - wave-council-readiness: approved 2026-07-17 — supply-first, additive to the memory lifecycle (candidate-only writes, detection-only dedup, no auto-promote/supersede/delete), sourced only from the typed `events.jsonl` ledger + Decision Logs. The foundation exists in 1.13.0 (ledger, `review_evidence.py` reader, `memory_records.py` write path, `candidate` status). Internal dependency `1stwl → 1stwk` sequenced. No blocking concerns.
 - operator-signoff: pending operator closure confirmation
-- wave-council-delivery: approved — Ran run_tests.py --no-cache (5789 OK), wave_validate (ok), and executed memory_supply/exploration_avoided against the live repo across multiple waves; performed an adversarial multi-wave attribution review that found and fixed a defect.
-- wave-council-readiness: approved — Inspected the review_evidence reader, memory_records write path, and 1stwj telemetry during the 2026-07-17 prepare-phase council review.
-- operator-signoff: approved — Operator close instruction received this session following the structured review report.
 
 ## Dependencies
 
@@ -83,7 +92,7 @@ Estimated token savings use phase-unique returned source versions and mapped wor
 | close | 3 | 0 |
 | implement | 15 | 336,956 |
 | review | 2 | 0 |
-| **Total** | **20** | **335,951** |
+| **Total** | **20** | **336,956** |
 
-<!-- wave:context-efficiency-state {"generation":20,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"close":{"calls":3,"content_source_credit":0,"direct_net":-339,"estimated_tokens_saved":0,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":27,"response_debit":1309,"source_credit_count":0,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":997},"implement":{"calls":15,"content_source_credit":360253,"direct_net":336956,"estimated_tokens_saved":336956,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":453,"response_debit":24269,"source_credit_count":10,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":1425},"review":{"calls":2,"content_source_credit":0,"direct_net":-666,"estimated_tokens_saved":0,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":22,"response_debit":644,"source_credit_count":0,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":0}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":20,"content_source_credit":360253,"direct_net":335951,"estimated_tokens_saved":335951,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":502,"response_debit":26222,"source_credit_count":10,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":2422},"wave_id":"1stwm memory-supply"} -->
+<!-- wave:context-efficiency-state {"generation":20,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"close":{"calls":3,"content_source_credit":0,"direct_net":-339,"estimated_tokens_saved":0,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":27,"response_debit":1309,"source_credit_count":0,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":997},"implement":{"calls":15,"content_source_credit":360253,"direct_net":336956,"estimated_tokens_saved":336956,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":453,"response_debit":24269,"source_credit_count":10,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":1425},"review":{"calls":2,"content_source_credit":0,"direct_net":-666,"estimated_tokens_saved":0,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":22,"response_debit":644,"source_credit_count":0,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":0}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":20,"content_source_credit":360253,"direct_net":335951,"estimated_tokens_saved":336956,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":502,"response_debit":26222,"source_credit_count":10,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":2422},"wave_id":"1stwm memory-supply"} -->
 <!-- wave:context-efficiency end -->

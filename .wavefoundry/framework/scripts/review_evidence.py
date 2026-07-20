@@ -21,11 +21,14 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Mapping
+from runtime_lock import RuntimeFileLock
 
 
 PROTOCOL_VERSION = 1
 FINDING_SYNTHESIS_MARKER_BEGIN = "<!-- wave:finding-synthesis begin -->"
 FINDING_SYNTHESIS_MARKER_END = "<!-- wave:finding-synthesis end -->"
+REVIEW_STATUS_MARKER_BEGIN = "<!-- wave:review-status begin -->"
+REVIEW_STATUS_MARKER_END = "<!-- wave:review-status end -->"
 _LEGACY_FINDING_SYNTHESIS_MARKER_BEGIN = (
     "<!-- waveframework:finding-synthesis begin -->"
 )
@@ -35,7 +38,7 @@ _LEGACY_FINDING_SYNTHESIS_MARKER_END = (
 REVIEW_EVIDENCE_DETAILS_BEGIN = '<details class="wavefoundry-review-evidence">'
 REVIEW_EVIDENCE_DETAILS_END = "</details>"
 ADOPTION_LEDGER_REL = Path("docs/waves/review-evidence-adoptions.json")
-ADOPTION_LOCK_REL = Path(".wavefoundry/review-evidence-adoptions.lock")
+ADOPTION_LOCK_REL = Path(".wavefoundry/locks/review-evidence-adoptions.lock")
 EVENTS_FILENAME = "events.jsonl"
 REVIEW_EVIDENCE_SOURCE = EVENTS_FILENAME
 REVIEW_EVIDENCE_SOURCE_DECLARATION = f"review-evidence-source: {REVIEW_EVIDENCE_SOURCE}"
@@ -365,6 +368,31 @@ def review_event_path(wave_path: Path) -> Path:
     return path / EVENTS_FILENAME
 
 
+def _review_authority_path_error(wave_path: Path) -> str | None:
+    """Reject symlinked/out-of-wave review authority before any read or write."""
+
+    wave_md = Path(wave_path)
+    if wave_md.name != "wave.md":
+        wave_md = wave_md / "wave.md"
+    wave_dir = wave_md.parent
+    ledger = wave_dir / EVENTS_FILENAME
+    try:
+        if wave_dir.is_symlink():
+            return "wave directory may not be a symlink"
+        wave_real = wave_dir.resolve(strict=True)
+        if wave_md.is_symlink():
+            return "wave.md may not be a symlink"
+        if wave_md.exists() and not wave_md.resolve(strict=True).is_relative_to(wave_real):
+            return "wave.md escapes its wave directory"
+        if ledger.is_symlink():
+            return "events.jsonl may not be a symlink"
+        if ledger.exists() and not ledger.resolve(strict=True).is_relative_to(wave_real):
+            return "events.jsonl escapes its wave directory"
+    except (OSError, RuntimeError) as exc:
+        return f"review authority path is not safely resolvable: {exc}"
+    return None
+
+
 def parse_review_evidence_source(text: str) -> tuple[str | None, tuple[str, ...]]:
     """Read the exact unversioned source declaration from the wave header."""
 
@@ -549,36 +577,8 @@ def _adoption_write_lock(repo_root: Path):
     """Serialize cross-process adoption ledger read/validate/write cycles."""
 
     path = repo_root / ADOPTION_LOCK_REL
-    path.parent.mkdir(parents=True, exist_ok=True)
-    handle = path.open("a+b")
-    try:
-        if os.name == "nt":
-            import msvcrt
-
-            handle.seek(0, os.SEEK_END)
-            if handle.tell() == 0:
-                handle.write(b"\0")
-                handle.flush()
-            handle.seek(0)
-            msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
-        else:
-            import fcntl
-
-            fcntl.flock(handle, fcntl.LOCK_EX)
+    with RuntimeFileLock(path, blocking=True):
         yield
-    finally:
-        try:
-            if os.name == "nt":
-                import msvcrt
-
-                handle.seek(0)
-                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
-            else:
-                import fcntl
-
-                fcntl.flock(handle, fcntl.LOCK_UN)
-        finally:
-            handle.close()
 
 
 @contextmanager
@@ -610,6 +610,9 @@ def review_event_write_lock(repo_root: Path):
 
 def _read_adoption_ledger(repo_root: Path) -> tuple[dict[str, Any], str | None]:
     path = repo_root / ADOPTION_LEDGER_REL
+    path_error = _adoption_ledger_path_error(repo_root, path)
+    if path_error:
+        return {}, path_error
     if not path.exists():
         return {"protocol_version": PROTOCOL_VERSION, "waves": {}}, None
     try:
@@ -627,6 +630,9 @@ def _read_adoption_ledger(repo_root: Path) -> tuple[dict[str, Any], str | None]:
 
 def _write_adoption_ledger_atomic(repo_root: Path, ledger: Mapping[str, Any]) -> None:
     path = repo_root / ADOPTION_LEDGER_REL
+    path_error = _adoption_ledger_path_error(repo_root, path)
+    if path_error:
+        raise OSError(path_error)
     path.parent.mkdir(parents=True, exist_ok=True)
     temp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
     try:
@@ -637,6 +643,163 @@ def _write_adoption_ledger_atomic(repo_root: Path, ledger: Mapping[str, Any]) ->
             temp.unlink(missing_ok=True)
         except OSError:
             pass
+
+
+def _adoption_ledger_path_error(repo_root: Path, path: Path) -> str | None:
+    """Keep migration/adoption authority inside the configured repository."""
+
+    try:
+        root_real = repo_root.resolve(strict=True)
+        waves_dir = repo_root / "docs" / "waves"
+        if waves_dir.is_symlink():
+            return "review evidence adoption directory may not be a symlink"
+        if waves_dir.exists():
+            waves_real = waves_dir.resolve(strict=True)
+            if not waves_real.is_relative_to(root_real):
+                return "review evidence adoption directory escapes repository root"
+        else:
+            # Reads must not materialize the authority directory.  The writer
+            # creates it only after the configured repository boundary has
+            # been proven from its nearest existing ancestor.
+            ancestor = waves_dir
+            while not ancestor.exists() and ancestor != repo_root:
+                if ancestor.is_symlink():
+                    return "review evidence adoption directory may not traverse a symlink"
+                ancestor = ancestor.parent
+            ancestor_real = ancestor.resolve(strict=True)
+            if not ancestor_real.is_relative_to(root_real):
+                return "review evidence adoption directory escapes repository root"
+            waves_real = root_real / "docs" / "waves"
+        if path.is_symlink():
+            return "review evidence adoption ledger may not be a symlink"
+        if path.exists() and not path.resolve(strict=True).is_relative_to(waves_real):
+            return "review evidence adoption ledger escapes its canonical directory"
+    except (OSError, RuntimeError) as exc:
+        return f"review evidence adoption path is not safely resolvable: {exc}"
+    return None
+
+
+def _write_bytes_atomic(path: Path, payload: bytes, label: str) -> None:
+    """Replace one authority file without exposing a partially written body."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.with_name(f".{path.name}.{os.getpid()}.{label}.tmp")
+    try:
+        temp.write_bytes(payload)
+        os.replace(temp, path)
+    finally:
+        try:
+            temp.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+def externalize_adopted_inline_wave_locked(
+    repo_root: Path,
+    wave_key: str,
+    wave_path: Path,
+) -> tuple[tuple[dict[str, Any], ...] | None, str | None]:
+    """One-way externalize a lossless adopted inline ledger.
+
+    The caller holds ``review_event_write_lock``.  Writes intentionally follow
+    the recoverable authority order ``events.jsonl`` → ``wave.md`` → adoption
+    proof.  A retry can therefore converge after interruption at either file
+    boundary without consulting prose as authority.
+    """
+
+    wave_md = Path(wave_path)
+    if wave_md.name != "wave.md":
+        wave_md = wave_md / "wave.md"
+    path_error = _review_authority_path_error(wave_md)
+    if path_error:
+        return None, path_error
+    ledger, error = _read_adoption_ledger(repo_root)
+    if error:
+        return None, error
+    state = ledger["waves"].get(wave_key)
+    if state is None:
+        return None, None
+    if not isinstance(state, dict):
+        return None, f"review evidence adoption state for `{wave_key}` is malformed"
+    if isinstance(state.get("records"), list):
+        expected = tuple(dict(record) for record in state["records"])
+    else:
+        adopted, adopted_error = adopted_protocol_state(repo_root, wave_key)
+        if adopted_error:
+            return None, adopted_error
+        if adopted is None:
+            return None, None
+        result = validate_external_review_evidence(wave_md)
+        if result.errors:
+            return None, "; ".join(result.errors)
+        return tuple(dict(record) for record in result.records), None
+
+    try:
+        text = wave_md.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        return None, f"legacy inline wave is unreadable: {exc}"
+    source, source_errors = parse_review_evidence_source(text)
+    if source_errors:
+        return None, "; ".join(source_errors)
+    if source is None:
+        legacy = validate_review_evidence(text)
+        if legacy.marker_version != PROTOCOL_VERSION or legacy.errors:
+            return None, (
+                "lossless typed-inline review evidence is invalid: "
+                + "; ".join(legacy.errors or ("protocol marker missing",))
+            )
+        records = tuple(dict(record) for record in legacy.records)
+        if records != expected:
+            return None, "typed-inline records do not equal the retained adoption history"
+        markers = list(_MARKER_RE.finditer(text))
+        if len(markers) != 1:
+            return None, "legacy wave must contain exactly one review-evidence protocol marker"
+        external = _MARKER_RE.sub(
+            REVIEW_EVIDENCE_SOURCE_DECLARATION,
+            text,
+            count=1,
+        )
+        external = render_review_evidence_projection(external, records)
+        try:
+            _write_bytes_atomic(
+                review_event_path(wave_md),
+                canonical_review_events_bytes(records),
+                "inline-adoption-events",
+            )
+            _write_bytes_atomic(
+                wave_md,
+                external.encode("utf-8"),
+                "inline-adoption-wave",
+            )
+        except OSError as exc:
+            return None, f"could not externalize typed-inline review evidence: {exc}"
+    elif source == REVIEW_EVIDENCE_SOURCE:
+        resumed = validate_external_review_evidence(wave_md)
+        if resumed.errors:
+            return None, "partially externalized review evidence is invalid: " + "; ".join(
+                resumed.errors
+            )
+        records = tuple(dict(record) for record in resumed.records)
+        if records != expected:
+            return None, "external records do not equal the retained inline adoption history"
+    else:
+        return None, f"unsupported review evidence source `{source}`"
+
+    proof = review_event_prefix_proof(records)
+    ledger["waves"][wave_key] = {
+        "version": PROTOCOL_VERSION,
+        "source": REVIEW_EVIDENCE_SOURCE,
+        **proof,
+    }
+    try:
+        _write_adoption_ledger_atomic(repo_root, ledger)
+    except OSError as exc:
+        return None, f"could not persist external review evidence adoption: {exc}"
+    final = validate_external_review_evidence(wave_md)
+    retained_errors = validate_adopted_protocol_state(repo_root, wave_key, wave_md)
+    if final.errors or retained_errors or tuple(final.records) != records:
+        return None, "external review evidence reread failed after adoption"
+    return records, None
 
 
 def adopted_protocol_state(repo_root: Path, wave_key: str) -> tuple[dict[str, Any] | None, str | None]:
@@ -964,6 +1127,327 @@ def review_evidence_human_table(records: Iterable[Mapping[str, Any]]) -> str:
         )
         lines.append("| " + " | ".join(_markdown_cell(value) for value in values) + " |")
     return "\n".join(lines)
+
+
+def _approval_rows(
+    records: Iterable[Mapping[str, Any]],
+) -> dict[str, tuple[int, Mapping[str, Any]]]:
+    return {
+        str(record.get("claim_id")): (position, record)
+        for position, record in enumerate(records)
+        if record.get("record_type") == "executable_evidence"
+        and record.get("claim_kind") == "approval"
+        and record.get("required_for_approval") is True
+        and record.get("phase") == "delivery"
+        and record.get("execution_status") == "executed"
+    }
+
+
+def _finding_affects_signoff(head: Mapping[str, Any], signoff_key: str) -> bool:
+    explicit = head.get("approval_recheck_lanes")
+    affected = (
+        {str(lane) for lane in explicit}
+        if isinstance(explicit, list)
+        else {
+            str(lane)
+            for lane in [
+                *head.get("source_lanes", []),
+                *head.get("blocking_required_lanes", []),
+            ]
+        }
+    )
+    if signoff_key == "operator-signoff":
+        return True
+    if signoff_key == "wave-council-readiness":
+        return False
+    if signoff_key.startswith("wave-council-"):
+        return (
+            signoff_key in affected
+            or "wave-council" in affected
+            or head.get("review_depth") == "full"
+        )
+    return signoff_key in affected
+
+
+def review_status_rows(
+    records: Iterable[Mapping[str, Any]],
+    required_signoff_keys: Iterable[str],
+) -> tuple[dict[str, Any], ...]:
+    """Derive one causal current-state row per canonical signoff key.
+
+    ``events.jsonl`` remains the only history.  These rows are a bounded view:
+    current finding heads plus the latest applicable approval.  Readiness is a
+    crossed historical gate and is deliberately not invalidated by delivery
+    repairs.
+    """
+
+    rows = tuple(dict(record) for record in records)
+    approvals = _approval_rows(rows)
+    heads = current_synthesis_heads(rows)
+    positions = {id(record): position for position, record in enumerate(rows)}
+    result: list[dict[str, Any]] = []
+    for key in dict.fromkeys(str(item) for item in required_signoff_keys if str(item)):
+        approval = approvals.get(f"approval:{key}")
+        approval_position = approval[0] if approval is not None else -1
+        approval_record = approval[1] if approval is not None else None
+        context = (
+            approval_record.get("verification_context")
+            if isinstance(approval_record, Mapping)
+            else None
+        )
+        expected_actor = (
+            "operator"
+            if key == "operator-signoff"
+            else ("wave-council" if key.startswith("wave-council-") else key)
+        )
+        approval_valid = bool(
+            approval_record is not None
+            and isinstance(context, Mapping)
+            and context.get("actor") == expected_actor
+            and (
+                key == "operator-signoff"
+                or (
+                    context.get("fresh_context") is True
+                    and context.get("independent") is True
+                )
+            )
+        )
+        blocking: list[tuple[str, Mapping[str, Any]]] = []
+        for finding_id, head in heads.items():
+            if head.get("blocking") is not True:
+                continue
+            if not _finding_affects_signoff(head, key):
+                continue
+            head_position = positions.get(id(head), -1)
+            if approval_position < head_position:
+                blocking.append((str(finding_id), head))
+        if blocking:
+            finding_ids = [finding_id for finding_id, _head in blocking]
+            unresolved = sorted(
+                {
+                    str(lane)
+                    for _finding_id, head in blocking
+                    for lane in head.get("blocking_required_lanes", [])
+                    if str(lane)
+                }
+            )
+            why = "blocking findings: " + ", ".join(finding_ids[:8])
+            if len(finding_ids) > 8:
+                why += f" (+{len(finding_ids) - 8} more; see events.jsonl)"
+            if unresolved:
+                why += "; unresolved lanes: " + ", ".join(unresolved)
+                next_action = (
+                    "record independent reverification for "
+                    + ", ".join(unresolved)
+                    + ", then re-approve "
+                    + key
+                )
+            else:
+                next_action = f"record a fresh independent approval for {key}"
+            state = "withheld"
+        elif approval_valid:
+            state = "approved"
+            why = "current executed approval follows every affected repair"
+            next_action = "none"
+        else:
+            state = "pending"
+            why = (
+                "approval evidence has invalid actor or independence"
+                if approval_record is not None
+                else "no current executed approval"
+            )
+            next_action = f"record approval evidence for {key}"
+        result.append(
+            {
+                "signoff_key": key,
+                "state": state,
+                "why": why,
+                "next_action": next_action,
+            }
+        )
+    return tuple(result)
+
+
+def review_status_human_table(
+    records: Iterable[Mapping[str, Any]],
+    required_signoff_keys: Iterable[str],
+) -> str:
+    lines = [
+        "| Signoff | State | Why | Next action |",
+        "| --- | --- | --- | --- |",
+    ]
+    status_rows = review_status_rows(records, required_signoff_keys)
+    if not status_rows:
+        lines.append("| — | — | — | — |")
+    for row in status_rows:
+        lines.append(
+            "| "
+            + " | ".join(
+                _markdown_cell(row[name])
+                for name in ("signoff_key", "state", "why", "next_action")
+            )
+            + " |"
+        )
+    return "\n".join(lines)
+
+
+def review_status_signoff_keys(
+    records: Iterable[Mapping[str, Any]],
+    base_keys: Iterable[str] = (),
+) -> tuple[str, ...]:
+    """Return canonical status-row identities from caller policy + ledger facts."""
+
+    rows = tuple(dict(record) for record in records)
+    keys = [str(key) for key in base_keys if str(key)]
+    for record in rows:
+        claim_id = str(record.get("claim_id") or "")
+        if claim_id.startswith("approval:"):
+            keys.append(claim_id.removeprefix("approval:"))
+    for head in current_synthesis_heads(rows).values():
+        lanes = head.get("approval_recheck_lanes")
+        if isinstance(lanes, list):
+            keys.extend(str(lane) for lane in lanes if str(lane))
+    return tuple(dict.fromkeys(keys))
+
+
+def required_review_status_keys(
+    root: Path,
+    wave_text: str,
+    records: Iterable[Mapping[str, Any]] = (),
+) -> tuple[str, ...]:
+    """Return every signoff row required by the wave and project policy.
+
+    This is the single key-derivation path used by lifecycle writes, lint, and
+    upgrade.  A required lane is represented even before it has an approval
+    event, so absence is rendered explicitly as ``pending`` rather than being
+    omitted from the current-state projection.
+    """
+
+    lanes: list[str] = []
+    in_participants = False
+    for raw in wave_text.splitlines():
+        line = raw.strip()
+        if line.startswith("## Participants"):
+            in_participants = True
+            continue
+        if in_participants and line.startswith("## "):
+            break
+        if not in_participants:
+            continue
+        match = re.match(
+            r"^-\s*Required review lanes\s*:\s*(?P<lanes>.+?)\s*$",
+            line,
+            re.IGNORECASE,
+        )
+        if match:
+            lanes.extend(
+                value.strip().strip("`").strip()
+                for value in match.group("lanes").split(",")
+                if value.strip().strip("`").strip()
+            )
+            continue
+        if not line.startswith("|") or line.startswith("|------"):
+            continue
+        cells = [cell.strip() for cell in line.strip("|").split("|")]
+        if len(cells) >= 2 and cells[0].lower() != "role" and "review" in cells[1].lower():
+            lanes.append(cells[0])
+
+    config: dict[str, Any] = {}
+    try:
+        loaded = json.loads((root / "docs" / "workflow-config.json").read_text("utf-8"))
+        if isinstance(loaded, dict):
+            config = loaded
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        pass
+    project_lanes = config.get("required_review_lanes", [])
+    if isinstance(project_lanes, list):
+        lanes.extend(str(value).strip() for value in project_lanes if str(value).strip())
+
+    council_keys = ["wave-council-readiness", "wave-council-delivery"]
+    council = config.get("wave_review")
+    if isinstance(council, dict) and bool(council.get("enabled")):
+        phases = council.get("phases", {})
+        if isinstance(phases, dict):
+            for phase in ("prepare", "review"):
+                value = phases.get(phase, {})
+                if isinstance(value, dict):
+                    key = str(value.get("signoff_key") or "").strip()
+                    if key:
+                        council_keys.append(key)
+
+    return review_status_signoff_keys(
+        records,
+        (*council_keys, *lanes, "operator-signoff"),
+    )
+
+
+_REVIEW_EVIDENCE_SECTION_RE = re.compile(
+    r"(?ms)^## Review Evidence[ \t]*$\n(?P<body>.*?)(?=^##\s|\Z)"
+)
+_GENERATED_SIGNOFF_LINE_RE = re.compile(
+    r"(?m)^\s*-\s*(?P<key>[a-z0-9-]+):\s*"
+    r"(?P<state>approved|withdrawn)\s+—\s+.*$\n?"
+)
+
+
+def render_review_status_projection(
+    text: str,
+    records: Iterable[Mapping[str, Any]],
+    required_signoff_keys: Iterable[str],
+) -> str:
+    """Replace the bounded current review-status block.
+
+    Historical transitions remain solely in ``events.jsonl``.  Exact generated
+    approval/withdrawal lines are removed only for signoff keys represented by
+    typed ledger state; placeholders and human prose are preserved.
+    """
+
+    rows = tuple(dict(record) for record in records)
+    keys = tuple(dict.fromkeys(str(key) for key in required_signoff_keys if str(key)))
+    matches = list(_REVIEW_EVIDENCE_SECTION_RE.finditer(text))
+    if len(matches) != 1:
+        raise ValueError("external wave must contain exactly one Review Evidence section")
+    body = matches[0].group("body")
+    begin_count = body.count(REVIEW_STATUS_MARKER_BEGIN)
+    end_count = body.count(REVIEW_STATUS_MARKER_END)
+    if begin_count != end_count or begin_count > 1:
+        raise ValueError("Review Evidence status markers are malformed or duplicated")
+    if begin_count:
+        begin = body.find(REVIEW_STATUS_MARKER_BEGIN)
+        end = body.find(REVIEW_STATUS_MARKER_END, begin)
+        if end < begin:
+            raise ValueError("Review Evidence status markers are out of order")
+        body = (
+            body[:begin].rstrip()
+            + "\n"
+            + body[end + len(REVIEW_STATUS_MARKER_END):].lstrip("\n")
+        )
+    typed_keys = {
+        str(record.get("claim_id", "")).removeprefix("approval:")
+        for record in rows
+        if str(record.get("claim_id", "")).startswith("approval:")
+    }
+    for head in current_synthesis_heads(rows).values():
+        affected = head.get("approval_recheck_lanes")
+        if isinstance(affected, list):
+            typed_keys.update(str(lane) for lane in affected)
+
+    def preserve_generated(match: re.Match[str]) -> str:
+        return "" if match.group("key") in typed_keys else match.group(0)
+
+    body = _GENERATED_SIGNOFF_LINE_RE.sub(preserve_generated, body).strip("\r\n")
+    owned = (
+        f"{REVIEW_STATUS_MARKER_BEGIN}\n"
+        f"{review_status_human_table(rows, keys)}\n"
+        f"{REVIEW_STATUS_MARKER_END}"
+    )
+    # ``_REVIEW_EVIDENCE_SECTION_RE`` consumes the heading's terminating LF.
+    # One leading LF therefore produces exactly one Markdown blank line.
+    new_body = "\n" + owned
+    if body:
+        new_body += "\n\n" + body
+    new_body += "\n\n"
+    return text[: matches[0].start("body")] + new_body + text[matches[0].end("body") :]
 
 
 def render_review_evidence_records(text: str, records: Iterable[Mapping[str, Any]]) -> str:
@@ -2366,6 +2850,9 @@ def read_review_event_ledger(
 ) -> tuple[tuple[dict[str, Any], ...], tuple[str, ...]]:
     """Read the fixed sibling ledger and validate its canonical byte envelope."""
 
+    path_error = _review_authority_path_error(wave_path)
+    if path_error:
+        return (), (f"canonical review event ledger path is unsafe: {path_error}",)
     path = review_event_path(wave_path)
     try:
         data = path.read_bytes()
@@ -2386,6 +2873,12 @@ def validate_external_review_evidence(
     wave_md = Path(wave_path)
     if wave_md.name != "wave.md":
         wave_md = wave_md / "wave.md"
+    path_error = _review_authority_path_error(wave_md)
+    if path_error:
+        authority_errors = (f"review authority path is unsafe: {path_error}",)
+        return ReviewEvidenceValidation(
+            None, (), authority_errors, authority_errors=authority_errors
+        )
     try:
         text = _canonicalize_finding_synthesis_markers(
             wave_md.read_text(encoding="utf-8")
@@ -2491,6 +2984,8 @@ __all__ = [
     "FULL_COUNCIL_TRIGGERS",
     "PROTOCOL_VERSION",
     "REQUEST_DIGEST_FIELD",
+    "REVIEW_STATUS_MARKER_BEGIN",
+    "REVIEW_STATUS_MARKER_END",
     "REVIEW_EVIDENCE_SOURCE",
     "REVIEW_EVIDENCE_SOURCE_DECLARATION",
     "REVIEW_EVENT_HASH_DOMAIN",
@@ -2510,6 +3005,7 @@ __all__ = [
     "derive_review_depth",
     "empty_external_finding_synthesis_section",
     "empty_finding_synthesis_section",
+    "externalize_adopted_inline_wave_locked",
     "normalize_review_event_request",
     "parse_review_event_bytes",
     "parse_review_evidence_source",
@@ -2519,6 +3015,7 @@ __all__ = [
     "record_protocol_state_locked",
     "render_review_evidence_projection",
     "render_review_evidence_records",
+    "render_review_status_projection",
     "review_event_path",
     "review_event_prefix_proof",
     "review_event_request_digest",
@@ -2526,6 +3023,10 @@ __all__ = [
     "review_evidence_human_table",
     "review_evidence_summary",
     "review_evidence_summary_line",
+    "review_status_human_table",
+    "required_review_status_keys",
+    "review_status_rows",
+    "review_status_signoff_keys",
     "validate_adopted_protocol_state",
     "validate_external_review_evidence",
     "validate_review_evidence",

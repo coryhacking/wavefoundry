@@ -248,6 +248,10 @@ class BuildPackTests(unittest.TestCase):
             names,
         )
         self.assertIn(
+            ".wavefoundry/framework/scripts/runtime_lock.py",
+            names,
+        )
+        self.assertIn(
             ".wavefoundry/framework/scripts/score_context_efficiency_pairs.py",
             names,
         )
@@ -272,6 +276,161 @@ class BuildPackTests(unittest.TestCase):
         self.assertIn("def build_compact_review_event", writer)
         self.assertIn("def review_evidence_human_table", writer)
         self.assertIn("def wave_record_review_evidence(", server)
+
+    def test_install_pack_carries_dashboard_document_renderer_and_memory_backfill(self):
+        path = self._build()
+        with zipfile.ZipFile(path, "r") as archive:
+            renderer = archive.read(
+                ".wavefoundry/framework/dashboard/ds/wfds.js"
+            ).decode("utf-8")
+            css = archive.read(
+                ".wavefoundry/framework/dashboard/dashboard.css"
+            ).decode("utf-8")
+            backfill = archive.read(
+                ".wavefoundry/framework/scripts/memory_backfill.py"
+            ).decode("utf-8")
+            memory_cli = archive.read(
+                ".wavefoundry/framework/scripts/memory_cli.py"
+            ).decode("utf-8")
+            setup = archive.read(
+                ".wavefoundry/framework/scripts/setup_wavefoundry.py"
+            ).decode("utf-8")
+            server = archive.read(
+                ".wavefoundry/framework/scripts/server_impl.py"
+            ).decode("utf-8")
+        self.assertIn('visible.indexOf("<!--")', renderer)
+        self.assertIn('paragraphLines.join(" ")', renderer)
+        self.assertIn(".doc-dialog-body", css)
+        self.assertIn("overflow-wrap: anywhere", css)
+        self.assertIn("memory_backfill_runs", backfill)
+        self.assertIn("def main", memory_cli)
+        self.assertIn("then rerun ordinary `wf setup`", setup)
+        self.assertNotIn("wave_setup_resume_after_memory", server)
+
+    def test_extracted_install_pack_executes_new_review_memory_and_dashboard_paths(self):
+        import shutil
+        import subprocess
+        import tempfile
+
+        path = self._build()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            target = Path(temp_dir) / "installed"
+            target.mkdir()
+            with zipfile.ZipFile(path, "r") as archive:
+                archive.extractall(target)
+            (target / "docs" / "waves").mkdir(parents=True)
+            scripts = target / ".wavefoundry" / "framework" / "scripts"
+            python_probe = r"""
+import json, sys
+from pathlib import Path
+scripts = Path(sys.argv[1])
+root = Path(sys.argv[2])
+sys.path.insert(0, str(scripts))
+import memory_backfill
+import review_evidence
+import dashboard_lib
+rendered = review_evidence.render_review_status_projection(
+    "# Wave\n\nStatus: implementing\n\n## Review Evidence\n\n",
+    [],
+    ["qa-reviewer", "operator-signoff"],
+)
+run_id = memory_backfill.ensure_run(root, "setup")
+summary = memory_backfill.sync_inventory(root, run_id)
+acs = dashboard_lib._parse_ac_items(
+    "- [x] AC-1: packaged first line\n  packaged continuation\n",
+    "| AC | Priority | Rationale |\n| --- | --- | --- |\n| AC-1 | required | Core. |\n",
+    "planned",
+)
+tasks = dashboard_lib._parse_tasks(
+    "- [ ] packaged task\n  packaged task continuation\n",
+    "planned",
+)
+print(json.dumps({
+    "status_marker": "<!-- wave:review-status begin -->" in rendered,
+    "qa_pending": "| qa-reviewer | pending |" in rendered,
+    "memory_state": summary["state"],
+    "ac_text": acs[0]["text"],
+    "ac_priority": acs[0]["priority"],
+    "task_text": tasks["items"][0]["label"],
+}))
+"""
+            python_result = subprocess.run(
+                [
+                    sys.executable,
+                    "-B",
+                    "-c",
+                    python_probe,
+                    str(scripts),
+                    str(target),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            self.assertEqual(python_result.returncode, 0, python_result.stderr)
+            python_out = json.loads(python_result.stdout)
+            self.assertTrue(python_out["status_marker"])
+            self.assertTrue(python_out["qa_pending"])
+            self.assertEqual(python_out["memory_state"], "ready_for_index")
+            self.assertEqual(
+                python_out["ac_text"],
+                "AC-1: packaged first line packaged continuation",
+            )
+            self.assertEqual(python_out["ac_priority"], "required")
+            self.assertEqual(
+                python_out["task_text"],
+                "packaged task packaged task continuation",
+            )
+
+            if not shutil.which("node"):
+                self.skipTest("node not available — packaged renderer execution skipped")
+            fixture = (
+                SCRIPTS_DIR
+                / "tests"
+                / "fixtures"
+                / "dashboard-wave-rendering.md"
+            )
+            node_probe = r"""
+const fs = require("fs");
+const vm = require("vm");
+function createElement(type, props, ...children) {
+  const flat = [];
+  for (const child of children) Array.isArray(child) ? flat.push(...child) : flat.push(child);
+  return {type, props: props || {}, children: flat};
+}
+const root = {React: {createElement, useState(){}, useEffect(){}, useRef(){}, useCallback(){}}};
+vm.runInNewContext(fs.readFileSync(process.argv[1], "utf8"),
+  {window: root, globalThis: root, console});
+function text(node) {
+  if (node == null) return "";
+  if (typeof node === "string") return node;
+  return (node.children || []).map(text).join("");
+}
+const rendered = root.WFDS.renderMarkdownish(fs.readFileSync(process.argv[2], "utf8"));
+process.stdout.write(JSON.stringify(rendered.map(text)));
+"""
+            renderer = (
+                target
+                / ".wavefoundry"
+                / "framework"
+                / "dashboard"
+                / "ds"
+                / "wfds.js"
+            )
+            node_result = subprocess.run(
+                ["node", "-e", node_probe, str(renderer), str(fixture)],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            self.assertEqual(node_result.returncode, 0, node_result.stderr)
+            visible = " ".join(json.loads(node_result.stdout))
+            self.assertNotIn("wave:context-efficiency", visible)
+            self.assertIn(
+                "four physical source lines so the renderer must join "
+                "the lines into one semantic paragraph",
+                visible,
+            )
 
     def test_extracting_install_pack_does_not_mutate_historical_waves(self):
         path = self._build()

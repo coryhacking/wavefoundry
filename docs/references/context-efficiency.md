@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-17
+Last verified: 2026-07-20
 
 Wavefoundry reports one conservative estimate of tokens saved while its tools
 support a wave. The estimate is an accounting signal, not a billing record and
@@ -33,7 +33,7 @@ The SQLite authority retains the components for audit and testing.
 
 ## Retrieval credit
 
-The 17 retrieval tools are:
+The 18 retrieval tools are:
 
 - `code_ask`, `code_search`, `code_lexical`, `docs_search`
 - `code_keyword`, `code_pattern`, `code_constants`
@@ -41,6 +41,7 @@ The 17 retrieval tools are:
   `code_callhierarchy`
 - `code_impact`, `code_dependencies`, `code_callgraph`,
   `code_graph_path`, `code_graph_community`
+- `code_commit_provenance`
 
 A retrieval event always debits the canonical request arguments and the complete
 public response. It may credit contained project files that would otherwise
@@ -79,9 +80,14 @@ not advance state, and incomplete reviews receive no prompt credit, but their
 debits remain in the ledger.
 
 General retrieval work performed before a wave is selected remains isolated by
-producer. Successful create or prepare may transfer that producer's general
-events and source credits into the target wave's `pre-wave` stage. Another
-process cannot redirect them.
+producer. Each producer holds a random identity plus a crash-released OS lease.
+Successful create or prepare transfers the invoking producer's general events
+and source credits into the target wave's `pre-wave` stage and may atomically
+claim producers whose persisted lease is provably unheld. Live peers and
+ambiguous/missing leases remain untouched; concurrent claims serialize through
+SQLite. Events and debits move exactly once; repeated source/version pairs from
+different producer buckets collapse under the target `pre-wave` phase's
+once-only source-credit key rather than being double-counted.
 
 ## Durable authority and projection
 
@@ -104,13 +110,22 @@ Pending generations are also projected before MCP reload and before framework
 upgrade. Projection is idempotent and uses a generation compare-and-set so a
 newer event cannot be marked published by an older projection.
 
-The SQLite store has a random instance identity. If a checkpoint names an
-identity that the current store cannot prove, the wave becomes
-`credit_history_unavailable`; numeric totals are never reconstructed from the
-checkpoint. This is the first shipped telemetry schema, so there is no
-pre-release compatibility or legacy-evidence layer. A recognized experimental
-store is reset before the first current-schema write; prototype tables and
-numeric payload are not retained.
+Close publication seals the wave at that exact generation. After the Markdown
+replacement and SQLite compare-and-set both succeed, payload-bearing event,
+source, phase, and evaluation rows are replaced transactionally by the
+cumulative published floor. Reads add that floor to any rows from a later
+reopen. Compact event-ID tombstones retain exact replay protection; source
+deduplication and paired evaluations remain fully authoritative in every active
+phase. A failed compaction remains discoverable as pending and is retried at
+reload/upgrade or the next lifecycle projection.
+
+The SQLite store has a random instance identity. If an active checkpoint names
+an identity that the current store cannot prove, the wave becomes
+`credit_history_unavailable`; numeric totals are not reconstructed from an
+active checkpoint. A closed, validator-valid checkpoint is different: it is the
+durable sealed aggregate and can restore the compact floor after disposable
+store loss. This is the first shipped telemetry schema, so no versioned
+pre-release compatibility layer is retained.
 
 ## Failure semantics
 
