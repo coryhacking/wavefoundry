@@ -115,7 +115,7 @@ def _hf_download_cached_first(repo: str, filename: str, cache_dir: str) -> str:
         return hf_hub_download(repo, filename, cache_dir=cache_dir, local_files_only=True)
     except Exception:
         pass
-    # Wave 1p939: this is a non-setup launcher (MCP wave_index_build, dashboard watcher, background
+    # Wave 1p939: this is a non-setup launcher (MCP index_build, dashboard watcher, background
     # refresh) — apply the same CA ladder wf setup uses before the online attempt, once per process,
     # then fall back through the same reactive candidate ladder _warm_model uses on a cert-verify
     # failure (delivery-phase council finding: the proactive step alone isn't full ladder parity).

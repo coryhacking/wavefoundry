@@ -2,7 +2,7 @@
 """Hermetic memory-retrieval eval baseline (wave 1sufo / change 1sufm).
 
 Builds a synthetic memory corpus (memory_golden.json) in a throwaway repo, runs
-the CURRENT ``wave_memory_search`` / ``wave_memory_brief`` paths against golden
+the CURRENT ``memory_search`` / ``memory_brief`` paths against golden
 fixtures, and reports recall@k / MRR per category plus explicit pass/fail on the
 policy invariants (exact-target, decay, supersession, no-index). It also records
 three comparison configurations over the paraphrase cases — the live baseline
@@ -81,7 +81,7 @@ def _reciprocal_rank(ranked: list[str], expected: list[str]) -> float:
 def _search_ids(srv, root: Path, case: dict) -> list[str]:
     index = None if case.get("no_index") else (
         _StubIndex(case["semantic_order"]) if case.get("semantic_order") else None)
-    resp = srv.wave_memory_search_response(
+    resp = srv.memory_search_response(
         root, query=case.get("query", ""), target=case.get("target", ""),
         index=index, limit=20)
     return [r["memory_id"] for r in resp["data"]["records"]]

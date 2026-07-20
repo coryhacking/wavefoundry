@@ -12,7 +12,7 @@ Canonical public prompt doc:
 Tasks:
 
 1. Generate a public prompt doc that describes `Restart dashboard` as the repo-local dashboard stop/start command.
-2. Make the operator-facing path use the MCP tool `wave_dashboard_restart`.
+2. Make the operator-facing path use the MCP tool `wf_restart_dashboard`.
 3. Explain that restart stops the current repository dashboard and then starts a fresh one for the same checkout.
 4. Clarify that the browser opens automatically when the restarted dashboard comes back up.
 5. Keep the prompt clear that restart is scoped to the current repository only.

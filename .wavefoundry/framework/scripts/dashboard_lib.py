@@ -210,7 +210,7 @@ def read_dashboard_config(root: Path) -> dict[str, Any]:
         "terminology": cfg.get("terminology", {}) if isinstance(cfg.get("terminology"), dict) else {},
         "include_dirs": [str(d) for d in cfg.get("include_dirs", []) if isinstance(d, str)] if isinstance(cfg.get("include_dirs"), list) else [],
         # 1p7it: the dashboard is a read-only viewer — index updates are owned by the MCP/hook
-        # background path (post-edit hook + the MCP server's background refresh + wave_index_build),
+        # background path (post-edit hook + the MCP server's background refresh + index_build),
         # never the dashboard. The former `auto_index` / `auto_index_delay_seconds` settings were removed.
     }
 
@@ -1392,7 +1392,7 @@ def collect_health(root: Path, wave_count: int, change_sets: dict[str, list[dict
     index_meta       = _read_store_build_meta(index_dir)  # 1sed6: bounded store summary (scalars + file_count)
     index_stats      = _read_json(index_dir    / "index-build-stats.json", {})
     project_graph    = read_graph_payload(root, "project")
-    project_build    = server.wave_index_build_status_response(root, layer="project").get("data", {})
+    project_build    = server.index_build_status_response(root, layer="project").get("data", {})
     project_health   = _index_stats(index_meta,    index_stats,    index_dir)
     if isinstance(project_build, dict):
         project_state = str(project_build.get("build_status") or project_build.get("state") or "").strip().lower()

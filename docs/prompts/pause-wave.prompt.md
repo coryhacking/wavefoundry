@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-14
+Last verified: 2026-07-20
 
 Shortcut: **`Pause wave`**
 
@@ -12,11 +12,11 @@ Park current session state and transition the wave to `paused` when work must be
 
 ## Steps
 
-1. Run `wave_pause(wave_id=..., mode='create')`. This:
+1. Run `wf_pause_wave(wave_id=..., mode='create')`. This:
    - Transitions wave.md `Status: active` → `Status: paused` (idempotent on already-paused; advisory diagnostic when the wave is not active).
    - Writes a session-handoff entry to `docs/agents/session-handoff.md`.
    - Returns `data.status_transition: {"from": ..., "to": ...}` so you can see what changed.
-2. Update `docs/agents/session-handoff.md` with a standardized structure beyond what `wave_pause` recorded. Use these labeled sections:
+2. Update `docs/agents/session-handoff.md` with a standardized structure beyond what `wf_pause_wave` recorded. Use these labeled sections:
    - **Done** — changes/tasks completed this session
    - **Next** — ordered next actions
    - **Files touched** — key files modified
@@ -28,11 +28,11 @@ Park current session state and transition the wave to `paused` when work must be
 
 ## Dry-Run Preview
 
-`wave_pause(..., mode='dry_run')` reports the intended `status_transition` without writing anything. Use this to preview the effect before committing.
+`wf_pause_wave(..., mode='dry_run')` reports the intended `status_transition` without writing anything. Use this to preview the effect before committing.
 
 ## Status Transition Semantics
 
-| Current status | After `wave_pause(mode='create')` | Handoff written? | Diagnostic                      |
+| Current status | After `wf_pause_wave(mode='create')` | Handoff written? | Diagnostic                      |
 | -------------- | --------------------------------- | ---------------- | ------------------------------- |
 | `active` / `implementing` | `paused`               | yes              | none                            |
 | `paused`       | `paused` (no-op)                  | yes              | none                            |
@@ -40,11 +40,11 @@ Park current session state and transition the wave to `paused` when work must be
 
 ## Resume Instructions
 
-At next session start, read `docs/agents/session-handoff.md` and the wave record at `docs/waves/<wave-id>/wave.md` before taking any action. To transition the paused wave back to `active`, run `wave_prepare(wave_id=..., mode='create')` on it (resume is an activation). The single-OPEN guard will block this if any other wave is currently OPEN (`active`/`implementing`); pause that one first.
+At next session start, read `docs/agents/session-handoff.md` and the wave record at `docs/waves/<wave-id>/wave.md` before taking any action. To transition the paused wave back to `active`, run `wf_prepare_wave(wave_id=..., mode='create')` on it (resume is an activation). The single-OPEN guard will block this if any other wave is currently OPEN (`active`/`implementing`); pause that one first.
 
-## Paused Waves in `wave_current`
+## Paused Waves in `wf_current_wave`
 
-`wave_current` returns paused waves in its `data.waves[]` response alongside active and planned waves. Paused entries carry `next_action: "resume_wave"` — a hint that maps to calling `wave_prepare` on that wave.
+`wf_current_wave` returns paused waves in its `data.waves[]` response alongside active and planned waves. Paused entries carry `next_action: "resume_wave"` — a hint that maps to calling `wf_prepare_wave` on that wave.
 
 ## What Belongs in Handoff vs Journals
 
@@ -54,4 +54,4 @@ At next session start, read `docs/agents/session-handoff.md` and the wave record
 
 ## Memory Candidates at Pause
 
-Alongside parking working state in the handoff, consider proposing agent memory candidates for durable lessons discovered mid-wave (`wave_memory_add(status='candidate', ...)`) — a paused wave may resume in a different session, and typed, evidence-backed records survive where prose context does not. Optional and judgment-based; the close-time distillation checkpoint decides every candidate. Never store secrets, raw transcripts, or personal facts (docs-lint enforces this).
+Alongside parking working state in the handoff, consider proposing agent memory candidates for durable lessons discovered mid-wave (`memory_add(status='candidate', ...)`) — a paused wave may resume in a different session, and typed, evidence-backed records survive where prose context does not. Optional and judgment-based; the close-time distillation checkpoint decides every candidate. Never store secrets, raw transcripts, or personal facts (docs-lint enforces this).

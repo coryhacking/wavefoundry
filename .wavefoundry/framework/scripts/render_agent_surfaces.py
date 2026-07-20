@@ -238,7 +238,7 @@ CURSOR_AUTO_GURU_MDC = dedent(
 
     ## Cursor-specific delegation
 
-    - Prefer MCP tools over raw `grep`/`read` for orientation when the index is healthy (`wave_index_health`).
+    - Prefer MCP tools over raw `grep`/`read` for orientation when the index is healthy (`index_health`).
     - For large investigations, use a **read-only subagent** (Task) with `docs/agents/guru.md` as the prompt and return cited findings to the parent thread.
     - Operators do **not** need to say **Guru**; the explicit shortcut remains in `docs/prompts/index.md`.
     """
@@ -892,7 +892,7 @@ def _initial_review_carrier_text(repo_root: Path, carrier: ReviewProtocolCarrier
             """\
             # Create Wave
 
-            New waves must use `wave_create_wave` when MCP is available. The
+            New waves must use `wf_create_wave` when MCP is available. The
             scaffold creates an empty sibling `events.jsonl`, declares
             `review-evidence-source: events.jsonl` in `wave.md`, renders the
             non-authoritative `## Finding Synthesis` current-state projection,

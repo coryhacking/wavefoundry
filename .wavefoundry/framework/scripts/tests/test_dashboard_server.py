@@ -1883,7 +1883,7 @@ class DashboardProcessControlTests(unittest.TestCase):
         with patch.object(self.server, "_dashboard_cmdline_pids", return_value=[5555]), \
              patch.object(self.server, "_pid_is_running", return_value=True), \
              patch.object(self.server, "_terminate_dashboard_pid", return_value=True) as term:
-            env = self.server.wave_dashboard_stop_response(self.root)
+            env = self.server.wf_stop_dashboard_response(self.root)
         term.assert_any_call(5555)
         self.assertTrue(env["data"].get("stopped"))
         self.assertEqual(env["data"].get("orphans_terminated"), 1)
@@ -1893,7 +1893,7 @@ class DashboardProcessControlTests(unittest.TestCase):
         with patch.object(self.server, "_dashboard_cmdline_pids", return_value=[4321, 6666]), \
              patch.object(self.server, "_pid_is_running", return_value=True), \
              patch.object(self.server, "_terminate_dashboard_pid", return_value=True) as term:
-            env = self.server.wave_dashboard_stop_response(self.root)
+            env = self.server.wf_stop_dashboard_response(self.root)
         terminated = {c.args[0] for c in term.call_args_list}
         self.assertEqual(terminated, {4321, 6666})
         self.assertEqual(env["data"].get("orphans_terminated"), 1)  # 6666 (non-recorded)
@@ -1989,7 +1989,7 @@ class DashboardProcessControlTests(unittest.TestCase):
              patch.object(self.server, "_dashboard_url_reachable", return_value=False), \
              patch.object(self.server, "_terminate_dashboard_pid", return_value=True) as term, \
              patch("subprocess.Popen", return_value=_FakeProc()):
-            env = self.server.wave_dashboard_start_response(self.root)
+            env = self.server.wf_start_dashboard_response(self.root)
         term.assert_any_call(7777)
         codes = [d.get("code") for d in (env.get("diagnostics") or [])]
         self.assertIn("dashboard_orphan_detected", codes)
@@ -2009,7 +2009,7 @@ class DashboardProcessControlTests(unittest.TestCase):
         ), patch.object(
             self.server, "_terminate_dashboard_pid", return_value=True
         ) as terminate:
-            env = self.server.wave_dashboard_stop_response(self.root)
+            env = self.server.wf_stop_dashboard_response(self.root)
 
         self.assertEqual(env["status"], "ok")
         self.assertTrue(env["data"]["stopped"])
@@ -2024,7 +2024,7 @@ class DashboardProcessControlTests(unittest.TestCase):
             "data": {"stopped": True, "pid": 4321, "url": "http://127.0.0.1:43127/dashboard.html"},
             "diagnostics": [],
             "next_tools": [],
-            "usage": "wave_dashboard_stop()",
+            "usage": "wf_stop_dashboard()",
         }
         start_env = {
             "status": "ok",
@@ -2034,10 +2034,10 @@ class DashboardProcessControlTests(unittest.TestCase):
             "usage": "http://127.0.0.1:43128/dashboard.html",
         }
 
-        with patch.object(self.server, "wave_dashboard_stop_response", return_value=stop_env) as stop, patch.object(
-            self.server, "wave_dashboard_start_response", return_value=start_env
+        with patch.object(self.server, "wf_stop_dashboard_response", return_value=stop_env) as stop, patch.object(
+            self.server, "wf_start_dashboard_response", return_value=start_env
         ) as start:
-            env = self.server.wave_dashboard_restart_response(self.root)
+            env = self.server.wf_restart_dashboard_response(self.root)
 
         self.assertEqual(env["status"], "ok")
         self.assertTrue(env["data"]["restarted"])
@@ -2143,7 +2143,7 @@ class DashboardChildReapTests(unittest.TestCase):
     # ---- AC-4: the frequently-hit index-refresh path sweeps dashboard children ----
 
     def test_index_refresh_sweeps_dashboard_children(self):
-        # AC-4(b): a dashboard that died is reaped by an index-refresh sweep with NO wave_dashboard_* call.
+        # AC-4(b): a dashboard that died is reaped by an index-refresh sweep with NO wf_*_dashboard call.
         with patch.object(self.server, "_reap_dashboard_child_pids") as reap, \
              patch.object(self.server, "_background_refresh_active", return_value=True):
             self.server._start_background_index_refresh(self.root, "project")
@@ -2165,7 +2165,7 @@ class DashboardChildReapTests(unittest.TestCase):
              patch.object(self.server, "_dashboard_cmdline_pids", return_value=[]), \
              patch.object(self.server, "_pid_is_running", return_value=False), \
              patch.object(self.server, "_terminate_dashboard_pid", return_value=True) as term:
-            env = self.server.wave_dashboard_stop_response(self.root)
+            env = self.server.wf_stop_dashboard_response(self.root)
         self.assertEqual(env["status"], "ok")
         self.assertTrue(env["data"].get("already_stopped"))
         term.assert_not_called()  # a <defunct> PID is never SIGTERM/SIGKILL'd
@@ -2182,7 +2182,7 @@ class DashboardChildReapTests(unittest.TestCase):
         with patch.object(self.server, "_dashboard_cmdline_pids", return_value=[]), \
              patch.object(self.server, "_pid_is_running", return_value=True), \
              patch.object(self.server, "_terminate_dashboard_pid", return_value=True) as term:
-            env = self.server.wave_dashboard_stop_response(self.root)
+            env = self.server.wf_stop_dashboard_response(self.root)
         self.assertEqual(env["status"], "ok")
         self.assertFalse(env["data"].get("already_stopped"))  # not a false success
         self.assertFalse(env["data"].get("stopped"))
@@ -2198,7 +2198,7 @@ class DashboardChildReapTests(unittest.TestCase):
         with patch.object(self.server, "_dashboard_cmdline_pids", return_value=[]), \
              patch.object(self.server, "_pid_is_running", return_value=False), \
              patch.object(self.server, "_terminate_dashboard_pid", return_value=True) as term:
-            env = self.server.wave_dashboard_stop_response(self.root)
+            env = self.server.wf_stop_dashboard_response(self.root)
         self.assertEqual(env["status"], "ok")
         self.assertTrue(env["data"].get("already_stopped"))
         term.assert_not_called()
@@ -2210,7 +2210,7 @@ class DashboardChildReapTests(unittest.TestCase):
         with patch.object(self.server, "_dashboard_cmdline_pids", return_value=[4321]), \
              patch.object(self.server, "_pid_is_running", return_value=True), \
              patch.object(self.server, "_terminate_dashboard_pid", return_value=True) as term:
-            env = self.server.wave_dashboard_stop_response(self.root)
+            env = self.server.wf_stop_dashboard_response(self.root)
         self.assertTrue(env["data"].get("stopped"))
         term.assert_called_once_with(4321)
 
@@ -2228,8 +2228,8 @@ class DashboardChildReapTests(unittest.TestCase):
              patch.object(self.server, "_dashboard_cmdline_pids", return_value=[]), \
              patch.object(self.server, "_pid_is_running", return_value=False), \
              patch.object(self.server, "_terminate_dashboard_pid", return_value=True) as term, \
-             patch.object(self.server, "wave_dashboard_start_response", return_value=start_env) as start:
-            env = self.server.wave_dashboard_restart_response(self.root)
+             patch.object(self.server, "wf_start_dashboard_response", return_value=start_env) as start:
+            env = self.server.wf_restart_dashboard_response(self.root)
         self.assertEqual(env["status"], "ok")
         self.assertTrue(env["data"].get("restarted"))
         self.assertEqual(env["data"].get("pid"), 9876)
@@ -2243,12 +2243,12 @@ class DashboardChildReapTests(unittest.TestCase):
         with patch.object(self.server, "_reap_dashboard_child_pids"), \
              patch.object(self.server, "_dashboard_cmdline_pids", return_value=[]), \
              patch.object(self.server, "_pid_is_running", return_value=True), \
-             patch.object(self.server, "wave_dashboard_start_response",
+             patch.object(self.server, "wf_start_dashboard_response",
                           return_value={"status": "ok", "data": {"started": True}, "diagnostics": [],
                                         "next_tools": [], "usage": ""}) as start:
             # A live recorded dashboard would return opened/url directly; a zombie must fall through to
             # start (delegation), not report the dead URL as serving.
-            self.server.wave_dashboard_open_response(self.root)
+            self.server.wf_open_dashboard_response(self.root)
         start.assert_called_once()
 
     def test_start_registers_spawned_dashboard_pid(self):
@@ -2264,7 +2264,7 @@ class DashboardChildReapTests(unittest.TestCase):
              patch.object(self.server, "_dashboard_url_reachable", return_value=False), \
              patch.object(self.server, "_terminate_dashboard_pid", return_value=True), \
              patch("subprocess.Popen", return_value=_FakeProc()):
-            self.server.wave_dashboard_start_response(self.root)
+            self.server.wf_start_dashboard_response(self.root)
         self.assertIn(8888, self.server._DASHBOARD_CHILD_PIDS)
 
 

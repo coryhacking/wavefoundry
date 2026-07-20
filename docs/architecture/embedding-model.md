@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-12
+Last verified: 2026-07-20
 
 ## What This Document Covers
 
@@ -275,7 +275,7 @@ All 8 `SemanticEmbeddingRegressionTests` must pass. If `test_similar_text_scores
 Also spot-check manually:
 
 ```
-wave_validate()                   # docs-lint still passes
+wf_validate_docs()                   # docs-lint still passes
 docs_search(query="prepare wave") # results look reasonable
 code_search(query="def walk_repo") # code results look reasonable
 ```

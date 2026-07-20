@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-27
+Last verified: 2026-07-20
 
 Reference doc covering how the local dashboard feature moves from the Wavefoundry framework pack into target repositories. Addresses packaging (build_pack.py), install (seed-010), upgrade (seed-160), and the sibling-directory runtime option.
 
@@ -120,13 +120,13 @@ Stop dashboard
 Restart dashboard
 
 # Via MCP tool (agent-facing):
-wave_dashboard_start
+wf_start_dashboard
 
 # Via MCP tool (agent-facing):
-wave_dashboard_stop
+wf_stop_dashboard
 
 # Via MCP tool (agent-facing):
-wave_dashboard_restart
+wf_restart_dashboard
 
 # Via wf dispatcher shortcut (see below):
 wf dashboard
@@ -142,9 +142,9 @@ The `--open` flag is appropriate for interactive operator sessions. Automation, 
 
 `Start dashboard` and `Restart dashboard` always print the final bound URL after the dashboard is ready. `Stop dashboard` reports the repo-local process state it stopped or found absent.
 
-## wave_dashboard_start / wave_dashboard_stop / wave_dashboard_restart MCP Tools
+## wf_start_dashboard / wf_stop_dashboard / wf_restart_dashboard MCP Tools
 
-`wave_dashboard_start`, `wave_dashboard_stop`, and `wave_dashboard_restart` are MCP tools registered in `scripts/server.py`. They are part of the framework pack and available after any install or upgrade that includes `server.py`. No additional config is required.
+`wf_start_dashboard`, `wf_stop_dashboard`, and `wf_restart_dashboard` are MCP tools registered in `scripts/server.py`. They are part of the framework pack and available after any install or upgrade that includes `server.py`. No additional config is required.
 
 Start behavior:
 - Checks `.wavefoundry/dashboard-server.json` for an already-running process (by PID). If running, returns the existing URL immediately.

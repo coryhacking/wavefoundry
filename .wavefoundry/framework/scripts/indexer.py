@@ -509,7 +509,7 @@ FRAMEWORK_PACK_ARTIFACT_PREFIXES = ("MANIFEST.pre-",)
 # build_pack — which applies an equivalent filter in build_pack.py).
 FRAMEWORK_TRANSIENT_ARTIFACT_EXTENSIONS = (".lock", ".log", ".bak", ".swp", ".tmp", ".orig", ".rej")
 # Dev-only framework paths not shipped in the distribution zip.
-# These are excluded from framework/index/ so wave_index_build and build_pack
+# These are excluded from framework/index/ so index_build and build_pack
 # always produce the same file set — eliminating the dev/pack index conflict.
 # These files remain indexed in .wavefoundry/index/ (project layer).
 FRAMEWORK_DEV_ONLY_PREFIXES = (
@@ -1064,7 +1064,7 @@ def _filter_framework_pack_artifacts(files: list[Path], root: Path) -> list[Path
     """Exclude packaging artifacts and dev-only files from the framework layer index.
 
     Keeps framework/index/ in sync with the distribution zip file set so that
-    wave_index_build and build_pack never fight over different file sets.
+    index_build and build_pack never fight over different file sets.
     Dev-only files remain indexed in .wavefoundry/index/ (project layer).
     """
     filtered: list[Path] = []
@@ -1944,7 +1944,7 @@ def optimize_index_tables(index_dir: Path, tables: "tuple[str, ...]" = ("docs", 
     bytes_after}}`` for each **existing** table (absent tables are skipped). Reclaim-only — it never
     re-embeds; a Tier-3 (unreadable) table is reported via ``needs_rebuild`` for the caller to rebuild.
 
-    Shared by ``wave_index_optimize`` and the automatic end-of-``setup``/``upgrade`` optimize pass. May
+    Shared by ``index_optimize`` and the automatic end-of-``setup``/``upgrade`` optimize pass. May
     raise ``IndexBuildAlreadyRunning`` if another build holds the lock; callers handle that."""
     results: dict = {}
     existing = [t for t in tables if t in _LANCE_TABLE_FILES and (index_dir / _LANCE_TABLE_FILES[t]).exists()]
@@ -1963,7 +1963,7 @@ def optimize_index_tables(index_dir: Path, tables: "tuple[str, ...]" = ("docs", 
         if not _prior or _prior.get("status") != "complete":
             return {"error": (
                 "no completed build epoch — optimize can only run over a "
-                "published index; run a build first (wave_index_build)"
+                "published index; run a build first (index_build)"
             )}
         _attempt = _iss.begin_build_epoch(index_dir, "optimize")
         try:
@@ -1976,7 +1976,7 @@ def optimize_index_tables(index_dir: Path, tables: "tuple[str, ...]" = ("docs", 
                 res["bytes_after"] = _lance_dir_bytes(tdir)
                 results[t] = res
         except Exception as exc:  # noqa: BLE001 - epoch stays un-finalized (fail closed), but structured
-            results["error"] = f"optimize failed mid-mutation: {exc} — epoch NOT finalized; run wave_index_build to restore readiness"
+            results["error"] = f"optimize failed mid-mutation: {exc} — epoch NOT finalized; run index_build to restore readiness"
             return results
         # Review fix: a reclaim error or Tier-3 (unreadable) table means the
         # in-place rewrite left UNKNOWN state — readiness must not re-publish
@@ -2006,7 +2006,7 @@ def _drop_legacy_fts_indices(table, table_name: str, index_dir: "Optional[Path]"
     index (and its un-GC-able ``_indices/`` version accumulation — the class
     the fragment-gated optimize could never reclaim without ``pylance``).
     Dropping the index de-references those versions so the reclaim pass's
-    cleanup can GC them. Runs on the reclaim path (``wave_index_optimize``,
+    cleanup can GC them. Runs on the reclaim path (``index_optimize``,
     on demand and automatically at setup/upgrade). Best-effort: returns the
     number of indices dropped; any error just leaves cleanup for next time.
     """
@@ -2791,7 +2791,7 @@ def rebuild_derived_chunk_state(index_dir: Path, verbose: bool = False) -> dict:
     """Force-rebuild the derived chunk state (FTS5 + registry) from Lance (1sek8).
 
     The operator-facing from-scratch recovery behind
-    ``wave_index_build(content='fts')``: drops and repopulates each table's
+    ``index_build(content='fts')``: drops and repopulates each table's
     FTS/registry rows from the authoritative Lance tables using the
     schema-tolerant projection, records fresh sync counts, and clears the
     cold flag. Derived-only and embedding-free — seconds, not minutes.
@@ -2809,7 +2809,7 @@ def rebuild_derived_chunk_state(index_dir: Path, verbose: bool = False) -> dict:
     if not _prior or _prior.get("status") != "complete":
         return {"error": (
             "no completed build epoch — the derived FTS rebuild can only run over "
-            "a published index; run a build first (wave_index_build)"
+            "a published index; run a build first (index_build)"
         )}
     attempt = iss.begin_build_epoch(index_dir, "fts:derived-rebuild")
     stats = _sync_chunk_derived_state(index_dir, expected=True, verbose=verbose, force=True)
@@ -3258,7 +3258,7 @@ def _text_embedding_cached_first(text_embedding_cls, model_name: str, providers)
     common case on CPU-only/Linux/WSL2/CI hosts, and the fallback even on GPU-capable hosts). It was
     a fourth raw model-download call site missed by this wave's original literal ``TextEmbedding(``
     token sweep (the constructor here is invoked via the ``text_embedding_cls`` parameter, not the
-    literal token) — and it is the path every named launcher (MCP ``wave_index_build``, the dashboard
+    literal token) — and it is the path every named launcher (MCP ``index_build``, the dashboard
     watcher, background refresh) actually hits on that hardware class. It now applies the same CA
     ladder the GPU-path call sites use before the online attempt."""
     try:
@@ -4223,7 +4223,7 @@ def _build_index_locked(
                     files,
                     "zero-change recovery cannot republish: the chunk registry holds rows for "
                     f"layer(s) {', '.join(_claimed_missing)} but the Lance table is missing — "
-                    "layer state reset; run wave_index_build(content='all') to reconstruct",
+                    "layer state reset; run index_build(content='all') to reconstruct",
                 )
         try:
             _idle_attempt = _iss_epoch.begin_build_epoch(index_dir, f"{content}:idle-maintenance")
@@ -4844,7 +4844,7 @@ def _build_index_locked(
         return _build_failed_result(
             files,
             "refusing to publish completion: no provenance recorded for present "
-            f"table(s): {', '.join(_unprovenanced_at_publish)} — run wave_index_build(content='all')",
+            f"table(s): {', '.join(_unprovenanced_at_publish)} — run index_build(content='all')",
         )
     if not _iss_epoch.finalize_build_epoch(index_dir, _build_attempt):
         return _build_failed_result(files, "build epoch finalization CAS miss (superseded attempt)")
@@ -4890,7 +4890,7 @@ def _build_index_locked(
     # in the indexed docs/references/ tree, so regenerating it on every index
     # build creates a self-referential write→reindex loop. Map regen is decoupled
     # from the build and triggered at lifecycle (prepare/close), on upgrade,
-    # on-demand (wave_index_build content="map" / CLI), and lazily on resource
+    # on-demand (index_build content="map" / CLI), and lazily on resource
     # read (regenerate-if-stale) instead.
 
     return summary
@@ -5034,7 +5034,7 @@ def main(argv: list[str] | None = None) -> int:
             dry_run=args.dry_run,
         )
         # Review fix: a structured build failure must reach subprocess callers
-        # (setup, MCP wave_index_build, hooks) as a non-zero exit — the epoch
+        # (setup, MCP index_build, hooks) as a non-zero exit — the epoch
         # was deliberately left incomplete and success reporting would mask it.
         if isinstance(result, dict) and result.get("failed"):
             print(f"build_index: exiting 1 — {result.get('failure', 'build failed')}", file=sys.stderr, flush=True)

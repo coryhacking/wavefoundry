@@ -960,7 +960,7 @@ def check_wave_docs(root: Path, only: set[Path] | None = None, skip: set[Path] |
     """``only`` (wave 1p9c1): when provided, restrict the per-file section/status checks to those
     paths for the incremental lint path. Note the cross-doc duplicate wave-id/item-id detection is
     inherently corpus-wide and only meaningful in the unscoped (full) run — the incremental path
-    relies on the full gate at wave_validate/close for that. When None, behavior is unchanged.
+    relies on the full gate at wf_validate_docs/close for that. When None, behavior is unchanged.
     ``skip`` (wave 1p9cj): exclude these paths (oversized docs skipped by the file-size guard)."""
     failures: list[str] = []
     wave_root = root / "docs/waves"
@@ -1637,7 +1637,7 @@ def check_prepare_council_verdict(root: Path) -> tuple[list[str], list[str]]:
     """Check that active/implementing waves have a prepare-council verdict in ## Review Checkpoints.
 
     Backwards-compatibility rule:
-    - ``implementing`` waves: hard error (wave_implement sets this status after this feature landed).
+    - ``implementing`` waves: hard error (wf_implement_wave sets this status after this feature landed).
     - ``active`` waves: warning only (may predate this feature).
     """
     errors: list[str] = []
@@ -1666,7 +1666,7 @@ def check_prepare_council_verdict(root: Path) -> tuple[list[str], list[str]]:
     return errors, warnings
 
 
-# Structured prepare-council verdict line, mirroring the wave_prepare parser in server_impl.py.
+# Structured prepare-council verdict line, mirroring the wf_prepare_wave parser in server_impl.py.
 # Only PASS / PASS WITH NOTES / BLOCKED verdict lines carry a machine-checkable roster; freeform
 # corrective or narrative checkpoint bullets that merely mention "prepare-council" are not rosters.
 _PREPARE_COUNCIL_VERDICT_LINE_RE = re.compile(

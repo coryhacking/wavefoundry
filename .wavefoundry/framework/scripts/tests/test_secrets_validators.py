@@ -296,7 +296,7 @@ class TestMatchDetection(unittest.TestCase):
     def test_record_only_records_but_does_not_fail(self) -> None:
         # 1p5pz: record_only (docs-lint / hook / upgrade gate) — a found secret is
         # recorded to scan-findings.json but NOT returned as a failure; the secrets
-        # gate is enforced solely at wave_close. Default mode still returns it.
+        # gate is enforced solely at wf_close_wave. Default mode still returns it.
         with tempfile.TemporaryDirectory() as tmp_str:
             tmp = Path(tmp_str)
             _make_root(tmp)
@@ -308,7 +308,7 @@ class TestMatchDetection(unittest.TestCase):
             findings = json.loads((tmp / "docs" / "scan-findings.json").read_text())
             self.assertTrue(any(f.get("status") == "pending" for f in findings),
                             "the finding must still be recorded to scan-findings.json")
-            # control: default mode DOES surface it as a failure (so wave_close-era callers see it)
+            # control: default mode DOES surface it as a failure (so wf_close_wave-era callers see it)
             with patch("wave_lint_lib.secrets_validators.get_current_git_user_email", return_value="t@x.com"):
                 default = check_hardcoded_secrets(tmp, scan_all=True)
             self.assertTrue(any("test-stripe-key" in e for e in default), default)
@@ -948,7 +948,7 @@ class TestGenericApiKeyDocsScope(unittest.TestCase):
         self.assertEqual(len(self._hits("docs/runbook.md", self._BARE_KEY)), 1)
 
     def test_integration_through_full_ruleset_pipeline(self):  # AC-5 / AC-6
-        # Drive the same check_hardcoded_secrets path the wave_scan_secrets MCP
+        # Drive the same check_hardcoded_secrets path the wf_scan_secrets MCP
         # wrapper invokes, against the REAL shipped ruleset.
         _make_root(self.root)
         (self.root / SCAN_RULES_FRAMEWORK_PATH).parent.mkdir(parents=True, exist_ok=True)
@@ -2064,7 +2064,7 @@ regex = '''SECRET_B_[A-Z]{8}'''
 
     def test_sec_not_a_public_change_doc_kind(self) -> None:  # AC-7 — guard
         """`sec` must never become a normal change-doc kind. Assert the
-        `wave_new_*` kind lists are unchanged (do not include `sec`)."""
+        `wf_new_*` kind lists are unchanged (do not include `sec`)."""
         import server_impl
         self.assertNotIn("sec", server_impl.VALID_CHANGE_KINDS)
         # The lifecycle CLI mint-kind choices must also not expose `sec`.
@@ -2144,7 +2144,7 @@ class TestSecretFindingIdCollision(unittest.TestCase):
 
 class TestGateSemanticsUnchanged(unittest.TestCase):
     """Secrets-gate behavior keys on `status`, never the id shape: pending/suspected block,
-    confirmed reminds (non-blocking), cleared FP clears — verified by driving the real wave_close
+    confirmed reminds (non-blocking), cleared FP clears — verified by driving the real wf_close_wave
     gate helper with both legacy `exc-###` and `<prefix>-sec` ids. (1p8vq: this also pins that a
     legacy ledger stays gate-correct after the `exc-###` migration was removed.)"""
 

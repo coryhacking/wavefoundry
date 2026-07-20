@@ -30,7 +30,7 @@ See `.wavefoundry/framework/seeds/010-install-wavefoundry.prompt.md` for the com
 
 ## MCP / Wavefoundry Server
 
-After installing Wave Framework, enable the local MCP server in your agent host so tools like `wave_help`, `docs_search`, `code_ask`, `wave_audit`, and `wave_index_health` are available.
+After installing Wave Framework, enable the local MCP server in your agent host so tools like `wf_help`, `docs_search`, `code_ask`, `wf_audit`, and `index_health` are available.
 
 **Supported operator environments:** macOS and Linux are supported natively. Windows is currently supported through **WSL2** for install and operator workflows because some bootstrap and launcher surfaces still assume a POSIX shell.
 
@@ -52,15 +52,15 @@ not failure or completion:
 
 1. Reload/restart the MCP host.
 2. Repeatedly call
-   `wave_memory_backfill(mode="create", entry_path="setup")`.
+   `memory_backfill(mode="create", entry_path="setup")`.
 3. Validate every run-scoped `validation_worklist` item with
-   `wave_memory_validate`.
+   `memory_validate`.
 4. Rerun ordinary `wf setup`.
 
 The repeated setup invocation reuses the durable run, recomputes the
 authoritative `memory-state.sqlite` pending census, and owns the single index
 publication. There is no setup-memory-specific MCP tool or public resume flag.
-Do not bypass the pause with `wave_index_build`.
+Do not bypass the pause with `index_build`.
 
 If this setup step fails specifically because a required model cannot be downloaded, keep recovery on the canonical setup path. In agent-driven sessions, the agent should ask the operator for permission to rerun the same setup command with network access or host escalation enabled instead of switching to an out-of-band manual model download.
 
@@ -80,7 +80,7 @@ After setup, MCP host configs should launch the PATH `python3` command on Wavefo
 | **Antigravity** | `.agents/mcp_config.json` (auto-generated) | Run `render_platform_surfaces --platform antigravity`. The `ag` CLI loads `.agents/mcp_config.json` automatically. (The app/IDE uses the global `~/.gemini/…` config — add the stdio entry below there.) |
 | **Windsurf / Air / Warp / other** | Host UI / settings | Add the stdio entry below via your host's MCP settings. Windsurf also gets auto-rendered hooks via `render_platform_surfaces --platform windsurf`; its MCP attachment is still manual. See your host's MCP documentation. |
 
-After connecting, call `wave_server_info()` once to confirm the attached `repo_root` before you rely on any other MCP tools.
+After connecting, call `wf_server_info()` once to confirm the attached `repo_root` before you rely on any other MCP tools.
 
 **Copy-ready stdio entry** for hosts that accept a direct MCP command block:
 
@@ -112,7 +112,7 @@ cwd = "<repo>"
 
 Register each additional Wavefoundry repo with its own project-local MCP config so the command points at that repo root. Do not rely on hashed Codex server labels as the routing contract. After changing MCP config or fixing Python on PATH, fully quit and reopen the host or start a fresh conversation; do not resume an old session that started before setup completed, because existing sessions may keep the toolset from the failed startup.
 
-**Docs validation (agents):** After MCP is enabled, use **`wave_validate`** and **`wave_garden`** for the docs gate instead of shelling out to the dispatcher. Use the no-PATH fallback only when MCP is not attached: POSIX `./.wavefoundry/bin/wf docs-lint` / `./.wavefoundry/bin/wf docs-gardener`; native Windows `.\\.wavefoundry\\bin\\wf.cmd docs-lint` / `.\\.wavefoundry\\bin\\wf.cmd docs-gardener`.
+**Docs validation (agents):** After MCP is enabled, use **`wf_validate_docs`** and **`wf_garden_docs`** for the docs gate instead of shelling out to the dispatcher. Use the no-PATH fallback only when MCP is not attached: POSIX `./.wavefoundry/bin/wf docs-lint` / `./.wavefoundry/bin/wf docs-gardener`; native Windows `.\\.wavefoundry\\bin\\wf.cmd docs-lint` / `.\\.wavefoundry\\bin\\wf.cmd docs-gardener`.
 
 **Optional local dashboard:** After install, the repository can expose the local dashboard surface with **`Start dashboard`**, **`Stop dashboard`**, and **`Restart dashboard`**. The start command runs:
 
@@ -126,15 +126,15 @@ After registration, restart the MCP server in your host so the newly installed
 server picks up all rendered surfaces. If setup paused for historical-memory
 validation, complete the run-scoped validation and rerun ordinary `wf setup`
 now. The repeated setup invocation owns the initial semantic and graph index
-publication; do not run `wave_index_build` as a substitute. Use
-`wave_index_health()` and `wave_index_build_status()` to verify the published
+publication; do not run `index_build` as a substitute. Use
+`index_health()` and `index_build_status()` to verify the published
 layers.
 
 The framework's seeds fold into this project docs index — there is no separate framework index to build.
 
 See `docs/contributing/build-and-verification.md` **Update vs rebuild — decision table** for when to use `mode="update"` vs `mode="rebuild"`.
 
-If you launched a detached background setup build, poll `wave_index_build_status(layer?)` until it finishes before assuming that layer's search is current.
+If you launched a detached background setup build, poll `index_build_status(layer?)` until it finishes before assuming that layer's search is current.
 
 ## Aliases
 

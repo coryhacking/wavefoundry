@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 CLUSTER_SCHEMA_VERSION = "1"
-CLUSTER_BUILDER_VERSION = "11"  # Wave 1p9q3 (1p9q1, build-time betweenness): the clusters artifact gains a top-level `betweenness` section — top-N node ranking (node_id/score/label/kind) with computation metadata (`method`: exact|cutoff|degree_fallback, `node_count`, `edge_count`, `elapsed_ms`, `cutoff` when applicable, `top_n`) computed at build time over the directed `calls` graph with a size-tiered strategy (exact below BETWEENNESS_EXACT_MAX_NODES; igraph bounded-path `cutoff` approximation below BETWEENNESS_CUTOFF_MAX_NODES; deterministic degree/fan-out fallback above that or when igraph is unavailable). `wave_graph_report` now READS this section instead of computing betweenness per query (the 10k-node query cap is retired). Artifact-shape change → bump per the standing rule. Previous: 10 (wave 1p65m, clustering cohesion + determinism): (1) seed igraph's global RNG before Leiden partitioning so clustering is reproducible across rebuilds even on a leidenalg lacking the `seed=` kwarg (the old unseeded fallback caused identical-input area-count churn, a consumer's 221/224); (2) a conservative, deterministic post-cluster split of cross-directory GRAB-BAG communities — a community scattered across >= GRABBAG_MIN_DIRS distinct module-dirs with NO dominant home (incidental weak/util edges) is split per module-dir, with an anti-over-split dominant-share guard so a cohesive module with a few strays is left intact. Community-shape change → consumer caches re-cluster. Previous: 1p4ls (exclude constant nodes + `reads` edges from clustering).
+CLUSTER_BUILDER_VERSION = "11"  # Wave 1p9q3 (1p9q1, build-time betweenness): the clusters artifact gains a top-level `betweenness` section — top-N node ranking (node_id/score/label/kind) with computation metadata (`method`: exact|cutoff|degree_fallback, `node_count`, `edge_count`, `elapsed_ms`, `cutoff` when applicable, `top_n`) computed at build time over the directed `calls` graph with a size-tiered strategy (exact below BETWEENNESS_EXACT_MAX_NODES; igraph bounded-path `cutoff` approximation below BETWEENNESS_CUTOFF_MAX_NODES; deterministic degree/fan-out fallback above that or when igraph is unavailable). `wf_graph_report` now READS this section instead of computing betweenness per query (the 10k-node query cap is retired). Artifact-shape change → bump per the standing rule. Previous: 10 (wave 1p65m, clustering cohesion + determinism): (1) seed igraph's global RNG before Leiden partitioning so clustering is reproducible across rebuilds even on a leidenalg lacking the `seed=` kwarg (the old unseeded fallback caused identical-input area-count churn, a consumer's 221/224); (2) a conservative, deterministic post-cluster split of cross-directory GRAB-BAG communities — a community scattered across >= GRABBAG_MIN_DIRS distinct module-dirs with NO dominant home (incidental weak/util edges) is split per module-dir, with an anti-over-split dominant-share guard so a cohesive module with a few strays is left intact. Community-shape change → consumer caches re-cluster. Previous: 1p4ls (exclude constant nodes + `reads` edges from clustering).
 # Wave 1p65m (#2): cross-directory grab-bag split thresholds (conservative — only
 # egregious grab-bags; field-validated tuning may adjust). A community is a grab-bag
 # when its members span at least this many distinct module-dirs (first 2 path
@@ -75,7 +75,7 @@ _RELATION_WEIGHTS = {
 }
 
 # Wave 1p9q3 (1p9q1): build-time tiered betweenness centrality. Betweenness moved
-# from per-query computation in `wave_graph_report` (which capped out at 10k nodes
+# from per-query computation in `wf_graph_report` (which capped out at 10k nodes
 # and returned a diagnostic on exactly the repos where centrality is most useful)
 # to this build/cluster pass, persisted in the clusters artifact. Tier selection by
 # node count of the directed `calls` graph:
@@ -919,7 +919,7 @@ def _disambiguate_labels(communities: list[dict[str, Any]], nodes_by_id: dict[st
 def _betweenness_projection(graph_payload: dict[str, Any]) -> tuple[dict[str, dict[str, Any]], list[tuple[str, str]]]:
     """Directed `calls`-edge projection over ALL payload nodes (external and
     constant nodes included), mirroring the retired query-time computation in
-    `wave_graph_report` so build-time rankings stay comparable with historical
+    `wf_graph_report` so build-time rankings stay comparable with historical
     per-query results. Distinct from `_project_undirected_projection`, which
     exists for community discovery and excludes constants/`reads` edges."""
     nodes_by_id: dict[str, dict[str, Any]] = {}
@@ -1100,7 +1100,7 @@ def update_graph_clusters(
     remapped = _merge_small_communities(remapped, nodes_by_id, adjacency)
     _disambiguate_labels(remapped, nodes_by_id)
     # Wave 130rj — field feedback §6.5: per-community generated_node_fraction.
-    # Lets `wave_graph_report` flag communities dominated by generated code without
+    # Lets `wf_graph_report` flag communities dominated by generated code without
     # callers re-walking nodes_by_id. Computed as count(generated nodes) / total
     # node_count; zero when no nodes are tagged generated.
     for c in remapped:
@@ -1118,7 +1118,7 @@ def update_graph_clusters(
             c["kind"] = "fixed"
     # Wave 1p9q3 (1p9q1): build-time tiered betweenness — computed alongside the
     # clustering pass (igraph + the merged payload are already loaded here) and
-    # persisted so `wave_graph_report` serves a read, never a per-query O(V*E)
+    # persisted so `wf_graph_report` serves a read, never a per-query O(V*E)
     # computation. Timed per the build-instrumentation pattern; the summary line
     # goes to stderr (mirrors indexer.py's unconditional progress line — this
     # pass can run IN-PROCESS from the MCP server where stdout is the JSON-RPC

@@ -299,9 +299,9 @@ If any of these files are already tracked (e.g. `dashboard-server.json` committe
 
 ### Wavefoundry MCP — docs gate for agents
 
-Seeded **`AGENTS.md`**, **`CLAUDE.md`**, thin pointers, and **`docs/prompts/*`** must instruct **agents** to prefer MCP **`wave_validate`** (docs lint results), **`wave_garden`** (metadata gardening; follow the tool `mode` contract), and **`wave_audit`** (combined wave + validation + index readout) over shelling out to **`wf docs-lint`** / **`wf docs-gardener`**. Treat the **`wf`** dispatcher subcommands as **CLI / hook / CI** fallbacks when MCP is not attached. Hooks below **cannot** call MCP and therefore still invoke **`wf docs-lint`** — that does not change MCP-first agent guidance.
+Seeded **`AGENTS.md`**, **`CLAUDE.md`**, thin pointers, and **`docs/prompts/*`** must instruct **agents** to prefer MCP **`wf_validate_docs`** (docs lint results), **`wf_garden_docs`** (metadata gardening; follow the tool `mode` contract), and **`wf_audit`** (combined wave + validation + index readout) over shelling out to **`wf docs-lint`** / **`wf docs-gardener`**. Treat the **`wf`** dispatcher subcommands as **CLI / hook / CI** fallbacks when MCP is not attached. Hooks below **cannot** call MCP and therefore still invoke **`wf docs-lint`** — that does not change MCP-first agent guidance.
 
-This MCP-first principle extends beyond docs validation to **all wave and plan state queries**: before reaching for `ls`, `grep`, or filesystem tools to answer any question about wave state, plans, or change docs, agents must check the MCP tool list first. `wave_list_plans` (pending changes not yet admitted to a wave), `wave_list_waves`, `wave_current`, and `wave_get_change` return structured answers directly. Seeded `AGENTS.md` must include this guidance in its MCP or docs-gate section.
+This MCP-first principle extends beyond docs validation to **all wave and plan state queries**: before reaching for `ls`, `grep`, or filesystem tools to answer any question about wave state, plans, or change docs, agents must check the MCP tool list first. `wf_list_plans` (pending changes not yet admitted to a wave), `wf_list_waves`, `wf_current_wave`, and `wf_get_change` return structured answers directly. Seeded `AGENTS.md` must include this guidance in its MCP or docs-gate section.
 
 The same principle applies to **literal-identifier and cross-surface text sweeps across docs, config, and prompts** — not only source-code navigation. `code_keyword` and `code_pattern` index every repository file (markdown, JSON, TOML, config, prompts), and `docs_search` covers documentation; reach for them before `grep`/`rg` when reconciling renamed identifiers across docs + config (role renames, config-key renames during upgrade — the highest-drift-risk sweeps). Shell text search remains correct for operations the index cannot answer: git inspection (`git status`/`diff`/`log`), exact byte-level file-state checks, and key-presence verification in config files. Record a `Gapfill:` note when shell was used for a sweep MCP could have answered, per the implementer rule below.
 
@@ -467,7 +467,7 @@ Last verified: <YYYY-MM-DD>
 > **Pending agent surface bootstrap.** No per-role docs exist on disk yet. Run **Init agent surfaces** (seed-050) to generate them; this file becomes the availability matrix once roles exist.
 ```
 
-An unconditional "all roles available" stub is factually wrong before role docs exist, hides the missing-seed-050 failure mode behind a misleading availability claim, and was a documented retrospective failure (wave `1p35d` / `1p35l`). The conditional shape lets `wave_install_audit` and the dashboard report honest state.
+An unconditional "all roles available" stub is factually wrong before role docs exist, hides the missing-seed-050 failure mode behind a misleading availability claim, and was a documented retrospective failure (wave `1p35d` / `1p35l`). The conditional shape lets `wf_audit_install` and the dashboard report honest state.
 
 ## Canonical Agent Doc Structure
 
@@ -486,7 +486,7 @@ Last verified: <YYYY-MM-DD>
 ```
 
 > **Every generated role doc MUST include `Role: <role-slug>` in the header.**
-> The dashboard classifies agents by this field; a doc missing `Role:` is **invisible** — it does not appear in the Agents panel, does not count toward role coverage, and is silently skipped without warning. `docs-lint` enforces this on every `docs/agents/*.md` file (`wave-1p35d` / `1p35l`); the `wave_install_audit` MCP tool surfaces lint failures so the gap fails fast at install time rather than at first dashboard load.
+> The dashboard classifies agents by this field; a doc missing `Role:` is **invisible** — it does not appear in the Agents panel, does not count toward role coverage, and is silently skipped without warning. `docs-lint` enforces this on every `docs/agents/*.md` file (`wave-1p35d` / `1p35l`); the `wf_audit_install` MCP tool surfaces lint failures so the gap fails fast at install time rather than at first dashboard load.
 
 `Role:` is the inclusion gate that tells the dashboard this file is an agent role doc. Files without `Role:` (e.g. `session-handoff.md`, `platform-mapping.md`, `README.md`) are not role docs and will be excluded from the Agents panel. The `Role:` value must match the filename slug (e.g. `Role: code-reviewer` for `code-reviewer.md`). `Category:` is the separate dashboard grouping field; use it to control which bucket the dashboard renders without reusing `Role:` for presentation.
 

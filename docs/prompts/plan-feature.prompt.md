@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-27
+Last verified: 2026-07-20
 
 Shortcut: **`Plan feature`**
 
@@ -19,16 +19,16 @@ Author a consolidated change document at `docs/plans/<change-id>.md`. Wave admis
    - **Select:** choose one approach and state in one sentence why it is preferred.
    - Record the selected approach and the rejected alternatives (with weaknesses) in `## Decision Log`.
 3. Create the staged change doc through MCP when available:
-   - `feat` → `wave_new_feature`
-   - `bug` → `wave_new_bug`
-   - `enh` → `wave_new_enhancement`
-   - `ref` → `wave_new_refactor`
-   - `change` → `wave_new_change`
-   - `doc` → `wave_new_documentation`
-   - `debt` → `wave_new_tech_debt`
-   - `task` → `wave_new_task`
-   - `maint` → `wave_new_maintenance`
-   - `ops` → `wave_new_operations`
+   - `feat` → `wf_new_feature`
+   - `bug` → `wf_new_bug`
+   - `enh` → `wf_new_enhancement`
+   - `ref` → `wf_new_refactor`
+   - `change` → `wf_new_change`
+   - `doc` → `wf_new_documentation`
+   - `debt` → `wf_new_tech_debt`
+   - `task` → `wf_new_task`
+   - `maint` → `wf_new_maintenance`
+   - `ops` → `wf_new_operations`
 4. If MCP is unavailable, use the CLI fallback: `wf lifecycle-id --kind <kind> --slug <slug>`, then create `docs/plans/<change-id>.md` from `docs/plans/plan-template.md`.
 5. Author or refine the change doc. Include:
    - `## Rationale` — specific motivation a reviewer can understand

@@ -20,7 +20,7 @@ Layer = Literal["project"]
 Direction = Literal["callers", "callees", "both"]
 # Wave 1p9q3 (1p9q1): "betweenness" is no longer a GraphQueryIndex.report section —
 # betweenness centrality is computed at build time (graph_cluster.compute_betweenness_ranking,
-# size-tiered) and persisted in the clusters artifact; `wave_graph_report` serves the
+# size-tiered) and persisted in the clusters artifact; `wf_graph_report` serves the
 # persisted ranking. The per-query computation and its 10k-node cap are retired.
 ReportSection = Literal["fan_in", "fan_out", "orphan_docs", "chokepoints", "file_hubs"]
 
@@ -213,11 +213,11 @@ def _ensure_graph_builder_current(root: Path, layer: str) -> dict[str, Any] | No
     if not indexer_script_path.exists():
         return {
             "code": "graph_auto_rebuild_skipped",
-            "message": f"Graph builder version mismatch ({state_version} → {runtime_version}) but indexer.py not found. Run wave_index_build(content='graph') manually.",
+            "message": f"Graph builder version mismatch ({state_version} → {runtime_version}) but indexer.py not found. Run index_build(content='graph') manually.",
             "from_builder_version": state_version,
             "to_builder_version": runtime_version,
-            "recovery_tools": ["wave_index_build"],
-            "recovery_usage": "wave_index_build(content='graph', mode='rebuild')",
+            "recovery_tools": ["index_build"],
+            "recovery_usage": "index_build(content='graph', mode='rebuild')",
         }
     # Wave 1p2q3 (1p2w5): coordinate concurrent auto-rebuild attempts. If a
     # rebuild is already in-flight for this (root, layer), defer rather than
@@ -242,8 +242,8 @@ def _ensure_graph_builder_current(root: Path, layer: str) -> dict[str, Any] | No
                     "from_builder_version": state_version,
                     "to_builder_version": runtime_version,
                     "rebuild_started_at_age_seconds": round(age, 1),
-                    "recovery_tools": ["wave_index_build_status"],
-                    "recovery_usage": "wave_index_build_status()",
+                    "recovery_tools": ["index_build_status"],
+                    "recovery_usage": "index_build_status()",
                 }
             # Stale in-flight marker; fall through and claim it ourselves.
         _VERSION_REBUILD_INFLIGHT[cache_key] = now_ts
@@ -274,11 +274,11 @@ def _ensure_graph_builder_current(root: Path, layer: str) -> dict[str, Any] | No
     except Exception as exc:
         return {
             "code": "graph_auto_rebuild_failed",
-            "message": f"Stale graph builder version mismatch ({state_version} → {runtime_version}) detected but automatic rebuild failed: {exc}. Run wave_index_build(content='graph') manually.",
+            "message": f"Stale graph builder version mismatch ({state_version} → {runtime_version}) detected but automatic rebuild failed: {exc}. Run index_build(content='graph') manually.",
             "from_builder_version": state_version,
             "to_builder_version": runtime_version,
-            "recovery_tools": ["wave_index_build"],
-            "recovery_usage": "wave_index_build(content='graph', mode='rebuild')",
+            "recovery_tools": ["index_build"],
+            "recovery_usage": "index_build(content='graph', mode='rebuild')",
         }
     finally:
         # Release the in-flight marker on every exit path (success, failure,
@@ -2120,7 +2120,7 @@ class GraphQueryIndex:
         # Wave 1p9q3 (1p9q1): the per-query betweenness computation that lived here
         # (igraph betweenness behind a 10k-node cap) is retired — betweenness is
         # computed at BUILD time (graph_cluster.compute_betweenness_ranking) and
-        # persisted in the clusters artifact; `wave_graph_report` reads that
+        # persisted in the clusters artifact; `wf_graph_report` reads that
         # section directly. This method never computes centrality.
         # Wave 1p4ww: the ``cross_layer`` section required the union layer
         # (project×framework boundary edges), which no longer exists.

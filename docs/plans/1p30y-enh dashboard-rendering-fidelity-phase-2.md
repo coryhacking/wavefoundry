@@ -4,7 +4,7 @@ Change ID: `1p30y-enh dashboard-rendering-fidelity-phase-2`
 Change Status: `planned`
 Owner: Engineering
 Status: planned
-Last verified: 2026-06-03
+Last verified: 2026-07-20
 Wave: TBD (UX-polish wave, follow-on to 1p2q3 field-feedback-round-4)
 
 ## Rationale
@@ -52,7 +52,7 @@ None of these are blocking — fallback behavior is safe. Each leaves operator-f
 - New node-kind colors and the pairwise-distinct palette (shipped in parent).
 - Graph-render delta + empty-delta no-op flicker fix (shipped in parent).
 - CHANGELOG link in dashboard header.
-- `wave_mcp_reload` guidance / status indicator.
+- `wf_reload_mcp` guidance / status indicator.
 - Edge-density indicator for `1319q`'s denser `RECEIVER_RESOLVED` coverage.
 
 ## Acceptance Criteria

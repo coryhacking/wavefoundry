@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: superseded
-Last verified: 2026-07-18
+Last verified: 2026-07-20
 
 Memory ID: `mem-decision-make-missing-in-venv-version-aware-rather-than-wire`
 Kind: `decision`
@@ -21,7 +21,7 @@ Canonical overlap: supplements
 Superseded by: `mem-dependency-presence-does-not-prove-version-compatibility`
 ## Summary
 
-Decision (wave 1p93a): Make `_missing_in_venv` version-aware rather than wire a separate `wf setup`/dep-install step into `wave_upgrade`.. Rationale: The upgrade already calls `ensure_deps` via phase-4 `setup_index.main`; a version-aware check propagates everywhere (setup + upgrade + auto-install) with zero new wiring..
+Decision (wave 1p93a): Make `_missing_in_venv` version-aware rather than wire a separate `wf setup`/dep-install step into `wf_upgrade`.. Rationale: The upgrade already calls `ensure_deps` via phase-4 `setup_index.main`; a version-aware check propagates everywhere (setup + upgrade + auto-install) with zero new wiring..
 
 ## Evidence
 

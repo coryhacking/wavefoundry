@@ -18,7 +18,7 @@ Each row is one of four kinds, distinguished by the parenthesized source:
 - **Verification:** `(verify)` — call the named tool/check; expected return shape follows `expects:`
 - **Instruction:** `(instruction)` — operator/agent action with no on-disk artifact (e.g., restart the agent)
 
-Mark a row `[~]` (not applicable) when the step genuinely doesn't fit this project. `wave_install_audit` treats `[~]` as terminal.
+Mark a row `[~]` (not applicable) when the step genuinely doesn't fit this project. `wf_audit_install` treats `[~]` as terminal.
 
 For full schema (row format, trustworthy-invariant rule, parser semantics), see `docs/references/install-log-format.md` (created during Phase 2 step 2.4).
 
@@ -34,9 +34,9 @@ After Phase 1 completes, you must restart your AI agent so the MCP server become
 
 ## Phase 2 — Project discovery (MCP required)
 
-After every step, call `wave_install_audit` — it runs docs-lint, validates checked-row artifacts, and returns the next unchecked row.
+After every step, call `wf_audit_install` — it runs docs-lint, validates checked-row artifacts, and returns the next unchecked row.
 
-- [ ] 2.1 — Audit Phase 1 outputs (verify) — expects: `wave_install_audit(phase=1)` returns `{status: "next_step"}`
+- [ ] 2.1 — Audit Phase 1 outputs (verify) — expects: `wf_audit_install(phase=1)` returns `{status: "next_step"}`
 - [ ] 2.2 — Capture legacy baseline wave if applicable (seed-110 / conditional) — artifact: `docs/waves/00000 wave-zero-plans-and-specs/wave.md` (or mark `[~]` if no legacy corpora detected)
 - [ ] 2.3 — Bootstrap evidence base (seed-030) — artifact: `docs/repo-profile.json`
 - [ ] 2.4 — Create canonical docs structure and topical artifact homes (seed-040) — artifact: `docs/README.md`
@@ -49,5 +49,5 @@ After every step, call `wave_install_audit` — it runs docs-lint, validates che
 - [ ] 2.11 — Synthesize project-specific personas (seed-120) — artifact: `docs/agents/personas/README.md`
 - [ ] 2.12 — Bootstrap per-role journals (seed-130) — artifact: `docs/agents/journals/`
 - [ ] 2.13 — Register drift and reindex expectations (seed-140) — artifact: drift entries in `docs/workflow-config.json`
-- [ ] 2.14 — Final install completeness gate (verify) — expects: `wave_install_audit()` returns `{status: "complete"}`
+- [ ] 2.14 — Final install completeness gate (verify) — expects: `wf_audit_install()` returns `{status: "complete"}`
 - [ ] 2.15 — Deliver structured operator summary handoff (instruction) — covers: what was seeded, workflow, commands, agents/personas, docs/gates, configuration, first-time-operator rules (see seed-012 § Operator summary handoff)

@@ -4,7 +4,7 @@ Change ID: `1sufn-enh measured-lexical-semantic-memory-fusion`
 Change Status: `planned`
 Owner: framework
 Status: planned
-Last verified: 2026-07-17
+Last verified: 2026-07-20
 
 Wave: `1sufo memory-retrieval-eval-and-fusion`
 
@@ -12,7 +12,7 @@ Wave: `1sufo memory-retrieval-eval-and-fusion`
 
 ## Rationale
 
-`wave_memory_search` today conflates relevance and policy: it computes the decay/centrality order (`_memory_ranked`) and then re-sorts wholesale by semantic rank when a query has semantic hits (`wave_memory_search_response`, semantic re-sort ~`server_impl.py:8008-8010`, anchor by symbol under concurrent edits). Among the records that pass the pre-filter, a high-trust `operator_preference`, `decision`, or `fragile_file` advisory can be outranked by a lower-trust one on pure text relevance — backwards for advisory memory. (Note: a record matching *neither* the query semantically nor by full-token text is filtered out by the pre-filter, not merely demoted.)
+`memory_search` today conflates relevance and policy: it computes the decay/centrality order (`_memory_ranked`) and then re-sorts wholesale by semantic rank when a query has semantic hits (`memory_search_response`, semantic re-sort ~`server_impl.py:8008-8010`, anchor by symbol under concurrent edits). Among the records that pass the pre-filter, a high-trust `operator_preference`, `decision`, or `fragile_file` advisory can be outranked by a lower-trust one on pure text relevance — backwards for advisory memory. (Note: a record matching *neither* the query semantically nor by full-token text is filtered out by the pre-filter, not merely demoted.)
 
 The fix, validated in design against the agentmemory review, is to separate relevance from policy: fuse only the lexical and semantic relevance rankings (RRF), apply exact-target matches as deterministic filters/priority, apply status/decay/confidence/fragile-file as policy constraints, and use centrality only as a final tie-break. We do NOT fold confidence/decay/centrality into the fused score (they are not relevance engines), and we add a graph stream only if the memory eval proves incremental benefit. This change adopts fusion ONLY if it beats the `1sufm` baseline without regressing the exact-target, decay, or supersession invariants.
 
@@ -31,7 +31,7 @@ The fix, validated in design against the agentmemory review, is to separate rele
 **Problem statement:** memory search lets semantic relevance override the trust/decay policy; we need a principled fusion that keeps relevance and policy separate, adopted only on measured evidence.
 
 **In scope (edited under `framework_edit_allowed`):**
-- `.wavefoundry/framework/scripts/server_impl.py` — replace the `wave_memory_search` semantic-override (`:8002-8004`) with: lexical+semantic RRF for relevance, exact-target as filter/priority, policy constraints layered on top, centrality tie-break. Apply the same relevance/policy separation to `wave_memory_brief` ordering where the semantic path applies.
+- `.wavefoundry/framework/scripts/server_impl.py` — replace the `memory_search` semantic-override (`:8002-8004`) with: lexical+semantic RRF for relevance, exact-target as filter/priority, policy constraints layered on top, centrality tie-break. Apply the same relevance/policy separation to `memory_brief` ordering where the semantic path applies.
 - Reuse the existing lexical/FTS infrastructure (the `code_lexical`/1.12.0 lexical layer) for the lexical stream over memory-record text, and the docs semantic index for the semantic stream — no new index.
 - Docs — memory README ranking section documenting relevance-vs-policy separation.
 - Tests — RRF determinism, relevance/policy separation (a high-trust low-text-overlap record is not demoted below its policy position), degraded lexical-only path, and the `1sufm` gate assertions.
@@ -56,7 +56,7 @@ The fix, validated in design against the agentmemory review, is to separate rele
 
 - [ ] Build lexical + semantic candidate rankings over surfaced records; RRF fuse (relevance only).
 - [ ] Apply exact-target as filter/priority; layer status/decay/confidence/fragile as policy constraints; centrality tie-break.
-- [ ] Replace the `wave_memory_search` semantic-override; apply separation to `brief` semantic ordering.
+- [ ] Replace the `memory_search` semantic-override; apply separation to `brief` semantic ordering.
 - [ ] Gate adoption on the `1sufm` harness (default-off if it does not beat baseline); record measurements.
 - [ ] Tests: RRF determinism, relevance/policy separation, degraded lexical-only, gate assertions.
 - [ ] Memory README ranking section; full suite + docs-lint.
@@ -74,7 +74,7 @@ The fix, validated in design against the agentmemory review, is to separate rele
 
 ## Serialization Points
 
-- `.wavefoundry/framework/scripts/server_impl.py` (`wave_memory_search`/`brief`) — edited under `framework_edit_allowed`. Depends on `1sufm` (eval) as the adoption gate.
+- `.wavefoundry/framework/scripts/server_impl.py` (`memory_search`/`brief`) — edited under `framework_edit_allowed`. Depends on `1sufm` (eval) as the adoption gate.
 
 ## Affected Architecture Docs
 

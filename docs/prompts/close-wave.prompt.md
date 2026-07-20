@@ -21,7 +21,7 @@ Finalize and archive the wave. Closure requires full reconciliation — not just
 7. Durable memory promoted to `docs/references/project-context-memory.md` (and other canonical docs when applicable)
 8. **Retrospective step completed:** ask "what was non-obvious in this wave that a future session should know?" — surface memory candidates for architectural decisions (why an approach was chosen), validated approaches that should carry forward (positive confirmations, not only corrections), and workflow discoveries; promote findings to auto-memory or `docs/references/project-context-memory.md`
 9. `docs/agents/session-handoff.md` updated to idle format: last-closed wave ID and one-line summary of what shipped, plus an **Open questions / Deferred decisions** section for any intent not captured in a change doc
-10. **Hard checkbox gate** (wave 1p31b / 1p32k): every AC and every task across the wave's admitted changes is marked either `[x]` (completed) or `[~]` (intentionally deferred). Silent `[ ]` items block close — `wave_close` returns a `silent_unchecked_items_at_close` diagnostic listing each one. ACs at `not-this-scope` priority are exempt (the priority encodes the exclusion). See `170-plan-feature.prompt.md` "AC and task checkbox states — the `[~]` marker" for the canonical convention.
+10. **Hard checkbox gate** (wave 1p31b / 1p32k): every AC and every task across the wave's admitted changes is marked either `[x]` (completed) or `[~]` (intentionally deferred). Silent `[ ]` items block close — `wf_close_wave` returns a `silent_unchecked_items_at_close` diagnostic listing each one. ACs at `not-this-scope` priority are exempt (the priority encodes the exclusion). See `170-plan-feature.prompt.md` "AC and task checkbox states — the `[~]` marker" for the canonical convention.
 
 **Closure is blocked until all ten items are explicitly recorded in the wave record.**
 
@@ -38,14 +38,14 @@ Finalize and archive the wave. Closure requires full reconciliation — not just
 ## Wavefoundry-Specific Closure Checks
 
 - If framework scripts changed: confirm `python3 .wavefoundry/framework/scripts/run_tests.py` passes
-- If `docs/prompts/` or manifest changed: confirm docs gate passes (**`wave_validate`** over MCP, or **`wf docs-lint`** if MCP is unavailable)
+- If `docs/prompts/` or manifest changed: confirm docs gate passes (**`wf_validate_docs`** over MCP, or **`wf docs-lint`** if MCP is unavailable)
 - If seed prompts changed: confirm guard-overrides reset to `false`
 - If Wave Council is enabled: confirm `wave-council` recorded both council signoffs in `## Review Evidence`
 
 ## Agent Memory Validation Checkpoint
 
-Before closure, run `wave_memory_propose(wave_id, mode='create')`, then validate
-every evidence-derived candidate with `wave_memory_validate`:
+Before closure, run `memory_propose(wave_id, mode='create')`, then validate
+every evidence-derived candidate with `memory_validate`:
 
 - Follow the linked evidence and inspect the current target.
 - State what changes the next action.

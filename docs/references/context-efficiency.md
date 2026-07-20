@@ -70,8 +70,16 @@ reported as dropped credit while their request/response debits still count.
 
 ## Lifecycle credit
 
-The five lifecycle tools are `wave_create_wave`, `wave_prepare`,
-`wave_implement`, `wave_review`, and `wave_close`.
+The five lifecycle tools are `wf_create_wave`, `wf_prepare_wave`,
+`wf_implement_wave`, `wf_review_wave`, and `wf_close_wave`.
+
+Stage accounting uses exactly three canonical stage values — `plan`,
+`implement`, `review` — and the rendered Context Efficiency table shows its
+rows in that fixed order. Lifecycle tools map onto them as: create and
+prepare stamp `plan`; implement stamps `implement`; review and close stamp
+`review`. No other stage value is ever written, and the code recognizes no
+legacy vocabulary (pre-rename records were cleaned up once, by hand, when
+this model landed).
 
 Every call that reaches a lifecycle handler records its request and response
 debits. A completed new milestone may also credit exactly one contained
@@ -82,11 +90,11 @@ debits remain in the ledger.
 General retrieval work performed before a wave is selected remains isolated by
 producer. Each producer holds a random identity plus a crash-released OS lease.
 Successful create or prepare transfers the invoking producer's general events
-and source credits into the target wave's `pre-wave` stage and may atomically
+and source credits into the target wave's `plan` stage and may atomically
 claim producers whose persisted lease is provably unheld. Live peers and
 ambiguous/missing leases remain untouched; concurrent claims serialize through
 SQLite. Events and debits move exactly once; repeated source/version pairs from
-different producer buckets collapse under the target `pre-wave` phase's
+different producer buckets collapse under the target `plan` phase's
 once-only source-credit key rather than being double-counted.
 
 ## Durable authority and projection

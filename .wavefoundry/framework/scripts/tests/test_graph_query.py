@@ -601,7 +601,7 @@ class GraphQueryBetweennessRetirementTests(unittest.TestCase):
     def test_report_does_not_serve_betweenness_section(self):
         # AC-5: requesting the old section name from the query index yields no
         # betweenness key — the section is served from the persisted artifact by
-        # wave_graph_report, never computed here.
+        # wf_graph_report, never computed here.
         result = self.index.report(sections=["betweenness"])
         self.assertNotIn("betweenness", result)
 
@@ -900,7 +900,7 @@ class GraphQueryAutoRebuildCallbackTests(unittest.TestCase):
         self.assertEqual(diag["code"], "graph_auto_rebuild_in_progress")
         self.assertIn("rebuild_started_at_age_seconds", diag)
         self.assertGreaterEqual(diag["rebuild_started_at_age_seconds"], 0)
-        self.assertEqual(diag["recovery_tools"], ["wave_index_build_status"])
+        self.assertEqual(diag["recovery_tools"], ["index_build_status"])
 
     def test_stale_inflight_marker_allows_fresh_rebuild_attempt(self):
         """Wave 1p2q3 (1p2w5 / Bug 3 AC-5): an in-flight marker older than
@@ -1231,7 +1231,7 @@ class GraphQueryIndexCacheTests(unittest.TestCase):
                 "out_degrees": {n: len(idx._out.get(n, [])) for n in sorted(idx._node_by_id)},
                 # community family reads nodes + degrees (code_graph_community)
                 "node": idx.get_node("src/a.py::foo"),
-                # report family (wave_graph_report)
+                # report family (wf_graph_report)
                 "report": idx.report(limit=10),
             }
 

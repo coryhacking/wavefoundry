@@ -58,7 +58,7 @@ import subprocess_util  # shared subprocess isolation (wave 1p8gu)
 import cli_stdio  # shared UTF-8 stdio reconfigure (wave 1p8gv)
 
 # Wave 1p8gv: a native-Windows upgrade crashed printing `⚠` because nothing reconfigured stdout to
-# UTF-8. Reconfigure at import so EVERY entry into this module (CLI, `wf upgrade`, MCP `wave_upgrade`
+# UTF-8. Reconfigure at import so EVERY entry into this module (CLI, `wf upgrade`, MCP `wf_upgrade`
 # which re-execs this script) prints non-ASCII without raising on a cp1252 console.
 cli_stdio.configure_utf8_stdio()
 
@@ -70,7 +70,7 @@ OLD_MANIFEST_TMP = Path(tempfile.gettempdir()) / "wf-manifest-old.txt"
 UPGRADE_LOG_FILENAME = "upgrade.log"
 
 # Wave 1p8eu: the operator summary is built ONCE as a dict and emitted machine-readably on a single
-# line prefixed with this sentinel (alongside the human prose). ``server_impl.wave_upgrade_response``
+# line prefixed with this sentinel (alongside the human prose). ``server_impl.wf_upgrade_response``
 # parses the line back into ``data['summary']`` (fail-safe: an absent/malformed line falls back to the
 # raw ``output``). Keep this string stable — it is the parse contract between the two modules.
 WAVE_UPGRADE_SUMMARY_SENTINEL = "WAVE_UPGRADE_SUMMARY_JSON:"
@@ -553,7 +553,7 @@ def _compute_seed_diffs(
 # rebuild (`graph_query._ensure_graph_builder_current`) is only a SAFETY NET for
 # when Phase 4b is skipped; note it can DOWNGRADE the graph if an already-running
 # MCP server holds the pre-upgrade extractor in memory (hence the mandatory
-# post-upgrade `wave_mcp_reload`/restart — see the upgrade prompt). This module's
+# post-upgrade `wf_reload_mcp`/restart — see the upgrade prompt). This module's
 # job is to surface those transitions in the upgrade log so operators see what
 # changed, then trust Phase 4b / the graph layer to do the right thing.
 
@@ -1601,7 +1601,7 @@ def phase_review_status_projection(root: Path) -> dict[str, int]:
             "active/readied prose-only review evidence cannot be adopted losslessly "
             "for: "
             + ", ".join(blocked_legacy_waves)
-            + ". Record canonical typed evidence with wave_record_review_evidence, "
+            + ". Record canonical typed evidence with wf_review_evidence, "
             "then rerun `wf upgrade`; arbitrary review prose is never parsed as "
             "approval authority. External-ledger waves were still projected before "
             "this action-required report."
@@ -1833,7 +1833,7 @@ def phase_cleanup(
             previous = os.environ.get("WAVEFOUNDRY_SUPPRESS_DASHBOARD_BROWSER")
             os.environ["WAVEFOUNDRY_SUPPRESS_DASHBOARD_BROWSER"] = "1"
             try:
-                restart = server_impl.wave_dashboard_start_response(
+                restart = server_impl.wf_start_dashboard_response(
                     root,
                     port=restart_port if isinstance(restart_port, int) else None,
                 )
@@ -1959,7 +1959,7 @@ def _warn_if_background_code_incomplete(root: Path) -> None:
         )
         _log(
             "     Check .wavefoundry/logs/project-background-build.log + project-upgrade-bgcode.log, "
-            "then run: wave_index_build(content='code', mode='rebuild')"
+            "then run: index_build(content='code', mode='rebuild')"
         )
 
 
@@ -2216,7 +2216,7 @@ def _build_upgrade_summary(
 def _emit_summary_line(summary: dict) -> None:
     """Wave 1p8eu/1p8kz — emit the machine-readable summary sentinel (fail-safe).
 
-    ``wave_upgrade_response`` parses this single line into ``data['summary']``. Rendered from the
+    ``wf_upgrade_response`` parses this single line into ``data['summary']``. Rendered from the
     SAME ``_build_upgrade_summary`` dict everywhere (prose + sentinel + primary-phase emit) so they
     cannot drift."""
     try:
@@ -2233,7 +2233,7 @@ def _emit_primary_phase_summary(
     root: Path | None,
 ) -> None:
     """Wave 1p8kz — emit the structured summary sentinel at the end of the primary upgrade phase
-    (phases 0–4, the default ``wave_upgrade()`` call) so agents get ``data['summary']`` — including
+    (phases 0–4, the default ``wf_upgrade()`` call) so agents get ``data['summary']`` — including
     the 1p8et reconciliation findings — without waiting for the separate ``--cleanup`` phase. The full
     human operator prose still prints only at cleanup (``phase_cleanup`` → ``_print_operator_summary``);
     this emits the sentinel only, to avoid duplicating the prose. Wave 1p8kz (operator direction): the
@@ -2310,7 +2310,7 @@ def _print_operator_summary(
         _log("   These were NOT searched for a newer pack. If a newer pack lives in one of them, grant")
         _log("   the host access to that folder and re-run; otherwise acknowledge and proceed.")
     _log("Dashboard:          lock removed; auto-reindex will trigger on lock removal")
-    _log("MCP reload: call wave_mcp_reload() (or wave_upgrade cleanup) to load upgraded server code in-process")
+    _log("MCP reload: call wf_reload_mcp() (or wf_upgrade cleanup) to load upgraded server code in-process")
     _log("")
     # Wave 1p5tk — on a major/minor upgrade, recommend (don't run) the Framework
     # Config Review for a senior/principal owner to evaluate. Stateless + fail-safe.
@@ -2323,7 +2323,7 @@ def _print_operator_summary(
             from_version, to_version, reconciliation, host_permission_flags
         ):
             _log(line)
-    # Wave 1p8eu/1p8kz — emit the summary machine-readably so wave_upgrade_response parses it into
+    # Wave 1p8eu/1p8kz — emit the summary machine-readably so wf_upgrade_response parses it into
     # data['summary'] (fail-safe). Rendered from the SAME dict as the prose above (one source).
     _emit_summary_line(summary)
     # Wave 1p454 — defer to seed-160 as the authoritative editing-pass checklist
@@ -2335,7 +2335,7 @@ def _print_operator_summary(
     _log("  2. Journal reconciliation (seed-160 step 0 / Reconcile journals)")
     _log("  3. Spec gaps via seed-230 (seed-160 step 4 / 160 step 8)")
     _log("  4. Resolve any docs/scan-findings.json entries via seed-213 (security reviewer) before re-running the docs gate")
-    _log("  5. Docs gate re-run after edits (wave_garden → wave_validate, or wf docs-lint)")
+    _log("  5. Docs gate re-run after edits (wf_garden_docs → wf_validate_docs, or wf docs-lint)")
     _log("  6. Index update: wf upgrade --update-index")
     _log("  7. Cleanup lock after rebuild: wf upgrade --cleanup")
     _log("")
@@ -2918,7 +2918,7 @@ def main(argv: list[str] | None = None) -> int:
             # internal auto-escalate handles the chunker/walker bump full-rebuild
             # case. Trust the indexer; no explicit force-rebuild routing.
             phase_index_update(root)
-            # Wave 1ryce: lifecycle scheme-v2 provisioning backstop from NEW code. An MCP wave_upgrade
+            # Wave 1ryce: lifecycle scheme-v2 provisioning backstop from NEW code. An MCP wf_upgrade
             # from a version BEFORE 1.10.1 runs the pre-upgrade orchestrator through preflight (which
             # therefore has no Phase 2c) and the old server may never reach the phase_cleanup backstop —
             # so the repo silently stays on v1 IDs. This `--update-index` subprocess runs the freshly
@@ -3177,7 +3177,7 @@ def main(argv: list[str] | None = None) -> int:
                     "versions changed (indexer auto-escalate); the graph layer "
                     "is re-extracted in Phase 4b during THIS upgrade when "
                     "GRAPH_BUILDER_VERSION advanced (graph-only, fresh "
-                    "subprocess). Reload MCP (wave_mcp_reload) or restart the "
+                    "subprocess). Reload MCP (wf_reload_mcp) or restart the "
                     "host after the upgrade so a running server does not keep "
                     "the old graph extractor."
                 )
@@ -3286,9 +3286,9 @@ def main(argv: list[str] | None = None) -> int:
                 "\nHistorical memory requires bounded extraction and agent validation "
                 "before Phase 4.\n"
                 + json.dumps(memory_summary, sort_keys=True)
-                + "\nReload MCP, run wave_memory_backfill(mode='create', "
-                "entry_path='upgrade') and wave_memory_validate, then call "
-                "wave_upgrade(phase='resume_after_memory')."
+                + "\nReload MCP, run memory_backfill(mode='create', "
+                "entry_path='upgrade') and memory_validate, then call "
+                "wf_upgrade(phase='resume_after_memory')."
             )
             _close_log()
             return memory_backfill.ACTION_REQUIRED_EXIT
@@ -3334,7 +3334,7 @@ def main(argv: list[str] | None = None) -> int:
         raise
 
     # Wave 1p8kz — emit the structured summary sentinel now (end of the default primary phase) so the
-    # wave_upgrade() call returns data['summary'] WITH the 1p8et reconciliation findings, instead of
+    # wf_upgrade() call returns data['summary'] WITH the 1p8et reconciliation findings, instead of
     # only on the separate --cleanup phase (where the agent often isn't looking). Full operator prose
     # still prints at cleanup.
     _emit_primary_phase_summary(from_version, to_version, zip_path, pruned_count, root)

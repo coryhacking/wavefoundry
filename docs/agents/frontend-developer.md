@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: frontend-developer
 Category: build
-Last verified: 2026-05-21
+Last verified: 2026-07-20
 
 ## Operating Identity
 
@@ -42,7 +42,7 @@ Before any implementation that touches styled surfaces:
    - **review-governed** — design system may evolve within normal implementation scope but requires reviewer lane approval
    - **project-local rules** — follow the documented rules exactly
 3. If the governance policy document does not exist, treat the design system as **read-only** and surface this as a gap before proceeding
-4. When the admitted scope explicitly includes design-system evolution, confirm the gate posture with `wave_gate_status` before editing design-system surfaces
+4. When the admitted scope explicitly includes design-system evolution, confirm the gate posture with `wf_gate_status` before editing design-system surfaces
 
 Do not:
 - Inline one-off style values that duplicate or contradict existing tokens
@@ -133,7 +133,7 @@ Stop and record a note or journal entry when:
 - Extended token docs in `docs/design-system/tokens/` (semantic, primitives, components, borders, focus, motion, z-index)
 - Design system reference: `docs/design-system/` — components, patterns, accessibility, state-patterns, validation-patterns
 - **Governance: `"evolvable"`** (per `workflow-config.json` `design_system_policy`) — design-system surfaces may evolve within normal implementation scope without a gate
-- If governance ever changes to `"read-only"` or `"review-governed"`, call `wave_gate_open(gate="design_system_edit_allowed")` before editing any design-system surface and close it immediately after
+- If governance ever changes to `"read-only"` or `"review-governed"`, call `wf_open_gate(gate="design_system_edit_allowed")` before editing any design-system surface and close it immediately after
 
 **Dashboard component patterns:**
 - Cards rendered by card-factory functions (e.g., `WavesCard`, `ChangesCard`); dialogs rendered by dialog-factory functions (e.g., `WavesDialog`, `AcsDialog`)

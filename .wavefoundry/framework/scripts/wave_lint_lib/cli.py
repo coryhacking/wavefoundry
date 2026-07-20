@@ -67,7 +67,7 @@ def parse_args() -> argparse.Namespace:
             "Incremental mode (wave 1p9c1): self-detect the git working-tree changed set and run "
             "only the per-file validators on changed docs/ markdown, skipping corpus-wide checks. "
             "A changed config file falls back to the full lint. The authoritative full gate stays "
-            "at wave_validate / wave_close / prepare / install / upgrade (which call without this flag)."
+            "at wf_validate_docs / wf_close_wave / prepare / install / upgrade (which call without this flag)."
         ),
     )
     parser.add_argument(
@@ -178,7 +178,7 @@ def _run_incremental_checks(root: Path):
     markdown, skipping the corpus-wide checks. Returns ``(failures, warnings)``, or ``None`` to signal
     the caller to run the FULL lint (a changed config file whose correctness is cross-file). An empty
     or non-git changed set is a safe ok no-op (``([], [])``) — it never falls through to a whole-tree
-    scan. The authoritative corpus lint stays at wave_validate / wave_close / prepare / install /
+    scan. The authoritative corpus lint stays at wf_validate_docs / wf_close_wave / prepare / install /
     upgrade, which call the cli without ``--changed``."""
     changed = _get_changed_files(root)
     fallback_files = {root / rel for rel in INCREMENTAL_FULL_FALLBACK_FILES}
@@ -248,8 +248,8 @@ def _run_full_checks(root: Path, args: argparse.Namespace, timings: dict | None 
     warnings.extend(size_warnings)
 
     # Wave 1p5pz: docs-lint detects + records secret findings but does NOT block on
-    # them (record_only) — the secrets gate is enforced solely at wave_close. This keeps
-    # the post-edit hook, wave_validate, and the upgrade docs gate from blocking on a
+    # them (record_only) — the secrets gate is enforced solely at wf_close_wave. This keeps
+    # the post-edit hook, wf_validate_docs, and the upgrade docs gate from blocking on a
     # found secret; only a malformed inline-suppression directive (a real lint error) fails.
     with _timed(timings, "secrets"):
         failures.extend(check_hardcoded_secrets(root, scan_all=args.scan_all, record_only=True))

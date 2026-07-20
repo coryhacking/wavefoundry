@@ -39,7 +39,7 @@ Orchestration responsibilities:
 
 Required wave planning-mode handoff semantics (when writing or updating `docs/agents/session-handoff.md` for a wave in `planning` state — i.e., admitted but not yet prepared):
 
-- `Mode: wave_prepare`
+- `Mode: wf_prepare_wave`
 - Active wave ID and active change IDs
 - **In-scope files** — list every file explicitly named under `## Scope` (`**In scope:**`) in the admitted change doc; add a gate warning: "All listed surfaces are gated by the Stage Gate (wave-admitted surfaces) in `AGENTS.md` — do not edit these files until `Prepare wave` passes."
 - Next lifecycle step: `Prepare wave`
@@ -109,7 +109,7 @@ Required wave close semantics:
 - explicit statement of whether the wave closed because the objective was satisfied, superseded, or intentionally cut at an operational boundary
 - **wave-owned change docs**: confirm every admitted change doc for this wave exists at `docs/waves/<wave-id>/<change-id>.md` (expected after `Prepare wave`); if any stale `docs/plans/` references remain, repair them before closure instead of introducing a second move through `docs/plans/completed/`
 - **retrospective prompt**: after closure artifacts are recorded, ask "what was non-obvious in this wave that a future session should know?" — surface zero or more memory candidates; capture architectural decisions (why an approach was chosen), validated approaches that should carry forward (positive confirmations, not only corrections), and workflow discoveries; promote findings to auto-memory or `docs/references/project-context-memory.md`
-- **idle handoff**: update `docs/agents/session-handoff.md` to record the closed wave ID and a one-line summary of what shipped, so the next session has recent history without running `wave_list_waves`; include an **Open questions / Deferred decisions** section for any intent not captured in a change doc
+- **idle handoff**: update `docs/agents/session-handoff.md` to record the closed wave ID and a one-line summary of what shipped, so the next session has recent history without running `wf_list_waves`; include an **Open questions / Deferred decisions** section for any intent not captured in a change doc
 
 Recommended reconciliation outputs:
 

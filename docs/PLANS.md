@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-02
+Last verified: 2026-07-20
 
 Hub for in-flight planning work. Active change documents live here until admitted into a wave, at which point **Prepare wave** relocates them into `docs/waves/<wave-id>/`.
 
 ## Active Plans
 
-- None currently listed here — see `docs/plans/` for pending change docs (`wave_list_plans` gives the live view).
+- None currently listed here — see `docs/plans/` for pending change docs (`wf_list_plans` gives the live view).
 
 ## Retired Plans
 
@@ -24,7 +24,7 @@ Hub for in-flight planning work. Active change documents live here until admitte
 
 ## Template
 
-New change documents use `docs/plans/plan-template.md`. Generate change IDs with the MCP `wave_new_<kind>` tools (preferred — they dedupe against on-disk IDs). CLI fallback when the MCP server is unavailable:
+New change documents use `docs/plans/plan-template.md`. Generate change IDs with the MCP `wf_new_<kind>` tools (preferred — they dedupe against on-disk IDs). CLI fallback when the MCP server is unavailable:
 
 ```bash
 wf lifecycle-id --kind <kind> --slug <slug>

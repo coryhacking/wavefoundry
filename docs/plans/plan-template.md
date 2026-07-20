@@ -1,10 +1,10 @@
 # [Change Title]
 
-Change ID: `<id-prefix>-<kind> <slug>` — **mint via the MCP `wave_new_*` tool** (e.g. `wave_new_bug`, `wave_new_enhancement`, `wave_new_change`). The MCP path borrows from future buckets when the natural prefix collides with existing IDs, so concurrent minting stays unique. Avoid the CLI for new IDs unless the MCP server is unavailable; if you must, use `wf lifecycle-id --kind <kind> --slug <slug>` (venv-aware dispatcher subcommand) rather than invoking `python3` against `lifecycle_id.py` directly. The subcommand is named `lifecycle-id` because the same prefix system is used for wave IDs and change IDs.
+Change ID: `<id-prefix>-<kind> <slug>` — **mint via the MCP `wf_new_*` tool** (e.g. `wf_new_bug`, `wf_new_enhancement`, `wf_new_change`). The MCP path borrows from future buckets when the natural prefix collides with existing IDs, so concurrent minting stays unique. Avoid the CLI for new IDs unless the MCP server is unavailable; if you must, use `wf lifecycle-id --kind <kind> --slug <slug>` (venv-aware dispatcher subcommand) rather than invoking `python3` against `lifecycle_id.py` directly. The subcommand is named `lifecycle-id` because the same prefix system is used for wave IDs and change IDs.
 Change Status: `planned`
 Owner: [role or person]
 Status: planned
-Last verified: 2026-06-25
+Last verified: 2026-07-20
 Wave: [wave-id or TBD]
 
 ## Rationale

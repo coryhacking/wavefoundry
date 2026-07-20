@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-02
+Last verified: 2026-07-20
 
 ## What Wavefoundry Is
 
@@ -73,7 +73,7 @@ Wavefoundry uses the Wave Framework lifecycle for its own development:
 
 1. **Plan feature** — author a consolidated change doc at `docs/plans/`.
 2. **Create wave / Add change to wave** — admit the change and make it wave-owned under `docs/waves/<wave-id>/`.
-3. **Prepare wave** — confirm readiness (docs, AC priority, council verdict) and repair any admitted-doc placement drift. This **readies** the wave (it stays `planned`); `wave_prepare(mode='ready')` readies without opening, so any number of waves can be readied in parallel.
+3. **Prepare wave** — confirm readiness (docs, AC priority, council verdict) and repair any admitted-doc placement drift. This **readies** the wave (it stays `planned`); `wf_prepare_wave(mode='ready')` readies without opening, so any number of waves can be readied in parallel.
 4. **Implement wave / Implement feature** — **open** a readied wave (the single-OPEN activation step) and execute the admitted changes. Only one wave may be OPEN (`active`/`implementing`) at a time; the guard fires here, not at readiness.
 5. **Review wave** — code review, QA, architecture review, and Wave Council delivery synthesis as required by policy and change type.
 6. **Close wave / Finalize feature** — record closure, distill journals, promote memory, clear handoff.

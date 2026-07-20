@@ -698,7 +698,7 @@ class GraphIndexerTests(unittest.TestCase):
     def test_sql_kind_property_and_report_labels(self):
         """AC-4: tables and views are distinguishable (`sql_kind` node
         property; both keep kind "class" so existing consumers ingest without
-        error) and `wave_graph_report`'s ranked rows surface `sql_kind`."""
+        error) and `wf_graph_report`'s ranked rows surface `sql_kind`."""
         self._require_sql_parser()
         payload = self._build_files(
             {

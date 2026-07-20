@@ -646,7 +646,7 @@ def main(argv: list[str] | None = None) -> int:
         print(build_id(args.kind, args.slug, legacy=args.legacy, timestamp=timestamp, repo_root=repo_root))
         print(
             "lifecycle_id: note — when the Wavefoundry MCP server is available, prefer the "
-            "MCP minting tools (wave_new_<kind> / wave_create_wave); they dedupe against "
+            "MCP minting tools (wave_new_<kind> / wf_create_wave); they dedupe against "
             "on-disk IDs. This CLI is the offline fallback.",
             file=sys.stderr,
         )

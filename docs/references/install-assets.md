@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-13
+Last verified: 2026-07-20
 
 The single index of every Wavefoundry **install-related asset** — where each one lives and the role it plays. The framework-side install assets are consolidated under `.wavefoundry/framework/install/`; each plays a role in the **source → ship → provision** flow. Use this page to find an install asset and understand its role before moving or editing one.
 
@@ -24,7 +24,7 @@ An asset's location is wired into its consumers (`build_pack` constants, `server
 | Install-prompt surface | The project's install prompt (lint-required surface) | `docs/prompts/install-wavefoundry.prompt.md` | Docs lint (core validators); operators invoking "Install Wavefoundry" |
 | Bootstrap entry point | Agent-readable file the operator extracts at repo root to start the install | `.wavefoundry/framework/install/install-wavefoundry.template.md` | `build_pack` (ships in zip) |
 | Install-log template | Scaffold for the install-log state machine | `.wavefoundry/framework/install/install-log.template.md` | `build_pack` (ships in zip); referenced by `server_impl`, `install_log_lib` |
-| Install-log live state | Operator-owned install log, copied from the template on first install; **never shipped** | `.wavefoundry/install-log.md` (target project) | install/upgrade flow; `wave_install_audit` |
+| Install-log live state | Operator-owned install log, copied from the template on first install; **never shipped** | `.wavefoundry/install-log.md` (target project) | install/upgrade flow; `wf_audit_install` |
 | Install-log format spec | Canonical schema for the install log | canonical: `docs/references/install-log-format.md` · shipped template: `.wavefoundry/framework/install/install-log-format.md` | `install_log_lib`, `server_impl`, install seeds; provisioned to targets (`1p4dc`) |
 | Scan-findings format spec | Canonical schema for secrets-scan findings | canonical: `docs/references/scan-findings-format.md` · shipped template: `.wavefoundry/framework/docs/scan-findings-format.md` (a secrets reference, not an install asset) | secrets flow; provisioned to targets (`1p455`) |
 | Release-notes install block | The "Install" snippet embedded in release notes | `.wavefoundry/framework/install/install-block.md` | `build_pack` (`RELEASE_NOTES_INSTALL_BLOCK_REL`) |

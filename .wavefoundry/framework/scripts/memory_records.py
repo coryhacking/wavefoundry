@@ -2,7 +2,7 @@
 
 Wave 1ro44 (change 1p8gy). Records are repo-visible markdown under
 ``docs/agents/memory/`` — the docs-lint rules (``check_memory_docs``) are the
-schema contract; this module is the runtime reader/writer the ``wave_memory_*``
+schema contract; this module is the runtime reader/writer the ``memory_*``
 MCP tools stand on.
 
 Design posture: the record FILES are the source of truth (live filesystem —
@@ -696,7 +696,7 @@ def match_targets(record: dict[str, Any], path: str = "", symbol: str = "") -> b
 # DETECTION ONLY. This never marks a record superseded/stale, never merges, and
 # never deletes — reconciliation stays an explicit operator action, preserving
 # the never-auto-rewrite invariant in this module's header. It exists so
-# re-running candidate supply (`wave_memory_propose`) is idempotent and so a
+# re-running candidate supply (`memory_propose`) is idempotent and so a
 # manual add that echoes an existing record is surfaced, not silently
 # duplicated. This is exact/normalized detection, NOT fuzzy similarity: no
 # embeddings, no similarity model, so the same inputs always yield the same
@@ -753,7 +753,7 @@ def find_duplicates(
 
     - ``evidence_ref``: the two records share at least one ``## Evidence`` ref
       (an originating event id, a wave/change id, or a path). The shared refs
-      are returned so a caller (e.g. ``wave_memory_propose``) can decide
+      are returned so a caller (e.g. ``memory_propose``) can decide
       precisely — a re-draft of the same ledger event reproduces that event's
       id ref exactly, which is what makes candidate supply idempotent.
     - ``normalized_content``: the ``(kind, sorted targets, normalized summary)``

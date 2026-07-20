@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-01
+Last verified: 2026-07-20
 
 Reference for the LanceDB list-column offset-corruption bug that motivated the index reclaim ladder
 (wave `1p9aj`). Retire this note when a single-level-list upstream fix ships.
@@ -76,6 +76,6 @@ supported in LanceDB OSS`, and a drop-then-rename leaves the table missing if th
 `create_table(mode="overwrite")`.
 
 This is implemented as the tiered `indexer.reclaim_lance_table` (optimize → compact-by-rewrite →
-full-rebuild) behind the `wave_index_optimize` MCP tool, the self-heal in the build finalize + incremental
+full-rebuild) behind the `index_optimize` MCP tool, the self-heal in the build finalize + incremental
 paths, and the automatic reclaim at the end of `setup`/`upgrade`. See
 `docs/architecture/chunking-and-indexing-pipeline.md` → *Compaction and reclaim*.

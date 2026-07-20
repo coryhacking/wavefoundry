@@ -72,7 +72,7 @@ def _assert_review_protocol_contract(test: unittest.TestCase, root: Path) -> Non
     )
     for name in ("review-wave.prompt.md", "close-wave.prompt.md"):
         test.assertIn(
-            "wave_memory_validate",
+            "memory_validate",
             (root / "docs" / "prompts" / name).read_text(encoding="utf-8"),
             f"{name} must carry the agent-validation memory checkpoint",
         )
@@ -1099,7 +1099,7 @@ class PhaseCleanupLockStateTests(unittest.TestCase):
             dashboard_restart_port=43210,
         )
         start = MagicMock()
-        fake_server = MagicMock(wave_dashboard_start_response=start)
+        fake_server = MagicMock(wf_start_dashboard_response=start)
         with patch.dict(sys.modules, {"server_impl": fake_server}):
             with self.assertRaises(SystemExit):
                 self._capture_cleanup(failed_phase="docs_gate", lock_present=True)
@@ -1134,7 +1134,7 @@ class PhaseCleanupLockStateTests(unittest.TestCase):
             runtime_lock_cutover_complete=True,
         )
         start = MagicMock(return_value={"status": "ok", "data": {"started": True}})
-        fake_server = MagicMock(wave_dashboard_start_response=start)
+        fake_server = MagicMock(wf_start_dashboard_response=start)
         with patch.dict(sys.modules, {"server_impl": fake_server}):
             self._capture_cleanup(failed_phase=None, lock_present=True)
         start.assert_called_once_with(self.root, port=43210)
@@ -1149,7 +1149,7 @@ class PhaseCleanupLockStateTests(unittest.TestCase):
             runtime_lock_cutover_complete=True,
         )
         fake_server = MagicMock(
-            wave_dashboard_start_response=MagicMock(
+            wf_start_dashboard_response=MagicMock(
                 return_value={"status": "error", "data": {}}
             )
         )
@@ -1905,7 +1905,7 @@ class PublicUpgradeReviewProtocolIntegrationTests(unittest.TestCase):
                 scripts.joinpath("review_evidence.py").read_text(encoding="utf-8"),
             )
             self.assertIn(
-                "def wave_record_review_evidence(",
+                "def wf_review_evidence(",
                 scripts.joinpath("server_impl.py").read_text(encoding="utf-8"),
             )
             self.assertIn(
@@ -2179,7 +2179,7 @@ class RuntimeLockCutoverMigrationTests(unittest.TestCase):
 
     def _fake_server(self):
         return MagicMock(
-            wave_dashboard_stop_response=MagicMock(
+            wf_stop_dashboard_response=MagicMock(
                 return_value={
                     "status": "ok",
                     "data": {"stopped": True, "already_stopped": False},
@@ -4106,7 +4106,7 @@ class UpgradeSummarySentinelTests(unittest.TestCase):
 
 class PrimaryPhaseSummaryTests(unittest.TestCase):
     """Wave 1p8kz: the structured summary sentinel must surface at the END of the PRIMARY upgrade phase
-    (phases 0–4, the default ``wave_upgrade()`` call) — not only on ``--cleanup`` — so an agent reading
+    (phases 0–4, the default ``wf_upgrade()`` call) — not only on ``--cleanup`` — so an agent reading
     the primary upgrade response gets ``data.summary`` WITH the 1p8et reconciliation findings. The
     field gap (1.9.5 native-Windows): no summary on the primary call, persistent manual reconcile."""
 
@@ -4563,7 +4563,7 @@ class ReviewStatusUpgradeProjectionTests(unittest.TestCase):
             self.mod.phase_review_status_projection(self.root)
 
         message = str(raised.exception)
-        self.assertIn("wave_record_review_evidence", message)
+        self.assertIn("wf_review_evidence", message)
         self.assertIn("wf upgrade", message)
 
     def test_external_projection_converges_before_legacy_action_required(self):
@@ -4913,11 +4913,11 @@ class HistoricalMemoryUpgradeGateTests(unittest.TestCase):
             "| 2026-01-01 | Keep `foo.py` local | Avoid remote authority | none |\n",
             encoding="utf-8",
         )
-        server_impl.wave_memory_backfill_response(
+        server_impl.memory_backfill_response(
             self.root, mode="create", entry_path="upgrade"
         )
         candidate = memory_records.load_memory_records(self.root)[0]
-        server_impl.wave_memory_validate_response(
+        server_impl.memory_validate_response(
             self.root,
             candidate["memory_id"],
             "promote",
@@ -5335,11 +5335,11 @@ class HistoricalMemoryUpgradeExtensionBootstrapTests(unittest.TestCase):
             self.ext, "_installed_memory_backfill", return_value=self.backfill
         ), self.assertRaises(SystemExit):
             self.ext.post_docs_gate(self.ctx)
-        server_impl.wave_memory_backfill_response(
+        server_impl.memory_backfill_response(
             self.root, mode="create", entry_path="upgrade"
         )
         candidate = memory_records.load_memory_records(self.root)[0]
-        validated = server_impl.wave_memory_validate_response(
+        validated = server_impl.memory_validate_response(
             self.root,
             candidate["memory_id"],
             "promote",

@@ -382,7 +382,7 @@ def hook_helpers() -> str:
             # Wave 1p9bg: bound the docs-lint subprocess so a slow whole-tree lint on a large repo can't
             # hang the post-edit hook. The timeout is generous (120s default) and tunable via
             # docs/workflow-config.json `docs_lint.hook_timeout_seconds`. A TIMEOUT is ADVISORY — it does
-            # NOT block the edit (wave_validate / wave-close remain the hard docs gate); a real lint
+            # NOT block the edit (wf_validate_docs / wave-close remain the hard docs gate); a real lint
             # FAILURE still blocks below.
             try:
                 timeout_s = _load_indexer_hook_helpers().docs_lint_hook_timeout_seconds(REPO_ROOT)
@@ -391,7 +391,7 @@ def hook_helpers() -> str:
             # Wave 1p9c1: run docs-lint INCREMENTALLY in the post-edit hook — `--changed` self-detects the
             # git working-tree changed set and lints only the per-file validators on changed docs (a
             # changed config file falls back to the full lint inside the cli). The authoritative full
-            # corpus lint stays at wave_validate / wave_close / prepare / install / upgrade, which invoke
+            # corpus lint stays at wf_validate_docs / wf_close_wave / prepare / install / upgrade, which invoke
             # docs_lint.py WITHOUT `--changed`. Incremental makes a timeout far less likely, but the 1p9bg
             # bound stays as defense-in-depth.
             try:
@@ -1359,7 +1359,7 @@ def render_bin_launchers(repo_root: Path) -> None:
     `setup`, which stays pre-venv-safe). Both shims use the standardized `python3` command.
 
     These are the no-MCP operator/CI/terminal CLI fallback. Agents should prefer the MCP tools
-    (`wave_validate`, `wave_garden`, …) over invoking `wf` directly.
+    (`wf_validate_docs`, `wf_garden_docs`, …) over invoking `wf` directly.
     """
     bin_dir = repo_root / ".wavefoundry" / "bin"
     bin_dir.mkdir(parents=True, exist_ok=True)
@@ -1654,8 +1654,8 @@ Use this checklist when intentionally editing the wave framework or repo-local w
 1. Run framework tests when the test suite is present (development installs only — not included in distribution packs): `python3 -B .wavefoundry/framework/scripts/run_tests.py` (skip if `run_tests.py` does not exist)
 2. `wf render-surfaces` (hooks, MCP, bin launchers, and `render_agent_surfaces.py` when `docs/agents/guru.md` exists)
 3. Backfill `AGENTS.md` auto-Guru tier-1 sections per `seed-050` when missing; ensure `docs/agents/guru.md` exists; re-run step 2 if tier-1 was just added
-4. `./.wavefoundry/bin/wf docs-gardener` — native Windows: `.\\.wavefoundry\\bin\\wf.cmd docs-gardener` (or MCP `wave_garden`)
-5. `./.wavefoundry/bin/wf docs-lint` — native Windows: `.\\.wavefoundry\\bin\\wf.cmd docs-lint` (or MCP `wave_validate`)
+4. `./.wavefoundry/bin/wf docs-gardener` — native Windows: `.\\.wavefoundry\\bin\\wf.cmd docs-gardener` (or MCP `wf_garden_docs`)
+5. `./.wavefoundry/bin/wf docs-lint` — native Windows: `.\\.wavefoundry\\bin\\wf.cmd docs-lint` (or MCP `wf_validate_docs`)
 
 ## Guardrails
 

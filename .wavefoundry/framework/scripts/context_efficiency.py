@@ -37,12 +37,20 @@ GENERAL_ASSOCIATION_NOTE = (
 )
 
 LIFECYCLE_PROMPT_MAP: Mapping[str, Path] = {
-    "wave_create_wave": Path("docs/prompts/create-wave.prompt.md"),
-    "wave_prepare": Path("docs/prompts/prepare-wave.prompt.md"),
-    "wave_implement": Path("docs/prompts/implement-wave.prompt.md"),
-    "wave_review": Path("docs/prompts/review-wave.prompt.md"),
-    "wave_close": Path("docs/prompts/close-wave.prompt.md"),
+    "wf_create_wave": Path("docs/prompts/create-wave.prompt.md"),
+    "wf_prepare_wave": Path("docs/prompts/prepare-wave.prompt.md"),
+    "wf_implement_wave": Path("docs/prompts/implement-wave.prompt.md"),
+    "wf_review_wave": Path("docs/prompts/review-wave.prompt.md"),
+    "wf_close_wave": Path("docs/prompts/close-wave.prompt.md"),
 }
+
+# Wave 1t3gt (1t3ld): the ONLY stage values the accounting layer ever writes.
+# Lifecycle mapping: create/prepare -> plan, implement -> implement,
+# review/close -> review; adopted unattributed telemetry lands in plan.
+# There is deliberately no legacy read-side mapping — history was cleaned up
+# once, by hand, and the code never recognizes the old names.
+CANONICAL_STAGES = ("plan", "implement", "review")
+_CANONICAL_STAGE_ORDER = {name: i for i, name in enumerate(CANONICAL_STAGES)}
 
 CONTEXT_EFFICIENCY_MARKER_BEGIN = (
     "<!-- wave:context-efficiency begin -->"
@@ -1181,6 +1189,10 @@ class ProcessTelemetry:
     def set_focus(
         self, wave_id: str, stage: str, *, new_phase: bool = False
     ) -> None:
+        if str(stage) not in CANONICAL_STAGES:
+            raise ValueError(
+                f"stage must be one of {CANONICAL_STAGES}, got {stage!r}"
+            )
         with self._lock:
             previous = self._focus
             phase_id = previous.phase_id
@@ -1412,14 +1424,14 @@ class ProcessTelemetry:
                             "INSERT OR IGNORE INTO source_credit("
                             "wave_key,phase_id,stage,source_id,version_id,tokens,"
                             "credit_kind,provenance) "
-                            "SELECT ?,'pre-wave','pre-wave',source_id,version_id,"
+                            "SELECT ?,'plan','plan',source_id,version_id,"
                             "tokens,credit_kind,provenance FROM source_credit "
                             "WHERE wave_key=?",
                             (target, general_key),
                         )
                         conn.execute(
                             "UPDATE source_credit SET provenance='both' "
-                            "WHERE wave_key=? AND phase_id='pre-wave' AND EXISTS("
+                            "WHERE wave_key=? AND phase_id='plan' AND EXISTS("
                             "SELECT 1 FROM source_credit AS incoming "
                             "WHERE incoming.wave_key=? "
                             "AND incoming.source_id=source_credit.source_id "
@@ -1434,7 +1446,7 @@ class ProcessTelemetry:
                         moved += source_count
                         moved += conn.execute(
                             "UPDATE telemetry_event SET wave_id=?,"
-                            "phase_id='pre-wave',stage='pre-wave' "
+                            "phase_id='plan',stage='plan' "
                             "WHERE wave_id IS NULL AND producer_id=?",
                             (target, producer_id),
                         ).rowcount
@@ -1600,7 +1612,9 @@ def _snapshot_from_conn(
             (wave_id,),
         )
     )
-    for stage_name in sorted(stages):
+    for stage_name in sorted(
+        stages, key=lambda s: (_CANONICAL_STAGE_ORDER.get(s, len(CANONICAL_STAGES)), s)
+    ):
         values = dict(
             snapshot["stages"].get(stage_name, _empty_stage_totals())
         )
@@ -1994,7 +2008,10 @@ def _normalized_checkpoint_state(snapshot: Mapping[str, Any]) -> dict[str, Any]:
     state["measurement_status"] = status
     stages = snapshot.get("stages", {})
     if isinstance(stages, Mapping):
-        for name in sorted(stages):
+        for name in sorted(
+            stages,
+            key=lambda s: (_CANONICAL_STAGE_ORDER.get(s, len(CANONICAL_STAGES)), s),
+        ):
             values = stages[name]
             if not isinstance(values, Mapping):
                 continue

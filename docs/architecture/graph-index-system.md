@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-17
+Last verified: 2026-07-20
 
 Architecture reference for Wavefoundry's code and documentation graph index: how it is generated, stored, traversed, clustered, and surfaced through MCP tools.
 
@@ -21,7 +21,7 @@ Architecture reference for Wavefoundry's code and documentation graph index: how
 | Reverse dependency chain ("who reaches me?") | `code_graph_path(from_symbol=..., to_symbol=..., direction="backward")` |
 | Are two symbols connected at all (direction-agnostic) | `code_graph_path(from_symbol=..., to_symbol=..., direction="either")` |
 | Members of a community cluster | `code_graph_community(community_id=...)` |
-| Structural health report (fan-in/out, chokepoints, betweenness) | `wave_graph_report(sections=["betweenness"])` |
+| Structural health report (fan-in/out, chokepoints, betweenness) | `wf_graph_report(sections=["betweenness"])` |
 | Graph index metadata (ambient) | MCP resource `wavefoundry://graph/status` |
 | Community catalog (ambient — id, label, size, top members) | MCP resource `wavefoundry://graph/communities` |
 
@@ -30,7 +30,7 @@ Architecture reference for Wavefoundry's code and documentation graph index: how
 `layer` argument on the graph tools is retained as a back-compat no-op that always resolves to
 `project`.
 
-**When the graph is absent**: `read_graph_payload()` returns `present=False`. All graph-backed tools degrade gracefully — `code_references` falls back to a full repository walk; `code_callhierarchy`, `code_callgraph`, `code_impact`, and `wave_graph_report` return a diagnostic response. The graph is absent until explicitly built. To build: `wave_index_build(content='graph')` (graph only) or `wave_index_build(content='all')` (graph + semantic index).
+**When the graph is absent**: `read_graph_payload()` returns `present=False`. All graph-backed tools degrade gracefully — `code_references` falls back to a full repository walk; `code_callhierarchy`, `code_callgraph`, `code_impact`, and `wf_graph_report` return a diagnostic response. The graph is absent until explicitly built. To build: `index_build(content='graph')` (graph only) or `index_build(content='all')` (graph + semantic index).
 
 ---
 
@@ -395,20 +395,20 @@ Calls `_graph_definition_candidate_files(root, symbol)` first. The helper iterat
 The response carries a `lookup_method` field with one of five values:
 
 - `graph_narrowed` — graph candidate set was non-empty on the first query; the four scanners (`_python_definitions`, `_treesitter_definition_results`, `_regex_definitions`, `_css_definitions`) skipped the full repo walk entirely and constructed file paths directly from the restriction set. Typical latency: <300ms on this repo (down from 38–43s pre-change).
-- `graph_narrowed_after_refresh` — first query returned an empty candidate set, so an incremental graph refresh (`wave_index_build_response(content="graph", mode="update")`) ran (~4ms when nothing has changed); after refresh the candidate set was non-empty and scanners ran on the restricted set. This handles the recently-added-code case.
+- `graph_narrowed_after_refresh` — first query returned an empty candidate set, so an incremental graph refresh (`index_build_response(content="graph", mode="update")`) ran (~4ms when nothing has changed); after refresh the candidate set was non-empty and scanners ran on the restricted set. This handles the recently-added-code case.
 - `graph_definitive_not_found` — refresh ran and the candidate set was still empty; since the structural scanners share the same file scope the graph extractor uses, walking the tree again would burn 40+s for nothing. The graph is treated as the source of truth and a fast not-found response is returned with a diagnostic suggesting `code_keyword` for symbols in file types the graph does not index. Typical latency: <300ms.
-- `graph_index_missing_degraded` — graph never built; the structural scanners run their existing four-pass repo walk (pre-1301h behavior, 40+s cold). The response carries a `graph_index_missing_degraded` advisory diagnostic telling the operator to run `wave_index_build(content="graph")` once to switch all subsequent calls to the sub-300ms `graph_narrowed` path. The walk still runs so callers that depend on `name`-bearing structural definitions (the existing test suite, for example) keep working through initial setup.
+- `graph_index_missing_degraded` — graph never built; the structural scanners run their existing four-pass repo walk (pre-1301h behavior, 40+s cold). The response carries a `graph_index_missing_degraded` advisory diagnostic telling the operator to run `index_build(content="graph")` once to switch all subsequent calls to the sub-300ms `graph_narrowed` path. The walk still runs so callers that depend on `name`-bearing structural definitions (the existing test suite, for example) keep working through initial setup.
 - `keyword_fallback` — structural scanners produced no result and the broad `_keyword_fallback_definitions` walker ran as a last resort. Reachable when the graph is absent and the symbol has no structural definition anywhere, or when the graph is present and refers to a stale candidate file that no longer contains the symbol.
 
 Substring-match semantics are preserved across all paths because the candidate helper uses the same `name == symbol or symbol in name` predicate the scanners use. The graph-narrowed path is guaranteed (by `TestCodeDefinitionGraphNarrowed.test_graph_narrowed_path_finds_correct_definition` and `test_missing_symbol_with_graph_returns_definitive_not_found`) to return the same definition set as the structural walk for symbols the graph knows about. (Wave `12xr3`, change `1301h`.)
 
 ### Graph-Tool Miss Behavior — Refresh-and-Instruct Contract (wave `1304x`, change `1304r`)
 
-The pattern established by `1301h` for `code_definition` is now applied uniformly across the seven other graph-using MCP tools: `code_references`, `code_callhierarchy`, `code_callgraph`, `_code_impact_graph_response` (graph mode of `code_impact`), `code_graph_path`, `code_graph_community`, and `wave_graph_report`. Every miss path attempts an incremental graph refresh before emitting suggestions or not-found.
+The pattern established by `1301h` for `code_definition` is now applied uniformly across the seven other graph-using MCP tools: `code_references`, `code_callhierarchy`, `code_callgraph`, `_code_impact_graph_response` (graph mode of `code_impact`), `code_graph_path`, `code_graph_community`, and `wf_graph_report`. Every miss path attempts an incremental graph refresh before emitting suggestions or not-found.
 
 **Shared helpers in `server_impl.py`:**
 
-- `_graph_refresh_then_recheck(root, recheck_fn)` — generic primitive that calls `wave_index_build_response(root, content='graph', mode='update')` then invokes the supplied `recheck_fn()`. Returns `recheck_fn`'s result on success, or `None` on any exception. The refresh side-effect is centralized here; the six call sites only own the recheck closure.
+- `_graph_refresh_then_recheck(root, recheck_fn)` — generic primitive that calls `index_build_response(root, content='graph', mode='update')` then invokes the supplied `recheck_fn()`. Returns `recheck_fn`'s result on success, or `None` on any exception. The refresh side-effect is centralized here; the six call sites only own the recheck closure.
 - `_graph_refresh_and_resolve(root, symbol, layer)` — convenience for the common symbol-resolution case. Refreshes, reloads `GraphQueryIndex`, calls `resolve_symbol(symbol)`, and returns `(fresh_index, node_id)` on hit or `(None, None)` on miss / refresh failure. `code_callhierarchy_response`, `code_callgraph_response`, and `_code_impact_graph_response` consume this helper.
 
 **Per-tool miss behavior:**
@@ -417,12 +417,12 @@ The pattern established by `1301h` for `code_definition` is now applied uniforml
 - `code_callhierarchy_response()`, `code_callgraph_response()`, `_code_impact_graph_response()` — when `index.resolve_symbol(symbol)` returns `None`, calls `_graph_refresh_and_resolve()`. On hit, swaps in the fresh index and proceeds normally; on miss, emits a `graph_symbol_not_found` diagnostic with `recovery_tools=["code_definition", "code_keyword"]` and the existing suggestions list.
 - `code_graph_path_response()` — when either `from_id` or `to_id` is `None`, runs an inline refresh-then-recheck that resolves BOTH symbols against the freshly loaded index (the generic helper rather than `_graph_refresh_and_resolve` is used here, because the helper's return contract discards the fresh index when its single target symbol still misses post-refresh). When at least one symbol remains unresolved, emits `graph_symbol_not_found` with a message that names the missing symbol(s).
 - `code_graph_community_response()` — when the requested `community_id` is absent from the cluster artifact, `_graph_refresh_then_recheck` re-reads the (possibly re-clustered) artifact. On hit, proceeds normally; on miss, emits `not_found` with the existing community-suggestions list.
-- `wave_graph_report_response()` — when `index.present` is `False` on first load, refresh-then-recheck reloads the index. On hit, the report proceeds normally; on miss, emits the existing `graph_not_ready` diagnostic.
+- `wf_graph_report_response()` — when `index.present` is `False` on first load, refresh-then-recheck reloads the index. On hit, the report proceeds normally; on miss, emits the existing `graph_not_ready` diagnostic.
 
 **Diagnostic vocabulary** — three codes carry consistent recovery hints across all seven tools:
 
-- `graph_index_missing_degraded` — graph index never built; advisory in `code_definition` `1301h` path; recovery: `wave_index_build(content='graph')`.
-- `graph_not_ready` — graph layer absent and no fallback exists; emitted by `code_callhierarchy`, `code_callgraph`, `code_impact` (graph mode), `code_graph_path`, `wave_graph_report` via `gq.graph_not_ready_diagnostic(layer)`; recovery: `wave_index_build(content='graph')`.
+- `graph_index_missing_degraded` — graph index never built; advisory in `code_definition` `1301h` path; recovery: `index_build(content='graph')`.
+- `graph_not_ready` — graph layer absent and no fallback exists; emitted by `code_callhierarchy`, `code_callgraph`, `code_impact` (graph mode), `code_graph_path`, `wf_graph_report` via `gq.graph_not_ready_diagnostic(layer)`; recovery: `index_build(content='graph')`.
 - `graph_symbol_not_found` — incremental refresh ran and the symbol still doesn't resolve; emitted by the four symbol-resolution tools; recovery: `code_definition` (try a broader symbol lookup) or `code_keyword` (try literal-text search for symbols in file types the graph extractor doesn't cover).
 
 **Latency budget** — incremental graph refresh is ~4ms when nothing has changed (measured during wave `12xr3` close-review). The fast path (symbol-in-graph on first query) pays zero overhead because the refresh branch is gated behind the miss. The miss-plus-refresh path stays well under 1s on this repo (live smoke at wave close: 304ms for `code_callhierarchy` triggering a real refresh; 753ms for a never-resolves bogus symbol including the suggestions scan).
@@ -446,7 +446,7 @@ The `direction` parameter (added in wave `12xr3`) controls which adjacency lists
 
 Loads the cluster artifact via `_load_cluster_lookup()` / `graph_cluster.read_cluster_payload()`. Validates `community_id` is non-empty (returns `invalid_arguments` otherwise — closes the empty-string-matches-null-id edge case). Looks up the requested `community_id`; returns `{community_id, label, node_count, nodes}` where `nodes` are sorted by degree descending. On not-found, returns `suggestions: [{community_id, label, node_count}, …]` ranked by id/label substring match then node count — up to 5 entries — via `_suggest_near_communities()`. For ambient catalog discovery without a tool call, prefer the `wavefoundry://graph/communities` resource.
 
-### `wave_graph_report_response()`
+### `wf_graph_report_response()`
 
 Obtains the index via `get_query_index(root, layer=layer_value)` (cached; see the query-cache section), calls `index.report(limit=max(1, min(limit, 100)), sections=sections)`. Limit is clamped to `[1, 100]`. Defaults to all five standard sections when `sections=None`. The `betweenness` section (opt-in via `sections=["betweenness"]`) is **served from the ranking persisted at build time** in the clusters artifact (`graph_cluster.compute_betweenness_ranking()`, wave `1p9q3`): a size-tiered computation over the directed calls-only subgraph — exact igraph betweenness below `BETWEENNESS_EXACT_MAX_NODES` (default 25,000), bounded-path `cutoff` approximation below `BETWEENNESS_CUTOFF_MAX_NODES` (default 100,000), and a deterministic degree/fan-out fallback above that or when igraph is unavailable (all thresholds env-overridable via `WAVEFOUNDRY_GRAPH_BETWEENNESS_*`). The response surfaces `betweenness_method` and `betweenness_metadata` (node_count, edge_count, top_n, elapsed_ms, cutoff when applicable). There is no per-query computation and no graph-size cap; a clusters artifact predating the build-time pass returns `betweenness_skipped_reason: "betweenness_not_in_artifact"` with a rebuild hint until the next graph rebuild.
 
@@ -465,10 +465,10 @@ Called from `code_callhierarchy_response()` (outgoing direction, `server_impl.py
 
 ### Wiring
 
-`wave_index_build(content='graph')` invokes `setup_index.py --graph-only --root <root>` (`server_impl.py:2479-2480`). The `--graph-only` flag (`setup_index.py:757, 787-792`) routes to `run_index_rebuild(content="graph")` inside `setup_index.py`, which calls `_build_graph_artifacts()` in `indexer.py:1582-1642`:
+`index_build(content='graph')` invokes `setup_index.py --graph-only --root <root>` (`server_impl.py:2479-2480`). The `--graph-only` flag (`setup_index.py:757, 787-792`) routes to `run_index_rebuild(content="graph")` inside `setup_index.py`, which calls `_build_graph_artifacts()` in `indexer.py:1582-1642`:
 
 ```
-wave_index_build(content='graph')
+index_build(content='graph')
   → setup_index.py --graph-only
     → indexer._build_graph_artifacts()
       → graph_indexer.update_graph_index()   → project-graph.json + state
@@ -520,7 +520,7 @@ Additionally, when code files change, doc artifacts whose cached `mentioned_symb
 | MCP: blast radius | `code_impact_response()` | `server_impl.py:9579` |
 | MCP: shortest path | `code_graph_path_response()` | `server_impl.py:9864` |
 | MCP: community members | `code_graph_community_response()` | `server_impl.py:9951` |
-| MCP: structural report | `wave_graph_report_response()` | `server_impl.py:9719` |
+| MCP: structural report | `wf_graph_report_response()` | `server_impl.py:9719` |
 | MCP: reference restriction | `_graph_references_candidate_files()` | `server_impl.py:9326` |
 | MCP: definition narrowing | `_graph_definition_candidate_files()` | `server_impl.py` |
 | MCP resource: graph status | `wavefoundry://graph/status` | `server_impl.py` |
@@ -534,7 +534,7 @@ The **codebase map** (`docs/references/codebase-map.md`) is a generated, read-on
 
 **repo-index feed (Option A, wave `1p5zr`).** The generator also refreshes a marker-delimited structural block (`<!-- wave:repo-index-modules begin/end -->`) in `docs/repo-index.md` from the area data, keeping the structural module list fresh; the human/agent narrative outside the markers is untouched. The marker is seed-rooted (`seed-030`) so any consuming project carries it. Idempotent + fail-safe (a missing file/markers is a safe no-op).
 
-**Regeneration hook + MCP surface + idempotence (wave `1p601`).** Regeneration is hooked fail-safe into **`indexer.py::build_index`** (after the graph/cluster write), so **every** rebuild path — the freshness monitor, background refresh, and `wave_index_build content="docs"/"code"/"all"`/upgrade — refreshes the map (the old `setup_index` hook was relocated here). It is **change-only / idempotent**: a regeneration with unchanged inputs writes nothing — the render is skipped when a fingerprint over the graph + cluster artifacts **and** the per-area `AGENTS.md` is unchanged, and the write is skipped when the rendered content (ignoring the `Last verified` date line) matches the existing file (preserving the date). The map is exposed over MCP as the resource **`wavefoundry://codebase-map`** (served fresh from the generated file, regenerated fail-safe if missing) and refreshable on demand via **`wave_index_build(content="map")`** (map-only, no full rebuild). New MCP resources/tool options require a **server reconnect** to appear (FastMCP limitation). Also available as a CLI: `wf codebase-map --root .`.
+**Regeneration hook + MCP surface + idempotence (wave `1p601`).** Regeneration is hooked fail-safe into **`indexer.py::build_index`** (after the graph/cluster write), so **every** rebuild path — the freshness monitor, background refresh, and `index_build content="docs"/"code"/"all"`/upgrade — refreshes the map (the old `setup_index` hook was relocated here). It is **change-only / idempotent**: a regeneration with unchanged inputs writes nothing — the render is skipped when a fingerprint over the graph + cluster artifacts **and** the per-area `AGENTS.md` is unchanged, and the write is skipped when the rendered content (ignoring the `Last verified` date line) matches the existing file (preserving the date). The map is exposed over MCP as the resource **`wavefoundry://codebase-map`** (served fresh from the generated file, regenerated fail-safe if missing) and refreshable on demand via **`index_build(content="map")`** (map-only, no full rebuild). New MCP resources/tool options require a **server reconnect** to appear (FastMCP limitation). Also available as a CLI: `wf codebase-map --root .`.
 
 **Per-area `AGENTS.md` context (wave 1p5xc).** Vendor-neutral per-area context files live at major areas' representative paths. `gen_codebase_map.py --scaffold-area-contexts` is an **opt-in** command that scaffolds an empty **stub** `AGENTS.md` for each major area (idempotent; never overwrites an existing file; never auto-authors conventions — humans write the content). `render_markdown` links each area to its `AGENTS.md` when one exists. Discovery is agent-agnostic: the map link, a standing convention line woven into the run-contract seed (`020`) and rendered into every host agent surface, and the doc index (a subdirectory `AGENTS.md` is a normal `.md` file, picked up by the index walk and surfaced in `docs_search` / `code_ask`). The only `@import` the framework adopts is the root `CLAUDE.md` → `@AGENTS.md` bridge (rendered by `render_agent_surfaces.py`); there are no per-folder `CLAUDE.md` bridge files and no nested `@import`.
 

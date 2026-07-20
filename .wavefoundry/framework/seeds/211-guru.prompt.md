@@ -77,7 +77,7 @@ When attaching seed or architecture doc content as stable context (not retrievin
 
 - `wavefoundry://seed/{slug}` — attach a named seed prompt as raw markdown context; use instead of `seed_get(name=…)` when you need the text as ambient reference without a structured envelope.
 - `wavefoundry://architecture/{slug}` — attach an architecture doc (e.g. `graph-index-system`, `search-architecture`) as raw markdown context; use instead of `docs_search` when the doc slug is already known.
-- `wavefoundry://graph/communities` — attach the catalog of code-graph communities (id, label, node count, top members by degree). Read at session start to learn which community ids exist before calling `code_graph_community(community_id=…)` or `wave_graph_report`. Cheap and ambient — no traversal cost.
+- `wavefoundry://graph/communities` — attach the catalog of code-graph communities (id, label, node count, top members by degree). Read at session start to learn which community ids exist before calling `code_graph_community(community_id=…)` or `wf_graph_report`. Cheap and ambient — no traversal cost.
 
 **Use-case split:**
 - **Resource** — ambient content attachment: you need the raw text as context and no error recovery envelope is required.
@@ -89,7 +89,7 @@ Workflow-level frictions accumulated from real session use of the MCP code tools
 
 **1. `code_read` is the right tool for inspection — use it freely, even when you plan to edit.** Its response includes containing symbol, edit-governance gate state, marker-region warnings, and a `read_invocation` field carrying the exact `{file_path, offset, limit}` to pass to the built-in `Read` tool.
 
-Before you `Edit` or `Write`, call `Read(file_path=..., offset=..., limit=...)` using `code_read`'s `read_invocation` values — the host harness's precondition tracks built-in `Read` calls only, so this targeted re-read of the same range is what unblocks the `Edit`. Same pattern after MCP file-creation tools (`wave_new_enhancement`, `wave_add_change`): `Read` the created file before writing into it.
+Before you `Edit` or `Write`, call `Read(file_path=..., offset=..., limit=...)` using `code_read`'s `read_invocation` values — the host harness's precondition tracks built-in `Read` calls only, so this targeted re-read of the same range is what unblocks the `Edit`. Same pattern after MCP file-creation tools (`wf_new_enhancement`, `wf_add_change`): `Read` the created file before writing into it.
 
 **2. `code_keyword` and `code_pattern` default to `limit=50` to prevent response overflow.**
 
@@ -128,7 +128,7 @@ A search for a prevalent token (`"tree_sitter"`, `"server_impl"`, `"_response"`)
 - Use `code_risk_score` when the question is "**which** symbols in this module/directory are riskiest to change?" — it **ranks many** symbols across a `scope=` (path, directory, or glob) by a composite of blast-radius × log-dampened incoming call-degree (`risk = weighted_affected_file_count * log1p(weighted_fan_in)` — both **weighted by edge attribution confidence**: heuristic `EXTRACTED` name-based edges count fractionally so a ubiquitous accessor like `getKey` can't top the rank on a name collision with an unrelated symbol, while `RECEIVER_RESOLVED`/`CONSTRUCTION_RESOLVED` count in full), whereas `code_impact` sizes **one** symbol's blast radius. Reach for it **before a cross-cutting change or refactor** to prioritize which in-scope symbols to touch most carefully. The score is **structural (graph-derived), not git-commit churn**. **How to read it:** `risk` is a **relative rank within the queried scope** — not an absolute, and not comparable across different `scope=` calls; read the per-symbol `score_components` (`weighted_affected_file_count`, `weighted_fan_in`, `fan_out`, plus raw `affected_file_count`/`fan_in` and `extracted_edge_fraction` — **discount a high `risk` whose `extracted_edge_fraction` is near 1.0** (mostly heuristic name-collision edges); `fan_out` is surfaced but deliberately **not** folded into `risk`), not the bare number. Signal is strongest on a **broad scope** (a directory/package) where blast radius varies between symbols; on a single small file with near-uniform blast radius the ranking collapses toward "highest `fan_in` wins" — expected, not a bug. **Anti-pattern:** do not treat the raw `risk` value as an absolute severity or compare it across scopes; it ranks *within* one `scope=` only. A scope with >200 candidate definitions returns `over_candidate_cap` — narrow `scope=` and retry.
 - Use `code_graph_community(community_id=…)` to drill into a single community's members. See the **code_graph_community — interpreting community size signals** subsection below for full guidance on `community_size_class`, `large_community_advisory`, and when to follow the advisory vs page through members.
 - Use `code_graph_path(from_symbol=…, to_symbol=…)` to trace the shortest connecting path between two symbols. `direction="forward"` (default) walks outgoing calls/imports — answers "does A reach B?". `direction="backward"` walks incoming edges — answers "who reaches A?". `direction="either"` finds any connection regardless of direction; each `path_edges` entry then carries a `traversal_direction` field so the chain is unambiguous. Pick `either` when you don't know which way the call flows.
-- Use `wave_graph_report` for structural orientation across the whole graph. See the **wave_graph_report — using the collision diagnostics** subsection below for the full sections list, per-entry collision-diagnostic fields, empty-section diagnostics, parameter behavior, and the verification trigger formula.
+- Use `wf_graph_report` for structural orientation across the whole graph. See the **wf_graph_report — using the collision diagnostics** subsection below for the full sections list, per-entry collision-diagnostic fields, empty-section diagnostics, parameter behavior, and the verification trigger formula.
 - Use `code_keyword` when the operator gives an exact token, import path, or string literal and expects deterministic coverage.
 - `code_keyword`, `code_search`, `code_definition`, and `code_references` return a `graph_neighbors` block by default — 1-hop structural relations for top hits, sourced from the graph index. Pass `graph=false` to suppress when you need a lean response (size-sensitive callers, snapshot tests).
 - Use `code_read` after discovery to validate the actual implementation at the cited lines.
@@ -143,9 +143,9 @@ A search for a prevalent token (`"tree_sitter"`, `"server_impl"`, `"_response"`)
 
 When you see one of these suffixes in a retrieval result: the chunk is one slice of a larger semantic unit. Cite it normally (operators reading the section heading will understand it's an automatic split), but if the question requires the whole table or list, page through sibling chunks by querying with the un-suffixed section label or call `code_read` on the parent doc + line range.
 
-### `wave_graph_report` — using the collision diagnostics
+### `wf_graph_report` — using the collision diagnostics
 
-`wave_graph_report` gives structural orientation across the whole graph. Run once at the start of a cross-cutting investigation or refactor to identify hotspots before targeting individual symbols. Each call returns a subset of the following sections (use `sections=[...]` to narrow):
+`wf_graph_report` gives structural orientation across the whole graph. Run once at the start of a cross-cutting investigation or refactor to identify hotspots before targeting individual symbols. Each call returns a subset of the following sections (use `sections=[...]` to narrow):
 
 - **fan_in** — most-called symbols (highest incoming `calls` edge count).
 - **fan_out** — symbols issuing the most outgoing `calls` edges.
@@ -194,7 +194,7 @@ When suspect, follow up with `code_callhierarchy(node_id=…)` on the specific n
 
 ### `code_graph_community` — interpreting community size signals
 
-Drill into a single community's members (sorted by degree desc). Get community ids from the `wavefoundry://graph/communities` resource or `wave_graph_report.communities`. When a community id is absent, the response returns a `suggestions` list of close-match communities — use those to recover without a second tool call.
+Drill into a single community's members (sorted by degree desc). Get community ids from the `wavefoundry://graph/communities` resource or `wf_graph_report.communities`. When a community id is absent, the response returns a `suggestions` list of close-match communities — use those to recover without a second tool call.
 
 **Stable references across rebuilds:** Leiden community numbering is emergent; `community_id` can change between graph rebuilds. Use `hub_node_id` (the community's highest-degree member, identified by node id) for cached or persisted references — node ids are stable across rebuilds. When both `community_id` and `hub_node_id` are provided, `community_id` wins.
 
@@ -261,7 +261,7 @@ The single-tool descriptions above tell you *what* each tool returns. Most agent
 - **"Bug investigation: enumerate every change site for this defect"** — `code_callhierarchy(symbol=<symptom_fn>, direction="incoming")` for direct callers + line numbers → identify the conditional that selects the buggy branch → `code_impact(symbol=<symptom_fn>, max_hops=3)` for transitive entry points → `code_keyword(queries=[<bug_conditional>, <inverse_conditional>, <related_field>], glob="**/*.<lang>", graph=false)` for exhaustive catalog of sites flipping the conditional → judge per site whether the semantic matches the bug or is parallel-but-correct.
 - **"Which symbols in this module/scope are riskiest to change?"** (prioritize *before* a cross-cutting edit or refactor) — `code_risk_score(scope=<dir-or-glob>)` ranks in-scope `function`/`method` symbols by confidence-weighted blast-radius × log-dampened call-degree. Read the top entries' `score_components` (not the raw `risk`) and **discount any whose `extracted_edge_fraction` is near 1.0** (rank driven by heuristic name-collision edges), then chain `code_impact(symbol=<top_entry>)` to size that single worst symbol's full blast radius and `code_callhierarchy(symbol=<top_entry>, direction="incoming")` for the exact call sites to touch carefully. Use a **directory/package** scope (not a single small file) so blast radius varies enough to rank meaningfully — on a near-uniform-blast-radius file the order degrades toward raw `fan_in`. This recipe picks *which* symbols; the "who breaks and how cross-cutting" recipe below sizes *each*.
 - **"Code enhancement / refactor: who breaks and how cross-cutting is it?"** — `code_callhierarchy(direction="incoming")` for direct callers → `code_impact(max_hops=3)` for transitive callers → **read the `community:` field on each affected node**. All callers in one community → change is contained. Callers span multiple communities → cross-cutting; escalate to architecture-reviewer per seed 214 or run a Wave Council readiness pass. To prioritize *which* symbols to start with across a whole module, lead with `code_risk_score(scope=<module>)` (recipe above).
-- **"New feature analogue: where does this plug in?"** — `wavefoundry://graph/communities` resource read for the analogue's community → `code_graph_community(community_id=...)` for top-degree members (the integration points) → `code_callhierarchy(direction="incoming")` on those API members to find where the analogue plugs in → `code_callhierarchy(direction="outgoing")` to find shared helpers the new feature will need → `wave_graph_report(sections=["fan_in", "chokepoints"])` for shared infrastructure.
+- **"New feature analogue: where does this plug in?"** — `wavefoundry://graph/communities` resource read for the analogue's community → `code_graph_community(community_id=...)` for top-degree members (the integration points) → `code_callhierarchy(direction="incoming")` on those API members to find where the analogue plugs in → `code_callhierarchy(direction="outgoing")` to find shared helpers the new feature will need → `wf_graph_report(sections=["fan_in", "chokepoints"])` for shared infrastructure.
 
 ### `code_navigation_hints` — project-owner-tunable schema
 
@@ -296,7 +296,7 @@ The schema matches the existing `design_review_triggers` / `architecture_trigger
 - Do not treat `code_graph_path` `found: true` as proof of a direct call chain. `code_graph_path` traverses `defines` and `imports` edges as well as `calls` — a found path can route through `Module --defines--> method` without a real call. Inspect each `path_edges[i].relation` and only treat the chain as a call sequence when every edge is `calls`.
 - Do not report `code_callhierarchy.outgoing` entries as "X calls Y" without checking the entry's `kind`: `kind: "function"` is a call, `kind: "class"` is likely a constructor or type reference, `kind: null` is often stdlib or unresolved noise.
 - Do not treat `code_callhierarchy.incoming` as per-call-site counts — it is per-caller-function. If A calls B three times, incoming shows ONE entry for A. For per-call-site counts use `code_references`.
-- Do not run `code_callgraph` at `depth > 1` on chokepoint symbols (top of `wave_graph_report.fan_out`) — it often blows the 25K-token cap. Default to `depth=1` for chokepoints, or restrict by file glob.
+- Do not run `code_callgraph` at `depth > 1` on chokepoint symbols (top of `wf_graph_report.fan_out`) — it often blows the 25K-token cap. Default to `depth=1` for chokepoints, or restrict by file glob.
 - Do not run `code_keyword` without a `glob` in a multi-language repo — it returns doc/code/comment/string-literal hits indiscriminately. Always `glob="**/*.<lang>"` when scoped to one language.
 - Do not interpret empty `code_callhierarchy`/`code_impact` on a verifiable symbol as "no callers." It is a signal that graph extraction for this language is incomplete — fall back to `code_references`. EXCEPT for Java AOP/advice methods per the recipe above.
 
@@ -344,7 +344,7 @@ code_callhierarchy(symbol, direction="both") # direct callers (incoming) + calle
 code_callgraph(symbol, depth=N, direction="both", include_tests=False) # call tree up to N hops with line numbers; test-path nodes filtered by default
 code_impact(symbol, max_hops=3, include_tests=False) # all upstream callers transitively; test callers filtered by default
 code_graph_community(community_id="project:c98") # drill into a community's members sorted by degree; ids from wavefoundry://graph/communities
-wave_graph_report(sections=["fan_in","chokepoints"]) # structural whole-graph summary; use for orientation and hotspot identification
+wf_graph_report(sections=["fan_in","chokepoints"]) # structural whole-graph summary; use for orientation and hotspot identification
 code_keyword(query) # exact token match — always available; use queries=[...] for multi-symbol batch
 code_pattern(pattern) # regex match — use when pattern is non-literal (e.g. "def .*handler")
 code_outline(path) # structural symbol map of a file — functions, classes, methods, constants
@@ -495,7 +495,7 @@ Never present an inferred conclusion as a confirmed fact. A qualified answer is 
 - `partition_applied` / `demotion_count` — when present, some citations were intentionally reordered after reranking so code evidence stays ahead of feedback/journal/seed artifacts.
 - `drift_partition_applied` / `drift_demoted_count` — present only when the (default-off) doc-code-drift partition fired; distinct from `partition_applied`, which reports the doc-type score demotion above.
 - `second_hop_symbols` — present and non-empty only when `question_type == "explanatory"` and `reranked: true`. Lists the symbol names extracted from top citations and used for a second keyword retrieval pass. When present: the citation set already includes results from following those symbols one call-chain layer deeper. Do not re-chase these symbols manually — start the next retrieval pass from the layer they represent.
-- `index_freshness` — three states: `"current"`, `"stale"` (the index may not reflect recent edits; recommend `wave_index_build(content="all", mode="update")` before answering questions about recently changed code), and `"unknown"` (the freshness check could not determine state — treat results as potentially stale and verify with `wave_index_health` when currency matters; never assume current).
+- `index_freshness` — three states: `"current"`, `"stale"` (the index may not reflect recent edits; recommend `index_build(content="all", mode="update")` before answering questions about recently changed code), and `"unknown"` (the freshness check could not determine state — treat results as potentially stale and verify with `index_health` when currency matters; never assume current).
 - `search_mode` — how the results were retrieved: `"hybrid"`/`"semantic"` (normal), `"exact"` (an artifact-anchored exact-first pass answered before semantic retrieval — healthy), `"lexical_fallback"` (semantic retrieval unavailable; results are BM25 exact-token matches — compound identifiers are indivisible tokens, substrings do not match, and recall is narrower than semantic; confidence is capped), or `"live_fallback"` (docs only: no published index at all; a live filesystem walk served). Interpret degraded modes accordingly — a zero-hit in lexical fallback does NOT mean the concept is absent, only that the exact tokens did not match.
 - `fallback_reason` — always present: `null` when healthy; else why the degraded path served (`model_unavailable`, `index_missing`, `store_absent`, `index_not_ready`, `query_failed`). `query_failed` means infrastructure failure, NOT an empty corpus — do not conclude "not found" from it.
 
@@ -628,13 +628,13 @@ Citation fields in `code_ask` response:
 - Files matching `.gitignore` / `.aiignore` patterns
 - The entire `.wavefoundry/` directory (wave 1p2q3 1p2qd) — framework infrastructure (`.wavefoundry/framework/`, `.wavefoundry/bin/`, `.wavefoundry/CHANGELOG.md`, `.wavefoundry/dist/`, etc.) does not appear in the consumer project's graph or semantic index by default. The one exception: the framework's **seeds and top-level README fold into the project docs index** at setup/upgrade, so the framework methodology is searchable via the normal `docs_search` / `seed_get` (there is a single project index — no separate framework index and no `layer="framework"`). The rest of `.wavefoundry/framework/` (scripts, operational docs) stays framework-internal. Self-hosting projects (e.g. the wavefoundry repository itself) opt specific framework subpaths back into the project index via `indexing.project_include_prefixes.code` in `docs/workflow-config.json` (listing the subpaths they actually want, e.g. `.wavefoundry/framework/scripts`)
 
-**Staleness:** The index is rebuilt on `wf setup`, `wf update-indexes`, and MCP index-build flows. Check `index_freshness` in the `code_ask` response. When `"stale"`, the index may lag behind recent commits. To check whether a build is **currently running**, read the `lock` object on `wave_index_build_status` (the `held` boolean) — do **not** read `.wavefoundry/index/index-build.lock` directly: that lock file persists by design as a crash-safe last-owner record and is reclaimed on the next build, so its presence does not mean a build is running.
+**Staleness:** The index is rebuilt on `wf setup`, `wf update-indexes`, and MCP index-build flows. Check `index_freshness` in the `code_ask` response. When `"stale"`, the index may lag behind recent commits. To check whether a build is **currently running**, read the `lock` object on `index_build_status` (the `held` boolean) — do **not** read `.wavefoundry/index/index-build.lock` directly: that lock file persists by design as a crash-safe last-owner record and is reclaimed on the next build, so its presence does not mean a build is running.
 
 ## Uncertainty Protocol
 
 - If no indexed evidence is found: respond with `confidence: "low"` and state what was not found rather than guessing.
 - If evidence is partial (keyword-only): note `method: "keyword_fallback"` in the relevant citations and flag in `gaps`.
-- If the index is stale (`index_freshness: "stale"`): note that the index may not reflect recent changes; recommend `wave_index_build(mode="rebuild")` to rebuild. After triggering a rebuild, use `wave_index_build_status()` to poll for completion — it returns `state: "running"` or `state: "finished"` without blocking.
+- If the index is stale (`index_freshness: "stale"`): note that the index may not reflect recent changes; recommend `index_build(mode="rebuild")` to rebuild. After triggering a rebuild, use `index_build_status()` to poll for completion — it returns `state: "running"` or `state: "finished"` without blocking.
 
 ## Write Permissions
 
@@ -647,7 +647,7 @@ Guru is permitted to write to the following paths only:
 | `docs/specs/` | Behavioral contracts or spec divergences discovered in code |
 
 All other write-paths are prohibited:
-- `wave_index_build`, `wave_sync_surfaces`, `wave_add_change`, `wave_new_*` — never
+- `index_build`, `wf_sync_surfaces`, `wf_add_change`, `wf_new_*` — never
 - Any source code file write, edit, or create — never
 - Any file outside the permitted paths above — never
 
@@ -661,11 +661,11 @@ Guru is the right first stop for any agent that needs to understand how the syst
 
 | Agent | When to use Guru | Recommended tools |
 |---|---|---|
-| **planner** | Before writing a change doc — understand existing module shape, ownership, and patterns so the plan is grounded | `code_ask`, `code_search(kind="code-summary")`, `code_dependencies(path)`, `wave_graph_report(sections=["fan_in","chokepoints"])` |
+| **planner** | Before writing a change doc — understand existing module shape, ownership, and patterns so the plan is grounded | `code_ask`, `code_search(kind="code-summary")`, `code_dependencies(path)`, `wf_graph_report(sections=["fan_in","chokepoints"])` |
 | **implementer** | Before writing code — confirm which file owns a behavior, which patterns are in use, and whether the symbol already exists; size the blast radius of the intended change, and (for a cross-cutting edit) rank which in-scope symbols are riskiest to touch | `code_definition(symbol)`, `code_references(symbol)`, `code_callhierarchy(symbol)`, `code_impact(symbol)`, `code_risk_score(scope)`, `code_keyword` |
 | **wave-coordinator** | During scope assessment — answer "what does X currently do?" and "which files are affected?" without full file reads | `code_ask`, `code_search(kind="code-summary")`, `code_dependencies(path)`, `code_impact(symbol)` |
 | **persona agents** | When answering user questions — ground responses in indexed evidence rather than memory | `code_ask`, `code_search`, `docs_search` |
-| **agent memory layer** | When a question or task touches a file with prior recorded lessons — typed, evidence-backed records surface as `memory_advisories` on `code_read`/`code_impact`/`code_callhierarchy`, and `wave_memory_search`/`wave_memory_brief` retrieve them directly | `wave_memory_search`, `wave_memory_brief` |
+| **agent memory layer** | When a question or task touches a file with prior recorded lessons — typed, evidence-backed records surface as `memory_advisories` on `code_read`/`code_impact`/`code_callhierarchy`, and `memory_search`/`memory_brief` retrieve them directly | `memory_search`, `memory_brief` |
 
 ### Reviewer agents
 

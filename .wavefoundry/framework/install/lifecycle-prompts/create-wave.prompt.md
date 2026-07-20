@@ -9,7 +9,7 @@ does not imply readiness, implementation approval, or delivery approval.
 
 ## Contract
 
-1. Use `wave_create_wave` when the Wavefoundry MCP server is available.
+1. Use `wf_create_wave` when the Wavefoundry MCP server is available.
 2. Admit only named change documents; do not silently add unrelated work.
 3. Create `docs/waves/<wave-id>/wave.md`; create sibling `events.jsonl` as an
    exactly empty file, and record the zero-record adoption proof in

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-25
+Last verified: 2026-07-20
 
 ## Working Modes
 
@@ -29,6 +29,6 @@ If delivery uncovers a new durable decision or invalidated shared assumption, re
 
 After implementation, before wave closure:
 1. `python3 .wavefoundry/framework/scripts/run_tests.py` passes
-2. Docs gate passes: **MCP `wave_garden` / `wave_validate`** when the server is attached, otherwise `wf docs-gardener && wf docs-lint`
+2. Docs gate passes: **MCP `wf_garden_docs` / `wf_validate_docs`** when the server is attached, otherwise `wf docs-gardener && wf docs-lint`
 3. All required review lanes complete with findings recorded in `## Review checkpoints`
 4. Docs-contract review disposition recorded (reviewed or N/A with rationale)

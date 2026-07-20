@@ -35,22 +35,21 @@ between the markers is machine-maintained; the surrounding narrative is not.
 
 | Area | Path | Kind | Size (nodes) |
 | ---- | ---- | ---- | ------------ |
-| tests | `.wavefoundry/framework/scripts/tests` | code | 8817 |
-| server_impl | `.wavefoundry/framework/scripts` | code | 773 |
-| graph | `.wavefoundry/framework/scripts` | code | 352 |
-| dashboard_lib | `.wavefoundry/framework/scripts` | code | 233 |
+| tests | `.wavefoundry/framework/scripts/tests` | code | 8839 |
+| server_impl | `.wavefoundry/framework/scripts` | code | 797 |
+| graph | `.wavefoundry/framework/scripts` | code | 343 |
 | dashboard | `.wavefoundry/framework/dashboard` | code | 214 |
-| wave_lint_lib | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 193 |
+| wave_lint_lib | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 191 |
 | chunker | `.wavefoundry/framework/scripts` | code | 179 |
-| upgrade_wavefoundry | `.wavefoundry/framework/scripts` | code | 152 |
+| upgrade_wavefoundry | `.wavefoundry/framework/scripts` | code | 165 |
 | subprocess_util | `.wavefoundry/framework/scripts` | code | 148 |
 | indexer | `.wavefoundry/framework/scripts` | code | 138 |
-| dashboard/dashboard | `.wavefoundry/framework/scripts` | code | 117 |
-| context_efficiency | `.wavefoundry/framework/scripts` | code | 101 |
-| review_evidence | `.wavefoundry/framework/scripts` | code | 96 |
+| dashboard/dashboard | `.wavefoundry/framework/scripts` | code | 118 |
+| context_efficiency | `.wavefoundry/framework/scripts` | code | 109 |
+| review_evidence | `.wavefoundry/framework/scripts` | code | 94 |
 | render_agent_surfaces | `.wavefoundry/framework/scripts` | code | 86 |
-| workflow-config | `.wavefoundry/framework/scripts` | code | 67 |
 | gen_codebase_map | `.wavefoundry/framework/scripts` | code | 57 |
+| build_pack | `.wavefoundry/framework/scripts` | code | 55 |
 | graph_di_signals | `.wavefoundry/framework/scripts` | code | 44 |
 | graph_cluster | `.wavefoundry/framework/scripts` | code | 38 |
 | upgrade_extensions | `.wavefoundry/framework/scripts` | code | 33 |
@@ -58,6 +57,7 @@ between the markers is machine-maintained; the surrounding narrative is not.
 | design_token_build | `.wavefoundry/framework/scripts` | code | 25 |
 | docs_gardener | `.wavefoundry/framework/scripts` | code | 17 |
 | server | `.wavefoundry/framework/scripts` | code | 13 |
+| run_tests | `.wavefoundry/framework/scripts` | code | 9 |
 | tokens | `docs/design-system/tokens` | config | 320 |
 <!-- wave:repo-index-modules end -->
 

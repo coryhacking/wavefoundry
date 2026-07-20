@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: rejected
-Last verified: 2026-07-18
+Last verified: 2026-07-20
 
 Memory ID: `mem-decision-upgrade-cleanup-in-upgrade-wavefoundry-py-code-inst`
 Kind: `decision`
@@ -20,7 +20,7 @@ Current target verified: true
 Canonical overlap: duplicates
 ## Summary
 
-Decision (wave 1rycd): Upgrade cleanup in `upgrade_wavefoundry.py` (code); install cleanup as a seed-012 step.. Rationale: Upgrade has a mechanical script (MCP `wave_upgrade` + `wf upgrade` CLI both run it) so code makes it automatic; install is agent-driven with no finalizing script, so a seed step is the right home..
+Decision (wave 1rycd): Upgrade cleanup in `upgrade_wavefoundry.py` (code); install cleanup as a seed-012 step.. Rationale: Upgrade has a mechanical script (MCP `wf_upgrade` + `wf upgrade` CLI both run it) so code makes it automatic; install is agent-driven with no finalizing script, so a seed step is the right home..
 
 ## Evidence
 

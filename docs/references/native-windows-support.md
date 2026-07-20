@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: supported
-Last verified: 2026-07-02
+Last verified: 2026-07-20
 
 ## Context
 
@@ -33,7 +33,7 @@ The floor is not zero. The work is finishing and verifying, not starting from sc
 
 On native Windows a Python process spawned without a no-window flag can flash a blank console. Wavefoundry suppresses the windows it controls and documents the one it does not:
 
-- **Synchronous helper subprocesses** launched by the MCP server (docs-lint, docs-gardener, sync-surfaces, upgrade phases, sensors, and similar bounded calls) go through one shared helper that sets `stdin=subprocess.DEVNULL`, captures/redirects stdout/stderr, and adds `CREATE_NO_WINDOW` on Windows. This both eliminates their console flash and keeps them from inheriting the MCP server's JSON-RPC stdio (the cause of the `wave_validate`/docs-lint-over-MCP timeout).
+- **Synchronous helper subprocesses** launched by the MCP server (docs-lint, docs-gardener, sync-surfaces, upgrade phases, sensors, and similar bounded calls) go through one shared helper that sets `stdin=subprocess.DEVNULL`, captures/redirects stdout/stderr, and adds `CREATE_NO_WINDOW` on Windows. This both eliminates their console flash and keeps them from inheriting the MCP server's JSON-RPC stdio (the cause of the `wf_validate_docs`/docs-lint-over-MCP timeout).
 - **Detached background jobs** (the index refresh, the dashboard daemon) already run window-free: `DETACHED_PROCESS` does not allocate a console, so they show no window regardless. `CREATE_NO_WINDOW` is additionally applied where it composes safely; on already-detached paths it is defensive, not load-bearing.
 - **The main MCP server window is host-controlled, not Wavefoundry-controlled.** The MCP host (Claude Code, Cursor, …) creates the `python3 server.py` process; nothing inside `server.py` can hide that window after the host has created it. If a blank window persists after child-process suppression, the visible process is the host-launched server, and the remedy is a host-side no-console launcher strategy (e.g. a `pythonw`-style launcher) — tracked as an evidence-gated follow-up, not something the framework can fix from inside the server.
 

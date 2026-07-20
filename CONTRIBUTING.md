@@ -82,7 +82,7 @@ After editing anything under `docs/`, run:
 wf docs-lint
 ```
 
-If an MCP server is attached, `wave_validate` and `wave_garden` are the
+If an MCP server is attached, `wf_validate_docs` and `wf_garden_docs` are the
 preferred checks. The `docs-lint` hook runs automatically on save and must
 exit clean before the change is mergeable.
 
@@ -99,7 +99,7 @@ Wavefoundry develops itself using the Wave Framework. The expectation is:
    gate is enforced; do not edit repository code before this step passes.
 4. **Implement** — make the change.
 5. **Review wave** — required reviewer lanes (security, performance,
-   architecture, operator) run via `wave_review`.
+   architecture, operator) run via `wf_review_wave`.
 6. **Close wave** — operator signoff plus all declared lanes recorded.
    Produces a permanent record in `docs/waves/`.
 

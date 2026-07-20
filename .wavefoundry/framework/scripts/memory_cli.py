@@ -4,15 +4,15 @@ from __future__ import annotations
 
 import argparse
 import json
-from pathlib import Path
 
+import repo_root
 import server_impl
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("action", choices=("backfill", "validate"))
-    parser.add_argument("--root", default=".")
+    parser.add_argument("--root", default=None, help="Repository root (default: discovered from the script's install location, not cwd)")
     parser.add_argument("--mode", default="create", choices=("dry_run", "create"))
     parser.add_argument("--limit", type=int, default=20)
     parser.add_argument("--entry-path", default="manual")
@@ -32,16 +32,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--rewrite-target", action="append", default=[])
     parser.add_argument("--rewrite-confidence", type=float, default=0.8)
     args = parser.parse_args(argv)
-    root = Path(args.root).expanduser().resolve()
+    root = repo_root.discover_root(args.root)
     if args.action == "backfill":
-        response = server_impl.wave_memory_backfill_response(
+        response = server_impl.memory_backfill_response(
             root,
             mode=args.mode,
             limit=args.limit,
             entry_path=args.entry_path,
         )
     else:
-        response = server_impl.wave_memory_validate_response(
+        response = server_impl.memory_validate_response(
             root,
             args.memory_id,
             args.verdict,

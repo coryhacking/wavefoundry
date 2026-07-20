@@ -13,13 +13,13 @@ This seed used to carry the full install body. As of wave `1p35d` (1.5.0), insta
 
 ## Where the state lives
 
-The install state machine is `wavefoundry-install-log.md`, a pre-populated checkbox list that ships at the zip root next to `install-wavefoundry.md` (the agent-readable entry doc). The agent reads the first unchecked row, executes the named seed step, marks `[x]`, advances. After the restart between phases, Phase 2 uses `wave_install_audit` for end-to-end validation.
+The install state machine is `wavefoundry-install-log.md`, a pre-populated checkbox list that ships at the zip root next to `install-wavefoundry.md` (the agent-readable entry doc). The agent reads the first unchecked row, executes the named seed step, marks `[x]`, advances. After the restart between phases, Phase 2 uses `wf_audit_install` for end-to-end validation.
 
 ## How to enter
 
 - **From a fresh zip** (the common case): operator extracts the zip into their repo root. Agent finds `install-wavefoundry.md` and follows the install log.
 - **From the shortcut phrase** (`Install Wavefoundry` etc.): if the install log already exists, continue from the first unchecked row. If the install log doesn't exist (rare — only when the entry doc was deleted), regenerate it from `.wavefoundry/framework/templates/wavefoundry-install-log.md.template`.
-- **Mid-install resumption**: a new agent session entering this surface MUST call `wave_install_audit` first to confirm the log's `[x]` markers actually have their expected artifacts. The trustworthy-invariant rule is captured in `docs/references/install-log-format.md`.
+- **Mid-install resumption**: a new agent session entering this surface MUST call `wf_audit_install` first to confirm the log's `[x]` markers actually have their expected artifacts. The trustworthy-invariant rule is captured in `docs/references/install-log-format.md`.
 
 ## What about Upgrade?
 

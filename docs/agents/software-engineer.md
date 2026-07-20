@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: software-engineer
 Category: build
-Last verified: 2026-05-21
+Last verified: 2026-07-20
 
 ## Operating Identity
 
@@ -108,4 +108,4 @@ Stop and record a note or journal entry when:
 **Gate protocol:**
 - Seed edits: open `seed_edit_allowed` gate before, close immediately after
 - Broad framework edits: open `framework_edit_allowed` gate before, close immediately after
-- Use `wave_gate_status()` to inspect current posture before editing guarded surfaces
+- Use `wf_gate_status()` to inspect current posture before editing guarded surfaces

@@ -12,7 +12,7 @@ Canonical public prompt doc:
 Tasks:
 
 1. Generate a public prompt doc that describes `Stop dashboard` as the repo-local control command for the dashboard process recorded in the current checkout.
-2. Make the operator-facing path use the MCP tool `wave_dashboard_stop`.
+2. Make the operator-facing path use the MCP tool `wf_stop_dashboard`.
 3. Explain that the command targets only the current repository's dashboard metadata and process.
 4. Clarify that dashboards in other repositories are unaffected.
 5. Keep the prompt clear that stop is control-only and has no browser-launch fallback.

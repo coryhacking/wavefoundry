@@ -186,20 +186,20 @@ class EstimatorAndProofTests(TempRootTest):
         )
 
     def test_workflow_noop_keeps_debits_but_gets_no_prompt_credit(self) -> None:
-        prompt = self.root / ce.LIFECYCLE_PROMPT_MAP["wave_prepare"]
+        prompt = self.root / ce.LIFECYCLE_PROMPT_MAP["wf_prepare_wave"]
         prompt.parent.mkdir(parents=True)
         prompt.write_text("p" * 200, encoding="utf-8")
         noop = ce.workflow_instruction_proxy(
             {"status": "ready"},
             self.root,
-            "wave_prepare",
+            "wf_prepare_wave",
             request_arguments={"mode": "dry_run"},
             milestone_completed=False,
         )
         completed = ce.workflow_instruction_proxy(
             {"status": "ready"},
             self.root,
-            "wave_prepare",
+            "wf_prepare_wave",
             request_arguments={"mode": "ready"},
             milestone_completed=True,
         )
@@ -486,7 +486,7 @@ t.record_retrieval({
 
     def test_wave_total_is_sum_of_floored_stage_savings(self) -> None:
         telemetry = ce.ProcessTelemetry(self.root)
-        telemetry.set_focus("1wave", "prepare", new_phase=True)
+        telemetry.set_focus("1wave", "plan", new_phase=True)
         telemetry.record_retrieval(
             _metric(
                 source_id="none",
@@ -513,7 +513,7 @@ t.record_retrieval({
         # direct_net is still 100 in the stored accounting; only the displayed
         # savings total changed from flooring-the-sum to summing-the-floors.)
         self.assertEqual(
-            snapshot["stages"]["prepare"]["estimated_tokens_saved"], 0
+            snapshot["stages"]["plan"]["estimated_tokens_saved"], 0
         )
         self.assertEqual(
             snapshot["stages"]["review"]["estimated_tokens_saved"], 200
@@ -617,7 +617,7 @@ t.record_retrieval({
         initial = first.flush(self.root, transfer_general_to="1wave")
         self.assertTrue(initial.success)
         self.assertEqual(
-            ce.read_wave_snapshot(self.root, "1wave")["stages"]["pre-wave"][
+            ce.read_wave_snapshot(self.root, "1wave")["stages"]["plan"][
                 "calls"
             ],
             1,
@@ -631,7 +631,7 @@ t.record_retrieval({
         replay = first.flush(self.root, transfer_general_to="1wave")
         self.assertTrue(claimed.success)
         self.assertTrue(replay.success)
-        stage = ce.read_wave_snapshot(self.root, "1wave")["stages"]["pre-wave"]
+        stage = ce.read_wave_snapshot(self.root, "1wave")["stages"]["plan"]
         self.assertEqual(stage["calls"], 2)
         self.assertEqual(stage["source_credit_count"], 2)
         self.assertEqual(ce.read_general_totals(self.root)["calls"], 0)
@@ -647,7 +647,7 @@ t.record_retrieval({
         self.assertTrue(
             first.flush(self.root, transfer_general_to="1wave").success
         )
-        stage = ce.read_wave_snapshot(self.root, "1wave")["stages"]["pre-wave"]
+        stage = ce.read_wave_snapshot(self.root, "1wave")["stages"]["plan"]
         self.assertEqual(stage["calls"], 2)
         self.assertEqual(stage["request_debit"], 10)
         self.assertEqual(stage["response_debit"], 20)
@@ -716,7 +716,7 @@ t.record_retrieval({
         self.assertEqual(
             ce.read_general_totals(self.root, peer.producer_id)["calls"], 1
         )
-        self.assertNotIn("pre-wave", ce.read_wave_snapshot(self.root, "1wave")["stages"])
+        self.assertNotIn("plan", ce.read_wave_snapshot(self.root, "1wave")["stages"])
         peer.close()
         sweeper.close()
 
@@ -914,7 +914,7 @@ class CheckpointTests(TempRootTest):
             "pending": False,
             "store_instance_id": "store-a",
             "measurement_status": "healthy",
-            "stages": {"prepare": negative, "review": positive},
+            "stages": {"plan": negative, "review": positive},
         }
         normalized = ce._normalized_checkpoint_state(raw)
         self.assertEqual(normalized["totals"]["estimated_tokens_saved"], 200)
@@ -978,7 +978,7 @@ class CheckpointTests(TempRootTest):
 
     def test_closed_checkpoint_restores_sealed_floor_after_store_loss(self) -> None:
         telemetry = ce.ProcessTelemetry(self.root)
-        telemetry.set_focus("1wave", "close")
+        telemetry.set_focus("1wave", "review")
         telemetry.record_retrieval(_metric(), event_id="a")
         published = ce.read_wave_snapshot(self.root, "1wave")
         published["pending"] = False
@@ -1263,6 +1263,52 @@ class PairedEvaluationTests(TempRootTest):
         )
         stage = ce.read_wave_snapshot(self.root, "1wave")["stages"]["review"]
         self.assertEqual(stage["matched_pair_residual"], 250)
+
+
+class ThreeStageModelTests(TempRootTest):
+    """Wave 1t3gt (1t3ld): plan / implement / review are the ONLY stage values
+    the accounting layer ever writes; no legacy vocabulary is recognized."""
+
+    def test_set_focus_rejects_non_canonical_stages(self):
+        telemetry = ce.ProcessTelemetry(self.root)
+        try:
+            for legacy in ("prepare", "close", "pre-wave", "general", "anything"):
+                with self.assertRaises(ValueError, msg=legacy):
+                    telemetry.set_focus("1wave", legacy)
+        finally:
+            telemetry.close()
+
+    def test_set_focus_accepts_all_canonical_stages(self):
+        telemetry = ce.ProcessTelemetry(self.root)
+        try:
+            for stage in ce.CANONICAL_STAGES:
+                telemetry.set_focus("1wave", stage, new_phase=True)
+        finally:
+            telemetry.close()
+
+    def test_adopted_general_telemetry_lands_in_plan(self):
+        telemetry = ce.ProcessTelemetry(self.root)
+        telemetry.record_retrieval(_metric(), event_id="unattributed")
+        self.assertTrue(
+            telemetry.flush(self.root, transfer_general_to="1wave").success
+        )
+        stages = ce.read_wave_snapshot(self.root, "1wave")["stages"]
+        self.assertIn("plan", stages)
+        self.assertNotIn("pre-wave", stages)
+        telemetry.close()
+
+    def test_snapshot_orders_stages_plan_implement_review(self):
+        telemetry = ce.ProcessTelemetry(self.root)
+        for stage in ("review", "implement", "plan"):
+            telemetry.set_focus("1wave", stage, new_phase=True)
+            telemetry.record_retrieval(
+                _metric(source_id=f"src-{stage}"), event_id=f"ev-{stage}"
+            )
+        snapshot = ce.read_wave_snapshot(self.root, "1wave")
+        self.assertEqual(
+            list(snapshot["stages"]), ["plan", "implement", "review"]
+        )
+        telemetry.close()
 
 
 if __name__ == "__main__":

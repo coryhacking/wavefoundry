@@ -27,16 +27,16 @@ Anything that's going to live for a while can benefit.
 - **Semantic search over code and docs** — the agent searches by intent rather than grep pattern, with reranked results across your code and your `docs/` tree.
 - **Code-graph queries** — call hierarchies, impact analysis, references, dependency walks, community clustering.
 
-All exposed as MCP tools — `docs_search`, `code_search`, `code_ask`, `code_callhierarchy`, `code_impact`, `code_references`, `code_graph_community`, `wave_graph_report`, and others. They work before any wave runs. The agent stops inventing functions that don't exist and starts answering "where do we handle X?" from your actual code.
+All exposed as MCP tools — `docs_search`, `code_search`, `code_ask`, `code_callhierarchy`, `code_impact`, `code_references`, `code_graph_community`, `wf_graph_report`, and others. They work before any wave runs. The agent stops inventing functions that don't exist and starts answering "where do we handle X?" from your actual code.
 
-**Built-in secrets detection.** The framework scans your project for hardcoded credentials, API keys, and tokens on every wave using a [Gitleaks](https://github.com/gitleaks/gitleaks)-based TOML ruleset (MIT licensed, community maintained). Findings land in `docs/scan-findings.json` with a lifecycle — `pending` → `false-positive` (requires multi-reviewer confirmation) or `confirmed-secret` (requires per-wave operator acknowledgment). `Close wave` refuses until every finding is resolved. Call `wave_scan_secrets` for an on-demand scan at any time; incremental mode automatically escalates to a full scan when the ruleset changes.
+**Built-in secrets detection.** The framework scans your project for hardcoded credentials, API keys, and tokens on every wave using a [Gitleaks](https://github.com/gitleaks/gitleaks)-based TOML ruleset (MIT licensed, community maintained). Findings land in `docs/scan-findings.json` with a lifecycle — `pending` → `false-positive` (requires multi-reviewer confirmation) or `confirmed-secret` (requires per-wave operator acknowledgment). `Close wave` refuses until every finding is resolved. Call `wf_scan_secrets` for an on-demand scan at any time; incremental mode automatically escalates to a full scan when the ruleset changes.
 
 ---
 
 ## Design principles
 
 - **Local-first.** Operational state lives on disk in your repo and your home directory. No service, no account, no telemetry.
-- **Structural enforcement over policy.** Gates fire in the framework, not in seed-prompt language. An agent cannot talk its way past `wave_close`.
+- **Structural enforcement over policy.** Gates fire in the framework, not in seed-prompt language. An agent cannot talk its way past `wf_close_wave`.
 - **Framework as a deployable artifact.** Wavefoundry ships as a zip that any repository can install or upgrade. The framework evolves in Wavefoundry's own wave process, gets packaged, and propagates to downstream projects.
 - **Honest about scope.** What's required is required; what's optional is clearly labeled.
 
@@ -105,22 +105,22 @@ The Wavefoundry MCP server is what Phase 1 installs, so this phase runs from you
 
 Quit and relaunch your agent, or use your host's MCP reload command. After restart, the `wavefoundry` MCP server appears in your host's MCP server list and the agent can call `wave_*` tools.
 
-**To resume, type `Install Wavefoundry` again.** The install shortcut is state-aware: when `.wavefoundry/install-log.md` already exists, the agent continues from the first unchecked row (which is Phase 2 row 2.1, `wave_install_audit(phase=1)`). No separate "start Phase 2" phrase is needed.
+**To resume, type `Install Wavefoundry` again.** The install shortcut is state-aware: when `.wavefoundry/install-log.md` already exists, the agent continues from the first unchecked row (which is Phase 2 row 2.1, `wf_audit_install(phase=1)`). No separate "start Phase 2" phrase is needed.
 
 ---
 
 #### Phase 2 — Project discovery (MCP-driven)
 
-With the MCP server reachable, the agent walks through `.wavefoundry/install-log.md` row-by-row, calling `wave_install_audit` between rows to enforce lint-as-you-go (lint errors and missing artifacts block advancement). Phase 2 bootstraps project-specific artifacts tailored to your repo — this is where Wavefoundry stops looking like a generic install and starts looking like *your* repo's framework. The agent:
+With the MCP server reachable, the agent walks through `.wavefoundry/install-log.md` row-by-row, calling `wf_audit_install` between rows to enforce lint-as-you-go (lint errors and missing artifacts block advancement). Phase 2 bootstraps project-specific artifacts tailored to your repo — this is where Wavefoundry stops looking like a generic install and starts looking like *your* repo's framework. The agent:
 
-- **Audits Phase 1 artifacts** (`wave_install_audit(phase=1)`) — recovers if any are missing.
+- **Audits Phase 1 artifacts** (`wf_audit_install(phase=1)`) — recovers if any are missing.
 - **Profiles your repo** — `docs/repo-profile.json` (archetype, traits, applicable factors), `docs/repo-index.md`.
 - **Bootstraps the canonical `docs/` structure** — `architecture/`, `contributing/`, `plans/`, `references/`, `prompts/`, `waves/`, `agents/`.
 - **Generates per-role agent docs** — `docs/agents/<role>.md` per enabled role, including the three council specialists (`wave-council`, `red-team`, `archetype-council`) loaded from their authoritative seeds.
 - **Maps your architecture** — `docs/ARCHITECTURE.md` plus `current-state.md`, `domain-map.md`, `layering-rules.md`, `cross-cutting-concerns.md`, `data-and-control-flow.md`, `testing-architecture.md`.
 - **Establishes posture** — `QUALITY_SCORE.md`, `RELIABILITY.md`, `SECURITY.md`, `PERFORMANCE.md` (when applicable).
 - **Wires the docs gate**, **generates the prompt surface**, **bootstraps wave artifacts**, **synthesizes personas**, **bootstraps per-role journals**, and **registers drift expectations**.
-- **Confirms complete.** Final `wave_install_audit()` returns `{status: "complete"}`. The agent delivers an operator summary covering what was seeded, the workflow, commands, roles, and the docs gate.
+- **Confirms complete.** Final `wf_audit_install()` returns `{status: "complete"}`. The agent delivers an operator summary covering what was seeded, the workflow, commands, roles, and the docs gate.
 
 ---
 
@@ -228,18 +228,18 @@ Agent: Implementation complete. Tests pass. Review lanes:
 
 > Close wave
 
-Agent: wave_close returned an error.
+Agent: wf_close_wave returned an error.
        Diagnostic: operator_signoff_missing
        Recovery: operator must record `operator-signoff: approved`
        in ## Review Evidence on wave.md before close can succeed.
 
 > approved, go ahead and close
 
-Agent: Recorded operator-signoff. Running wave_close again…
+Agent: Recorded operator-signoff. Running wf_close_wave again…
        Wave closed. 1 change implemented. Session handoff updated.
 ```
 
-That first-attempt refusal is the point. `wave_close` blocks structurally — the agent could not have talked its way past it. The gate is the framework, not the prompt.
+That first-attempt refusal is the point. `wf_close_wave` blocks structurally — the agent could not have talked its way past it. The gate is the framework, not the prompt.
 
 > *Want to see this visually? Run `Start dashboard` to open a local web UI showing wave state, AC and task progress, and review evidence at a glance.*
 
@@ -278,7 +278,7 @@ A *change doc* is the structured planning artifact for one unit of work: Rationa
 
 Two kinds: **computational sensors** (linters, validators, gate scripts that block when checks fail) and **inferential sensor lanes** (LLM-based code-review, architecture-review, security-review, qa-review, etc., recorded as structured evidence on the wave). Secrets detection is a built-in computational sensor — it scans for hardcoded credentials on every wave and blocks close until every finding is classified.
 
-**Closest analogue:** CI pipelines combined with PR review assignments. **Key difference:** sensors record their findings as structured evidence on the wave doc itself, and `wave_close` blocks until required-lane signoffs are present.
+**Closest analogue:** CI pipelines combined with PR review assignments. **Key difference:** sensors record their findings as structured evidence on the wave doc itself, and `wf_close_wave` blocks until required-lane signoffs are present.
 
 ### MCP server
 

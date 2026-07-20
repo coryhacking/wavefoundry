@@ -445,7 +445,7 @@ def save_exceptions(root: Path, exceptions: list[dict]) -> None:
 # data and add avoidable collision/determinism work.
 #
 # `sec` is deliberately scoped to the scanner + the lifecycle library here — it
-# is NOT a public change-doc kind (it never appears in `wave_new_*` kind lists,
+# is NOT a public change-doc kind (it never appears in `wf_new_*` kind lists,
 # `VALID_CHANGE_KINDS`, or plan/wave scaffolding). The lifecycle CLI/MCP minting
 # tools do not expose it; only the scanner mints `<prefix>-sec`.
 # ---------------------------------------------------------------------------
@@ -630,7 +630,7 @@ def _sweep_suppressed_pending(
     source line still exists (they survived ``_sweep_stale_exceptions``, so a
     ``line_hash`` is present) but which the CURRENT ruleset did NOT reproduce as a hit
     this scan (``id`` absent from ``matched_ids``) — i.e. a rule/allowlist change has
-    since suppressed them, leaving a phantom that keeps blocking ``wave_close``.
+    since suppressed them, leaving a phantom that keeps blocking ``wf_close_wave``.
 
     Strictly ``pending``-only: operator classifications (``false-positive``,
     ``suspected-secret``, ``confirmed-secret``) and legacy entries without a
@@ -1315,8 +1315,8 @@ def check_hardcoded_secrets(
         confirmed/under-confirmed-false-positive, all tagged ``[secrets]``) are still
         detected and recorded to scan-findings.json, but are NOT returned as failures
         — only genuine lint errors (a bare ``wavefoundry-ignore`` directive) are. The
-        secrets gate is enforced solely at ``wave_close`` (`_check_secrets_gate`), so
-        docs-lint (post-edit hook, ``wave_validate``, the upgrade docs gate) must not
+        secrets gate is enforced solely at ``wf_close_wave`` (`_check_secrets_gate`), so
+        docs-lint (post-edit hook, ``wf_validate_docs``, the upgrade docs gate) must not
         block on secret findings. A non-fatal stderr notice surfaces the recorded count.
 
     files: when provided, scan exactly these files instead of calling get_scan_files().
@@ -1547,7 +1547,7 @@ def check_hardcoded_secrets(
         # file already records timing). Gated to full scans only: an incremental scan must NOT create
         # the file, since `scan_secrets.update_secrets_scan` forces a full re-scan when it is missing
         # (its absence is the regeneration trigger). The bare `[]` loads as an empty list → the
-        # `wave_close` secrets gate sees no findings → no block (gate semantics unchanged). Idempotent:
+        # `wf_close_wave` secrets gate sees no findings → no block (gate semantics unchanged). Idempotent:
         # a re-run finds the file present and writes nothing here, so the content never churns.
         save_exceptions(root, [])
 
@@ -1555,14 +1555,14 @@ def check_hardcoded_secrets(
     # findings are tagged "[secrets]" by _match_hits_for_file; a bare-suppression
     # lint error is not. Detection still recorded the findings to scan-findings.json
     # above; here we strip the finding messages from the returned failures so they
-    # don't block, leaving only genuine lint errors. wave_close is the sole gate.
+    # don't block, leaving only genuine lint errors. wf_close_wave is the sole gate.
     if record_only:
         findings = [f for f in failures if "[secrets]" in f]
         lint_errors = [f for f in failures if "[secrets]" not in f]
         if findings:
             print(
                 f"[secrets] {len(findings)} finding(s) recorded in {SCAN_FINDINGS_PATH} "
-                "— not blocking (the secrets gate runs at wave_close); run the security "
+                "— not blocking (the secrets gate runs at wf_close_wave); run the security "
                 "reviewer to classify pending entries.",
                 file=sys.stderr, flush=True,
             )

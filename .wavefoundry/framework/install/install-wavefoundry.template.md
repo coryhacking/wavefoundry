@@ -20,13 +20,13 @@ The framework tree lives under `.wavefoundry/`. macOS Finder hides dot-prefixed 
 Check whether `.wavefoundry/install-log.md` exists.
 
 - **It does not exist (first install):** copy `.wavefoundry/framework/install/install-log.template.md` to `.wavefoundry/install-log.md`. This becomes your project's live install state machine. The template is overwritten on framework upgrades; your live log is NOT, so your install progress is preserved.
-- **It exists (resuming or upgrading):** continue from the first unchecked row. If you're unsure whether the existing `[x]` markers are still valid (fresh agent session, partial recovery from an abort), call `wave_install_audit` first — it validates each checked row's expected artifact and points at the next action.
+- **It exists (resuming or upgrading):** continue from the first unchecked row. If you're unsure whether the existing `[x]` markers are still valid (fresh agent session, partial recovery from an abort), call `wf_audit_install` first — it validates each checked row's expected artifact and points at the next action.
 
 **Step 2 — Execute the log.**
 
 Open `.wavefoundry/install-log.md`. Read the first unchecked row (`- [ ]`). Each row points at a seed prompt to execute and an expected artifact to verify. Run the step, confirm the artifact exists, mark `[x]`, advance.
 
-Phase 1 (the "Harness — no MCP required" section) runs without MCP. When Phase 1 finishes, the log instructs you to **ask the operator to restart the AI agent** so the Wavefoundry MCP server becomes available. After restart, Phase 2 begins, and `wave_install_audit` becomes the validating gate.
+Phase 1 (the "Harness — no MCP required" section) runs without MCP. When Phase 1 finishes, the log instructs you to **ask the operator to restart the AI agent** so the Wavefoundry MCP server becomes available. After restart, Phase 2 begins, and `wf_audit_install` becomes the validating gate.
 
 ## If your agent is unsure how to start
 

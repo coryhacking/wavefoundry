@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: accepted
-Last verified: 2026-07-13
+Last verified: 2026-07-20
 
 ## Context
 
@@ -10,7 +10,7 @@ Wavefoundry preserves rich project context (wave records, journals, handoff, sem
 
 ## Decision
 
-A local, typed **agent memory layer**: repo-visible markdown records under `docs/agents/memory/` (eight kinds; status/supersession lifecycle; evidence and target refs required; docs-lint is the schema contract incl. forbidden-content rules), served by four MCP tools (`wave_memory_add`/`search`/`brief`/`reconcile`) and surfaced as capped, cited advisories on hot read tools (`code_read`/`code_impact`/`code_callhierarchy`) and lifecycle tools (`wave_prepare`/`wave_review`/`wave_audit`). Record files are the source of truth; the semantic docs index is an optional retrieval assist; the graph gains typed `memory` nodes with `memory_targets` edges riding the incremental delta path (zero-edge-prune exempt). Confidence decays kind-awarely through the per-path freshness primitive — churn for reproduction-bound kinds, elapsed time for environment kinds, never for operator preferences and decisions, and `fragile_file` gains a needs-reverification flag instead of attenuating (churn on a fragile file is ambiguous evidence). Decay orders and gates briefings; status and supersession are the only lifecycle mechanisms. Lifecycle prompts capture candidates at pause/review and require a promote/reject/defer decision on every candidate at close. The established framework term "Wave Memory" keeps naming the continuity model (handoff/journals); this layer is consistently the "agent memory layer" in shipped surfaces.
+A local, typed **agent memory layer**: repo-visible markdown records under `docs/agents/memory/` (eight kinds; status/supersession lifecycle; evidence and target refs required; docs-lint is the schema contract incl. forbidden-content rules), served by four MCP tools (`memory_add`/`search`/`brief`/`reconcile`) and surfaced as capped, cited advisories on hot read tools (`code_read`/`code_impact`/`code_callhierarchy`) and lifecycle tools (`wf_prepare_wave`/`wf_review_wave`/`wf_audit`). Record files are the source of truth; the semantic docs index is an optional retrieval assist; the graph gains typed `memory` nodes with `memory_targets` edges riding the incremental delta path (zero-edge-prune exempt). Confidence decays kind-awarely through the per-path freshness primitive — churn for reproduction-bound kinds, elapsed time for environment kinds, never for operator preferences and decisions, and `fragile_file` gains a needs-reverification flag instead of attenuating (churn on a fragile file is ambiguous evidence). Decay orders and gates briefings; status and supersession are the only lifecycle mechanisms. Lifecycle prompts capture candidates at pause/review and require a promote/reject/defer decision on every candidate at close. The established framework term "Wave Memory" keeps naming the continuity model (handoff/journals); this layer is consistently the "agent memory layer" in shipped surfaces.
 
 ## Consequences
 

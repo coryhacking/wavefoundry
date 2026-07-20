@@ -47,7 +47,7 @@ This usually creates or refreshes:
 - workflow config in `docs/workflow-config.json`, including **`lifecycle_id_policy`** when the install ships `lifecycle_id.py` so epoch and optional hour offset are explicit for new repositories
 - refresh-first manifests, handoff snapshots, wave state, and journal artifacts in their topical `docs/` homes such as `docs/prompts/`, `docs/agents/`, and `docs/waves/`, with explicit regeneration paths documented nearby
 - optional agent-role wrappers and root entrypoint files such as `AGENTS.md`, `CLAUDE.md`, and `WARP.md`
-- docs tooling: **`wf docs-lint`** and **`wf docs-gardener`** for hooks, CI, and CLI fallback; **agents** with the Wavefoundry MCP server should prefer **`wave_validate`**, **`wave_garden`**, and **`wave_audit`** over shelling to the `wf` dispatcher (see `seed-050` / `seed-080`)
+- docs tooling: **`wf docs-lint`** and **`wf docs-gardener`** for hooks, CI, and CLI fallback; **agents** with the Wavefoundry MCP server should prefer **`wf_validate_docs`**, **`wf_garden_docs`**, and **`wf_audit`** over shelling to the `wf` dispatcher (see `seed-050` / `seed-080`)
 
 ### Waves as the operating model
 
@@ -195,7 +195,7 @@ At a base level, an implementation should expect the framework to establish thes
 | Workflow config | `docs/workflow-config.json`, `docs/repo-profile.json` | Makes repo-specific policy and generation settings explicit. |
 | Refresh-first artifacts | topical docs such as prompt manifests, session handoff artifacts, wave state, journals, and other docs with explicit regeneration paths | Supports indexing, drift detection, and continuation between sessions without forcing durable docs into a generic folder. |
 | Agent entry surfaces | `AGENTS.md`, `CLAUDE.md`, `WARP.md`, optional native role wrappers | Gives each host environment a thin entrypoint back to the canonical docs. |
-| Docs tooling | MCP **`wave_validate`** / **`wave_garden`** / **`wave_audit`** for agents when registered; **`wf docs-lint`**, **`wf docs-gardener`** for hooks, CI, and no-MCP CLI | Enforces docs consistency and helps maintain the seeded surface over time. |
+| Docs tooling | MCP **`wf_validate_docs`** / **`wf_garden_docs`** / **`wf_audit`** for agents when registered; **`wf docs-lint`**, **`wf docs-gardener`** for hooks, CI, and no-MCP CLI | Enforces docs consistency and helps maintain the seeded surface over time. |
 
 ## Seeded Project Overview Document
 

@@ -168,7 +168,7 @@ def _stop_dashboard_for_lock_cutover(root: Path) -> tuple[bool, int | None]:
     try:
         import server_impl
 
-        response = server_impl.wave_dashboard_stop_response(root)
+        response = server_impl.wf_stop_dashboard_response(root)
     except Exception as exc:
         raise RuntimeError(f"unable to stop dashboard before lock cutover: {exc}") from exc
     if response.get("status") != "ok":
@@ -313,10 +313,10 @@ def post_docs_gate(ctx):
             "\nHistorical memory requires bounded extraction and agent validation "
             "before index publication.\n"
             + json.dumps(summary, sort_keys=True)
-            + "\nReload MCP, inspect wave_upgrade_status(), run "
-            "wave_memory_backfill(mode='create', entry_path='upgrade') and "
-            "wave_memory_validate for each validation_worklist item, then call "
-            "wave_upgrade(phase='resume_after_memory').",
+            + "\nReload MCP, inspect wf_upgrade_status(), run "
+            "memory_backfill(mode='create', entry_path='upgrade') and "
+            "memory_validate for each validation_worklist item, then call "
+            "wf_upgrade(phase='resume_after_memory').",
             flush=True,
         )
         raise SystemExit(backfill.ACTION_REQUIRED_EXIT)
@@ -342,7 +342,7 @@ def pre_index_update(ctx):
         print(
             "\nHistorical memory is ready for receipt-owned publication. "
             "Reload the installed MCP/runtime and call "
-            "wave_upgrade(phase='resume_after_memory').",
+            "wf_upgrade(phase='resume_after_memory').",
             flush=True,
         )
         raise SystemExit(backfill.ACTION_REQUIRED_EXIT)

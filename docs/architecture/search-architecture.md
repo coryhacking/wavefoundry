@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-14
+Last verified: 2026-07-20
 
 ## The Problem
 
@@ -336,7 +336,7 @@ never walks) and the code tools refuse (`index_not_ready` — unchanged from 1se
 FTS serving path returns a typed `{available, failure_reason, results, coverage}` result so
 infrastructure failure (`query_failed`) is never presented as an empty corpus.
 
-**Readiness — the build epoch (wave `1sed7`):** the store's `build_state` row is a small state machine (`uninitialized` → `building` → `complete`). A mutating build commits a FULL-durable `building` fence BEFORE the first Lance/FTS mutation and publishes completion with an attempt-ID compare-and-set transaction — the only operation that advances the build `generation`. Readers (`docs_search`, `code_search`, `code_ask`, `code_lexical`, `seed_get`, `wave_map`) capture the FULL state token `(attempt_id, status, generation)` — ABA-proof; every fence and every publication changes it — before the operation and re-validate the SAME token after: any transition means the result set could span two index states, so results are discarded (`index_not_ready`). The strict code tools additionally refuse up front unless the captured token's status is `complete`; `docs_search`/`seed_get`/`wave_map` serve sanctioned degraded/disk paths under a STABLE non-complete state. `WaveIndex` reload uses the same token as its freshness signature, so a completed build invalidates cached handles without a server restart. `docs_search`'s live-filesystem walk (plus `seed_get`/`wave_map`'s disk fallbacks) are the sanctioned degraded paths when no complete epoch exists; the code retrieval tools refuse outright (FTS is derived from Lance and mid-build state is mixed). A `building` epoch whose build lock is gone reads as *interrupted* — still fail-closed, healed by the next ordinary build superseding the dead attempt (a zero-change retry performs this recovery explicitly: reconcile, bookkeeping refresh, finalize). Completion is globally gated: a scoped build over a reset store (a Lance table present with no provenance in the canonical state) escalates to all-layer convergence before it may publish, a rear guard refuses finalization if any present table would publish unprovenanced, and the derived-FTS/optimize maintenance verbs are restore-only — they refuse on a store with no completed epoch and never manufacture `complete`.
+**Readiness — the build epoch (wave `1sed7`):** the store's `build_state` row is a small state machine (`uninitialized` → `building` → `complete`). A mutating build commits a FULL-durable `building` fence BEFORE the first Lance/FTS mutation and publishes completion with an attempt-ID compare-and-set transaction — the only operation that advances the build `generation`. Readers (`docs_search`, `code_search`, `code_ask`, `code_lexical`, `seed_get`, `wf_map`) capture the FULL state token `(attempt_id, status, generation)` — ABA-proof; every fence and every publication changes it — before the operation and re-validate the SAME token after: any transition means the result set could span two index states, so results are discarded (`index_not_ready`). The strict code tools additionally refuse up front unless the captured token's status is `complete`; `docs_search`/`seed_get`/`wf_map` serve sanctioned degraded/disk paths under a STABLE non-complete state. `WaveIndex` reload uses the same token as its freshness signature, so a completed build invalidates cached handles without a server restart. `docs_search`'s live-filesystem walk (plus `seed_get`/`wf_map`'s disk fallbacks) are the sanctioned degraded paths when no complete epoch exists; the code retrieval tools refuse outright (FTS is derived from Lance and mid-build state is mixed). A `building` epoch whose build lock is gone reads as *interrupted* — still fail-closed, healed by the next ordinary build superseding the dead attempt (a zero-change retry performs this recovery explicitly: reconcile, bookkeeping refresh, finalize). Completion is globally gated: a scoped build over a reset store (a Lance table present with no provenance in the canonical state) escalates to all-layer convergence before it may publish, a rear guard refuses finalization if any present table would publish unprovenanced, and the derived-FTS/optimize maintenance verbs are restore-only — they refuse on a store with no completed epoch and never manufacture `complete`.
 
 **Chunk schema:**
 
@@ -392,12 +392,12 @@ requires the recorded drift-precision census AND a golden-query eval run per the
 Env toggles: `WAVEFOUNDRY_ENABLE_DRIFT_PARTITION` (census/eval opt-in), `WAVEFOUNDRY_DISABLE_DRIFT_PARTITION`
 (kill switch). Code chunks are never drift-demoted (a current code chunk is ground truth for itself).
 
-**Worklist:** `wave_audit` exposes the `doc_drift` sub-object (flagged living docs, `commits_since` DESC) — the
-stable consumer contract for the future verify-docs review loop; `wave_garden` points at it and gardener stamps
+**Worklist:** `wf_audit` exposes the `doc_drift` sub-object (flagged living docs, `commits_since` DESC) — the
+stable consumer contract for the future verify-docs review loop; `wf_garden_docs` points at it and gardener stamps
 never clear drift.
 
 **Agent memory retrieval** (same wave): typed memory records under `docs/agents/memory/` are indexed through the
-docs path with a `memory` tag and served by `wave_memory_search`/`wave_memory_brief` — record files are the
+docs path with a `memory` tag and served by `memory_search`/`memory_brief` — record files are the
 source of truth, the semantic index is an optional assist, and ranking is kind-aware-decayed confidence (via the
 per-path freshness primitive) with persisted-betweenness tie-breaks.
 

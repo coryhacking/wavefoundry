@@ -23,10 +23,10 @@ contracts, failure modes, and current repository state.
 7. Re-run only affected lanes for bounded repairs unless a load-bearing
    boundary objectively requires a full council.
 8. After current finding heads are reconciled, run
-   `wave_memory_propose(wave_id, mode='create')`. For each evidence-derived
+   `memory_propose(wave_id, mode='create')`. For each evidence-derived
    candidate, follow the evidence and current target, state the future action
    delta, check canonical overlap and confidence, then record `promote`,
-   `retain`, `reject`, or `rewrite` with `wave_memory_validate`. This is a
+   `retain`, `reject`, or `rewrite` with `memory_validate`. This is a
    focused curation pass, not another council; zero-memory waves are valid.
 
 ## Approval

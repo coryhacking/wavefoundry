@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-25
+Last verified: 2026-07-20
 
 ## Context
 
@@ -13,7 +13,7 @@ You are running **Close wave** on Wavefoundry.
 Before marking `Status: completed`:
 
 1. Framework tests pass: `python3 .wavefoundry/framework/scripts/run_tests.py`
-2. Docs gate passes: **`wave_validate`** over MCP (or **`wf docs-lint`** if MCP is unavailable)
+2. Docs gate passes: **`wf_validate_docs`** over MCP (or **`wf docs-lint`** if MCP is unavailable)
 3. Guard-overrides reset: `.wavefoundry/guard-overrides.json` has `seed_edit_allowed: false` and `framework_edit_allowed: false` (or file doesn't exist)
 4. All required review lanes reconciled in `## Review checkpoints`
 5. When `wave_review.enabled` is true, `wave-council-readiness` and `wave-council-delivery` are both present in `## Review Evidence`

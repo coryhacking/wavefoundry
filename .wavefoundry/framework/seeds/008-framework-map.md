@@ -80,7 +80,7 @@ Init and upgrade generate or refresh repo-local outputs derived from evidence in
 - wave state and execution artifacts under `docs/waves/`
 - journals, handoff, and personas under `docs/agents/`
 - project references and memory under `docs/references/`
-- root wrappers and entry files such as `AGENTS.md`, `CLAUDE.md`, `WARP.md`, and the cross-OS `wf` shim pair (`.wavefoundry/bin/wf` + `wf.cmd`) that dispatches `wf docs-lint` / `wf docs-gardener` and the other subcommands (the `wf` dispatcher serves hooks/CI/CLI; **agents** prefer MCP **`wave_validate`** / **`wave_garden`** when the server is attached — `seed-050`)
+- root wrappers and entry files such as `AGENTS.md`, `CLAUDE.md`, `WARP.md`, and the cross-OS `wf` shim pair (`.wavefoundry/bin/wf` + `wf.cmd`) that dispatches `wf docs-lint` / `wf docs-gardener` and the other subcommands (the `wf` dispatcher serves hooks/CI/CLI; **agents** prefer MCP **`wf_validate_docs`** / **`wf_garden_docs`** when the server is attached — `seed-050`)
 
 ### 5. Review and verification layer
 

@@ -646,11 +646,11 @@ class CodexConfigOverwriteSafetyTests(unittest.TestCase):
     write must upsert only the framework-managed marker region and preserve all
     operator-authored TOML byte-for-byte. Pre-fix, `write_text(codex_mcp_config,
     CODEX_MCP_CONFIG_TOML)` clobbered the file on every render — this deleted a
-    committed operator `wave_close` approval guardrail twice (waves 1p9j0/1p9qm).
+    committed operator `wf_close_wave` approval guardrail twice (waves 1p9j0/1p9qm).
     """
 
     OPERATOR_BLOCK = (
-        "[mcp_servers.wavefoundry.tools.wave_close]\n"
+        "[mcp_servers.wavefoundry.tools.wf_close_wave]\n"
         'approval_mode = "approve"\n'
     )
 
@@ -661,7 +661,7 @@ class CodexConfigOverwriteSafetyTests(unittest.TestCase):
         'command = "python3"\n'
         'args = [".wavefoundry/framework/scripts/server.py"]\n'
         "\n"
-        "[mcp_servers.wavefoundry.tools.wave_close]\n"
+        "[mcp_servers.wavefoundry.tools.wf_close_wave]\n"
         'approval_mode = "approve"\n'
     )
 
@@ -712,7 +712,7 @@ class CodexConfigOverwriteSafetyTests(unittest.TestCase):
             self.assertIn(ras.CODEX_CONFIG_MARKER_BEGIN, text)
             parsed = self._parse(text)
             self.assertEqual(
-                parsed["mcp_servers"]["wavefoundry"]["tools"]["wave_close"]["approval_mode"],
+                parsed["mcp_servers"]["wavefoundry"]["tools"]["wf_close_wave"]["approval_mode"],
                 "approve",
             )
             self.assertEqual(parsed["mcp_servers"]["wavefoundry"]["command"], "python3")
@@ -800,7 +800,7 @@ class CodexConfigOverwriteSafetyTests(unittest.TestCase):
             parsed = self._parse(text)  # tomllib round-trip: raises on duplicate tables
             self.assertEqual(parsed["mcp_servers"]["wavefoundry"]["command"], "python3")
             self.assertEqual(
-                parsed["mcp_servers"]["wavefoundry"]["tools"]["wave_close"]["approval_mode"],
+                parsed["mcp_servers"]["wavefoundry"]["tools"]["wf_close_wave"]["approval_mode"],
                 "approve",
             )
 
@@ -865,7 +865,7 @@ class CodexConfigUpsertHardeningTests(unittest.TestCase):
     """
 
     OPERATOR_BLOCK = (
-        "[mcp_servers.wavefoundry.tools.wave_close]\n"
+        "[mcp_servers.wavefoundry.tools.wf_close_wave]\n"
         'approval_mode = "approve"\n'
     )
 
@@ -1053,7 +1053,7 @@ class CodexConfigCouncilFixNowTests(unittest.TestCase):
     """
 
     OPERATOR_BLOCK = (
-        "[mcp_servers.wavefoundry.tools.wave_close]\n"
+        "[mcp_servers.wavefoundry.tools.wf_close_wave]\n"
         'approval_mode = "approve"\n'
     )
 
@@ -1190,7 +1190,7 @@ class CodexConfigCouncilFixNowTests(unittest.TestCase):
         )
 
         with_subtable = {
-            "mcp_servers": {"wavefoundry": {"command": "python3", "tools": {"wave_close": {"approval_mode": "approve"}}}}
+            "mcp_servers": {"wavefoundry": {"command": "python3", "tools": {"wf_close_wave": {"approval_mode": "approve"}}}}
         }
         dropped_subtable = {"mcp_servers": {"wavefoundry": {"command": "python3"}}}
         self.assertNotEqual(

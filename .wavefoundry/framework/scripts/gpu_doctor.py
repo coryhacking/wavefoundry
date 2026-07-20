@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """``wf gpu-doctor`` — embedding-provider / GPU capability diagnostic (wave 1p8gz).
 
-A thin CLI entry that surfaces the SAME diagnostics as the ``wave_gpu_doctor`` MCP tool and the
+A thin CLI entry that surfaces the SAME diagnostics as the ``wf_gpu_doctor`` MCP tool and the
 ``setup-wavefoundry --check-gpu`` path — platform, onnxruntime, GPU detection (nvidia/apple),
 available ONNX execution providers, the provider Wavefoundry would select (+ reason/remediation),
 and the CUDA 12/13 ABI-gap check. It reuses the shared backing logic in ``provider_policy`` (the
@@ -39,14 +39,14 @@ def main(argv: list[str] | None = None) -> int:
     if args and args[0] in ("-h", "--help"):
         print(
             "wf gpu-doctor — embedding-provider / GPU capability diagnostic (read-only). "
-            "Same report as the wave_gpu_doctor MCP tool and `setup-wavefoundry --check-gpu`."
+            "Same report as the wf_gpu_doctor MCP tool and `setup-wavefoundry --check-gpu`."
         )
         return 0
 
     import provider_policy
     import setup_index
 
-    # Reuse the SAME backing logic as wave_gpu_doctor_response / setup_wavefoundry._run_gpu_check:
+    # Reuse the SAME backing logic as wf_gpu_doctor_response / setup_wavefoundry._run_gpu_check:
     # provider_policy.diagnostic_report drives detection; setup's bounded probe makes the selected
     # provider match runtime (e.g. CoreML on Apple Silicon). No duplicated detection here.
     report = provider_policy.diagnostic_report(provider_probe=setup_index._probe_embedding_provider)

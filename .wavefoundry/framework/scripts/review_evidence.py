@@ -503,7 +503,7 @@ def normalize_review_event_request(event: Mapping[str, Any]) -> dict[str, Any]:
             "failure_condition",
             "the approval predates an affected repair or is not independently grounded",
         )
-        normalized.setdefault("public_path", "wave_record_review_evidence")
+        normalized.setdefault("public_path", "wf_review_evidence")
         normalized.setdefault("command_or_fixture", artifact)
         normalized.setdefault(
             "expected", "the approving actor independently verifies the current affected scope"
@@ -1649,7 +1649,7 @@ def build_compact_review_event(
                 "proposition": str(event.get("proposition") or f"{signoff_key} approves the current affected scope"),
                 "counterexample_or_failure_condition": str(event.get("failure_condition") or "the approval predates an affected repair or is not independently grounded"),
                 "execution_status": "executed",
-                "public_path": str(event.get("public_path") or "wave_record_review_evidence"),
+                "public_path": str(event.get("public_path") or "wf_review_evidence"),
                 "command_or_fixture": str(event.get("command_or_fixture") or event["artifact_or_test_id"]),
                 "expected": str(event.get("expected") or "the approving actor independently verifies the current affected scope"),
                 "observed": observed,

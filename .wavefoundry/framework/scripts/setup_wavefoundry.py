@@ -295,8 +295,8 @@ def main(argv: list[str] | None = None) -> int:
             "\nHistorical wave memory requires agent validation before index publication.\n"
             + json.dumps(summary, indent=2, sort_keys=True)
             + "\nRestart/reload the MCP host, run "
-            "wave_memory_backfill(mode='create', entry_path='setup') and "
-            "wave_memory_validate for each candidate, then rerun ordinary `wf setup`. "
+            "memory_backfill(mode='create', entry_path='setup') and "
+            "memory_validate for each candidate, then rerun ordinary `wf setup`. "
             "Setup will reuse the durable run and publish the index only after its "
             "authoritative pending census reaches zero.",
             flush=True,
@@ -355,7 +355,7 @@ def main(argv: list[str] | None = None) -> int:
         "conversation after your host's MCP restart command, so the MCP server becomes available. "
         "Do not resume an old session that started before setup completed. "
         "Then mark Phase 1 complete in .wavefoundry/install-log.md and proceed to Phase 2 "
-        "by calling wave_install_audit().",
+        "by calling wf_audit_install().",
         flush=True,
     )
     return 0

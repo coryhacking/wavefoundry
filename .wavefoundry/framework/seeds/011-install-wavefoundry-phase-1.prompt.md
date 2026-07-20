@@ -15,7 +15,7 @@ Each row points at a step the agent must execute and an artifact the step is exp
 Before executing row 1.1, check whether `.wavefoundry/install-log.md` exists:
 
 - **It does not exist (first install):** copy `.wavefoundry/framework/install/install-log.template.md` to `.wavefoundry/install-log.md`. Substitute `{{generated_at}}` with today's date (YYYY-MM-DD). **Write the file as UTF-8.** The log's row separators are em dashes (`—`); a non-UTF-8 write corrupts them to mojibake (`â€"`) and the install audit can no longer parse the rows. On Windows PowerShell, do **not** use bare `Get-Content`/`Set-Content`/`Out-File` (they default to the ANSI/UTF-16 code page) — pass `-Encoding utf8`, or write via a UTF-8-explicit tool (e.g. `python -c "...write_text(..., encoding='utf-8')"`).
-- **It exists (resuming or upgrading):** continue from the first unchecked row. If you're unsure whether existing `[x]` markers are still valid (fresh agent session, partial recovery from an abort), the trustworthy-invariant rule says: re-execute `wave_install_audit` before trusting them (Phase 2 only — Phase 1 has no MCP).
+- **It exists (resuming or upgrading):** continue from the first unchecked row. If you're unsure whether existing `[x]` markers are still valid (fresh agent session, partial recovery from an abort), the trustworthy-invariant rule says: re-execute `wf_audit_install` before trusting them (Phase 2 only — Phase 1 has no MCP).
 
 ## Steps (mirror `wavefoundry-install-log.md` Phase 1)
 
@@ -23,7 +23,7 @@ Before executing row 1.1, check whether `.wavefoundry/install-log.md` exists:
 
 **Action:** Run `wf setup`. This is the orchestrator that completes all the mechanical Phase 1 work in one call — **including provisioning the lifecycle-ID policy**: setup's first action (Step 0/4) computes and atomically writes the complete scheme-v2 `lifecycle_id_policy` into `docs/workflow-config.json` when no policy block exists yet (`epoch_utc` = the install date so no ID horizon is burned on past years; a deterministic scattered `offset`; `scheme_version: "v2"`). No manual epoch/offset computation, no separate step — do **not** hand-edit the policy block. A repo that already carries a policy block is left untouched (configured repos migrate via the upgrade pipeline, not setup). Because setup runs before any ID is minted, no ID can ever be generated under fallback settings.
 
-**Historical projects pause before index publication.** Setup now provisions dependencies and smoke-tests the newly installed MCP before publishing an index. A fresh project with no closed wave history continues in one pass. An already wave-enabled target returns action-required exit 4 with `awaiting_memory_validation`: reload/restart the MCP host, repeatedly call `wave_memory_backfill(mode="create", entry_path="setup")`, validate each pending candidate through `wave_memory_validate`, then rerun ordinary `wf setup`. This is a retained setup phase, not failure or completion. The repeated setup invocation reuses the durable run, recomputes the authoritative `memory-state.sqlite` pending census, and owns the single index publication. There is no setup-memory-specific MCP tool or public resume flag. Migration uses this same reentrant setup gate. `wave_install_audit` remains observational and never resumes or writes backfill state.
+**Historical projects pause before index publication.** Setup now provisions dependencies and smoke-tests the newly installed MCP before publishing an index. A fresh project with no closed wave history continues in one pass. An already wave-enabled target returns action-required exit 4 with `awaiting_memory_validation`: reload/restart the MCP host, repeatedly call `memory_backfill(mode="create", entry_path="setup")`, validate each pending candidate through `memory_validate`, then rerun ordinary `wf setup`. This is a retained setup phase, not failure or completion. The repeated setup invocation reuses the durable run, recomputes the authoritative `memory-state.sqlite` pending census, and owns the single index publication. There is no setup-memory-specific MCP tool or public resume flag. Migration uses this same reentrant setup gate. `wf_audit_install` remains observational and never resumes or writes backfill state.
 
 **Python prerequisite:** Before running setup, `python3 --version` must work from the command line and report Python 3.11 or newer. If `python3` is missing, if only `python` is available, or if `python3` reports a version below 3.11, stop. The agent or operator must install/fix Python and PATH before proceeding; do not bypass this by pointing MCP at a tool-venv or project-local Python.
 
@@ -71,7 +71,7 @@ When the operator restarts the agent and returns, the agent should:
 
 1. Read `wavefoundry-install-log.md` again
 2. Confirm all Phase 1 rows are `[x]`
-3. Begin Phase 2 (seed-012) starting with row 2.1, which is `wave_install_audit(phase=1)`
+3. Begin Phase 2 (seed-012) starting with row 2.1, which is `wf_audit_install(phase=1)`
 
 If any Phase 1 row is not `[x]`, do not proceed. Return to that row.
 

@@ -78,6 +78,12 @@
       "record_count": 150,
       "source": "events.jsonl",
       "version": 1
+    },
+    "1t3gt mcp-tool-hygiene": {
+      "prefix_sha256": "9fe9893ddb7733aa1ce7daed4a90dbcad3510acd52c66eb758de03fb3ca660b4",
+      "record_count": 7,
+      "source": "events.jsonl",
+      "version": 1
     }
   }
 }

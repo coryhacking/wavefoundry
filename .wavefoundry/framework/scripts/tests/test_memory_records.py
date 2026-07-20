@@ -1,5 +1,5 @@
 """Tests for the agent memory layer (wave 1ro44 / 1p8gy): record parsing,
-writing, reconciliation, kind-aware decay, and the wave_memory_* MCP tools.
+writing, reconciliation, kind-aware decay, and the memory_* MCP tools.
 
 Fixtures cover all eight memory kinds, supersession history preservation,
 the fragile_file needs-reverification amendment, decay via the 1ro43
@@ -190,7 +190,7 @@ class MemoryToolTests(_MemoryCase):
         # The tool layer needs docs/ to exist (record dir is created on write).
 
     def test_add_search_brief_reconcile_flow(self):
-        resp = self.srv.wave_memory_add_response(
+        resp = self.srv.memory_add_response(
             self.root, "fragile_file",
             "Edits to the chunker regress silently; run the multi-lang pack.",
             ["`1abcd-bug chunker-regression` — the regression wave"],
@@ -201,40 +201,40 @@ class MemoryToolTests(_MemoryCase):
         mid = resp["data"]["record"]["memory_id"]
         self.assertTrue(mid.startswith("mem-"))
 
-        search = self.srv.wave_memory_search_response(self.root, target="src/chunker.py")
+        search = self.srv.memory_search_response(self.root, target="src/chunker.py")
         self.assertEqual(search["data"]["count"], 1)
         self.assertEqual(search["data"]["records"][0]["memory_id"], mid)
 
-        brief = self.srv.wave_memory_brief_response(
+        brief = self.srv.memory_brief_response(
             self.root, context="pre_implementation", targets=["src/chunker.py"])
         self.assertEqual(brief["data"]["count"], 1)
         self.assertEqual(brief["data"]["advisories"][0]["kind"], "fragile_file")
 
-        rec = self.srv.wave_memory_reconcile_response(self.root, mid, "rejected")
+        rec = self.srv.memory_reconcile_response(self.root, mid, "rejected")
         self.assertTrue(rec["data"]["updated"])
-        gone = self.srv.wave_memory_search_response(self.root, target="src/chunker.py")
+        gone = self.srv.memory_search_response(self.root, target="src/chunker.py")
         self.assertEqual(gone["data"]["count"], 0)
-        history = self.srv.wave_memory_search_response(
+        history = self.srv.memory_search_response(
             self.root, target="src/chunker.py", include_history=True)
         self.assertEqual(history["data"]["count"], 1)
 
     def test_add_refuses_forbidden_and_invalid_content(self):
-        resp = self.srv.wave_memory_add_response(
+        resp = self.srv.memory_add_response(
             self.root, "environment_gotcha", "Set api_key: sk-live-123 in the env.",
             ["`x`"], ["src/a.py"])
         self.assertEqual(resp["status"], "error")
         self.assertFalse((self.root / self.mem.MEMORY_DIR).exists(),
                          "forbidden content must be refused BEFORE write")
-        resp = self.srv.wave_memory_add_response(self.root, "vibes", "s", ["`e`"], ["t"])
+        resp = self.srv.memory_add_response(self.root, "vibes", "s", ["`e`"], ["t"])
         self.assertEqual(resp["status"], "error")
-        resp = self.srv.wave_memory_add_response(self.root, "decision", "s", [], ["t"])
+        resp = self.srv.memory_add_response(self.root, "decision", "s", [], ["t"])
         self.assertEqual(resp["status"], "error")
 
     def test_add_with_supersedes_marks_old_record(self):
-        self.srv.wave_memory_add_response(
+        self.srv.memory_add_response(
             self.root, "decision", "Old direction.", ["`1old`"], ["src/a.py"],
             memory_id="mem-old-direction")
-        resp = self.srv.wave_memory_add_response(
+        resp = self.srv.memory_add_response(
             self.root, "decision", "New direction.", ["`1new`"], ["src/a.py"],
             memory_id="mem-new-direction", supersedes="mem-old-direction")
         self.assertEqual(resp["status"], "ok")
@@ -244,12 +244,12 @@ class MemoryToolTests(_MemoryCase):
         self.assertEqual(old["superseded_by"], "mem-new-direction")
 
     def test_search_semantic_assist_degrades_silently(self):
-        self.srv.wave_memory_add_response(
+        self.srv.memory_add_response(
             self.root, "decision", "Retrieval uses annotation-first decay.",
             ["`1ro43`"], ["src/a.py"], memory_id="mem-decay-direction")
         broken_index = MagicMock()
         broken_index.search_docs.side_effect = RuntimeError("no index")
-        resp = self.srv.wave_memory_search_response(
+        resp = self.srv.memory_search_response(
             self.root, query="annotation decay", index=broken_index)
         self.assertEqual(resp["status"], "ok")
         self.assertEqual(resp["data"]["count"], 1)  # text containment served
@@ -257,21 +257,21 @@ class MemoryToolTests(_MemoryCase):
 
     def test_brief_cap_and_invalid_context(self):
         for i in range(8):
-            self.srv.wave_memory_add_response(
+            self.srv.memory_add_response(
                 self.root, "decision", f"Decision {i}.", [f"`1d{i}`"], ["src/a.py"],
                 memory_id=f"mem-decision-{i}")
-        brief = self.srv.wave_memory_brief_response(self.root, limit=99)
+        brief = self.srv.memory_brief_response(self.root, limit=99)
         self.assertLessEqual(brief["data"]["count"], self.srv.MEMORY_BRIEF_CAP)
         self.assertEqual(brief["data"]["total_surfaceable"], 8)
-        bad = self.srv.wave_memory_brief_response(self.root, context="vibes")
+        bad = self.srv.memory_brief_response(self.root, context="vibes")
         self.assertEqual(bad["status"], "error")
 
     def test_community_scoped_records_group_separately(self):
-        self.srv.wave_memory_add_response(
+        self.srv.memory_add_response(
             self.root, "fragile_file", "This whole area is fragile.",
             ["`1abcd`"], ["community:hub:src/core.py::main"],
             memory_id="mem-fragile-area")
-        brief = self.srv.wave_memory_brief_response(self.root)
+        brief = self.srv.memory_brief_response(self.root)
         self.assertEqual(brief["data"]["advisories"], [])
         self.assertEqual(
             brief["data"]["community_scoped"][0]["memory_id"], "mem-fragile-area")
@@ -288,7 +288,7 @@ class ActionTimeAdvisoryTests(_MemoryCase):
 
     def test_code_read_carries_capped_matching_advisories(self):
         for i in range(5):
-            self.srv.wave_memory_add_response(
+            self.srv.memory_add_response(
                 self.root, "fragile_file", f"Lesson {i} about core.",
                 [f"`1c{i}`"], ["src/core.py"], memory_id=f"mem-core-{i}",
                 confidence=0.5 + i * 0.1)
@@ -300,7 +300,7 @@ class ActionTimeAdvisoryTests(_MemoryCase):
         self.assertEqual(advisories[0]["memory_id"], "mem-core-4")
 
     def test_code_read_without_matches_is_unchanged(self):
-        self.srv.wave_memory_add_response(
+        self.srv.memory_add_response(
             self.root, "decision", "Unrelated lesson.", ["`1x`"], ["src/other.py"],
             memory_id="mem-unrelated")
         resp = self.srv.code_read_response(self.root, "src/core.py")
@@ -312,11 +312,11 @@ class ActionTimeAdvisoryTests(_MemoryCase):
         self.assertNotIn("memory_advisories", resp["data"])
 
     def test_wave_advisories_match_change_ids_and_fragile_flags(self):
-        self.srv.wave_memory_add_response(
+        self.srv.memory_add_response(
             self.root, "review_finding", "AC evidence was overstated in 1abcd.",
             ["`1abcd-enh some-change` — delivery review round 2"], ["src/core.py"],
             memory_id="mem-review-lesson")
-        self.srv.wave_memory_add_response(
+        self.srv.memory_add_response(
             self.root, "operator_preference", "Never batch AC updates.",
             ["`1zzzz-enh other`"], ["src/other.py"], memory_id="mem-unrelated-pref")
         views = self.srv._memory_advisories_for_wave(
@@ -346,25 +346,25 @@ class LifecyclePromptTextTests(unittest.TestCase):
     def test_close_prompt_requires_the_agent_validation_checkpoint(self):
         text = self._text("docs/prompts/close-wave.prompt.md")
         self.assertIn("Agent Memory Validation Checkpoint", text)
-        for word in ("promote", "reject", "retain", "rewrite", "wave_memory_validate"):
+        for word in ("promote", "reject", "retain", "rewrite", "memory_validate"):
             self.assertIn(word, text)
 
     def test_review_and_pause_prompts_propose_candidates(self):
         review = self._text("docs/prompts/review-wave.prompt.md")
-        self.assertIn("wave_memory_add(status='candidate'", review)
+        self.assertIn("memory_add(status='candidate'", review)
         pause = self._text("docs/prompts/pause-wave.prompt.md")
-        self.assertIn("wave_memory_add(status='candidate'", pause)
+        self.assertIn("memory_add(status='candidate'", pause)
 
     def test_implement_prompt_requires_the_briefing(self):
         text = self._text("docs/prompts/implement-wave.prompt.md")
-        self.assertIn("wave_memory_brief(context='pre_implementation'", text)
+        self.assertIn("memory_brief(context='pre_implementation'", text)
         self.assertIn("needs_reverification", text)
 
     def test_seed_100_carries_the_canonical_directives(self):
         text = self._text(".wavefoundry/framework/seeds/100-project-prompt-surface-bootstrap.prompt.md")
         self.assertIn("Memory validation checkpoint", text)
-        self.assertIn("wave_memory_validate", text)
-        self.assertIn("wave_memory_brief(context='pre_implementation'", text)
+        self.assertIn("memory_validate", text)
+        self.assertIn("memory_brief(context='pre_implementation'", text)
         self.assertIn("- **pause-wave**:", text)
 
 
@@ -408,10 +408,10 @@ class MemoryIdTraversalTests(_MemoryCase):
             with self.assertRaises(ValueError, msg=repr(evil)):
                 self.mem.reconcile_memory_record(self.root, evil, "stale")
 
-    def test_wave_memory_add_refuses_traversal_without_touching_disk(self):
+    def test_memory_add_refuses_traversal_without_touching_disk(self):
         before = self._tree_snapshot()
         for evil in ("../target", "../../etc/evil", "a/../b"):
-            resp = self.srv.wave_memory_add_response(
+            resp = self.srv.memory_add_response(
                 self.root, "decision", "Escape attempt.", ["`1x`"], ["src/a.py"],
                 memory_id=evil)
             self.assertEqual(resp["status"], "error", evil)
@@ -419,19 +419,19 @@ class MemoryIdTraversalTests(_MemoryCase):
         self.assertEqual(self._tree_snapshot(), before,
                          "a refused add must create no file anywhere")
 
-    def test_wave_memory_add_refuses_traversal_supersedes(self):
+    def test_memory_add_refuses_traversal_supersedes(self):
         before = self._tree_snapshot()
-        resp = self.srv.wave_memory_add_response(
+        resp = self.srv.memory_add_response(
             self.root, "decision", "Escape via supersedes.", ["`1x`"], ["src/a.py"],
             memory_id="mem-legit", supersedes="../target")
         self.assertEqual(resp["status"], "error")
         self.assertEqual(self._tree_snapshot(), before)
         self.assertEqual(self.target.read_bytes(), self.target_bytes)
 
-    def test_wave_memory_reconcile_refuses_traversal_and_leaves_target_intact(self):
+    def test_memory_reconcile_refuses_traversal_and_leaves_target_intact(self):
         # "../target" resolves to an EXISTING file with a Status line — the
         # exact escalation the finding described (flipping a doc's status).
-        resp = self.srv.wave_memory_reconcile_response(self.root, "../target", "stale")
+        resp = self.srv.memory_reconcile_response(self.root, "../target", "stale")
         self.assertEqual(resp["status"], "error")
         self.assertFalse(resp["data"]["updated"])
         self.assertEqual(self.target.read_bytes(), self.target_bytes,
@@ -439,7 +439,7 @@ class MemoryIdTraversalTests(_MemoryCase):
         # superseded_by is also grammar-validated (it is written into content
         # and becomes a future path component).
         self._add("mem-real", "decision")
-        resp = self.srv.wave_memory_reconcile_response(
+        resp = self.srv.memory_reconcile_response(
             self.root, "mem-real", "superseded", superseded_by="../target")
         self.assertEqual(resp["status"], "error")
         record = self.mem.parse_memory_record(
@@ -447,11 +447,11 @@ class MemoryIdTraversalTests(_MemoryCase):
         self.assertEqual(record["status"], "active", "refusal must not half-apply")
 
     def test_valid_ids_still_work_end_to_end(self):
-        resp = self.srv.wave_memory_add_response(
+        resp = self.srv.memory_add_response(
             self.root, "decision", "Sanity.", ["`1x`"], ["src/a.py"],
             memory_id="mem-sanity-check")
         self.assertEqual(resp["status"], "ok")
-        resp = self.srv.wave_memory_reconcile_response(
+        resp = self.srv.memory_reconcile_response(
             self.root, "mem-sanity-check", "rejected")
         self.assertTrue(resp["data"]["updated"])
 
@@ -611,7 +611,7 @@ class SecretScanCoverageTests(_MemoryCase):
                 kwargs["title"] = "set api_key: sk-live-abc in env"
             else:
                 kwargs["targets"] = ["config.py password: hunter2"]
-            resp = self.srv.wave_memory_add_response(
+            resp = self.srv.memory_add_response(
                 self.root, "environment_gotcha", kwargs["summary"], kwargs["evidence"],
                 kwargs["targets"], title=kwargs["title"])
             self.assertEqual(resp["status"], "error", field)
@@ -623,7 +623,7 @@ class SecretScanCoverageTests(_MemoryCase):
         self.assertEqual(self._tree(), before, "refused add wrote no file")
 
     def test_clean_record_still_writes(self):
-        resp = self.srv.wave_memory_add_response(
+        resp = self.srv.memory_add_response(
             self.root, "decision", "A clean lesson.", ["`1x`"], ["src/a.py"],
             title="Clean")
         self.assertEqual(resp["status"], "ok")
@@ -644,7 +644,7 @@ class ExactLifecycleMatchingTests(_MemoryCase):
 
     def test_prefix_collision_does_not_attach(self):
         # Record references the LONGER id; the wave is the SHORTER prefix id.
-        self.srv.wave_memory_add_response(
+        self.srv.memory_add_response(
             self.root, "review_finding", "About the longer wave.",
             ["`1abce-enh longer-change`"], ["src/a.py"], memory_id="mem-longer")
         views = self.srv._memory_advisories_for_wave(
@@ -653,7 +653,7 @@ class ExactLifecycleMatchingTests(_MemoryCase):
         self.assertEqual(views, [], "a prefix id must not attach the longer-id memory")
 
     def test_exact_token_match_attaches(self):
-        self.srv.wave_memory_add_response(
+        self.srv.memory_add_response(
             self.root, "review_finding", "About this exact wave.",
             ["`1abcd-enh the-change` — round 2"], ["src/a.py"], memory_id="mem-exact")
         views = self.srv._memory_advisories_for_wave(
@@ -678,7 +678,7 @@ class HotPathBoundedIOTests(_MemoryCase):
         # Five churn-decayed records all targeting the same file (worst case
         # for per-target freshness reads under the old code).
         for i in range(5):
-            self.srv.wave_memory_add_response(
+            self.srv.memory_add_response(
                 self.root, "failed_attempt", f"Attempt {i}.", [f"`1c{i}`"],
                 ["src/core.py"], memory_id=f"mem-core-{i}")
         # A gzip cluster artifact so betweenness has something to decompress.
@@ -739,7 +739,7 @@ class HotPathBoundedIOTests(_MemoryCase):
         self.srv._memory_advisories_for_path(self.root, "src/core.py")  # warm
         # A new matching record must be visible on the next call (signature
         # changes → cache miss).
-        self.srv.wave_memory_add_response(
+        self.srv.memory_add_response(
             self.root, "fragile_file", "Newly fragile.", ["`1cx`"],
             ["src/core.py"], memory_id="mem-core-new")
         ids = {v["memory_id"]
@@ -846,7 +846,7 @@ class GenerationCacheTests(_MemoryCase):
 
     def test_warm_calls_do_not_reparse_and_key_is_o1(self):
         for i in range(6):
-            self.srv.wave_memory_add_response(
+            self.srv.memory_add_response(
                 self.root, "decision", f"D{i}.", [f"`1c{i}`"], ["src/core.py"],
                 memory_id=f"mem-{i}")
         self.srv._MEMORY_RECORDS_CACHE.clear()
@@ -870,7 +870,7 @@ class GenerationCacheTests(_MemoryCase):
     def test_generation_bump_prevents_aliasing_on_same_size_edit(self):
         iss = self.srv._load_script("index_state_store")
         idx = self.root / ".wavefoundry" / "index"
-        self.srv.wave_memory_add_response(
+        self.srv.memory_add_response(
             self.root, "fragile_file", "AAAA fragile.", ["`1x`"], ["src/core.py"],
             memory_id="mem-alias")
         first = self.srv._memory_advisories_for_path(self.root, "src/core.py")
@@ -879,7 +879,7 @@ class GenerationCacheTests(_MemoryCase):
         gen1 = iss.read_memory_state(idx)["generation"]
         # Reconcile (sanctioned mutation) advances the seqlock generation even
         # though the record file's size barely changes.
-        self.srv.wave_memory_reconcile_response(self.root, "mem-alias", "stale")
+        self.srv.memory_reconcile_response(self.root, "mem-alias", "stale")
         gen2 = iss.read_memory_state(idx)["generation"]
         key2 = self.srv._memory_cache_key(self.root)
         self.assertGreater(gen2, gen1, "every sanctioned mutation advances the generation")
@@ -891,7 +891,7 @@ class GenerationCacheTests(_MemoryCase):
     def test_indexer_style_bump_invalidates_after_raw_edit(self):
         iss = self.srv._load_script("index_state_store")
         idx = self.root / ".wavefoundry" / "index"
-        self.srv.wave_memory_add_response(
+        self.srv.memory_add_response(
             self.root, "decision", "AAAA body.", ["`1x`"], ["src/core.py"],
             memory_id="mem-raw")
         self.srv._memory_records_cached(self.root, None)  # warm
@@ -955,7 +955,7 @@ class CacheFailureCorrectnessTests(_MemoryCase):
         self.idx = self.root / ".wavefoundry" / "index"
 
     def test_failed_bump_does_not_serve_stale_after_reconcile(self):
-        self.srv.wave_memory_add_response(
+        self.srv.memory_add_response(
             self.root, "fragile_file", "Active fragile lesson.", ["`1x`"],
             ["src/core.py"], memory_id="mem-a")
         first = self.srv._memory_advisories_for_path(self.root, "src/core.py")
@@ -966,7 +966,7 @@ class CacheFailureCorrectnessTests(_MemoryCase):
         real_fin = self.iss.memory_finalize
         self.iss.memory_finalize = lambda *a, **k: None
         try:
-            self.srv.wave_memory_reconcile_response(self.root, "mem-a", "stale")
+            self.srv.memory_reconcile_response(self.root, "mem-a", "stale")
         finally:
             self.iss.memory_finalize = real_fin
         # A SECOND independent process (cleared cache) must also see fresh.
@@ -975,7 +975,7 @@ class CacheFailureCorrectnessTests(_MemoryCase):
         self.assertEqual(after, [], "a failed finalize must not serve the pre-write candidate")
 
     def test_unreadable_generation_bypasses_cache(self):
-        self.srv.wave_memory_add_response(
+        self.srv.memory_add_response(
             self.root, "decision", "AAAA.", ["`1x`"], ["src/core.py"], memory_id="mem-b")
         real_read = self.iss.read_memory_state
         self.iss.read_memory_state = lambda *a, **k: None  # unreadable
@@ -1097,14 +1097,14 @@ class SeqlockCoherenceTests(_MemoryCase):
         self.idx = self.root / ".wavefoundry" / "index"
 
     def test_failed_finalize_leaves_dirty_and_every_process_bypasses(self):
-        self.srv.wave_memory_add_response(
+        self.srv.memory_add_response(
             self.root, "fragile_file", "Active lesson.", ["`1x`"], ["src/core.py"],
             memory_id="mem-a")
         self.srv._memory_advisories_for_path(self.root, "src/core.py")  # warm cache A
         real_fin = self.iss.memory_finalize
         self.iss.memory_finalize = lambda *a, **k: None  # finalize fails
         try:
-            self.srv.wave_memory_reconcile_response(self.root, "mem-a", "stale")
+            self.srv.memory_reconcile_response(self.root, "mem-a", "stale")
         finally:
             self.iss.memory_finalize = real_fin
         # The fence left dirty=1; a failed finalize did not clear it.
@@ -1118,7 +1118,7 @@ class SeqlockCoherenceTests(_MemoryCase):
         self.assertEqual(after, [], "cross-process: no stale advisory despite failed finalize")
 
     def test_random_epoch_defeats_delete_recreate_aba(self):
-        self.srv.wave_memory_add_response(
+        self.srv.memory_add_response(
             self.root, "decision", "d.", ["`1x`"], ["src/core.py"], memory_id="mem-b")
         key1 = self.srv._memory_cache_key(self.root)
         epoch1 = self.iss.read_memory_state(self.idx)["epoch"]
@@ -1137,14 +1137,14 @@ class SeqlockCoherenceTests(_MemoryCase):
         self.iss.memory_fence = lambda *a, **k: False  # cannot establish the fence
         try:
             before = {p for p in self.root.rglob("*.md")}
-            resp = self.srv.wave_memory_add_response(
+            resp = self.srv.memory_add_response(
                 self.root, "decision", "refused.", ["`1x`"], ["src/core.py"],
                 memory_id="mem-refused")
             self.assertEqual(resp["status"], "error")
             self.assertIn("memory_state_unwritable", str(resp))
             self.assertEqual({p for p in self.root.rglob("*.md")}, before,
                              "a fence refusal must write no record file")
-            rec = self.srv.wave_memory_add_response(
+            rec = self.srv.memory_add_response(
                 self.root, "decision", "x.", ["`1y`"], ["src/core.py"], memory_id="mem-r2")
             self.assertEqual(rec["status"], "error")
         finally:
@@ -1181,7 +1181,7 @@ class TwoProcessCacheCoherenceTests(_MemoryCase):
 
     def test_second_process_never_serves_stale_after_failed_finalize(self):
         # p1 writes; both processes warm their OWN caches on the active record.
-        self.p1.wave_memory_add_response(
+        self.p1.memory_add_response(
             self.root, "fragile_file", "Active lesson.", ["`1x`"], ["src/core.py"],
             memory_id="mem-a")
         a, b = self._warm_both()
@@ -1192,7 +1192,7 @@ class TwoProcessCacheCoherenceTests(_MemoryCase):
         real_fin = self.iss1.memory_finalize
         self.iss1.memory_finalize = lambda *a, **k: None
         try:
-            self.p1.wave_memory_reconcile_response(self.root, "mem-a", "stale")
+            self.p1.memory_reconcile_response(self.root, "mem-a", "stale")
         finally:
             self.iss1.memory_finalize = real_fin
         self.assertEqual(self.iss2.read_memory_state(self.idx)["dirty"], 1)
@@ -1202,14 +1202,14 @@ class TwoProcessCacheCoherenceTests(_MemoryCase):
         self.assertEqual(after, [], "warm second process must not serve the pre-write advisory")
 
     def test_second_process_sees_generation_advance_after_normal_edit(self):
-        self.p1.wave_memory_add_response(
+        self.p1.memory_add_response(
             self.root, "fragile_file", "Active lesson.", ["`1x`"], ["src/core.py"],
             memory_id="mem-a")
         a, b = self._warm_both()
         self.assertEqual((a, b), (["mem-a"], ["mem-a"]))
         gen_before = self.iss2.read_memory_state(self.idx)["generation"]
         # Normal reconcile: finalize succeeds → generation advances, dirty clears.
-        self.p1.wave_memory_reconcile_response(self.root, "mem-a", "stale")
+        self.p1.memory_reconcile_response(self.root, "mem-a", "stale")
         self.assertGreater(self.iss2.read_memory_state(self.idx)["generation"], gen_before)
         # p2's cached key carries the OLD generation → key mismatch → reload.
         after = self.p2._memory_advisories_for_path(self.root, "src/core.py")
@@ -1220,7 +1220,7 @@ class TwoProcessCacheCoherenceTests(_MemoryCase):
         # generation cannot advance (the indexer then FAILS the build), but it
         # sets a best-effort fence token so the second warm process bypasses in
         # the meantime. Uses the real indexer-side entry point.
-        self.p1.wave_memory_add_response(
+        self.p1.memory_add_response(
             self.root, "fragile_file", "AAAA.", ["`1x`"], ["src/core.py"], memory_id="mem-a")
         self._warm_both()
         # Raw-edit the record on disk (bypasses the tool fence path entirely).
@@ -1428,14 +1428,14 @@ class FindDuplicatesTests(_MemoryCase):
 
 
 class MemoryAddDuplicateDiagnosticTests(_MemoryCase):
-    """Wave 1stwl: wave_memory_add surfaces possible_duplicate (non-blocking)."""
+    """Wave 1stwl: memory_add surfaces possible_duplicate (non-blocking)."""
 
     def setUp(self):
         super().setUp()
         self.srv = load_server()
 
     def _add(self, summary, evidence, targets, memory_id, **kw):
-        return self.srv.wave_memory_add_response(
+        return self.srv.memory_add_response(
             self.root, "review_finding", summary, evidence, targets,
             memory_id=memory_id, **kw)
 
@@ -1535,7 +1535,7 @@ class MemoryProposeTests(_MemoryCase):
                    decision_rows=[("Use `src/foo.py` for X", "because Y"),
                                   ("A prose-only decision", "no anchor")],
                    ce_totals={"request_debit": 100, "response_debit": 900})
-        r = self.srv.wave_memory_propose_response(self.root, "1aaaa", "dry_run")
+        r = self.srv.memory_propose_response(self.root, "1aaaa", "dry_run")
         d = r["data"]
         self.assertEqual(d["records_proposed"], 1, "prose-only decision must be skipped")
         draft = d["proposed"][0]
@@ -1574,7 +1574,7 @@ class MemoryProposeTests(_MemoryCase):
         cid = self._wave("1aaaa", "demo",
                          decision_rows=[("Fix `src/foo.py`", "reason")],
                          ce_totals={"request_debit": 10, "response_debit": 40})
-        r = self.srv.wave_memory_propose_response(self.root, "1aaaa", "create")
+        r = self.srv.memory_propose_response(self.root, "1aaaa", "create")
         self.assertEqual(r["data"]["records_written"], 1)
         self.assertEqual(r["data"]["records_promoted"], 0)
         rec = self.mem.parse_memory_record(self.root / r["data"]["written"][0]["path"])
@@ -1628,10 +1628,10 @@ class MemoryProposeTests(_MemoryCase):
 
     def test_create_is_idempotent(self):
         self._wave("1aaaa", "demo", decision_rows=[("Fix `src/foo.py`", "reason")])
-        first = self.srv.wave_memory_propose_response(self.root, "1aaaa", "create")
+        first = self.srv.memory_propose_response(self.root, "1aaaa", "create")
         self.assertEqual(first["data"]["records_written"], 1)
         self.assertEqual(first["data"]["records_promoted"], 0)
-        second = self.srv.wave_memory_propose_response(self.root, "1aaaa", "create")
+        second = self.srv.memory_propose_response(self.root, "1aaaa", "create")
         self.assertEqual(second["data"]["records_promoted"], 0)
         self.assertEqual(second["data"]["skipped_dispositions"], 1)
         files = list((self.root / self.mem.MEMORY_DIR).glob("*.md"))
@@ -1646,11 +1646,11 @@ class MemoryProposeTests(_MemoryCase):
                 for index in range(25)
             ],
         )
-        first = self.srv.wave_memory_propose_response(
+        first = self.srv.memory_propose_response(
             self.root, "1many", "create", limit=20
         )
         self.assertEqual(first["data"]["records_written"], 20)
-        second = self.srv.wave_memory_propose_response(
+        second = self.srv.memory_propose_response(
             self.root, "1many", "dry_run", limit=20
         )
         self.assertEqual(second["data"]["records_proposed"], 5)
@@ -1670,7 +1670,7 @@ class MemoryProposeTests(_MemoryCase):
         def run():
             barrier.wait()
             results.append(
-                self.srv.wave_memory_propose_response(
+                self.srv.memory_propose_response(
                     self.root, "1aaaa", "create"
                 )
             )
@@ -1691,7 +1691,7 @@ class MemoryProposeTests(_MemoryCase):
 
     def test_no_material_evidence_diagnostic(self):
         self._wave("1aaaa", "demo", decision_rows=[("prose only", "no anchor")])
-        r = self.srv.wave_memory_propose_response(self.root, "1aaaa", "dry_run")
+        r = self.srv.memory_propose_response(self.root, "1aaaa", "dry_run")
         self.assertEqual(r["data"]["records_proposed"], 0)
         self.assertIn("no_material_evidence", [x["code"] for x in r["diagnostics"]])
 
@@ -1703,31 +1703,31 @@ class MemoryProposeTests(_MemoryCase):
                 ("Update `config/settings.json`", "config"),
             ],
         )
-        r = self.srv.wave_memory_propose_response(self.root, "1aaaa", "dry_run")
+        r = self.srv.memory_propose_response(self.root, "1aaaa", "dry_run")
         self.assertEqual(r["data"]["records_proposed"], 0)
 
     def test_dry_run_writes_nothing(self):
         self._wave("1aaaa", "demo", decision_rows=[("Fix `src/foo.py`", "reason")])
-        r = self.srv.wave_memory_propose_response(self.root, "1aaaa", "dry_run")
+        r = self.srv.memory_propose_response(self.root, "1aaaa", "dry_run")
         self.assertEqual(r["data"]["records_promoted"], 0)
         self.assertFalse((self.root / self.mem.MEMORY_DIR).exists(),
                          "dry_run must not write records")
 
     def test_invalid_mode_and_missing_wave(self):
-        bad = self.srv.wave_memory_propose_response(self.root, "1aaaa", "wat")
+        bad = self.srv.memory_propose_response(self.root, "1aaaa", "wat")
         self.assertEqual(bad["status"], "error")
         self.assertIn("invalid_arguments", [x["code"] for x in bad["diagnostics"]])
-        none = self.srv.wave_memory_propose_response(self.root, "", "dry_run")
+        none = self.srv.memory_propose_response(self.root, "", "dry_run")
         self.assertEqual(none["status"], "error")
 
     def test_unique_prefix_resolves_and_ambiguous_prefix_fails(self):
         self._wave("1aaaa", "one", decision_rows=[("Fix `src/a.py`", "reason")])
-        resolved = self.srv.wave_memory_propose_response(
+        resolved = self.srv.memory_propose_response(
             self.root, "1aaa", "dry_run"
         )
         self.assertEqual(resolved["status"], "ok")
         self._wave("1aaab", "two", decision_rows=[("Fix `src/b.py`", "reason")])
-        ambiguous = self.srv.wave_memory_propose_response(
+        ambiguous = self.srv.memory_propose_response(
             self.root, "1aaa", "dry_run"
         )
         self.assertEqual(ambiguous["status"], "error")
@@ -2092,7 +2092,7 @@ class ExplorationAvoidedTests(_MemoryCase):
     def test_brief_surface_credits_open_wave(self):
         wid = self._open_wave()
         self._record("mem-hot", cost=2000, targets=("src/hot.py",))
-        self.srv.wave_memory_brief_response(self.root, targets=["src/hot.py"])
+        self.srv.memory_brief_response(self.root, targets=["src/hot.py"])
         est = self.ea.read_wave(self.root, wid)
         self.assertEqual(est["estimated_exploration_avoided"], 1000)  # 2000*0.5*1.0
         self.assertEqual(est["surfaced_events"], 1)
@@ -2186,7 +2186,7 @@ class ExplorationAvoidedTests(_MemoryCase):
         self._open_wave("1aaaa readied", status="planned")   # sorts first
         self._open_wave("1zzzz open", status="implementing")
         self._record("mem-hot", cost=2000, targets=("src/hot.py",))
-        self.srv.wave_memory_brief_response(self.root, targets=["src/hot.py"])
+        self.srv.memory_brief_response(self.root, targets=["src/hot.py"])
         self.assertEqual(
             self.ea.read_wave(self.root, "1zzzz open")["estimated_exploration_avoided"],
             1000, "credit attributes to the implementing wave")
@@ -2196,15 +2196,15 @@ class ExplorationAvoidedTests(_MemoryCase):
 
     def test_no_open_wave_no_accrual(self):
         self._record("mem-hot", cost=2000, targets=("src/hot.py",))
-        self.srv.wave_memory_brief_response(self.root, targets=["src/hot.py"])
+        self.srv.memory_brief_response(self.root, targets=["src/hot.py"])
         sidecar = self.root / ".wavefoundry" / "index" / "exploration-avoided.json"
         self.assertFalse(sidecar.exists(), "no open wave → nothing to attribute")
 
-    def test_wave_current_surfaces_separate_labeled_estimate(self):
+    def test_wf_current_wave_surfaces_separate_labeled_estimate(self):
         self._open_wave()
         self._record("mem-hot", cost=2000, targets=("src/hot.py",))
-        self.srv.wave_memory_brief_response(self.root, targets=["src/hot.py"])
-        cur = self.srv.wave_current_response(self.root)
+        self.srv.memory_brief_response(self.root, targets=["src/hot.py"])
+        cur = self.srv.wf_current_wave_response(self.root)
         blk = cur["data"].get("estimated_exploration_avoided")
         self.assertIsNotNone(blk, "the estimate must surface as its own labeled block")
         self.assertGreater(blk["tokens"], 0)
@@ -2216,12 +2216,12 @@ class ExplorationAvoidedTests(_MemoryCase):
     def test_advisory_output_invariant_to_credit_failure(self):
         self._open_wave()
         self._record("mem-hot", cost=2000, targets=("src/hot.py",))
-        good = self.srv.wave_memory_brief_response(self.root, targets=["src/hot.py"])
+        good = self.srv.memory_brief_response(self.root, targets=["src/hot.py"])
         idx = self.root / ".wavefoundry" / "index"
         idx.mkdir(parents=True, exist_ok=True)
         os.chmod(idx, 0o500)  # credit write now fails
         try:
-            degraded = self.srv.wave_memory_brief_response(self.root, targets=["src/hot.py"])
+            degraded = self.srv.memory_brief_response(self.root, targets=["src/hot.py"])
         finally:
             os.chmod(idx, 0o700)
         self.assertEqual(good["status"], "ok")
@@ -2248,7 +2248,7 @@ class MemorySearchOrderingTests(_MemoryCase):
         self._add("mem-a", "operator_preference", confidence=0.9, targets=("src/a.py",))
         self._add("mem-b", "review_finding", confidence=0.3, targets=("src/b.py",))
         idx = self._semantic_index("mem-b", "mem-a")  # semantic wants B first
-        resp = self.srv.wave_memory_search_response(self.root, query="regress", index=idx)
+        resp = self.srv.memory_search_response(self.root, query="regress", index=idx)
         ids = [r["memory_id"] for r in resp["data"]["records"]]
         self.assertLess(ids.index("mem-a"), ids.index("mem-b"),
                         "the higher-confidence record must not be demoted by text relevance")
@@ -2258,7 +2258,7 @@ class MemorySearchOrderingTests(_MemoryCase):
         self._add("mem-a", "review_finding", confidence=0.5, targets=("src/a.py",))
         self._add("mem-b", "review_finding", confidence=0.5, targets=("src/b.py",))
         idx = self._semantic_index("mem-b", "mem-a")
-        resp = self.srv.wave_memory_search_response(self.root, query="q", index=idx)
+        resp = self.srv.memory_search_response(self.root, query="q", index=idx)
         ids = [r["memory_id"] for r in resp["data"]["records"]]
         self.assertEqual(ids, ["mem-b", "mem-a"],
                          "within one confidence tier, semantic rank orders the records")
@@ -2267,7 +2267,7 @@ class MemorySearchOrderingTests(_MemoryCase):
         self._add("mem-a", "operator_preference", confidence=0.9)
         self._add("mem-b", "review_finding", confidence=0.3)
         # No index → semantic_hit_order stays empty → the re-sort never runs.
-        resp = self.srv.wave_memory_search_response(self.root, query="lesson")
+        resp = self.srv.memory_search_response(self.root, query="lesson")
         ids = [r["memory_id"] for r in resp["data"]["records"]]
         self.assertEqual(ids, ["mem-a", "mem-b"],
                          "no-index path stays in policy order (confidence desc)")
@@ -2356,7 +2356,7 @@ class MemoryAgentValidationTests(_MemoryCase):
         self.mem.write_memory_record(self.root, content, memory_id)
 
     def _validate(self, memory_id: str, verdict: str, **kwargs):
-        return self.srv.wave_memory_validate_response(
+        return self.srv.memory_validate_response(
             self.root, memory_id, verdict,
             kwargs.pop("action_delta", "Run the targeted regression before editing."),
             kwargs.pop("rationale", "Evidence and current target support the lesson."),
@@ -2504,7 +2504,7 @@ class MemoryAgentValidationTests(_MemoryCase):
             f"# Wave\n\nwave-id: `1aaaa demo`\n\nChange ID: `{change_id}`\n",
             encoding="utf-8",
         )
-        created = self.srv.wave_memory_propose_response(
+        created = self.srv.memory_propose_response(
             self.root, "1aaaa", "create"
         )
         mid = created["data"]["written"][0]["memory_id"]
@@ -2514,7 +2514,7 @@ class MemoryAgentValidationTests(_MemoryCase):
             action_delta="No memory action; the canonical contract owns the rule.",
         )
         self.assertEqual(rejected["status"], "ok", rejected)
-        rerun = self.srv.wave_memory_propose_response(
+        rerun = self.srv.memory_propose_response(
             self.root, "1aaaa", "dry_run"
         )
         self.assertEqual(rerun["data"]["records_proposed"], 0)
@@ -2543,7 +2543,7 @@ class MemoryAgentValidationTests(_MemoryCase):
             [item["code"] for item in missing],
             ["memory_validation_candidates_missing"],
         )
-        created = self.srv.wave_memory_propose_response(
+        created = self.srv.memory_propose_response(
             self.root, wave_id="1valid", mode="create"
         )
         memory_id = created["data"]["written"][0]["memory_id"]
@@ -2553,7 +2553,7 @@ class MemoryAgentValidationTests(_MemoryCase):
             self.srv, "run_validate",
             return_value={"passed": True, "errors": [], "warnings": []},
         ):
-            close_pending = self.srv.wave_close_response(
+            close_pending = self.srv.wf_close_wave_response(
                 self.root, "1valid", mode="dry_run"
             )
         self.assertIn(
@@ -2576,7 +2576,7 @@ class MemoryAgentValidationTests(_MemoryCase):
             self.srv, "run_validate",
             return_value={"passed": True, "errors": [], "warnings": []},
         ):
-            close_validated = self.srv.wave_close_response(
+            close_validated = self.srv.wf_close_wave_response(
                 self.root, "1valid", mode="dry_run"
             )
         self.assertNotIn(

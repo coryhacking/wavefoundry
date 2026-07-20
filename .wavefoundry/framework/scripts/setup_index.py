@@ -278,7 +278,7 @@ def _missing_in_venv(venv_python: Path, required_imports: dict[str, str] | None 
     Wave 1p95u: the check is version-aware, not presence-only. A dependency is flagged when it is not
     importable (as before) OR when it carries a version constraint (e.g. ``lancedb==0.33.0``,
     ``tree-sitter>=0.24,<0.26``) and the version installed in the tool venv falls outside that
-    specifier — so a pinned version bump reaches existing installs on ``wf setup`` / ``wave_upgrade``,
+    specifier — so a pinned version bump reaches existing installs on ``wf setup`` / ``wf_upgrade``,
     not just fresh installs. The returned spec IS the ``REQUIRED_IMPORTS`` key, so ``_install_deps``
     resolves the venv to exactly the pinned version (an ``==`` pin downgrades a newer build; a range
     pin leaves any satisfying version untouched — see the change doc's Decision Log). Version checking
@@ -887,7 +887,7 @@ _ca_bundle_apply_lock = threading.Lock()
 
 def ensure_ca_bundle_applied() -> None:
     """Idempotent, process-wide proactive CA-bundle application for launchers that don't go through
-    ``_warm_model``'s full retry ladder (wave 1p939: MCP ``wave_index_build``, the dashboard's
+    ``_warm_model``'s full retry ladder (wave 1p939: MCP ``index_build``, the dashboard's
     file-watcher, the server's background index refresh, and the server's own model-cache/embedder
     paths). Mirrors ``_warm_model``'s proactive pre-config: an operator-set stack CA env
     (``SSL_CERT_FILE``/``REQUESTS_CA_BUNDLE``) always wins and is left untouched; otherwise, a
@@ -1186,7 +1186,7 @@ def _probe_embedding_provider(provider: str, *, model_name: str | None = None) -
     Wave 1p9lj: a CoreML failure matching the known temp-working-directory shape gets ONE bounded
     repair+retry INSIDE this probe — before any decision is recorded to
     ``WAVEFOUNDRY_EMBED_PROVIDER_SELECTED`` — so a transient temp-dir failure no longer pins the
-    whole build to CPU while `wave_gpu_doctor` later accepts CoreML. The retry never applies to any
+    whole build to CPU while `wf_gpu_doctor` later accepts CoreML. The retry never applies to any
     other failure shape (shape mismatch, non-finite vectors, other compile errors stay fail-safe),
     and there is no post-decision re-enable (the cached-CPU decision remains the native-crash guard
     honored by ``accel_embedder``)."""
@@ -1213,7 +1213,7 @@ def _probe_embedding_provider(provider: str, *, model_name: str | None = None) -
             # a tiny benchmark and make CoreML look better than a full-corpus rebuild.
             # SERIAL ONLY (wave 1p8vc): every `embed()` below runs with the default `parallel=None`
             # (serial inline path). Do NOT pass `parallel=` here — this probe runs in-process inside the
-            # MCP server (wave_gpu_doctor), and fastembed's parallel path spawns workers that re-load ORT
+            # MCP server (wf_gpu_doctor), and fastembed's parallel path spawns workers that re-load ORT
             # and would write cold-load diagnostics to the inherited MCP stdout fd, corrupting JSON-RPC.
             cpu_embedding = TextEmbedding(
                 model_name=model,
@@ -1840,7 +1840,7 @@ def build_index(
     # Wave 1p601: the codebase map is decoupled from the index build (it lives in
     # the indexed docs/references/ tree, so regenerating on every build would
     # create a write→reindex loop). No map regen here. The map is refreshed at
-    # lifecycle (prepare/close), on upgrade, on-demand (wave_index_build
+    # lifecycle (prepare/close), on upgrade, on-demand (index_build
     # content="map" / CLI), and lazily on resource read.
 
 
@@ -2102,7 +2102,7 @@ def main(argv: list[str] | None = None) -> int:
     if background_code:
         # H1 (Phase 4b reliability): stamp THIS process's pid into the background-build marker BEFORE
         # the synchronous docs build, so a crash here (prewarm / docs build) leaves a dead-pid record —
-        # `wave_index_build_status` then reports `completed` (attempted-and-exited) instead of `none`
+        # `index_build_status` then reports `completed` (attempted-and-exited) instead of `none`
         # (never run), which is what masked the silent failure the JS/TS team hit. On success,
         # `_spawn_background_code_build` overwrites this with the detached code-build pid.
         try:
@@ -2148,7 +2148,7 @@ def main(argv: list[str] | None = None) -> int:
         print(
             f"index build failed (exit {exc.returncode}) — the build epoch was left "
             "incomplete and search readers fail closed. See the build output above; "
-            "rerun setup (or wave_index_build) after fixing the cause.",
+            "rerun setup (or index_build) after fixing the cause.",
             file=sys.stderr,
         )
         return 2

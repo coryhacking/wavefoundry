@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-26
+Last verified: 2026-07-20
 
 ---
 
@@ -56,7 +56,7 @@ Review wave        → Run required reviewer lanes; record structured verdicts w
 Close wave         → Seal with operator signoff; distill journal lessons; promote durable memory
 ```
 
-Each step has a gate. Gates are enforced by the server — not by agent instruction, not by convention, and not by hoping the agent remembers. `wave_close` will not succeed without operator signoff. If the project declares `security-review` as a required lane, `wave_close` will not succeed without a recorded `security-review` signoff. The agent cannot talk its way past these checks.
+Each step has a gate. Gates are enforced by the server — not by agent instruction, not by convention, and not by hoping the agent remembers. `wf_close_wave` will not succeed without operator signoff. If the project declares `security-review` as a required lane, `wf_close_wave` will not succeed without a recorded `security-review` signoff. The agent cannot talk its way past these checks.
 
 ### The change document
 
@@ -89,7 +89,7 @@ Projects declare computational sensors in `docs/workflow-config.json`:
 }
 ```
 
-`wave_run_sensors` runs each sensor as a subprocess, captures exit code and output, and returns a structured result. Sensors must pass before inferential reviewer lanes are invoked. Because sensors are just shell commands, any project can wire in its existing quality gates without framework coupling.
+`wf_run_sensors` runs each sensor as a subprocess, captures exit code and output, and returns a structured result. Sensors must pass before inferential reviewer lanes are invoked. Because sensors are just shell commands, any project can wire in its existing quality gates without framework coupling.
 
 ### Architecture Fitness: Inferential Sensor Lane
 
@@ -101,7 +101,7 @@ The reviewer produces a structured verdict: `approved`, `approved-with-notes`, o
 
 The security reviewer (seed 213) checks path confinement, untrusted content handling, privilege escalation, and write-path tool exposure. The performance reviewer (seed 212) checks algorithmic complexity, hot-path regressions, and unbounded in-memory accumulation.
 
-Both produce structured verdicts with severity. `wave_review` aggregates severity across all recorded signoffs and emits a `high_severity_finding` advisory when `max_severity` is `critical` or `high` — so operators receive a triage signal before they begin reviewing the diff.
+Both produce structured verdicts with severity. `wf_review_wave` aggregates severity across all recorded signoffs and emits a `high_severity_finding` advisory when `max_severity` is `critical` or `high` — so operators receive a triage signal before they begin reviewing the diff.
 
 ### Declaring Required Lanes
 
@@ -113,7 +113,7 @@ Projects declare which lanes are structurally required:
 }
 ```
 
-`wave_review` reads this config and includes all declared lanes in `required_lanes` alongside the always-required operator lane. `wave_close` blocks on any missing declared-lane signoff — the same enforcement pattern as operator signoff. A project that declares a lane is required cannot close a wave without it.
+`wf_review_wave` reads this config and includes all declared lanes in `required_lanes` alongside the always-required operator lane. `wf_close_wave` blocks on any missing declared-lane signoff — the same enforcement pattern as operator signoff. A project that declares a lane is required cannot close a wave without it.
 
 ---
 
@@ -180,7 +180,7 @@ Wavefoundry is in active development and self-hosted on its own framework.
 - Full wave lifecycle MCP surface (47 tools)
 - Local semantic index (docs + code) with incremental update and offline fallback
 - Three-dimension feedback harness: computational sensors, security/performance/architecture inferential lanes, severity triage
-- Required review lane enforcement at wave_review and wave_close
+- Required review lane enforcement at wf_review_wave and wf_close_wave
 - Background index rebuild with non-blocking progress reporting
 - Platform surface rendering for Claude Code, Cursor, Copilot, Junie
 - Pack distribution and upgrade flow with MANIFEST-aware pruning
@@ -188,11 +188,11 @@ Wavefoundry is in active development and self-hosted on its own framework.
 **In progress:**
 - Code Insight Agent (code_ask) — semantic code search with LLM synthesis
 - Prompt indexing quality improvements for kind="prompt" content
-- Agent feedback harness coverage metrics and coherence checks in wave_audit
+- Agent feedback harness coverage metrics and coherence checks in wf_audit
 
 **Planned:**
 - Behaviour test generation loop
 - Hotfix bypass detection
-- Harnessability assessment surfaced in wave_current
+- Harnessability assessment surfaced in wf_current_wave
 
 Distribution: `wavefoundry-2026-05-06g.zip`

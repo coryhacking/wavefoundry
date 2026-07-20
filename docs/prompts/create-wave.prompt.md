@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-17
+Last verified: 2026-07-20
 
 Shortcut: **`Create wave`**
 
@@ -23,7 +23,7 @@ Create a wave record at `docs/waves/<wave-id>/wave.md`. The wave is the coordina
    - `Completion criteria`, `Handoff or next-wave notes`
    - `Wave Summary` placeholder: *(Populated at closure.)*
    - one generated, non-authoritative `## Finding Synthesis` current-state
-     projection; use `wave_create_wave` when available so the zero-record
+     projection; use `wf_create_wave` when available so the zero-record
      count/hash adoption proof is updated atomically with the scaffold
 3. Only one wave may be **OPEN** (`active`/`implementing`) per `change-id` at a time — enforced at the activation step (wave 1p45l). Creating, admitting, and **readying** additional waves needs no pause; only opening one is single-gated.
 

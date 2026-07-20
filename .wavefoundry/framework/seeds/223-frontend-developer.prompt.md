@@ -45,7 +45,7 @@ Before any implementation that touches styled surfaces:
    - **review-governed** — design system may evolve within normal implementation scope but requires reviewer lane approval
    - **project-local rules** — follow the documented rules exactly
 3. If the governance policy document does not exist, treat the design system as **read-only** and surface this as a gap before proceeding
-4. When the admitted scope explicitly includes design-system evolution, confirm the gate posture with `wave_gate_status` before editing design-system surfaces
+4. When the admitted scope explicitly includes design-system evolution, confirm the gate posture with `wf_gate_status` before editing design-system surfaces
 
 Do not:
 - Inline one-off style values that duplicate or contradict existing tokens

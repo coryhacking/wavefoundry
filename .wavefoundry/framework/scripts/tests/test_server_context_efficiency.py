@@ -47,22 +47,22 @@ RETRIEVAL_TOOLS = {
     "code_commit_provenance",
 }
 LIFECYCLE_TOOLS = {
-    "wave_create_wave",
-    "wave_prepare",
-    "wave_implement",
-    "wave_review",
-    "wave_close",
+    "wf_create_wave",
+    "wf_prepare_wave",
+    "wf_implement_wave",
+    "wf_review_wave",
+    "wf_close_wave",
 }
 SERIALIZED_WAVE_WRITERS = {
-    "wave_create_wave",
-    "wave_add_change",
-    "wave_remove_change",
-    "wave_prepare",
-    "wave_pause",
-    "wave_implement",
-    "wave_reopen",
-    "wave_close",
-    "wave_garden",
+    "wf_create_wave",
+    "wf_add_change",
+    "wf_remove_change",
+    "wf_prepare_wave",
+    "wf_pause_wave",
+    "wf_implement_wave",
+    "wf_reopen_wave",
+    "wf_close_wave",
+    "wf_garden_docs",
 }
 
 
@@ -150,10 +150,10 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
         self.assertEqual(
             milestone_gated,
             {
-                "wave_create_wave",
-                "wave_prepare",
-                "wave_implement",
-                "wave_close",
+                "wf_create_wave",
+                "wf_prepare_wave",
+                "wf_implement_wave",
+                "wf_close_wave",
             },
         )
         self.assertEqual(
@@ -162,7 +162,7 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(
             observational_annotations,
-            RETRIEVAL_TOOLS | {"wave_review"},
+            RETRIEVAL_TOOLS | {"wf_review_wave"},
         )
 
     def test_mcp_reload_evicts_context_efficiency_dependency(self):
@@ -286,7 +286,7 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
                 for key, value in applicability.items()
                 if key not in {"wave_id", "phase_id", "stage"}
             }
-            rejected = srv.wave_context_efficiency_attach_evaluation_response(
+            rejected = srv.wf_context_efficiency_eval_response(
                 root,
                 "1wave",
                 phase_id,
@@ -301,7 +301,7 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
                 phase_id="other-phase",
                 stage="implement",
             )
-            rejected = srv.wave_context_efficiency_attach_evaluation_response(
+            rejected = srv.wf_context_efficiency_eval_response(
                 root,
                 "1wave",
                 phase_id,
@@ -310,7 +310,7 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
             )
             self.assertEqual(rejected["status"], "error")
             self.assertIn("authoritative phase", rejected["data"]["error"])
-            registered = srv.wave_context_efficiency_attach_evaluation_response(
+            registered = srv.wf_context_efficiency_eval_response(
                 root,
                 "1wave",
                 phase_id,
@@ -360,7 +360,7 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            attached = srv.wave_context_efficiency_attach_evaluation_response(
+            attached = srv.wf_context_efficiency_eval_response(
                 root,
                 "1wave",
                 phase_id,
@@ -609,7 +609,7 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
             ):
                 poisoned = srv._record_workflow_context(
                     handler,
-                    "wave_prepare",
+                    "wf_prepare_wave",
                     wave_id,
                     dict(core),
                     milestone_completed=True,
@@ -626,7 +626,7 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
             ):
                 fatal = srv._record_workflow_context(
                     handler,
-                    "wave_prepare",
+                    "wf_prepare_wave",
                     wave_id,
                     dict(core),
                     milestone_completed=True,
@@ -665,7 +665,7 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
             ):
                 result = srv._record_workflow_context(
                     handler,
-                    "wave_prepare",
+                    "wf_prepare_wave",
                     wave_id,
                     core,
                     milestone_completed=True,
@@ -930,10 +930,10 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
 
             result = srv._lifecycle_context_result(
                 handler,
-                "wave_prepare",
+                "wf_prepare_wave",
                 wave_id,
                 core,
-                focus_stage="prepare",
+                focus_stage="plan",
                 flush=True,
                 transfer_general=True,
             )
@@ -943,10 +943,11 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
             self.assertEqual(proxy["persistence"], "durable")
             snapshot = ce.read_wave_snapshot(root, wave_id)
             self.assertEqual(
-                snapshot["stages"]["pre-wave"]["content_source_credit"], 105
+                snapshot["stages"]["plan"]["content_source_credit"], 105
             )
-            self.assertEqual(snapshot["stages"]["pre-wave"]["calls"], 1)
-            self.assertEqual(snapshot["stages"]["prepare"]["calls"], 1)
+            # 1t3ld: the adopted general event and the prepare-tool proxy event
+            # now share the single canonical `plan` stage.
+            self.assertEqual(snapshot["stages"]["plan"]["calls"], 2)
             second_core = {
                 "status": "ok",
                 "data": {"wave_id": wave_id, "mode": "ready"},
@@ -954,10 +955,10 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
             }
             second_result = srv._lifecycle_context_result(
                 handler,
-                "wave_prepare",
+                "wf_prepare_wave",
                 wave_id,
                 second_core,
-                focus_stage="prepare",
+                focus_stage="plan",
                 credit=True,
                 flush=True,
             )
@@ -967,7 +968,7 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
                 second_proxy["invocation_id"], proxy["invocation_id"]
             )
             snapshot = ce.read_wave_snapshot(root, wave_id)
-            self.assertEqual(snapshot["stages"]["prepare"]["calls"], 2)
+            self.assertEqual(snapshot["stages"]["plan"]["calls"], 3)
             rendered = wave_md.read_text(encoding="utf-8")
             self.assertIn("keep-me", rendered)
             self.assertIn("## Context Efficiency", rendered)
@@ -996,20 +997,20 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
             }
             result = srv._lifecycle_context_result(
                 handler,
-                "wave_prepare",
+                "wf_prepare_wave",
                 wave_id,
                 dry,
-                focus_stage="prepare",
+                focus_stage="plan",
                 credit=False,
                 flush=False,
             )
-            self.assertEqual(handler.telemetry.focus.stage, "prepare")
+            self.assertEqual(handler.telemetry.focus.stage, "plan")
             proxy = result["data"]["workflow_instruction_proxy"]
             self.assertTrue(proxy["captured"])
             self.assertEqual(proxy["prompt_surface_tokens"], 0)
             self.assertEqual(proxy["persistence"], "durable")
             self.assertEqual(
-                ce.read_wave_snapshot(root, wave_id)["stages"]["prepare"][
+                ce.read_wave_snapshot(root, wave_id)["stages"]["plan"][
                     "calls"
                 ],
                 1,
@@ -1080,10 +1081,10 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
             }
             srv._lifecycle_context_result(
                 handler,
-                "wave_prepare",
+                "wf_prepare_wave",
                 wave_id,
                 failed,
-                focus_stage="prepare",
+                focus_stage="plan",
                 credit=False,
                 flush=True,
                 transfer_general=True,
@@ -1094,8 +1095,11 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
                 ],
                 1,
             )
-            self.assertNotIn(
-                "pre-wave", ce.read_wave_snapshot(root, wave_id)["stages"]
+            # 1t3ld: the failed call's own proxy event lands in `plan`; the
+            # unattributed general event must NOT have been transferred, so the
+            # stage holds exactly one call.
+            self.assertEqual(
+                ce.read_wave_snapshot(root, wave_id)["stages"]["plan"]["calls"], 1
             )
             handler.telemetry.close()
 
@@ -1123,7 +1127,7 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
             }
             result = srv._lifecycle_context_result(
                 handler,
-                "wave_review",
+                "wf_review_wave",
                 wave_id,
                 response,
                 focus_stage="review",
@@ -1192,10 +1196,10 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
             }
             result = srv._lifecycle_context_result(
                 handler,
-                "wave_prepare",
+                "wf_prepare_wave",
                 wave_id,
                 core,
-                focus_stage="prepare",
+                focus_stage="plan",
                 credit=False,
                 flush=False,
             )
@@ -1259,16 +1263,16 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
             }
             failed_projection = ({"persistence": "failed"}, None)
             with (
-                patch.object(srv, "wave_pause_response", return_value=pause_core),
-                patch.object(srv, "wave_reopen_response", return_value=reopen_core),
+                patch.object(srv, "wf_pause_wave_response", return_value=pause_core),
+                patch.object(srv, "wf_reopen_wave_response", return_value=reopen_core),
                 patch.object(
                     srv,
                     "_flush_context_efficiency",
                     return_value=failed_projection,
                 ),
             ):
-                paused = mcp.tools["wave_pause"](wave_id, mode="create")
-                reopened = mcp.tools["wave_reopen"](wave_id)
+                paused = mcp.tools["wf_pause_wave"](wave_id, mode="create")
+                reopened = mcp.tools["wf_reopen_wave"](wave_id)
             self.assertIs(paused, pause_core)
             self.assertIs(reopened, reopen_core)
             self.assertEqual(
@@ -1282,34 +1286,34 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
 
     def test_lifecycle_credit_requires_a_new_milestone_not_a_noop_retry(self):
         cases = [
-            ("wave_create_wave", {"created": True}, True, True),
-            ("wave_create_wave", {"created": False}, True, False),
+            ("wf_create_wave", {"created": True}, True, True),
+            ("wf_create_wave", {"created": False}, True, False),
             (
-                "wave_prepare",
+                "wf_prepare_wave",
                 {"mode": "create", "transitioned_to_active": True},
                 True,
                 True,
             ),
             (
-                "wave_prepare",
+                "wf_prepare_wave",
                 {"mode": "create", "transitioned_to_active": False},
                 True,
                 False,
             ),
             (
-                "wave_prepare",
+                "wf_prepare_wave",
                 {"mode": "ready", "readied": True},
                 True,
                 True,
             ),
             (
-                "wave_implement",
+                "wf_implement_wave",
                 {"transitioned_to_implementing": True},
                 True,
                 True,
             ),
             (
-                "wave_implement",
+                "wf_implement_wave",
                 {
                     "already_implementing": True,
                     "transitioned_to_implementing": False,
@@ -1318,19 +1322,19 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
                 False,
             ),
             (
-                "wave_close",
+                "wf_close_wave",
                 {"updated": True, "transitioned_to_closed": True},
                 True,
                 True,
             ),
             (
-                "wave_close",
+                "wf_close_wave",
                 {"updated": False, "transitioned_to_closed": False},
                 True,
                 False,
             ),
             (
-                "wave_implement",
+                "wf_implement_wave",
                 {"transitioned_to_implementing": True},
                 False,
                 False,
@@ -1349,7 +1353,7 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
 
         self.assertFalse(
             srv._lifecycle_milestone_completed(
-                "wave_close",
+                "wf_close_wave",
                 {
                     "status": "error",
                     "data": {"transitioned_to_closed": True},
@@ -1411,7 +1415,7 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
                 }
 
             def invoke() -> None:
-                srv.wave_garden_response(root, mode="run")
+                srv.wf_garden_docs_response(root, mode="run")
                 completed.set()
 
             with patch.object(srv, "run_garden", side_effect=fake_garden):
@@ -1502,14 +1506,14 @@ if flushed is None or not flushed.success:
                 "keep-me", wave_md.read_text(encoding="utf-8")
             )
 
-    def test_wave_review_source_is_read_only(self):
+    def test_wf_review_wave_source_is_read_only(self):
         source = (SCRIPTS_ROOT / "server_impl.py").read_text(encoding="utf-8")
         tree = ast.parse(source)
         fn = next(
             node
             for node in tree.body
             if isinstance(node, ast.FunctionDef)
-            and node.name == "wave_review_response"
+            and node.name == "wf_review_wave_response"
         )
         segment = ast.get_source_segment(source, fn) or ""
         self.assertNotIn(
@@ -1623,7 +1627,7 @@ if flushed is None or not flushed.success:
             handler = SimpleNamespace(
                 root=root, telemetry=ce.ProcessTelemetry(root)
             )
-            handler.telemetry.set_focus(wave_id, "close", new_phase=True)
+            handler.telemetry.set_focus(wave_id, "review", new_phase=True)
             handler.telemetry.record_retrieval(
                 {
                     "estimated_request_tokens": 1,
@@ -1671,7 +1675,7 @@ if flushed is None or not flushed.success:
             handler = SimpleNamespace(
                 root=root, telemetry=ce.ProcessTelemetry(root)
             )
-            handler.telemetry.set_focus(wave_id, "close", new_phase=True)
+            handler.telemetry.set_focus(wave_id, "review", new_phase=True)
             handler.telemetry.record_retrieval(
                 {
                     "estimated_request_tokens": 1,

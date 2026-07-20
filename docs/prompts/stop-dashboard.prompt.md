@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-13
+Last verified: 2026-07-20
 
 Shortcut: **`Stop dashboard`**
 
@@ -15,7 +15,7 @@ Stop the local Wavefoundry dashboard for the current repository. This command ta
 Use the MCP tool:
 
 ```text
-wave_dashboard_stop
+wf_stop_dashboard
 ```
 
 ## Behavior

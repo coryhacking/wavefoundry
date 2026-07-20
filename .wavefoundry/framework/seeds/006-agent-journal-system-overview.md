@@ -26,7 +26,7 @@ The most common journal failure is the **activity log**: entries that record wha
 This is git history. A new agent inheriting the role 3 months later gains nothing from it.
 
 **Qualifying — genuine journal entry:**
-> `High salience — wave_current envelope changed from data.wave (single) to data.waves[] (list). Every call site must read data.waves[]; the old key no longer exists. Easy to miss during upgrade.`
+> `High salience — wf_current_wave envelope changed from data.wave (single) to data.waves[] (list). Every call site must read data.waves[]; the old key no longer exists. Easy to miss during upgrade.`
 
 This is a hard-to-rediscover constraint that would cost future agents real time without the warning.
 

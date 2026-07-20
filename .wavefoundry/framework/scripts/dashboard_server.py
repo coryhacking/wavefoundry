@@ -241,8 +241,8 @@ class SnapshotStore:
         cfg = dashboard_lib.read_dashboard_config(root)
         # 1p7it: the dashboard does NOT trigger index builds — index updates are owned by the
         # MCP/hook background path (post-edit hook + the MCP server's background refresh +
-        # wave_index_build). The dashboard is a read-only viewer; build status it shows comes from
-        # the shared index-build state (collect_health → wave_index_build_status_response).
+        # index_build). The dashboard is a read-only viewer; build status it shows comes from
+        # the shared index-build state (collect_health → index_build_status_response).
         # Check staleness once at startup so the first snapshot already has the state.
         self._index_stale: dict[str, bool | None] = {
             layer: _index_is_stale(root, layer) for layer in _INDEX_LAYERS
@@ -397,7 +397,7 @@ class SnapshotStore:
         # Wave 1p4ww: single project index — the framework layer is folded in.
         proj = snap.setdefault("health", {}).setdefault("index", {}).setdefault("project", {})
         # 1p7it: the dashboard does not run builds — `collect_health` already merges the shared
-        # index-build status (the hook/MCP background builds, via wave_index_build_status_response)
+        # index-build status (the hook/MCP background builds, via index_build_status_response)
         # into proj["build_status"], so the display reflects the real builds with no overlay.
         # Wave 1p5xw: the dashboard no longer runs a continuous staleness poll. Compute index
         # staleness on demand here (read-only, for display only). Skip while a build is running to

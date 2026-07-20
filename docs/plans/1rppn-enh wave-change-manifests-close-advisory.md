@@ -4,28 +4,28 @@ Change ID: `1rppn-enh wave-change-manifests-close-advisory`
 Change Status: `planned`
 Owner: Engineering
 Status: planned
-Last verified: 2026-07-04
+Last verified: 2026-07-20
 Wave: TBD (future wave; depends on `1ro43-enh churn-aware-retrieval-decay` landing in wave `1ro44`; natural companion to `1rolq-enh verify-docs-agentic-review`)
 
 ## Rationale
 
 The churn-aware decay machinery (`1ro43`, wave `1ro44`) attributes doc-code drift to waves by deriving each wave's change set from the commit log — the landing-commit convention ("Land wave <id>: …") maps a wave to the files its landing diff touched. That derivation is deliberately heuristic and it has known precision limits: bundle commits attribute coarsely (a single release commit has landed five waves, so all five share one change set), the convention's wording wobbles across history, and target repositories that adopt Wavefoundry may not follow the convention at all. Attribution built on a commit-message grep is a good v1 primitive and a permanent backfill path, but it is not a contract.
 
-This change makes wave→files attribution deterministic at the source: `wave_close` captures a **wave change manifest** — the code files and docs actually changed during the wave — as a first-class, repo-visible artifact in the wave folder. Because commits are operator-owned in this framework, close time usually precedes the landing commit; the manifest therefore captures the union of commits since the wave's baseline and the working-tree changes present at close, rather than assuming a completed commit exists.
+This change makes wave→files attribution deterministic at the source: `wf_close_wave` captures a **wave change manifest** — the code files and docs actually changed during the wave — as a first-class, repo-visible artifact in the wave folder. Because commits are operator-owned in this framework, close time usually precedes the landing commit; the manifest therefore captures the union of commits since the wave's baseline and the working-tree changes present at close, rather than assuming a completed commit exists.
 
 The manifest also unlocks the **leading** staleness signal, which post-hoc derivation cannot provide: advisories at the moment drift is created. Every change doc already declares an `## Affected Architecture Docs` section — a hand-authored statement of which docs *should* change with the code — but nothing consumes it mechanically today. At close, two comparisons become possible while context is hottest: docs **declared** affected but never touched during the wave, and docs that **reference** code the wave touched (via graph doc→code edges) but were not updated. Surfacing both as close-time advisories lets the closing agent amend docs immediately or hand attributed review candidates to the Verify docs loop (`1rolq`), instead of letting drift rot silently into the lagging worklist.
 
 ## Requirements
 
-1. Record a **wave baseline** when a wave becomes OPEN (activation via `wave_prepare(mode='create')` / `wave_implement` / `wave_reopen`): the current HEAD commit, stored in the wave folder. Reopening an already-baselined wave preserves the original baseline and appends the reopen point (list, not scalar).
-2. At `wave_close` (both `dry_run` and `create`), compute the **wave change manifest**: repo-relative paths changed since the baseline, as the union of (a) commits from baseline to current HEAD and (b) uncommitted working-tree changes (staged and unstaged) at close time. Classify entries as code vs docs using the existing include-prefix/docs conventions.
+1. Record a **wave baseline** when a wave becomes OPEN (activation via `wf_prepare_wave(mode='create')` / `wf_implement_wave` / `wf_reopen_wave`): the current HEAD commit, stored in the wave folder. Reopening an already-baselined wave preserves the original baseline and appends the reopen point (list, not scalar).
+2. At `wf_close_wave` (both `dry_run` and `create`), compute the **wave change manifest**: repo-relative paths changed since the baseline, as the union of (a) commits from baseline to current HEAD and (b) uncommitted working-tree changes (staged and unstaged) at close time. Classify entries as code vs docs using the existing include-prefix/docs conventions.
 3. Persist the manifest as a machine-readable, repo-visible artifact in the wave folder (working candidate: `docs/waves/<wave-id>/manifest.json`; exact name/format finalized at implementation and recorded in the Decision Log). `mode='dry_run'` computes and reports the manifest without writing it; `mode='create'` writes it as part of close. The artifact is documentation-adjacent state, not a lint target requiring change-doc sections.
 4. Close-time **declared-docs advisory**: compare each admitted change doc's `## Affected Architecture Docs` entries against the manifest's touched docs. Declared-but-untouched docs produce a named diagnostic in the close response (dry-run included). Advisory only — it must not block close; `N/A` declarations are respected.
 5. Close-time **referencing-docs advisory**: docs that reference code files the wave touched (graph doc→code edges and explicit path references, reusing `1ro43` reference extraction) but were not themselves touched produce a capped, severity-ordered advisory list in the close response, each entry carrying wave attribution. Advisory only.
 6. Drift attribution ladder: the `1ro43` drift computation consumes manifests as the **preferred** wave→files source when present, falling back to landing-commit derivation, then raw commit churn. The ladder is a single documented resolution order, and `anchor`/attribution metadata records which rung supplied the answer.
 7. Worklist enrichment: drift worklist entries (consumed by `1rolq`) carry wave attribution when a manifest or derivation supplies it — wave id(s) and wave title(s) responsible for the drifting churn — so the reviewing agent can read the wave record instead of diffing blind.
 8. Backfill remains derivational: no requirement to generate manifests for historical waves; the landing-commit derivation from `1ro43` covers history. A manifest, when present, always wins over derivation for the same wave.
-9. Local-only, no blocking behavior: all computation uses local git; close never gains a new blocking gate from this change; `wave_close` behavior is otherwise unchanged (operator-owned close approval rules are untouched).
+9. Local-only, no blocking behavior: all computation uses local git; close never gains a new blocking gate from this change; `wf_close_wave` behavior is otherwise unchanged (operator-owned close approval rules are untouched).
 
 ## Scope
 
@@ -33,9 +33,9 @@ The manifest also unlocks the **leading** staleness signal, which post-hoc deriv
 
 **In scope:**
 
-- Baseline capture at wave activation; manifest computation and persistence at `wave_close` (dry-run reporting + create-time write).
+- Baseline capture at wave activation; manifest computation and persistence at `wf_close_wave` (dry-run reporting + create-time write).
 - Manifest artifact format in the wave folder (machine-readable, repo-visible, diff-reviewable).
-- Declared-docs and referencing-docs close-time advisories in the `wave_close` response envelope.
+- Declared-docs and referencing-docs close-time advisories in the `wf_close_wave` response envelope.
 - Drift attribution ladder (manifest → landing-commit derivation → raw churn) in the `1ro43` computation path.
 - Wave attribution fields on drift worklist entries.
 - Tests: baseline capture/reopen semantics, manifest union (commits + working tree), classification, advisory correctness (declared and referencing), non-blocking behavior, attribution-ladder precedence, dry-run purity (no writes).
@@ -52,7 +52,7 @@ The manifest also unlocks the **leading** staleness signal, which post-hoc deriv
 ## Acceptance Criteria
 
 - [ ] AC-1: Activating a wave records its baseline commit in the wave folder; reopen appends rather than overwrites; a wave activated before this change (no baseline) degrades to derivation-only with a clear diagnostic, not an error.
-- [ ] AC-2: `wave_close(mode='dry_run')` reports the manifest (code/docs classification, commit + working-tree union) without writing; `mode='create'` persists the artifact; a fixture wave with both committed and uncommitted changes yields the correct union.
+- [ ] AC-2: `wf_close_wave(mode='dry_run')` reports the manifest (code/docs classification, commit + working-tree union) without writing; `mode='create'` persists the artifact; a fixture wave with both committed and uncommitted changes yields the correct union.
 - [ ] AC-3: Declared-but-untouched `Affected Architecture Docs` entries produce a named advisory diagnostic listing the specific docs and their declaring change docs; `N/A` declarations produce no advisory; close is never blocked.
 - [ ] AC-4: Docs referencing wave-touched code but untouched in the wave appear in a capped, severity-ordered advisory with wave attribution; the cap and ordering fields are named constants.
 - [ ] AC-5: The drift attribution ladder resolves manifest → derivation → churn in that order, records which rung answered, and a fixture demonstrates a manifest overriding a conflicting derivation for the same wave.
@@ -69,7 +69,7 @@ The manifest also unlocks the **leading** staleness signal, which post-hoc deriv
 - [ ] Implement the referencing-docs advisory reusing `1ro43` reference extraction; cap + severity ordering as named constants.
 - [ ] Wire the attribution ladder into the `1ro43` drift computation and add wave attribution to worklist entries.
 - [ ] Update close-wave seed/prompt guidance (open/close `seed_edit_allowed` around seed edits; advisory language only, no gates).
-- [ ] Tests per AC list; run `python3 .wavefoundry/framework/scripts/run_tests.py` and `wave_validate`.
+- [ ] Tests per AC list; run `python3 .wavefoundry/framework/scripts/run_tests.py` and `wf_validate_docs`.
 
 ## Agent Execution Graph
 

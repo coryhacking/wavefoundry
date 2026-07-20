@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: superseded
-Last verified: 2026-07-18
+Last verified: 2026-07-20
 Superseded by: `1syle-enh agent-validated-memory-curation-and-backfill`
 
 ## Supersession
@@ -21,7 +21,7 @@ reversed.
 The typed agent memory layer (ADR `1sk58`) shipped with a deliberate invariant:
 status and supersession are the only lifecycle mechanisms, nothing auto-rewrites
 history, and promotion of a `candidate` to `active` is human-gated (an explicit
-`wave_memory_reconcile`). That human gate, together with a manual supply step,
+`memory_reconcile`). That human gate, together with a manual supply step,
 made the whole loop inert in practice: nobody remembered to propose candidates
 after a close and then reconcile each one, so the corpus stayed empty and the
 (already-automatic) surfacing had nothing to surface. The value only exists if
@@ -36,7 +36,7 @@ non-latest above a Jaccard threshold), which silently rewrites history.
 Relax the human-gated-promotion posture, but only in the direction that does not
 rewrite history:
 
-- `wave_close` **automatically drafts** memory records from the closing wave's
+- `wf_close_wave` **automatically drafts** memory records from the closing wave's
   own typed evidence (change-doc Decision Logs + repaired real-defect findings),
   always on, bounded, idempotent (exact/normalized dedup), and fail-isolated so
   it never affects the close.
@@ -54,7 +54,7 @@ contradictions are still only surfaced (1stwl detection), never auto-resolved.
 ## Consequences
 
 - The memory loop runs with no manual step: closing a wave populates the corpus
-  and the durable records surface on the next `code_read` / `wave_prepare`.
+  and the durable records surface on the next `code_read` / `wf_prepare_wave`.
 - "Importance" is approximated by deterministic structural proxies, so the
   promotion set is auditable and reproducible, and it is guarded by the 1sufm
   memory-retrieval eval (a widening of the drafting must be shown to add signal,

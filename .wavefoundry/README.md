@@ -69,7 +69,7 @@ The Wave Framework addresses this by giving agents a persistent operating surfac
   │  Each change follows the coordinator loop:                  │
   │    Thought → Action → Observe → (fix if needed) → repeat   │
   │                                                             │
-  │  Run wave_run_sensors() after implementation to             │
+  │  Run wf_run_sensors() after implementation to             │
   │  verify computational quality gates (lint, tests, etc.)     │
   └─────────┬──────────────────────────────────────────────────┘
             │
@@ -98,7 +98,7 @@ The Wave Framework addresses this by giving agents a persistent operating surfac
   reviewed, decided, and why — for every change in the wave.
 ```
 
-**Key principle:** gates are enforced by the server, not by agent instruction. `wave_close` will not succeed without required signoffs recorded. The agent cannot talk its way past the checks.
+**Key principle:** gates are enforced by the server, not by agent instruction. `wf_close_wave` will not succeed without required signoffs recorded. The agent cannot talk its way past the checks.
 
 ---
 
@@ -150,10 +150,10 @@ The local MCP server (`framework/scripts/server.py`) exposes 47 tools:
 
 | Surface | Tools |
 |---------|-------|
-| Wave lifecycle | `wave_current`, `wave_prepare`, `wave_review`, `wave_close`, `wave_run_sensors`, creation/mutation surface |
+| Wave lifecycle | `wf_current_wave`, `wf_prepare_wave`, `wave_review`, `wf_close_wave`, `wf_run_sensors`, creation/mutation surface |
 | Docs and code search | `docs_search`, `code_search`, `code_read`, `code_definition`, `code_references`, `code_ask` |
-| Audit and health | `wave_audit`, `wave_validate`, `wave_garden`, `wave_index_health`, `wave_index_build` |
-| Framework navigation | `seed_get`, `wave_help`, `wave_map`, `wave_get_prompt` |
+| Audit and health | `wf_audit`, `wf_validate_docs`, `wf_garden_docs`, `index_health`, `index_build` |
+| Framework navigation | `seed_get`, `wf_help`, `wf_map`, `wf_get_prompt` |
 
 The server runs locally over stdio — no hosted service, no network dependency, no data leaving the machine.
 
@@ -162,7 +162,7 @@ The server runs locally over stdio — no hosted service, no network dependency,
 Beyond process gates, the framework ships a three-dimension feedback harness:
 
 **Maintainability — Computational sensors**
-Project-registered shell commands run via `wave_run_sensors`. Pass/fail determined by exit code. Any existing quality gate (lint, tests, type-check) can be wired in without framework coupling.
+Project-registered shell commands run via `wf_run_sensors`. Pass/fail determined by exit code. Any existing quality gate (lint, tests, type-check) can be wired in without framework coupling.
 
 ```json
 {
@@ -187,7 +187,7 @@ Declare which lanes are required in `docs/workflow-config.json`:
 }
 ```
 
-A declared lane missing its signoff blocks `wave_close` the same way a missing operator signoff does.
+A declared lane missing its signoff blocks `wf_close_wave` the same way a missing operator signoff does.
 
 ### The Semantic Index
 
@@ -259,7 +259,7 @@ Upgrade Wavefoundry
 The agent adopts the zip, bootstraps the operating surface, and refreshes the local framework files. After upgrade, restart MCP and run:
 
 ```
-wave_index_build(content="docs", mode="update")
+index_build(content="docs", mode="update")
 ```
 
 ### Upgrading
@@ -273,9 +273,9 @@ The agent detects drift, reconciles prompts and hook surfaces, runs the docs gat
 ### Starting a session
 
 ```
-wave_current()        ← See active waves and current state
-wave_audit()          ← Combined wave + lint + index health snapshot
-wave_help()           ← Full shortcut phrase table
+wf_current_wave()        ← See active waves and current state
+wf_audit()          ← Combined wave + lint + index health snapshot
+wf_help()           ← Full shortcut phrase table
 ```
 
 ### Opening a wave

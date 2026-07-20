@@ -78,9 +78,9 @@ def _set_mcp(mcp: Any) -> None:
 
 
 # Wave 131bt (131d8): tools that survive the re-register pass.
-# wave_mcp_reload is defined in build_server (this module) rather than in
+# wf_reload_mcp is defined in build_server (this module) rather than in
 # server_impl.register_mcp_surface, so it must not be removed during refresh.
-_RELOAD_SURVIVOR_TOOLS: frozenset[str] = frozenset({"wave_mcp_reload"})
+_RELOAD_SURVIVOR_TOOLS: frozenset[str] = frozenset({"wf_reload_mcp"})
 
 
 def _configure_stdio_for_mcp_transport() -> None:
@@ -107,7 +107,7 @@ def _isolate_native_stdout_from_protocol() -> None:
     Native C/C++ extensions — onnxruntime's DirectML/CUDA execution providers enumerating GPU
     adapters on their FIRST load — write diagnostics DIRECTLY to file descriptor 1. When fd 1 is the
     stdio JSON-RPC channel, those bytes corrupt the protocol framing and hang the first call that
-    triggers a model load (`wave_gpu_doctor`, and every first semantic search — `code_search` /
+    triggers a model load (`wf_gpu_doctor`, and every first semantic search — `code_search` /
     `code_ask` / `docs_search` — plus the background prewarm thread). `contextlib.redirect_stdout`
     only swaps the Python `sys.stdout` object and cannot intercept native fd-1 writes; a per-call
     `os.dup2` on fd 1 is process-global and so is unsafe against the concurrent background prewarm
@@ -173,7 +173,7 @@ def _refresh_mcp_tool_surface(
     and the host; the diagnostic surfaces honestly so the operator knows when a
     full restart is required.
 
-    Tools listed in ``_RELOAD_SURVIVOR_TOOLS`` (wave_mcp_reload itself) are
+    Tools listed in ``_RELOAD_SURVIVOR_TOOLS`` (wf_reload_mcp itself) are
     NOT removed; they continue serving from the build_server closure.
     """
     warnings: list[dict[str, Any]] = []
@@ -257,7 +257,7 @@ def perform_mcp_reload() -> dict[str, Any]:
             )
         server_impl._script_cache.clear()
         # Evict wave_lint_lib submodules so lazy imports in server_impl
-        # (e.g. wave_scan_secrets_response) pick up the freshly-edited code
+        # (e.g. wf_scan_secrets_response) pick up the freshly-edited code
         # rather than the cached pre-reload module objects.
         import sys as _sys
         for _key in list(_sys.modules):
@@ -373,7 +373,7 @@ def perform_mcp_reload() -> dict[str, Any]:
             "ok",
             payload,
             diagnostics=diagnostics,
-            usage="wave_mcp_reload()",
+            usage="wf_reload_mcp()",
         )
 
 
@@ -392,7 +392,7 @@ def build_server(root: Path):
     _MUTATING_TOOL = {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False}
 
     @mcp.tool(annotations=_MUTATING_TOOL)
-    def wave_mcp_reload(**kwargs: Any) -> dict[str, Any]:
+    def wf_reload_mcp(**kwargs: Any) -> dict[str, Any]:
         """Reload MCP implementation module without restarting the stdio server.
 
         Returns ``framework_version``, ``server_runner_version``, ``server_impl_version``,
@@ -419,7 +419,7 @@ def build_server(root: Path):
         a full host restart (quit and relaunch Claude Code) remains the
         fallback.
         """
-        bad = server_impl._ensure_no_extra_args("wave_mcp_reload", kwargs)
+        bad = server_impl._ensure_no_extra_args("wf_reload_mcp", kwargs)
         if bad is not None:
             return bad
         projection = server_impl.project_pending_context_efficiency(_get_handler())
@@ -438,7 +438,7 @@ def build_server(root: Path):
                         "efficiency telemetry could not be projected.",
                     )
                 ],
-                usage="Resolve the projection failure, then call wave_mcp_reload() again.",
+                usage="Resolve the projection failure, then call wf_reload_mcp() again.",
             )
         return perform_mcp_reload()
 

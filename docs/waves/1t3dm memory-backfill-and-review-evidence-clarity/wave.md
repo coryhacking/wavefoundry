@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: closed
-Last verified: 2026-07-19
+Last verified: 2026-07-20
 review-evidence-source: events.jsonl
 
 wave-id: `1t3dm memory-backfill-and-review-evidence-clarity`
@@ -270,15 +270,12 @@ Estimated token savings use phase-unique returned source versions and mapped wor
 
 | Stage | Tool calls | Estimated token savings |
 | --- | ---: | ---: |
-| close | 5 | 0 |
+| plan | 49 | 2,004,778 |
 | implement | 1 | 770 |
-| plan | 11 | 939,111 |
-| pre-wave | 28 | 1,065,667 |
-| prepare | 10 | 0 |
-| review | 341 | 8,404,536 |
+| review | 346 | 8,404,536 |
 | **Total** | **396** | **10,410,084** |
 
-<!-- wave:context-efficiency-state {"generation":369,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"close":{"calls":5,"content_source_credit":0,"direct_net":-3250,"estimated_tokens_saved":0,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":45,"response_debit":4241,"source_credit_count":0,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":1036},"implement":{"calls":1,"content_source_credit":0,"direct_net":770,"estimated_tokens_saved":770,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":9,"response_debit":646,"source_credit_count":0,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":1425},"plan":{"calls":11,"content_source_credit":961802,"direct_net":939111,"estimated_tokens_saved":939111,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":459,"response_debit":23355,"source_credit_count":22,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":1123},"pre-wave":{"calls":28,"content_source_credit":1138211,"direct_net":1065667,"estimated_tokens_saved":1065667,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":1029,"response_debit":71515,"source_credit_count":44,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":0},"prepare":{"calls":10,"content_source_credit":0,"direct_net":-529,"estimated_tokens_saved":0,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":90,"response_debit":2502,"source_credit_count":0,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":2063},"review":{"calls":341,"content_source_credit":9248075,"direct_net":8404536,"estimated_tokens_saved":8404536,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":11855,"response_debit":833387,"source_credit_count":267,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":1703}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":396,"content_source_credit":11348088,"direct_net":10406305,"estimated_tokens_saved":10410084,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":13487,"response_debit":935646,"source_credit_count":333,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":7350},"wave_id":"1t3dm memory-backfill-and-review-evidence-clarity"} -->
+<!-- wave:context-efficiency-state {"generation":369,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"implement":{"calls":1,"content_source_credit":0,"direct_net":770,"estimated_tokens_saved":770,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":9,"response_debit":646,"source_credit_count":0,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":1425},"plan":{"calls":49,"content_source_credit":2100013,"direct_net":2004249,"estimated_tokens_saved":2004778,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":1578,"response_debit":97372,"source_credit_count":66,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":3186},"review":{"calls":346,"content_source_credit":9248075,"direct_net":8401286,"estimated_tokens_saved":8404536,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":11900,"response_debit":837628,"source_credit_count":267,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":2739}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":396,"content_source_credit":11348088,"direct_net":10406305,"estimated_tokens_saved":10410084,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":13487,"response_debit":935646,"source_credit_count":333,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":7350},"wave_id":"1t3dm memory-backfill-and-review-evidence-clarity"} -->
 <!-- wave:context-efficiency end -->
 
 ## Estimated Exploration Avoided

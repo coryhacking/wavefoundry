@@ -66,7 +66,7 @@ A third adversarial-review primitive, complementary to `red-team` (single-stance
 
 The framework commonly expects some combination of these lanes in seeded repositories:
 
-- **operator review** — mandatory for all waves; the operator must explicitly approve before `wave_close` is called (see below)
+- **operator review** — mandatory for all waves; the operator must explicitly approve before `wf_close_wave` is called (see below)
 - code correctness and maintainability review
 - QA / verification review
 - architecture and boundary review
@@ -137,7 +137,7 @@ Projects declare which lanes are required in `docs/workflow-config.json`:
 }
 ```
 
-`wave_review` reads this config and includes all declared lanes in `required_lanes` alongside the always-required operator lane. `wave_close` blocks if any declared lane lacks a recorded signoff.
+`wf_review_wave` reads this config and includes all declared lanes in `required_lanes` alongside the always-required operator lane. `wf_close_wave` blocks if any declared lane lacks a recorded signoff.
 
 Projects that enable Wave Council should also declare an explicit council policy in `docs/workflow-config.json`, for example:
 
@@ -209,18 +209,18 @@ Each inferential sensor verdict includes a `severity` field. Levels and their me
 | `low` | Low-impact drift or quality concern supported by evidence |
 | `none` | No findings |
 
-Severity is a triage signal, not a disposition or blocking decision. Classify it from supported reachability, observable impact, containment, and authority delta per seed 209; do not infer it from the defect-class label. When `max_severity` is `critical` or `high`, `wave_review` emits a `high_severity_finding` advisory diagnostic to direct operator attention before closure.
+Severity is a triage signal, not a disposition or blocking decision. Classify it from supported reachability, observable impact, containment, and authority delta per seed 209; do not infer it from the defect-class label. When `max_severity` is `critical` or `high`, `wf_review_wave` emits a `high_severity_finding` advisory diagnostic to direct operator attention before closure.
 
 ## Operator Review Lane
 
 The operator review lane is required for every wave. It gives the operator an opportunity to do manual testing, spot-checks, or any other review before the wave is permanently sealed. Approval is satisfied by either of two paths:
 
 1. **Operator-initiated close** — the operator explicitly asks to close the wave (e.g., "close the wave", "yes, close it") in the current session. This constitutes implicit approval.
-2. **Agent-prompted approval** — the agent asks the operator for review approval before calling `wave_close`. The prompt should invite the operator to do any manual tests or review they want. The operator's positive confirmation is the approval.
+2. **Agent-prompted approval** — the agent asks the operator for review approval before calling `wf_close_wave`. The prompt should invite the operator to do any manual tests or review they want. The operator's positive confirmation is the approval.
 
-When the agent is about to call `wave_close(mode="create")` and the operator has not already issued a close request in the current session, the agent **must** pause and ask for operator approval before proceeding.
+When the agent is about to call `wf_close_wave(mode="create")` and the operator has not already issued a close request in the current session, the agent **must** pause and ask for operator approval before proceeding.
 
-The machine-readable marker for this lane is the line `operator-signoff: approved` in the `## Review Evidence` section of `wave.md`. `wave_review` returns a lint error if this line is absent, and `wave_close` blocks until it is present.
+The machine-readable marker for this lane is the line `operator-signoff: approved` in the `## Review Evidence` section of `wave.md`. `wf_review_wave` returns a lint error if this line is absent, and `wf_close_wave` blocks until it is present.
 
 ## Security Reachability Labels
 

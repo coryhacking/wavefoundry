@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: closed
-Last verified: 2026-07-19
+Last verified: 2026-07-20
 review-evidence-source: events.jsonl
 
 wave-id: `1sxj7 self-populating-memory-and-telemetry-reconciliation`
@@ -238,15 +238,12 @@ Estimated token savings use phase-unique returned source versions and mapped wor
 
 | Stage | Tool calls | Estimated token savings |
 | --- | ---: | ---: |
-| close | 10 | 0 |
+| plan | 311 | 4,942,669 |
 | implement | 92 | 2,644,251 |
-| plan | 1 | 939 |
-| pre-wave | 280 | 3,606,589 |
-| prepare | 30 | 1,335,141 |
-| review | 327 | 4,670,797 |
+| review | 337 | 4,670,797 |
 | **Total** | **740** | **12,257,717** |
 
-<!-- wave:context-efficiency-state {"generation":461,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"close":{"calls":10,"content_source_credit":0,"direct_net":-12439,"estimated_tokens_saved":0,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":90,"response_debit":13385,"source_credit_count":0,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":1036},"implement":{"calls":92,"content_source_credit":2850947,"direct_net":2644251,"estimated_tokens_saved":2644251,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":3124,"response_debit":204997,"source_credit_count":59,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":1425},"plan":{"calls":1,"content_source_credit":0,"direct_net":939,"estimated_tokens_saved":939,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":20,"response_debit":164,"source_credit_count":0,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":1123},"pre-wave":{"calls":280,"content_source_credit":4454801,"direct_net":3606589,"estimated_tokens_saved":3606589,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":10227,"response_debit":837985,"source_credit_count":156,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":0},"prepare":{"calls":30,"content_source_credit":1429574,"direct_net":1335141,"estimated_tokens_saved":1335141,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":777,"response_debit":95719,"source_credit_count":27,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":2063},"review":{"calls":327,"content_source_credit":5273138,"direct_net":4670797,"estimated_tokens_saved":4670797,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":11393,"response_debit":592651,"source_credit_count":208,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":1703}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":740,"content_source_credit":14008460,"direct_net":12245278,"estimated_tokens_saved":12257717,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":25631,"response_debit":1744901,"source_credit_count":450,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":7350},"wave_id":"1sxj7 self-populating-memory-and-telemetry-reconciliation"} -->
+<!-- wave:context-efficiency-state {"generation":461,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"implement":{"calls":92,"content_source_credit":2850947,"direct_net":2644251,"estimated_tokens_saved":2644251,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":3124,"response_debit":204997,"source_credit_count":59,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":1425},"plan":{"calls":311,"content_source_credit":5884375,"direct_net":4942669,"estimated_tokens_saved":4942669,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":11024,"response_debit":933868,"source_credit_count":183,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":3186},"review":{"calls":337,"content_source_credit":5273138,"direct_net":4658358,"estimated_tokens_saved":4670797,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":11483,"response_debit":606036,"source_credit_count":208,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":2739}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":740,"content_source_credit":14008460,"direct_net":12245278,"estimated_tokens_saved":12257717,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":25631,"response_debit":1744901,"source_credit_count":450,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":7350},"wave_id":"1sxj7 self-populating-memory-and-telemetry-reconciliation"} -->
 <!-- wave:context-efficiency end -->
 
 ## Estimated Exploration Avoided

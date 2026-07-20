@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: wave-coordinator
 Category: persona
-Last verified: 2026-06-04
+Last verified: 2026-07-20
 
 ## Who
 
@@ -53,7 +53,7 @@ Last verified: 2026-06-04
 
 - Any change to `docs/prompts/prepare-wave.prompt.md`, `docs/prompts/implement-wave.prompt.md`, `docs/prompts/review-wave.prompt.md`, or `docs/prompts/close-wave.prompt.md`
 - Any change to the `## Shortcut Phrases` table in `AGENTS.md` or the public commands table in `docs/prompts/index.md`
-- Any change to the wave record schema in `docs/waves/README.md` or `docs/workflow-config.json` `wave_implement`
+- Any change to the wave record schema in `docs/waves/README.md` or `docs/workflow-config.json` `wf_implement_wave`
 - Any change that affects what "Prepare wave passed" means (readiness criteria, AC priority recording, change doc relocation)
 - A proposed change softens the Prepare wave requirement without mechanical enforcement replacing it: escalate to architecture-reviewer before admission
 - A closure requirement is removed without an equivalent guarantee: escalate to wave-coordinator agent role before admission

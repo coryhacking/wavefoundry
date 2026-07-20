@@ -78,7 +78,7 @@ Two independent signals are reported:
   where the summary is compared after a fixed normalization (lowercased, every
   run of non-alphanumeric characters collapsed to one space, trimmed).
 
-`wave_memory_add` still writes the record and attaches a `possible_duplicate`
+`memory_add` still writes the record and attaches a `possible_duplicate`
 advisory naming the matched ids and signals; pass `abort_if_duplicate=True` to
 refuse the write instead (no mutation). This detection is what keeps evidence
 derived candidate supply idempotent. It NEVER marks a record superseded, merges,
@@ -90,18 +90,18 @@ not attempted here.
 
 ### Historical install/upgrade backfill
 
-Established projects use `wave_memory_backfill(mode='create',
+Established projects use `memory_backfill(mode='create',
 entry_path='setup|upgrade')` after the newly installed MCP is reloaded. The
 tool inventories closed waves without Git and processes bounded,
 server-selected batches. It checkpoints per-wave fingerprints and short random
 claims in `.wavefoundry/index/memory-state.sqlite`; there is no fallback state
 file. Every created record remains `candidate` / `Validation: pending` until a
 focused agent follows its evidence and current target and calls
-`wave_memory_validate`.
+`memory_validate`.
 
 Repeat backfill and validation until the response reports
 `ready_for_index`. Setup and migration resume by rerunning ordinary `wf setup`;
-upgrade uses `wave_upgrade(phase='resume_after_memory')`. The owning lifecycle
+upgrade uses `wf_upgrade(phase='resume_after_memory')`. The owning lifecycle
 command publishes through a durable `publishing_index` receipt: the index
 finalizer rechecks source fingerprints and zero pending work immediately before
 its epoch CAS, then records the exact attempt, expected generation, and
@@ -133,7 +133,7 @@ that handoff is action-required: reload the MCP implementation, use the
 run-scoped worklist, and resume. Index/rebuild/cleanup never fall through an
 old-shaped retained lock.
 
-`wave_memory_propose(wave_id, mode)` fills the corpus from work a wave already
+`memory_propose(wave_id, mode)` fills the corpus from work a wave already
 did, instead of waiting for hand-authored records. It reads two local, typed
 sources and NEVER a raw transcript:
 
@@ -162,16 +162,16 @@ reports zero promoted. Each proposed record also carries a
 
 ### Agent validation before close
 
-`wave_close` checks the closing wave's eligible sources. Missing candidates or
+`wf_close_wave` checks the closing wave's eligible sources. Missing candidates or
 pending validation block closure with the exact recovery operation, so the active
 agent can complete the loop rather than silently lose memory:
 
-1. `wave_memory_propose(wave_id, mode='create')`;
+1. `memory_propose(wave_id, mode='create')`;
 2. follow each candidate's evidence and inspect its current target;
 3. state what changes the next action;
 4. check durability, canonical overlap, target accuracy,
    duplicates/contradictions, and confidence;
-5. call `wave_memory_validate` with one outcome:
+5. call `memory_validate` with one outcome:
 
 - `promote` — verified, actionable, durable, and nonredundant;
 - `retain` — useful but still uncertain enough to remain a labeled candidate;

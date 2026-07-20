@@ -562,11 +562,11 @@ class PublicSetupReviewProtocolIntegrationTests(unittest.TestCase):
                     500,
                 )
             self.assertIn(
-                "wave_memory_validate",
+                "memory_validate",
                 prompt_root.joinpath("review-wave.prompt.md").read_text(encoding="utf-8"),
             )
             self.assertIn(
-                "wave_memory_validate",
+                "memory_validate",
                 prompt_root.joinpath("close-wave.prompt.md").read_text(encoding="utf-8"),
             )
             self.assertIn(

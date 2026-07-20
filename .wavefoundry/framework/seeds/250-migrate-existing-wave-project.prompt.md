@@ -83,7 +83,7 @@ Do not install the canonical framework at top-level `framework/` inside arbitrar
    - `docs/agents/journals/`
    - `docs/waves/`
    - `docs/plans/`
-6. Run the target repository's current docs gate when available before changing migration-sensitive files — **prefer MCP `wave_garden` then `wave_validate`** when the Wavefoundry server is attached; otherwise **`wf docs-lint`** (and **`wf docs-gardener`** when metadata refresh is part of the repo's documented gate).
+6. Run the target repository's current docs gate when available before changing migration-sensitive files — **prefer MCP `wf_garden_docs` then `wf_validate_docs`** when the Wavefoundry server is attached; otherwise **`wf docs-lint`** (and **`wf docs-gardener`** when metadata refresh is part of the repo's documented gate).
 7. Record whether this is native Wavefoundry mode or post-unpack handoff mode.
 
 ## Migration Steps
@@ -125,8 +125,8 @@ Do not install the canonical framework at top-level `framework/` inside arbitrar
     install coordinator, not a migration-specific fallback: if historical
     closed waves exist it returns `awaiting_memory_validation`/exit 4 before
     index publication. Reload MCP, run bounded
-    `wave_memory_backfill(mode="create", entry_path="setup")` plus focused
-    `wave_memory_validate`, then rerun ordinary `wf setup`. It reuses the
+    `memory_backfill(mode="create", entry_path="setup")` plus focused
+    `memory_validate`, then rerun ordinary `wf setup`. It reuses the
     durable setup run and publishes the index only after validation is clear.
 11. Leave `agent-workflows/wave-context-framework/` in place as a temporary migration backup unless the operator explicitly approves removal after validation.
 
@@ -152,7 +152,7 @@ If all checks pass, continue with activation steps 5-9 above.
 
 After staging, and again after activation if activation occurs:
 
-1. Run project docs validation (**agents with MCP:** **`wave_garden`** then **`wave_validate`**; **CLI / CI:**):
+1. Run project docs validation (**agents with MCP:** **`wf_garden_docs`** then **`wf_validate_docs`**; **CLI / CI:**):
 
 ```bash
 wf docs-gardener

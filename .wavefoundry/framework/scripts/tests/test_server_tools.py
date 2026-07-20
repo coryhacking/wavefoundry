@@ -133,7 +133,7 @@ class McpSubprocessHelperTests(unittest.TestCase):
 
     def test_git_audits_route_through_mcp_subprocess_helper(self):
         # _audit_commit_governance (git log) and _audit_harnessability (git grep) are MCP-reachable
-        # via wave_audit; both must go through the shared helper, not a raw _sp/__import__ subprocess.
+        # via wf_audit; both must go through the shared helper, not a raw _sp/__import__ subprocess.
         for fn_name, expect_cmd in (
             ("_audit_commit_governance", ["git", "log"]),
             ("_audit_harnessability", ["git", "grep"]),
@@ -154,7 +154,7 @@ class McpSubprocessHelperTests(unittest.TestCase):
     def test_no_raw_subprocess_lacks_stdin_isolation(self):
         # Breadth guard (wave 1p88t, broadened in 1p8gu): EVERY subprocess invocation in the
         # MCP-reachable modules — `server_impl` AND the in-process secrets-scan fallback
-        # (`wave_lint_lib/secrets_validators`, reached by the `wave_scan_secrets` tool's except-branch)
+        # (`wave_lint_lib/secrets_validators`, reached by the `wf_scan_secrets` tool's except-branch)
         # — must isolate stdin. After 1p8gu the secrets git probes route through
         # `subprocess_util.isolated_run` (inherently isolated); server_impl keeps `_mcp_subprocess_run`
         # + inline `stdin=DEVNULL`/`input=`. Covers aliased `_sp.run` / `__import__("subprocess").run`
@@ -798,7 +798,7 @@ class FrameworkWideSubprocessIsolationGuard(unittest.TestCase):
                          "venv_bootstrap must not import/use windowless_pythonw (stdlib-only)")
 
     def test_provider_policy_nvidia_probe_isolates_stdin_and_no_window_on_windows(self):
-        # nvidia-smi probe is MCP-reachable via wave_gpu_doctor / provider selection in the server process.
+        # nvidia-smi probe is MCP-reachable via wf_gpu_doctor / provider selection in the server process.
         import provider_policy
 
         captured: dict[str, object] = {}
@@ -1140,7 +1140,8 @@ class RootDiscoveryTests(unittest.TestCase):
     server script's OWN install location (``parents[3]`` of ``server_impl.py``). Priority:
     override → script-location → marker-validated host env vars → cwd-walkup → fallback. Because the
     REAL ``server_impl.__file__`` points at the live wavefoundry repo (which carries the marker), the
-    env/cwd-branch tests patch ``server_impl.__file__`` to a markerless tree so those branches run."""
+    env/cwd-branch tests patch ``repo_root.__file__`` (the shared discovery module, wave 1t3gt/1t1b3)
+    to a markerless tree so those branches run."""
 
     @classmethod
     def setUpClass(cls):
@@ -1150,10 +1151,10 @@ class RootDiscoveryTests(unittest.TestCase):
         self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name).resolve()
-        self._real_file = self.srv.__file__
+        self._real_file = self.srv.repo_root.__file__
 
     def tearDown(self):
-        self.srv.__file__ = self._real_file
+        self.srv.repo_root.__file__ = self._real_file
         self.tmp.cleanup()
 
     def _markerless_script_file(self) -> str:
@@ -1162,7 +1163,7 @@ class RootDiscoveryTests(unittest.TestCase):
         bare = self.root / "bare-tree"
         scripts = bare / ".wavefoundry" / "framework" / "scripts"
         scripts.mkdir(parents=True, exist_ok=True)
-        return str(scripts / "server_impl.py")
+        return str(scripts / "repo_root.py")
 
     def test_override_path_used(self):
         _make_repo(self.root)
@@ -1178,7 +1179,7 @@ class RootDiscoveryTests(unittest.TestCase):
         _make_repo(repo)  # marker at <repo>/docs/workflow-config.json
         elsewhere = self.root / "some" / "other" / "cwd"
         elsewhere.mkdir(parents=True, exist_ok=True)
-        self.srv.__file__ = str(scripts / "server_impl.py")
+        self.srv.repo_root.__file__ = str(scripts / "repo_root.py")
         with patch("pathlib.Path.cwd", return_value=elsewhere), \
              patch.dict("os.environ", {"CLAUDE_PROJECT_DIR": str(elsewhere), "PROJECT_ROOT": str(elsewhere)}, clear=False):
             result = self.srv._discover_root()
@@ -1187,7 +1188,7 @@ class RootDiscoveryTests(unittest.TestCase):
     def test_claude_project_dir_used_only_when_marker_present(self):
         # script-location markerless → fall through to env vars; CLAUDE_PROJECT_DIR is honored ONLY
         # when it carries the marker (a stray var must not mis-root us).
-        self.srv.__file__ = self._markerless_script_file()
+        self.srv.repo_root.__file__ = self._markerless_script_file()
         # A markerless env-var target + a markerless cwd (fully isolated subtree) → the stray var is
         # ignored; the result is NOT the stray path.
         stray = self.root / "stray-no-marker"
@@ -1209,7 +1210,7 @@ class RootDiscoveryTests(unittest.TestCase):
             self.assertEqual(self.srv._discover_root(), marked.resolve())
 
     def test_env_var_project_root(self):
-        self.srv.__file__ = self._markerless_script_file()
+        self.srv.repo_root.__file__ = self._markerless_script_file()
         _make_repo(self.root)
         with patch.dict("os.environ", {"PROJECT_ROOT": str(self.root)}, clear=False):
             os.environ.pop("CLAUDE_PROJECT_DIR", None)
@@ -1218,7 +1219,7 @@ class RootDiscoveryTests(unittest.TestCase):
         self.assertEqual(result, self.root.resolve())
 
     def test_falls_back_to_cwd_when_no_config(self):
-        self.srv.__file__ = self._markerless_script_file()
+        self.srv.repo_root.__file__ = self._markerless_script_file()
         _make_repo(self.root)  # cwd carries the marker
         with patch("pathlib.Path.cwd", return_value=self.root), \
              patch.dict("os.environ", {}, clear=False):
@@ -1691,7 +1692,7 @@ class GuidedContractTests(unittest.TestCase):
         self.srv = type(self).srv
 
     def test_first_party_prefix_helper_flags_violations(self):
-        viol = self.srv.first_party_tool_names_violating_prefix(["wave_help", "bad_name", "docs_search"])
+        viol = self.srv.first_party_tool_names_violating_prefix(["wf_help", "bad_name", "docs_search"])
         self.assertEqual(viol, ["bad_name"])
 
     def test_resolve_path_under_root_accepts_relative_inside_repo(self):
@@ -1730,22 +1731,22 @@ class GuidedContractTests(unittest.TestCase):
         self.srv.docs_search_response(index, "q", "Doc")
         index.search_docs.assert_called_with("q", kind="doc", top_n=7, tags=None)
 
-    def test_wave_help_catalog_is_browseable(self):
+    def test_wf_help_catalog_is_browseable(self):
         self.srv._cached_help_catalog_json.cache_clear()
-        result = self.srv.wave_help_response()
+        result = self.srv.wf_help_response()
         self.assertEqual(result["status"], "ok")
         self.assertIn("core_tools", result["data"])
         self.assertIn("workflows", result["data"])
-        self.assertIn("wave_help", result["data"]["core_tools"])
-        self.assertIn("wave_server_info", result["data"]["core_tools"])
-        self.assertIn("wave_map", result["data"]["core_tools"])
+        self.assertIn("wf_help", result["data"]["core_tools"])
+        self.assertIn("wf_server_info", result["data"]["core_tools"])
+        self.assertIn("wf_map", result["data"]["core_tools"])
         self.assertIn("server_identity", result["data"]["workflows"])
 
-    def test_wave_server_info_returns_repo_identity(self):
+    def test_wf_server_info_returns_repo_identity(self):
         tmp = tempfile.TemporaryDirectory()
         try:
             root = _make_repo(Path(tmp.name) / "wave_foundry")
-            result = self.srv.wave_server_info_response(root)
+            result = self.srv.wf_server_info_response(root)
             self.assertEqual(result["status"], "ok")
             self.assertEqual(result["data"]["repo_root"], str(root.resolve()))
             self.assertEqual(result["data"]["repo_name"], root.name)
@@ -1757,7 +1758,7 @@ class GuidedContractTests(unittest.TestCase):
             self.assertIn("impl_matches_disk", result["data"])
             self.assertEqual(result["data"]["server_runner_version"], self.srv.SERVER_RUNNER_VERSION)
             self.assertEqual(result["data"]["server_impl_version"], self.srv.SERVER_IMPL_VERSION)
-            self.assertEqual(result["next_tools"], ["wave_current", "wave_help"])
+            self.assertEqual(result["next_tools"], ["wf_current_wave", "wf_help"])
         finally:
             tmp.cleanup()
 
@@ -1767,8 +1768,8 @@ class GuidedContractTests(unittest.TestCase):
         self.assertEqual(err["status"], "error")
         self.assertEqual(err["diagnostics"][0]["code"], "unknown_arguments")
 
-    def test_wave_help_unknown_goal_returns_catalog_and_diagnostic(self):
-        result = self.srv.wave_help_response("not-a-real-goal")
+    def test_wf_help_unknown_goal_returns_catalog_and_diagnostic(self):
+        result = self.srv.wf_help_response("not-a-real-goal")
         self.assertEqual(result["status"], "ok")
         self.assertIn("workflows", result["data"])
         self.assertEqual(result["diagnostics"][0]["code"], "unknown_goal")
@@ -2260,27 +2261,27 @@ class WaveMapTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def test_wave_map_resolves_doc_path_and_reads_excerpt(self):
+    def test_wf_map_resolves_doc_path_and_reads_excerpt(self):
         index = MagicMock()
         index._ensure_loaded = MagicMock()
         index._docs_chunks = []
         index._code_chunks = []
         addr = "doc:docs/workflow-config.json"
-        result = self.srv.wave_map_response(self.root, addr, index)
+        result = self.srv.wf_map_response(self.root, addr, index)
         self.assertEqual(result["status"], "ok")
         self.assertTrue(result["data"]["file_exists"])
         self.assertEqual(result["data"]["path"], "docs/workflow-config.json")
         self.assertIn("lifecycle_id_policy", result["data"]["excerpt"])
 
-    def test_wave_map_rejects_bad_address_scheme(self):
+    def test_wf_map_rejects_bad_address_scheme(self):
         index = MagicMock()
-        result = self.srv.wave_map_response(self.root, "http:evil", index)
+        result = self.srv.wf_map_response(self.root, "http:evil", index)
         self.assertEqual(result["status"], "error")
         self.assertEqual(result["diagnostics"][0]["code"], "invalid_address")
 
-    def test_wave_map_rejects_path_outside_root(self):
+    def test_wf_map_rejects_path_outside_root(self):
         index = MagicMock()
-        result = self.srv.wave_map_response(self.root, "doc:../../../etc/passwd", index)
+        result = self.srv.wf_map_response(self.root, "doc:../../../etc/passwd", index)
         self.assertEqual(result["status"], "error")
         self.assertEqual(result["diagnostics"][0]["code"], "path_outside_allowed_roots")
 
@@ -2298,21 +2299,21 @@ class PromptCacheTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def test_wave_get_prompt_uses_prompt_cache(self):
+    def test_wf_get_prompt_uses_prompt_cache(self):
         prompts = self.root / "docs" / "prompts"
         prompts.mkdir(parents=True, exist_ok=True)
         (prompts / "cached-prompt.md").write_text("# Cached\n\nHello.\n", encoding="utf-8")
         cache = self.srv.McpRepoCache(self.root)
         with patch.object(self.srv, "get_prompt", wraps=self.srv.get_prompt) as gp:
-            self.srv.wave_get_prompt_response(self.root, "cached-prompt", cache=cache)
-            self.srv.wave_get_prompt_response(self.root, "cached-prompt", cache=cache)
+            self.srv.wf_get_prompt_response(self.root, "cached-prompt", cache=cache)
+            self.srv.wf_get_prompt_response(self.root, "cached-prompt", cache=cache)
         self.assertEqual(gp.call_count, 1)
 
 
 class AutoLintAtMcpGatesTests(unittest.TestCase):
     """Wave 1p3dk / 1p3dq: every write-side wave MCP tool returns a `lint`
     field in its response describing the post-write docs-lint state. Agents
-    no longer have to manually run `wave_validate` between gate calls."""
+    no longer have to manually run `wf_validate_docs` between gate calls."""
 
     @classmethod
     def setUpClass(cls):
@@ -2342,9 +2343,39 @@ class AutoLintAtMcpGatesTests(unittest.TestCase):
         self.assertLessEqual(len(lint["first_errors"]), 5,
             "first_errors must be capped at 5 per AC-5")
 
+    def test_fresh_wave_is_lint_clean_at_creation(self):
+        """Wave 1t3gt (1t3gu) AC-1: a freshly scaffolded wave.md passes docs-lint with
+        zero errors at creation — no manual repair of generated structure."""
+        result = self.srv.wf_create_wave_response(self.root, "scaffold-clean", mode="create")
+        self.assertEqual(result["status"], "ok")
+        lint = result["data"]["lint"]
+        self.assertEqual(lint["error_count"], 0, lint["first_errors"])
+
+    def test_fresh_wave_stays_lint_clean_after_first_admission(self):
+        """Wave 1t3gt (1t3gu) AC-2: the scaffold stays lint-clean once a planned change
+        is admitted (the non-terminal state every new wave passes through — this is
+        where the Watchpoints placeholder marker check fires)."""
+        created = self.srv.wf_create_wave_response(self.root, "scaffold-admit", mode="create")
+        wave_id = created["data"]["wave_id"]
+        change = self.srv._change_create_response(self.root, "enh", "scaffold-child", mode="create")
+        change_id = change["data"]["change_id"]
+        admitted = self.srv.wf_add_change_response(self.root, wave_id, change_id, mode="create")
+        self.assertEqual(admitted["status"], "ok")
+        lint = admitted["data"]["lint"]
+        self.assertEqual(lint["error_count"], 0, lint["first_errors"])
+
+    def test_scaffold_projection_sections_come_from_canonical_renderers(self):
+        """Wave 1t3gt (1t3gu) AC-3: the scaffold renders projection-owned sections via
+        the canonical renderers, with no hardcoded review-status markup inline."""
+        import inspect
+        src = inspect.getsource(self.srv.create_wave)
+        self.assertIn("render_review_evidence_projection", src)
+        self.assertIn("render_review_status_projection", src)
+        self.assertNotIn("wave:review-status begin", src)
+
     def test_create_wave_apply_includes_lint(self):
-        """AC-2: wave_create_wave(apply) response carries the lint state."""
-        result = self.srv.wave_create_wave_response(
+        """AC-2: wf_create_wave(apply) response carries the lint state."""
+        result = self.srv.wf_create_wave_response(
             self.root, "lint-test", mode="create",
         )
         self.assertIn("lint", result["data"], "apply response must include `lint`")
@@ -2354,14 +2385,14 @@ class AutoLintAtMcpGatesTests(unittest.TestCase):
     def test_create_wave_dry_run_omits_lint(self):
         """AC-3: dry_run responses do NOT include the lint field — no writes
         occurred so the lint state is unchanged from pre-call."""
-        result = self.srv.wave_create_wave_response(
+        result = self.srv.wf_create_wave_response(
             self.root, "dry-test", mode="dry_run",
         )
         self.assertNotIn("lint", result["data"],
             "dry_run response must NOT include `lint`")
 
     def test_change_create_apply_includes_lint(self):
-        """AC-2 parallel: change-doc creation via `wave_new_*` includes lint."""
+        """AC-2 parallel: change-doc creation via `wf_new_*` includes lint."""
         result = self.srv._change_create_response(
             self.root, "enh", "lint-included", mode="create",
         )
@@ -2379,7 +2410,7 @@ class AutoLintAtMcpGatesTests(unittest.TestCase):
             }
 
         with patch.object(self.srv, "_run_post_write_lint", side_effect=fake_lint):
-            result = self.srv.wave_create_wave_response(
+            result = self.srv.wf_create_wave_response(
                 self.root, "fake-fail", mode="create",
             )
 
@@ -2434,8 +2465,8 @@ class AutoLintAtMcpGatesTests(unittest.TestCase):
 class PostWriteLintIncrementalTests(unittest.TestCase):
     """Wave 1p9pe / 1p9p8: the ADVISORY post-write lint attachment runs the cheap
     incremental changed-set scan (`run_validate_changed`, hook timeout bound) while
-    the six full-corpus `run_validate` lifecycle gates (wave_audit, wave_validate,
-    wave_install_audit, wave_prepare, wave_review, wave_close) stay unchanged."""
+    the six full-corpus `run_validate` lifecycle gates (wf_audit, wf_validate_docs,
+    wf_audit_install, wf_prepare_wave, wf_review_wave, wf_close_wave) stay unchanged."""
 
     @classmethod
     def setUpClass(cls):
@@ -2498,12 +2529,12 @@ class PostWriteLintIncrementalTests(unittest.TestCase):
         """AC-3: each of the six gate functions calls full-corpus `run_validate(root)`
         and none uses the incremental helper — a partial rescope leak into ANY gate fails."""
         gate_funcs = [
-            self.srv.wave_audit_response,
-            self.srv.wave_validate_response,
-            self.srv.wave_install_audit_response,
-            self.srv.wave_prepare_response,
-            self.srv.wave_review_response,
-            self.srv.wave_close_response,
+            self.srv.wf_audit_response,
+            self.srv.wf_validate_docs_response,
+            self.srv.wf_audit_install_response,
+            self.srv.wf_prepare_wave_response,
+            self.srv.wf_review_wave_response,
+            self.srv.wf_close_wave_response,
         ]
         for func in gate_funcs:
             src = inspect.getsource(func)
@@ -2536,14 +2567,14 @@ class PostWriteLintIncrementalTests(unittest.TestCase):
         )
         self.assertIn('"--changed"', inspect.getsource(self.srv.run_validate_changed))
 
-    def test_wave_validate_gate_uses_full_scan_behaviorally(self):
-        """AC-3 (behavioral): the wave_validate gate calls run_validate, and the
+    def test_wf_validate_docs_gate_uses_full_scan_behaviorally(self):
+        """AC-3 (behavioral): the wf_validate_docs gate calls run_validate, and the
         incremental helper (patched to fail loudly) is never consulted for the gate."""
         passing = {"passed": True, "errors": [], "warnings": [], "output": ""}
         with patch.object(self.srv, "run_validate", return_value=passing) as full, \
              patch.object(self.srv, "run_validate_changed",
                           side_effect=AssertionError("gate must not use the incremental scan")):
-            result = self.srv.wave_validate_response(self.root)
+            result = self.srv.wf_validate_docs_response(self.root)
         self.assertEqual(full.call_count, 1)
         self.assertEqual(result["status"], "ok")
 
@@ -2747,7 +2778,7 @@ class PostWriteLintIncrementalGitBehaviorTests(unittest.TestCase):
 
 class WaveCreateScaffoldAlignmentTests(unittest.TestCase):
     """Wave 1p3dk / 1p3do: newly-created waves emerge lint-clean from
-    `wave_create_wave` without operators having to structurally repair the
+    `wf_create_wave` without operators having to structurally repair the
     skeleton before filling in content. The skeleton includes `## Objective`,
     co-creates a journal stub with valid placeholder content for every
     lint-required section, and the Change-ID lint deferral keeps the wave
@@ -2770,7 +2801,7 @@ class WaveCreateScaffoldAlignmentTests(unittest.TestCase):
         lifecycle._last_assigned_prefix = None
 
     def _create_wave(self, slug):
-        return self.srv.wave_create_wave_response(
+        return self.srv.wf_create_wave_response(
             self.root, slug, mode="create",
         )["data"]
 
@@ -2815,7 +2846,7 @@ class WaveCreateScaffoldAlignmentTests(unittest.TestCase):
             text,
         )
         wave_md.write_text(text, encoding="utf-8")
-        response = self.srv.wave_prepare_response(self.root, result["wave_id"], mode="dry_run")
+        response = self.srv.wf_prepare_wave_response(self.root, result["wave_id"], mode="dry_run")
         self.assertTrue(
             any(
                 diagnostic["code"] == "review_evidence_invalid"
@@ -2877,7 +2908,7 @@ class WaveCreateScaffoldAlignmentTests(unittest.TestCase):
 
     def test_dry_run_reports_journal_path_without_writing(self):
         """AC-8: dry_run reports the journal path but does not write the file."""
-        result = self.srv.wave_create_wave_response(
+        result = self.srv.wf_create_wave_response(
             self.root, "zeta-wave", mode="dry_run",
         )["data"]
         self.assertIn("journal_path", result)
@@ -2917,7 +2948,7 @@ class WaveCreateScaffoldAlignmentTests(unittest.TestCase):
             self.srv._lifecycle_module(), "build_id",
             return_value=target_wave_id,
         ):
-            result = self.srv.wave_create_wave_response(
+            result = self.srv.wf_create_wave_response(
                 self.root, "test-wave", mode="create",
             )["data"]
 
@@ -2960,7 +2991,7 @@ class LifecycleIdPreservationTests(unittest.TestCase):
         """AC-4: dry_run preview followed by apply returns the same wave_id."""
         lifecycle = self.srv._lifecycle_module()
         before = lifecycle._last_assigned_prefix
-        previewed = self.srv.wave_create_wave_response(
+        previewed = self.srv.wf_create_wave_response(
             self.root, "preserve-id-wave", mode="dry_run",
         )
         after_peek = lifecycle._last_assigned_prefix
@@ -2968,7 +2999,7 @@ class LifecycleIdPreservationTests(unittest.TestCase):
             before, after_peek,
             "dry_run must not advance _last_assigned_prefix",
         )
-        committed = self.srv.wave_create_wave_response(
+        committed = self.srv.wf_create_wave_response(
             self.root, "preserve-id-wave", mode="create",
         )
         self.assertEqual(
@@ -2998,7 +3029,7 @@ class LifecycleIdPreservationTests(unittest.TestCase):
     def test_change_create_apply_consumes_exactly_one_prefix(self):
         """AC-6: defect B fix — a single change-doc creation must advance
         the counter by exactly one slot, not two. Field evidence: the same
-        slug previously skipped one prefix per `wave_new_*` call."""
+        slug previously skipped one prefix per `wf_new_*` call."""
         lifecycle = self.srv._lifecycle_module()
         # Pin the counter to a known starting point by performing one commit
         first = self.srv._change_create_response(
@@ -3024,11 +3055,11 @@ class LifecycleIdPreservationTests(unittest.TestCase):
         """AC-4 parallel: wave creation must advance the counter by exactly
         one slot. Mirrors the change-creation test but for `create_wave`."""
         lifecycle = self.srv._lifecycle_module()
-        self.srv.wave_create_wave_response(
+        self.srv.wf_create_wave_response(
             self.root, "alpha-wave", mode="create",
         )
         first_prefix = lifecycle._last_assigned_prefix
-        self.srv.wave_create_wave_response(
+        self.srv.wf_create_wave_response(
             self.root, "beta-wave", mode="create",
         )
         second_prefix = lifecycle._last_assigned_prefix
@@ -3080,7 +3111,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             "proposition": f"{signoff_key} approval was independently executed",
             "counterexample_or_failure_condition": "the signer is not authorized for the lane",
             "execution_status": "executed",
-            "public_path": "wave_review",
+            "public_path": "wf_review_wave",
             "command_or_fixture": "WaveLifecycleMutationTests approval binding",
             "expected": "the exact authorized actor is bound to the signoff",
             "observed": "the recorded actor was inspected",
@@ -3108,7 +3139,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         }
 
     def _marked_wave_with_approval(self, signoff_key: str, *, actor: str, fresh: bool = True, independent: bool = True) -> str:
-        created = self.srv.wave_create_wave_response(
+        created = self.srv.wf_create_wave_response(
             self.root, f"approval-{signoff_key}", mode="create"
         )
         wave_id = created["data"]["wave_id"]
@@ -3133,14 +3164,14 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         self.assertIsNone(review.record_protocol_state(self.root, wave_id, wave_md))
         return wave_id
 
-    def test_wave_create_wave_dry_run(self):
-        result = self.srv.wave_create_wave_response(self.root, "new-wave", mode="dry_run")
+    def test_wf_create_wave_dry_run(self):
+        result = self.srv.wf_create_wave_response(self.root, "new-wave", mode="dry_run")
         self.assertEqual(result["status"], "dry_run")
         self.assertFalse((self.root / result["data"]["path"]).exists())
 
     def test_wave_add_and_remove_change(self):
         with patch.object(self.srv, "_trigger_background_index_refresh_for_paths") as trigger:
-            add = self.srv.wave_add_change_response(self.root, "1200a test-wave", "1200a-feat sample", mode="create")
+            add = self.srv.wf_add_change_response(self.root, "1200a test-wave", "1200a-feat sample", mode="create")
         self.assertEqual(add["status"], "ok")
         wave_md = self.root / "docs" / "waves" / "1200a test-wave" / "wave.md"
         self.assertIn("1200a-feat sample", wave_md.read_text(encoding="utf-8"))
@@ -3149,14 +3180,14 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         trigger.assert_called_once()
 
         with patch.object(self.srv, "_trigger_background_index_refresh_for_paths") as trigger:
-            remove = self.srv.wave_remove_change_response(self.root, "1200a test-wave", "1200a-feat sample", mode="create")
+            remove = self.srv.wf_remove_change_response(self.root, "1200a test-wave", "1200a-feat sample", mode="create")
         self.assertEqual(remove["status"], "ok")
         self.assertNotIn("1200a-feat sample", wave_md.read_text(encoding="utf-8"))
         self.assertTrue((self.root / "docs" / "plans" / "1200a-feat sample.md").exists())
         self.assertFalse((self.root / "docs" / "waves" / "1200a test-wave" / "1200a-feat sample.md").exists())
         trigger.assert_called_once()
 
-    def test_wave_add_change_rejects_ambiguous_prefix(self):
+    def test_wf_add_change_rejects_ambiguous_prefix(self):
         _make_repo(self.root, {
             "docs/plans/1200a-feat sample-two.md": (
                 "# Sample Two\n\n"
@@ -3164,11 +3195,11 @@ class WaveLifecycleMutationTests(unittest.TestCase):
                 "Change Status: `planned`\n"
             ),
         })
-        result = self.srv.wave_add_change_response(self.root, "1200a test-wave", "1200a", mode="dry_run")
+        result = self.srv.wf_add_change_response(self.root, "1200a test-wave", "1200a", mode="dry_run")
         self.assertEqual(result["status"], "error")
         self.assertEqual(result["diagnostics"][0]["code"], "ambiguous_change_id")
 
-    def test_wave_add_change_is_safe_if_doc_already_relocated_to_target_wave(self):
+    def test_wf_add_change_is_safe_if_doc_already_relocated_to_target_wave(self):
         relocated = self.root / "docs" / "waves" / "1200a test-wave" / "1200a-feat sample.md"
         relocated.write_text(
             "# Sample\n\nChange ID: `1200a-feat sample`\nChange Status: `planned`\n",
@@ -3177,14 +3208,14 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         plan_path = self.root / "docs" / "plans" / "1200a-feat sample.md"
         plan_path.unlink()
 
-        result = self.srv.wave_add_change_response(self.root, "1200a test-wave", "1200a-feat sample", mode="create")
+        result = self.srv.wf_add_change_response(self.root, "1200a test-wave", "1200a-feat sample", mode="create")
 
         self.assertEqual(result["status"], "ok")
         self.assertTrue(relocated.exists())
         self.assertIn("1200a-feat sample", (self.root / "docs" / "waves" / "1200a test-wave" / "wave.md").read_text(encoding="utf-8"))
 
-    def test_wave_prepare_requires_admitted_changes(self):
-        result = self.srv.wave_prepare_response(self.root, "1200a test-wave", mode="dry_run")
+    def test_wf_prepare_wave_requires_admitted_changes(self):
+        result = self.srv.wf_prepare_wave_response(self.root, "1200a test-wave", mode="dry_run")
         self.assertEqual(result["status"], "error")
         self.assertEqual(result["diagnostics"][0]["code"], "no_admitted_changes")
 
@@ -3203,9 +3234,9 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         )
         review.review_event_path(wave_md).write_bytes(b"{not-json}\n")
         calls = (
-            lambda: self.srv.wave_prepare_response(self.root, "1200a test-wave", mode="dry_run"),
-            lambda: self.srv.wave_review_response(self.root, "1200a test-wave"),
-            lambda: self.srv.wave_close_response(self.root, "1200a test-wave", mode="dry_run"),
+            lambda: self.srv.wf_prepare_wave_response(self.root, "1200a test-wave", mode="dry_run"),
+            lambda: self.srv.wf_review_wave_response(self.root, "1200a test-wave"),
+            lambda: self.srv.wf_close_wave_response(self.root, "1200a test-wave", mode="dry_run"),
         )
         for call in calls:
             result = call()
@@ -3219,7 +3250,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         adoption = self.root / "docs" / "waves" / "review-evidence-adoptions.json"
         adoption.write_text("{broken", encoding="utf-8")
 
-        result = self.srv.wave_review_response(self.root, "1200a test-wave")
+        result = self.srv.wf_review_wave_response(self.root, "1200a test-wave")
 
         self.assertEqual(result["status"], "error")
         self.assertTrue(
@@ -3242,7 +3273,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         )
         with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}), \
              patch.object(self.srv, "_required_wave_council_signoffs", return_value=[]):
-            response = self.srv.wave_review_response(self.root, "1200a test-wave")
+            response = self.srv.wf_review_wave_response(self.root, "1200a test-wave")
         self.assertEqual(
             response["data"]["required_lanes"][:4],
             ["operator", "code-reviewer", "qa-reviewer", "security-reviewer"],
@@ -3250,7 +3281,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         self.assertIn("missing_required_lane", [item["code"] for item in response["diagnostics"]])
 
     def test_review_status_fails_when_executable_approval_is_missing(self):
-        created = self.srv.wave_create_wave_response(
+        created = self.srv.wf_create_wave_response(
             self.root, "review-status-approval", mode="create"
         )
         wave_id = created["data"]["wave_id"]
@@ -3267,7 +3298,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
              patch.object(self.srv, "_required_wave_council_signoffs", return_value=[]), \
              patch.object(self.srv, "_extract_required_review_lanes", return_value=[]), \
              patch.object(self.srv, "_read_project_required_review_lanes", return_value=[]):
-            response = self.srv.wave_review_response(self.root, wave_id)
+            response = self.srv.wf_review_wave_response(self.root, wave_id)
         self.assertEqual(response["status"], "error", response)
         self.assertIn(
             "missing_executable_approval_evidence",
@@ -3425,13 +3456,13 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         )
 
     def test_typed_review_evidence_tool_previews_then_writes_lightweight_run(self):
-        created = self.srv.wave_create_wave_response(
+        created = self.srv.wf_create_wave_response(
             self.root, "typed-review-run", mode="create"
         )
         wave_id = created["data"]["wave_id"]
         wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
         before = wave_md.read_text(encoding="utf-8")
-        preview = self.srv.wave_record_review_evidence_response(
+        preview = self.srv.wf_review_evidence_response(
             self.root,
             wave_id,
             "run",
@@ -3444,7 +3475,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         self.assertEqual(len(preview["data"]["appended_records"]), 1)
         self.assertEqual(wave_md.read_text(encoding="utf-8"), before)
         with patch.object(self.srv, "_trigger_background_index_refresh_for_paths") as refresh:
-            written = self.srv.wave_record_review_evidence_response(
+            written = self.srv.wf_review_evidence_response(
                 self.root,
                 wave_id,
                 "run",
@@ -3462,13 +3493,13 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         refresh.assert_called_once_with(self.root, [wave_md.resolve()])
 
     def test_typed_review_evidence_tool_requires_explicit_judgment_and_integrity(self):
-        created = self.srv.wave_create_wave_response(
+        created = self.srv.wf_create_wave_response(
             self.root, "typed-review-invalid", mode="create"
         )
         wave_id = created["data"]["wave_id"]
         wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
         before = wave_md.read_text(encoding="utf-8")
-        response = self.srv.wave_record_review_evidence_response(
+        response = self.srv.wf_review_evidence_response(
             self.root,
             wave_id,
             "finding",
@@ -3485,14 +3516,14 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         self.assertEqual(wave_md.read_text(encoding="utf-8"), before)
 
     def test_typed_review_evidence_tool_rejects_evidence_semantic_key_collisions(self):
-        created = self.srv.wave_create_wave_response(
+        created = self.srv.wf_create_wave_response(
             self.root, "typed-review-collision", mode="create"
         )
         wave_id = created["data"]["wave_id"]
         wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
         before = wave_md.read_text(encoding="utf-8")
 
-        response = self.srv.wave_record_review_evidence_response(
+        response = self.srv.wf_review_evidence_response(
             self.root,
             wave_id,
             "approval",
@@ -3517,7 +3548,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         self.assertEqual(wave_md.read_text(encoding="utf-8"), before)
 
     def test_typed_review_evidence_tool_rejects_reserved_metadata_without_poisoning_retry(self):
-        created = self.srv.wave_create_wave_response(
+        created = self.srv.wf_create_wave_response(
             self.root, "typed-review-reserved", mode="create"
         )
         wave_id = created["data"]["wave_id"]
@@ -3526,7 +3557,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             {"event_identity": {"actor": "attacker"}},
             {"request_digest": "0" * 64},
         ):
-            rejected = self.srv.wave_record_review_evidence_response(
+            rejected = self.srv.wf_review_evidence_response(
                 self.root,
                 wave_id,
                 "run",
@@ -3543,7 +3574,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             )
             self.assertEqual(events_path.read_bytes(), b"")
 
-        clean = self.srv.wave_record_review_evidence_response(
+        clean = self.srv.wf_review_evidence_response(
             self.root,
             wave_id,
             "run",
@@ -3556,7 +3587,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         self.assertFalse(clean["data"]["replayed"])
 
     def test_typed_review_writer_rejects_symlinked_wave_directory_escape(self):
-        created = self.srv.wave_create_wave_response(
+        created = self.srv.wf_create_wave_response(
             self.root, "typed-review-symlink", mode="create"
         )
         wave_id = created["data"]["wave_id"]
@@ -3570,7 +3601,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             except OSError as exc:
                 self.skipTest(f"directory symlinks unavailable: {exc}")
 
-            response = self.srv.wave_record_review_evidence_response(
+            response = self.srv.wf_review_evidence_response(
                 self.root,
                 wave_id,
                 "run",
@@ -3588,11 +3619,11 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             self.assertEqual((outside / "events.jsonl").read_bytes(), before)
 
     def test_typed_review_approval_updates_machine_and_human_state(self):
-        created = self.srv.wave_create_wave_response(
+        created = self.srv.wf_create_wave_response(
             self.root, "typed-review-approval", mode="create"
         )
         wave_id = created["data"]["wave_id"]
-        self.srv.wave_record_review_evidence_response(
+        self.srv.wf_review_evidence_response(
             self.root,
             wave_id,
             "run",
@@ -3601,7 +3632,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             mode="create",
             run_kind="initial_delivery",
         )
-        response = self.srv.wave_record_review_evidence_response(
+        response = self.srv.wf_review_evidence_response(
             self.root,
             wave_id,
             "approval",
@@ -3632,7 +3663,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         )
 
     def test_typed_review_evidence_rolls_back_wave_when_adoption_persist_fails(self):
-        created = self.srv.wave_create_wave_response(
+        created = self.srv.wf_create_wave_response(
             self.root, "typed-review-rollback", mode="create"
         )
         wave_id = created["data"]["wave_id"]
@@ -3640,7 +3671,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         before = wave_md.read_text(encoding="utf-8")
         events_path = sys.modules["review_evidence"].review_event_path(wave_md)
         with patch.object(self.srv, "record_protocol_state_locked", return_value="forced persist failure"):
-            response = self.srv.wave_record_review_evidence_response(
+            response = self.srv.wf_review_evidence_response(
                 self.root,
                 wave_id,
                 "run",
@@ -3656,7 +3687,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         self.assertEqual(wave_md.read_text(encoding="utf-8"), before)
         self.assertNotEqual(events_path.read_bytes(), b"")
         committed = events_path.read_bytes()
-        replay = self.srv.wave_record_review_evidence_response(
+        replay = self.srv.wf_review_evidence_response(
             self.root,
             wave_id,
             "run",
@@ -3671,12 +3702,12 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         self.assertNotEqual(wave_md.read_text(encoding="utf-8"), before)
 
     def test_typed_review_event_replay_conflict_new_context_and_concurrency(self):
-        created = self.srv.wave_create_wave_response(
+        created = self.srv.wf_create_wave_response(
             self.root, "typed-review-idempotency", mode="create"
         )
         wave_id = created["data"]["wave_id"]
         def call(context, actor="qa-reviewer", signoff_key="qa-reviewer", observed="passed"):
-            return self.srv.wave_record_review_evidence_response(
+            return self.srv.wf_review_evidence_response(
             self.root,
             wave_id,
             "approval",
@@ -3719,7 +3750,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         self.assertEqual(len(records), 4)
 
     def test_typed_review_multiple_findings_share_context_without_identity_collision(self):
-        created = self.srv.wave_create_wave_response(
+        created = self.srv.wf_create_wave_response(
             self.root, "typed-review-multi-finding", mode="create"
         )
         wave_id = created["data"]["wave_id"]
@@ -3738,7 +3769,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         evidence = {
             "proposition": "candidate behavior conforms",
             "failure_condition": "a counterexample reaches the path",
-            "public_path": "wave_record_review_evidence",
+            "public_path": "wf_review_evidence",
             "command_or_fixture": "multi-finding public fixture",
             "expected": "the behavior remains conforming",
             "observed": "the public fixture conformed",
@@ -3749,7 +3780,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             "disposition_rationale": "no issue was reproduced",
         }
         for finding_id in ("finding-a", "finding-b"):
-            result = self.srv.wave_record_review_evidence_response(
+            result = self.srv.wf_review_evidence_response(
                 self.root,
                 wave_id,
                 "finding",
@@ -3773,7 +3804,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         self.assertEqual({item["finding_id"] for item in identities}, {"finding-a", "finding-b"})
 
     def test_second_cycle_reverification_atomically_adds_convergence_checkpoint(self):
-        created = self.srv.wave_create_wave_response(
+        created = self.srv.wf_create_wave_response(
             self.root, "typed-convergence", mode="create"
         )
         wave_id = created["data"]["wave_id"]
@@ -3792,7 +3823,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         evidence = {
             "proposition": "the repair cycle closes",
             "failure_condition": "the public writer cannot append the required next state",
-            "public_path": "wave_record_review_evidence",
+            "public_path": "wf_review_evidence",
             "command_or_fixture": "typed convergence fixture",
             "expected": "the second reverification and checkpoint commit together",
             "observed": "the public writer committed the requested transition",
@@ -3804,7 +3835,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         }
 
         def record(kind, cycle, context, blocking):
-            return self.srv.wave_record_review_evidence_response(
+            return self.srv.wf_review_evidence_response(
                 self.root,
                 wave_id,
                 "finding",
@@ -3851,7 +3882,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         self.assertEqual(checkpoints[0]["frozen_boundary"], ["convergence-finding"])
 
     def test_typed_multi_finding_repair_cycle_supports_progressive_lanes(self):
-        created = self.srv.wave_create_wave_response(
+        created = self.srv.wf_create_wave_response(
             self.root, "typed-multi-repair-cycle", mode="create"
         )
         wave_id = created["data"]["wave_id"]
@@ -3870,7 +3901,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         evidence = {
             "proposition": "the finding follows the shared repair cycle",
             "failure_condition": "the public writer fabricates cycles or strands a required lane",
-            "public_path": "wave_record_review_evidence",
+            "public_path": "wf_review_evidence",
             "command_or_fixture": "five-finding progressive-lane fixture",
             "expected": "all findings share cycle one and each lane clears independently",
             "observed": "the public transition reached the requested state",
@@ -3883,7 +3914,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         lanes = ["code-reviewer", "qa-reviewer"]
 
         def record(finding, kind, cycle, actor, context, blocking):
-            return self.srv.wave_record_review_evidence_response(
+            return self.srv.wf_review_evidence_response(
                 self.root,
                 wave_id,
                 "finding",
@@ -3989,7 +4020,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         )
 
     def test_typed_reverification_can_reclassify_started_finding(self):
-        created = self.srv.wave_create_wave_response(
+        created = self.srv.wf_create_wave_response(
             self.root, "typed-reclassification", mode="create"
         )
         wave_id = created["data"]["wave_id"]
@@ -4020,7 +4051,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         evidence = {
             "proposition": "reverification may disprove an actionable finding",
             "failure_condition": "a truthful reclassification strands the repair cycle",
-            "public_path": "wave_record_review_evidence",
+            "public_path": "wf_review_evidence",
             "command_or_fixture": "typed reclassification fixture",
             "expected": "the not_issue head terminalizes cycle one",
             "observed": "the public transition reached the requested state",
@@ -4032,7 +4063,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         }
 
         def record(kind, cycle, context, judgment, blocking):
-            return self.srv.wave_record_review_evidence_response(
+            return self.srv.wf_review_evidence_response(
                 self.root,
                 wave_id,
                 "finding",
@@ -4069,7 +4100,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         self.assertEqual(cycle_two["status"], "ok", cycle_two)
 
     def test_convergence_waits_for_final_outstanding_finding(self):
-        created = self.srv.wave_create_wave_response(
+        created = self.srv.wf_create_wave_response(
             self.root, "typed-aggregate-convergence", mode="create"
         )
         wave_id = created["data"]["wave_id"]
@@ -4088,7 +4119,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         evidence = {
             "proposition": "aggregate convergence waits for every finding",
             "failure_condition": "a checkpoint freezes a partial second cycle",
-            "public_path": "wave_record_review_evidence",
+            "public_path": "wf_review_evidence",
             "command_or_fixture": "aggregate convergence fixture",
             "expected": "the checkpoint appears only after the final finding",
             "observed": "the requested transition committed",
@@ -4100,7 +4131,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         }
 
         def record(finding, kind, cycle, context, blocking):
-            return self.srv.wave_record_review_evidence_response(
+            return self.srv.wf_review_evidence_response(
                 self.root,
                 wave_id,
                 "finding",
@@ -4167,7 +4198,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         )
 
     def test_event_commit_and_projection_failure_boundaries(self):
-        created = self.srv.wave_create_wave_response(
+        created = self.srv.wf_create_wave_response(
             self.root, "typed-review-faults", mode="create"
         )
         wave_id = created["data"]["wave_id"]
@@ -4181,7 +4212,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             return original_replace(path, payload, purpose)
 
         with patch.object(self.srv, "_atomic_replace_bytes", side_effect=fail_event):
-            failed = self.srv.wave_record_review_evidence_response(
+            failed = self.srv.wf_review_evidence_response(
                 self.root, wave_id, "run", "wave-council", "event-fail",
                 mode="create", run_kind="initial_delivery",
             )
@@ -4192,7 +4223,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         with patch.object(
             self.srv, "_atomic_replace_text", side_effect=OSError("forced projection failure")
         ):
-            partial = self.srv.wave_record_review_evidence_response(
+            partial = self.srv.wf_review_evidence_response(
                 self.root, wave_id, "run", "wave-council", "projection-fail",
                 mode="create", run_kind="initial_delivery",
             )
@@ -4201,7 +4232,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         self.assertTrue(partial["data"]["projection_stale"])
         committed = events_path.read_bytes()
         self.assertEqual(wave_md.read_text(encoding="utf-8"), original_projection)
-        repaired = self.srv.wave_record_review_evidence_response(
+        repaired = self.srv.wf_review_evidence_response(
             self.root, wave_id, "run", "wave-council", "projection-fail",
             mode="create", run_kind="initial_delivery",
         )
@@ -4220,7 +4251,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             "proposition": "readiness candidates were deduplicated",
             "counterexample_or_failure_condition": "duplicate candidate remains",
             "execution_status": "executed",
-            "public_path": "wave_prepare",
+            "public_path": "wf_prepare_wave",
             "command_or_fixture": "readiness-only fixture",
             "expected": "zero duplicate candidates",
             "observed": "zero duplicate candidates",
@@ -4255,7 +4286,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             "source_record_ids": ["prepare-council"],
             "dedup_evidence_id": "dedup-readiness",
         }
-        created = self.srv.wave_create_wave_response(
+        created = self.srv.wf_create_wave_response(
             self.root, "readiness-only-close", mode="create"
         )
         wave_id = created["data"]["wave_id"]
@@ -4272,7 +4303,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             encoding="utf-8",
         )
         self.assertIsNone(review.record_protocol_state(self.root, wave_id, wave_md))
-        response = self.srv.wave_close_response(self.root, wave_id, mode="dry_run")
+        response = self.srv.wf_close_wave_response(self.root, wave_id, mode="dry_run")
         self.assertTrue(
             any(
                 diagnostic["code"] == "review_evidence_invalid"
@@ -4283,7 +4314,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         )
 
     def test_close_binds_operator_signoff_to_executable_approval_evidence(self):
-        created = self.srv.wave_create_wave_response(
+        created = self.srv.wf_create_wave_response(
             self.root, "approval-evidence-binding", mode="create"
         )
         wave_id = created["data"]["wave_id"]
@@ -4297,7 +4328,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             encoding="utf-8",
         )
 
-        response = self.srv.wave_close_response(self.root, wave_id, mode="dry_run")
+        response = self.srv.wf_close_wave_response(self.root, wave_id, mode="dry_run")
 
         self.assertIn(
             "missing_executable_approval_evidence",
@@ -4305,8 +4336,8 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             response,
         )
 
-    def test_wave_prepare_repairs_staged_doc_when_wave_copy_missing(self):
-        self.srv.wave_add_change_response(self.root, "1200a test-wave", "1200a-feat sample", mode="create")
+    def test_wf_prepare_wave_repairs_staged_doc_when_wave_copy_missing(self):
+        self.srv.wf_add_change_response(self.root, "1200a test-wave", "1200a-feat sample", mode="create")
         wave_doc = self.root / "docs" / "waves" / "1200a test-wave" / "1200a-feat sample.md"
         staged_doc = self.root / "docs" / "plans" / "1200a-feat sample.md"
         wave_doc.rename(staged_doc)
@@ -4326,7 +4357,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
 
             with patch.object(self.srv, "run_validate", side_effect=validate_after_repair):
                 with patch.object(self.srv, "_trigger_background_index_refresh_for_paths") as trigger:
-                    result = self.srv.wave_prepare_response(self.root, "1200a test-wave", mode="create")
+                    result = self.srv.wf_prepare_wave_response(self.root, "1200a test-wave", mode="create")
 
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["data"]["repaired"], 1)
@@ -4334,10 +4365,10 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         self.assertFalse(staged_doc.exists())
         trigger.assert_called_once()
 
-    def test_wave_prepare_create_regenerates_codebase_map(self):
+    def test_wf_prepare_wave_create_regenerates_codebase_map(self):
         # Wave 1p601 AC-2b: a successful prepare (mode=create) refreshes the
         # codebase map at the prepare-wave lifecycle checkpoint, fail-safe.
-        self.srv.wave_add_change_response(self.root, "1200a test-wave", "1200a-feat sample", mode="create")
+        self.srv.wf_add_change_response(self.root, "1200a test-wave", "1200a-feat sample", mode="create")
         wave_md = self.root / "docs" / "waves" / "1200a test-wave" / "wave.md"
         wave_md.write_text(
             wave_md.read_text(encoding="utf-8")
@@ -4348,52 +4379,52 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
                 with patch.object(self.srv, "_trigger_background_index_refresh_for_paths"):
                     with patch.object(self.srv, "_regenerate_codebase_map_safe", return_value=True) as regen:
-                        result = self.srv.wave_prepare_response(self.root, "1200a test-wave", mode="create")
+                        result = self.srv.wf_prepare_wave_response(self.root, "1200a test-wave", mode="create")
         self.assertEqual(result["status"], "ok")
         regen.assert_called_once_with(self.root)
 
-    def test_wave_prepare_dry_run_does_not_regenerate_codebase_map(self):
+    def test_wf_prepare_wave_dry_run_does_not_regenerate_codebase_map(self):
         # Lifecycle regen fires only on the actual prepare (create), not dry_run.
-        self.srv.wave_add_change_response(self.root, "1200a test-wave", "1200a-feat sample", mode="create")
+        self.srv.wf_add_change_response(self.root, "1200a test-wave", "1200a-feat sample", mode="create")
         with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
             with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
                 with patch.object(self.srv, "_regenerate_codebase_map_safe", return_value=True) as regen:
-                    self.srv.wave_prepare_response(self.root, "1200a test-wave", mode="dry_run")
+                    self.srv.wf_prepare_wave_response(self.root, "1200a test-wave", mode="dry_run")
         regen.assert_not_called()
 
-    def test_wave_prepare_reports_duplicate_change_doc_locations(self):
-        self.srv.wave_add_change_response(self.root, "1200a test-wave", "1200a-feat sample", mode="create")
+    def test_wf_prepare_wave_reports_duplicate_change_doc_locations(self):
+        self.srv.wf_add_change_response(self.root, "1200a test-wave", "1200a-feat sample", mode="create")
         wave_doc = self.root / "docs" / "waves" / "1200a test-wave" / "1200a-feat sample.md"
         staged_doc = self.root / "docs" / "plans" / "1200a-feat sample.md"
         staged_doc.write_text(wave_doc.read_text(encoding="utf-8"), encoding="utf-8")
 
         with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
             with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
-                result = self.srv.wave_prepare_response(self.root, "1200a test-wave", mode="dry_run")
+                result = self.srv.wf_prepare_wave_response(self.root, "1200a test-wave", mode="dry_run")
 
         self.assertEqual(result["status"], "error")
         self.assertTrue(any(d["code"] == "duplicate_change_doc_locations" for d in result["diagnostics"]))
 
-    def test_wave_pause_writes_handoff(self):
-        result = self.srv.wave_pause_response(self.root, "1200a test-wave", mode="create")
+    def test_wf_pause_wave_writes_handoff(self):
+        result = self.srv.wf_pause_wave_response(self.root, "1200a test-wave", mode="create")
         self.assertEqual(result["status"], "ok")
         handoff = self.root / "docs" / "agents" / "session-handoff.md"
         self.assertTrue(handoff.exists())
 
-    def test_wave_pause_preserves_existing_handoff_sections(self):
+    def test_wf_pause_wave_preserves_existing_handoff_sections(self):
         handoff = self.root / "docs" / "agents" / "session-handoff.md"
         handoff.parent.mkdir(parents=True, exist_ok=True)
         handoff.write_text(
             "# Session Handoff\n\n## Notes\n\nkeep-me\n\n## Current Session\n\n**Old wave:** placeholder\n",
             encoding="utf-8",
         )
-        result = self.srv.wave_pause_response(self.root, "1200a test-wave", mode="create")
+        result = self.srv.wf_pause_wave_response(self.root, "1200a test-wave", mode="create")
         self.assertEqual(result["status"], "ok")
         text = handoff.read_text(encoding="utf-8")
         self.assertIn("keep-me", text)
         self.assertIn("1200a test-wave", text)
 
-    def test_wave_review_reports_ok_when_lint_passes(self):
+    def test_wf_review_wave_reports_ok_when_lint_passes(self):
         wave_md = self.root / "docs" / "waves" / "1200a test-wave" / "wave.md"
         wave_md.write_text(
             wave_md.read_text(encoding="utf-8") + "\n## Review Evidence\n\n- operator-signoff: approved\n",
@@ -4406,14 +4437,14 @@ class WaveLifecycleMutationTests(unittest.TestCase):
                     "_review_evidence_diagnostics",
                     wraps=self.srv._review_evidence_diagnostics,
                 ) as evidence_diagnostics:
-                    result = self.srv.wave_review_response(self.root, "1200a test-wave")
+                    result = self.srv.wf_review_wave_response(self.root, "1200a test-wave")
         self.assertEqual(result["status"], "ok")
         self.assertTrue(result["data"]["lint_passed"])
         self.assertIn("required_lanes", result["data"])
         trigger.assert_not_called()
         self.assertFalse(evidence_diagnostics.call_args.kwargs["persist_adoption"])
 
-    def test_wave_review_ok_when_signoffs_recorded(self):
+    def test_wf_review_wave_ok_when_signoffs_recorded(self):
         wave_md = self.root / "docs" / "waves" / "1200a test-wave" / "wave.md"
         wave_md.write_text(
             (
@@ -4435,10 +4466,10 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             encoding="utf-8",
         )
         with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
-            result = self.srv.wave_review_response(self.root, "1200a test-wave")
+            result = self.srv.wf_review_wave_response(self.root, "1200a test-wave")
         self.assertEqual(result["status"], "ok")
 
-    def test_wave_review_requires_per_lane_evidence_not_global_checkpoint(self):
+    def test_wf_review_wave_requires_per_lane_evidence_not_global_checkpoint(self):
         wave_md = self.root / "docs" / "waves" / "1200a test-wave" / "wave.md"
         wave_md.write_text(
             (
@@ -4458,21 +4489,21 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             encoding="utf-8",
         )
         with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
-            result = self.srv.wave_review_response(self.root, "1200a test-wave")
+            result = self.srv.wf_review_wave_response(self.root, "1200a test-wave")
         self.assertEqual(result["status"], "error")
         self.assertTrue(any(d["code"] == "missing_required_lane" for d in result["diagnostics"]))
 
-    def test_wave_close_requires_signoff_and_no_open_changes(self):
+    def test_wf_close_wave_requires_signoff_and_no_open_changes(self):
         _make_wave(self.root, "1200a test-wave", "active", [{"id": "1200a-feat sample", "status": "active"}])
         with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
             with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
-                result = self.srv.wave_close_response(self.root, "1200a test-wave", mode="dry_run")
+                result = self.srv.wf_close_wave_response(self.root, "1200a test-wave", mode="dry_run")
         self.assertEqual(result["status"], "error")
         codes = {d["code"] for d in result["diagnostics"]}
         self.assertIn("open_changes_remaining", codes)
         self.assertIn("missing_signoff_evidence", codes)
 
-    def test_wave_close_create_succeeds_when_requirements_met(self):
+    def test_wf_close_wave_create_succeeds_when_requirements_met(self):
         wave_md = self.root / "docs" / "waves" / "1200a test-wave" / "wave.md"
         wave_md.write_text(
             (
@@ -4494,12 +4525,12 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         )
         with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
             with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
-                result = self.srv.wave_close_response(self.root, "1200a test-wave", mode="create")
+                result = self.srv.wf_close_wave_response(self.root, "1200a test-wave", mode="create")
         self.assertEqual(result["status"], "ok")
         self.assertIn("Status: closed", wave_md.read_text(encoding="utf-8"))
         self.assertNotIn("archive_path", result["data"])
 
-    def test_wave_close_dry_run_fails_when_participants_missing_lane_in_evidence(self):
+    def test_wf_close_wave_dry_run_fails_when_participants_missing_lane_in_evidence(self):
         wave_md = self.root / "docs" / "waves" / "1200a test-wave" / "wave.md"
         wave_md.write_text(
             (
@@ -4521,7 +4552,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         )
         with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
             with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
-                result = self.srv.wave_close_response(self.root, "1200a test-wave", mode="dry_run")
+                result = self.srv.wf_close_wave_response(self.root, "1200a test-wave", mode="dry_run")
         self.assertEqual(result["status"], "error")
         self.assertTrue(any(d["code"] == "missing_required_lane" for d in result["diagnostics"]))
 
@@ -4566,7 +4597,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         self._setup_close_gate_wave(change_doc)
         with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
             with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
-                result = self.srv.wave_close_response(self.root, "1200a test-wave", mode="dry_run")
+                result = self.srv.wf_close_wave_response(self.root, "1200a test-wave", mode="dry_run")
         codes = {d["code"] for d in result.get("diagnostics", [])}
         self.assertNotIn("silent_unchecked_items_at_close", codes, msg=f"diagnostics: {result.get('diagnostics')}")
 
@@ -4588,7 +4619,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         self._setup_close_gate_wave(change_doc)
         with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
             with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
-                result = self.srv.wave_close_response(self.root, "1200a test-wave", mode="dry_run")
+                result = self.srv.wf_close_wave_response(self.root, "1200a test-wave", mode="dry_run")
         codes = {d["code"] for d in result.get("diagnostics", [])}
         self.assertNotIn("silent_unchecked_items_at_close", codes, msg=f"diagnostics: {result.get('diagnostics')}")
 
@@ -4608,7 +4639,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         self._setup_close_gate_wave(change_doc)
         with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
             with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
-                result = self.srv.wave_close_response(self.root, "1200a test-wave", mode="dry_run")
+                result = self.srv.wf_close_wave_response(self.root, "1200a test-wave", mode="dry_run")
         self.assertEqual(result["status"], "error")
         gate_diags = [d for d in result["diagnostics"] if d["code"] == "silent_unchecked_items_at_close"]
         self.assertEqual(len(gate_diags), 1, msg=f"all codes: {[d['code'] for d in result['diagnostics']]}")
@@ -4631,7 +4662,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         self._setup_close_gate_wave(change_doc)
         with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
             with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
-                result = self.srv.wave_close_response(self.root, "1200a test-wave", mode="dry_run")
+                result = self.srv.wf_close_wave_response(self.root, "1200a test-wave", mode="dry_run")
         self.assertEqual(result["status"], "error")
         gate_diags = [d for d in result["diagnostics"] if d["code"] == "silent_unchecked_items_at_close"]
         self.assertEqual(len(gate_diags), 1)
@@ -4654,13 +4685,13 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         self._setup_close_gate_wave(change_doc)
         with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
             with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
-                result = self.srv.wave_close_response(self.root, "1200a test-wave", mode="dry_run")
+                result = self.srv.wf_close_wave_response(self.root, "1200a test-wave", mode="dry_run")
         codes = {d["code"] for d in result.get("diagnostics", [])}
         self.assertNotIn("silent_unchecked_items_at_close", codes, msg=f"diagnostics: {result.get('diagnostics')}")
 
 
 class WaveReopenTests(unittest.TestCase):
-    """12eb0: wave_reopen MCP tool."""
+    """12eb0: wf_reopen_wave MCP tool."""
 
     @classmethod
     def setUpClass(cls):
@@ -4694,42 +4725,42 @@ class WaveReopenTests(unittest.TestCase):
 
     def test_reopen_closed_wave_sets_status_active(self):
         self._write_wave("closed")
-        result = self.srv.wave_reopen_response(self.root, "1200a test-wave")
+        result = self.srv.wf_reopen_wave_response(self.root, "1200a test-wave")
         self.assertEqual(result["status"], "ok")
         self.assertIn("Status: active", self.wave_md.read_text(encoding="utf-8"))
 
     def test_reopen_removes_completed_at_stamp(self):
         self._write_wave("closed", completed_at=True)
         self.assertIn("Completed At:", self.wave_md.read_text(encoding="utf-8"))
-        self.srv.wave_reopen_response(self.root, "1200a test-wave")
+        self.srv.wf_reopen_wave_response(self.root, "1200a test-wave")
         self.assertNotIn("Completed At:", self.wave_md.read_text(encoding="utf-8"))
 
     def test_reopen_paused_wave_sets_status_active(self):
         self._write_wave("paused")
-        result = self.srv.wave_reopen_response(self.root, "1200a test-wave")
+        result = self.srv.wf_reopen_wave_response(self.root, "1200a test-wave")
         self.assertEqual(result["status"], "ok")
         self.assertIn("Status: active", self.wave_md.read_text(encoding="utf-8"))
 
     def test_reopen_non_closed_wave_returns_error(self):
         self._write_wave("active")
-        result = self.srv.wave_reopen_response(self.root, "1200a test-wave")
+        result = self.srv.wf_reopen_wave_response(self.root, "1200a test-wave")
         self.assertEqual(result["status"], "error")
         self.assertTrue(any(d["code"] == "wave_not_closed" for d in result["diagnostics"]))
 
     def test_reopen_planned_wave_returns_error(self):
         self._write_wave("planned")
-        result = self.srv.wave_reopen_response(self.root, "1200a test-wave")
+        result = self.srv.wf_reopen_wave_response(self.root, "1200a test-wave")
         self.assertEqual(result["status"], "error")
         self.assertTrue(any(d["code"] == "wave_not_closed" for d in result["diagnostics"]))
 
     def test_reopen_nonexistent_wave_returns_error(self):
-        result = self.srv.wave_reopen_response(self.root, "nonexistent-wave")
+        result = self.srv.wf_reopen_wave_response(self.root, "nonexistent-wave")
         self.assertEqual(result["status"], "error")
         self.assertTrue(any(d["code"] == "wave_not_found" for d in result["diagnostics"]))
 
 
 class OperatorSignoffTests(unittest.TestCase):
-    """12eb2: operator review lane required for wave_review and wave_close."""
+    """12eb2: operator review lane required for wf_review_wave and wf_close_wave."""
 
     @classmethod
     def setUpClass(cls):
@@ -4761,61 +4792,61 @@ class OperatorSignoffTests(unittest.TestCase):
             + review
         )
 
-    def test_wave_review_fails_without_operator_signoff(self):
+    def test_wf_review_wave_fails_without_operator_signoff(self):
         self.wave_md.write_text(self._base_wave(with_operator_signoff=False), encoding="utf-8")
         with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
-            result = self.srv.wave_review_response(self.root, "1200a test-wave")
+            result = self.srv.wf_review_wave_response(self.root, "1200a test-wave")
         self.assertEqual(result["status"], "error")
         codes = {d["code"] for d in result["diagnostics"]}
         self.assertIn("missing_operator_signoff", codes)
 
-    def test_wave_review_passes_with_operator_signoff(self):
+    def test_wf_review_wave_passes_with_operator_signoff(self):
         self.wave_md.write_text(self._base_wave(with_operator_signoff=True), encoding="utf-8")
         with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
-            result = self.srv.wave_review_response(self.root, "1200a test-wave")
+            result = self.srv.wf_review_wave_response(self.root, "1200a test-wave")
         self.assertEqual(result["status"], "ok")
 
-    def test_wave_review_includes_operator_in_required_lanes(self):
+    def test_wf_review_wave_includes_operator_in_required_lanes(self):
         self.wave_md.write_text(self._base_wave(with_operator_signoff=True), encoding="utf-8")
         with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
-            result = self.srv.wave_review_response(self.root, "1200a test-wave")
+            result = self.srv.wf_review_wave_response(self.root, "1200a test-wave")
         self.assertIn("operator", result["data"]["required_lanes"])
 
-    def test_wave_close_blocked_without_operator_signoff(self):
+    def test_wf_close_wave_blocked_without_operator_signoff(self):
         self.wave_md.write_text(self._base_wave(with_operator_signoff=False), encoding="utf-8")
         with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
             with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
-                result = self.srv.wave_close_response(self.root, "1200a test-wave", mode="dry_run")
+                result = self.srv.wf_close_wave_response(self.root, "1200a test-wave", mode="dry_run")
         self.assertEqual(result["status"], "error")
         codes = {d["code"] for d in result["diagnostics"]}
         self.assertIn("missing_operator_signoff", codes)
 
-    def test_wave_close_succeeds_with_operator_signoff(self):
+    def test_wf_close_wave_succeeds_with_operator_signoff(self):
         self.wave_md.write_text(self._base_wave(with_operator_signoff=True), encoding="utf-8")
         with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
             with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
-                result = self.srv.wave_close_response(self.root, "1200a test-wave", mode="create")
+                result = self.srv.wf_close_wave_response(self.root, "1200a test-wave", mode="create")
         self.assertEqual(result["status"], "ok")
         self.assertIn("Status: closed", self.wave_md.read_text(encoding="utf-8"))
 
-    def test_wave_close_create_regenerates_codebase_map(self):
+    def test_wf_close_wave_create_regenerates_codebase_map(self):
         # Wave 1p601 AC-2b: a successful close (mode=create) refreshes the
         # codebase map at the close-wave lifecycle checkpoint, fail-safe.
         self.wave_md.write_text(self._base_wave(with_operator_signoff=True), encoding="utf-8")
         with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
             with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
                 with patch.object(self.srv, "_regenerate_codebase_map_safe", return_value=True) as regen:
-                    result = self.srv.wave_close_response(self.root, "1200a test-wave", mode="create")
+                    result = self.srv.wf_close_wave_response(self.root, "1200a test-wave", mode="create")
         self.assertEqual(result["status"], "ok")
         regen.assert_called_once_with(self.root)
 
-    def test_wave_close_dry_run_does_not_regenerate_codebase_map(self):
+    def test_wf_close_wave_dry_run_does_not_regenerate_codebase_map(self):
         # Lifecycle regen fires only on the actual close (create), not dry_run.
         self.wave_md.write_text(self._base_wave(with_operator_signoff=True), encoding="utf-8")
         with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
             with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
                 with patch.object(self.srv, "_regenerate_codebase_map_safe", return_value=True) as regen:
-                    self.srv.wave_close_response(self.root, "1200a test-wave", mode="dry_run")
+                    self.srv.wf_close_wave_response(self.root, "1200a test-wave", mode="dry_run")
         regen.assert_not_called()
 
     def test_regenerate_codebase_map_safe_swallows_generator_error(self):
@@ -4839,12 +4870,12 @@ class OperatorSignoffTests(unittest.TestCase):
         )
         self.wave_md.write_text(text, encoding="utf-8")
         with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
-            result = self.srv.wave_review_response(self.root, "1200a test-wave")
+            result = self.srv.wf_review_wave_response(self.root, "1200a test-wave")
         self.assertEqual(result["status"], "error")
         codes = {d["code"] for d in result["diagnostics"]}
         self.assertIn("missing_operator_signoff", codes)
 
-    def test_placeholder_signoff_blocks_wave_close(self):
+    def test_placeholder_signoff_blocks_wf_close_wave(self):
         text = (
             "# Wave Record\n"
             "wave-id: `1200a test-wave`\n"
@@ -4858,14 +4889,14 @@ class OperatorSignoffTests(unittest.TestCase):
         self.wave_md.write_text(text, encoding="utf-8")
         with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
             with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
-                result = self.srv.wave_close_response(self.root, "1200a test-wave", mode="dry_run")
+                result = self.srv.wf_close_wave_response(self.root, "1200a test-wave", mode="dry_run")
         self.assertEqual(result["status"], "error")
         codes = {d["code"] for d in result["diagnostics"]}
         self.assertIn("missing_operator_signoff", codes)
 
 
 class IndexBuildStatusTests(unittest.TestCase):
-    """12ebh: wave_index_build_status MCP tool."""
+    """12ebh: index_build_status MCP tool."""
 
     @classmethod
     def setUpClass(cls):
@@ -4891,7 +4922,7 @@ class IndexBuildStatusTests(unittest.TestCase):
         self.state_path.write_text(json.dumps({"pid": pid, "started_at": started_at}), encoding="utf-8")
 
     def test_idle_when_no_state_file(self):
-        result = self.srv.wave_index_build_status_response(self.root, layer="project")
+        result = self.srv.index_build_status_response(self.root, layer="project")
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["data"]["state"], "idle")
 
@@ -4899,7 +4930,7 @@ class IndexBuildStatusTests(unittest.TestCase):
         import os, time
         self._write_state(os.getpid(), time.time() - 30)
         self.log_path.write_text("build_index: embedding doc chunks 100-200/500\n", encoding="utf-8")
-        result = self.srv.wave_index_build_status_response(self.root, layer="project")
+        result = self.srv.index_build_status_response(self.root, layer="project")
         self.assertEqual(result["data"]["state"], "running")
         self.assertIn("elapsed_seconds", result["data"])
         self.assertEqual(result["data"]["progress"], "build_index: embedding doc chunks 100-200/500")
@@ -4914,7 +4945,7 @@ class IndexBuildStatusTests(unittest.TestCase):
             "build_index: scanning source files\n",
             encoding="utf-8",
         )
-        result = self.srv.wave_index_build_status_response(self.root, layer="project")
+        result = self.srv.index_build_status_response(self.root, layer="project")
         self.assertEqual(result["data"]["state"], "running")
         self.assertEqual(result["data"]["source"], "background")
         self.assertEqual(result["data"]["progress"], "build_index: scanning source files")
@@ -4927,7 +4958,7 @@ class IndexBuildStatusTests(unittest.TestCase):
             "build_index: done — 300 files indexed, 2000 doc chunks, 1800 code chunks\n",
             encoding="utf-8",
         )
-        result = self.srv.wave_index_build_status_response(self.root, layer="project")
+        result = self.srv.index_build_status_response(self.root, layer="project")
         self.assertEqual(result["data"]["state"], "finished")
         self.assertEqual(result["data"]["files_indexed"], 300)
         self.assertEqual(result["data"]["doc_chunks"], 2000)
@@ -4938,7 +4969,7 @@ class IndexBuildStatusTests(unittest.TestCase):
         import time
         self._write_state(99999999, time.time() - 60)
         self.log_path.write_text("build_index: some partial output\n", encoding="utf-8")
-        result = self.srv.wave_index_build_status_response(self.root, layer="project")
+        result = self.srv.index_build_status_response(self.root, layer="project")
         self.assertEqual(result["data"]["state"], "finished")
         self.assertEqual(result["data"]["last_log_line"], "build_index: some partial output")
 
@@ -4951,7 +4982,7 @@ class IndexBuildStatusTests(unittest.TestCase):
             "network or download host unavailable.\n",
             encoding="utf-8",
         )
-        result = self.srv.wave_index_build_status_response(self.root, layer="project")
+        result = self.srv.index_build_status_response(self.root, layer="project")
         self.assertEqual(result["data"]["state"], "finished")
         self.assertIn("network or download host unavailable", result["data"]["last_log_line"])
         self.assertFalse(self.state_path.exists())
@@ -4966,7 +4997,7 @@ class IndexBuildStatusTests(unittest.TestCase):
             "build_index: done — 100 files indexed, 500 doc chunks, 400 code chunks\n",
             encoding="utf-8",
         )
-        result = self.srv.wave_index_build_status_response(self.root, layer="project")
+        result = self.srv.index_build_status_response(self.root, layer="project")
         self.assertEqual(result["data"]["state"], "finished")
         self.assertEqual(result["data"]["files_indexed"], 100)
         self.assertFalse(self.state_path.exists())
@@ -4977,17 +5008,17 @@ class IndexBuildStatusTests(unittest.TestCase):
         import os, time
         self._write_state(os.getpid(), time.time() - 60)
         self.log_path.write_text("build_index: index is up to date\n", encoding="utf-8")
-        result = self.srv.wave_index_build_status_response(self.root, layer="project")
+        result = self.srv.index_build_status_response(self.root, layer="project")
         self.assertEqual(result["data"]["state"], "finished")
         self.assertFalse(self.state_path.exists())
 
     def test_invalid_layer_returns_error(self):
-        result = self.srv.wave_index_build_status_response(self.root, layer="bogus")
+        result = self.srv.index_build_status_response(self.root, layer="bogus")
         self.assertEqual(result["status"], "error")
 
     def test_framework_layer_rejected(self):
         # 1p4ww: the framework layer is folded into the project index — status rejects it.
-        result = self.srv.wave_index_build_status_response(self.root, layer="framework")
+        result = self.srv.index_build_status_response(self.root, layer="framework")
         self.assertEqual(result["status"], "error")
 
     def test_previous_stats_included_in_finished_response(self):
@@ -4999,7 +5030,7 @@ class IndexBuildStatusTests(unittest.TestCase):
         )
         stats = {"elapsed_seconds": 420, "files_indexed": 300, "doc_chunks": 2000, "code_chunks": 1800, "built_at": "2026-05-06T10:00:00Z", "content": "docs", "mode": "rebuild"}
         (self.index_dir / "index-build-stats.json").write_text(json.dumps(stats), encoding="utf-8")
-        result = self.srv.wave_index_build_status_response(self.root, layer="project")
+        result = self.srv.index_build_status_response(self.root, layer="project")
         self.assertEqual(result["data"]["state"], "finished")
         self.assertIn("previous_stats", result["data"])
         self.assertEqual(result["data"]["previous_stats"]["files_indexed"], 300)
@@ -5012,7 +5043,7 @@ class IndexBuildStatusTests(unittest.TestCase):
         self.log_path.write_text("build_index: embedding doc chunks 100-200/500\n", encoding="utf-8")
         stats = {"elapsed_seconds": 300, "files_indexed": 200, "doc_chunks": 1500, "code_chunks": 0, "built_at": "2026-05-05T10:00:00Z", "content": "docs", "mode": "update"}
         (self.index_dir / "index-build-stats.json").write_text(json.dumps(stats), encoding="utf-8")
-        result = self.srv.wave_index_build_status_response(self.root, layer="project")
+        result = self.srv.index_build_status_response(self.root, layer="project")
         self.assertEqual(result["data"]["state"], "running")
         self.assertIn("previous_stats", result["data"])
         self.assertEqual(result["data"]["previous_stats"]["elapsed_seconds"], 300)
@@ -5024,7 +5055,7 @@ class IndexBuildStatusTests(unittest.TestCase):
             "build_index: done — 300 files indexed, 2000 doc chunks, 1800 code chunks\n",
             encoding="utf-8",
         )
-        result = self.srv.wave_index_build_status_response(self.root, layer="project")
+        result = self.srv.index_build_status_response(self.root, layer="project")
         self.assertEqual(result["data"]["state"], "finished")
         self.assertIn("previous_stats", result["data"])
         self.assertEqual(result["data"]["previous_stats"]["files_indexed"], 300)
@@ -5037,7 +5068,7 @@ class IndexBuildStatusTests(unittest.TestCase):
             encoding="utf-8",
         )
         (self.index_dir / "index-build-stats.json").write_text("not valid json{{", encoding="utf-8")
-        result = self.srv.wave_index_build_status_response(self.root, layer="project")
+        result = self.srv.index_build_status_response(self.root, layer="project")
         self.assertEqual(result["data"]["state"], "finished")
         self.assertIn("previous_stats", result["data"])
         self.assertEqual(result["data"]["previous_stats"]["files_indexed"], 300)
@@ -5642,17 +5673,17 @@ class WaveIndexBuildResponseTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_invalid_mode_returns_error(self):
-        result = self.srv.wave_index_build_response(self.root, mode="full-refresh")
+        result = self.srv.index_build_response(self.root, mode="full-refresh")
         self.assertEqual(result["status"], "error")
         self.assertEqual(result["diagnostics"][0]["code"], "invalid_arguments")
 
     def test_invalid_content_returns_error(self):
-        result = self.srv.wave_index_build_response(self.root, content="bad")
+        result = self.srv.index_build_response(self.root, content="bad")
         self.assertEqual(result["status"], "error")
         self.assertEqual(result["diagnostics"][0]["code"], "invalid_arguments")
 
     def test_invalid_layer_returns_error(self):
-        result = self.srv.wave_index_build_response(self.root, layer="bad")
+        result = self.srv.index_build_response(self.root, layer="bad")
         self.assertEqual(result["status"], "error")
         self.assertEqual(result["diagnostics"][0]["code"], "invalid_arguments")
 
@@ -5676,7 +5707,7 @@ class WaveIndexBuildResponseTests(unittest.TestCase):
             },
         ):
             with patch.object(cache, "invalidate") as invalidate:
-                result = self.srv.wave_index_build_response(self.root, content="docs", mode="update", cache=cache)
+                result = self.srv.index_build_response(self.root, content="docs", mode="update", cache=cache)
         self.assertEqual(result["status"], "ok")
         invalidate.assert_called_once()
         self.assertIn("stats", result["data"])
@@ -5700,7 +5731,7 @@ class WaveIndexBuildResponseTests(unittest.TestCase):
             },
         ):
             with patch.object(cache, "invalidate") as invalidate:
-                result = self.srv.wave_index_build_response(self.root, content="docs", mode="update", cache=cache)
+                result = self.srv.index_build_response(self.root, content="docs", mode="update", cache=cache)
         self.assertEqual(result["status"], "ok")
         invalidate.assert_not_called()
 
@@ -5721,19 +5752,19 @@ class WaveIndexBuildResponseTests(unittest.TestCase):
                 "log": "/tmp/index-build.log",
             },
         ):
-            result = self.srv.wave_index_build_response(self.root, content="docs", mode="update")
+            result = self.srv.index_build_response(self.root, content="docs", mode="update")
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["diagnostics"][0]["code"], "index_build_already_running")
 
     def test_framework_layer_build_rejected(self):
         # 1p4ww: framework folded into the project index — the build response surfaces
         # the ValueError from run_index_rebuild as an invalid-arguments error.
-        result = self.srv.wave_index_build_response(self.root, content="docs", layer="framework")
+        result = self.srv.index_build_response(self.root, content="docs", layer="framework")
         self.assertEqual(result["status"], "error")
 
 
 # ---------------------------------------------------------------------------
-# wave_index_health
+# index_health
 # ---------------------------------------------------------------------------
 
 class WaveIndexHealthTests(unittest.TestCase):
@@ -5754,7 +5785,7 @@ class WaveIndexHealthTests(unittest.TestCase):
             "compatible_chunks": True,
             "readiness_overview": "ready",
             "project": {"readiness": "current"},        }
-        result = self.srv.wave_index_health_response(index)
+        result = self.srv.index_health_response(index)
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["diagnostics"], [])
         self.assertEqual(result["data"]["readiness_overview"], "ready")
@@ -5771,7 +5802,7 @@ class WaveIndexHealthTests(unittest.TestCase):
             "compatible_chunks": True,
             "readiness_overview": "needs_update",
             "project": {},        }
-        result = self.srv.wave_index_health_response(index)
+        result = self.srv.index_health_response(index)
         self.assertEqual(result["status"], "ok")
         codes = [d["code"] for d in result["diagnostics"]]
         self.assertIn("index_stale", codes)
@@ -5787,7 +5818,7 @@ class WaveIndexHealthTests(unittest.TestCase):
             "compatible_chunks": False,
             "readiness_overview": "incomplete",
             "project": {},        }
-        result = self.srv.wave_index_health_response(index)
+        result = self.srv.index_health_response(index)
         self.assertEqual(result["status"], "ok")
         codes = [d["code"] for d in result["diagnostics"]]
         self.assertIn("index_missing", codes)
@@ -5803,7 +5834,7 @@ class WaveIndexHealthTests(unittest.TestCase):
             "compatible_chunks": False,
             "readiness_overview": "degraded",
             "project": {"readiness": "current"},        }
-        result = self.srv.wave_index_health_response(index)
+        result = self.srv.index_health_response(index)
         self.assertEqual(result["status"], "ok")
         codes = [d["code"] for d in result["diagnostics"]]
         self.assertIn("index_degraded", codes)
@@ -5819,7 +5850,7 @@ class WaveIndexHealthTests(unittest.TestCase):
             "compatible_chunks": False,
             "readiness_overview": "absent",
             "project": {"readiness": "idle"},        }
-        result = self.srv.wave_index_health_response(index)
+        result = self.srv.index_health_response(index)
         self.assertEqual(result["status"], "ok")
         codes = [d["code"] for d in result["diagnostics"]]
         self.assertIn("index_absent", codes)
@@ -5841,7 +5872,7 @@ class WaveIndexHealthTests(unittest.TestCase):
         base = self._healthy_base()
         base["chunker_version_mismatch_layers"] = ["project"]
         index.docs_health.return_value = base
-        result = self.srv.wave_index_health_response(index)
+        result = self.srv.index_health_response(index)
         self.assertEqual(result["status"], "ok")
         codes = [d["code"] for d in result["diagnostics"]]
         self.assertIn("chunker_version_mismatch", codes)
@@ -5855,7 +5886,7 @@ class WaveIndexHealthTests(unittest.TestCase):
         # stale_layers is intentionally empty — hashes match, only version differs
         base["stale_layers"] = []
         index.docs_health.return_value = base
-        result = self.srv.wave_index_health_response(index)
+        result = self.srv.index_health_response(index)
         codes = [d["code"] for d in result["diagnostics"]]
         self.assertIn("chunker_version_mismatch", codes)
         self.assertNotIn("index_stale", codes)
@@ -5865,7 +5896,7 @@ class WaveIndexHealthTests(unittest.TestCase):
         base = self._healthy_base()
         base["chunker_version_mismatch_layers"] = []
         index.docs_health.return_value = base
-        result = self.srv.wave_index_health_response(index)
+        result = self.srv.index_health_response(index)
         codes = [d["code"] for d in result["diagnostics"]]
         self.assertNotIn("chunker_version_mismatch", codes)
 
@@ -5874,7 +5905,7 @@ class WaveIndexHealthTests(unittest.TestCase):
         base = self._healthy_base()
         index.docs_health.return_value = base
         with patch.object(self.srv, "_background_build_status", return_value="running"):
-            result = self.srv.wave_index_health_response(index)
+            result = self.srv.index_health_response(index)
         codes = [d["code"] for d in result["diagnostics"]]
         self.assertIn("background_code_build_running", codes)
 
@@ -5883,7 +5914,7 @@ class WaveIndexHealthTests(unittest.TestCase):
         base = self._healthy_base()
         index.docs_health.return_value = base
         with patch.object(self.srv, "_background_build_status", return_value="completed"):
-            result = self.srv.wave_index_health_response(index)
+            result = self.srv.index_health_response(index)
         codes = [d["code"] for d in result["diagnostics"]]
         self.assertNotIn("background_code_build_running", codes)
 
@@ -5892,7 +5923,7 @@ class WaveIndexHealthTests(unittest.TestCase):
         base = self._healthy_base()
         index.docs_health.return_value = base
         with patch.object(self.srv, "_background_build_status", return_value="none"):
-            result = self.srv.wave_index_health_response(index)
+            result = self.srv.index_health_response(index)
         codes = [d["code"] for d in result["diagnostics"]]
         self.assertNotIn("background_code_build_running", codes)
 
@@ -5907,7 +5938,7 @@ class WaveIndexHealthTests(unittest.TestCase):
             index = MagicMock()
             index.root = root
             index.docs_health.return_value = {"semantic_ready": True, "stale_layers": [], "missing_layers": [], "has_any_index": True, "compatible_chunks": True, "readiness_overview": "ready", "chunker_version_mismatch_layers": []}
-            result = self.srv.wave_index_health_response(index)
+            result = self.srv.index_health_response(index)
             self.assertIn("previous_build_stats", result["data"])
             self.assertEqual(result["data"]["previous_build_stats"]["elapsed_seconds"], 420)
         finally:
@@ -5930,7 +5961,7 @@ class WaveIndexHealthTests(unittest.TestCase):
             index = MagicMock()
             index.root = root
             index.docs_health.return_value = {"semantic_ready": True, "stale_layers": [], "missing_layers": [], "has_any_index": True, "compatible_chunks": True, "readiness_overview": "ready", "chunker_version_mismatch_layers": []}
-            result = self.srv.wave_index_health_response(index)
+            result = self.srv.index_health_response(index)
             stats = result["data"]["previous_build_stats"]
             self.assertEqual(stats["files_indexed"], 77)
             self.assertEqual(stats["doc_chunks"], 88)
@@ -5946,7 +5977,7 @@ class WaveIndexHealthTests(unittest.TestCase):
             index = MagicMock()
             index.root = root
             index.docs_health.return_value = {"semantic_ready": True, "stale_layers": [], "missing_layers": [], "has_any_index": True, "compatible_chunks": True, "readiness_overview": "ready", "chunker_version_mismatch_layers": []}
-            result = self.srv.wave_index_health_response(index)
+            result = self.srv.index_health_response(index)
             self.assertNotIn("previous_build_stats", result["data"])
         finally:
             tmp.cleanup()
@@ -5954,7 +5985,7 @@ class WaveIndexHealthTests(unittest.TestCase):
     def test_exception_from_docs_health_returns_structured_error(self):
         index = MagicMock()
         index.docs_health.side_effect = RuntimeError("unexpected failure")
-        result = self.srv.wave_index_health_response(index)
+        result = self.srv.index_health_response(index)
         self.assertEqual(result["status"], "error")
         self.assertEqual(result["diagnostics"][0]["code"], "index_health_error")
 
@@ -6047,7 +6078,7 @@ class BackgroundBuildStatusTests(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# wave_audit
+# wf_audit
 # ---------------------------------------------------------------------------
 
 class WaveAuditTests(unittest.TestCase):
@@ -6104,40 +6135,40 @@ class WaveAuditTests(unittest.TestCase):
         }
         with patch.object(self.srv, "current_wave", return_value=wave_record), \
              patch.object(self.srv, "run_validate", return_value=self._passing_validate()):
-            result = self.srv.wave_audit_response(
+            result = self.srv.wf_audit_response(
                 self.root, index=self._healthy_index()
             )
         self.assertEqual(result["status"], "ok")
         self.assertTrue(result["data"]["ready"])
         # Advisory diagnostics (e.g. harness_coverage_gap) are allowed in healthy state.
         self.assertNotIn("error", [d.get("severity") for d in result.get("diagnostics", [])])
-        self.assertIn("wave_current", result["next_tools"])
+        self.assertIn("wf_current_wave", result["next_tools"])
 
     def test_lint_fail_path(self):
-        """AC-3: lint failure adds wave_validate to next_tools, ready=False."""
+        """AC-3: lint failure adds wf_validate_docs to next_tools, ready=False."""
         wave_record = {"id": "w1", "status": "active", "changes": [], "title": "Wave", "path": ""}
         with patch.object(self.srv, "current_wave", return_value=wave_record), \
              patch.object(self.srv, "run_validate", return_value=self._failing_validate()):
-            result = self.srv.wave_audit_response(
+            result = self.srv.wf_audit_response(
                 self.root, index=self._healthy_index()
             )
         self.assertEqual(result["status"], "ok")
         self.assertFalse(result["data"]["ready"])
-        self.assertIn("wave_validate", result["next_tools"])
+        self.assertIn("wf_validate_docs", result["next_tools"])
         codes = [d["code"] for d in result["diagnostics"]]
         self.assertIn("docs_lint_error", codes)
 
     def test_index_absent_path(self):
-        """AC-4: index not ready adds wave_index_build to next_tools, ready=False."""
+        """AC-4: index not ready adds index_build to next_tools, ready=False."""
         wave_record = {"id": "w1", "status": "active", "changes": [], "title": "Wave", "path": ""}
         with patch.object(self.srv, "current_wave", return_value=wave_record), \
              patch.object(self.srv, "run_validate", return_value=self._passing_validate()):
-            result = self.srv.wave_audit_response(
+            result = self.srv.wf_audit_response(
                 self.root, index=self._absent_index()
             )
         self.assertEqual(result["status"], "ok")
         self.assertFalse(result["data"]["ready"])
-        self.assertIn("wave_index_build", result["next_tools"])
+        self.assertIn("index_build", result["next_tools"])
         codes = [d["code"] for d in result["diagnostics"]]
         self.assertIn("index_not_ready", codes)
 
@@ -6145,7 +6176,7 @@ class WaveAuditTests(unittest.TestCase):
         """AC-5: no wave found → wave={}, ready=False, no unhandled exception."""
         with patch.object(self.srv, "current_wave", return_value=None), \
              patch.object(self.srv, "run_validate", return_value=self._passing_validate()):
-            result = self.srv.wave_audit_response(
+            result = self.srv.wf_audit_response(
                 self.root, index=self._healthy_index()
             )
         self.assertEqual(result["status"], "ok")
@@ -6153,7 +6184,7 @@ class WaveAuditTests(unittest.TestCase):
         self.assertEqual(result["data"]["wave"], {})
         codes = [d["code"] for d in result["diagnostics"]]
         self.assertIn("no_active_wave", codes)
-        self.assertIn("wave_current", result["next_tools"])
+        self.assertIn("wf_current_wave", result["next_tools"])
 
     def test_no_agent_role_docs_advisory_when_agents_dir_empty(self):
         """Wave 1p35d (1p35l, AC-4, AC-5): when collect_agents returns empty,
@@ -6169,7 +6200,7 @@ class WaveAuditTests(unittest.TestCase):
         }
         with patch.object(self.srv, "current_wave", return_value=wave_record), \
              patch.object(self.srv, "run_validate", return_value=self._passing_validate()):
-            result = self.srv.wave_audit_response(
+            result = self.srv.wf_audit_response(
                 self.root, index=self._healthy_index()
             )
         diag_by_code = {d["code"]: d for d in result.get("diagnostics", [])}
@@ -6197,7 +6228,7 @@ class WaveAuditTests(unittest.TestCase):
         }
         with patch.object(self.srv, "current_wave", return_value=wave_record), \
              patch.object(self.srv, "run_validate", return_value=self._passing_validate()):
-            result = self.srv.wave_audit_response(
+            result = self.srv.wf_audit_response(
                 self.root, index=self._healthy_index()
             )
         codes = [d["code"] for d in result.get("diagnostics", [])]
@@ -6769,66 +6800,67 @@ class ServerToolRegistrationTests(unittest.TestCase):
             tool_names = {t.name for t in tools}
 
         expected = {
-            "wave_help",
-            "wave_server_info",
-            "wave_map",
-            "wave_create_wave",
-            "wave_add_change",
-            "wave_remove_change",
-            "wave_prepare",
-            "wave_pause",
-            "wave_review",
-            "wave_record_review_evidence",
-            "wave_reopen",
-            "wave_close",
-            "wave_index_build_status",
+            "wf_help",
+            "wf_server_info",
+            "wf_map",
+            "wf_create_wave",
+            "wf_add_change",
+            "wf_remove_change",
+            "wf_prepare_wave",
+            "wf_pause_wave",
+            "wf_review_wave",
+            "wf_review_evidence",
+            "wf_reopen_wave",
+            "wf_close_wave",
+            "index_build_status",
             "docs_search",
             "code_search",
             "seed_get",
-            "wave_current",
-            "wave_list_waves",
-            "wave_list_plans",
-            "wave_get_change",
-            "wave_get_prompt",
-            "wave_gate_open",
-            "wave_gate_close",
-            "wave_gate_status",
-            "wave_new_feature",
-            "wave_new_bug",
-            "wave_new_enhancement",
-            "wave_new_refactor",
-            "wave_new_change",
-            "wave_new_documentation",
-            "wave_new_tech_debt",
-            "wave_new_task",
-            "wave_new_maintenance",
-            "wave_new_operations",
-            "wave_validate",
-            "wave_garden",
-            "wave_sync_surfaces",
-            "wave_index_health",
-            "wave_index_build",
-            "wave_audit",
-            "wave_upgrade",
-            "wave_upgrade_status",
-            "wave_mcp_reload",
-            "wave_dashboard_start",
-            "wave_dashboard_open",
-            "wave_dashboard_stop",
-            "wave_dashboard_restart",
+            "wf_current_wave",
+            "wf_list_waves",
+            "wf_list_plans",
+            "wf_get_change",
+            "wf_get_prompt",
+            "wf_open_gate",
+            "wf_close_gate",
+            "wf_gate_status",
+            "wf_new_feature",
+            "wf_new_bug",
+            "wf_new_enhancement",
+            "wf_new_refactor",
+            "wf_new_change",
+            "wf_new_documentation",
+            "wf_new_tech_debt",
+            "wf_new_task",
+            "wf_new_maintenance",
+            "wf_new_operations",
+            "wf_validate_docs",
+            "wf_garden_docs",
+            "wf_sync_surfaces",
+            "index_health",
+            "index_build",
+            "wf_audit",
+            "wf_upgrade",
+            "wf_upgrade_status",
+            "wf_reload_mcp",
+            "wf_start_dashboard",
+            "wf_open_dashboard",
+            "wf_stop_dashboard",
+            "wf_restart_dashboard",
             "code_list_files",
             "code_read",
             "code_keyword",
             "code_definition",
             "code_references",
-            "wave_get_handoff",
-            "wave_set_handoff",
+            "wf_get_handoff",
+            "wf_set_handoff",
         }
         self.assertTrue(
             expected.issubset(tool_names),
             f"Missing tools: {expected - tool_names}",
         )
         self.assertNotIn("wave_setup_resume_after_memory", tool_names)
+        self.assertNotIn("wf_resume_setup_after_memory", tool_names)
 
     def test_registered_tools_obey_prefix_contract(self):
         try:
@@ -6867,7 +6899,7 @@ class ServerToolRegistrationTests(unittest.TestCase):
 
 
 class WaveMcpReloadTests(unittest.TestCase):
-    """12rb9: wave_mcp_reload and version fields."""
+    """12rb9: wf_reload_mcp and version fields."""
 
     def setUp(self):
         # Reload-sensitive: this class tests module-reload behavior; per-method isolation is required.
@@ -6882,16 +6914,16 @@ class WaveMcpReloadTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def test_wave_help_lists_wave_mcp_reload(self):
+    def test_wf_help_lists_wf_reload_mcp(self):
         self.srv._cached_help_catalog_json.cache_clear()
-        result = self.srv.wave_help_response()
-        self.assertIn("wave_mcp_reload", result["data"]["core_tools"])
+        result = self.srv.wf_help_response()
+        self.assertIn("wf_reload_mcp", result["data"]["core_tools"])
 
-    def test_wave_help_reload_mcp_goal(self):
+    def test_wf_help_reload_mcp_goal(self):
         self.srv._cached_help_catalog_json.cache_clear()
-        result = self.srv.wave_help_response("reload_mcp")
+        result = self.srv.wf_help_response("reload_mcp")
         self.assertEqual(result["data"]["goal"], "reload_mcp")
-        self.assertEqual(result["data"]["recommended_chain"][0], "wave_mcp_reload")
+        self.assertEqual(result["data"]["recommended_chain"][0], "wf_reload_mcp")
 
     def test_perform_mcp_reload_returns_versions(self):
         try:
@@ -6911,7 +6943,7 @@ class WaveMcpReloadTests(unittest.TestCase):
         """1319bt (131d8): perform_mcp_reload re-registers the FastMCP tool
         surface so parameter / description changes land in-process. The
         response carries ``tools_reregistered`` ≥ 1 (the first-party tool
-        count minus the wave_mcp_reload survivor)."""
+        count minus the wf_reload_mcp survivor)."""
         try:
             mcp = self.runner.build_server(self.root)
         except ImportError:
@@ -6929,24 +6961,24 @@ class WaveMcpReloadTests(unittest.TestCase):
             f"Tool count drifted across reload: pre={pre_count} post={post_count}",
         )
 
-    def test_perform_mcp_reload_preserves_wave_mcp_reload_tool(self):
-        """The survivor list keeps wave_mcp_reload registered through the refresh
+    def test_perform_mcp_reload_preserves_wf_reload_mcp_tool(self):
+        """The survivor list keeps wf_reload_mcp registered through the refresh
         — otherwise the tool that triggered the reload would unregister itself."""
         try:
             mcp = self.runner.build_server(self.root)
         except ImportError:
             self.skipTest("mcp package not installed")
-        self.assertIn("wave_mcp_reload", self.srv._registered_mcp_tool_names(mcp))
+        self.assertIn("wf_reload_mcp", self.srv._registered_mcp_tool_names(mcp))
         self.runner.perform_mcp_reload()
         self.assertIn(
-            "wave_mcp_reload", self.srv._registered_mcp_tool_names(mcp),
-            "wave_mcp_reload was removed during refresh; the survivor list is broken",
+            "wf_reload_mcp", self.srv._registered_mcp_tool_names(mcp),
+            "wf_reload_mcp was removed during refresh; the survivor list is broken",
         )
 
     def test_perform_mcp_reload_refreshes_tool_schemas_in_place(self):
         """1319bt (131d8): the FastMCP tool registry holds freshly introspected
         schemas after perform_mcp_reload. Verified by checking that
-        ``wave_graph_report``'s schema includes the wave 131bt parameter
+        ``wf_graph_report``'s schema includes the wave 131bt parameter
         ``collapse_package_to_directory`` after the reload sequence — even if
         the tool function signature changed, the registry would have picked
         up the change via the re-registration."""
@@ -6960,15 +6992,15 @@ class WaveMcpReloadTests(unittest.TestCase):
         # Force a reload to exercise the refresh path.
         self.runner.perform_mcp_reload()
         tools = asyncio.run(list_tools())
-        wgr = next((t for t in tools if t.name == "wave_graph_report"), None)
-        self.assertIsNotNone(wgr, "wave_graph_report missing from tool list after reload")
+        wgr = next((t for t in tools if t.name == "wf_graph_report"), None)
+        self.assertIsNotNone(wgr, "wf_graph_report missing from tool list after reload")
         props = set((wgr.inputSchema or {}).get("properties", {}).keys())
         # The wave 131bt collapse_package_to_directory parameter should be in
         # the schema after the refresh — proving fresh introspection happened.
         self.assertIn(
             "collapse_package_to_directory",
             props,
-            f"wave_graph_report schema is stale after reload — props were {sorted(props)}",
+            f"wf_graph_report schema is stale after reload — props were {sorted(props)}",
         )
 
     def test_perform_mcp_reload_reports_no_description_change_on_unchanged_reload(self):
@@ -7009,7 +7041,7 @@ class WaveMcpReloadTests(unittest.TestCase):
         # Force a description change by mutating a single tool's description
         # directly in the FastMCP registry, then trigger the reload.
         tools_reg = mcp._tool_manager._tools
-        target_name = "wave_graph_report"
+        target_name = "wf_graph_report"
         original = tools_reg[target_name].description
         tools_reg[target_name].description = "STALE PLACEHOLDER DESCRIPTION"
         try:
@@ -7038,7 +7070,7 @@ class WaveMcpReloadTests(unittest.TestCase):
             mcp = self.runner.build_server(self.root)
         except ImportError:
             self.skipTest("mcp package not installed")
-        target_name = "wave_memory_backfill"
+        target_name = "memory_backfill"
         self.assertIn(target_name, self.srv._registered_mcp_tool_names(mcp))
         mcp.remove_tool(target_name)
 
@@ -7063,7 +7095,7 @@ class WaveMcpReloadTests(unittest.TestCase):
         pre-reload function body.
         """
 
-        wave_result = self.srv.wave_create_wave_response(
+        wave_result = self.srv.wf_create_wave_response(
             self.root, "reload-resource-current", mode="create"
         )
         wave_id = wave_result["data"]["wave_id"]
@@ -7328,7 +7360,7 @@ class StaleGraphAutoRebuildTests(unittest.TestCase):
 
 
 class WaveCloseModeDiscoverabilityTests(unittest.TestCase):
-    """AC-16: wave_close invalid-mode response includes valid_modes field."""
+    """AC-16: wf_close_wave invalid-mode response includes valid_modes field."""
 
     @classmethod
     def setUpClass(cls):
@@ -7343,7 +7375,7 @@ class WaveCloseModeDiscoverabilityTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_invalid_mode_returns_valid_modes_in_data(self):
-        result = self.srv.wave_close_response(self.root, "some-wave", mode="run")
+        result = self.srv.wf_close_wave_response(self.root, "some-wave", mode="run")
         self.assertEqual(result["status"], "error")
         self.assertIn("valid_modes", result["data"])
         self.assertIn("dry_run", result["data"]["valid_modes"])
@@ -7351,7 +7383,7 @@ class WaveCloseModeDiscoverabilityTests(unittest.TestCase):
 
     def test_valid_dry_run_mode_does_not_error_on_mode(self):
         # wave not found is a different error; confirm mode itself is accepted
-        result = self.srv.wave_close_response(self.root, "nonexistent-wave", mode="dry_run")
+        result = self.srv.wf_close_wave_response(self.root, "nonexistent-wave", mode="dry_run")
         # Should fail on wave_not_found, not invalid_arguments
         self.assertTrue(
             any(d.get("code") == "wave_not_found" for d in result.get("diagnostics", [])),
@@ -7360,7 +7392,7 @@ class WaveCloseModeDiscoverabilityTests(unittest.TestCase):
 
 
 class WaveCreateWaveTemplateTests(unittest.TestCase):
-    """AC-17: wave_create_wave produces wave.md with Wave Summary and Journal Watchpoints stubs."""
+    """AC-17: wf_create_wave produces wave.md with Wave Summary and Journal Watchpoints stubs."""
 
     @classmethod
     def setUpClass(cls):
@@ -7375,14 +7407,14 @@ class WaveCreateWaveTemplateTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_wave_md_contains_wave_summary_section(self):
-        result = self.srv.wave_create_wave_response(self.root, "test-wave", mode="create")
+        result = self.srv.wf_create_wave_response(self.root, "test-wave", mode="create")
         self.assertEqual(result["status"], "ok")
         wave_md = self.root / result["data"]["path"]
         text = wave_md.read_text(encoding="utf-8")
         self.assertIn("## Wave Summary", text)
 
     def test_wave_md_contains_journal_watchpoints_section(self):
-        result = self.srv.wave_create_wave_response(self.root, "test-wave", mode="create")
+        result = self.srv.wf_create_wave_response(self.root, "test-wave", mode="create")
         self.assertEqual(result["status"], "ok")
         wave_md = self.root / result["data"]["path"]
         text = wave_md.read_text(encoding="utf-8")
@@ -7390,7 +7422,7 @@ class WaveCreateWaveTemplateTests(unittest.TestCase):
 
 
 class WaveCreateWaveLastVerifiedTests(unittest.TestCase):
-    """12as3: wave_create_wave scaffold emits today's ISO date, not the literal '<date>'."""
+    """12as3: wf_create_wave scaffold emits today's ISO date, not the literal '<date>'."""
 
     @classmethod
     def setUpClass(cls):
@@ -7404,9 +7436,9 @@ class WaveCreateWaveLastVerifiedTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def test_wave_create_wave_last_verified_populates_today(self):
+    def test_wf_create_wave_last_verified_populates_today(self):
         import datetime
-        result = self.srv.wave_create_wave_response(self.root, "date-test", mode="create")
+        result = self.srv.wf_create_wave_response(self.root, "date-test", mode="create")
         self.assertEqual(result["status"], "ok")
         wave_md = self.root / result["data"]["path"]
         text = wave_md.read_text(encoding="utf-8")
@@ -7414,10 +7446,10 @@ class WaveCreateWaveLastVerifiedTests(unittest.TestCase):
         self.assertIn(f"Last verified: {today_iso}", text)
         self.assertNotIn("Last verified: <date>", text)
 
-    def test_wave_create_wave_scaffold_last_verified_is_valid(self):
+    def test_wf_create_wave_scaffold_last_verified_is_valid(self):
         """Scaffold emits a valid ISO date that docs-lint will accept."""
         import re
-        result = self.srv.wave_create_wave_response(self.root, "valid-date", mode="create")
+        result = self.srv.wf_create_wave_response(self.root, "valid-date", mode="create")
         wave_md = self.root / result["data"]["path"]
         text = wave_md.read_text(encoding="utf-8")
         m = re.search(r"^Last verified:\s*(\S+)", text, re.MULTILINE)
@@ -7427,7 +7459,7 @@ class WaveCreateWaveLastVerifiedTests(unittest.TestCase):
 
 
 class WaveAddChangeSectionPlacementTests(unittest.TestCase):
-    """12as3: wave_add_change inserts blocks inside the ## Changes section."""
+    """12as3: wf_add_change inserts blocks inside the ## Changes section."""
 
     @classmethod
     def setUpClass(cls):
@@ -7442,7 +7474,7 @@ class WaveAddChangeSectionPlacementTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def _create_wave(self, slug: str) -> str:
-        return self.srv.wave_create_wave_response(self.root, slug, mode="create")["data"]["wave_id"]
+        return self.srv.wf_create_wave_response(self.root, slug, mode="create")["data"]["wave_id"]
 
     def _create_change(self, kind: str, slug: str) -> str:
         return self.srv.new_change(self.root, kind, slug)["id"]
@@ -7458,10 +7490,10 @@ class WaveAddChangeSectionPlacementTests(unittest.TestCase):
             return rest[:next_m.start()], rest[next_m.start():]
         return rest, ""
 
-    def test_wave_add_change_inserts_inside_changes_section(self):
+    def test_wf_add_change_inserts_inside_changes_section(self):
         wave_id = self._create_wave("placement-test")
         change_id = self._create_change("feat", "first-change")
-        result = self.srv.wave_add_change_response(self.root, wave_id, change_id, mode="create")
+        result = self.srv.wf_add_change_response(self.root, wave_id, change_id, mode="create")
         self.assertEqual(result["status"], "ok")
         wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
         text = wave_md.read_text(encoding="utf-8")
@@ -7469,13 +7501,13 @@ class WaveAddChangeSectionPlacementTests(unittest.TestCase):
         self.assertIn(f"Change ID: `{change_id}`", inside)
         self.assertNotIn(f"Change ID: `{change_id}`", after)
 
-    def test_wave_add_change_preserves_order(self):
+    def test_wf_add_change_preserves_order(self):
         wave_id = self._create_wave("order-test")
         first = self._create_change("feat", "alpha")
         second = self._create_change("feat", "bravo")
         third = self._create_change("feat", "charlie")
         for cid in (first, second, third):
-            result = self.srv.wave_add_change_response(self.root, wave_id, cid, mode="create")
+            result = self.srv.wf_add_change_response(self.root, wave_id, cid, mode="create")
             self.assertEqual(result["status"], "ok", msg=f"admission failed for {cid}: {result}")
         wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
         text = wave_md.read_text(encoding="utf-8")
@@ -7487,7 +7519,7 @@ class WaveAddChangeSectionPlacementTests(unittest.TestCase):
         self.assertGreater(idx_second, idx_first)
         self.assertGreater(idx_third, idx_second)
 
-    def test_wave_add_change_legacy_layout_round_trips(self):
+    def test_wf_add_change_legacy_layout_round_trips(self):
         """Wave.md with change blocks already placed before ## Dependencies (legacy)
         must not be rewritten; new admissions still land inside ## Changes.
         """
@@ -7501,7 +7533,7 @@ class WaveAddChangeSectionPlacementTests(unittest.TestCase):
         wave_md.write_text(text, encoding="utf-8")
         # Also create a change doc the admit path can find (so the admit doesn't fail).
         new_change = self._create_change("feat", "freshly-admitted")
-        result = self.srv.wave_add_change_response(self.root, wave_id, new_change, mode="create")
+        result = self.srv.wf_add_change_response(self.root, wave_id, new_change, mode="create")
         self.assertEqual(result["status"], "ok", msg=f"admission failed: {result}")
         text_after = wave_md.read_text(encoding="utf-8")
         # Legacy block still present in its original position.
@@ -7510,7 +7542,7 @@ class WaveAddChangeSectionPlacementTests(unittest.TestCase):
         inside, _ = self._changes_section_and_after(text_after)
         self.assertIn(f"Change ID: `{new_change}`", inside)
 
-    def test_wave_add_change_missing_changes_section_guard(self):
+    def test_wf_add_change_missing_changes_section_guard(self):
         """When ## Changes is missing (operator edit), create it above the next ## heading."""
         wave_id = self._create_wave("missing-section")
         wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
@@ -7519,7 +7551,7 @@ class WaveAddChangeSectionPlacementTests(unittest.TestCase):
         text = text.replace("## Changes\n\n", "", 1)
         wave_md.write_text(text, encoding="utf-8")
         change_id = self._create_change("feat", "guard-test")
-        result = self.srv.wave_add_change_response(self.root, wave_id, change_id, mode="create")
+        result = self.srv.wf_add_change_response(self.root, wave_id, change_id, mode="create")
         self.assertEqual(result["status"], "ok", msg=f"admission failed: {result}")
         text_after = wave_md.read_text(encoding="utf-8")
         self.assertIn("## Changes", text_after)
@@ -7528,7 +7560,7 @@ class WaveAddChangeSectionPlacementTests(unittest.TestCase):
 
 
 class WaveAddChangeBrokenLinksTests(unittest.TestCase):
-    """AC-18: wave_add_change response data includes broken_links list."""
+    """AC-18: wf_add_change response data includes broken_links list."""
 
     @classmethod
     def setUpClass(cls):
@@ -7543,7 +7575,7 @@ class WaveAddChangeBrokenLinksTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def _create_wave(self, slug: str) -> str:
-        result = self.srv.wave_create_wave_response(self.root, slug, mode="create")
+        result = self.srv.wf_create_wave_response(self.root, slug, mode="create")
         return result["data"]["wave_id"]
 
     def _create_change(self, kind: str, slug: str) -> str:
@@ -7553,7 +7585,7 @@ class WaveAddChangeBrokenLinksTests(unittest.TestCase):
     def test_broken_links_empty_when_no_relative_wave_links(self):
         wave_id = self._create_wave("my-wave")
         change_id = self._create_change("feat", "clean-change")
-        result = self.srv.wave_add_change_response(self.root, wave_id, change_id, mode="create")
+        result = self.srv.wf_add_change_response(self.root, wave_id, change_id, mode="create")
         self.assertEqual(result["status"], "ok")
         self.assertIn("broken_links", result["data"])
         self.assertEqual(result["data"]["broken_links"], [])
@@ -7568,7 +7600,7 @@ class WaveAddChangeBrokenLinksTests(unittest.TestCase):
             existing + "\n\nSee also [other wave](../waves/1234a other-wave/some-change.md).\n",
             encoding="utf-8",
         )
-        result = self.srv.wave_add_change_response(self.root, wave_id, change_id, mode="create")
+        result = self.srv.wf_add_change_response(self.root, wave_id, change_id, mode="create")
         self.assertEqual(result["status"], "ok")
         self.assertIn("broken_links", result["data"])
         self.assertGreater(len(result["data"]["broken_links"]), 0)
@@ -7577,12 +7609,12 @@ class WaveAddChangeBrokenLinksTests(unittest.TestCase):
     def test_broken_links_present_in_dry_run_response(self):
         wave_id = self._create_wave("my-wave")
         change_id = self._create_change("feat", "dry-check")
-        result = self.srv.wave_add_change_response(self.root, wave_id, change_id, mode="dry_run")
+        result = self.srv.wf_add_change_response(self.root, wave_id, change_id, mode="dry_run")
         self.assertIn("broken_links", result["data"])
 
 
 class WavePrepareJournalFormatHintTests(unittest.TestCase):
-    """AC-19: wave_prepare journal diagnostic includes exact format hint."""
+    """AC-19: wf_prepare_wave journal diagnostic includes exact format hint."""
 
     @classmethod
     def setUpClass(cls):
@@ -7600,9 +7632,9 @@ class WavePrepareJournalFormatHintTests(unittest.TestCase):
 
     def test_journal_missing_error_includes_format_hint(self):
         # Create a minimal wave with a planned change but no journal reference
-        wave_response = self.srv.wave_create_wave_response(self.root, "hint-test", mode="create")["data"]
+        wave_response = self.srv.wf_create_wave_response(self.root, "hint-test", mode="create")["data"]
         wave_id = wave_response["wave_id"]
-        # Wave 1p3dk / 1p3do: wave_create_wave now co-creates a journal stub.
+        # Wave 1p3dk / 1p3do: wf_create_wave now co-creates a journal stub.
         # This test verifies the format-hint behavior when a journal is MISSING
         # (e.g., operator deleted it). Remove the auto-created stub to restore
         # the original test scenario.
@@ -7610,13 +7642,13 @@ class WavePrepareJournalFormatHintTests(unittest.TestCase):
         if auto_journal.exists():
             auto_journal.unlink()
         change_id = self.srv.new_change(self.root, "feat", "needs-journal")["id"]
-        self.srv.wave_add_change_response(self.root, wave_id, change_id, mode="create")
+        self.srv.wf_add_change_response(self.root, wave_id, change_id, mode="create")
         # Patch wave summary and last-verified so prepare has minimal failures
         wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
         text = wave_md.read_text(encoding="utf-8")
         text = text.replace("Last verified: <date>", "Last verified: 2026-05-01")
         wave_md.write_text(text, encoding="utf-8")
-        result = self.srv.wave_prepare_response(self.root, wave_id, mode="dry_run")
+        result = self.srv.wf_prepare_wave_response(self.root, wave_id, mode="dry_run")
         diagnostics_text = " ".join(
             d.get("message", "") for d in result.get("diagnostics", [])
         )
@@ -7631,7 +7663,7 @@ class WavePrepareJournalFormatHintTests(unittest.TestCase):
 
 
 class WaveHelpStartWaveJournalNoteTests(unittest.TestCase):
-    """AC-20: wave_help(goal='start_wave') includes journal key-line note."""
+    """AC-20: wf_help(goal='start_wave') includes journal key-line note."""
 
     @classmethod
     def setUpClass(cls):
@@ -7646,7 +7678,7 @@ class WaveHelpStartWaveJournalNoteTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_start_wave_rationale_mentions_journal_requirement(self):
-        result = self.srv.wave_help_response(goal="start_wave")
+        result = self.srv.wf_help_response(goal="start_wave")
         self.assertEqual(result["status"], "ok")
         data_str = str(result["data"])
         self.assertIn("journal", data_str.lower())
@@ -7792,7 +7824,7 @@ class CodeReadEnrichmentTests(unittest.TestCase):
         gov = result["data"]["edit_governance"]
         self.assertEqual(gov["requires_gate"], "seed_edit_allowed")
         self.assertIn(gov["current_state"], ("open", "closed", "unknown"))
-        self.assertIn("wave_gate_open", gov["open_with"])
+        self.assertIn("wf_open_gate", gov["open_with"])
 
     def test_framework_scripts_path_returns_framework_edit_allowed_governance(self):
         """AC-11: framework scripts paths surface framework_edit_allowed."""
@@ -8478,8 +8510,8 @@ class McpResourceRegistrationTests(unittest.TestCase):
     def test_existing_tools_still_register(self):
         mcp = self._get_mcp()
         tool_names = self.srv._registered_mcp_tool_names(mcp)
-        self.assertIn("wave_validate", tool_names)
-        self.assertIn("wave_current", tool_names)
+        self.assertIn("wf_validate_docs", tool_names)
+        self.assertIn("wf_current_wave", tool_names)
 
 
 class McpResourceReadTests(unittest.TestCase):
@@ -8606,7 +8638,7 @@ class McpResourceReadTests(unittest.TestCase):
 
     def test_current_wave_returns_wave_md_when_active(self):
         # Create a wave and mark it active
-        wave_result = self.srv.wave_create_wave_response(self.root, "resource-test", mode="create")
+        wave_result = self.srv.wf_create_wave_response(self.root, "resource-test", mode="create")
         wave_id = wave_result["data"]["wave_id"]
         wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
         text = wave_md.read_text(encoding="utf-8")
@@ -8616,7 +8648,7 @@ class McpResourceReadTests(unittest.TestCase):
         self.assertIn("Wave Record", result_text)
 
     def test_current_wave_resource_derives_stale_projection_and_fails_closed_on_bad_authority(self):
-        wave_result = self.srv.wave_create_wave_response(
+        wave_result = self.srv.wf_create_wave_response(
             self.root, "resource-event-state", mode="create"
         )
         wave_id = wave_result["data"]["wave_id"]
@@ -8638,7 +8670,7 @@ class McpResourceReadTests(unittest.TestCase):
         self.assertNotIn("999 records", invalid)
 
     def test_current_wave_resource_derives_valid_authority_when_projection_is_missing(self):
-        wave_result = self.srv.wave_create_wave_response(
+        wave_result = self.srv.wf_create_wave_response(
             self.root, "resource-missing-projection", mode="create"
         )
         wave_id = wave_result["data"]["wave_id"]
@@ -8711,7 +8743,7 @@ class McpResourceTemplateReadTests(unittest.TestCase):
         self.assertIn("Not Found", text)
 
     def test_wave_template_returns_content_when_exists(self):
-        wave_result = self.srv.wave_create_wave_response(self.root, "tpl-test", mode="create")
+        wave_result = self.srv.wf_create_wave_response(self.root, "tpl-test", mode="create")
         wave_id = wave_result["data"]["wave_id"]
         text = self._read_resource(f"wavefoundry://wave/{wave_id}")
         self.assertIn("Wave Record", text)
@@ -8737,7 +8769,7 @@ class McpResourceTemplateReadTests(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class WaveStatusDriftDetectionTests(unittest.TestCase):
-    """Item 1: wave_current_response includes change_status_drift diagnostic."""
+    """Item 1: wf_current_wave_response includes change_status_drift diagnostic."""
 
     @classmethod
     def setUpClass(cls):
@@ -8779,25 +8811,25 @@ class WaveStatusDriftDetectionTests(unittest.TestCase):
             "# My Change\n\nChange ID: `abc12-feat my-change`\nChange Status: `in-progress`\n",
             encoding="utf-8",
         )
-        resp = self.srv.wave_current_response(self.root)
+        resp = self.srv.wf_current_wave_response(self.root)
         codes = [d.get("code") for d in (resp.get("diagnostics") or [])]
         self.assertNotIn("change_status_drift", codes)
 
     def test_drift_produces_diagnostic(self):
         self._make_wave_with_drift()
-        resp = self.srv.wave_current_response(self.root)
+        resp = self.srv.wf_current_wave_response(self.root)
         codes = [d.get("code") for d in (resp.get("diagnostics") or [])]
         self.assertIn("change_status_drift", codes)
 
     def test_drift_response_status_still_ok(self):
         """Drift detection is advisory — status must remain 'ok'."""
         self._make_wave_with_drift()
-        resp = self.srv.wave_current_response(self.root)
+        resp = self.srv.wf_current_wave_response(self.root)
         self.assertEqual(resp["status"], "ok")
 
 
 class EditGateToolTests(unittest.TestCase):
-    """12ax9/12sf9: wave_gate_open / wave_gate_close / wave_gate_status MCP tools."""
+    """12ax9/12sf9: wf_open_gate / wf_close_gate / wf_gate_status MCP tools."""
 
     @classmethod
     def setUpClass(cls):
@@ -8839,12 +8871,12 @@ class EditGateToolTests(unittest.TestCase):
 
     def test_close_open_gate_succeeds(self):
         self.srv.wave_open_gate_response(self.root, "seed_edit_allowed")
-        resp = self.srv.wave_close_gate_response(self.root, "seed_edit_allowed")
+        resp = self.srv.wf_close_wave_gate_response(self.root, "seed_edit_allowed")
         self.assertEqual(resp["status"], "ok")
         self.assertFalse(self._read_gates()["seed_edit_allowed"]["enabled"])
 
     def test_close_already_closed_gate_returns_advisory(self):
-        resp = self.srv.wave_close_gate_response(self.root, "seed_edit_allowed")
+        resp = self.srv.wf_close_wave_gate_response(self.root, "seed_edit_allowed")
         self.assertEqual(resp["status"], "ok")
         codes = [d.get("code") for d in (resp.get("diagnostics") or [])]
         self.assertIn("gate_already_closed", codes)
@@ -8853,7 +8885,7 @@ class EditGateToolTests(unittest.TestCase):
         resp = self.srv.wave_open_gate_response(self.root, "framework_edit_allowed")
         self.assertEqual(resp["status"], "ok")
         self.assertTrue(self._read_gates()["framework_edit_allowed"]["enabled"])
-        resp2 = self.srv.wave_close_gate_response(self.root, "framework_edit_allowed")
+        resp2 = self.srv.wf_close_wave_gate_response(self.root, "framework_edit_allowed")
         self.assertEqual(resp2["status"], "ok")
         self.assertFalse(self._read_gates()["framework_edit_allowed"]["enabled"])
 
@@ -8867,12 +8899,12 @@ class EditGateToolTests(unittest.TestCase):
         resp = self.srv.wave_open_gate_response(self.root, "design_system_edit_allowed")
         self.assertEqual(resp["status"], "ok")
         self.assertTrue(self._read_gates()["design_system_edit_allowed"]["enabled"])
-        resp2 = self.srv.wave_close_gate_response(self.root, "design_system_edit_allowed")
+        resp2 = self.srv.wf_close_wave_gate_response(self.root, "design_system_edit_allowed")
         self.assertEqual(resp2["status"], "ok")
         self.assertFalse(self._read_gates()["design_system_edit_allowed"]["enabled"])
 
     def test_gate_status_returns_all_gates(self):
-        resp = self.srv.wave_gate_status_response(self.root)
+        resp = self.srv.wf_gate_status_response(self.root)
         self.assertEqual(resp["status"], "ok")
         gates = resp["data"]["gates"]
         self.assertIn("seed_edit_allowed", gates)
@@ -8884,7 +8916,7 @@ class EditGateToolTests(unittest.TestCase):
 
     def test_gate_status_reflects_open_gate(self):
         self.srv.wave_open_gate_response(self.root, "seed_edit_allowed")
-        resp = self.srv.wave_gate_status_response(self.root)
+        resp = self.srv.wf_gate_status_response(self.root)
         self.assertEqual(resp["status"], "ok")
         gates = resp["data"]["gates"]
         self.assertTrue(gates["seed_edit_allowed"])
@@ -8892,7 +8924,7 @@ class EditGateToolTests(unittest.TestCase):
 
 
 class GateAutoCloseTests(unittest.TestCase):
-    """12ax9: wave_pause and wave_close auto-close open gates."""
+    """12ax9: wf_pause_wave and wf_close_wave auto-close open gates."""
 
     @classmethod
     def setUpClass(cls):
@@ -8930,53 +8962,53 @@ class GateAutoCloseTests(unittest.TestCase):
             encoding="utf-8",
         )
 
-    def test_wave_pause_with_open_gate_forces_close_and_emits_diagnostic(self):
+    def test_wf_pause_wave_with_open_gate_forces_close_and_emits_diagnostic(self):
         self._make_active_wave()
         self._open_gate("seed_edit_allowed")
-        resp = self.srv.wave_pause_response(self.root, "test-wave", mode="create")
+        resp = self.srv.wf_pause_wave_response(self.root, "test-wave", mode="create")
         self.assertEqual(resp["status"], "ok")
         codes = [d.get("code") for d in (resp.get("diagnostics") or [])]
         self.assertIn("gates_forced_closed", codes)
         self.assertFalse(self._gate_state("seed_edit_allowed"))
 
-    def test_wave_close_dry_run_with_open_gate_emits_diagnostic_but_does_not_write(self):
+    def test_wf_close_wave_dry_run_with_open_gate_emits_diagnostic_but_does_not_write(self):
         self._make_active_wave()
         self._open_gate("seed_edit_allowed")
-        resp = self.srv.wave_close_response(self.root, "test-wave", mode="dry_run")
+        resp = self.srv.wf_close_wave_response(self.root, "test-wave", mode="dry_run")
         # dry_run may fail validation but should still emit gate diagnostic
         codes = [d.get("code") for d in (resp.get("diagnostics") or [])]
         self.assertIn("gates_forced_closed", codes)
         # Gate must NOT be written in dry-run
         self.assertTrue(self._gate_state("seed_edit_allowed"))
 
-    def test_wave_close_create_with_open_gate_forces_close_and_emits_diagnostic(self):
+    def test_wf_close_wave_create_with_open_gate_forces_close_and_emits_diagnostic(self):
         self._make_active_wave()
         self._open_gate("seed_edit_allowed")
-        # Add minimal review evidence so wave_close can pass validation
+        # Add minimal review evidence so wf_close_wave can pass validation
         wave_md = self.root / "docs" / "waves" / "test-wave" / "wave.md"
         text = wave_md.read_text(encoding="utf-8")
         wave_md.write_text(text + "\n## Review Signoff Evidence\n\n- operator-signoff: approved\n- 2026-05-01: approved and signoff complete.\n", encoding="utf-8")
         with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": []}):
             with patch.object(self.srv, "run_garden", return_value={"passed": True}):
-                resp = self.srv.wave_close_response(self.root, "test-wave", mode="create")
+                resp = self.srv.wf_close_wave_response(self.root, "test-wave", mode="create")
         codes = [d.get("code") for d in (resp.get("diagnostics") or [])]
         self.assertIn("gates_forced_closed", codes)
         self.assertFalse(self._gate_state("seed_edit_allowed"))
 
-    def test_wave_close_with_no_open_gates_has_no_gate_diagnostic(self):
+    def test_wf_close_wave_with_no_open_gates_has_no_gate_diagnostic(self):
         self._make_active_wave()
         wave_md = self.root / "docs" / "waves" / "test-wave" / "wave.md"
         text = wave_md.read_text(encoding="utf-8")
         wave_md.write_text(text + "\n## Review Signoff Evidence\n\n- operator-signoff: approved\n- 2026-05-01: approved and signoff complete.\n", encoding="utf-8")
         with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": []}):
             with patch.object(self.srv, "run_garden", return_value={"passed": True}):
-                resp = self.srv.wave_close_response(self.root, "test-wave", mode="create")
+                resp = self.srv.wf_close_wave_response(self.root, "test-wave", mode="create")
         codes = [d.get("code") for d in (resp.get("diagnostics") or [])]
         self.assertNotIn("gates_forced_closed", codes)
 
 
 class WaveCloseHandoffPreservationTests(unittest.TestCase):
-    """12axd: wave_close and wave_pause preserve session handoff content."""
+    """12axd: wf_close_wave and wf_pause_wave preserve session handoff content."""
 
     @classmethod
     def setUpClass(cls):
@@ -9014,14 +9046,14 @@ class WaveCloseHandoffPreservationTests(unittest.TestCase):
         wave_md.write_text(text + "\n## Review Signoff Evidence\n\n- operator-signoff: approved\n- 2026-05-01: approved and signoff complete.\n", encoding="utf-8")
         with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": []}):
             with patch.object(self.srv, "run_garden", return_value={"passed": True}):
-                self.srv.wave_close_response(self.root, "hw-test", mode="create")
+                self.srv.wf_close_wave_response(self.root, "hw-test", mode="create")
         content = wave_md.read_text(encoding="utf-8")
         self.assertIn("Status: closed", content)
         self.assertIn("Completed At:", content)
         # No archive folder should be created
         self.assertFalse((self.root / "docs" / "waves" / "hw-test" / "archive").exists())
 
-    def test_wave_close_preserves_handoff_content_outside_active_wave(self):
+    def test_wf_close_wave_preserves_handoff_content_outside_active_wave(self):
         self._make_active_wave()
         custom_section = "## My Notes\n\nSome important agent notes that must survive.\n"
         self._write_handoff(
@@ -9033,23 +9065,23 @@ class WaveCloseHandoffPreservationTests(unittest.TestCase):
         wave_md.write_text(text + "\n## Review Signoff Evidence\n\n- operator-signoff: approved\n- 2026-05-01: approved and signoff complete.\n", encoding="utf-8")
         with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": []}):
             with patch.object(self.srv, "run_garden", return_value={"passed": True}):
-                self.srv.wave_close_response(self.root, "hw-test", mode="create")
+                self.srv.wf_close_wave_response(self.root, "hw-test", mode="create")
         result = self._read_handoff()
         self.assertIn("Some important agent notes that must survive.", result)
         self.assertIn("*(none)*", result)
 
-    def test_wave_pause_preserves_handoff_content_outside_active_wave(self):
+    def test_wf_pause_wave_preserves_handoff_content_outside_active_wave(self):
         self._make_active_wave()
         custom_section = "## Research Notes\n\nContext that must not be wiped on pause.\n"
         self._write_handoff(
             f"# Session Handoff\n\nOwner: wave-coordinator\nStatus: active\nLast verified: 2026-05-01\n\n"
             f"## Current Session\n\n**Active wave:** `hw-test`\n\n{custom_section}"
         )
-        self.srv.wave_pause_response(self.root, "hw-test", mode="create")
+        self.srv.wf_pause_wave_response(self.root, "hw-test", mode="create")
         result = self._read_handoff()
         self.assertIn("Context that must not be wiped on pause.", result)
 
-    def test_wave_close_missing_handoff_creates_scaffold(self):
+    def test_wf_close_wave_missing_handoff_creates_scaffold(self):
         self._make_active_wave()
         handoff = self.root / "docs" / "agents" / "session-handoff.md"
         if handoff.exists():
@@ -9059,14 +9091,14 @@ class WaveCloseHandoffPreservationTests(unittest.TestCase):
         wave_md.write_text(text + "\n## Review Signoff Evidence\n\n- operator-signoff: approved\n- 2026-05-01: approved and signoff complete.\n", encoding="utf-8")
         with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": []}):
             with patch.object(self.srv, "run_garden", return_value={"passed": True}):
-                self.srv.wave_close_response(self.root, "hw-test", mode="create")
+                self.srv.wf_close_wave_response(self.root, "hw-test", mode="create")
         self.assertTrue(handoff.exists())
         content = handoff.read_text(encoding="utf-8")
         self.assertIn("Session Handoff", content)
 
 
 class BulkWaveGetChangeTests(unittest.TestCase):
-    """Item 3: wave_get_change with wave_id (no change_id) returns all admitted changes."""
+    """Item 3: wf_get_change with wave_id (no change_id) returns all admitted changes."""
 
     @classmethod
     def setUpClass(cls):
@@ -9099,7 +9131,7 @@ class BulkWaveGetChangeTests(unittest.TestCase):
 
     def test_bulk_returns_all_changes(self):
         self._setup_wave()
-        resp = self.srv.wave_get_change_response(self.root, wave_id="bulk-wave")
+        resp = self.srv.wf_get_change_response(self.root, wave_id="bulk-wave")
         self.assertEqual(resp["status"], "ok")
         changes = resp["data"]["changes"]
         ids = [c["id"] for c in changes]
@@ -9108,11 +9140,11 @@ class BulkWaveGetChangeTests(unittest.TestCase):
 
     def test_bulk_count_field(self):
         self._setup_wave()
-        resp = self.srv.wave_get_change_response(self.root, wave_id="bulk-wave")
+        resp = self.srv.wf_get_change_response(self.root, wave_id="bulk-wave")
         self.assertEqual(resp["data"]["count"], 2)
 
     def test_bulk_unknown_wave_returns_ok_with_diagnostic(self):
-        resp = self.srv.wave_get_change_response(self.root, wave_id="nonexistent-wave")
+        resp = self.srv.wf_get_change_response(self.root, wave_id="nonexistent-wave")
         self.assertEqual(resp["status"], "ok")
         codes = [d.get("code") for d in (resp.get("diagnostics") or [])]
         self.assertIn("wave_not_found", codes)
@@ -9120,7 +9152,7 @@ class BulkWaveGetChangeTests(unittest.TestCase):
     def test_single_mode_unchanged(self):
         """Providing change_id without wave_id uses original single-lookup mode."""
         self._setup_wave()
-        resp = self.srv.wave_get_change_response(self.root, change_id="ch1xx-feat first")
+        resp = self.srv.wf_get_change_response(self.root, change_id="ch1xx-feat first")
         self.assertEqual(resp["status"], "ok")
         self.assertIn("change", resp["data"])
         self.assertIn("First", resp["data"]["change"]["content"])
@@ -9130,7 +9162,7 @@ class BulkWaveGetChangeTests(unittest.TestCase):
         (self.root / "docs" / "plans").mkdir(parents=True, exist_ok=True)
         other = self.root / "docs" / "plans" / "ch1xx-bug collision.md"
         other.write_text("# Collision\n\nChange ID: `ch1xx-bug collision`\n", encoding="utf-8")
-        resp = self.srv.wave_get_change_response(self.root, change_id="ch1xx")
+        resp = self.srv.wf_get_change_response(self.root, change_id="ch1xx")
         self.assertEqual(resp["status"], "ok")
         self.assertIsNone(resp["data"]["change"])
         ids = {m["change_id"] for m in resp["data"]["changes"]}
@@ -9152,7 +9184,7 @@ class BulkWaveGetChangeTests(unittest.TestCase):
             "# Mention\n\nChange ID: `zzzzz-bug mentions-ch1xx`\n",
             encoding="utf-8",
         )
-        resp = self.srv.wave_get_change_response(self.root, change_id="ch1xx")
+        resp = self.srv.wf_get_change_response(self.root, change_id="ch1xx")
         self.assertEqual(resp["data"]["change"], None)
         codes = [d.get("code") for d in resp.get("diagnostics") or []]
         self.assertIn("change_not_found", codes)
@@ -9165,7 +9197,7 @@ class BulkWaveGetChangeTests(unittest.TestCase):
             "# Wave Record\n\nOwner: Engineering\nStatus: planned\nLast verified: 2026-01-01\n\nwave-id: `bulk-wave-extra`\nTitle: Extra\n\n## Changes\n\nChange ID: `ch3xx-feat third`\nChange Status: `planned`\n",
             encoding="utf-8",
         )
-        resp = self.srv.wave_get_change_response(self.root, wave_id="bulk-wave")
+        resp = self.srv.wf_get_change_response(self.root, wave_id="bulk-wave")
         self.assertEqual(resp["status"], "ok")
         self.assertEqual(resp["data"]["changes"], [])
         wave_ids = {m["wave_id"] for m in resp["data"]["waves"]}
@@ -9181,10 +9213,10 @@ class BulkWaveGetChangeTests(unittest.TestCase):
             "# Same Token\n\nChange ID: `bulk-wave-bug same-token`\n",
             encoding="utf-8",
         )
-        change_resp = self.srv.wave_get_change_response(self.root, change_id="bulk-wave")
+        change_resp = self.srv.wf_get_change_response(self.root, change_id="bulk-wave")
         self.assertEqual(change_resp["data"]["change"]["change_id"], "bulk-wave-bug same-token")
         self.assertNotIn("waves", change_resp["data"])
-        wave_resp = self.srv.wave_get_change_response(self.root, wave_id="bulk-wave")
+        wave_resp = self.srv.wf_get_change_response(self.root, wave_id="bulk-wave")
         self.assertEqual(wave_resp["data"]["wave_id"], "bulk-wave")
         self.assertEqual(wave_resp["data"]["count"], 2)
 
@@ -9195,7 +9227,7 @@ class FtsQueryShapeTests(unittest.TestCase):
         cls.srv = load_server()
 
     def test_identifier_like_queries_are_not_quoted(self):
-        for query in ("build_pack.version", "SORT_WINDOW_SIZE", "wave_index_build_status"):
+        for query in ("build_pack.version", "SORT_WINDOW_SIZE", "index_build_status"):
             self.assertEqual(self.srv.WaveIndex._fts_query(query), query)
 
     def test_explicit_phrase_quotes_are_stripped_for_no_position_fts(self):
@@ -9207,7 +9239,7 @@ class FtsQueryShapeTests(unittest.TestCase):
 
 
 class HandoffToolTests(unittest.TestCase):
-    """Item 4: wave_get_handoff and wave_set_handoff."""
+    """Item 4: wf_get_handoff and wf_set_handoff."""
 
     @classmethod
     def setUpClass(cls):
@@ -9223,30 +9255,30 @@ class HandoffToolTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_get_handoff_not_found(self):
-        resp = self.srv.wave_get_handoff_response(self.root)
+        resp = self.srv.wf_get_handoff_response(self.root)
         self.assertEqual(resp["status"], "ok")
         self.assertIsNone(resp["data"]["content"])
 
     def test_set_handoff_creates_file(self):
-        resp = self.srv.wave_set_handoff_response(self.root, content="# Session Handoff\n\nActive wave: test")
+        resp = self.srv.wf_set_handoff_response(self.root, content="# Session Handoff\n\nActive wave: test")
         self.assertEqual(resp["status"], "ok")
         self.assertTrue(resp["data"]["written"])
         handoff = self.root / "docs" / "agents" / "session-handoff.md"
         self.assertTrue(handoff.exists())
 
     def test_get_handoff_after_set(self):
-        self.srv.wave_set_handoff_response(self.root, content="# Handoff\n\nDone.")
-        resp = self.srv.wave_get_handoff_response(self.root)
+        self.srv.wf_set_handoff_response(self.root, content="# Handoff\n\nDone.")
+        resp = self.srv.wf_get_handoff_response(self.root)
         self.assertEqual(resp["status"], "ok")
         self.assertIn("Done.", resp["data"]["content"])
 
     def test_set_handoff_size_field(self):
         content = "# Session Handoff\n\nSome state."
-        resp = self.srv.wave_set_handoff_response(self.root, content=content)
+        resp = self.srv.wf_set_handoff_response(self.root, content=content)
         self.assertEqual(resp["data"]["size"], len(content))
 
     def test_get_handoff_path_field(self):
-        resp = self.srv.wave_get_handoff_response(self.root)
+        resp = self.srv.wf_get_handoff_response(self.root)
         self.assertEqual(resp["data"]["path"], "docs/agents/session-handoff.md")
 
     def test_handoff_tools_registered(self):
@@ -9255,8 +9287,8 @@ class HandoffToolTests(unittest.TestCase):
         except ImportError:
             self.skipTest("mcp package not installed")
         names = self.srv._registered_mcp_tool_names(mcp)
-        self.assertIn("wave_get_handoff", names)
-        self.assertIn("wave_set_handoff", names)
+        self.assertIn("wf_get_handoff", names)
+        self.assertIn("wf_set_handoff", names)
 
 
 class DocsSearchModeFieldTests(unittest.TestCase):
@@ -9290,7 +9322,7 @@ class DocsSearchModeFieldTests(unittest.TestCase):
 
 
 class WavePrepareACPriorityWarningTests(unittest.TestCase):
-    """Item 6: wave_prepare warns (non-blocking) when AC priority rows are unpopulated."""
+    """Item 6: wf_prepare_wave warns (non-blocking) when AC priority rows are unpopulated."""
 
     _VALID_LINT = {"passed": True, "errors": [], "warnings": [], "output": ""}
 
@@ -9328,7 +9360,7 @@ class WavePrepareACPriorityWarningTests(unittest.TestCase):
             "| AC-1 | required / important / nice-to-have / not-this-scope | placeholder |"
         )
         with patch.object(self.srv, "run_validate", return_value=self._VALID_LINT):
-            resp = self.srv.wave_prepare_response(self.root, wave_id="ac-wave", mode="dry_run")
+            resp = self.srv.wf_prepare_wave_response(self.root, wave_id="ac-wave", mode="dry_run")
         # Must not be an error (advisory only)
         self.assertNotEqual(resp["status"], "error")
         codes = [d.get("code") for d in (resp.get("diagnostics") or [])]
@@ -9339,7 +9371,7 @@ class WavePrepareACPriorityWarningTests(unittest.TestCase):
             "| AC-1 | required | Core feature. |"
         )
         with patch.object(self.srv, "run_validate", return_value=self._VALID_LINT):
-            resp = self.srv.wave_prepare_response(self.root, wave_id="ac-wave", mode="dry_run")
+            resp = self.srv.wf_prepare_wave_response(self.root, wave_id="ac-wave", mode="dry_run")
         codes = [d.get("code") for d in (resp.get("diagnostics") or [])]
         self.assertNotIn("ac_priority_unpopulated", codes)
 
@@ -9349,7 +9381,7 @@ class WavePrepareACPriorityWarningTests(unittest.TestCase):
             "| AC-1 | required / important / nice-to-have / not-this-scope | placeholder |"
         )
         with patch.object(self.srv, "run_validate", return_value=self._VALID_LINT):
-            resp = self.srv.wave_prepare_response(self.root, wave_id="ac-wave", mode="dry_run")
+            resp = self.srv.wf_prepare_wave_response(self.root, wave_id="ac-wave", mode="dry_run")
         self.assertIn(resp["status"], ("dry_run", "ok"))
 
 
@@ -9490,7 +9522,7 @@ class SemanticEmbeddingRegressionTests(unittest.TestCase):
         np = self.np
 
         query = "how to create a new wave"
-        close_text = "Use wave_create_wave to start a new wave and track changes."
+        close_text = "Use wf_create_wave to start a new wave and track changes."
         far_text = "The colour of the sky depends on Rayleigh scattering of sunlight."
 
         qvec = self.index._embed_query(query, self.model)
@@ -9772,7 +9804,7 @@ class DocsCodeModelSplitTests(unittest.TestCase):
 
 
 class WavePauseStatusTransitionTests(unittest.TestCase):
-    """12as6: wave_pause transitions wave.md Status active→paused and records transition."""
+    """12as6: wf_pause_wave transitions wave.md Status active→paused and records transition."""
 
     @classmethod
     def setUpClass(cls):
@@ -9806,18 +9838,18 @@ class WavePauseStatusTransitionTests(unittest.TestCase):
         )
         return wave_md
 
-    def test_wave_pause_transitions_active_to_paused(self):
+    def test_wf_pause_wave_transitions_active_to_paused(self):
         wave_md = self._make_wave("1200a active-wave", "active")
-        result = self.srv.wave_pause_response(self.root, "1200a active-wave", mode="create")
+        result = self.srv.wf_pause_wave_response(self.root, "1200a active-wave", mode="create")
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["data"]["status_transition"], {"from": "active", "to": "paused"})
         text = wave_md.read_text(encoding="utf-8")
         self.assertIn("Status: paused", text)
         self.assertNotIn("Status: active", text)
 
-    def test_wave_pause_idempotent_on_paused(self):
+    def test_wf_pause_wave_idempotent_on_paused(self):
         wave_md = self._make_wave("1200a paused-wave", "paused")
-        result = self.srv.wave_pause_response(self.root, "1200a paused-wave", mode="create")
+        result = self.srv.wf_pause_wave_response(self.root, "1200a paused-wave", mode="create")
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["data"]["status_transition"], {"from": "paused", "to": "paused"})
         text = wave_md.read_text(encoding="utf-8")
@@ -9825,18 +9857,18 @@ class WavePauseStatusTransitionTests(unittest.TestCase):
         # Handoff still written
         self.assertTrue((self.root / "docs" / "agents" / "session-handoff.md").exists())
 
-    def test_wave_pause_advisory_on_planned(self):
+    def test_wf_pause_wave_advisory_on_planned(self):
         self._make_wave("1200a planned-wave", "planned")
-        result = self.srv.wave_pause_response(self.root, "1200a planned-wave", mode="create")
+        result = self.srv.wf_pause_wave_response(self.root, "1200a planned-wave", mode="create")
         self.assertEqual(result["status"], "ok")
         codes = [d.get("code") for d in result.get("diagnostics", [])]
         self.assertIn("pause_on_non_active_wave", codes)
         self.assertEqual(result["data"]["status_transition"]["to"], "planned")
 
-    def test_wave_pause_dry_run_reports_transition(self):
+    def test_wf_pause_wave_dry_run_reports_transition(self):
         wave_md = self._make_wave("1200a dry-run-wave", "active")
         original_text = wave_md.read_text(encoding="utf-8")
-        result = self.srv.wave_pause_response(self.root, "1200a dry-run-wave", mode="dry_run")
+        result = self.srv.wf_pause_wave_response(self.root, "1200a dry-run-wave", mode="dry_run")
         self.assertEqual(result["status"], "dry_run")
         self.assertEqual(result["data"]["status_transition"], {"from": "active", "to": "paused"})
         # wave.md untouched
@@ -9844,7 +9876,7 @@ class WavePauseStatusTransitionTests(unittest.TestCase):
 
 
 class WavePrepareSingleActiveGuardTests(unittest.TestCase):
-    """12as6: wave_prepare blocks when another wave is active; allows self and post-pause prepare."""
+    """12as6: wf_prepare_wave blocks when another wave is active; allows self and post-pause prepare."""
 
     @classmethod
     def setUpClass(cls):
@@ -9861,11 +9893,11 @@ class WavePrepareSingleActiveGuardTests(unittest.TestCase):
 
     def _make_wave_with_change(self, slug: str, status: str = "planned") -> tuple[str, str]:
         """Create a wave (fully scaffolded via scripts) with one admitted change."""
-        wave_result = self.srv.wave_create_wave_response(self.root, slug, mode="create")
+        wave_result = self.srv.wf_create_wave_response(self.root, slug, mode="create")
         wave_id = wave_result["data"]["wave_id"]
         change = self.srv.new_change(self.root, "feat", f"{slug}-change")
         change_id = change["id"]
-        self.srv.wave_add_change_response(self.root, wave_id, change_id, mode="create")
+        self.srv.wf_add_change_response(self.root, wave_id, change_id, mode="create")
         wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
         text = wave_md.read_text(encoding="utf-8")
         if status != "planned":
@@ -9887,10 +9919,10 @@ class WavePrepareSingleActiveGuardTests(unittest.TestCase):
             encoding="utf-8",
         )
 
-    def test_wave_prepare_guards_when_another_wave_active_create(self):
+    def test_wf_prepare_wave_guards_when_another_wave_active_create(self):
         active_wave, _ = self._make_wave_with_change("active-one", status="active")
         target_wave, _ = self._make_wave_with_change("planned-one", status="planned")
-        result = self.srv.wave_prepare_response(self.root, target_wave, mode="create")
+        result = self.srv.wf_prepare_wave_response(self.root, target_wave, mode="create")
         self.assertEqual(result["status"], "error")
         codes = [d.get("code") for d in result.get("diagnostics", [])]
         self.assertIn("another_wave_active", codes)
@@ -9899,29 +9931,29 @@ class WavePrepareSingleActiveGuardTests(unittest.TestCase):
         target_md = self.root / "docs" / "waves" / target_wave / "wave.md"
         self.assertIn("Status: planned", target_md.read_text(encoding="utf-8"))
 
-    def test_wave_prepare_dry_run_not_guarded_by_other_open_wave(self):
+    def test_wf_prepare_wave_dry_run_not_guarded_by_other_open_wave(self):
         """Wave 1p45l (AC-6): dry_run is read-only and never takes the single-OPEN slot —
         it is not blocked when another wave is OPEN."""
         self._make_wave_with_change("active-two", status="active")
         target_wave, _ = self._make_wave_with_change("planned-two", status="planned")
         with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
             with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
-                result = self.srv.wave_prepare_response(self.root, target_wave, mode="dry_run")
+                result = self.srv.wf_prepare_wave_response(self.root, target_wave, mode="dry_run")
         codes = [d.get("code") for d in result.get("diagnostics", [])]
         self.assertNotIn("another_wave_active", codes)
         self.assertEqual(result["data"]["mode"], "dry_run")
 
-    def test_wave_prepare_self_reprepare_allowed(self):
+    def test_wf_prepare_wave_self_reprepare_allowed(self):
         wave_id, _ = self._make_wave_with_change("self-prep", status="active")
         # Re-running prepare on the currently active target must not trigger the guard.
-        result = self.srv.wave_prepare_response(self.root, wave_id, mode="create")
+        result = self.srv.wf_prepare_wave_response(self.root, wave_id, mode="create")
         codes = [d.get("code") for d in result.get("diagnostics", [])]
         self.assertNotIn("another_wave_active", codes)
 
-    def test_wave_prepare_another_wave_active_envelope_shape(self):
+    def test_wf_prepare_wave_another_wave_active_envelope_shape(self):
         active_wave, _ = self._make_wave_with_change("env-active", status="active")
         target_wave, _ = self._make_wave_with_change("env-target", status="planned")
-        result = self.srv.wave_prepare_response(self.root, target_wave, mode="create")
+        result = self.srv.wf_prepare_wave_response(self.root, target_wave, mode="create")
         self.assertEqual(result["status"], "error")
         self.assertIn("active_wave_id", result["data"])
         self.assertIn("active_wave_path", result["data"])
@@ -9929,38 +9961,38 @@ class WavePrepareSingleActiveGuardTests(unittest.TestCase):
         # Recovery now offers `ready` — ready the target without opening it (wave 1p45l)
         self.assertIn("mode='ready'", result.get("usage", ""))
         recovery_tools = [t for d in result.get("diagnostics", []) if d.get("code") == "another_wave_active" for t in d.get("recovery_tools", [])]
-        self.assertIn("wave_prepare", recovery_tools)
-        self.assertIn("wave_pause", recovery_tools)
+        self.assertIn("wf_prepare_wave", recovery_tools)
+        self.assertIn("wf_pause_wave", recovery_tools)
 
-    def test_wave_prepare_after_pause_succeeds(self):
+    def test_wf_prepare_wave_after_pause_succeeds(self):
         active_wave, _ = self._make_wave_with_change("ctx-switch-active", status="active")
         target_wave, _ = self._make_wave_with_change("ctx-switch-target", status="planned")
         self._add_council_verdict(target_wave)
         # Pause active wave
-        pause_result = self.srv.wave_pause_response(self.root, active_wave, mode="create")
+        pause_result = self.srv.wf_pause_wave_response(self.root, active_wave, mode="create")
         self.assertEqual(pause_result["data"]["status_transition"], {"from": "active", "to": "paused"})
         # Now prepare target wave (patch lint/garden because minimal test repo isn't fully seeded)
         with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
             with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
-                result = self.srv.wave_prepare_response(self.root, target_wave, mode="create")
+                result = self.srv.wf_prepare_wave_response(self.root, target_wave, mode="create")
         codes = [d.get("code") for d in result.get("diagnostics", [])]
         self.assertNotIn("another_wave_active", codes)
         # Target wave transitioned to active
         target_md = self.root / "docs" / "waves" / target_wave / "wave.md"
         self.assertIn("Status: active", target_md.read_text(encoding="utf-8"))
 
-    def test_wave_prepare_resumes_paused_wave(self):
+    def test_wf_prepare_wave_resumes_paused_wave(self):
         paused_wave, _ = self._make_wave_with_change("resume-target", status="paused")
         self._add_council_verdict(paused_wave)
         with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
             with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
-                result = self.srv.wave_prepare_response(self.root, paused_wave, mode="create")
+                result = self.srv.wf_prepare_wave_response(self.root, paused_wave, mode="create")
         codes = [d.get("code") for d in result.get("diagnostics", [])]
         self.assertNotIn("another_wave_active", codes)
         wave_md = self.root / "docs" / "waves" / paused_wave / "wave.md"
         self.assertIn("Status: active", wave_md.read_text(encoding="utf-8"))
 
-    def test_wave_prepare_ready_succeeds_while_other_wave_open_and_stays_planned(self):
+    def test_wf_prepare_wave_ready_succeeds_while_other_wave_open_and_stays_planned(self):
         """Wave 1p45l (AC-1/AC-2): `ready` runs full readiness WITHOUT activating — it
         succeeds while another wave is OPEN and leaves the target `planned` (readied)."""
         self._make_wave_with_change("ready-active", status="active")
@@ -9968,7 +10000,7 @@ class WavePrepareSingleActiveGuardTests(unittest.TestCase):
         self._add_council_verdict(target_wave)
         with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
             with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
-                result = self.srv.wave_prepare_response(self.root, target_wave, mode="ready")
+                result = self.srv.wf_prepare_wave_response(self.root, target_wave, mode="ready")
         codes = [d.get("code") for d in result.get("diagnostics", [])]
         self.assertNotIn("another_wave_active", codes)
         self.assertEqual(result["status"], "ok")
@@ -9976,47 +10008,47 @@ class WavePrepareSingleActiveGuardTests(unittest.TestCase):
         target_md = self.root / "docs" / "waves" / target_wave / "wave.md"
         self.assertIn("Status: planned", target_md.read_text(encoding="utf-8"))
 
-    def test_wave_implement_opens_readied_planned_wave(self):
-        """Wave 1p45l (AC-3): wave_implement accepts a readied `planned` wave and, when no
+    def test_wf_implement_wave_opens_readied_planned_wave(self):
+        """Wave 1p45l (AC-3): wf_implement_wave accepts a readied `planned` wave and, when no
         other wave is OPEN, transitions it to `implementing`."""
         target_wave, _ = self._make_wave_with_change("impl-readied", status="planned")
         self._add_council_verdict(target_wave)
-        result = self.srv.wave_implement_response(self.root, target_wave, mode="create")
+        result = self.srv.wf_implement_wave_response(self.root, target_wave, mode="create")
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["data"]["status_transition"], {"from": "planned", "to": "implementing"})
         wave_md = self.root / "docs" / "waves" / target_wave / "wave.md"
         self.assertIn("Status: implementing", wave_md.read_text(encoding="utf-8"))
 
-    def test_wave_implement_guarded_when_another_wave_open(self):
+    def test_wf_implement_wave_guarded_when_another_wave_open(self):
         """Wave 1p45l (AC-4): the single-OPEN guard now lives at the activation step —
-        wave_implement blocks with another_wave_active when another wave is OPEN, leaving the
+        wf_implement_wave blocks with another_wave_active when another wave is OPEN, leaving the
         target unopened."""
         self._make_wave_with_change("impl-active", status="active")
         target_wave, _ = self._make_wave_with_change("impl-target", status="planned")
         self._add_council_verdict(target_wave)
-        result = self.srv.wave_implement_response(self.root, target_wave, mode="create")
+        result = self.srv.wf_implement_wave_response(self.root, target_wave, mode="create")
         self.assertEqual(result["status"], "error")
         self.assertIn("another_wave_active", [d.get("code") for d in result.get("diagnostics", [])])
         target_md = self.root / "docs" / "waves" / target_wave / "wave.md"
         self.assertIn("Status: planned", target_md.read_text(encoding="utf-8"))
 
-    def test_wave_reopen_guarded_when_another_wave_open(self):
-        """Wave 1p45l (AC-9): wave_reopen runs the single-OPEN guard — it blocks when another
+    def test_wf_reopen_wave_guarded_when_another_wave_open(self):
+        """Wave 1p45l (AC-9): wf_reopen_wave runs the single-OPEN guard — it blocks when another
         wave is OPEN (closing the pre-existing unguarded-reopen hole) and succeeds once the
         slot is free."""
         with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
             self._make_wave_with_change("reopen-active", status="active")
             closed_wave, _ = self._make_wave_with_change("reopen-target", status="closed")
-            blocked = self.srv.wave_reopen_response(self.root, closed_wave)
+            blocked = self.srv.wf_reopen_wave_response(self.root, closed_wave)
             self.assertEqual(blocked["status"], "error")
             self.assertIn("another_wave_active", [d.get("code") for d in blocked.get("diagnostics", [])])
             # Free the slot, then reopen succeeds (closed -> active).
-            self.srv.wave_pause_response(self.root, blocked["data"]["active_wave_id"], mode="create")
-            ok = self.srv.wave_reopen_response(self.root, closed_wave)
+            self.srv.wf_pause_wave_response(self.root, blocked["data"]["active_wave_id"], mode="create")
+            ok = self.srv.wf_reopen_wave_response(self.root, closed_wave)
         self.assertEqual(ok["status"], "ok")
         self.assertIn("Status: active", (self.root / "docs" / "waves" / closed_wave / "wave.md").read_text(encoding="utf-8"))
 
-    def test_wave_prepare_aggregates_active_wave_and_lint_diagnostics(self):
+    def test_wf_prepare_wave_aggregates_active_wave_and_lint_diagnostics(self):
         """AC-6: when another wave is active AND lint fails, both diagnostics appear."""
         self._make_wave_with_change("agg-active", status="active")
         target_wave, _ = self._make_wave_with_change("agg-target", status="planned")
@@ -10026,16 +10058,16 @@ class WavePrepareSingleActiveGuardTests(unittest.TestCase):
                 "run_validate",
                 return_value={"passed": False, "errors": ["synthetic lint error for AC-6 aggregation test"], "warnings": [], "output": ""},
             ):
-                result = self.srv.wave_prepare_response(self.root, target_wave, mode="create")
+                result = self.srv.wf_prepare_wave_response(self.root, target_wave, mode="create")
         self.assertEqual(result["status"], "error")
         codes = [d.get("code") for d in result.get("diagnostics", [])]
         self.assertIn("another_wave_active", codes)
         self.assertIn("docs_lint_error", codes)
 
-    def test_wave_prepare_resume_blocked_when_other_active(self):
+    def test_wf_prepare_wave_resume_blocked_when_other_active(self):
         self._make_wave_with_change("resume-blocker", status="active")
         paused_wave, _ = self._make_wave_with_change("resume-paused", status="paused")
-        result = self.srv.wave_prepare_response(self.root, paused_wave, mode="create")
+        result = self.srv.wf_prepare_wave_response(self.root, paused_wave, mode="create")
         self.assertEqual(result["status"], "error")
         codes = [d.get("code") for d in result.get("diagnostics", [])]
         self.assertIn("another_wave_active", codes)
@@ -10045,7 +10077,7 @@ class WavePrepareSingleActiveGuardTests(unittest.TestCase):
 
 
 class WaveCurrentListEnvelopeTests(unittest.TestCase):
-    """12as6: wave_current returns data.waves[] with all non-closed waves, active first."""
+    """12as6: wf_current_wave returns data.waves[] with all non-closed waves, active first."""
 
     @classmethod
     def setUpClass(cls):
@@ -10067,29 +10099,29 @@ class WaveCurrentListEnvelopeTests(unittest.TestCase):
             encoding="utf-8",
         )
 
-    def test_wave_current_returns_waves_array(self):
+    def test_wf_current_wave_returns_waves_array(self):
         self._make_wave("1200a only-planned", "planned")
-        result = self.srv.wave_current_response(self.root)
+        result = self.srv.wf_current_wave_response(self.root)
         self.assertEqual(result["status"], "ok")
         self.assertIn("waves", result["data"])
         self.assertNotIn("wave", result["data"])
         self.assertEqual(len(result["data"]["waves"]), 1)
         self.assertEqual(result["data"]["waves"][0]["status"], "planned")
 
-    def test_wave_current_empty_state_returns_empty_array(self):
-        result = self.srv.wave_current_response(self.root)
+    def test_wf_current_wave_empty_state_returns_empty_array(self):
+        result = self.srv.wf_current_wave_response(self.root)
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["data"]["waves"], [])
         codes = [d.get("code") for d in result.get("diagnostics", [])]
         self.assertIn("no_active_wave", codes)
 
-    def test_wave_current_orders_active_planned_paused(self):
+    def test_wf_current_wave_orders_active_planned_paused(self):
         # Intentionally put them out of order alphabetically so the sort verifies
         self._make_wave("1200z planned-z", "planned")
         self._make_wave("1200a active-a", "active")
         self._make_wave("1200m paused-m", "paused")
         self._make_wave("1200b planned-b", "planned")
-        result = self.srv.wave_current_response(self.root)
+        result = self.srv.wf_current_wave_response(self.root)
         waves = result["data"]["waves"]
         statuses = [w["status"] for w in waves]
         self.assertEqual(statuses, ["active", "planned", "planned", "paused"])
@@ -10097,53 +10129,53 @@ class WaveCurrentListEnvelopeTests(unittest.TestCase):
         planned_ids = [w["wave_id"] for w in waves if w["status"] == "planned"]
         self.assertEqual(planned_ids, sorted(planned_ids))
 
-    def test_wave_current_entry_shape(self):
+    def test_wf_current_wave_entry_shape(self):
         self._make_wave("1200a active-shape", "active")
-        result = self.srv.wave_current_response(self.root)
+        result = self.srv.wf_current_wave_response(self.root)
         entry = result["data"]["waves"][0]
         for field in ("wave_id", "status", "changes", "path", "next_action"):
             self.assertIn(field, entry)
         self.assertEqual(entry["next_action"], "implement_wave")
 
-    def test_wave_current_paused_next_action_is_resume_wave(self):
+    def test_wf_current_wf_pause_waved_next_action_is_resume_wave(self):
         self._make_wave("1200a only-paused", "paused")
-        result = self.srv.wave_current_response(self.root)
+        result = self.srv.wf_current_wave_response(self.root)
         entry = result["data"]["waves"][0]
         self.assertEqual(entry["status"], "paused")
         self.assertEqual(entry["next_action"], "resume_wave")
 
-    def test_wave_current_planned_next_action_is_prepare_wave(self):
+    def test_wf_current_wave_planned_next_action_is_prepare_wave(self):
         self._make_wave("1200a only-planned", "planned")
-        result = self.srv.wave_current_response(self.root)
+        result = self.srv.wf_current_wave_response(self.root)
         entry = result["data"]["waves"][0]
         self.assertEqual(entry["next_action"], "prepare_wave")
 
-    def test_wave_current_skips_paused_when_filtering_active(self):
+    def test_wf_current_wave_skips_paused_when_filtering_active(self):
         """Paused waves appear in data.waves but do not occupy the 'active' slot."""
         self._make_wave("1200a only-paused", "paused")
-        result = self.srv.wave_current_response(self.root)
+        result = self.srv.wf_current_wave_response(self.root)
         waves = result["data"]["waves"]
         self.assertEqual(len(waves), 1)
         self.assertEqual(waves[0]["status"], "paused")
         # No wave has status == 'active'
         self.assertFalse(any(w["status"] == "active" for w in waves))
 
-    def test_wave_current_excludes_closed(self):
+    def test_wf_current_wave_excludes_closed(self):
         self._make_wave("1200a closed-wave", "closed")
         self._make_wave("1200b planned-wave", "planned")
-        result = self.srv.wave_current_response(self.root)
+        result = self.srv.wf_current_wave_response(self.root)
         statuses = [w["status"] for w in result["data"]["waves"]]
         self.assertNotIn("closed", statuses)
         self.assertIn("planned", statuses)
 
 
 class WaveAuditUnaffectedByCurrentEnvelopeTests(unittest.TestCase):
-    """AC-21: wave_audit still returns the expected shape after wave_current envelope change.
+    """AC-21: wf_audit still returns the expected shape after wf_current_wave envelope change.
 
-    wave_audit_response uses the internal current_wave() helper (unchanged singular form),
-    not wave_current_response, so the envelope change is not a migration target — but this
-    test asserts wave_audit continues to surface the active wave via its own response shape
-    so any future refactor that wires wave_audit through wave_current_response can't silently
+    wf_audit_response uses the internal current_wave() helper (unchanged singular form),
+    not wf_current_wave_response, so the envelope change is not a migration target — but this
+    test asserts wf_audit continues to surface the active wave via its own response shape
+    so any future refactor that wires wf_audit through wf_current_wave_response can't silently
     regress.
     """
 
@@ -10167,27 +10199,27 @@ class WaveAuditUnaffectedByCurrentEnvelopeTests(unittest.TestCase):
             encoding="utf-8",
         )
 
-    def test_wave_audit_reports_active_wave_when_present(self):
+    def test_wf_audit_reports_active_wave_when_present(self):
         self._make_wave("1200a audit-active", "active")
-        result = self.srv.wave_audit_response(self.root)
+        result = self.srv.wf_audit_response(self.root)
         self.assertEqual(result["status"], "ok")
         wave_data = result["data"]["wave"]
         self.assertEqual(wave_data.get("status"), "active")
         self.assertEqual(wave_data.get("next_action"), "implement_wave")
 
-    def test_wave_audit_reports_requested_wave_by_prefix(self):
+    def test_wf_audit_reports_requested_wave_by_prefix(self):
         self._make_wave("1200a audit-target", "planned")
-        result = self.srv.wave_audit_response(self.root, wave_id="1200a")
+        result = self.srv.wf_audit_response(self.root, wave_id="1200a")
         self.assertEqual(result["status"], "ok")
         wave_data = result["data"]["wave"]
         self.assertEqual(wave_data.get("wave_id"), "1200a audit-target")
         self.assertEqual(wave_data.get("status"), "planned")
         self.assertEqual(wave_data.get("next_action"), "prepare_wave")
 
-    def test_wave_audit_reports_no_wave_when_only_paused(self):
-        """Paused wave should not satisfy wave_audit's 'active or planned' readiness check."""
+    def test_wf_audit_reports_no_wave_when_only_paused(self):
+        """Paused wave should not satisfy wf_audit's 'active or planned' readiness check."""
         self._make_wave("1200a audit-paused", "paused")
-        result = self.srv.wave_audit_response(self.root)
+        result = self.srv.wf_audit_response(self.root)
         codes = [d.get("code") for d in result.get("diagnostics", [])]
         self.assertIn("no_active_wave", codes)
 
@@ -10273,7 +10305,7 @@ class WaveCurrentMigrationGrepTests(unittest.TestCase):
             self.skipTest("No target paths to scan")
         # Pattern matches response-reader forms, not producer forms (key emission).
         # Examples to FAIL on: result["data"]["wave"]["status"], resp.data.wave.wave_id
-        # Examples allowed: "wave": wave_data (producer in wave_audit), key strings like '"wave"'.
+        # Examples allowed: "wave": wave_data (producer in wf_audit), key strings like '"wave"'.
         pattern = r'(?:result|resp|response|data)\[(?:"wave"|\'wave\')\](?!s)'
         try:
             proc = subprocess.run(
@@ -10621,7 +10653,7 @@ class BackgroundRefreshActiveTests(unittest.TestCase):
         lock_path.parent.mkdir(parents=True, exist_ok=True)
         lock_path.write_text("999999999", encoding="utf-8")
 
-        response = self.server.wave_index_build_status_response(root, layer="project")
+        response = self.server.index_build_status_response(root, layer="project")
 
         self.assertEqual(response["status"], "ok")
         data = response["data"]
@@ -10638,7 +10670,7 @@ class BackgroundRefreshActiveTests(unittest.TestCase):
         lock_path.write_text(str(os.getpid()), encoding="utf-8")
         os.utime(lock_path, (0, 0))
 
-        response = self.server.wave_index_build_status_response(root, layer="project")
+        response = self.server.index_build_status_response(root, layer="project")
 
         self.assertEqual(response["status"], "ok")
         data = response["data"]
@@ -11261,7 +11293,7 @@ class WaveIndexHealthRefreshTests(unittest.TestCase):
             index = MagicMock()
             index.root = root
             index.docs_health.return_value = {"semantic_ready": True, "stale_layers": [], "missing_layers": [], "has_any_index": True, "compatible_chunks": True, "readiness_overview": "ready", "chunker_version_mismatch_layers": []}
-            result = self.srv.wave_index_health_response(index)
+            result = self.srv.index_health_response(index)
             stats = result["data"]["previous_build_stats"]
             self.assertEqual(stats["files_indexed"], 123)
             self.assertEqual(stats["doc_chunks"], 456)
@@ -11877,8 +11909,8 @@ class CodeAskTests(unittest.TestCase):
     def test_code_ask_does_not_call_write_path_tools(self):
         """AC-4 (12d4b): code_ask_response must never invoke write-path operations."""
         write_path_names = {
-            "wave_index_build", "wave_sync_surfaces", "wave_add_change",
-            "wave_new_feature", "wave_new_bug",
+            "index_build", "wf_sync_surfaces", "wf_add_change",
+            "wf_new_feature", "wf_new_bug",
         }
         srv = load_server()
         # Verify none of the write-path function names are referenced inside code_ask_response
@@ -12163,7 +12195,7 @@ class InferTagsServerTests(unittest.TestCase):
 
 
 class WaveRunSensorsTests(unittest.TestCase):
-    """12ecs-feat post-edit-computational-sensors: wave_run_sensors MCP tool."""
+    """12ecs-feat post-edit-computational-sensors: wf_run_sensors MCP tool."""
 
     @classmethod
     def setUpClass(cls):
@@ -12187,7 +12219,7 @@ class WaveRunSensorsTests(unittest.TestCase):
         )
 
     def test_no_sensors_configured(self):
-        result = self.srv.wave_run_sensors_response(self.root)
+        result = self.srv.wf_run_sensors_response(self.root)
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["data"]["sensors_run"], 0)
         self.assertEqual(result["data"]["results"], [])
@@ -12195,7 +12227,7 @@ class WaveRunSensorsTests(unittest.TestCase):
 
     def test_passing_sensor(self):
         self._write_config([{"name": "true-check", "command": ["true"], "dimension": "maintainability"}])
-        result = self.srv.wave_run_sensors_response(self.root)
+        result = self.srv.wf_run_sensors_response(self.root)
         self.assertEqual(result["status"], "ok")
         self.assertTrue(result["data"]["all_passed"])
         self.assertEqual(len(result["data"]["results"]), 1)
@@ -12203,7 +12235,7 @@ class WaveRunSensorsTests(unittest.TestCase):
 
     def test_failing_sensor(self):
         self._write_config([{"name": "false-check", "command": ["false"], "dimension": "maintainability"}])
-        result = self.srv.wave_run_sensors_response(self.root)
+        result = self.srv.wf_run_sensors_response(self.root)
         self.assertEqual(result["status"], "error")
         self.assertFalse(result["data"]["all_passed"])
         self.assertFalse(result["data"]["results"][0]["passed"])
@@ -12212,7 +12244,7 @@ class WaveRunSensorsTests(unittest.TestCase):
 
     def test_sensor_with_invalid_command(self):
         self._write_config([{"name": "bad-cmd", "command": ["__nonexistent_command__"], "dimension": "behaviour"}])
-        result = self.srv.wave_run_sensors_response(self.root)
+        result = self.srv.wf_run_sensors_response(self.root)
         self.assertFalse(result["data"]["all_passed"])
         self.assertFalse(result["data"]["results"][0]["passed"])
 
@@ -12261,14 +12293,14 @@ class RequiredReviewLanesTests(unittest.TestCase):
         self._write_config_with_lanes(["security-review"])
         self._make_wave_with_evidence(["- operator-signoff: approved", "- security-review: approved"])
         with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
-            result = self.srv.wave_review_response(self.root, "1200a test-wave")
+            result = self.srv.wf_review_wave_response(self.root, "1200a test-wave")
         self.assertIn("security-review", result["data"]["required_lanes"])
 
     def test_missing_declared_lane_emits_missing_required_lane(self):
         self._write_config_with_lanes(["security-review"])
         self._make_wave_with_evidence(["- operator-signoff: approved"])
         with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
-            result = self.srv.wave_review_response(self.root, "1200a test-wave")
+            result = self.srv.wf_review_wave_response(self.root, "1200a test-wave")
         self.assertEqual(result["status"], "error")
         self.assertTrue(any(d["code"] == "missing_required_lane" for d in result["diagnostics"]))
 
@@ -12276,25 +12308,25 @@ class RequiredReviewLanesTests(unittest.TestCase):
         # AC-3: projects with no declared lanes only require operator
         self._make_wave_with_evidence(["- operator-signoff: approved"])
         with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
-            result = self.srv.wave_review_response(self.root, "1200a test-wave")
+            result = self.srv.wf_review_wave_response(self.root, "1200a test-wave")
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["data"]["required_lanes"], ["operator"])
 
-    def test_wave_close_blocks_on_missing_declared_lane(self):
+    def test_wf_close_wave_blocks_on_missing_declared_lane(self):
         self._write_config_with_lanes(["security-review"])
         self._make_wave_with_evidence(["- operator-signoff: approved"])
         with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
             with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
-                result = self.srv.wave_close_response(self.root, "1200a test-wave", mode="dry_run")
+                result = self.srv.wf_close_wave_response(self.root, "1200a test-wave", mode="dry_run")
         self.assertEqual(result["status"], "error")
         self.assertTrue(any(d["code"] == "missing_required_lane" for d in result["diagnostics"]))
 
-    def test_wave_close_passes_when_declared_lane_signed(self):
+    def test_wf_close_wave_passes_when_declared_lane_signed(self):
         self._write_config_with_lanes(["security-review"])
         self._make_wave_with_evidence(["- operator-signoff: approved", "- security-review: approved"])
         with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
             with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
-                result = self.srv.wave_close_response(self.root, "1200a test-wave", mode="dry_run")
+                result = self.srv.wf_close_wave_response(self.root, "1200a test-wave", mode="dry_run")
         self.assertNotIn("missing_required_lane", [d["code"] for d in result.get("diagnostics", [])])
 
 
@@ -12332,7 +12364,7 @@ class SeverityTriageTests(unittest.TestCase):
     def test_no_severity_annotations_returns_none(self):
         self._make_wave_with_evidence(["- operator-signoff: approved"])
         with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
-            result = self.srv.wave_review_response(self.root, "1200a test-wave")
+            result = self.srv.wf_review_wave_response(self.root, "1200a test-wave")
         self.assertEqual(result["data"]["max_severity"], "none")
 
     def test_medium_severity_no_advisory(self):
@@ -12341,7 +12373,7 @@ class SeverityTriageTests(unittest.TestCase):
             "- security-review: approved-with-notes (medium — minor issue)",
         ])
         with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
-            result = self.srv.wave_review_response(self.root, "1200a test-wave")
+            result = self.srv.wf_review_wave_response(self.root, "1200a test-wave")
         self.assertEqual(result["data"]["max_severity"], "medium")
         self.assertFalse(any(d["code"] == "high_severity_finding" for d in result.get("diagnostics", [])))
 
@@ -12351,7 +12383,7 @@ class SeverityTriageTests(unittest.TestCase):
             "- security-review: needs-revision (high — path traversal in code_read)",
         ])
         with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
-            result = self.srv.wave_review_response(self.root, "1200a test-wave")
+            result = self.srv.wf_review_wave_response(self.root, "1200a test-wave")
         self.assertEqual(result["data"]["max_severity"], "high")
         self.assertTrue(any(d["code"] == "high_severity_finding" for d in result.get("diagnostics", [])))
 
@@ -12361,7 +12393,7 @@ class SeverityTriageTests(unittest.TestCase):
             "- security-review: needs-revision (critical — exploitable RCE)",
         ])
         with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
-            result = self.srv.wave_review_response(self.root, "1200a test-wave")
+            result = self.srv.wf_review_wave_response(self.root, "1200a test-wave")
         self.assertEqual(result["data"]["max_severity"], "critical")
         self.assertTrue(any(d["code"] == "high_severity_finding" for d in result.get("diagnostics", [])))
 
@@ -12371,7 +12403,7 @@ class SeverityTriageTests(unittest.TestCase):
             "- performance-review: approved-with-notes (low — micro-optimisation opportunity)",
         ])
         with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
-            result = self.srv.wave_review_response(self.root, "1200a test-wave")
+            result = self.srv.wf_review_wave_response(self.root, "1200a test-wave")
         self.assertEqual(result["data"]["max_severity"], "low")
         self.assertFalse(any(d["code"] == "high_severity_finding" for d in result.get("diagnostics", [])))
 
@@ -12385,7 +12417,7 @@ class SeverityTriageTests(unittest.TestCase):
             "flow below the allow threshold; lower risk; criticality assessed",
         ])
         with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
-            result = self.srv.wave_review_response(self.root, "1200a test-wave")
+            result = self.srv.wf_review_wave_response(self.root, "1200a test-wave")
         self.assertEqual(result["data"]["max_severity"], "none")
         self.assertFalse(any(d["code"] == "high_severity_finding" for d in result.get("diagnostics", [])))
 
@@ -12397,7 +12429,7 @@ class SeverityTriageTests(unittest.TestCase):
             "- security-review: needs-revision — highest-salience surface, but a high severity bug",
         ])
         with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
-            result = self.srv.wave_review_response(self.root, "1200a test-wave")
+            result = self.srv.wf_review_wave_response(self.root, "1200a test-wave")
         self.assertEqual(result["data"]["max_severity"], "high")
 
     def test_max_severity_matches_whole_words_only(self):
@@ -12487,7 +12519,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         self._write_config()
         self._make_wave(status="planned", evidence_lines=[])
         with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
-            result = self.srv.wave_prepare_response(self.root, "1200a test-wave", mode="dry_run")
+            result = self.srv.wf_prepare_wave_response(self.root, "1200a test-wave", mode="dry_run")
         self.assertEqual(result["status"], "error")
         self.assertTrue(any(d["code"] == "missing_wave_council_signoff" for d in result["diagnostics"]))
 
@@ -12495,7 +12527,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         self._write_config()
         self._make_wave(status="planned", evidence_lines=["- wave-council-readiness: approved"])
         with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
-            result = self.srv.wave_prepare_response(self.root, "1200a test-wave", mode="dry_run")
+            result = self.srv.wf_prepare_wave_response(self.root, "1200a test-wave", mode="dry_run")
         self.assertIn("wave-council-readiness", result["data"]["required_council_signoffs"])
         self.assertNotEqual(result["status"], "error")
 
@@ -12503,7 +12535,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         self._write_config()
         self._make_wave(status="active", evidence_lines=["- operator-signoff: approved", "- code-reviewer: approved"])
         with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
-            result = self.srv.wave_review_response(self.root, "1200a test-wave")
+            result = self.srv.wf_review_wave_response(self.root, "1200a test-wave")
         self.assertEqual(result["status"], "error")
         self.assertTrue(any(d["code"] == "missing_wave_council_signoff" for d in result["diagnostics"]))
 
@@ -12519,7 +12551,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         )
         with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
             with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
-                result = self.srv.wave_close_response(self.root, "1200a test-wave", mode="dry_run")
+                result = self.srv.wf_close_wave_response(self.root, "1200a test-wave", mode="dry_run")
         self.assertEqual(result["status"], "error")
         self.assertTrue(any(d["code"] == "missing_wave_council_signoff" for d in result["diagnostics"]))
 
@@ -12527,7 +12559,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         self._write_config(enabled=False)
         self._make_wave(status="active", evidence_lines=["- operator-signoff: approved", "- code-reviewer: approved"])
         with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
-            result = self.srv.wave_review_response(self.root, "1200a test-wave")
+            result = self.srv.wf_review_wave_response(self.root, "1200a test-wave")
         self.assertEqual(result["data"]["required_council_signoffs"], [])
         self.assertFalse(any(d["code"] == "missing_wave_council_signoff" for d in result.get("diagnostics", [])))
 
@@ -12535,7 +12567,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         self._write_config(transition_policy="applies-from-next-prepare")
         self._make_wave(status="active", evidence_lines=["- operator-signoff: approved", "- code-reviewer: approved"])
         with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
-            result = self.srv.wave_review_response(self.root, "1200a test-wave")
+            result = self.srv.wf_review_wave_response(self.root, "1200a test-wave")
         self.assertEqual(result["data"]["required_council_signoffs"], ["wave-council-delivery"])
         self.assertTrue(any(d["code"] == "missing_wave_council_signoff" for d in result["diagnostics"]))
 
@@ -12551,7 +12583,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         )
         with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
             with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
-                result = self.srv.wave_close_response(self.root, "1200a test-wave", mode="dry_run")
+                result = self.srv.wf_close_wave_response(self.root, "1200a test-wave", mode="dry_run")
         self.assertEqual(result["data"]["required_council_signoffs"], ["wave-council-delivery"])
         self.assertFalse(any(d["code"] == "missing_wave_council_signoff" for d in result.get("diagnostics", [])))
 
@@ -15395,8 +15427,8 @@ class TestCodeGraphTools(unittest.TestCase):
         self.assertEqual(result["status"], "ok")
         self.assertTrue(result["data"]["edges"])
 
-    def test_wave_graph_report_fan_in(self):
-        result = self.srv.wave_graph_report_response(self.root, layer="project", limit=5)
+    def test_wf_graph_report_fan_in(self):
+        result = self.srv.wf_graph_report_response(self.root, layer="project", limit=5)
         self.assertEqual(result["status"], "ok")
         self.assertIn("fan_in", result["data"])
 
@@ -16021,9 +16053,9 @@ class TestGraphRefreshThenRecheck(unittest.TestCase):
         """Helper catches refresh-time exceptions and returns None."""
         # Use a recheck closure that would return sentinel if it were called,
         # but the helper's refresh runs first; we can't easily force the refresh
-        # to raise without monkey-patching wave_index_build_response.
+        # to raise without monkey-patching index_build_response.
         import unittest.mock as _mock
-        with _mock.patch.object(self.srv, "wave_index_build_response", side_effect=RuntimeError("boom")):
+        with _mock.patch.object(self.srv, "index_build_response", side_effect=RuntimeError("boom")):
             result = self.srv._graph_refresh_then_recheck(self.root, lambda: "would-be-fresh")
             self.assertIsNone(result)
 
@@ -16037,11 +16069,11 @@ class TestGraphRefreshThenRecheck(unittest.TestCase):
 
 class TestGraphToolRefreshOnMiss(unittest.TestCase):
     """1304r AC-8 follow-on: verify each graph-using MCP tool triggers the refresh
-    on its miss path. Mocks `wave_index_build_response` to assert it was called.
+    on its miss path. Mocks `index_build_response` to assert it was called.
 
     Pattern: each test sets up a minimal graph fixture that does NOT contain the
     queried symbol/community, then asserts that the refresh helper's underlying
-    `wave_index_build_response` was invoked exactly once (the bounded-to-one-call
+    `index_build_response` was invoked exactly once (the bounded-to-one-call
     contract from AC-1)."""
 
     @classmethod
@@ -16078,9 +16110,9 @@ class TestGraphToolRefreshOnMiss(unittest.TestCase):
         self.tmp.cleanup()
 
     def _assert_refresh_invoked_once(self, tool_call):
-        """Run tool_call() while patching wave_index_build_response; assert called once."""
+        """Run tool_call() while patching index_build_response; assert called once."""
         import unittest.mock as _mock
-        with _mock.patch.object(self.srv, "wave_index_build_response", return_value={"status": "ok", "data": {}}) as patched:
+        with _mock.patch.object(self.srv, "index_build_response", return_value={"status": "ok", "data": {}}) as patched:
             tool_call()
             self.assertEqual(
                 patched.call_count, 1,
@@ -16126,12 +16158,12 @@ class TestGraphToolRefreshOnMiss(unittest.TestCase):
             lambda: self.srv.code_graph_community_response(self.root, "project:does_not_exist")
         )
 
-    def test_wave_graph_report_refreshes_on_absent_graph(self):
+    def test_wf_graph_report_refreshes_on_absent_graph(self):
         # Remove the graph fixture so first index.present check fails
         import shutil
         shutil.rmtree(self.root / ".wavefoundry" / "index" / "graph", ignore_errors=True)
         self._assert_refresh_invoked_once(
-            lambda: self.srv.wave_graph_report_response(self.root, layer="project", sections=["fan_in"])
+            lambda: self.srv.wf_graph_report_response(self.root, layer="project", sections=["fan_in"])
         )
 
 
@@ -16191,7 +16223,7 @@ class TestGraphRefreshAndResolve(unittest.TestCase):
     def test_returns_none_tuple_when_refresh_raises(self):
         """If refresh raises, both elements are None."""
         import unittest.mock as _mock
-        with _mock.patch.object(self.srv, "wave_index_build_response", side_effect=RuntimeError("boom")):
+        with _mock.patch.object(self.srv, "index_build_response", side_effect=RuntimeError("boom")):
             idx, node_id = self.srv._graph_refresh_and_resolve(self.root, "anything")
             self.assertIsNone(idx)
             self.assertIsNone(node_id)
@@ -16348,7 +16380,7 @@ class TestCodeDefinitionGraphNarrowed(unittest.TestCase):
         Post-1301h: same 40+s full walk (preserves existing behavior for callers
         that depend on `name`-bearing structural definitions) PLUS a clear
         advisory diagnostic + a `graph_index_missing_degraded` lookup_method.
-        Operators see the advisory and run `wave_index_build(content='graph')`
+        Operators see the advisory and run `index_build(content='graph')`
         to enable the sub-300ms graph-narrowed path on subsequent calls."""
         result = self.srv.code_definition_response(self.root, "my_definition")
         self.assertEqual(result["status"], "ok")
@@ -16776,9 +16808,9 @@ class TestGraphToolShapeConsistency(unittest.TestCase):
         self.assertEqual(mid_entry["hop"], 1)
         self.assertEqual(caller_entry["hop"], 2)
 
-    # AC-6: wave_graph_report carries a communities section with community_id/label/node_count/hub_*.
-    def test_wave_graph_report_includes_communities_section(self):
-        result = self.srv.wave_graph_report_response(self.root, layer="project", limit=10)
+    # AC-6: wf_graph_report carries a communities section with community_id/label/node_count/hub_*.
+    def test_wf_graph_report_includes_communities_section(self):
+        result = self.srv.wf_graph_report_response(self.root, layer="project", limit=10)
         self.assertEqual(result["status"], "ok")
         report = result["data"]
         self.assertIn("communities", report)
@@ -16878,8 +16910,8 @@ class TestGeneratedCodeFilter(unittest.TestCase):
         self.assertTrue(data["exclude_generated"])
 
     # AC-9: communities entries with generated_node_fraction > 0.4 carry community_type: "generated-dominated".
-    def test_wave_graph_report_communities_flag_generated_dominated(self):
-        result = self.srv.wave_graph_report_response(self.root, layer="project", limit=10)
+    def test_wf_graph_report_communities_flag_generated_dominated(self):
+        result = self.srv.wf_graph_report_response(self.root, layer="project", limit=10)
         report = result["data"]
         communities = report["communities"]
         elp = next((c for c in communities if c["community_id"] == "project:c2"), None)
@@ -16893,9 +16925,9 @@ class TestGeneratedCodeFilter(unittest.TestCase):
         self.assertNotIn("community_type", hw)
 
     # AC-8: exclude_generated removes generated nodes from fan_in/fan_out/chokepoints.
-    def test_wave_graph_report_exclude_generated_filters_fan_sections(self):
-        result_off = self.srv.wave_graph_report_response(self.root, layer="project", limit=20)
-        result_on = self.srv.wave_graph_report_response(self.root, layer="project", limit=20, exclude_generated=True)
+    def test_wf_graph_report_exclude_generated_filters_fan_sections(self):
+        result_off = self.srv.wf_graph_report_response(self.root, layer="project", limit=20)
+        result_on = self.srv.wf_graph_report_response(self.root, layer="project", limit=20, exclude_generated=True)
         fan_in_off = {r["node_id"] for r in result_off["data"].get("fan_in", [])}
         fan_in_on = {r["node_id"] for r in result_on["data"].get("fan_in", [])}
         # Off: includes generated nodes (jj_scan_token is the most-called target in our fixture).
@@ -16906,8 +16938,8 @@ class TestGeneratedCodeFilter(unittest.TestCase):
         self.assertTrue(result_on["data"]["exclude_generated"])
 
     # AC-8: exclude_generated also filters communities-section generated-dominated entries.
-    def test_wave_graph_report_exclude_generated_filters_communities(self):
-        result = self.srv.wave_graph_report_response(self.root, layer="project", limit=10, exclude_generated=True)
+    def test_wf_graph_report_exclude_generated_filters_communities(self):
+        result = self.srv.wf_graph_report_response(self.root, layer="project", limit=10, exclude_generated=True)
         communities = result["data"]["communities"]
         # Handwritten survives; ELParser (generated-dominated) is filtered.
         cids = {c["community_id"] for c in communities}
@@ -16956,7 +16988,7 @@ class TestNameCollisionCount(unittest.TestCase):
 
     # AC-2/AC-3: collision entry carries name_collision_count > 1 reflecting node count.
     def test_fan_in_collision_entry_carries_count(self):
-        result = self.srv.wave_graph_report_response(self.root, layer="project", limit=20)
+        result = self.srv.wf_graph_report_response(self.root, layer="project", limit=20)
         fan_in = result["data"]["fan_in"]
         alpha_entry = next((r for r in fan_in if r["node_id"] == "src/a.py::Alpha.process"), None)
         self.assertIsNotNone(alpha_entry)
@@ -16965,7 +16997,7 @@ class TestNameCollisionCount(unittest.TestCase):
 
     # AC-2/AC-3: unique-name entry carries name_collision_count == 1.
     def test_fan_in_unique_entry_carries_count_one(self):
-        result = self.srv.wave_graph_report_response(self.root, layer="project", limit=20)
+        result = self.srv.wf_graph_report_response(self.root, layer="project", limit=20)
         fan_in = result["data"]["fan_in"]
         unique_entry = next((r for r in fan_in if r["node_id"] == "src/d.py::unique_helper"), None)
         self.assertIsNotNone(unique_entry)
@@ -16973,7 +17005,7 @@ class TestNameCollisionCount(unittest.TestCase):
 
     # AC-2: field present on fan_out entries too.
     def test_fan_out_entries_carry_collision_count(self):
-        result = self.srv.wave_graph_report_response(self.root, layer="project", limit=20)
+        result = self.srv.wf_graph_report_response(self.root, layer="project", limit=20)
         fan_out = result["data"].get("fan_out", [])
         for row in fan_out:
             self.assertIn("name_collision_count", row)
@@ -16982,7 +17014,7 @@ class TestNameCollisionCount(unittest.TestCase):
 
     # 1312b AC-1: same_name_node_count carries the same value as the deprecated alias.
     def test_same_name_node_count_matches_legacy_alias(self):
-        result = self.srv.wave_graph_report_response(self.root, layer="project", limit=20)
+        result = self.srv.wf_graph_report_response(self.root, layer="project", limit=20)
         fan_in = result["data"]["fan_in"]
         alpha_entry = next((r for r in fan_in if r["node_id"] == "src/a.py::Alpha.process"), None)
         self.assertIsNotNone(alpha_entry)
@@ -16991,7 +17023,7 @@ class TestNameCollisionCount(unittest.TestCase):
 
     # 1312b AC-2: cross_file_collision true when same-name nodes span 2+ files.
     def test_cross_file_collision_true_when_multiple_files(self):
-        result = self.srv.wave_graph_report_response(self.root, layer="project", limit=20)
+        result = self.srv.wf_graph_report_response(self.root, layer="project", limit=20)
         fan_in = result["data"]["fan_in"]
         alpha_entry = next((r for r in fan_in if r["node_id"] == "src/a.py::Alpha.process"), None)
         self.assertIsNotNone(alpha_entry)
@@ -17000,7 +17032,7 @@ class TestNameCollisionCount(unittest.TestCase):
 
     # 1312b AC-2: cross_file_collision false for unique-name entries.
     def test_cross_file_collision_false_for_unique_name(self):
-        result = self.srv.wave_graph_report_response(self.root, layer="project", limit=20)
+        result = self.srv.wf_graph_report_response(self.root, layer="project", limit=20)
         fan_in = result["data"]["fan_in"]
         unique_entry = next((r for r in fan_in if r["node_id"] == "src/d.py::unique_helper"), None)
         self.assertIsNotNone(unique_entry)
@@ -17051,7 +17083,7 @@ class TestExternalNameCollisionCount(unittest.TestCase):
 
     # 1316p (updates 1312b AC-3): allowlist hit fires the field — graph residue irrelevant.
     def test_writeobject_allowlist_hit_fires_collision_flag(self):
-        result = self.srv.wave_graph_report_response(self.root, layer="project", limit=20)
+        result = self.srv.wf_graph_report_response(self.root, layer="project", limit=20)
         fan_in = result["data"]["fan_in"]
         json_entry = next((r for r in fan_in if r["node_id"] == "src/JSON.java::JSON.writeObject"), None)
         self.assertIsNotNone(json_entry)
@@ -17107,7 +17139,7 @@ class TestExternalNameCollisionAllowlist(unittest.TestCase):
              "target": "src/SpringUserListJob.java::SpringUserListJob.run", "relation": "calls"},
         ]
         self._write_graph(nodes, edges)
-        result = self.srv.wave_graph_report_response(self.root, layer="project", limit=20)
+        result = self.srv.wf_graph_report_response(self.root, layer="project", limit=20)
         fan_in = result["data"]["fan_in"]
         run_entry = next((r for r in fan_in if r["node_id"] == "src/SpringUserListJob.java::SpringUserListJob.run"), None)
         self.assertIsNotNone(run_entry)
@@ -17130,7 +17162,7 @@ class TestExternalNameCollisionAllowlist(unittest.TestCase):
              "target": "src/MyJob.java::MyJob.runMyVeryCustomMethod", "relation": "calls"},
         ]
         self._write_graph(nodes, edges)
-        result = self.srv.wave_graph_report_response(self.root, layer="project", limit=20)
+        result = self.srv.wf_graph_report_response(self.root, layer="project", limit=20)
         fan_in = result["data"]["fan_in"]
         entry = next((r for r in fan_in if r["node_id"] == "src/MyJob.java::MyJob.runMyVeryCustomMethod"), None)
         self.assertIsNotNone(entry)
@@ -17155,7 +17187,7 @@ class TestExternalNameCollisionAllowlist(unittest.TestCase):
             {"source": "src/Caller.java::Caller.go", "target": "src/Util.java::ReflectionUtil.getMethod", "relation": "calls"},
         ]
         self._write_graph(nodes, edges)
-        result = self.srv.wave_graph_report_response(self.root, layer="project", limit=20)
+        result = self.srv.wf_graph_report_response(self.root, layer="project", limit=20)
         fan_in = result["data"]["fan_in"]
         for nid in ("src/Resource.java::Resource.close",
                     "src/Value.java::Value.equals",
@@ -17208,7 +17240,7 @@ class TestStdlibAllowlistMultiLanguage(unittest.TestCase):
              "target": f"src/Foo{lang_ext}::Foo.{method_name}", "relation": "calls"},
         ]
         self._write_graph(nodes, edges)
-        result = self.srv.wave_graph_report_response(self.root, layer="project", limit=20)
+        result = self.srv.wf_graph_report_response(self.root, layer="project", limit=20)
         fan_in = result["data"]["fan_in"]
         return next((r for r in fan_in if r["node_id"] == f"src/Foo{lang_ext}::Foo.{method_name}"), None)
 
@@ -17352,7 +17384,7 @@ class TestExcludeExternalFilter(unittest.TestCase):
 
     # AC-1: default preserves externals (backward compat).
     def test_default_off_preserves_externals(self):
-        result = self.srv.wave_graph_report_response(self.root, layer="project", limit=20)
+        result = self.srv.wf_graph_report_response(self.root, layer="project", limit=20)
         report = result["data"]
         fan_in_ids = {r["node_id"] for r in report["fan_in"]}
         self.assertIn("external::stdlib_get", fan_in_ids)
@@ -17360,7 +17392,7 @@ class TestExcludeExternalFilter(unittest.TestCase):
 
     # AC-1: exclude_external=True removes external entries from fan_in.
     def test_exclude_external_filters_fan_in(self):
-        result = self.srv.wave_graph_report_response(
+        result = self.srv.wf_graph_report_response(
             self.root, layer="project", limit=20, exclude_external=True
         )
         report = result["data"]
@@ -17372,14 +17404,14 @@ class TestExcludeExternalFilter(unittest.TestCase):
 
     # AC-3: response echoes the flag.
     def test_exclude_external_flag_echoed(self):
-        result = self.srv.wave_graph_report_response(
+        result = self.srv.wf_graph_report_response(
             self.root, layer="project", limit=20, exclude_external=True
         )
         self.assertTrue(result["data"]["exclude_external"])
 
     # AC-4: combined with exclude_generated returns project-internal non-generated rankings.
     def test_exclude_external_combined_with_exclude_generated(self):
-        result = self.srv.wave_graph_report_response(
+        result = self.srv.wf_graph_report_response(
             self.root, layer="project", limit=20,
             exclude_external=True, exclude_generated=True,
         )
@@ -17392,7 +17424,7 @@ class TestExcludeExternalFilter(unittest.TestCase):
 class TestModuleFanOutCountSemantics(unittest.TestCase):
     """1312f: lock the kind:"module" fan_out count decomposition.
 
-    The doc on wave_graph_report describes module-kind ``count`` as aggregating
+    The doc on wf_graph_report describes module-kind ``count`` as aggregating
     outgoing ``defines`` + ``imports`` + ``calls`` from the file node. This test
     locks the exact value for a known synthetic fixture so that future indexer
     changes can't drift the count silently.
@@ -17452,17 +17484,17 @@ class TestModuleFanOutCountSemantics(unittest.TestCase):
         self.assertIsNotNone(lib_entry, f"src/lib.py missing from fan_out: {fan_out}")
         # Locked contract: count is calls-edge fan_out only (2 in fixture).
         # If the indexer changes to count defines + imports too, update this assertion AND
-        # the wave_graph_report docstring in the same PR so the contract stays in sync.
+        # the wf_graph_report docstring in the same PR so the contract stays in sync.
         self.assertEqual(
             lib_entry["count"], 2,
             f"module fan_out count drifted; expected 2 (calls edges only), got {lib_entry['count']}. "
-            "Update docstring on wave_graph_report if intentional."
+            "Update docstring on wf_graph_report if intentional."
         )
         self.assertEqual(lib_entry["kind"], "module")
 
 
 class TestBetweennessServedFromArtifact(unittest.TestCase):
-    """Wave 1p9q3 (1p9q1): wave_graph_report serves the betweenness ranking
+    """Wave 1p9q3 (1p9q1): wf_graph_report serves the betweenness ranking
     persisted at build time in the clusters artifact — no query-time igraph
     computation, no graph-size cap; legacy artifacts degrade gracefully.
     (Supersedes 130tw's TestBetweennessComputedField: the computed/skipped
@@ -17535,7 +17567,7 @@ class TestBetweennessServedFromArtifact(unittest.TestCase):
     def test_betweenness_served_from_persisted_artifact(self):
         self._small_graph()
         self._write_clusters(betweenness=self._betweenness_section())
-        result = self.srv.wave_graph_report_response(
+        result = self.srv.wf_graph_report_response(
             self.root, layer="project", limit=10, sections=["betweenness"]
         )
         report = result["data"]
@@ -17555,7 +17587,7 @@ class TestBetweennessServedFromArtifact(unittest.TestCase):
     def test_betweenness_cutoff_metadata_surfaced(self):
         self._small_graph()
         self._write_clusters(betweenness=self._betweenness_section(method="cutoff", cutoff=6))
-        result = self.srv.wave_graph_report_response(
+        result = self.srv.wf_graph_report_response(
             self.root, layer="project", limit=10, sections=["betweenness"]
         )
         report = result["data"]
@@ -17570,7 +17602,7 @@ class TestBetweennessServedFromArtifact(unittest.TestCase):
             for i in range(5)
         ]
         self._write_clusters(betweenness=section)
-        result = self.srv.wave_graph_report_response(
+        result = self.srv.wf_graph_report_response(
             self.root, layer="project", limit=2, sections=["betweenness"]
         )
         self.assertEqual(len(result["data"]["betweenness"]), 2)
@@ -17579,7 +17611,7 @@ class TestBetweennessServedFromArtifact(unittest.TestCase):
     def test_legacy_clusters_artifact_without_section_is_graceful(self):
         self._small_graph()
         self._write_clusters(betweenness=None)
-        result = self.srv.wave_graph_report_response(
+        result = self.srv.wf_graph_report_response(
             self.root, layer="project", limit=10, sections=["betweenness"]
         )
         report = result["data"]
@@ -17590,7 +17622,7 @@ class TestBetweennessServedFromArtifact(unittest.TestCase):
 
     def test_missing_clusters_artifact_is_graceful(self):
         self._small_graph()
-        result = self.srv.wave_graph_report_response(
+        result = self.srv.wf_graph_report_response(
             self.root, layer="project", limit=10, sections=["betweenness"]
         )
         report = result["data"]
@@ -17608,7 +17640,7 @@ class TestBetweennessServedFromArtifact(unittest.TestCase):
         ]
         self._write_graph(nodes, [])
         self._write_clusters(betweenness=self._betweenness_section(node_count=10_005))
-        result = self.srv.wave_graph_report_response(
+        result = self.srv.wf_graph_report_response(
             self.root, layer="project", limit=10, sections=["betweenness"]
         )
         report = result["data"]
@@ -17631,7 +17663,7 @@ class TestBetweennessServedFromArtifact(unittest.TestCase):
         self._small_graph()
         self._write_clusters(betweenness=self._betweenness_section())
         with unittest.mock.patch.dict(sys.modules, {"igraph": fake_igraph}):
-            result = self.srv.wave_graph_report_response(
+            result = self.srv.wf_graph_report_response(
                 self.root, layer="project", limit=10, sections=["betweenness"]
             )
         report = result["data"]
@@ -17849,8 +17881,8 @@ class TestLargeCommunityPagination(unittest.TestCase):
 
 
 class TestGraphRebuildDiscoverability(unittest.TestCase):
-    """1316n: wave_index_health breaks out graph readiness separately;
-    wave_index_build reports graph counts + notice clarification when content
+    """1316n: index_health breaks out graph readiness separately;
+    index_build reports graph counts + notice clarification when content
     is not 'graph'. Surfaces the field-reported misread where rebuilding the
     semantic layer looked like a full refresh but the graph was untouched.
     """
@@ -17943,7 +17975,7 @@ class TestEmptySectionDiagnosticFields(unittest.TestCase):
                               "source_file": f"src/t{src_idx}_{j}.py", "source_location": "1:0"})
                 edges.append({"source": src["id"], "target": tgt_id, "relation": "calls"})
         self._write_graph(nodes, edges)
-        result = self.srv.wave_graph_report_response(self.root, layer="project", limit=10)
+        result = self.srv.wf_graph_report_response(self.root, layer="project", limit=10)
         data = result["data"]
         self.assertEqual(data["chokepoints"], [])
         self.assertEqual(data["chokepoints_candidates_total"], 3,
@@ -17963,7 +17995,7 @@ class TestEmptySectionDiagnosticFields(unittest.TestCase):
                           "source_file": f"src/t{i}.py", "source_location": "1:0"})
             edges.append({"source": "src/Lib.py", "target": tgt_id, "relation": "calls"})
         self._write_graph(nodes, edges)
-        result = self.srv.wave_graph_report_response(self.root, layer="project", limit=10)
+        result = self.srv.wf_graph_report_response(self.root, layer="project", limit=10)
         data = result["data"]
         self.assertEqual(data["file_hubs"], [])
         self.assertEqual(data["file_hubs_candidates_total"], 1)
@@ -17977,7 +18009,7 @@ class TestEmptySectionDiagnosticFields(unittest.TestCase):
              "source_file": "src/a.py", "source_location": "1:0"},
         ]
         self._write_graph(nodes, [])
-        result = self.srv.wave_graph_report_response(self.root, layer="project", limit=10)
+        result = self.srv.wf_graph_report_response(self.root, layer="project", limit=10)
         data = result["data"]
         self.assertEqual(data["orphan_docs"], [])
         self.assertEqual(data["orphan_docs_candidates_total"], 0)
@@ -17990,7 +18022,7 @@ class TestEmptySectionDiagnosticFields(unittest.TestCase):
             [],
             layer="project",
         )
-        result = self.srv.wave_graph_report_response(self.root, layer="project", limit=10)
+        result = self.srv.wf_graph_report_response(self.root, layer="project", limit=10)
         data = result["data"]
         self.assertNotIn("cross_layer", data)
         self.assertNotIn("cross_layer_candidates_total", data)
@@ -18055,7 +18087,7 @@ class TestModuleSimpleNameExtraction(unittest.TestCase):
             edges.append({"source": "src/StatusBarManager.swift", "target": tgt_id, "relation": "calls"})
             edges.append({"source": "src/LightingRoutines.swift", "target": tgt_id, "relation": "calls"})
         self._write_graph(nodes, edges)
-        result = self.srv.wave_graph_report_response(self.root, layer="project", limit=20)
+        result = self.srv.wf_graph_report_response(self.root, layer="project", limit=20)
         file_hubs = result["data"].get("file_hubs", [])
         sb = next((r for r in file_hubs if r["node_id"] == "src/StatusBarManager.swift"), None)
         lr = next((r for r in file_hubs if r["node_id"] == "src/LightingRoutines.swift"), None)
@@ -18088,7 +18120,7 @@ class TestModuleSimpleNameExtraction(unittest.TestCase):
                           "source_file": f"src/t{i}.swift", "source_location": "1:0"})
             edges.append({"source": "src/Foo.swift", "target": tgt_id, "relation": "calls"})
         self._write_graph(nodes, edges)
-        result = self.srv.wave_graph_report_response(self.root, layer="project", limit=20)
+        result = self.srv.wf_graph_report_response(self.root, layer="project", limit=20)
         file_hubs = result["data"].get("file_hubs", [])
         foo_module = next((r for r in file_hubs if r["node_id"] == "src/Foo.swift"), None)
         self.assertIsNotNone(foo_module)
@@ -18114,7 +18146,7 @@ class TestModuleSimpleNameExtraction(unittest.TestCase):
             {"source": "src/caller.py::main", "target": "src/a.py::Helper.process", "relation": "calls"},
         ]
         self._write_graph(nodes, edges)
-        result = self.srv.wave_graph_report_response(self.root, layer="project", limit=20)
+        result = self.srv.wf_graph_report_response(self.root, layer="project", limit=20)
         fan_in = result["data"]["fan_in"]
         a_proc = next((r for r in fan_in if r["node_id"] == "src/a.py::Helper.process"), None)
         self.assertIsNotNone(a_proc)
@@ -18134,7 +18166,7 @@ class TestModuleSimpleNameExtraction(unittest.TestCase):
             {"source": "src/Other.swift", "target": "src/x::sym", "relation": "calls"},
         ]
         self._write_graph(nodes, edges)
-        result = self.srv.wave_graph_report_response(self.root, layer="project", limit=20)
+        result = self.srv.wf_graph_report_response(self.root, layer="project", limit=20)
         fan_out = result["data"].get("fan_out", [])
         mk = next((r for r in fan_out if r["node_id"] == "src/Makefile"), None)
         ot = next((r for r in fan_out if r["node_id"] == "src/Other.swift"), None)
@@ -18184,7 +18216,7 @@ class TestFileHubsSectionSplit(unittest.TestCase):
 
     # AC-1: file_hubs populated with kind=module entries.
     def test_file_hubs_section_contains_module_entries(self):
-        result = self.srv.wave_graph_report_response(self.root, layer="project", limit=10)
+        result = self.srv.wf_graph_report_response(self.root, layer="project", limit=10)
         report = result["data"]
         self.assertIn("file_hubs", report)
         ids = {r["node_id"] for r in report["file_hubs"]}
@@ -18195,7 +18227,7 @@ class TestFileHubsSectionSplit(unittest.TestCase):
 
     # AC-2: chokepoints no longer contains kind=module entries.
     def test_chokepoints_excludes_module_entries(self):
-        result = self.srv.wave_graph_report_response(self.root, layer="project", limit=10)
+        result = self.srv.wf_graph_report_response(self.root, layer="project", limit=10)
         report = result["data"]
         chokepoints = report.get("chokepoints", [])
         ids = {r["node_id"] for r in chokepoints}
@@ -18207,10 +18239,10 @@ class TestFileHubsSectionSplit(unittest.TestCase):
     # AC-3/AC-5: file_hubs is in default section set and accessible via explicit sections=["file_hubs"].
     def test_file_hubs_default_included_and_explicit_request_works(self):
         # Default section set.
-        default_result = self.srv.wave_graph_report_response(self.root, layer="project", limit=10)
+        default_result = self.srv.wf_graph_report_response(self.root, layer="project", limit=10)
         self.assertIn("file_hubs", default_result["data"])
         # Explicit request.
-        explicit_result = self.srv.wave_graph_report_response(
+        explicit_result = self.srv.wf_graph_report_response(
             self.root, layer="project", limit=10, sections=["file_hubs"]
         )
         self.assertIn("file_hubs", explicit_result["data"])
@@ -18407,7 +18439,7 @@ class TestCollapseClassModulePairs(unittest.TestCase):
 
 
 class TestGeneratedCodeCollapse(unittest.TestCase):
-    """130su-enh generated-code-collapse-mode: file-as-black-box collapse for wave_graph_report."""
+    """130su-enh generated-code-collapse-mode: file-as-black-box collapse for wf_graph_report."""
 
     def setUp(self):
         # Load graph_query directly for unit-testing the collapse helper.
@@ -18558,7 +18590,7 @@ class TestGeneratedCodeCollapse(unittest.TestCase):
 
 
 class TestWaveGraphReportCollapseIntegration(unittest.TestCase):
-    """130su: collapse_generated_files end-to-end through wave_graph_report_response."""
+    """130su: collapse_generated_files end-to-end through wf_graph_report_response."""
 
     @classmethod
     def setUpClass(cls):
@@ -18607,9 +18639,9 @@ class TestWaveGraphReportCollapseIntegration(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    # AC-5/AC-6: collapse_generated_files=True runs wave_graph_report over the collapsed view.
+    # AC-5/AC-6: collapse_generated_files=True runs wf_graph_report over the collapsed view.
     def test_collapse_runs_report_over_collapsed_view(self):
-        result = self.srv.wave_graph_report_response(self.root, layer="project", limit=20, collapse_generated_files=True)
+        result = self.srv.wf_graph_report_response(self.root, layer="project", limit=20, collapse_generated_files=True)
         self.assertEqual(result["status"], "ok")
         report = result["data"]
         self.assertTrue(report["collapse_generated_files"])
@@ -18623,7 +18655,7 @@ class TestWaveGraphReportCollapseIntegration(unittest.TestCase):
 
     # AC-7: default behavior (collapse_generated_files=False) unchanged.
     def test_collapse_default_off_preserves_full_graph(self):
-        result = self.srv.wave_graph_report_response(self.root, layer="project", limit=20)
+        result = self.srv.wf_graph_report_response(self.root, layer="project", limit=20)
         report = result["data"]
         self.assertFalse(report["collapse_generated_files"])
         fan_in = {r["node_id"] for r in report.get("fan_in", [])}
@@ -18935,7 +18967,7 @@ class TestPreBumpGraphReceiverTypeDefense(unittest.TestCase):
     """1312l delivery review: cached pre-bump (GRAPH_BUILDER_VERSION=12) graphs
     carry phantom Java edges from simple-name attribution at index time.
     Operators upgrading from 1.2.0+312f read the old graph until
-    `wave_index_build` re-extracts it. Verify the wave-130rj defense-in-depth
+    `index_build` re-extracts it. Verify the wave-130rj defense-in-depth
     filter in `code_callhierarchy_response` still suppresses those phantoms
     via AST-time receiver-type resolution on the source files.
     """
@@ -19676,29 +19708,29 @@ class TestMcpWrapperParameterExposure(unittest.TestCase):
         props = schema.get("properties", {})
         return set(props.keys()) if isinstance(props, dict) else set()
 
-    def test_wave_graph_report_exposes_exclude_generated(self):
+    def test_wf_graph_report_exposes_exclude_generated(self):
         """130rj Change 5: exclude_generated must appear at MCP wrapper level."""
-        props = self._properties("wave_graph_report")
+        props = self._properties("wf_graph_report")
         self.assertIn("exclude_generated", props,
-                      f"exclude_generated missing from wave_graph_report MCP schema; got {props}")
+                      f"exclude_generated missing from wf_graph_report MCP schema; got {props}")
 
-    def test_wave_graph_report_exposes_collapse_generated_files(self):
+    def test_wf_graph_report_exposes_collapse_generated_files(self):
         """130rj Change 5b: collapse_generated_files must appear at MCP wrapper level."""
-        props = self._properties("wave_graph_report")
+        props = self._properties("wf_graph_report")
         self.assertIn("collapse_generated_files", props,
-                      f"collapse_generated_files missing from wave_graph_report MCP schema; got {props}")
+                      f"collapse_generated_files missing from wf_graph_report MCP schema; got {props}")
 
-    def test_wave_graph_report_exposes_exclude_external(self):
+    def test_wf_graph_report_exposes_exclude_external(self):
         """130rj Change 130tw #2: exclude_external must appear at MCP wrapper level."""
-        props = self._properties("wave_graph_report")
+        props = self._properties("wf_graph_report")
         self.assertIn("exclude_external", props,
-                      f"exclude_external missing from wave_graph_report MCP schema; got {props}")
+                      f"exclude_external missing from wf_graph_report MCP schema; got {props}")
 
-    def test_wave_graph_report_exposes_collapse_class_module_pairs(self):
+    def test_wf_graph_report_exposes_collapse_class_module_pairs(self):
         """13129 Change 1312h: collapse_class_module_pairs must appear at MCP wrapper level."""
-        props = self._properties("wave_graph_report")
+        props = self._properties("wf_graph_report")
         self.assertIn("collapse_class_module_pairs", props,
-                      f"collapse_class_module_pairs missing from wave_graph_report MCP schema; got {props}")
+                      f"collapse_class_module_pairs missing from wf_graph_report MCP schema; got {props}")
 
     def test_code_graph_community_exposes_hub_node_id(self):
         """13129 Change 1316r: hub_node_id parameter must appear at MCP wrapper level."""
@@ -19725,11 +19757,11 @@ class TestMcpWrapperParameterExposure(unittest.TestCase):
         """Sanity: introspection doesn't accidentally break the existing tool set."""
         mcp = self._build_thin_runner.build_server(self.root)
         names = self.srv._registered_mcp_tool_names(mcp)
-        for tool in ("wave_graph_report", "code_graph_community", "code_callhierarchy", "code_impact", "code_callgraph"):
+        for tool in ("wf_graph_report", "code_graph_community", "code_callhierarchy", "code_impact", "code_callgraph"):
             self.assertIn(tool, names, f"{tool} not registered with MCP")
 
     def test_review_evidence_authoring_exposes_compact_public_schema(self):
-        props = self._properties("wave_record_review_evidence")
+        props = self._properties("wf_review_evidence")
         for required in (
             "wave_id",
             "event",
@@ -19743,7 +19775,7 @@ class TestMcpWrapperParameterExposure(unittest.TestCase):
             self.assertIn(
                 required,
                 props,
-                f"{required} missing from wave_record_review_evidence MCP schema; got {props}",
+                f"{required} missing from wf_review_evidence MCP schema; got {props}",
             )
 
 
@@ -19928,7 +19960,7 @@ class TestLanceDBIndex(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# wave_dashboard_open tests (12qme-enh dashboard-open-browser)
+# wf_open_dashboard tests (12qme-enh dashboard-open-browser)
 # ---------------------------------------------------------------------------
 
 def _make_mock_dashboard_lib(meta_path, *, browser_open_enabled: bool = True):
@@ -19941,7 +19973,7 @@ def _make_mock_dashboard_lib(meta_path, *, browser_open_enabled: bool = True):
 
 
 class WaveDashboardOpenTests(unittest.TestCase):
-    """Tests for wave_dashboard_open_response (AC-2, AC-3, AC-4)."""
+    """Tests for wf_open_dashboard_response (AC-2, AC-3, AC-4)."""
 
     @classmethod
     def setUpClass(cls):
@@ -19984,29 +20016,29 @@ class WaveDashboardOpenTests(unittest.TestCase):
              patch.object(server_impl, "_dashboard_cmdline_pids", return_value=[12345]), \
              patch.object(server_impl, "_pid_is_running", return_value=True), \
              patch("webbrowser.open") as mock_wb:
-            result = self.srv.wave_dashboard_open_response(self.root)
+            result = self.srv.wf_open_dashboard_response(self.root)
         self.assertEqual(result["status"], "ok")
         self.assertTrue(result["data"].get("opened"))
         self.assertEqual(result["data"].get("url"), "http://localhost:7890")
         mock_wb.assert_called_once_with("http://localhost:7890")
 
     def test_open_when_not_running_delegates_to_start(self):
-        """AC-3: when dashboard not running, delegates to wave_dashboard_start_response."""
+        """AC-3: when dashboard not running, delegates to wf_start_dashboard_response."""
         # No meta file written — dashboard not running path via empty mock lib.
         import sys
         import server_impl
         mock_lib = _make_mock_dashboard_lib(self._meta_path)  # meta_path doesn't exist
         with patch.dict(sys.modules, {"dashboard_lib": mock_lib}), \
              patch.object(
-                 server_impl, "wave_dashboard_start_response",
+                 server_impl, "wf_start_dashboard_response",
                  return_value={"status": "ok", "data": {"started": True}},
              ) as mock_start:
-            result = self.srv.wave_dashboard_open_response(self.root)
+            result = self.srv.wf_open_dashboard_response(self.root)
         mock_start.assert_called_once_with(self.root)
         self.assertEqual(result["data"]["started"], True)
 
     def test_start_already_running_includes_next_tools_dashboard_open(self):
-        """AC-4: wave_dashboard_start when already running includes next_tools=['wave_dashboard_open']."""
+        """AC-4: wf_start_dashboard when already running includes next_tools=['wf_open_dashboard']."""
         self._write_meta(pid=12345, url="http://localhost:7890")
         import sys
         mock_lib = _make_mock_dashboard_lib(self._meta_path)
@@ -20014,10 +20046,10 @@ class WaveDashboardOpenTests(unittest.TestCase):
         with patch.dict(sys.modules, {"dashboard_lib": mock_lib}), \
              patch.object(server_impl, "_dashboard_cmdline_pids", return_value=[12345]), \
              patch.object(server_impl, "_pid_is_running", return_value=True):
-            result = self.srv.wave_dashboard_start_response(self.root)
+            result = self.srv.wf_start_dashboard_response(self.root)
         self.assertEqual(result["status"], "ok")
         self.assertTrue(result["data"].get("already_running"))
-        self.assertIn("wave_dashboard_open", result.get("next_tools", []))
+        self.assertIn("wf_open_dashboard", result.get("next_tools", []))
 
     def test_start_lock_busy_returns_already_running_without_spawning(self):
         """Concurrent start attempts report an in-progress dashboard instead of spawning another."""
@@ -20034,7 +20066,7 @@ class WaveDashboardOpenTests(unittest.TestCase):
         with patch.object(dashboard_lib, "dashboard_start_lock", return_value=BusyLock()), \
              patch.object(server_impl, "DASHBOARD_START_WAIT_SECONDS", 0.0), \
              patch("subprocess.Popen") as popen:
-            result = self.srv.wave_dashboard_start_response(self.root)
+            result = self.srv.wf_start_dashboard_response(self.root)
 
         popen.assert_not_called()
         self.assertEqual(result["status"], "ok")
@@ -20105,7 +20137,7 @@ class WaveDashboardPersistentStartLockTests(unittest.TestCase):
             with patch("subprocess.Popen", side_effect=side_effect), \
                  patch.object(server_impl, "_dashboard_cmdline_pids", return_value=[]), \
                  patch.object(server_impl, "_pid_is_running", return_value=True):
-                result = self.srv.wave_dashboard_start_response(self.root)
+                result = self.srv.wf_start_dashboard_response(self.root)
             self.assertEqual(result["status"], "ok")
             self.assertTrue(result["data"].get("started"))
             self.assertTrue(
@@ -20129,7 +20161,7 @@ class WaveDashboardPersistentStartLockTests(unittest.TestCase):
              patch.object(server_impl, "_dashboard_cmdline_pids", return_value=[]), \
              patch.object(server_impl, "_pid_is_running", return_value=False), \
              patch.object(server_impl, "DASHBOARD_START_WAIT_SECONDS", 0.0):
-            result = self.srv.wave_dashboard_start_response(self.root)
+            result = self.srv.wf_start_dashboard_response(self.root)
         # url never confirmed → url_not_ready diagnostic; start.lock left in place.
         self.assertEqual(result["status"], "ok")
         self.assertTrue(
@@ -20146,7 +20178,7 @@ class WaveDashboardPersistentStartLockTests(unittest.TestCase):
         with patch("subprocess.Popen", side_effect=side_effect), \
              patch.object(server_impl, "_dashboard_cmdline_pids", return_value=[]), \
              patch.object(server_impl, "_pid_is_running", return_value=True):
-            result = self.srv.wave_dashboard_start_response(self.root)
+            result = self.srv.wf_start_dashboard_response(self.root)
         self.assertEqual(result["status"], "ok")
         self.assertTrue(result["data"].get("started"))
         self.assertTrue(
@@ -20180,7 +20212,7 @@ class WaveDashboardPersistentStartLockTests(unittest.TestCase):
         with patch.object(dashboard_lib, "dashboard_start_lock", return_value=BusyLock()), \
              patch.object(server_impl, "DASHBOARD_START_WAIT_SECONDS", 0.0), \
              patch("subprocess.Popen") as popen:
-            result = self.srv.wave_dashboard_start_response(self.root)
+            result = self.srv.wf_start_dashboard_response(self.root)
         popen.assert_not_called()
         self.assertTrue(result["data"].get("already_running"))
         self.assertTrue(result["data"].get("starting"))
@@ -20208,7 +20240,7 @@ class WaveDashboardBrowserSuppressTests(unittest.TestCase):
              patch.object(server_impl, "_dashboard_cmdline_pids", return_value=[]), \
              patch.object(server_impl, "_pid_is_running", return_value=False):
             popen.return_value = MagicMock(pid=99999)
-            self.srv.wave_dashboard_start_response(self.root)
+            self.srv.wf_start_dashboard_response(self.root)
         cmd = popen.call_args.args[0]
         self.assertNotIn("--open", cmd)
 
@@ -20224,7 +20256,7 @@ class WaveDashboardBrowserSuppressTests(unittest.TestCase):
         with patch("webbrowser.open") as mock_wb, \
              patch.object(server_impl, "_dashboard_cmdline_pids", return_value=[os.getpid()]), \
              patch.object(server_impl, "_pid_is_running", return_value=True):
-            result = server_impl.wave_dashboard_open_response(self.root)
+            result = server_impl.wf_open_dashboard_response(self.root)
         mock_wb.assert_not_called()
         self.assertFalse(result["data"].get("opened"))
         self.assertTrue(result["data"].get("browser_suppressed"))
@@ -20274,7 +20306,7 @@ class WaveDashboardPidRaceTests(unittest.TestCase):
              patch.object(server_impl, "_dashboard_cmdline_pids", return_value=[]), \
              patch.object(server_impl, "_dashboard_url_reachable", return_value=True), \
              patch.object(server_impl, "_pid_is_running", return_value=False):
-            result = self.srv.wave_dashboard_start_response(self.root)
+            result = self.srv.wf_start_dashboard_response(self.root)
 
         self.assertEqual(result["status"], "ok")
         self.assertTrue(result["data"].get("started"))
@@ -20300,7 +20332,7 @@ class WaveDashboardPidRaceTests(unittest.TestCase):
              patch.object(server_impl, "_pid_is_running", return_value=False), \
              patch.object(server_impl, "_dashboard_cmdline_pids", return_value=[4924]), \
              patch.object(server_impl, "_dashboard_url_reachable", return_value=True):
-            result = self.srv.wave_dashboard_start_response(self.root)
+            result = self.srv.wf_start_dashboard_response(self.root)
 
         popen.assert_not_called()
         self.assertEqual(result["status"], "ok")
@@ -20318,7 +20350,7 @@ class WaveDashboardPidRaceTests(unittest.TestCase):
              patch.object(server_impl, "_pid_is_running", return_value=False), \
              patch.object(server_impl, "DASHBOARD_START_WAIT_SECONDS", 0.0):
             popen.return_value = MagicMock(pid=4920)
-            result = self.srv.wave_dashboard_start_response(self.root)
+            result = self.srv.wf_start_dashboard_response(self.root)
 
         codes = {d.get("code") for d in (result.get("diagnostics") or [])}
         self.assertIn("url_not_ready", codes,
@@ -20391,33 +20423,33 @@ class PreferredPythonSubprocessTests(unittest.TestCase):
         called_cmd = popen_mock.call_args.args[0]
         self.assertEqual(called_cmd[0], str(venv_python))
 
-    def test_wave_dashboard_start_prefers_tool_venv_python(self):
+    def test_wf_start_dashboard_prefers_tool_venv_python(self):
         venv_python = self._make_venv_python()
         import server_impl
         with patch.dict(os.environ, {"WAVEFOUNDRY_TOOL_VENV": str(venv_python.parents[1])}), \
              patch("subprocess.Popen", return_value=MagicMock(pid=99999)) as popen_mock, \
              patch.object(server_impl, "_dashboard_cmdline_pids", return_value=[]), \
              patch.object(server_impl, "_pid_is_running", return_value=False):
-            self.srv.wave_dashboard_start_response(self.root)
+            self.srv.wf_start_dashboard_response(self.root)
         called_cmd = popen_mock.call_args.args[0]
         self.assertEqual(called_cmd[0], str(venv_python))
 
-    def test_wave_upgrade_prefers_tool_venv_python(self):
+    def test_wf_upgrade_prefers_tool_venv_python(self):
         venv_python = self._make_venv_python()
         mock_proc = MagicMock(returncode=0, stdout="Upgrade complete\n", stderr="")
         with patch.dict(os.environ, {"WAVEFOUNDRY_TOOL_VENV": str(venv_python.parents[1])}), \
              patch("subprocess.run", return_value=mock_proc) as run_mock:
-            self.srv.wave_upgrade_response(self.root, phase="preflight_to_docs_gate")
+            self.srv.wf_upgrade_response(self.root, phase="preflight_to_docs_gate")
         called_cmd = run_mock.call_args.args[0]
         self.assertEqual(called_cmd[0], str(venv_python))
 
 
 # ---------------------------------------------------------------------------
-# wave_upgrade_status + wave_upgrade + restart guard tests (12r08/12r0b)
+# wf_upgrade_status + wf_upgrade + restart guard tests (12r08/12r0b)
 # ---------------------------------------------------------------------------
 
 class WaveUpgradeStatusTests(unittest.TestCase):
-    """Tests for wave_upgrade_status_response (AC-5 / R5)."""
+    """Tests for wf_upgrade_status_response (AC-5 / R5)."""
 
     @classmethod
     def setUpClass(cls):
@@ -20446,14 +20478,14 @@ class WaveUpgradeStatusTests(unittest.TestCase):
         }), encoding="utf-8")
 
     def test_no_lock_returns_not_in_progress(self):
-        result = self.srv.wave_upgrade_status_response(self.root)
+        result = self.srv.wf_upgrade_status_response(self.root)
         self.assertEqual(result["status"], "ok")
         self.assertFalse(result["data"]["in_progress"])
         self.assertIsNone(result["data"]["to_version"])
 
     def test_lock_present_returns_in_progress(self):
         self._write_lock()
-        result = self.srv.wave_upgrade_status_response(self.root)
+        result = self.srv.wf_upgrade_status_response(self.root)
         self.assertEqual(result["status"], "ok")
         self.assertTrue(result["data"]["in_progress"])
         self.assertEqual(result["data"]["from_version"], "2026-05-10a")
@@ -20475,7 +20507,7 @@ class WaveUpgradeStatusTests(unittest.TestCase):
             "validation_worklist_remaining": 1,
         }
         with patch.object(self.srv, "_load_script", return_value=backfill):
-            result = self.srv.wave_upgrade_status_response(self.root)
+            result = self.srv.wf_upgrade_status_response(self.root)
         gate = result["data"]["memory_backfill"]
         self.assertEqual(gate["run_id"], "run-1")
         self.assertEqual(gate["candidates_pending"], 2)
@@ -20484,7 +20516,7 @@ class WaveUpgradeStatusTests(unittest.TestCase):
 
 
 class WaveDashboardRestartUpgradeGuardTests(unittest.TestCase):
-    """Tests for wave_dashboard_restart upgrade guard (AC-4 / R7)."""
+    """Tests for wf_restart_dashboard upgrade guard (AC-4 / R7)."""
 
     @classmethod
     def setUpClass(cls):
@@ -20515,29 +20547,29 @@ class WaveDashboardRestartUpgradeGuardTests(unittest.TestCase):
         mock_lib = _make_mock_dashboard_lib(self.root / ".wavefoundry" / "locks" / "dashboard-server.lock")
         with patch.dict(sys.modules, {"dashboard_lib": mock_lib}), \
              patch.object(self.srv, "_pid_is_running", return_value=False), \
-             patch.object(self.srv, "wave_dashboard_start_response",
+             patch.object(self.srv, "wf_start_dashboard_response",
                           return_value={"status": "ok", "data": {}}):
-            result = self.srv.wave_dashboard_restart_response(self.root)
+            result = self.srv.wf_restart_dashboard_response(self.root)
         self.assertNotEqual(result["status"], "error")
         self.assertNotIn("upgrade_in_progress", result.get("data", {}))
 
     def test_restart_allowed_when_no_lock(self):
         """Restart proceeds normally when no upgrade lock is present."""
         # No lock file — restart should attempt to stop/start (both will find nothing running).
-        # Mock wave_dashboard_start_response to avoid spawning a real dashboard process.
+        # Mock wf_start_dashboard_response to avoid spawning a real dashboard process.
         import sys
         mock_lib = _make_mock_dashboard_lib(self.root / ".wavefoundry" / "locks" / "dashboard-server.lock")
         with patch.dict(sys.modules, {"dashboard_lib": mock_lib}), \
              patch.object(self.srv, "_pid_is_running", return_value=False), \
-             patch.object(self.srv, "wave_dashboard_start_response",
+             patch.object(self.srv, "wf_start_dashboard_response",
                           return_value={"status": "ok", "data": {}}):
-            result = self.srv.wave_dashboard_restart_response(self.root)
+            result = self.srv.wf_restart_dashboard_response(self.root)
         # Should not be blocked by upgrade guard.
         self.assertNotIn("upgrade_in_progress", result.get("data", {}))
 
 
 class WaveUpgradeMcpToolTests(unittest.TestCase):
-    """Tests for wave_upgrade_response (AC-2–AC-5 / 12r0b)."""
+    """Tests for wf_upgrade_response (AC-2–AC-5 / 12r0b)."""
 
     @classmethod
     def setUpClass(cls):
@@ -20552,7 +20584,7 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_invalid_phase_returns_error(self):
-        result = self.srv.wave_upgrade_response(self.root, phase="bad_phase")
+        result = self.srv.wf_upgrade_response(self.root, phase="bad_phase")
         self.assertEqual(result["status"], "error")
         self.assertIn("valid_phases", result["data"])
 
@@ -20563,7 +20595,7 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
         mock_proc.stdout = "Upgrade complete\n"
         mock_proc.stderr = ""
         with patch("subprocess.run", return_value=mock_proc):
-            result = self.srv.wave_upgrade_response(self.root, phase="preflight_to_docs_gate")
+            result = self.srv.wf_upgrade_response(self.root, phase="preflight_to_docs_gate")
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["data"]["exit_code"], 0)
         self.assertIn("Upgrade complete", result["data"]["output"])
@@ -20575,7 +20607,7 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
         mock_proc.stdout = ""
         mock_proc.stderr = "docs-lint failed"
         with patch("subprocess.run", return_value=mock_proc):
-            result = self.srv.wave_upgrade_response(self.root, phase="preflight_to_docs_gate")
+            result = self.srv.wf_upgrade_response(self.root, phase="preflight_to_docs_gate")
         self.assertEqual(result["status"], "error")
         self.assertEqual(result["data"]["exit_code"], 1)
         diag_codes = [d["code"] for d in result.get("diagnostics", [])]
@@ -20601,7 +20633,7 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
         with patch("subprocess.run", return_value=mock_proc), \
              patch.object(self.srv, "_load_upgrade_lib", return_value=upgrade_lib), \
              patch.object(self.srv, "_load_script", return_value=backfill):
-            result = self.srv.wave_upgrade_response(self.root)
+            result = self.srv.wf_upgrade_response(self.root)
         self.assertEqual(result["data"]["state"], "awaiting_memory_validation")
         gate = result["data"]["memory_backfill"]
         self.assertEqual(gate["run_id"], "run-2")
@@ -20615,7 +20647,7 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
         mock_proc.stdout = "Index updated\n"
         mock_proc.stderr = ""
         with patch("subprocess.run", return_value=mock_proc) as mock_run:
-            self.srv.wave_upgrade_response(self.root, phase="update_index")
+            self.srv.wf_upgrade_response(self.root, phase="update_index")
         called_cmd = mock_run.call_args[0][0]
         self.assertIn("--update-index", called_cmd)
         self.assertNotIn("--rebuild-index", called_cmd)
@@ -20627,7 +20659,7 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
         mock_proc.stdout = "Index rebuilt\n"
         mock_proc.stderr = ""
         with patch("subprocess.run", return_value=mock_proc) as mock_run:
-            self.srv.wave_upgrade_response(self.root, phase="rebuild_index")
+            self.srv.wf_upgrade_response(self.root, phase="rebuild_index")
         called_cmd = mock_run.call_args[0][0]
         self.assertIn("--rebuild-index", called_cmd)
         self.assertNotIn("--update-index", called_cmd)
@@ -20639,7 +20671,7 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
         mock_proc.stdout = "Lock removed\n"
         mock_proc.stderr = ""
         with patch("subprocess.run", return_value=mock_proc) as mock_run:
-            self.srv.wave_upgrade_response(self.root, phase="cleanup")
+            self.srv.wf_upgrade_response(self.root, phase="cleanup")
         called_cmd = mock_run.call_args[0][0]
         self.assertIn("--cleanup", called_cmd)
 
@@ -20651,7 +20683,7 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
         mock_proc.stdout = "Docs gate PASSED on resume\n"
         mock_proc.stderr = ""
         with patch("subprocess.run", return_value=mock_proc) as mock_run:
-            result = self.srv.wave_upgrade_response(self.root, phase="resume_after_gate", mode="apply")
+            result = self.srv.wf_upgrade_response(self.root, phase="resume_after_gate", mode="apply")
         called_cmd = mock_run.call_args[0][0]
         self.assertIn("--resume-after-gate", called_cmd)
         self.assertNotEqual(result.get("status"), "error")
@@ -20664,15 +20696,15 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
         mock_proc.stdout = ""
         mock_proc.stderr = "Docs gate still failing"
         with patch("subprocess.run", return_value=mock_proc):
-            result = self.srv.wave_upgrade_response(self.root, phase="resume_after_gate", mode="apply")
+            result = self.srv.wf_upgrade_response(self.root, phase="resume_after_gate", mode="apply")
         self.assertEqual(result["status"], "error")
         self.assertEqual(result["data"]["exit_code"], 1)
         self.assertIn("upgrade_failed", [d["code"] for d in result.get("diagnostics", [])])
-        self.assertIn("retry wave_upgrade(phase='resume_after_gate')", result["next_step"])
+        self.assertIn("retry wf_upgrade(phase='resume_after_gate')", result["next_step"])
         self.assertNotIn("update_index", result["next_step"])
         self.assertNotIn("phase='cleanup'", result["next_step"])
         self.assertEqual(
-            result["next_tools"], ["wave_upgrade_status", "wave_upgrade"]
+            result["next_tools"], ["wf_upgrade_status", "wf_upgrade"]
         )
 
     def test_projection_backstop_failure_is_not_misreported_as_memory_action(self):
@@ -20684,15 +20716,15 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
             "publication. Run --resume-after-gate."
         )
         with patch("subprocess.run", return_value=mock_proc):
-            result = self.srv.wave_upgrade_response(
+            result = self.srv.wf_upgrade_response(
                 self.root, phase="update_index", mode="apply"
             )
         self.assertEqual(result["status"], "error")
         self.assertNotEqual(result.get("data", {}).get("state"), "awaiting_memory_validation")
-        self.assertIn("retry wave_upgrade(phase='resume_after_gate')", result["next_step"])
+        self.assertIn("retry wf_upgrade(phase='resume_after_gate')", result["next_step"])
         self.assertNotIn("phase='cleanup'", result["next_step"])
         self.assertEqual(
-            result["next_tools"], ["wave_upgrade_status", "wave_upgrade"]
+            result["next_tools"], ["wf_upgrade_status", "wf_upgrade"]
         )
 
     def test_dry_run_mode_passes_flag_and_omits_yes(self):
@@ -20702,7 +20734,7 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
         mock_proc.stdout = "Dry Run\n"
         mock_proc.stderr = ""
         with patch("subprocess.run", return_value=mock_proc) as mock_run:
-            result = self.srv.wave_upgrade_response(self.root, mode="dry_run")
+            result = self.srv.wf_upgrade_response(self.root, mode="dry_run")
         self.assertEqual(result["status"], "ok")
         called_cmd = mock_run.call_args[0][0]
         self.assertIn("--dry-run", called_cmd)
@@ -20710,14 +20742,14 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
 
     def test_invalid_mode_returns_error(self):
         """Unknown mode returns error with valid_modes list."""
-        result = self.srv.wave_upgrade_response(self.root, mode="bad_mode")
+        result = self.srv.wf_upgrade_response(self.root, mode="bad_mode")
         self.assertEqual(result["status"], "error")
         self.assertIn("valid_modes", result["data"])
 
     def test_cleanup_apply_invokes_mcp_reload(self):
-        """AC-3: wave_upgrade cleanup+apply triggers in-process MCP reload.
+        """AC-3: wf_upgrade cleanup+apply triggers in-process MCP reload.
 
-        When phase='cleanup' and mode='apply' succeed, wave_upgrade_response
+        When phase='cleanup' and mode='apply' succeed, wf_upgrade_response
         must call server.perform_mcp_reload() and include its result under
         data['mcp_reload'].
         """
@@ -20733,7 +20765,7 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
         }
         with patch("subprocess.run", return_value=mock_proc), \
              patch.object(_server_mod, "perform_mcp_reload", return_value=reload_payload) as mock_reload:
-            result = self.srv.wave_upgrade_response(self.root, phase="cleanup", mode="apply")
+            result = self.srv.wf_upgrade_response(self.root, phase="cleanup", mode="apply")
         self.assertEqual(result["status"], "ok")
         mock_reload.assert_called_once()
         self.assertIn("mcp_reload", result["data"])
@@ -20763,7 +20795,7 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
         mock_proc.stdout = self._summary_output()
         mock_proc.stderr = ""
         with patch("subprocess.run", return_value=mock_proc):
-            result = self.srv.wave_upgrade_response(self.root, phase="update_index")
+            result = self.srv.wf_upgrade_response(self.root, phase="update_index")
         self.assertEqual(result["status"], "ok")
         summary = result["data"]["summary"]
         for key in ("from_version", "to_version", "pruned_count", "docs_gate",
@@ -20782,10 +20814,10 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
         mock_proc.stdout = self._summary_output()
         mock_proc.stderr = ""
         with patch("subprocess.run", return_value=mock_proc):
-            result = self.srv.wave_upgrade_response(self.root, phase="update_index")
+            result = self.srv.wf_upgrade_response(self.root, phase="update_index")
         self.assertIn("next_step", result)
         self.assertTrue(result["next_step"])
-        self.assertIn("wave_upgrade_status", result["next_tools"])
+        self.assertIn("wf_upgrade_status", result["next_tools"])
 
     def test_missing_summary_falls_back_to_output(self):
         """AC-3: an absent sentinel → no data['summary'], output preserved, no exception."""
@@ -20794,7 +20826,7 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
         mock_proc.stdout = "Upgrade complete\nFiles pruned:       0\n"  # no sentinel line
         mock_proc.stderr = ""
         with patch("subprocess.run", return_value=mock_proc):
-            result = self.srv.wave_upgrade_response(self.root, phase="update_index")
+            result = self.srv.wf_upgrade_response(self.root, phase="update_index")
         self.assertEqual(result["status"], "ok")
         self.assertNotIn("summary", result["data"])
         self.assertIn("Upgrade complete", result["data"]["output"])
@@ -20807,7 +20839,7 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
         mock_proc.stdout = "Upgrade complete\nWAVE_UPGRADE_SUMMARY_JSON:{not valid json,,}\n"
         mock_proc.stderr = ""
         with patch("subprocess.run", return_value=mock_proc):
-            result = self.srv.wave_upgrade_response(self.root, phase="update_index")
+            result = self.srv.wf_upgrade_response(self.root, phase="update_index")
         self.assertEqual(result["status"], "ok")
         self.assertNotIn("summary", result["data"])
         self.assertIn("Upgrade complete", result["data"]["output"])
@@ -20868,13 +20900,13 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
             "review-state or docs findings, then run --resume-after-gate."
         )
         with patch("subprocess.run", return_value=mock_proc):
-            result = self.srv.wave_upgrade_response(self.root, phase="preflight_to_docs_gate")
+            result = self.srv.wf_upgrade_response(self.root, phase="preflight_to_docs_gate")
         self.assertEqual(result["status"], "error")
-        self.assertIn("retry wave_upgrade(phase='resume_after_gate')", result["next_step"])
+        self.assertIn("retry wf_upgrade(phase='resume_after_gate')", result["next_step"])
         self.assertNotIn("phase='update_index'", result["next_step"])
         self.assertNotIn("phase='cleanup'", result["next_step"])
         self.assertEqual(
-            result["next_tools"], ["wave_upgrade_status", "wave_upgrade"]
+            result["next_tools"], ["wf_upgrade_status", "wf_upgrade"]
         )
         self.assertIn(
             "review-state projection or docs gate failed",
@@ -20935,7 +20967,7 @@ class ImplHandlerCloseTests(unittest.TestCase):
 
 
 class WavePrepareCouncilGateTests(unittest.TestCase):
-    """12sp5: wave_prepare council verdict gate — AC-1, AC-2, AC-3, AC-4."""
+    """12sp5: wf_prepare_wave council verdict gate — AC-1, AC-2, AC-3, AC-4."""
 
     @classmethod
     def setUpClass(cls):
@@ -20951,10 +20983,10 @@ class WavePrepareCouncilGateTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def _make_wave(self, slug: str) -> str:
-        wave_result = self.srv.wave_create_wave_response(self.root, slug, mode="create")
+        wave_result = self.srv.wf_create_wave_response(self.root, slug, mode="create")
         wave_id = wave_result["data"]["wave_id"]
         change = self.srv.new_change(self.root, "feat", f"{slug}-change")
-        self.srv.wave_add_change_response(self.root, wave_id, change["id"], mode="create")
+        self.srv.wf_add_change_response(self.root, wave_id, change["id"], mode="create")
         journal = self.root / "docs" / "agents" / "journals" / "wave-coordinator.md"
         prior = journal.read_text(encoding="utf-8") if journal.exists() else "# Journal\n"
         journal.write_text(prior + f"\nwave-id: `{wave_id}`\n", encoding="utf-8")
@@ -20978,11 +21010,11 @@ class WavePrepareCouncilGateTests(unittest.TestCase):
         )
 
     def test_prepare_create_blocked_without_council_verdict(self):
-        """AC-3: wave_prepare(mode='create') returns ready_for_council_review when no prepare-council verdict."""
+        """AC-3: wf_prepare_wave(mode='create') returns ready_for_council_review when no prepare-council verdict."""
         wave_id = self._make_wave("council-gate-block")
         with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
             with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
-                result = self.srv.wave_prepare_response(self.root, wave_id, mode="create")
+                result = self.srv.wf_prepare_wave_response(self.root, wave_id, mode="create")
         self.assertEqual(result["status"], "ready_for_council_review")
         codes = [d.get("code") for d in result.get("diagnostics", [])]
         self.assertIn("prepare_council_verdict_missing", codes)
@@ -20991,12 +21023,12 @@ class WavePrepareCouncilGateTests(unittest.TestCase):
         self.assertNotIn("Status: active", wave_md.read_text(encoding="utf-8"))
 
     def test_prepare_create_succeeds_with_council_verdict(self):
-        """AC-4: wave_prepare(mode='create') succeeds when prepare-council verdict is recorded."""
+        """AC-4: wf_prepare_wave(mode='create') succeeds when prepare-council verdict is recorded."""
         wave_id = self._make_wave("council-gate-pass")
         self._add_verdict(wave_id)
         with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
             with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
-                result = self.srv.wave_prepare_response(self.root, wave_id, mode="create")
+                result = self.srv.wf_prepare_wave_response(self.root, wave_id, mode="create")
         self.assertEqual(result["status"], "ok")
         wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
         self.assertIn("Status: active", wave_md.read_text(encoding="utf-8"))
@@ -21007,7 +21039,7 @@ class WavePrepareCouncilGateTests(unittest.TestCase):
         self._add_invalid_verdict(wave_id)
         with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
             with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
-                result = self.srv.wave_prepare_response(self.root, wave_id, mode="create")
+                result = self.srv.wf_prepare_wave_response(self.root, wave_id, mode="create")
         self.assertEqual(result["status"], "error")
         codes = [d.get("code") for d in result.get("diagnostics", [])]
         self.assertIn("prepare_council_verdict_invalid", codes)
@@ -21017,7 +21049,7 @@ class WavePrepareCouncilGateTests(unittest.TestCase):
         wave_id = self._make_wave("council-brief-dry-run")
         with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
             with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
-                result = self.srv.wave_prepare_response(self.root, wave_id, mode="dry_run")
+                result = self.srv.wf_prepare_wave_response(self.root, wave_id, mode="dry_run")
         self.assertIn("council_brief", result.get("data", {}))
         brief = result["data"]["council_brief"]
         self.assertEqual(brief["fixed_seat"], "red-team")
@@ -21037,7 +21069,7 @@ class WavePrepareCouncilGateTests(unittest.TestCase):
         )
         with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
             with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
-                result = self.srv.wave_prepare_response(self.root, wave_id, mode="dry_run")
+                result = self.srv.wf_prepare_wave_response(self.root, wave_id, mode="dry_run")
         brief = result["data"]["council_brief"]
         self.assertEqual(brief["rotating_seat"], "docs-contract-reviewer")
 
@@ -21054,7 +21086,7 @@ class WavePrepareCouncilGateTests(unittest.TestCase):
         )
         with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
             with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
-                result = self.srv.wave_prepare_response(self.root, wave_id, mode="dry_run")
+                result = self.srv.wf_prepare_wave_response(self.root, wave_id, mode="dry_run")
         brief = result["data"]["council_brief"]
         self.assertEqual(brief["rotating_seat"], "security-reviewer")
 
@@ -21125,7 +21157,7 @@ class PrepareCouncilVerdictTemplateTests(unittest.TestCase):
 
 
 class WaveImplementTests(unittest.TestCase):
-    """12sqb: wave_implement gate and wave_review phase parameter — AC-1 through AC-10."""
+    """12sqb: wf_implement_wave gate and wf_review_wave phase parameter — AC-1 through AC-10."""
 
     @classmethod
     def setUpClass(cls):
@@ -21141,10 +21173,10 @@ class WaveImplementTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def _make_wave(self, slug: str, status: str = "active") -> str:
-        wave_result = self.srv.wave_create_wave_response(self.root, slug, mode="create")
+        wave_result = self.srv.wf_create_wave_response(self.root, slug, mode="create")
         wave_id = wave_result["data"]["wave_id"]
         change = self.srv.new_change(self.root, "feat", f"{slug}-change")
-        self.srv.wave_add_change_response(self.root, wave_id, change["id"], mode="create")
+        self.srv.wf_add_change_response(self.root, wave_id, change["id"], mode="create")
         wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
         if status != "planned":
             wave_md.write_text(wave_md.read_text(encoding="utf-8").replace("Status: planned", f"Status: {status}"), encoding="utf-8")
@@ -21171,42 +21203,56 @@ class WaveImplementTests(unittest.TestCase):
             + f"\n## Prepare Review Evidence\n\n{signoffs}\n",
             encoding="utf-8",
         )
+        self._reproject(wave_id)
 
     def _add_participants(self, wave_id: str, review_lanes: list) -> None:
         wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
         rows = "\n".join(f"| {lane} | review | scope |" for lane in review_lanes)
         table = f"## Participants\n\n| Role | Lane | Scope |\n|------|------|-------|\n{rows}\n"
         wave_md.write_text(wave_md.read_text(encoding="utf-8") + f"\n{table}", encoding="utf-8")
+        self._reproject(wave_id)
 
-    # --- AC-1/AC-2: wave_review phase parameter ---
+    def _reproject(self, wave_id: str) -> None:
+        """Reconcile the review projections after a direct wave.md text edit —
+        the 1t3dm contract requires the projection to stay fresh whenever the
+        derived signoff keys change (1t3gu: the scaffold now bakes the block,
+        so key-changing edits must re-render it the same way an agent must)."""
+        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        text = wave_md.read_text(encoding="utf-8")
+        wave_md.write_text(
+            self.srv._project_current_review_status(self.root, wave_md, text),
+            encoding="utf-8",
+        )
 
-    def test_wave_review_prepare_phase_checks_prepare_evidence_section(self):
-        """AC-1: wave_review(phase='prepare') checks ## Prepare Review Evidence."""
+    # --- AC-1/AC-2: wf_review_wave phase parameter ---
+
+    def test_wf_review_wave_prepare_phase_checks_prepare_evidence_section(self):
+        """AC-1: wf_review_wave(phase='prepare') checks ## Prepare Review Evidence."""
         wave_id = self._make_wave("review-prepare")
         self._add_participants(wave_id, ["code-reviewer"])
         # No signoffs yet
         with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
-            result = self.srv.wave_review_response(self.root, wave_id, phase="prepare")
+            result = self.srv.wf_review_wave_response(self.root, wave_id, phase="prepare")
         self.assertEqual(result["status"], "error")
         codes = [d.get("code") for d in result.get("diagnostics", [])]
         self.assertIn("missing_required_lane", codes)
         # With signoffs present
         self._add_prepare_review_signoffs(wave_id, ["code-reviewer"])
         with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
-            result = self.srv.wave_review_response(self.root, wave_id, phase="prepare")
+            result = self.srv.wf_review_wave_response(self.root, wave_id, phase="prepare")
         self.assertEqual(result["status"], "ok")
 
-    def test_wave_review_implementation_phase_is_default_behavior(self):
-        """AC-2: wave_review(phase='implementation') behaves identically to current wave_review."""
+    def test_wf_review_wave_implementation_phase_is_default_behavior(self):
+        """AC-2: wf_review_wave(phase='implementation') behaves identically to current wf_review_wave."""
         wave_id = self._make_wave("review-impl")
         with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
-            default_result = self.srv.wave_review_response(self.root, wave_id)
-            impl_result = self.srv.wave_review_response(self.root, wave_id, phase="implementation")
+            default_result = self.srv.wf_review_wave_response(self.root, wave_id)
+            impl_result = self.srv.wf_review_wave_response(self.root, wave_id, phase="implementation")
         self.assertEqual(default_result["status"], impl_result["status"])
         self.assertEqual(default_result["data"]["phase"], "implementation")
         self.assertEqual(impl_result["data"]["phase"], "implementation")
 
-    def test_wave_review_prepare_does_not_check_review_evidence(self):
+    def test_wf_review_wave_prepare_does_not_check_review_evidence(self):
         """AC-1: prepare phase does not interact with ## Review Evidence."""
         wave_id = self._make_wave("review-prepare-isolation")
         # Add an operator-signoff to Review Evidence (implementation phase style)
@@ -21217,38 +21263,38 @@ class WaveImplementTests(unittest.TestCase):
         ), encoding="utf-8")
         # prepare phase should still fail (no Prepare Review Evidence) despite impl phase having signoff
         with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
-            result = self.srv.wave_review_response(self.root, wave_id, phase="prepare")
+            result = self.srv.wf_review_wave_response(self.root, wave_id, phase="prepare")
         # No lanes required in this wave → should pass since no required_lanes
         self.assertEqual(result["data"]["phase"], "prepare")
 
-    # --- AC-3/AC-4: wave_implement gate checks ---
+    # --- AC-3/AC-4: wf_implement_wave gate checks ---
 
-    def test_wave_implement_blocked_without_council_verdict(self):
-        """AC-3: wave_implement returns error when council verdict is missing."""
+    def test_wf_implement_wave_blocked_without_council_verdict(self):
+        """AC-3: wf_implement_wave returns error when council verdict is missing."""
         wave_id = self._make_wave("impl-no-council")
-        result = self.srv.wave_implement_response(self.root, wave_id, mode="create")
+        result = self.srv.wf_implement_wave_response(self.root, wave_id, mode="create")
         self.assertEqual(result["status"], "error")
         codes = [d.get("code") for d in result.get("diagnostics", [])]
         self.assertIn("prepare_council_verdict_missing", codes)
 
-    def test_wave_implement_blocked_without_prepare_review(self):
-        """AC-4: wave_implement returns error when prepare-phase lane review is incomplete."""
+    def test_wf_implement_wave_blocked_without_prepare_review(self):
+        """AC-4: wf_implement_wave returns error when prepare-phase lane review is incomplete."""
         wave_id = self._make_wave("impl-no-review")
         self._add_council_verdict(wave_id)
         self._add_participants(wave_id, ["code-reviewer"])
         # No prepare-review signoffs
-        result = self.srv.wave_implement_response(self.root, wave_id, mode="create")
+        result = self.srv.wf_implement_wave_response(self.root, wave_id, mode="create")
         self.assertEqual(result["status"], "error")
         codes = [d.get("code") for d in result.get("diagnostics", [])]
         self.assertIn("prepare_review_incomplete", codes)
 
     # --- AC-5: implementation context ---
 
-    def test_wave_implement_returns_ordered_changes_and_watchpoints(self):
-        """AC-5: wave_implement returns ordered changes and Journal Watchpoints when gates pass."""
+    def test_wf_implement_wave_returns_ordered_changes_and_watchpoints(self):
+        """AC-5: wf_implement_wave returns ordered changes and Journal Watchpoints when gates pass."""
         wave_id = self._make_wave("impl-context")
         self._add_council_verdict(wave_id)
-        result = self.srv.wave_implement_response(self.root, wave_id, mode="dry_run")
+        result = self.srv.wf_implement_wave_response(self.root, wave_id, mode="dry_run")
         self.assertEqual(result["status"], "dry_run")
         data = result["data"]
         self.assertIn("ordered_changes", data)
@@ -21258,21 +21304,21 @@ class WaveImplementTests(unittest.TestCase):
 
     # --- AC-6/AC-7: status transition ---
 
-    def test_wave_implement_create_transitions_to_implementing(self):
-        """AC-6: wave_implement(mode='create') transitions wave status to implementing."""
+    def test_wf_implement_wave_create_transitions_to_implementing(self):
+        """AC-6: wf_implement_wave(mode='create') transitions wave status to implementing."""
         wave_id = self._make_wave("impl-create")
         self._add_council_verdict(wave_id)
-        result = self.srv.wave_implement_response(self.root, wave_id, mode="create")
+        result = self.srv.wf_implement_wave_response(self.root, wave_id, mode="create")
         self.assertEqual(result["status"], "ok")
         wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
         self.assertIn("Status: implementing", wave_md.read_text(encoding="utf-8"))
 
-    def test_wave_implement_dry_run_does_not_write(self):
-        """AC-7: wave_implement(mode='dry_run') validates readiness without writing."""
+    def test_wf_implement_wave_dry_run_does_not_write(self):
+        """AC-7: wf_implement_wave(mode='dry_run') validates readiness without writing."""
         wave_id = self._make_wave("impl-dry-run")
         self._add_council_verdict(wave_id)
         original_text = (self.root / "docs" / "waves" / wave_id / "wave.md").read_text(encoding="utf-8")
-        result = self.srv.wave_implement_response(self.root, wave_id, mode="dry_run")
+        result = self.srv.wf_implement_wave_response(self.root, wave_id, mode="dry_run")
         self.assertEqual(result["status"], "dry_run")
         self.assertEqual((self.root / "docs" / "waves" / wave_id / "wave.md").read_text(encoding="utf-8"), original_text)
 
@@ -21286,34 +21332,34 @@ class WaveImplementTests(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertEqual(result["status"], "implementing")
 
-    def test_wave_pause_can_pause_implementing_wave(self):
-        """AC-8: wave_pause handles implementing status gracefully."""
+    def test_wf_pause_wave_can_pause_implementing_wave(self):
+        """AC-8: wf_pause_wave handles implementing status gracefully."""
         wave_id = self._make_wave("ac8-pause-impl", status="implementing")
-        result = self.srv.wave_pause_response(self.root, wave_id, mode="create")
+        result = self.srv.wf_pause_wave_response(self.root, wave_id, mode="create")
         self.assertEqual(result["status"], "ok")
         wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
         self.assertIn("Status: paused", wave_md.read_text(encoding="utf-8"))
 
-    def test_wave_implement_already_implementing_returns_ok(self):
-        """AC-8: wave_implement on an already-implementing wave returns ok with advisory."""
+    def test_wf_implement_wave_already_implementing_returns_ok(self):
+        """AC-8: wf_implement_wave on an already-implementing wave returns ok with advisory."""
         wave_id = self._make_wave("ac8-already-impl", status="implementing")
-        result = self.srv.wave_implement_response(self.root, wave_id, mode="create")
+        result = self.srv.wf_implement_wave_response(self.root, wave_id, mode="create")
         self.assertEqual(result["status"], "ok")
         self.assertTrue(result["data"].get("already_implementing"))
 
-    # --- AC-11: wave_add_change next_tools ---
+    # --- AC-11: wf_add_change next_tools ---
 
-    def test_wave_add_change_includes_wave_add_change_in_next_tools(self):
-        """AC-11: wave_add_change includes wave_add_change in next_tools."""
-        wave_result = self.srv.wave_create_wave_response(self.root, "ac11-wave", mode="create")
+    def test_wf_add_change_includes_wf_add_change_in_next_tools(self):
+        """AC-11: wf_add_change includes wf_add_change in next_tools."""
+        wave_result = self.srv.wf_create_wave_response(self.root, "ac11-wave", mode="create")
         wave_id = wave_result["data"]["wave_id"]
         change = self.srv.new_change(self.root, "feat", "ac11-change")
-        result = self.srv.wave_add_change_response(self.root, wave_id, change["id"], mode="create")
-        self.assertIn("wave_add_change", result.get("next_tools", []))
+        result = self.srv.wf_add_change_response(self.root, wave_id, change["id"], mode="create")
+        self.assertIn("wf_add_change", result.get("next_tools", []))
 
 
 class WaveCloseSummaryGenerationTests(unittest.TestCase):
-    """12sq4: wave_close summary generation — AC-1 through AC-5."""
+    """12sq4: wf_close_wave summary generation — AC-1 through AC-5."""
 
     @classmethod
     def setUpClass(cls):
@@ -21365,12 +21411,12 @@ class WaveCloseSummaryGenerationTests(unittest.TestCase):
         )
         return wave_md
 
-    def test_wave_close_populates_wave_summary(self):
-        """AC-1: After wave_close, ## Wave Summary contains a populated paragraph."""
+    def test_wf_close_wave_populates_wave_summary(self):
+        """AC-1: After wf_close_wave, ## Wave Summary contains a populated paragraph."""
         wave_md = self._make_closeable_wave("1200a-summ-test", "1200a-feat-summ-change")
         with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
             with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
-                result = self.srv.wave_close_response(self.root, "1200a-summ-test", mode="create")
+                result = self.srv.wf_close_wave_response(self.root, "1200a-summ-test", mode="create")
         self.assertEqual(result["status"], "ok")
         closed_text = wave_md.read_text(encoding="utf-8")
         self.assertIn("Status: closed", closed_text)
@@ -21380,7 +21426,7 @@ class WaveCloseSummaryGenerationTests(unittest.TestCase):
         wave_summary_body = closed_text.split("## Wave Summary")[1].split("## ")[0] if "## Wave Summary" in closed_text else ""
         self.assertTrue(len(wave_summary_body.strip()) > 0, "Wave Summary section must be populated")
 
-    def test_wave_close_summary_includes_change_details(self):
+    def test_wf_close_wave_summary_includes_change_details(self):
         """AC-2: Summary includes completed ACs and decision log entries."""
         wave_md = self._make_closeable_wave(
             "1200a-detail-test",
@@ -21390,12 +21436,12 @@ class WaveCloseSummaryGenerationTests(unittest.TestCase):
         )
         with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
             with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
-                result = self.srv.wave_close_response(self.root, "1200a-detail-test", mode="create")
+                result = self.srv.wf_close_wave_response(self.root, "1200a-detail-test", mode="create")
         self.assertEqual(result["status"], "ok")
         summary = result["data"].get("wave_summary", "")
         self.assertIn("AC", summary)
 
-    def test_wave_close_summary_skips_decision_log_separator_row(self):
+    def test_wf_close_wave_summary_skips_decision_log_separator_row(self):
         """Regression: a GFM Decision Log separator row written with 4+ dashes
         (`| ---- | -------- | ... |`, the plan-template default) must NOT be parsed
         as a decision. Previously the guard matched only the literal `---`, so a
@@ -21408,7 +21454,7 @@ class WaveCloseSummaryGenerationTests(unittest.TestCase):
         )
         with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
             with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
-                result = self.srv.wave_close_response(self.root, "1200a-sep-test", mode="create")
+                result = self.srv.wf_close_wave_response(self.root, "1200a-sep-test", mode="create")
         self.assertEqual(result["status"], "ok")
         summary = result["data"].get("wave_summary", "")
         # The real decision is present...
@@ -21417,34 +21463,34 @@ class WaveCloseSummaryGenerationTests(unittest.TestCase):
         self.assertNotIn("Key decisions: --", summary)
         self.assertNotIn("; --", summary)
 
-    def test_wave_close_summary_requires_no_operator_input(self):
+    def test_wf_close_wave_summary_requires_no_operator_input(self):
         """AC-3: Summary is generated without operator intervention."""
         wave_md = self._make_closeable_wave("1200a-auto-test", "1200a-feat-auto")
         with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
             with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
-                result = self.srv.wave_close_response(self.root, "1200a-auto-test", mode="create")
+                result = self.srv.wf_close_wave_response(self.root, "1200a-auto-test", mode="create")
         self.assertEqual(result["status"], "ok")
         self.assertIn("wave_summary", result["data"])
         self.assertTrue(result["data"]["wave_summary"].strip())
 
-    def test_wave_close_dry_run_includes_summary_without_writing(self):
+    def test_wf_close_wave_dry_run_includes_summary_without_writing(self):
         """AC-4: dry_run returns wave_summary in data without writing to disk."""
         wave_md = self._make_closeable_wave("1200a-dryrun-summ", "1200a-feat-dryrun-summ")
         original_text = wave_md.read_text(encoding="utf-8")
         with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
-            result = self.srv.wave_close_response(self.root, "1200a-dryrun-summ", mode="dry_run")
+            result = self.srv.wf_close_wave_response(self.root, "1200a-dryrun-summ", mode="dry_run")
         self.assertEqual(result["status"], "dry_run")
         self.assertIn("wave_summary", result["data"])
         self.assertTrue(result["data"]["wave_summary"].strip())
         # File must not be modified
         self.assertEqual(wave_md.read_text(encoding="utf-8"), original_text)
 
-    def test_wave_close_summary_does_not_break_existing_close_behavior(self):
+    def test_wf_close_wave_summary_does_not_break_existing_close_behavior(self):
         """AC-5: Existing close behavior (status update, signoff) is not regressed."""
         wave_md = self._make_closeable_wave("1200a-regression-test", "1200a-feat-regression")
         with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
             with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
-                result = self.srv.wave_close_response(self.root, "1200a-regression-test", mode="create")
+                result = self.srv.wf_close_wave_response(self.root, "1200a-regression-test", mode="create")
         self.assertEqual(result["status"], "ok")
         self.assertTrue(result["data"]["updated"])
         closed_text = wave_md.read_text(encoding="utf-8")
@@ -22947,7 +22993,7 @@ class EpochSeqlockConcurrencyTests(unittest.TestCase):
             root = _make_repo(Path(td))
             index_dir = root / ".wavefoundry" / "index"
             (index_dir / "docs.lance").mkdir(parents=True)
-            resp = srv._wave_index_optimize_response(root)
+            resp = srv._index_optimize_response(root)
             self.assertEqual(resp["status"], "error")
             codes = [d.get("code") for d in resp.get("diagnostics", [])]
             self.assertIn("index_not_ready", codes)
@@ -22957,7 +23003,7 @@ class EpochSeqlockConcurrencyTests(unittest.TestCase):
         surface as `interrupted` (with the epoch object), never `idle`."""
         srv = load_server()
         self.iss.begin_build_epoch(self.index_dir, "crashed-builder")
-        resp = srv.wave_index_build_status_response(self.root)
+        resp = srv.index_build_status_response(self.root)
         data = resp["data"]
         self.assertEqual(data["state"], "interrupted")
         self.assertEqual(data["epoch"]["status"], "building")
@@ -22967,7 +23013,7 @@ class EpochSeqlockConcurrencyTests(unittest.TestCase):
 
     def test_build_status_idle_over_complete_epoch_carries_epoch_object(self):
         srv = load_server()
-        resp = srv.wave_index_build_status_response(self.root)
+        resp = srv.index_build_status_response(self.root)
         data = resp["data"]
         self.assertEqual(data["state"], "idle")
         self.assertEqual(data["epoch"]["status"], "complete")
@@ -22997,16 +23043,16 @@ class EpochSeqlockConcurrencyTests(unittest.TestCase):
         self.assertEqual(result["diagnostics"][0]["code"], "index_not_ready")
         self.assertNotIn("pre-augment-chunk", json.dumps(result))
 
-    def test_wave_map_discards_when_epoch_changes_mid_operation(self):
-        """Pre-release red-team P3: wave_map serves indexed chunk text with a
+    def test_wf_map_discards_when_epoch_changes_mid_operation(self):
+        """Pre-release red-team P3: wf_map serves indexed chunk text with a
         disk fallback — same fence class as seed_get."""
-        fn = self._tool_fn("wave_map")
+        fn = self._tool_fn("wf_map")
 
         def racing_map(root, address, index):
             self.iss.begin_build_epoch(self.index_dir, "concurrent-build")
             return {"status": "ok", "data": {"excerpt": "mixed-epoch-excerpt", "index_match": True}}
 
-        restore = self._with_hijacked_response(fn, "wave_map_response", racing_map)
+        restore = self._with_hijacked_response(fn, "wf_map_response", racing_map)
         try:
             result = fn("doc:docs/README.md")
         finally:
@@ -23053,12 +23099,12 @@ if __name__ == "__main__":
 
 
 # ---------------------------------------------------------------------------
-# wave_install_audit MCP tool (wave 1p35d / change 1p35h)
+# wf_audit_install MCP tool (wave 1p35d / change 1p35h)
 # ---------------------------------------------------------------------------
 
 
 class WaveInstallAuditTests(unittest.TestCase):
-    """Branch tests for wave_install_audit_response.
+    """Branch tests for wf_audit_install_response.
 
     MF-6 (prepare-council must-fix): the end-to-end integration test at the
     bottom walks a realistic install log through all three states.
@@ -23078,7 +23124,7 @@ Status: in-progress
 
 ## Phase 2 — Project discovery (MCP required)
 
-- [ ] 2.1 — Audit Phase 1 outputs (verify) — expects: wave_install_audit(phase=1) returns next_step
+- [ ] 2.1 — Audit Phase 1 outputs (verify) — expects: wf_audit_install(phase=1) returns next_step
 - [ ] 2.2 — Bootstrap evidence base (seed-030) — artifact: docs/repo-profile.json
 """
 
@@ -23106,7 +23152,7 @@ Status: in-progress
         from unittest.mock import patch
         with patch.object(self.srv, "run_validate") as mock_validate:
             mock_validate.return_value = {"passed": True, "errors": [], "warnings": [], "output": "ok"}
-            return self.srv.wave_install_audit_response(self.root, phase=phase)
+            return self.srv.wf_audit_install_response(self.root, phase=phase)
 
     def test_missing_log_returns_missing_log_error(self):
         result = self._call()
@@ -23118,7 +23164,7 @@ Status: in-progress
 
     def test_utf16_bom_log_surfaces_unparseable_not_crash(self):
         # Wave 1p9hj AC-3: a UTF-16-BOM install log (PowerShell Set-Content/Out-File default on
-        # Windows) must NOT crash wave_install_audit with UnicodeDecodeError. read_install_log decodes
+        # Windows) must NOT crash wf_audit_install with UnicodeDecodeError. read_install_log decodes
         # with errors="replace", is_unparseable classifies the garbled result, and the response
         # surfaces the actionable install_log_unparseable diagnostic instead of vacuous success.
         log_path = self.root / ".wavefoundry" / "install-log.md"
@@ -23138,7 +23184,7 @@ Status: in-progress
                 "warnings": [],
                 "output": "fail",
             }
-            result = self.srv.wave_install_audit_response(self.root)
+            result = self.srv.wf_audit_install_response(self.root)
         self.assertEqual(result["status"], "error")
         self.assertEqual(result["data"]["status"], "lint_errors")
         self.assertEqual(result["data"]["errors"], ["ERROR: foo.md missing required Role: field"])
@@ -23218,7 +23264,7 @@ Status: in-progress
                 "warnings": [],
                 "output": "fail",
             }
-            r = self.srv.wave_install_audit_response(self.root)
+            r = self.srv.wf_audit_install_response(self.root)
         self.assertEqual(r["data"]["status"], "lint_errors")
 
         log_with_x = self._MINIMAL_LOG.replace(
@@ -23429,7 +23475,7 @@ _MOCK_GARDEN_PASS = {"passed": True, "files_updated": 0, "updated": [], "output"
 
 
 class WaveCloseSecretsGateTests(unittest.TestCase):
-    """AC-1..AC-10 for 1p3rp (wave_close secrets gate)."""
+    """AC-1..AC-10 for 1p3rp (wf_close_wave secrets gate)."""
 
     def setUp(self):
         self.srv = load_server()
@@ -23455,7 +23501,7 @@ class WaveCloseSecretsGateTests(unittest.TestCase):
     def _close(self, mode: str = "dry_run") -> dict:
         with patch.object(self.srv, "run_garden", return_value=_MOCK_GARDEN_PASS):
             with patch.object(self.srv, "run_validate", return_value=_MOCK_PASS):
-                return self.srv.wave_close_response(self.root, self.wave_id, mode=mode)
+                return self.srv.wf_close_wave_response(self.root, self.wave_id, mode=mode)
 
     def _diagnostic_codes(self, result: dict) -> set[str]:
         return {d["code"] for d in result.get("diagnostics", [])}
@@ -23803,13 +23849,13 @@ class WindowsLivenessGuardTests(unittest.TestCase):
 
 
 class GpuDoctorToolTests(unittest.TestCase):
-    """1p6et: wave_gpu_doctor_response wraps the provider diagnostic in the read-only envelope."""
+    """1p6et: wf_gpu_doctor_response wraps the provider diagnostic in the read-only envelope."""
 
     def setUp(self):
         self.srv = load_server()
 
     def test_response_envelope_wraps_diagnostic_report(self):
-        # wave_gpu_doctor_response now runs setup's bounded probe; mock select_embedding_providers so
+        # wf_gpu_doctor_response now runs setup's bounded probe; mock select_embedding_providers so
         # the unit test doesn't load a model (probe-selection itself is covered in test_setup_wavefoundry).
         import provider_policy
         fake = provider_policy.ProviderDecision(
@@ -23821,13 +23867,13 @@ class GpuDoctorToolTests(unittest.TestCase):
         )
         with tempfile.TemporaryDirectory() as tmp, \
              patch("provider_policy.select_embedding_providers", return_value=fake):
-            resp = self.srv.wave_gpu_doctor_response(Path(tmp))
+            resp = self.srv.wf_gpu_doctor_response(Path(tmp))
         self.assertEqual(resp["status"], "ok")
         data = resp["data"]
         for key in ("platform", "onnxruntime_version", "nvidia_gpu_present", "apple_silicon_present",
                     "available_onnx_providers", "selected_provider", "selection_reason", "cuda12_abi_gap"):
             self.assertIn(key, data)
-        self.assertEqual(resp["usage"], "wave_gpu_doctor()")
+        self.assertEqual(resp["usage"], "wf_gpu_doctor()")
 
     def test_probe_wrapped_in_fd_level_stdout_isolation(self):
         # 1p8vc AC-3: the cold ORT probe is wrapped in cli_stdio.isolated_stdout_fd (OS fd level),
@@ -23835,7 +23881,7 @@ class GpuDoctorToolTests(unittest.TestCase):
         # fd 1 cannot corrupt the MCP JSON-RPC stdout channel and hang the first call.
         import re as _re
         src = (SCRIPTS_ROOT / "server_impl.py").read_text(encoding="utf-8")
-        start = src.index("def wave_gpu_doctor_response(")
+        start = src.index("def wf_gpu_doctor_response(")
         rest = src[start + 1:]
         m = _re.search(r"\n(?=def |class )", rest)
         body = rest[: m.start()] if m else rest
@@ -23903,7 +23949,7 @@ class BackgroundBuildReapRegistryTests(unittest.TestCase):
 
 
 class IndexBuildLockStatusTests(unittest.TestCase):
-    """Wave 1p99o: wave_index_build_status exposes an authoritative, lock-TESTED `held` (no
+    """Wave 1p99o: index_build_status exposes an authoritative, lock-TESTED `held` (no
     classification) + `ended_at`. Plain terminology (no 'zombie')."""
 
     def setUp(self):
@@ -23978,14 +24024,14 @@ class IndexBuildLockStatusTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             with patch.object(self.srv, "_indexer_module",
                               return_value=self._fake_indexer(None, (False, None))):
-                resp = self.srv.wave_index_build_status_response(Path(tmp), layer="project")
+                resp = self.srv.index_build_status_response(Path(tmp), layer="project")
         self.assertIn("lock", resp.get("data", {}))
         self.assertFalse(resp["data"]["lock"]["held"])
 
     def test_recovery_message_no_longer_instructs_deleting_the_file(self):
         src = (SCRIPTS_ROOT / "server_impl.py").read_text(encoding="utf-8")
         self.assertNotIn("index-build.lock and retry", src)
-        self.assertIn("wave_index_build_status and read the `lock`", src)
+        self.assertIn("index_build_status and read the `lock`", src)
 
     def test_health_flags_interrupted_build(self):
         from types import SimpleNamespace
@@ -23994,13 +24040,13 @@ class IndexBuildLockStatusTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             idx = SimpleNamespace(root=Path(tmp), docs_health=lambda: {})
             with patch.object(self.srv, "_index_build_lock_info", return_value=interrupted):
-                resp = self.srv.wave_index_health_response(idx)
+                resp = self.srv.index_health_response(idx)
         codes = [d.get("code") for d in resp.get("diagnostics", [])]
         self.assertIn("index_build_interrupted", codes)
 
 
 class IndexSizeHealthTests(unittest.TestCase):
-    """Wave 1p9a9: wave_index_health reports on-disk index size (total + per-component)."""
+    """Wave 1p9a9: index_health reports on-disk index size (total + per-component)."""
 
     def setUp(self):
         import server_impl
@@ -24036,14 +24082,14 @@ class IndexSizeHealthTests(unittest.TestCase):
             (Path(tmp) / ".wavefoundry" / "index").mkdir(parents=True)
             (Path(tmp) / ".wavefoundry" / "index" / "meta.json").write_bytes(b"{}")
             idx = SimpleNamespace(root=Path(tmp), docs_health=lambda: {})
-            resp = self.srv.wave_index_health_response(idx)
+            resp = self.srv.index_health_response(idx)
         self.assertIn("size", resp.get("data", {}))
         self.assertIsNotNone(resp["data"]["size"])
         self.assertIn("total_bytes", resp["data"]["size"])
 
 
 class IndexOptimizeToolTests(unittest.TestCase):
-    """Wave 1p9aj: wave_index_optimize reclaims Lance-table bloat (tiered, no re-embed)."""
+    """Wave 1p9aj: index_optimize reclaims Lance-table bloat (tiered, no re-embed)."""
 
     def setUp(self):
         import server_impl
@@ -24072,7 +24118,7 @@ class IndexOptimizeToolTests(unittest.TestCase):
         }
         with tempfile.TemporaryDirectory() as tmp:
             with patch.object(self.srv, "_load_script", return_value=self._fake_indexer(results)):
-                resp = self.srv._wave_index_optimize_response(Path(tmp), content="all", rebuild_if_needed=True)
+                resp = self.srv._index_optimize_response(Path(tmp), content="all", rebuild_if_needed=True)
         self.assertEqual(resp["status"], "ok")
         data = resp["data"]
         self.assertEqual(data["tables"]["docs"]["tier"], 2)
@@ -24092,7 +24138,7 @@ class IndexOptimizeToolTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             with patch.object(self.srv, "_load_script", return_value=self._fake_indexer(results)), \
                  patch.object(self.srv, "run_index_rebuild", side_effect=fake_rebuild):
-                resp = self.srv._wave_index_optimize_response(Path(tmp), content="docs", rebuild_if_needed=True)
+                resp = self.srv._index_optimize_response(Path(tmp), content="docs", rebuild_if_needed=True)
         self.assertIn("docs", spawned)
         self.assertEqual(resp["data"]["rebuild_spawned"], ["docs"])
 
@@ -24102,14 +24148,14 @@ class IndexOptimizeToolTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             with patch.object(self.srv, "_load_script", return_value=self._fake_indexer(results)), \
                  patch.object(self.srv, "run_index_rebuild") as rebuild:
-                resp = self.srv._wave_index_optimize_response(Path(tmp), content="docs", rebuild_if_needed=False)
+                resp = self.srv._index_optimize_response(Path(tmp), content="docs", rebuild_if_needed=False)
             rebuild.assert_not_called()
         self.assertEqual(resp["data"]["needs_rebuild"], ["docs"])
         self.assertEqual(resp["data"]["rebuild_spawned"], [])
 
     def test_optimize_invalid_content(self):
         with tempfile.TemporaryDirectory() as tmp:
-            resp = self.srv._wave_index_optimize_response(Path(tmp), content="graph")
+            resp = self.srv._index_optimize_response(Path(tmp), content="graph")
         self.assertEqual(resp["status"], "error")
 
     def test_optimize_lock_busy(self):
@@ -24122,7 +24168,7 @@ class IndexOptimizeToolTests(unittest.TestCase):
         fake.optimize_index_tables = optimize_index_tables
         with tempfile.TemporaryDirectory() as tmp:
             with patch.object(self.srv, "_load_script", return_value=fake):
-                resp = self.srv._wave_index_optimize_response(Path(tmp), content="all")
+                resp = self.srv._index_optimize_response(Path(tmp), content="all")
         self.assertEqual(resp["status"], "error")
         codes = [d.get("code") for d in resp.get("diagnostics", [])]
         self.assertIn("build_skipped_lock_busy", codes)
@@ -24130,14 +24176,14 @@ class IndexOptimizeToolTests(unittest.TestCase):
     def test_optimize_no_tables_present(self):
         with tempfile.TemporaryDirectory() as tmp:
             with patch.object(self.srv, "_load_script", return_value=self._fake_indexer({})):
-                resp = self.srv._wave_index_optimize_response(Path(tmp), content="all")
+                resp = self.srv._index_optimize_response(Path(tmp), content="all")
         self.assertEqual(resp["status"], "ok")
         self.assertEqual(resp["data"]["tables"], {})
 
 
 class StateStoreOptimizeAndHealthTests(unittest.TestCase):
-    """Wave 1rsh9 (1rq4h): unified SQLite-store maintenance in wave_index_optimize
-    and index-state store reporting in wave_index_health."""
+    """Wave 1rsh9 (1rq4h): unified SQLite-store maintenance in index_optimize
+    and index-state store reporting in index_health."""
 
     def setUp(self):
         import server_impl
@@ -24186,7 +24232,7 @@ class StateStoreOptimizeAndHealthTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             with patch.object(self.srv, "_load_script",
                               side_effect=self._fake_modules(lance, stores)):
-                resp = self.srv._wave_index_optimize_response(Path(tmp), content="all")
+                resp = self.srv._index_optimize_response(Path(tmp), content="all")
         self.assertEqual(resp["status"], "ok")
         data = resp["data"]
         self.assertEqual(data["stores"]["index-state"]["reclaimed_bytes"], 3000)
@@ -24207,7 +24253,7 @@ class StateStoreOptimizeAndHealthTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             with patch.object(self.srv, "_load_script",
                               side_effect=self._fake_modules({}, stores)):
-                resp = self.srv._wave_index_optimize_response(Path(tmp), content="all")
+                resp = self.srv._index_optimize_response(Path(tmp), content="all")
         self.assertEqual(resp["status"], "ok")
         data = resp["data"]
         self.assertEqual(data["tables"], {})
@@ -24220,7 +24266,7 @@ class StateStoreOptimizeAndHealthTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             with patch.object(self.srv, "_load_script",
                               side_effect=self._fake_modules(lance, lock_raises="busy")):
-                resp = self.srv._wave_index_optimize_response(Path(tmp), content="all")
+                resp = self.srv._index_optimize_response(Path(tmp), content="all")
         self.assertEqual(resp["status"], "ok")
         self.assertEqual(resp["data"]["tables"]["docs"]["reclaimed_bytes"], 600)
         codes = [d.get("code") for d in resp.get("diagnostics", [])]
@@ -24238,7 +24284,7 @@ class StateStoreOptimizeAndHealthTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             with patch.object(self.srv, "_load_script",
                               side_effect=self._fake_modules({}, stores)):
-                resp = self.srv._wave_index_optimize_response(Path(tmp), content="all")
+                resp = self.srv._index_optimize_response(Path(tmp), content="all")
         codes = [d.get("code") for d in resp.get("diagnostics", [])]
         self.assertIn("state_store_structural_fail", codes)
 
@@ -24268,7 +24314,7 @@ class StateStoreOptimizeAndHealthTests(unittest.TestCase):
 
     def test_health_response_wires_state_store_block(self):
         src = Path(self.srv.__file__).read_text(encoding="utf-8")
-        fn_pos = src.index("def wave_index_health_response(")
+        fn_pos = src.index("def index_health_response(")
         wired_pos = src.index('health["state_store"] = _state_store_health_summary(', fn_pos)
         self.assertGreater(wired_pos, fn_pos)
 
@@ -24328,9 +24374,9 @@ class StateStoreOptimizeAndHealthTests(unittest.TestCase):
 
     def test_health_response_diagnoses_undercovered_chunk_index(self):
         # The advisory wiring: covered: False must produce a visible
-        # chunk_index_undercovered diagnostic in wave_index_health.
+        # chunk_index_undercovered diagnostic in index_health.
         src = Path(self.srv.__file__).read_text(encoding="utf-8")
-        fn_pos = src.index("def wave_index_health_response(")
+        fn_pos = src.index("def index_health_response(")
         diag_pos = src.index('"chunk_index_undercovered"', fn_pos)
         self.assertGreater(diag_pos, fn_pos)
         # And the summary helper computes the covered flag exact-first
@@ -24340,7 +24386,7 @@ class StateStoreOptimizeAndHealthTests(unittest.TestCase):
 
 
 class FtsRebuildContentTests(unittest.TestCase):
-    """Wave 1sc7c (1sek8): wave_index_build(content='fts') — from-scratch
+    """Wave 1sc7c (1sek8): index_build(content='fts') — from-scratch
     rebuild of the derived lexical layer off the Lance tables."""
 
     def setUp(self):
@@ -24405,7 +24451,7 @@ class FtsRebuildContentTests(unittest.TestCase):
 
     def test_undercoverage_diagnostics_point_at_fts_rebuild(self):
         src = Path(self.srv.__file__).read_text(encoding="utf-8")
-        self.assertEqual(src.count("recovery_usage=\"wave_index_build(content='fts')\""), 2)
+        self.assertEqual(src.count("recovery_usage=\"index_build(content='fts')\""), 2)
 
 
 class CodeLexicalToolTests(unittest.TestCase):
@@ -24692,11 +24738,11 @@ class CloseTimeOptimizeTests(unittest.TestCase):
             with patch.object(self.srv, "_close_optimize_enabled", side_effect=RuntimeError("boom")):
                 self.assertIsNone(self.srv._maybe_optimize_index_on_close(Path(tmp)))
 
-    # --- wiring lock: runs before the refresh trigger, wired into wave_close ---
+    # --- wiring lock: runs before the refresh trigger, wired into wf_close_wave ---
 
     def test_close_wires_optimize_before_background_refresh(self):
         import inspect
-        src = inspect.getsource(self.srv.wave_close_response)
+        src = inspect.getsource(self.srv.wf_close_wave_response)
         opt = src.index("_maybe_optimize_index_on_close(root)")
         refresh = src.index("_trigger_background_index_refresh_for_paths(root, refresh_paths)")
         self.assertGreater(refresh, opt,
@@ -25066,7 +25112,7 @@ class FreshnessAnnotationAndDriftPartitionTests(unittest.TestCase):
 
 
 class DriftWorklistAuditSurfaceTests(unittest.TestCase):
-    """1ro43 Req 7 / AC-7: the drift worklist rides wave_audit's `doc_drift`
+    """1ro43 Req 7 / AC-7: the drift worklist rides wf_audit's `doc_drift`
     sub-object (the gardening landing tool), never blocks `ready`, and
     excludes historical rows by construction."""
 
@@ -25083,7 +25129,7 @@ class DriftWorklistAuditSurfaceTests(unittest.TestCase):
         self.iss = ilu.module_from_spec(spec)
         spec.loader.exec_module(self.iss)
 
-    def test_wave_audit_carries_worklist_and_advisory(self):
+    def test_wf_audit_carries_worklist_and_advisory(self):
         store = self.iss.IndexStateStore(self.index_dir)
         try:
             store.upsert_doc_drift({
@@ -25098,7 +25144,7 @@ class DriftWorklistAuditSurfaceTests(unittest.TestCase):
             })
         finally:
             store.close()
-        resp = self.srv.wave_audit_response(self.root)
+        resp = self.srv.wf_audit_response(self.root)
         drift = resp["data"]["doc_drift"]
         self.assertTrue(drift["available"])
         self.assertEqual(drift["flagged_count"], 2)
@@ -25112,7 +25158,7 @@ class DriftWorklistAuditSurfaceTests(unittest.TestCase):
         self.assertIn("doc_code_drift_flagged", codes)
 
     def test_absent_store_degrades_and_never_blocks(self):
-        resp = self.srv.wave_audit_response(self.root)
+        resp = self.srv.wf_audit_response(self.root)
         drift = resp["data"]["doc_drift"]
         self.assertFalse(drift["available"])
         self.assertEqual(drift["entries"], [])

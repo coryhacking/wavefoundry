@@ -15,7 +15,7 @@ body:
       label: Steps to reproduce
       description: Minimal steps to reproduce the issue.
       placeholder: |
-        1. Run `wave_prepare`
+        1. Run `wf_prepare_wave`
         2. ...
     validations:
       required: true

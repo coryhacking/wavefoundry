@@ -4,14 +4,14 @@ Change ID: `1rolq-enh verify-docs-agentic-review`
 Change Status: `planned`
 Owner: Engineering
 Status: planned
-Last verified: 2026-07-04
+Last verified: 2026-07-20
 Wave: TBD (future wave; depends on `1ro43-enh churn-aware-retrieval-decay` landing in wave `1ro44`)
 
 ## Rationale
 
 The churn-aware decay machinery (`1ro43-enh churn-aware-retrieval-decay`, wave `1ro44`) ships the mechanical tier of documentation decay: per-chunk churn metadata, a doc-code drift signal anchored to the doc's last content change or verification stamp, annotation on retrieval citations, and a drift worklist. That tier can only ever **propose** staleness. Churn is suspicion, not a verdict: code can churn through thirty commits without invalidating a doc that describes it, and a single rename can invalidate a doc whose referenced files never changed. Deciding whether a document still applies requires reading it against the current code — judgment, not computation.
 
-Nothing in the framework performs that judgment today. `wave_garden` stamps `Last verified` mechanically on any git-changed doc (`docs_gardener.refresh_last_verified` is a regex date substitution) — it records "this file was touched," not "someone confirmed this doc matches the code." Without a deliberate verification workflow, drift flags accumulate with no disposal path, stamped dates launder non-verification into apparent verification, and the decay signal decays into noise itself.
+Nothing in the framework performs that judgment today. `wf_garden_docs` stamps `Last verified` mechanically on any git-changed doc (`docs_gardener.refresh_last_verified` is a regex date substitution) — it records "this file was touched," not "someone confirmed this doc matches the code." Without a deliberate verification workflow, drift flags accumulate with no disposal path, stamped dates launder non-verification into apparent verification, and the decay signal decays into noise itself.
 
 This change adds the **agentic tier**: a Verify Docs review loop, shipped as a prompt surface rather than a server-side computation. The MCP server stays mechanical (the same boundary `code_ask` observes — tools retrieve, agents synthesize); a prompted agent consumes the drift worklist, reads each flagged doc against the code it describes, and disposes it with evidence: **verified** (write a commit-SHA verification stamp), **amend** (fix the doc), or **stale** (mark superseded). Verification stamps reset the drift clock exactly (drift = commits touching referenced files after the stamp SHA), and stamps age visibly — once post-stamp churn crosses the threshold the doc re-enters the worklist, making verification a recurring maintenance cycle rather than one-shot false comfort. The pattern mirrors the propose/dispose reconciliation loop of `1p8gy-enh graph-backed-agent-memory`: mechanical signals propose, deliberate review disposes.
 
@@ -26,7 +26,7 @@ This change adds the **agentic tier**: a Verify Docs review loop, shipped as a p
    - **stale** — the doc no longer applies and is not worth amending: mark it superseded/deprecated per existing docs conventions, preserving history (no deletion).
 5. Every disposition records evidence: which referenced files were read, what changed since the anchor, and why the disposition follows. Evidence lands in the pass report (Requirement 6) — dispositions without evidence are a defect the prompt must name.
 6. Each Verify docs pass produces a compact pass report (reviewed count, dispositions by type, remaining worklist depth) appended to a running log location decided at implementation (candidates: a `docs/reports/` report per pass, or a rolling section in the drift report; record the choice in the Decision Log).
-7. Integration without gating: the loop is invokable on demand via the shortcut phrase and referenced as an **optional** maintenance step from `wave_garden` guidance and the close-wave/distill-journals surfaces. It must not become a blocking gate on any lifecycle transition in this change.
+7. Integration without gating: the loop is invokable on demand via the shortcut phrase and referenced as an **optional** maintenance step from `wf_garden_docs` guidance and the close-wave/distill-journals surfaces. It must not become a blocking gate on any lifecycle transition in this change.
 8. Stamp-writing stays deliberate: `docs_gardener` and every other mechanical surface remain excluded from writing verification stamps (enforced by `1ro43`); this change adds the only sanctioned writer — the agentic pass with evidence — plus direct operator edits.
 9. Local-only: the loop uses existing local MCP retrieval tools; no network dependency and no LLM invocation inside the MCP server.
 
@@ -67,7 +67,7 @@ This change adds the **agentic tier**: a Verify Docs review loop, shipped as a p
 - [ ] Add optional-maintenance pointers in gardening/close/distill seeds and rendered surfaces (gate `seed_edit_allowed` as above; no gate language).
 - [ ] Add prompt-surface content tests (registration, sections, disposition/evidence contract).
 - [ ] Run a first live pass on this repository's actual drift worklist; capture the pass report as fixture evidence.
-- [ ] Run `python3 .wavefoundry/framework/scripts/run_tests.py` and `wave_validate`.
+- [ ] Run `python3 .wavefoundry/framework/scripts/run_tests.py` and `wf_validate_docs`.
 
 ## Agent Execution Graph
 

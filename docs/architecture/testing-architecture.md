@@ -22,9 +22,9 @@ Last verified: 2026-07-20
 | Context-efficiency telemetry (wave 1stwj) | Closed-ledger arithmetic for 18 retrieval and five lifecycle tools; exact structural-path census; phase/source/version and event uniqueness across real processes; general attribution; store-identity-loss freeze; accounting-gap poisoning; paired-evaluation quality gate/attachment; lifecycle/reload/upgrade projection; install/package/upgrade non-mutation | `test_context_efficiency.py`, `test_server_context_efficiency.py`, `test_server_tools.py`, render/setup/package/upgrade integration tests | Same runner |
 | Memory supply and exploration-estimate integrity (waves 1stwm/1sxj7) | Real compact review-event repair chains, admitted-change Decision Logs, escaped pipes, implementation-only anchors, Unicode/evidence identity, concurrent add/propose idempotency, SQLite event replay and origin budgets, exact-match passive/explicit surfaces, current source-cost authority, lazy schema extension, and lifecycle/reload/upgrade projection | `test_memory_records.py`, `test_context_efficiency.py` | Same runner |
 | Commit provenance integrity (waves 1sufq/1sxj7) | Canonical local commit identity, anchored landing grammar, explicit metadata authority, mixed blame coverage, conflict propagation, file-relevance labeling, exact public input union, and read-only/traversal controls | `test_commit_provenance.py`, `test_server_context_efficiency.py` | Same runner |
-| Memory-retrieval eval (wave 1sufo) | Hermetic golden set over a synthetic memory corpus scoring the shipped `wave_memory_search`/`brief` paths: recall@k / MRR plus explicit pass/fail on the five policy invariants (exact-target, paraphrase-does-not-demote-trust, no-index, decay, supersession), and a recorded baseline vs lexical-only/semantic-only that a future ranking/fusion change must beat. Measurement-only; builds its own corpus, never depends on the live one. See `docs/references/memory-retrieval-eval.md`. Sibling of the code/docs golden-query recall eval | `tests/eval/run_memory_eval.py` (runner + `memory_golden.json`), `test_memory_eval.py` | Same runner |
-| Manual docs gate | MCP **`wave_validate`** succeeds, **or** `wf docs-lint` passes | MCP / repo root | `wave_validate` / `wf docs-lint` |
-| Manual gardener | MCP **`wave_garden`**, **or** `wf docs-gardener` | MCP / repo root | `wave_garden` / `wf docs-gardener` |
+| Memory-retrieval eval (wave 1sufo) | Hermetic golden set over a synthetic memory corpus scoring the shipped `memory_search`/`brief` paths: recall@k / MRR plus explicit pass/fail on the five policy invariants (exact-target, paraphrase-does-not-demote-trust, no-index, decay, supersession), and a recorded baseline vs lexical-only/semantic-only that a future ranking/fusion change must beat. Measurement-only; builds its own corpus, never depends on the live one. See `docs/references/memory-retrieval-eval.md`. Sibling of the code/docs golden-query recall eval | `tests/eval/run_memory_eval.py` (runner + `memory_golden.json`), `test_memory_eval.py` | Same runner |
+| Manual docs gate | MCP **`wf_validate_docs`** succeeds, **or** `wf docs-lint` passes | MCP / repo root | `wf_validate_docs` / `wf docs-lint` |
+| Manual gardener | MCP **`wf_garden_docs`**, **or** `wf docs-gardener` | MCP / repo root | `wf_garden_docs` / `wf docs-gardener` |
 
 ### Semantic Embedding Regression Tier
 
@@ -145,7 +145,7 @@ No automated CI pipeline currently. All tests run manually.
 
 Minimum verification bar for any framework script change:
 1. `python3 .wavefoundry/framework/scripts/run_tests.py` passes (no bytecode: use `-B` flag or the run_tests.py wrapper)
-2. Docs gate: **agents** — MCP **`wave_validate`** succeeds (use **`wave_garden`** first when metadata needs refresh); **CI / no MCP** — `wf docs-lint` passes on the Wavefoundry repo itself
+2. Docs gate: **agents** — MCP **`wf_validate_docs`** succeeds (use **`wf_garden_docs`** first when metadata needs refresh); **CI / no MCP** — `wf docs-lint` passes on the Wavefoundry repo itself
 
 ## Framework Script Hygiene
 
@@ -159,10 +159,10 @@ find .wavefoundry/framework/scripts -type d -name '__pycache__' -prune -exec rm 
 
 Any change touching `.wavefoundry/framework/scripts/wave_lint_lib/` or `docs_lint.py`:
 - All existing fixture tests must pass
-- Docs gate: **`wave_validate`** (MCP) or **`wf docs-lint`** (CLI) on the Wavefoundry repo
+- Docs gate: **`wf_validate_docs`** (MCP) or **`wf docs-lint`** (CLI) on the Wavefoundry repo
 
 Any change to `docs/prompts/prompt-surface-manifest.json` or `.wavefoundry/framework/VERSION`:
-- **`wave_validate`** or **`wf docs-lint`** must pass (manifest `framework_revision` validation)
+- **`wf_validate_docs`** or **`wf docs-lint`** must pass (manifest `framework_revision` validation)
 
 Agent-memory supply or validation changes additionally require:
 

@@ -2,14 +2,14 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-18
+Last verified: 2026-07-20
 
 ## Purpose
 
 Any change to how the agent-memory layer ranks records must be measured, not
 assumed. This is the memory-specific analog of the code/docs golden-query recall
-eval: a hermetic golden set + runner that scores the current `wave_memory_search`
-/ `wave_memory_brief` paths and asserts the policy invariants, so a future
+eval: a hermetic golden set + runner that scores the current `memory_search`
+/ `memory_brief` paths and asserts the policy invariants, so a future
 ranking change (the deferred lexical+semantic fusion) has a recorded baseline to
 beat and a guard against regressing the invariants.
 
@@ -53,8 +53,8 @@ paraphrase recall must do so **without** dropping any policy invariant below
 
 ## Measurement-only
 
-The harness never changes ranking: it calls the shipped `wave_memory_search` /
-`wave_memory_brief` paths and `_memory_ranked` unchanged. It is deterministic and
+The harness never changes ranking: it calls the shipped `memory_search` /
+`memory_brief` paths and `_memory_ranked` unchanged. It is deterministic and
 hermetic — it builds its own corpus and uses a fixed stub for the semantic index,
 so it never depends on the live (empty) corpus. See the code/docs golden-query
 eval for the sibling policy that gates code/docs retrieval changes.

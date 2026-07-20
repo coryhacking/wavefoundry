@@ -100,7 +100,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "codebase-map": "Generate the codebase map orientation doc (gen_codebase_map.py).",
         "render-surfaces": "Regenerate host configs, hooks, bin shims, and agent surfaces (render_platform_surfaces.py).",
         "secrets-scan": "Run the secrets scanner fallback CLI (run_secrets_scan.py).",
-        "gpu-doctor": "Embedding-provider / GPU capability diagnostic — same report as wave_gpu_doctor (gpu_doctor.py).",
+        "gpu-doctor": "Embedding-provider / GPU capability diagnostic — same report as wf_gpu_doctor (gpu_doctor.py).",
         "memory-backfill": "Inventory historical waves and draft one bounded memory batch.",
         "memory-validate": "Record focused agent judgment for one historical candidate.",
     }

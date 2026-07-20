@@ -837,12 +837,14 @@ def paused_run_for_source(root: Path, source_event: str) -> str | None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    import repo_root
+
     parser = argparse.ArgumentParser(description="Historical Wavefoundry memory backfill")
-    parser.add_argument("--root", default=".")
+    parser.add_argument("--root", default=None, help="Repository root (default: discovered from the script's install location, not cwd)")
     parser.add_argument("--entry-path", default="manual")
     parser.add_argument("--status", action="store_true")
     args = parser.parse_args(argv)
-    root = Path(args.root).expanduser().resolve()
+    root = repo_root.discover_root(args.root)
     run_id = ensure_run(root, args.entry_path)
     summary = sync_inventory(root, run_id)
     print(json.dumps(summary, indent=2, sort_keys=True))

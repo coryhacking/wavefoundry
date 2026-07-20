@@ -22,7 +22,7 @@ grounded in a MEASURED quantity and is credited only on a real event.
 ## The formula
 
 When a memory advisory is actually surfaced in an exact matching context (via
-`wave_memory_brief` or a passive code/lifecycle advisory), each surfaced record
+`memory_brief` or a passive code/lifecycle advisory), each surfaced record
 that carries a measured
 `Source exploration cost:` contributes:
 
@@ -63,8 +63,8 @@ phase may earn new credit because it represents a new review/repair context.
   advisories or record multiplication from inflating it.
 - **Separate, never summed.** It shares SQLite durability with Context
   Efficiency but uses a distinct table and projection block. It surfaces under
-  its own label (`estimated_exploration_avoided` on `wave_current` /
-  `wave_audit`, plus `## Estimated Exploration Avoided` in `wave.md`) and is
+  its own label (`estimated_exploration_avoided` on `wf_current_wave` /
+  `wf_audit`, plus `## Estimated Exploration Avoided` in `wave.md`) and is
   NEVER added to the measured `## Context Efficiency` token total.
 - **Surfaced vs cited, recorded distinctly.** `surfaced_events` and
   `cited_events` are tracked separately; surface is discounted for the gap.

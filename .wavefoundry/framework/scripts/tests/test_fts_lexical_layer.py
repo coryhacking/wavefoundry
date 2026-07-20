@@ -195,7 +195,7 @@ class OrderedConsistencyTests(_StoreCase):
         self.assertIn("crash-window reconciliation", stderr2.getvalue())
 
     def test_force_rebuild_ignores_in_sync_state(self):
-        # 1sek8: wave_index_build(content='fts') path — force=True rebuilds
+        # 1sek8: index_build(content='fts') path — force=True rebuilds
         # even when the id-sets match (the whole point of a from-scratch
         # operator recovery), with calm operator-requested messaging.
         import contextlib

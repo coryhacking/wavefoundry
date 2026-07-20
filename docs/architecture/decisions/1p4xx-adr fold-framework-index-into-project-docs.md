@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: accepted
-Last verified: 2026-06-11
+Last verified: 2026-07-20
 
 ## Context
 
@@ -37,8 +37,8 @@ publish guard, no cross-layer model-pinning.
   include-prefixes, scoped past the `.wavefoundry/` blanket exclusion.
 - `server_impl.py`, `dashboard_server.py`, and `dashboard_lib.py` collapse to a single project
   layer; `framework_index_dir`, `_layer_health("framework")`, the `(project, framework)` loops,
-  and the `layer == "framework"` build/status/refresh branches are removed. `wave_index_build`
-  and `wave_index_build_status` reject `layer="framework"`.
+  and the `layer == "framework"` build/status/refresh branches are removed. `index_build`
+  and `index_build_status` reject `layer="framework"`.
 - `build_pack` no longer builds, compacts, or ships a framework index; the `--skip-framework-index`
   flag and the publish guard are removed. The pack ships framework **source** only.
 - `render_platform_surfaces` renders a single bare reindex spawn in the post-edit hook (the
@@ -65,7 +65,7 @@ publish guard, no cross-layer model-pinning.
   (MANIFEST, VERSION, scripts) are not folded and stay out of the docs index.
 - The graph **query** layer was collapsed to project-only in the same wave (a follow-up to this
   ADR): the `framework` and `union` (merged) graph layers were removed along with the shipped
-  framework graph. The `layer` argument on the graph tools (`code_impact`, `wave_graph_report`,
+  framework graph. The `layer` argument on the graph tools (`code_impact`, `wf_graph_report`,
   `code_graph_path`, `code_graph_community`, `graph_neighbors`, …) is retained as a back-compat
   no-op that always resolves to `project`. Whatever a project wants in its graph is controlled by
   the same `workflow-config.json` `project_include_prefixes` that drives the semantic index — this

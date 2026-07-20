@@ -6,7 +6,7 @@ Intent:
 
 Tasks:
 
-1. Ensure target repositories get the cross-OS `wf` dispatcher shim pair (`.wavefoundry/bin/wf` + `wf.cmd`) (via install / `render_platform_surfaces`) so **`wf docs-lint`** and **`wf docs-gardener`** route through `wf_cli.py` to the canonical scripts under `.wavefoundry/framework/scripts/`. **Agent-facing instructions** should prefer MCP **`wave_validate`**, **`wave_garden`**, and **`wave_audit`** over shelling out to the `wf` dispatcher when the Wavefoundry MCP server is available.
+1. Ensure target repositories get the cross-OS `wf` dispatcher shim pair (`.wavefoundry/bin/wf` + `wf.cmd`) (via install / `render_platform_surfaces`) so **`wf docs-lint`** and **`wf docs-gardener`** route through `wf_cli.py` to the canonical scripts under `.wavefoundry/framework/scripts/`. **Agent-facing instructions** should prefer MCP **`wf_validate_docs`**, **`wf_garden_docs`**, and **`wf_audit`** over shelling out to the `wf` dispatcher when the Wavefoundry MCP server is available.
 2. Ensure hooks and CI entrypoints resolve **`wf docs-lint`** / **`wf docs-gardener`** from the repository root (see `050` hook contracts).
 3. Define the minimum docs gate and where it should run.
 4. Ensure generated files are trackable in git and not accidentally hidden by broad ignore rules.
@@ -31,7 +31,7 @@ Required semantics:
 
 Minimum docs gate:
 
-- **Agents (MCP attached):** **`wave_garden`** when metadata needs refresh, then **`wave_validate`** (or **`wave_audit`** for a combined readout); follow each tool’s parameter contract.
+- **Agents (MCP attached):** **`wf_garden_docs`** when metadata needs refresh, then **`wf_validate_docs`** (or **`wf_audit`** for a combined readout); follow each tool’s parameter contract.
 - **Operators / CI / hooks / no MCP:** **`wf docs-gardener && wf docs-lint`** (pass `--date <YYYY-MM-DD>` only when overriding today's date; use `--paths <doc>` or `--all-docs` to target specific files instead of git-changed docs)
 
 Validation targets to cover:

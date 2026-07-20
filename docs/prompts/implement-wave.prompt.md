@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-14
+Last verified: 2026-07-20
 
 Shortcut: **`Implement wave`**
 
@@ -14,7 +14,7 @@ Coordinator-managed implementation and review loop for all admitted changes in a
 
 The wave must be **readied** — **Prepare wave** has passed cleanly (council verdict + required lane reviews recorded). If not, run **Prepare wave** first.
 
-`Implement wave` is the **activation** step (wave 1p45l): it opens a readied `planned` wave (or a legacy `active` wave) and is where the **single-OPEN** invariant is enforced. `wave_implement` runs the single-OPEN guard and blocks with `another_wave_active` if another wave is already OPEN (`active`/`implementing`) — pause that wave first. Readying this wave never took the OPEN slot; opening it here does.
+`Implement wave` is the **activation** step (wave 1p45l): it opens a readied `planned` wave (or a legacy `active` wave) and is where the **single-OPEN** invariant is enforced. `wf_implement_wave` runs the single-OPEN guard and blocks with `another_wave_active` if another wave is already OPEN (`active`/`implementing`) — pause that wave first. Readying this wave never took the OPEN slot; opening it here does.
 
 ## Execution Model (ReAct Loop)
 
@@ -62,10 +62,10 @@ A `blocked` verdict halts implementation until the gap is resolved. When `wave_r
 
 After any framework script change:
 1. `python3 .wavefoundry/framework/scripts/run_tests.py`
-2. **Docs gate:** With MCP attached, run **`wave_validate`** (use **`wave_garden`** first if metadata timestamps need refresh). **CLI fallback (no MCP):** `wf docs-gardener && wf docs-lint`
+2. **Docs gate:** With MCP attached, run **`wf_validate_docs`** (use **`wf_garden_docs`** first if metadata timestamps need refresh). **CLI fallback (no MCP):** `wf docs-gardener && wf docs-lint`
 
 Fix any failures before declaring the implementation complete.
 
 ## Agent Memory Briefing
 
-Before the first edit, call `wave_memory_brief(context='pre_implementation', targets=[...])` with the files in scope — active memory records (fragile files, prior failed attempts, operator preferences) surface as capped, cited advisories. Treat a `needs_reverification` fragile-file advisory as a prompt to re-check the concern against current code before editing. `wave_prepare` responses carry the same advisories for the admitted change set. Absence of records is not absence of risk.
+Before the first edit, call `memory_brief(context='pre_implementation', targets=[...])` with the files in scope — active memory records (fragile files, prior failed attempts, operator preferences) surface as capped, cited advisories. Treat a `needs_reverification` fragile-file advisory as a prompt to re-check the concern against current code before editing. `wf_prepare_wave` responses carry the same advisories for the admitted change set. Absence of records is not absence of risk.

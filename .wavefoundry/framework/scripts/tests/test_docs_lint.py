@@ -2186,7 +2186,7 @@ class PrepareCouncilRosterEvidenceTests(unittest.TestCase):
         self.assertIn("docs-contract-reviewer", warnings[0])
 
     def test_verbatim_template_paste_is_flagged(self) -> None:
-        """A verdict line pasted from the wave_prepare template (placeholder wording intact)
+        """A verdict line pasted from the wf_prepare_wave template (placeholder wording intact)
         still exposes its example seat tokens as unevidenced roster claims."""
         checkpoints = self._verdict(
             "<replace with the seats actually run, each at most once, e.g. red-team, "
@@ -2229,7 +2229,7 @@ class PrepareCouncilRosterEvidenceTests(unittest.TestCase):
 class PrepareCouncilVerdictRegexParityTests(unittest.TestCase):
     """Wave 1p9pe delivery-council fix-now lane: `_PREPARE_COUNCIL_VERDICT_LINE_RE`
     in wave_validators deliberately mirrors `_PREPARE_COUNCIL_VERDICT_RE` in
-    server_impl (the wave_prepare parser). The two patterns are intentionally
+    server_impl (the wf_prepare_wave parser). The two patterns are intentionally
     identical; this parity pin fails loudly if either side is edited without
     the other, so the lint validator and the prepare gate never diverge on
     which verdict lines they consider structured."""
@@ -2245,7 +2245,7 @@ class PrepareCouncilVerdictRegexParityTests(unittest.TestCase):
             wave_validators._PREPARE_COUNCIL_VERDICT_LINE_RE.pattern,
             server_impl._PREPARE_COUNCIL_VERDICT_RE.pattern,
             "prepare-council verdict-line regexes must stay literally identical "
-            "between the lint validator and the wave_prepare parser",
+            "between the lint validator and the wf_prepare_wave parser",
         )
         self.assertEqual(
             wave_validators._PREPARE_COUNCIL_VERDICT_LINE_RE.flags,

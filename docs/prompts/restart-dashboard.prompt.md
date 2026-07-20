@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-13
+Last verified: 2026-07-20
 
 Shortcut: **`Restart dashboard`**
 
@@ -15,7 +15,7 @@ Restart the local Wavefoundry dashboard for the current repository. The restart 
 Use the MCP tool:
 
 ```text
-wave_dashboard_restart
+wf_restart_dashboard
 ```
 
 ## Behavior

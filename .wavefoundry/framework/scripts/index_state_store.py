@@ -26,7 +26,7 @@ creation; ``wal_checkpoint(TRUNCATE)`` + ``incremental_vacuum`` at the end of
 each build pass (the long-lived MCP server reads this store on the query
 path, so a pinned reader could otherwise starve WAL autocheckpoint);
 ``PRAGMA optimize`` at connection close. Full ``VACUUM`` is reserved for the
-on-demand ``wave_index_optimize`` path (``optimize_state_stores``).
+on-demand ``index_optimize`` path (``optimize_state_stores``).
 
 **Integrity posture (1rq4h Req 11):** two-layer probe. Physical/structural —
 ``PRAGMA quick_check`` at open and in routine maintenance, full
@@ -1865,7 +1865,7 @@ def reconcile_chunk_index(
                 pass
     if force:
         # Operator-requested from-scratch rebuild of the derived state
-        # (wave_index_build content='fts', 1sek8): skip the in-sync early
+        # (index_build content='fts', 1sek8): skip the in-sync early
         # return AND the crash-window messaging — this is intentional
         # maintenance, not a repair.
         msg = (
@@ -3901,7 +3901,7 @@ def sqlite_store_maintenance(
 ) -> dict[str, Any]:
     """Generic SQLite-store maintenance: checkpoint, reclaim, optimize, verify.
 
-    Used by the unified ``wave_index_optimize`` path for every reachable
+    Used by the unified ``index_optimize`` path for every reachable
     SQLite store (the index-state store AND the graph state store — closing
     the "graph index is not reclaimed this way" gap) without touching the
     graph store's own build-path code. On-demand only; the caller holds the
@@ -3964,7 +3964,7 @@ def optimize_state_stores(
     """Run SQLite maintenance across every reachable store under the index dir.
 
     The on-demand arm of the unified maintenance verb (1rq4h Req 10): called
-    by ``wave_index_optimize`` and at the end of setup/upgrade, under the
+    by ``index_optimize`` and at the end of setup/upgrade, under the
     index-build lock (caller-held). Covers the index-state store and the
     graph state store; stores that don't exist are reported absent, never an
     error.

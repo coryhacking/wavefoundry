@@ -2,9 +2,9 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-11
+Last verified: 2026-07-20
 
-A standing log of field observations about the code-graph tools (`code_impact`, `code_callhierarchy`, `code_callgraph`, `code_graph_path`, `code_risk_score`, `wave_graph_report`, …) gathered from real target-repo smoke tests. Findings here are candidates for a graph-extractor enhancement wave (cf. the prior `graph-tools-field-feedback` rounds: `130rj`, `13129`, `1p41l`). Not defects unless noted — most are modeling gaps or missing signals.
+A standing log of field observations about the code-graph tools (`code_impact`, `code_callhierarchy`, `code_callgraph`, `code_graph_path`, `code_risk_score`, `wf_graph_report`, …) gathered from real target-repo smoke tests. Findings here are candidates for a graph-extractor enhancement wave (cf. the prior `graph-tools-field-feedback` rounds: `130rj`, `13129`, `1p41l`). Not defects unless noted — most are modeling gaps or missing signals.
 
 ---
 

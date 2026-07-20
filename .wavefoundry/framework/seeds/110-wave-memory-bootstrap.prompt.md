@@ -147,11 +147,11 @@ Wave status model:
 - `active` — OPEN: prepared-and-opened; implementation may begin.
 - `implementing` — OPEN: implementation in progress.
 - `blocked`
-- `paused` — was OPEN, parked; resume via `wave_prepare(mode='create')`.
+- `paused` — was OPEN, parked; resume via `wf_prepare_wave(mode='create')`.
 - `completed` / `closed`
 - `superseded`
 
-Only one wave may be **OPEN** (`active`/`implementing`) at a time; this single-OPEN invariant is enforced at the activation transitions (`wave_implement` / `wave_reopen` / `wave_prepare(mode='create')`), not at readiness.
+Only one wave may be **OPEN** (`active`/`implementing`) at a time; this single-OPEN invariant is enforced at the activation transitions (`wf_implement_wave` / `wf_reopen_wave` / `wf_prepare_wave(mode='create')`), not at readiness.
 
 Recommended change status model:
 

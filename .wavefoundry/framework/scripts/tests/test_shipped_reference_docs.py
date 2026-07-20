@@ -162,7 +162,7 @@ class ScanFindingsFormatReferenceSafetyTests(unittest.TestCase):
 
 class UpgradeMcpFirstGuidanceTests(unittest.TestCase):
     """Wave 1p7ww: the upgrade seed AND the rendered prompt must lead with the MCP-first
-    `wave_upgrade()` directive while still carrying the labeled no-MCP `wf upgrade` fallback, and
+    `wf_upgrade()` directive while still carrying the labeled no-MCP `wf upgrade` fallback, and
     surface the minor-bump reconciliation callout. Both surfaces are parallel-maintained (the
     docs/prompts copy is the self-hosted surface, not a mechanical render of the seed), so this
     cross-checks they stay in parity on these directives."""
@@ -178,8 +178,8 @@ class UpgradeMcpFirstGuidanceTests(unittest.TestCase):
     def test_seed_leads_with_mcp_first_directive(self) -> None:
         text = self._read(self.SEED)
         self.assertIn("MCP-first", text)
-        self.assertIn("wave_upgrade()", text)
-        self.assertIn("wave_upgrade_status", text)
+        self.assertIn("wf_upgrade()", text)
+        self.assertIn("wf_upgrade_status", text)
         # The manual sequence is kept, labeled as the no-MCP CLI fallback (not deleted).
         self.assertIn("no-MCP", text)
         self.assertIn("wf upgrade", text)
@@ -189,8 +189,8 @@ class UpgradeMcpFirstGuidanceTests(unittest.TestCase):
     def test_prompt_leads_with_mcp_first_directive(self) -> None:
         text = self._read(self.PROMPT)
         self.assertIn("MCP-first", text)
-        self.assertIn("wave_upgrade()", text)
-        self.assertIn("wave_upgrade_status", text)
+        self.assertIn("wf_upgrade()", text)
+        self.assertIn("wf_upgrade_status", text)
         self.assertIn("no-MCP", text)
         self.assertIn("wf upgrade", text)
         # Wave 1p8et: the recommend-only prose callout became the actionable "Reconciliation scan".
@@ -219,13 +219,13 @@ class UpgradeMcpFirstGuidanceTests(unittest.TestCase):
                     f"{rel}: the MCP-first directive must lead the manual/CLI-fallback procedure",
                 )
 
-    def test_tool_lists_and_spec_name_wave_upgrade_tools(self) -> None:
+    def test_tool_lists_and_spec_name_wf_upgrade_tools(self) -> None:
         # AC-2: AGENTS.md available-tools list + the spec name both upgrade tools.
         agents = self._read("AGENTS.md")
-        self.assertIn("`wave_upgrade`", agents)
-        self.assertIn("`wave_upgrade_status`", agents)
+        self.assertIn("`wf_upgrade`", agents)
+        self.assertIn("`wf_upgrade_status`", agents)
         spec = self._read("docs/specs/mcp-tool-surface.md")
-        self.assertIn("wave_upgrade_status()", spec)
+        self.assertIn("wf_upgrade_status()", spec)
 
 
 class McpPythonLaunchGuidanceTests(unittest.TestCase):

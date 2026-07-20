@@ -4,5 +4,5 @@ command = "python3"
 args = [".wavefoundry/framework/scripts/server.py"]
 # wave:codex-mcp end
 
-[mcp_servers.wavefoundry.tools.wave_close]
+[mcp_servers.wavefoundry.tools.wf_close_wave]
 approval_mode = "approve"

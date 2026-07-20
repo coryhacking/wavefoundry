@@ -275,7 +275,7 @@ class BuildPackTests(unittest.TestCase):
             ).decode("utf-8")
         self.assertIn("def build_compact_review_event", writer)
         self.assertIn("def review_evidence_human_table", writer)
-        self.assertIn("def wave_record_review_evidence(", server)
+        self.assertIn("def wf_review_evidence(", server)
 
     def test_install_pack_carries_dashboard_document_renderer_and_memory_backfill(self):
         path = self._build()
@@ -306,6 +306,7 @@ class BuildPackTests(unittest.TestCase):
         self.assertIn("def main", memory_cli)
         self.assertIn("then rerun ordinary `wf setup`", setup)
         self.assertNotIn("wave_setup_resume_after_memory", server)
+        self.assertNotIn("wf_resume_setup_after_memory", server)
 
     def test_extracted_install_pack_executes_new_review_memory_and_dashboard_paths(self):
         import shutil
@@ -1314,13 +1315,13 @@ class InstallTemplateInjectionTests(unittest.TestCase):
         # Restart marker between phases (Phase 1 last row mentions restart agent).
         self.assertIn("restart", body.lower())
 
-    def test_install_log_template_phase_2_starts_with_wave_install_audit(self):
-        """AC-5: first Phase 2 row is a wave_install_audit call."""
+    def test_install_log_template_phase_2_starts_with_wf_audit_install(self):
+        """AC-5: first Phase 2 row is a wf_audit_install call."""
         zp = self._build()
         body = self._zip_read(zp, ".wavefoundry/framework/install/install-log.template.md")
         phase_2_section = body.split("Phase 2", 1)[1]  # everything after the heading
         head = phase_2_section[:1200]
-        self.assertIn("wave_install_audit", head)
+        self.assertIn("wf_audit_install", head)
 
     def test_install_wavefoundry_md_explains_template_to_log_copy(self):
         """The entry doc instructs the agent to copy template -> .wavefoundry/install-log.md."""

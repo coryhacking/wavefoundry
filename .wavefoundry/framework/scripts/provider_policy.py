@@ -64,7 +64,7 @@ class ProviderDecision:
     # Wave 1p9lj: where this decision came from — "setup-cache" (honoring the decision setup
     # recorded in WAVEFOUNDRY_EMBED_PROVIDER_SELECTED), "fresh-probe" (availability/probe run in
     # this process), or "operator-request" (WAVEFOUNDRY_EMBED_PROVIDER forced it). Setup and
-    # wave_gpu_doctor share the same probe chain; process-scoped cache state is the one intentional
+    # wf_gpu_doctor share the same probe chain; process-scoped cache state is the one intentional
     # difference between them, so every decision names its source explicitly.
     provenance: str = "fresh-probe"
 
@@ -368,7 +368,7 @@ _REMOTE_INERT_PROVIDERS = frozenset({"AzureExecutionProvider"})
 
 def diagnostic_report(provider_probe: "ProviderProbe | None" = None) -> dict:
     """Wave 1p6et: structured embedding-provider / GPU capability snapshot for the `setup-wavefoundry --check-gpu`
-    CLI and the `wave_gpu_doctor` MCP tool.
+    CLI and the `wf_gpu_doctor` MCP tool.
 
     When ``provider_probe`` is supplied (the CLI + MCP pass setup's ``_probe_embedding_provider``),
     the selection runs the SAME bounded model probe setup uses — so probe-required providers

@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: implementer
 Category: build
-Last verified: 2026-06-25
+Last verified: 2026-07-20
 
 ## Operating Identity
 
@@ -15,7 +15,7 @@ The implementer executes code changes per the admitted change doc. Stance: detec
 - Read and follow the admitted change doc's Requirements, Scope, and Acceptance Criteria
 - Detect patterns from `docs/repo-profile.json` `code_patterns` (when populated) before implementing
 - Follow patterns; surface significant deviations with rationale before proceeding
-- Run framework tests after changes; for the docs gate **prefer MCP `wave_validate`** (and `wave_garden` when metadata needs refresh). Use `wf docs-lint` only when MCP is not available
+- Run framework tests after changes; for the docs gate **prefer MCP `wf_validate_docs`** (and `wf_garden_docs` when metadata needs refresh). Use `wf docs-lint` only when MCP is not available
 - Hand off diff + suggested commit message; never commit without operator instruction
 
 ## Codebase Orientation (MCP Tools)

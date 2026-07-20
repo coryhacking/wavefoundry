@@ -122,7 +122,7 @@ class HistoricalMemoryBackfillTests(unittest.TestCase):
                 self.skipTest(f"directory symlinks unavailable: {exc}")
             with self.assertRaises(OSError):
                 memory_backfill.inventory_closed_waves(self.root)
-            response = server_impl.wave_memory_backfill_response(
+            response = server_impl.memory_backfill_response(
                 self.root, mode="create", entry_path="upgrade"
             )
             self.assertEqual(response["status"], "error")
@@ -144,7 +144,7 @@ class HistoricalMemoryBackfillTests(unittest.TestCase):
             inventory = memory_backfill.inventory_closed_waves(self.root)
             self.assertEqual(len(inventory), 1)
             self.assertEqual(inventory[0]["status"], "unsupported")
-            response = server_impl.wave_memory_backfill_response(
+            response = server_impl.memory_backfill_response(
                 self.root, mode="create", entry_path="upgrade"
             )
             self.assertEqual(response["data"]["waves_unsupported"], 1)
@@ -153,7 +153,7 @@ class HistoricalMemoryBackfillTests(unittest.TestCase):
             outside.unlink(missing_ok=True)
 
     def test_public_backfill_rejects_unbounded_or_unknown_entry_path(self):
-        response = server_impl.wave_memory_backfill_response(
+        response = server_impl.memory_backfill_response(
             self.root,
             mode="create",
             entry_path="x" * 70000,
@@ -182,7 +182,7 @@ class HistoricalMemoryBackfillTests(unittest.TestCase):
                 else original_loader(name)
             ),
         ):
-            response = server_impl.wave_memory_backfill_response(
+            response = server_impl.memory_backfill_response(
                 self.root, mode="create", entry_path="manual"
             )
         self.assertEqual(response["status"], "ok")
@@ -306,7 +306,7 @@ with review_event_write_lock(root):
         stdout, stderr = proc.communicate(timeout=20)
         self.assertEqual(proc.returncode, 19, (stdout, stderr))
 
-        recovered = server_impl.wave_memory_backfill_response(
+        recovered = server_impl.memory_backfill_response(
             self.root, mode="create", entry_path="upgrade"
         )
         self.assertEqual(recovered["status"], "ok", recovered)
@@ -325,7 +325,7 @@ root = Path(sys.argv[2])
 barrier = Path(sys.argv[3])
 while not barrier.exists():
     time.sleep(0.01)
-result = server_impl.wave_memory_backfill_response(
+result = server_impl.memory_backfill_response(
     root, mode="create", entry_path="upgrade"
 )
 print(json.dumps({"status": result["status"], "data": result["data"]}))
@@ -372,7 +372,7 @@ root = Path(sys.argv[2])
 barrier = Path(sys.argv[3])
 while not barrier.exists():
     time.sleep(0.01)
-result = server_impl.wave_memory_backfill_response(
+result = server_impl.memory_backfill_response(
     root, mode="create", limit=1, entry_path="upgrade"
 )
 print(json.dumps({
@@ -415,7 +415,7 @@ print(json.dumps({
         with mock.patch.object(
             server_impl, "_trigger_background_index_refresh_for_paths"
         ) as refresh:
-            response = server_impl.wave_memory_backfill_response(
+            response = server_impl.memory_backfill_response(
                 self.root, mode="create", entry_path="upgrade"
             )
         self.assertEqual(response["status"], "ok", response)
@@ -435,7 +435,7 @@ print(json.dumps({
         with mock.patch.object(
             server_impl, "_trigger_background_index_refresh_for_paths"
         ) as validation_refresh:
-            validated = server_impl.wave_memory_validate_response(
+            validated = server_impl.memory_validate_response(
                 self.root,
                 candidate["memory_id"],
                 "promote",
@@ -456,7 +456,7 @@ print(json.dumps({
     def test_validation_worklist_is_run_scoped_and_pages_exact_candidate_ids(self):
         wave = self._wave("1aaa closed", decision=False)
         self._add_decisions(wave, 25)
-        first = server_impl.wave_memory_backfill_response(
+        first = server_impl.memory_backfill_response(
             self.root, mode="create", limit=20, entry_path="upgrade"
         )
         self.assertEqual(first["data"]["validation_worklist_count"], 20)
@@ -470,7 +470,7 @@ print(json.dumps({
                 for record in memory_records.load_memory_records(self.root)
             },
         )
-        second = server_impl.wave_memory_backfill_response(
+        second = server_impl.memory_backfill_response(
             self.root, mode="create", limit=20, entry_path="upgrade"
         )
         self.assertEqual(second["data"]["validation_worklist_count"], 25)
@@ -479,11 +479,11 @@ print(json.dumps({
 
     def test_rewrite_outcome_tracks_original_candidate_not_replacement_order(self):
         self._wave("1aaa closed")
-        batch = server_impl.wave_memory_backfill_response(
+        batch = server_impl.memory_backfill_response(
             self.root, mode="create", entry_path="upgrade"
         )
         candidate = memory_records.load_memory_records(self.root)[0]
-        rewritten = server_impl.wave_memory_validate_response(
+        rewritten = server_impl.memory_validate_response(
             self.root,
             candidate["memory_id"],
             "rewrite",
@@ -513,7 +513,7 @@ print(json.dumps({
         response = {"status": "ok", "data": {"state": "awaiting_validation"}}
         with mock.patch.object(
             memory_cli.server_impl,
-            "wave_memory_validate_response",
+            "memory_validate_response",
             return_value=response,
         ) as validate, mock.patch("builtins.print"):
             exit_code = memory_cli.main(
@@ -566,12 +566,12 @@ print(json.dumps({
             return original(*args, **kwargs)
 
         with mock.patch.object(backfill_impl, "complete_claim", side_effect=crash_after_file):
-            first = server_impl.wave_memory_backfill_response(
+            first = server_impl.memory_backfill_response(
                 self.root, mode="create", entry_path="upgrade"
             )
         self.assertEqual(first["data"]["failures"], 1)
         self.assertEqual(len(memory_records.load_memory_records(self.root)), 1)
-        second = server_impl.wave_memory_backfill_response(
+        second = server_impl.memory_backfill_response(
             self.root, mode="create", entry_path="upgrade"
         )
         self.assertEqual(second["data"]["failures"], 0)
@@ -586,7 +586,7 @@ import os, sys
 from pathlib import Path
 sys.path.insert(0, sys.argv[1])
 import server_impl
-result = server_impl.wave_memory_backfill_response(
+result = server_impl.memory_backfill_response(
     Path(sys.argv[2]), mode="create", entry_path="upgrade"
 )
 if result["status"] != "ok" or result["data"]["remaining_waves"] != 0:
@@ -607,7 +607,7 @@ os._exit(23)
             timeout=30,
         )
         self.assertEqual(proc.returncode, 23, (proc.stdout, proc.stderr))
-        retry = server_impl.wave_memory_backfill_response(
+        retry = server_impl.memory_backfill_response(
             self.root, mode="create", entry_path="upgrade"
         )
         self.assertEqual(retry["status"], "ok", retry)
@@ -647,11 +647,11 @@ os._exit(23)
 
     def test_fingerprint_requeue_preserves_exact_durable_candidate_census(self):
         wave = self._wave("1aaa closed")
-        first = server_impl.wave_memory_backfill_response(
+        first = server_impl.memory_backfill_response(
             self.root, mode="create", entry_path="upgrade"
         )
         candidate = memory_records.load_memory_records(self.root)[0]
-        server_impl.wave_memory_validate_response(
+        server_impl.memory_validate_response(
             self.root,
             candidate["memory_id"],
             "promote",
@@ -678,7 +678,7 @@ os._exit(23)
     def test_malformed_ledger_is_unsupported_not_empty_success(self):
         wave = self._wave("1aaa closed", decision=False)
         wave.joinpath("events.jsonl").write_text("{bad json}\n", encoding="utf-8")
-        response = server_impl.wave_memory_backfill_response(
+        response = server_impl.memory_backfill_response(
             self.root, mode="create", entry_path="upgrade"
         )
         self.assertEqual(response["status"], "ok", response)
@@ -691,7 +691,7 @@ os._exit(23)
                 f"1a{index:02d} closed",
                 change_id=f"1b{index:02d}-enh decision-{index}",
             )
-        response = server_impl.wave_memory_backfill_response(
+        response = server_impl.memory_backfill_response(
             self.root, mode="create", limit=20, entry_path="manual"
         )
         self.assertLessEqual(len(response["data"]["processed"]), 10)
@@ -702,14 +702,14 @@ os._exit(23)
         wave = self._wave("1aaa closed", decision=False)
         self._add_decisions(wave, 25)
 
-        first = server_impl.wave_memory_backfill_response(
+        first = server_impl.memory_backfill_response(
             self.root, mode="create", limit=20, entry_path="manual"
         )
         self.assertEqual(first["data"]["candidates_drafted"], 20)
         self.assertEqual(first["data"]["remaining_waves"], 1)
         self.assertEqual(first["data"]["processed"][0]["exhausted"], False)
 
-        second = server_impl.wave_memory_backfill_response(
+        second = server_impl.memory_backfill_response(
             self.root, mode="create", limit=20, entry_path="manual"
         )
         self.assertEqual(second["data"]["candidates_drafted"], 25)
@@ -717,7 +717,7 @@ os._exit(23)
         self.assertEqual(second["data"]["processed"][0]["candidates_written"], 5)
         self.assertEqual(second["data"]["processed"][0]["exhausted"], True)
 
-        third = server_impl.wave_memory_backfill_response(
+        third = server_impl.memory_backfill_response(
             self.root, mode="create", limit=20, entry_path="manual"
         )
         self.assertEqual(third["data"]["processed"], [])
@@ -733,10 +733,10 @@ os._exit(23)
         }
         with mock.patch.object(
             server_impl,
-            "_wave_memory_propose_response_locked",
+            "_memory_propose_response_locked",
             return_value=failed,
         ):
-            response = server_impl.wave_memory_backfill_response(
+            response = server_impl.memory_backfill_response(
                 self.root, mode="create", entry_path="manual"
             )
         encoded = json.dumps(response["data"], ensure_ascii=False).encode("utf-8")
@@ -750,18 +750,18 @@ os._exit(23)
         self.assertEqual(summary["state"], "ready_for_index")
 
     def test_ready_backfill_routes_to_owning_lifecycle_without_setup_tool(self):
-        setup = server_impl.wave_memory_backfill_response(
+        setup = server_impl.memory_backfill_response(
             self.root, mode="create", entry_path="setup"
         )
         self.assertEqual(setup["data"]["state"], "ready_for_index")
         self.assertEqual(setup["next_tools"], [])
         self.assertIn("wf setup", setup["usage"])
 
-        upgrade = server_impl.wave_memory_backfill_response(
+        upgrade = server_impl.memory_backfill_response(
             self.root, mode="create", entry_path="upgrade"
         )
         self.assertEqual(upgrade["data"]["state"], "ready_for_index")
-        self.assertEqual(upgrade["next_tools"], ["wave_upgrade"])
+        self.assertEqual(upgrade["next_tools"], ["wf_upgrade"])
         self.assertIn("resume_after_memory", upgrade["usage"])
 
     def test_setup_pauses_then_ordinary_rerun_owns_first_index_publication(self):
@@ -802,11 +802,11 @@ os._exit(23)
         self.assertEqual(len(calls), 1)
         self.assertIn("--deps-only", calls[0])
 
-        batch = server_impl.wave_memory_backfill_response(
+        batch = server_impl.memory_backfill_response(
             self.root, mode="create", entry_path="setup"
         )
         candidate = memory_records.load_memory_records(self.root)[0]
-        server_impl.wave_memory_validate_response(
+        server_impl.memory_validate_response(
             self.root,
             candidate["memory_id"],
             "promote",
@@ -866,11 +866,11 @@ os._exit(23)
             encoding="utf-8",
         )
         index_calls = 0
-        server_impl.wave_memory_backfill_response(
+        server_impl.memory_backfill_response(
             self.root, mode="create", entry_path="setup"
         )
         candidate = memory_records.load_memory_records(self.root)[0]
-        server_impl.wave_memory_validate_response(
+        server_impl.memory_validate_response(
             self.root,
             candidate["memory_id"],
             "promote",
@@ -931,11 +931,11 @@ os._exit(23)
 
     def test_receipt_does_not_alias_a_later_unrelated_generation(self):
         self._wave("1aaa closed")
-        batch = server_impl.wave_memory_backfill_response(
+        batch = server_impl.memory_backfill_response(
             self.root, mode="create", entry_path="setup"
         )
         candidate = memory_records.load_memory_records(self.root)[0]
-        validated = server_impl.wave_memory_validate_response(
+        validated = server_impl.memory_validate_response(
             self.root,
             candidate["memory_id"],
             "promote",
@@ -969,11 +969,11 @@ os._exit(23)
             '{"lifecycle_id_policy":{"scheme_version":"v2"}}\n',
             encoding="utf-8",
         )
-        server_impl.wave_memory_backfill_response(
+        server_impl.memory_backfill_response(
             self.root, mode="create", entry_path="setup"
         )
         candidate = memory_records.load_memory_records(self.root)[0]
-        server_impl.wave_memory_validate_response(
+        server_impl.memory_validate_response(
             self.root,
             candidate["memory_id"],
             "promote",
@@ -1055,7 +1055,73 @@ os._exit(23)
         setup_source = (SCRIPTS / "setup_wavefoundry.py").read_text(encoding="utf-8")
         server_source = (SCRIPTS / "server_impl.py").read_text(encoding="utf-8")
         self.assertNotIn("wave_setup_resume_after_memory", server_source)
+        self.assertNotIn("wf_resume_setup_after_memory", server_source)
         self.assertNotIn("setup --resume-after-memory", setup_source)
+
+
+class RootDefaultDiscoveryTests(unittest.TestCase):
+    """Wave 1t3gt / 1t1b3: --root must default to the discovered repo root, never cwd."""
+
+    def test_discover_root_ignores_cwd(self):
+        import os
+        import repo_root
+
+        repo = SCRIPTS.parents[2]
+        original = os.getcwd()
+        os.chdir(SCRIPTS)
+        try:
+            self.assertEqual(repo_root.discover_root(None), repo)
+        finally:
+            os.chdir(original)
+
+    def test_discover_root_explicit_override_wins(self):
+        import repo_root
+
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(
+                repo_root.discover_root(tmp), Path(tmp).resolve()
+            )
+
+    def test_backfill_cli_defaults_to_repo_root_from_subdirectory(self):
+        import os
+
+        repo = SCRIPTS.parents[2]
+        original = os.getcwd()
+        os.chdir(SCRIPTS)
+        try:
+            with mock.patch.object(
+                memory_backfill, "ensure_run", return_value="run-x"
+            ) as ensure, mock.patch.object(
+                memory_backfill,
+                "sync_inventory",
+                return_value={"state": "inventory_pending"},
+            ), mock.patch("sys.stdout", new_callable=io.StringIO):
+                memory_backfill.main([])
+            self.assertEqual(ensure.call_args[0][0], repo)
+        finally:
+            os.chdir(original)
+
+    def test_memory_cli_defaults_to_repo_root_from_subdirectory(self):
+        import os
+
+        repo = SCRIPTS.parents[2]
+        original = os.getcwd()
+        os.chdir(SCRIPTS)
+        try:
+            with mock.patch.object(
+                server_impl,
+                "memory_backfill_response",
+                return_value={"status": "ok", "data": {}},
+            ) as resp, mock.patch("sys.stdout", new_callable=io.StringIO):
+                memory_cli.main(["backfill"])
+            self.assertEqual(resp.call_args[0][0], repo)
+        finally:
+            os.chdir(original)
+
+    def test_no_cwd_dot_default_remains(self):
+        for script in ("memory_backfill.py", "memory_cli.py"):
+            source = (SCRIPTS / script).read_text(encoding="utf-8")
+            self.assertNotIn('"--root", default="."', source, script)
 
 
 if __name__ == "__main__":

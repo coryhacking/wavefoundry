@@ -1,6 +1,6 @@
 """Wavefoundry install-log parser and state queries.
 
-Wave 1p35d (1p35h): shared library consumed by ``wave_install_audit`` (MCP
+Wave 1p35d (1p35h): shared library consumed by ``wf_audit_install`` (MCP
 tool) and any other tooling that needs to read the install log without
 duplicating the parser.
 
@@ -46,7 +46,7 @@ INSTALL_LOG_REL_PATH = ".wavefoundry/install-log.md"
 # landed in `target` with no way to tell them apart, so a row whose `artifact:` value is a prose
 # verification description (e.g. step 1.2: "the committed `.mcp.json` names ... AND ... exits 0") was
 # treated as a literal file path and stat'd — the description-as-path field defect that broke
-# wave_install_audit on a native-Windows install.
+# wf_audit_install on a native-Windows install.
 # Wave 1p8gw (rev.): the source tag also accepts MULTI-SEED / qualified forms shipped in the template —
 # ``(seed-080 + seed-090)`` and ``(seed-110 / conditional)`` — which the single-seed pattern silently
 # dropped (rows 2.2 / 2.8 never parsed → never validated). A multi-seed tag still ``startswith("seed-")``
@@ -78,7 +78,7 @@ _PHASE_HEADING_RE = re.compile(r"^##\s+Phase\s+(\d+)\b", re.IGNORECASE)
 #
 # CRITICAL: the SHIPPED template backtick-wraps EVERY path (``- … — artifact: `docs/repo-profile.json` ``),
 # so the classifier MUST strip backticks FIRST. The earlier "any backtick ⇒ prose" rule made 0/15
-# rows stat-able and turned wave_install_audit CHECK 2 into a silent no-op. Shipped-template examples:
+# rows stat-able and turned wf_audit_install CHECK 2 into a silent no-op. Shipped-template examples:
 #   2.3  `docs/repo-profile.json`                                   -> PATH  (single span)
 #   2.2  `docs/waves/00000 wave-zero-plans-and-specs/wave.md` (or…) -> PATH  (single span + aside)
 #   1.2  the committed `.mcp.json` names … AND … exits 0            -> DESC  (prose around spans)
@@ -206,7 +206,7 @@ class Row:
         Wave 1p8gw: this is now gated on ``artifact_path`` (a single stat-able path token), so a
         seed/script row whose ``artifact:`` value is a prose verification clause is NOT stat'd — it is
         treated as a verification description, never a file path. This closes the description-as-path
-        field defect that made ``wave_install_audit`` verify against bogus "paths".
+        field defect that made ``wf_audit_install`` verify against bogus "paths".
         """
         return self.artifact_path is not None
 
@@ -354,6 +354,6 @@ def read_install_log(project_root: Path) -> Optional[str]:
     # Wave 1p9hj: errors="replace" so a non-UTF-8 log (UTF-16 BOM / cp1252 from a bare PowerShell
     # Set-Content/Out-File on Windows) decodes without raising UnicodeDecodeError. Without this the
     # strict read raised BEFORE is_unparseable() (the 1p9bh safety net) could classify it, crashing
-    # wave_install_audit on Windows. The replacement chars this produces are what is_unparseable keys
+    # wf_audit_install on Windows. The replacement chars this produces are what is_unparseable keys
     # on to surface an actionable "install log unparseable" error rather than vacuous success.
     return log_path.read_text(encoding="utf-8", errors="replace")

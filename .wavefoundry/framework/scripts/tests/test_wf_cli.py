@@ -173,7 +173,7 @@ class WfCliDispatchTests(unittest.TestCase):
 
 
 class GpuDoctorSubcommandTests(unittest.TestCase):
-    """Wave 1p8gz: `wf gpu-doctor` surfaces the same diagnostics as wave_gpu_doctor by REUSING the
+    """Wave 1p8gz: `wf gpu-doctor` surfaces the same diagnostics as wf_gpu_doctor by REUSING the
     shared provider_policy backing logic — no duplicated GPU/provider detection."""
 
     def setUp(self):
@@ -189,7 +189,7 @@ class GpuDoctorSubcommandTests(unittest.TestCase):
 
     def test_main_reuses_provider_policy_backing_logic(self):
         # The CLI must call the SAME provider_policy.diagnostic_report / format_diagnostic_report the
-        # wave_gpu_doctor MCP tool uses — proving no duplicated detection.
+        # wf_gpu_doctor MCP tool uses — proving no duplicated detection.
         import gpu_doctor
         import provider_policy
 

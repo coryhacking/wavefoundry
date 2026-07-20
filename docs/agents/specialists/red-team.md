@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: red-team
 Category: specialist
-Last verified: 2026-07-17
+Last verified: 2026-07-20
 
 ## Mission
 
@@ -155,7 +155,7 @@ Stop and record a note or journal entry when:
 - Wave lifecycle state transitions — state machine edge cases and bypass paths (e.g., closing without review evidence, reopening after delivery)
 
 **Where to look:**
-- Wave Council config: `docs/workflow-config.json` (`wave_review`)
+- Wave Council config: `docs/workflow-config.json` (`wf_review_wave`)
 - Gate enforcement: `.wavefoundry/guard-overrides.json` and `_read_guard_overrides()` / `_write_guard_overrides()` in `server_impl.py`
 - Harness core schema: `.wavefoundry/framework/seeds/209-agent-harness-core.prompt.md`
 - Lifecycle seeds: `.wavefoundry/framework/seeds/050-*`, `100-*`, `170-*`, `180-*`

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: accepted (amended)
-Last verified: 2026-07-12
+Last verified: 2026-07-20
 
 ## Context
 
@@ -21,7 +21,7 @@ The load-bearing rules:
 - **Derived-only:** every table rebuilds from git, Lance, and the repo itself; corruption or version mismatch is a loud drop-and-rebuild, never data loss. (Since the `1sed7` amendment a whole-store reset also erases build/readiness state, so recovery is mandatory all-layer convergence — re-chunk with vector reuse — never a manufactured per-layer state.)
 - **Ordered consistency with Lance:** Lance is authoritative for chunk existence; store transactions commit after the corresponding Lance writes; an end-of-build chunk-id reconciliation repairs any crash window. Cross-engine atomicity is explicitly not claimed.
 - **Extract-alongside, not refactor:** the store module (`index_state_store.py`) generalizes the graph store's proven posture without touching `graph_indexer.py` — the graph store's reviewed build path stays byte-identical.
-- **One maintenance verb:** `wave_index_optimize` maintains every index — Lance compaction plus SQLite WAL checkpoint/truncate, `VACUUM`, `PRAGMA optimize`, FTS5 segment optimize, and a two-layer integrity check (structural pragmas + source-fingerprint staleness binding) — across the index-state store and the graph state store, under the index-build lock, on demand and at setup/upgrade.
+- **One maintenance verb:** `index_optimize` maintains every index — Lance compaction plus SQLite WAL checkpoint/truncate, `VACUUM`, `PRAGMA optimize`, FTS5 segment optimize, and a two-layer integrity check (structural pragmas + source-fingerprint staleness binding) — across the index-state store and the graph state store, under the index-build lock, on demand and at setup/upgrade.
 
 ## Consequences
 
@@ -40,7 +40,7 @@ The load-bearing rules:
 
 **Constraints imposed:**
 - No parallel sidecar stores: new semantic-index relational state must become a resident schema here, with sequenced (never concurrent) version bumps.
-- No parallel maintenance or integrity surfaces: new residents contribute into `wave_index_optimize` and the shared probe.
+- No parallel maintenance or integrity surfaces: new residents contribute into `index_optimize` and the shared probe.
 - stdlib `sqlite3` only — no loadable extensions.
 
 ## Alternatives Considered

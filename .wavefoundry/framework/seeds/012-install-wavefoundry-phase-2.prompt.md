@@ -6,13 +6,13 @@
 
 ## State machine
 
-Continue reading `.wavefoundry/install-log.md`. Phase 2 rows live under `## Phase 2 — Project discovery (MCP required)`. Each row points at a seed prompt and an expected artifact. Execute the seed, verify the artifact, mark `[x]`, and **call `wave_install_audit` after every step** — it runs docs-lint, validates checked-row artifacts, and returns the next unchecked row.
+Continue reading `.wavefoundry/install-log.md`. Phase 2 rows live under `## Phase 2 — Project discovery (MCP required)`. Each row points at a seed prompt and an expected artifact. Execute the seed, verify the artifact, mark `[x]`, and **call `wf_audit_install` after every step** — it runs docs-lint, validates checked-row artifacts, and returns the next unchecked row.
 
 Lint-as-you-go is the install-time discipline: lint errors block advancement; missing artifacts on `[x]` rows block advancement. The agent fixes the surface and re-calls.
 
 ## Steps (mirror `.wavefoundry/install-log.md` Phase 2)
 
-### 2.1 — Run `wave_install_audit(phase=1)`
+### 2.1 — Run `wf_audit_install(phase=1)`
 
 **Action:** Call the MCP tool. The expected return is `{status: "next_step", row: "2.2 ...", seed: "seed-030", ...}`.
 
@@ -26,7 +26,7 @@ If the return is `{status: "lint_errors", ...}`, fix the lint errors before proc
 
 **Expected artifact:** `docs/repo-profile.json` with archetype, traits, evidence sources, and `factor_review` applicability.
 
-Call `wave_install_audit` after marking 2.2 done.
+Call `wf_audit_install` after marking 2.2 done.
 
 ### 2.3 — Create canonical `docs/` structure (seed-040)
 
@@ -83,7 +83,7 @@ Call `wave_install_audit` after marking 2.2 done.
 
 **Action:** Immediately after the policy is written (step 2.3a), run ONE full-repo secrets baseline scan so every tracked file — not just changed ones — is classified into `docs/scan-findings.json` in a single up-front triage pass:
 
-- With the Wavefoundry MCP attached: `wave_scan_secrets(mode="full")`.
+- With the Wavefoundry MCP attached: `wf_scan_secrets(mode="full")`.
 - CLI fallback: `wf secrets-scan --mode full`.
 
 Use the **full** entrypoint (`scan_all=True`), NOT the incremental docs-lint hook path — the incremental path scans only git-changed files (`get_scan_files`), so secrets living in untouched files would otherwise stay unclassified and dribble out across later waves. Run this once at install; it is not re-run on every operation.
@@ -96,7 +96,7 @@ Use the **full** entrypoint (`scan_all=True`), NOT the incremental docs-lint hoo
 
 **Action:** Read `seed-050` and execute. Generate `docs/agents/<role>.md` for each role in `enabled_agent_roles` (workflow-config.json). For applicable factors, generate `docs/agents/factor-<nn>-<name>.md`.
 
-**Critical requirement:** Every generated role doc MUST include `Role: <role-name>` in its frontmatter. The dashboard classifies agents by this field; a doc without `Role:` is invisible. Per the lint rule introduced in wave 1p35d (1p35l), missing `Role:` fails docs-lint, which `wave_install_audit` will surface.
+**Critical requirement:** Every generated role doc MUST include `Role: <role-name>` in its frontmatter. The dashboard classifies agents by this field; a doc without `Role:` is invisible. Per the lint rule introduced in wave 1p35d (1p35l), missing `Role:` fails docs-lint, which `wf_audit_install` will surface.
 
 **The three councils are always surfaced as specialist agents, regardless of project archetype.** Canonical fresh-install location is `docs/agents/specialists/` (shown in the examples below). Established repos with a flat `docs/agents/` layout may keep their existing location — `docs-lint` accepts either, and `platform-mapping.md` records the actual paths in either case. The presence of the three role docs is load-bearing for council invocation; their location is a convention, not an enforced contract:
 
@@ -175,15 +175,15 @@ Answer each explicitly. A "no, this project has no admin role" is a valid answer
 
 **Expected artifact:** Drift entries in workflow-config.
 
-### 2.13 — Final `wave_install_audit()` confirms complete
+### 2.13 — Final `wf_audit_install()` confirms complete
 
-**Action:** Call `wave_install_audit()` with no arguments. Expected return: `{status: "complete", message: "install complete"}`.
+**Action:** Call `wf_audit_install()` with no arguments. Expected return: `{status: "complete", message: "install complete"}`.
 
 If anything other than `complete` is returned, the install isn't done — work the named blocker and re-call.
 
 ### 2.14 — Remove the bootstrap file from the project root
 
-**Action:** Once `wave_install_audit()` returns `complete`, delete the single-use bootstrap file `install-wavefoundry.md` from the repository root. It ships at the zip root purely so you could discover the install instructions before `.wavefoundry/` existed; it is now consumed, and the canonical install instructions live at `docs/prompts/install-wavefoundry.prompt.md`. Do not move it into `.wavefoundry/` — delete it, so it does not clutter the operator's project root.
+**Action:** Once `wf_audit_install()` returns `complete`, delete the single-use bootstrap file `install-wavefoundry.md` from the repository root. It ships at the zip root purely so you could discover the install instructions before `.wavefoundry/` existed; it is now consumed, and the canonical install instructions live at `docs/prompts/install-wavefoundry.prompt.md`. Do not move it into `.wavefoundry/` — delete it, so it does not clutter the operator's project root.
 
 ```bash
 rm -f install-wavefoundry.md

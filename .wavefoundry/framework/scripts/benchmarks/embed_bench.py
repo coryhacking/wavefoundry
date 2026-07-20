@@ -318,7 +318,7 @@ def main() -> None:
     print(f"Loading corpus from {root}...", flush=True)
     doc_chunks, code_chunks = _load_chunks(root)
     if not doc_chunks and not code_chunks:
-        print("ERROR: No index chunks found. Run wave_index_build first.", file=sys.stderr)
+        print("ERROR: No index chunks found. Run index_build first.", file=sys.stderr)
         sys.exit(1)
 
     report: dict[str, Any] = {

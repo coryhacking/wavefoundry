@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-16
+Last verified: 2026-07-20
 
 This document describes how Wavefoundry builds and maintains its search indexes. It covers
 every stage of the pipeline: file discovery, change detection, chunking, embedding, and
@@ -86,13 +86,13 @@ in **Build Coordination** below.
 
 ### Upgrade
 
-- **`wave_upgrade` phase 4** (the `upgrade_wavefoundry.py` index phases) invokes `setup_index.py`
+- **`wf_upgrade` phase 4** (the `upgrade_wavefoundry.py` index phases) invokes `setup_index.py`
   for the semantic rebuild and graph refresh. It auto-escalates an incremental update to a full rebuild
   when `CHUNKER_VERSION`/model or `GRAPH_BUILDER_VERSION` advanced.
 
 ### MCP — explicit
 
-- **`wave_index_build`** spawns `indexer.py` for a deterministic docs / code / graph
+- **`index_build`** spawns `indexer.py` for a deterministic docs / code / graph
   build · update · rebuild.
 
 ### Automatic / reactive
@@ -116,7 +116,7 @@ each other: a prompt **turn-end** trigger and a slow **quiet-period safety net**
   missed — external (non-agent) edits, a turn that ended without the `Stop` hook flushing, or a
   non-Stop host — so it never competes with active editing.
 - **MCP mutating tools → background project refresh** — most doc-writing wave-lifecycle tools
-  (`wave_new_*`, `wave_add_change`, `wave_set_handoff`, prepare / pause / review / close / reopen,
+  (`wf_new_*`, `wf_add_change`, `wf_set_handoff`, prepare / pause / review / close / reopen,
   docs gardening) call `_trigger_background_index_refresh_for_paths` → `_start_background_index_refresh`
   after they write, launching a detached project reindex.
 - **First-query lazy auto-rebuild** — a query that hits a stale or missing graph (e.g. a version bump
@@ -140,7 +140,7 @@ corrupt the index or run two builds at once. The pattern:
   byte lock** (Windows) on a single **sentinel byte** (kept off the byte-0 metadata so the JSON stays
   readable while held); it is released automatically when the holder exits, even on a crash. A second
   builder that finds the lock held fails fast with `IndexBuildAlreadyRunning`.
-- **Status tests the lock non-destructively.** `wave_index_build_status` reports an authoritative
+- **Status tests the lock non-destructively.** `index_build_status` reports an authoritative
   `held` by *testing* the OS lock — POSIX `fcntl` `F_GETLK` (queries without acquiring and returns the
   holder PID) / a momentary non-blocking `msvcrt` acquire on Windows — never by inferring from the
   lock file's presence. Read `lock.held`, not the file.
@@ -569,7 +569,7 @@ and fallback reason. Every provider decision also names its source (`decision-so
 `decision_provenance`): `setup-cache` when a process honors the decision setup recorded in
 `WAVEFOUNDRY_EMBED_PROVIDER_SELECTED`, `fresh-probe` when the availability/probe chain ran in that
 process, or `operator-request` when `WAVEFOUNDRY_EMBED_PROVIDER` forced it — setup/index-build and
-`wave_gpu_doctor` share the same probe chain, and process-scoped cache state is the one intentional
+`wf_gpu_doctor` share the same probe chain, and process-scoped cache state is the one intentional
 difference between their reports. On NVIDIA machines, setup plans the `fastembed-gpu` dependency path when local
 `nvidia-smi` detection succeeds. If hardware is present but `CUDAExecutionProvider` is missing after
 installation, setup keeps CPU execution and prints remediation guidance instead of failing the
@@ -683,7 +683,7 @@ re-embed:
 
 Both the finalize path and the incremental compaction path **self-heal**: a failed `optimize()`
 escalates to the rewrite automatically (never raising), so a corrupted table reclaims itself on the next
-build/update. The ladder is exposed as the `wave_index_optimize` MCP tool and runs automatically at the
+build/update. The ladder is exposed as the `index_optimize` MCP tool and runs automatically at the
 end of `setup`/`upgrade` (reclaim-only). Proven: `docs.lance` 1.6 GB → 55 MB, zero re-embed.
 
 ---
@@ -739,7 +739,7 @@ delta path). A full re-encode is forced only when the embedding **model** name/p
 An index whose existing LanceDB rows predate `chunk_hash` triggers a one-time **full rebuild**
 automatically (the 1p4n4 legacy-fallback preflight) so rows carry `chunk_hash` consistently
 before chunk-level vector reuse applies; you can also force it (e.g.
-`python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --full` or `wave_index_build`
+`python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --full` or `index_build`
 with full mode).
 
 ---

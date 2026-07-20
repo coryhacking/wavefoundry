@@ -30,7 +30,7 @@ Status: in-progress
 
 ## Phase 2 — Project discovery (MCP required)
 
-- [ ] 2.1 — Audit Phase 1 outputs (verify) — expects: wave_install_audit(phase=1) returns next_step
+- [ ] 2.1 — Audit Phase 1 outputs (verify) — expects: wf_audit_install(phase=1) returns next_step
 - [~] 2.2 — Capture legacy baseline wave if applicable (seed-110) — artifact: docs/waves/00000 wave-zero-plans-and-specs/wave.md
 - [ ] 2.3 — Bootstrap evidence base (seed-030) — artifact: docs/repo-profile.json
 """
@@ -69,12 +69,12 @@ class RowParsingTests(unittest.TestCase):
 
     def test_verify_row_parsed_no_artifact_check(self):
         row = install_log_lib.parse_row(
-            "- [ ] 2.1 — Audit Phase 1 outputs (verify) — expects: wave_install_audit(phase=1) returns next_step",
+            "- [ ] 2.1 — Audit Phase 1 outputs (verify) — expects: wf_audit_install(phase=1) returns next_step",
             phase=2,
         )
         self.assertIsNotNone(row)
         self.assertEqual(row.kind, "verify")
-        self.assertEqual(row.target, "wave_install_audit(phase=1) returns next_step")
+        self.assertEqual(row.target, "wf_audit_install(phase=1) returns next_step")
         self.assertFalse(row.needs_artifact_check)
 
     def test_instruction_row_parsed_no_target(self):
@@ -316,7 +316,7 @@ TEMPLATE_PATH = (
 class DescriptionAsPathTests(unittest.TestCase):
     """Wave 1p8gw: a seed/script row whose ``artifact:`` value is a prose verification CLAUSE (not a
     single path token) must parse into the row's description, NOT be classified as a stat-able path —
-    the field defect that made wave_install_audit verify against bogus 'paths' on a native-Windows
+    the field defect that made wf_audit_install verify against bogus 'paths' on a native-Windows
     install."""
 
     # The real drifted template row 1.2 (compound verification artifact with backticks + " AND ").
@@ -366,7 +366,7 @@ class DescriptionAsPathTests(unittest.TestCase):
 
     def test_expects_value_is_a_description_not_a_path(self):
         row = install_log_lib.parse_row(
-            "- [ ] 2.1 — Audit Phase 1 (verify) — expects: wave_install_audit(phase=1) returns next_step",
+            "- [ ] 2.1 — Audit Phase 1 (verify) — expects: wf_audit_install(phase=1) returns next_step",
             phase=2,
         )
         self.assertEqual(row.field, "expects")
@@ -435,7 +435,7 @@ class TemplateParserParityTests(unittest.TestCase):
         self.assertIsNotNone(by_num["2.13"].description)
 
     def test_no_stat_able_path_contains_prose_markers(self):
-        # The load-bearing guarantee: nothing wave_install_audit will stat carries prose-clause markers
+        # The load-bearing guarantee: nothing wf_audit_install will stat carries prose-clause markers
         # — i.e. no description is mis-read as a path. (Backticks are stripped, so they are NOT a marker
         # here; the markers are sentence conjunctions/verbs.)
         for r in self.rows:
@@ -449,7 +449,7 @@ class TemplateParserParityTests(unittest.TestCase):
 
 
 class CheckTwoIsNotVacuousTests(unittest.TestCase):
-    """Wave 1p8gw (review F1): prove wave_install_audit CHECK 2 actually validates — a [x] row whose
+    """Wave 1p8gw (review F1): prove wf_audit_install CHECK 2 actually validates — a [x] row whose
     backtick-wrapped artifact path is ABSENT must be flagged missing (the disabled-CHECK-2 defect let
     an operator mark every step [x] with zero files on disk and still get a clean audit)."""
 

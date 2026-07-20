@@ -189,7 +189,7 @@ def maybe_docs_lint(file_path: str) -> tuple[bool, str]:
     # Wave 1p9bg: bound the docs-lint subprocess so a slow whole-tree lint on a large repo can't
     # hang the post-edit hook. The timeout is generous (120s default) and tunable via
     # docs/workflow-config.json `docs_lint.hook_timeout_seconds`. A TIMEOUT is ADVISORY — it does
-    # NOT block the edit (wave_validate / wave-close remain the hard docs gate); a real lint
+    # NOT block the edit (wf_validate_docs / wave-close remain the hard docs gate); a real lint
     # FAILURE still blocks below.
     try:
         timeout_s = _load_indexer_hook_helpers().docs_lint_hook_timeout_seconds(REPO_ROOT)
@@ -198,7 +198,7 @@ def maybe_docs_lint(file_path: str) -> tuple[bool, str]:
     # Wave 1p9c1: run docs-lint INCREMENTALLY in the post-edit hook — `--changed` self-detects the
     # git working-tree changed set and lints only the per-file validators on changed docs (a
     # changed config file falls back to the full lint inside the cli). The authoritative full
-    # corpus lint stays at wave_validate / wave_close / prepare / install / upgrade, which invoke
+    # corpus lint stays at wf_validate_docs / wf_close_wave / prepare / install / upgrade, which invoke
     # docs_lint.py WITHOUT `--changed`. Incremental makes a timeout far less likely, but the 1p9bg
     # bound stays as defense-in-depth.
     try:

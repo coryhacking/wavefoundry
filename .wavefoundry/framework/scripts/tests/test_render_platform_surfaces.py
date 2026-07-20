@@ -766,7 +766,7 @@ class LauncherCommandTests(unittest.TestCase):
 
 class GpuDoctorLauncherTests(unittest.TestCase):
     """1p6et: there is NO dedicated GPU-doctor bin launcher — the diagnostic is reached via
-    `wf setup --check-gpu` (wave 1p7tz; was `setup-wavefoundry --check-gpu`) and the `wave_gpu_doctor`
+    `wf setup --check-gpu` (wave 1p7tz; was `setup-wavefoundry --check-gpu`) and the `wf_gpu_doctor`
     MCP tool (regression guard against re-adding a launcher)."""
 
     def setUp(self):

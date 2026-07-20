@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: framework-operator
 Category: persona
-Last verified: 2026-06-27
+Last verified: 2026-07-20
 
 ## Who
 
@@ -30,10 +30,10 @@ Last verified: 2026-06-27
 5. Commit the self-hosted surface (operator-owned commit)
 
 **Daily operation:**
-- Verify the docs gate: prefer MCP **`wave_validate`** (and **`wave_garden`** when metadata needs refresh); use **`wf docs-lint`** only without MCP
+- Verify the docs gate: prefer MCP **`wf_validate_docs`** (and **`wf_garden_docs`** when metadata needs refresh); use **`wf docs-lint`** only without MCP
 - Run setup with **`wf setup`** when the dispatcher is on PATH; it is the operator command for bootstrap and index setup
 - Use shortcut phrases from `AGENTS.md` for planning, wave management, and closure
-- Generate IDs: prefer the MCP `wave_create_wave` / `wave_new_<kind>` tools (they dedupe against on-disk IDs). CLI fallback when MCP is unavailable: `wf lifecycle-id --kind wave --slug <slug>`
+- Generate IDs: prefer the MCP `wf_create_wave` / `wave_new_<kind>` tools (they dedupe against on-disk IDs). CLI fallback when MCP is unavailable: `wf lifecycle-id --kind wave --slug <slug>`
 
 **Upgrade:**
 1. Build or obtain a new semver release zip in the repository root, `~/.wavefoundry/`, or `~/.wavefoundry/dist/`

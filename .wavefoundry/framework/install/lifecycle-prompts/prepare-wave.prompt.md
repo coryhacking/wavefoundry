@@ -22,8 +22,8 @@ only one wave may be open for implementation.
    seats, evidence, disagreements, and verdict.
 7. Record product-owner acknowledgment when the change affects product
    behavior or acceptance expectations.
-8. Use `wave_prepare(mode='ready')` to ready without opening, or
-   `wave_prepare(mode='create')` to ready and open when the single-open-wave
+8. Use `wf_prepare_wave(mode='ready')` to ready without opening, or
+   `wf_prepare_wave(mode='create')` to ready and open when the single-open-wave
    slot is available.
 
 ## Gate

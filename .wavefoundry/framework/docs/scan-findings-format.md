@@ -7,7 +7,7 @@ Last verified: 2026-07-03
 The canonical schema for **`docs/scan-findings.json`** — the committed ledger the
 hardcoded-secrets scanner uses to record, classify, and gate every match. It is
 the source of truth for the `pending → false-positive / suspected-secret /
-confirmed-secret` lifecycle and for the `wave_close` secrets gate.
+confirmed-secret` lifecycle and for the `wf_close_wave` secrets gate.
 
 This reference consolidates what was previously scattered across
 `wave_lint_lib/secrets_validators.py`, `213-security-reviewer.prompt.md`, and
@@ -30,7 +30,7 @@ a metadata wrapper: a `scanned_at`-style wrapper would rewrite the file on every
 scan and churn git history, while a bare `[]` only changes when findings change.
 Scan timing is already tracked separately in the indexer's `scan-state.json`.
 
-- The bare `[]` loads as an empty list, so the `wave_close` secrets gate sees no
+- The bare `[]` loads as an empty list, so the `wf_close_wave` secrets gate sees no
   findings and **does not block** (gate semantics unchanged).
 - The write is **idempotent** — re-running a clean full scan finds the file
   already present and rewrites nothing, so the content never churns.
@@ -44,7 +44,7 @@ Scan timing is already tracked separately in the indexer's `scan-state.json`.
 Each array element is one finding. Scanner-written fields are created by
 `wave_lint_lib/secrets_validators.py`'s `_match_hits_for_file`; the fields marked
 *(optional)* below are added later by the security reviewer (`seed-213`) or at
-`wave_close`, not by the scanner:
+`wf_close_wave`, not by the scanner:
 
 | Field | Type | Meaning |
 | ----- | ---- | ------- |
@@ -59,7 +59,7 @@ Each array element is one finding. Scanner-written fields are created by
 | `in_comment` | bool | *(optional)* True when the match is on a leading-comment line — triage context only; a commented secret is still flagged, never auto-suppressed. |
 | `exp_date` | string | *(optional, JWT findings)* Human-readable UTC `exp` claim, suffixed `(EXPIRED)` when past. Surfacing only. |
 | `override_reason` | string | *(optional)* A non-empty operator reason dismisses a `false-positive` finding even below the confirmation count. **Wave 1p5pz:** no longer used to acknowledge a `confirmed-secret`/`suspected-secret` (that soft-block was dropped). |
-| `acknowledged_for_wave` | string | *(optional, legacy — no longer consulted)* Wave id a finding was acknowledged for under the pre-1p5pz per-wave soft-block. `wave_close` no longer reads this field; tolerated if present on legacy findings, but unused. |
+| `acknowledged_for_wave` | string | *(optional, legacy — no longer consulted)* Wave id a finding was acknowledged for under the pre-1p5pz per-wave soft-block. `wf_close_wave` no longer reads this field; tolerated if present on legacy findings, but unused. |
 | `confirmations` | array | *(optional)* Reviewer confirmations of a `false-positive` (see below). |
 
 ### `confirmations[]` sub-schema
@@ -91,7 +91,7 @@ matching `^[0-9a-z]{5}-sec$` (e.g. `1p8l0-sec`). The `<prefix>` is the same
   prefixes (plans, waves, ADRs) **and** against existing ids in this file,
   including multiple findings minted during the same scan.
 - **`sec` is scanner-scoped.** `sec` is **not** a public change-doc kind — it never
-  appears in `wave_new_*` kind lists, `VALID_CHANGE_KINDS`, or plan/wave
+  appears in `wf_new_*` kind lists, `VALID_CHANGE_KINDS`, or plan/wave
   scaffolding. It is owned by the scanner and the lifecycle library only.
 - **Distinct from reviewer-lane finding ids.** Security-reviewer lane findings use
   ordinal ids like `SEC-1` (per `213-security-reviewer.prompt.md` / the generic
@@ -102,24 +102,24 @@ matching `^[0-9a-z]{5}-sec$` (e.g. `1p8l0-sec`). The `<prefix>` is the same
 
 Per `213-security-reviewer.prompt.md`:
 
-- `pending` — a new, unclassified match. `wave_close` **hard-blocks**. The
+- `pending` — a new, unclassified match. `wf_close_wave` **hard-blocks**. The
   security reviewer classifies each into one of the below.
 - `false-positive` — not a real secret. Cleared once it has enough valid
   confirmations (see policy), an `override_reason`, or the effective threshold is
   met. Non-blocking once cleared.
 - `suspected-secret` — looks real, unconfirmed; the reviewer must reclassify it as
-  `false-positive` or `confirmed-secret`. `wave_close` **hard-blocks** (unresolved)
+  `false-positive` or `confirmed-secret`. `wf_close_wave` **hard-blocks** (unresolved)
   until reclassified.
-- `confirmed-secret` — a real secret. `wave_close` **does NOT block** (wave 1p5pz):
+- `confirmed-secret` — a real secret. `wf_close_wave` **does NOT block** (wave 1p5pz):
   classification is the acknowledgment. Instead **every** close surfaces a
   non-blocking standing reminder (`confirmed_secrets` + `secrets_reminder` in the
-  `wave_close` response `data`) listing all confirmed secrets, for the agent to
+  `wf_close_wave` response `data`) listing all confirmed secrets, for the agent to
   present to the operator. Remediate (rotate + remove) before distribution; re-scan
   to clear.
 
-**`wave_close` status × gate (wave 1p5pz):**
+**`wf_close_wave` status × gate (wave 1p5pz):**
 
-| status | `wave_close` |
+| status | `wf_close_wave` |
 | ------ | ------------ |
 | `pending` | **hard-block** until classified |
 | `suspected-secret` | **hard-block** (unresolved) until reclassified |
@@ -135,7 +135,7 @@ Per `213-security-reviewer.prompt.md`:
 entry whose line still exists but which the current ruleset no longer produces as a
 match — e.g. a rule or allowlist change has since suppressed it — is removed
 automatically, so a ruleset improvement does not leave a phantom `pending` finding
-blocking `wave_close`. This applies **only** to `pending` entries: `false-positive`,
+blocking `wf_close_wave`. This applies **only** to `pending` entries: `false-positive`,
 `suspected-secret`, and `confirmed-secret` classifications are operator decisions and
 are never auto-removed. Incremental scans (which re-evaluate only changed files) never
 prune. A `pending` entry whose line was *removed* is handled by the separate

@@ -339,7 +339,7 @@ class TestRunSecretsScanMainEscalation(unittest.TestCase):
         return tmp
 
     def test_mode_full_uses_full_scan_path(self):  # wave 1p450 AC-7
-        # The full-scan entrypoint that wave_scan_secrets(mode="full") backs must
+        # The full-scan entrypoint that wf_scan_secrets(mode="full") backs must
         # resolve to scan_all=True (covers all tracked files), distinct from the
         # default incremental path.
         with tempfile.TemporaryDirectory() as d:

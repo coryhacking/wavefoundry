@@ -20,14 +20,14 @@
 <!-- wave:auto-guru end -->
 
 ## Key Guardrails
-- Before editing framework seeds: call `wave_gate_open(gate="seed_edit_allowed")`; call `wave_gate_close(gate="seed_edit_allowed")` immediately after. CLI fallback: `wf gate open seed_edit_allowed`
-- Before broad framework-maintenance edits: call `wave_gate_open(gate="framework_edit_allowed")`; restore with `wave_gate_close(gate="framework_edit_allowed")` after. CLI fallback: `wf gate open framework_edit_allowed`
+- Before editing framework seeds: call `wf_open_gate(gate="seed_edit_allowed")`; call `wf_close_gate(gate="seed_edit_allowed")` immediately after. CLI fallback: `wf gate open seed_edit_allowed`
+- Before broad framework-maintenance edits: call `wf_open_gate(gate="framework_edit_allowed")`; restore with `wf_close_gate(gate="framework_edit_allowed")` after. CLI fallback: `wf gate open framework_edit_allowed`
 - Never run `git commit` unless the operator explicitly requests it in the current session
 - Stage gate applies before any code edit: change doc → wave admission → Prepare wave
 
 ## Docs Gate
 
-**Agents:** Prefer MCP **`wave_validate`** (and **`wave_garden`** when refreshing metadata). **`wave_audit`** is useful for a combined wave + lint + index readout.
+**Agents:** Prefer MCP **`wf_validate_docs`** (and **`wf_garden_docs`** when refreshing metadata). **`wf_audit`** is useful for a combined wave + lint + index readout.
 
 After any edit to files under `docs/`, the post-edit hook still runs docs-lint automatically (via the rendered hook `.py` body, which calls `docs_lint.py` directly — not a bin wrapper) — fix failures before continuing; do not treat the hook as a replacement for MCP verification when the server is available. Manual CLI fallback: **`wf docs-lint`**.
 

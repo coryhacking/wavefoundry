@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-17
+Last verified: 2026-07-20
 
 ## Verification Commands
 
 Run these from the repository root to verify the Wavefoundry self-hosted surface is healthy:
 
-**Agents (MCP attached):** Prefer **`wave_garden`** then **`wave_validate`** (or **`wave_audit`** for a combined wave + lint + index snapshot) instead of shelling out to the bin launchers. Use the tools’ structured results to fix failures.
+**Agents (MCP attached):** Prefer **`wf_garden_docs`** then **`wf_validate_docs`** (or **`wf_audit`** for a combined wave + lint + index snapshot) instead of shelling out to the bin launchers. Use the tools’ structured results to fix failures.
 
 **Operators / CI / no MCP:** Use the shell sequence below.
 
@@ -59,7 +59,7 @@ wf setup --background-code  # docs/graph foreground, code detached
 wf setup --background-docs  # code foreground, docs detached
 ```
 
-Progress for detached setup builds is written under `.wavefoundry/logs/`. Call `wave_index_health()` or `wave_index_build_status(layer="code"|"docs")` to check whether a background build is still running.
+Progress for detached setup builds is written under `.wavefoundry/logs/`. Call `index_health()` or `index_build_status(layer="code"|"docs")` to check whether a background build is still running.
 
 ### Embedding provider diagnostics
 
@@ -93,7 +93,7 @@ Operators can force a provider family for diagnosis with `WAVEFOUNDRY_EMBED_PROV
 
 When a pack upgrade bumps `CHUNKER_VERSION`, a full rebuild is required for both docs and code layers — file hashes alone will not detect this. The full rebuild takes approximately 6 minutes (docs ~2.5 min + code ~3.5 min).
 
-`wave_index_health` will emit a `chunker_version_mismatch` advisory (distinct from `index_stale`) when the index was built with an older chunker version. If you see this advisory, run:
+`index_health` will emit a `chunker_version_mismatch` advisory (distinct from `index_stale`) when the index was built with an older chunker version. If you see this advisory, run:
 
 ```bash
 wf setup --full
@@ -105,20 +105,20 @@ If the repo needs extra project index roots beyond the default, declare them exp
 
 ### Dependency version sync on upgrade
 
-The tool-venv dependency check is **version-aware**: when a pack pins a new version of a dependency (e.g. `lancedb==0.33.0`), `wf setup` — and `wave_upgrade`, whose phase-4 index step already runs the same `ensure_deps` check — move an **existing** install to the pinned version, not just fresh installs. An exact (`==`) pin installs exactly that version (including downgrading a newer build to the framework's validated one); a range pin (`>=`, `<`) leaves any satisfying installed version untouched. Unpinned dependencies keep presence-only behavior (installed → not touched). Model weights are refreshed the same way — `prewarm_models` runs on each phase-4 setup invocation, so new/changed embedding and reranker models download during the upgrade. No separate command is needed for either.
+The tool-venv dependency check is **version-aware**: when a pack pins a new version of a dependency (e.g. `lancedb==0.33.0`), `wf setup` — and `wf_upgrade`, whose phase-4 index step already runs the same `ensure_deps` check — move an **existing** install to the pinned version, not just fresh installs. An exact (`==`) pin installs exactly that version (including downgrading a newer build to the framework's validated one); a range pin (`>=`, `<`) leaves any satisfying installed version untouched. Unpinned dependencies keep presence-only behavior (installed → not touched). Model weights are refreshed the same way — `prewarm_models` runs on each phase-4 setup invocation, so new/changed embedding and reranker models download during the upgrade. No separate command is needed for either.
 
 ### Update vs rebuild — decision table
 
 | Situation | Action |
 |---|---|
 | Docs changed during a wave (post-edit hook ran automatically) | No manual action needed — MCP tools trigger a background refresh on write |
-| Hook didn't run (Codex, Warp, or non-hook env) and docs feel stale | **Update:** `wave_index_build(content="docs", mode="update")` — re-indexes changed files only |
-| `wave_index_health` reports `index_stale` | **Update:** `wave_index_build(content="docs", mode="update")` |
-| `wave_index_health` reports `index_missing` | **Update (creates index):** `wave_index_build(content="docs", mode="update")` or `wf update-indexes` |
-| `wave_index_health` reports `chunker_version_mismatch` after a pack upgrade | **Full rebuild required** — file hashes alone won't detect the version change. See *Upgrade rebuild requirement* above |
-| `wave_index_health` reports `chunk_index_undercovered` (lexical FTS/registry materially behind Lance) | **Derived rebuild:** `wave_index_build(content="fts")` — rebuilds the FTS/registry from Lance from scratch, embedding-free, in seconds; any ordinary build's reconcile also backfills it (including zero-change builds) |
-| Code navigation (`code_search`, `code_read`) feels stale or was never built | **Code update:** `wave_index_build(content="code", mode="update")` — or `wf update-indexes`. Since wave 1sc7c each semantic layer tracks the hash it last embedded per path (index-state store `layer_path_state`), so a scoped update always detects the layer's own staleness — the historical no-op (content-scoped builds stamping hashes they never embedded, with the post-edit hook running docs-only) is fixed, and previously poisoned repos heal automatically on their first post-upgrade build (empty layer state reads as all-stale; vectors are reused by content hash, so the heal re-chunks without re-embedding unchanged content) |
-| Framework seeds changed in the Wavefoundry source repo itself | **Project docs update:** `wave_index_build(content="docs", mode="update")`; framework seeds are folded into the project docs index |
+| Hook didn't run (Codex, Warp, or non-hook env) and docs feel stale | **Update:** `index_build(content="docs", mode="update")` — re-indexes changed files only |
+| `index_health` reports `index_stale` | **Update:** `index_build(content="docs", mode="update")` |
+| `index_health` reports `index_missing` | **Update (creates index):** `index_build(content="docs", mode="update")` or `wf update-indexes` |
+| `index_health` reports `chunker_version_mismatch` after a pack upgrade | **Full rebuild required** — file hashes alone won't detect the version change. See *Upgrade rebuild requirement* above |
+| `index_health` reports `chunk_index_undercovered` (lexical FTS/registry materially behind Lance) | **Derived rebuild:** `index_build(content="fts")` — rebuilds the FTS/registry from Lance from scratch, embedding-free, in seconds; any ordinary build's reconcile also backfills it (including zero-change builds) |
+| Code navigation (`code_search`, `code_read`) feels stale or was never built | **Code update:** `index_build(content="code", mode="update")` — or `wf update-indexes`. Since wave 1sc7c each semantic layer tracks the hash it last embedded per path (index-state store `layer_path_state`), so a scoped update always detects the layer's own staleness — the historical no-op (content-scoped builds stamping hashes they never embedded, with the post-edit hook running docs-only) is fixed, and previously poisoned repos heal automatically on their first post-upgrade build (empty layer state reads as all-stale; vectors are reused by content hash, so the heal re-chunks without re-embedding unchanged content) |
+| Framework seeds changed in the Wavefoundry source repo itself | **Project docs update:** `index_build(content="docs", mode="update")`; framework seeds are folded into the project docs index |
 | First install / clean environment | `wf setup` (docs, code, and graph foreground) |
 | CI deterministic full build | `wf setup --include-code` (~6 min, explicit docs and code synchronous form) |
 
@@ -126,21 +126,21 @@ The tool-venv dependency check is **version-aware**: when a pack pins a new vers
 
 After an ordinary upgrade, if search still looks missing or stale, stop and verify that the upgraded MCP server has been restarted before rebuilding anything. There is a single semantic index — the project index at `.wavefoundry/index/` — and framework seeds fold into that project docs index at setup/upgrade; there is no separate framework index to rebuild.
 
-Since wave 1seav every search response tells you WHY it degraded: check `search_mode` (`lexical_fallback` = BM25 from the published FTS layer; `live_fallback` = no published index at all) and `fallback_reason` (`model_unavailable`, `index_not_ready`, `query_failed`, …) before reaching for `wave_index_health` — the explicit health verdict is still authoritative when you need layer-level detail. In clients that do not execute the post-edit hook path, assume manual reindexing is required after meaningful docs changes.
+Since wave 1seav every search response tells you WHY it degraded: check `search_mode` (`lexical_fallback` = BM25 from the published FTS layer; `live_fallback` = no published index at all) and `fallback_reason` (`model_unavailable`, `index_not_ready`, `query_failed`, …) before reaching for `index_health` — the explicit health verdict is still authoritative when you need layer-level detail. In clients that do not execute the post-edit hook path, assume manual reindexing is required after meaningful docs changes.
 
-**State recovery (wave 1sed7 — SQLite-only):** `.wavefoundry/index/index-state.sqlite` is the sole semantic-index state authority; there is no `meta.json`. A search tool returning `index_not_ready` means the store has no completed build epoch (building, interrupted, or never built) or a build fenced mid-query — check `wave_index_build_status` and retry after the build completes. A missing/corrupt/deleted store is never data loss: the next build converges all layers by re-chunking with Lance vector reuse (readiness state cannot be manufactured per layer, so convergence is deliberately all-layer). A legacy `meta.json` from a pre-1sed7 install is never read by anything — not even the upgrade's version probes (an absent/empty store reads as unknown, which forces convergence) — and is removed automatically after the first successful build. Never treat a failed build's output as current: a build that reports `failed: true` left the epoch incomplete on purpose (and exits non-zero through the CLI, so setup/hooks/MCP subprocess callers see it) — readers stay closed until a build finalizes. An interrupted build (`wave_index_build_status` reports `state: "interrupted"`) heals with any ordinary build run — a zero-change retry reconciles derived state, refreshes bookkeeping, and republishes readiness without re-embedding. The derived-FTS rebuild (`content="fts"`) and `wave_index_optimize` are restore-only maintenance: they refuse on a store with no completed build epoch rather than manufacturing readiness, and an optimize that ends with an unreadable table deliberately leaves readers failed closed until a build repairs it.
+**State recovery (wave 1sed7 — SQLite-only):** `.wavefoundry/index/index-state.sqlite` is the sole semantic-index state authority; there is no `meta.json`. A search tool returning `index_not_ready` means the store has no completed build epoch (building, interrupted, or never built) or a build fenced mid-query — check `index_build_status` and retry after the build completes. A missing/corrupt/deleted store is never data loss: the next build converges all layers by re-chunking with Lance vector reuse (readiness state cannot be manufactured per layer, so convergence is deliberately all-layer). A legacy `meta.json` from a pre-1sed7 install is never read by anything — not even the upgrade's version probes (an absent/empty store reads as unknown, which forces convergence) — and is removed automatically after the first successful build. Never treat a failed build's output as current: a build that reports `failed: true` left the epoch incomplete on purpose (and exits non-zero through the CLI, so setup/hooks/MCP subprocess callers see it) — readers stay closed until a build finalizes. An interrupted build (`index_build_status` reports `state: "interrupted"`) heals with any ordinary build run — a zero-change retry reconciles derived state, refreshes bookkeeping, and republishes readiness without re-embedding. The derived-FTS rebuild (`content="fts"`) and `index_optimize` are restore-only maintenance: they refuse on a store with no completed build epoch rather than manufacturing readiness, and an optimize that ends with an unreadable table deliberately leaves readers failed closed until a build repairs it.
 
 When diagnosing index-state store anomalies (missing lexical results, unexpected reconciles, provisioning questions), check the persisted store log first: `.wavefoundry/logs/index-state.log` records the one-time diagnostics — cold-store provisioning, crash-window reconciliation, reconcile skip reasons, and legacy-FTS drops — that previously appeared only on the build process's raw stdout/stderr (wave 1sbfk). It is bounded and best-effort; the absence of a line is not proof an event didn't happen, but a present line is authoritative.
 
-Wavefoundry MCP doc-mutating tools also request a detached background docs-index refresh after successful writes. That improves freshness in non-hook environments such as Codex, but it is best-effort and non-blocking; use `wave_index_health` when you need an explicit health verdict or run `wave_index_build` for a deterministic result.
+Wavefoundry MCP doc-mutating tools also request a detached background docs-index refresh after successful writes. That improves freshness in non-hook environments such as Codex, but it is best-effort and non-blocking; use `index_health` when you need an explicit health verdict or run `index_build` for a deterministic result.
 
 **First clone in Codex:** Codex will prompt you to trust the project directory the first time you open it. Accept the prompt — the project-local `.codex/config.toml` (Wavefoundry MCP registration) only loads once trust is granted. No additional setup is required; `.codex/config.toml` is committed to the repo and generated by `render_agent_surfaces.py` on upgrade.
 
-`wave_index_build` accepts: `content` (`docs` | `code` | `all` | `graph` | `map` | `fts`), `mode` (`update` | `rebuild`). It targets the single project index/graph (the separate framework layer was removed in wave 1p4ww). Successful responses include structured `stats` confirming file count, chunk count, and whether the run was already up to date. `content="fts"` (wave 1sc7c) rebuilds **only the derived lexical layer** (FTS5 tables + chunk registry) from scratch off the authoritative Lance tables — embedding-free, in-process, seconds; the clean recovery for an under-covered or corrupt lexical layer (`mode` is ignored, always from-scratch).
+`index_build` accepts: `content` (`docs` | `code` | `all` | `graph` | `map` | `fts`), `mode` (`update` | `rebuild`). It targets the single project index/graph (the separate framework layer was removed in wave 1p4ww). Successful responses include structured `stats` confirming file count, chunk count, and whether the run was already up to date. `content="fts"` (wave 1sc7c) rebuilds **only the derived lexical layer** (FTS5 tables + chunk registry) from scratch off the authoritative Lance tables — embedding-free, in-process, seconds; the clean recovery for an under-covered or corrupt lexical layer (`mode` is ignored, always from-scratch).
 
 ## Docs Gate
 
-Same checks whether you run **`wave_validate`** / **`wave_garden`** over MCP or the bin scripts below.
+Same checks whether you run **`wf_validate_docs`** / **`wf_garden_docs`** over MCP or the bin scripts below.
 
 `wf docs-lint` validates:
 - Required prompt docs exist under `docs/prompts/`
@@ -150,9 +150,9 @@ Same checks whether you run **`wave_validate`** / **`wave_garden`** over MCP or 
 
 `wf docs-gardener` refreshes stale metadata timestamps.
 
-**Secrets scanning** runs in the docs gate, but in **record-only** mode (wave 1p5pz). `wf docs-lint` runs `wave_lint_lib/secrets_validators.py` against the merged ruleset (`.wavefoundry/scan-rules.toml` + `docs/scan-rules.toml`) and **records** new matches to `docs/scan-findings.json` as `pending` — but it does **not** fail on secret findings (only a malformed inline-suppression directive is a lint error). So the post-edit hook, `wave_validate`, and the upgrade docs gate never block on a found secret. For an on-demand scan use `wave_scan_secrets(mode="full")` (MCP) — incremental mode auto-escalates to full when either TOML file changed since the last scan. **The `wave_close` secrets gate is the sole enforcement point**: `pending` and `suspected-secret` entries hard-block close until classified (via the security reviewer, `seed-213`); `confirmed-secret` is **non-blocking** and surfaces a standing reminder; `false-positive` (cleared) passes.
+**Secrets scanning** runs in the docs gate, but in **record-only** mode (wave 1p5pz). `wf docs-lint` runs `wave_lint_lib/secrets_validators.py` against the merged ruleset (`.wavefoundry/scan-rules.toml` + `docs/scan-rules.toml`) and **records** new matches to `docs/scan-findings.json` as `pending` — but it does **not** fail on secret findings (only a malformed inline-suppression directive is a lint error). So the post-edit hook, `wf_validate_docs`, and the upgrade docs gate never block on a found secret. For an on-demand scan use `wf_scan_secrets(mode="full")` (MCP) — incremental mode auto-escalates to full when either TOML file changed since the last scan. **The `wf_close_wave` secrets gate is the sole enforcement point**: `pending` and `suspected-secret` entries hard-block close until classified (via the security reviewer, `seed-213`); `confirmed-secret` is **non-blocking** and surfaces a standing reminder; `false-positive` (cleared) passes.
 
-Both subcommands are dispatched by the single cross-OS `wf` (bash) / `wf.cmd` (Windows) shim under `.wavefoundry/bin/`, which routes through `wf_cli.py` to the corresponding scripts under `.wavefoundry/framework/scripts/` (`wf docs-lint` → `docs_lint.py`, `wf docs-gardener` → `docs_gardener.py`). This repository does not ship repo-root `./docs-lint` or `./docs-gardener` shims. **Agents should use MCP `wave_validate` and `wave_garden` first**; reserve **`wf docs-lint`** / **`wf docs-gardener`** for hooks, CI, and hosts without MCP.
+Both subcommands are dispatched by the single cross-OS `wf` (bash) / `wf.cmd` (Windows) shim under `.wavefoundry/bin/`, which routes through `wf_cli.py` to the corresponding scripts under `.wavefoundry/framework/scripts/` (`wf docs-lint` → `docs_lint.py`, `wf docs-gardener` → `docs_gardener.py`). This repository does not ship repo-root `./docs-lint` or `./docs-gardener` shims. **Agents should use MCP `wf_validate_docs` and `wf_garden_docs` first**; reserve **`wf docs-lint`** / **`wf docs-gardener`** for hooks, CI, and hosts without MCP.
 
 ## Framework Script Hygiene
 
@@ -202,8 +202,8 @@ wf docs-gardener && wf docs-lint
   - `wf docs-lint` → `docs_lint.py`
   - `wf docs-gardener` → `docs_gardener.py`
 - MCP recovery tools from the upgraded server are available:
-  - `wave_audit` (combined wave + lint + index check)
-  - `wave_index_build` (deterministic project index rebuild path)
+  - `wf_audit` (combined wave + lint + index check)
+  - `index_build` (deterministic project index rebuild path)
 
 **Auto-Guru routing (agents — apply on every upgrade when Guru is in the pack):**
 
