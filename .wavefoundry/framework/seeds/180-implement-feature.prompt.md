@@ -115,7 +115,7 @@ When `wave_review.enabled` is true: the existing `wave-council-readiness` verdic
 
 MCP-first code exploration:
 
-When MCP is attached, exploration before any code edit follows this order. Agents must not default to shell search or broad file reads for questions these tools are designed to answer:
+When MCP is attached, any code investigation at any lifecycle stage follows this order: exploration before a code edit, review-claim verification against the tree, and repair/reverification work inside review cycles (censuses, region reads, claim checks) alike; the run contract's Retrieval Rules (`seed-020`) carry this scope for every lane and briefed subagent. Agents must not default to shell search or broad file reads for questions these tools are designed to answer:
 
 1. `code_ask` — cross-cutting "what does this currently do?" questions
 2. `code_search` — conceptual or module-level discovery

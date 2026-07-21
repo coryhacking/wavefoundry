@@ -10,6 +10,9 @@ contracts, failure modes, and current repository state.
 ## Review method
 
 1. Review the actual diff and current tree, not the implementation summary.
+   All review, repair, and reverification investigation follows the run
+   contract's Retrieval Rules (`seed-020`): MCP retrieval tools first, for
+   every lane and briefed subagent; executed probes remain shell work.
 2. Reproduce material claims through public or registered paths where safe.
 3. Use an independent reference for changed behavior and state the common-mode
    limitations of that reference.

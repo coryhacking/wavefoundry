@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-20
+Last verified: 2026-07-21
 
 ## Configuration
 
@@ -31,6 +31,24 @@ Only `render_platform_surfaces.py` writes to platform config files.
 - **Generation invalidation:** the `build_state` row's `(attempt_id, generation)` token is the cross-process cache-invalidation signal — the MCP server's `WaveIndex` reload signature and every reader's pre/post seqlock check key on it. Only the completion CAS advances the generation; a true no-op build changes nothing.
 - **Fail-closed liveness:** an absent, uninitialized, `building`, or unreadable store means "not servable" — readers return structured `index_not_ready` rather than guessing. An interrupted build (fence committed, builder died) is derived from `building` + a free build lock, never stored, and heals when the next build supersedes the dead attempt.
 - **Integrity:** the store is derived-only — corruption or schema-version mismatch is a loud drop-and-rebuild (mandatory all-layer convergence, vector reuse from Lance), never data loss. `index_optimize` runs the structural + stale-fingerprint integrity probe.
+
+## Locking Inventory (wave 1seax)
+
+Three OS-lock guards (kernel-released on process exit; the lock FILE persists
+as a last-owner record and its presence never means "held" — probe the OS
+lock):
+
+- **`index-build.lock`** (`.wavefoundry/index/`): serializes whole-index
+  builds; mutually excluded against the framework test suite with atomic
+  post-acquire rechecks and hold-nothing-while-waiting (wave 1t72b).
+- **`test-run.lock`** (`.wavefoundry/framework/`): one framework suite run at
+  a time; the suite yields to a committed index build.
+- **`lifecycle-mutation.lock`** (`.wavefoundry/`): advisory per-root
+  serialization of the mutating lifecycle MCP tools (the census in the 1seat
+  change doc), acquired non-blocking at the registration layer; a held lock
+  returns a structured `lifecycle_mutation_locked` busy response. Review
+  evidence writes (`review_event_write_lock`) and memory writes (the
+  memory-state fence) carry their own narrower serialization.
 
 ## Error Handling
 

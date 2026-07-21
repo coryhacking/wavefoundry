@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-20
+Last verified: 2026-07-21
 
 Shortcut: **`Close wave`**
 
@@ -11,6 +11,8 @@ Shortcut: **`Close wave`**
 Finalize and archive the wave. Closure requires full reconciliation — not just a status flip.
 
 ## Closure Requirements (all must be met)
+
+All closure-time code and docs investigation follows the run contract's Retrieval Rules (`.wavefoundry/framework/seeds/020-run-contract.prompt.md`): MCP retrieval tools first, for every lane and briefed subagent.
 
 1. All changes marked `complete` or `deferred` with explicit rationale
 2. All required review lanes from readiness reconciled in `## Review checkpoints` (or deferred with rationale)

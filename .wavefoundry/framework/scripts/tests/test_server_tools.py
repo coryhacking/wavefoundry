@@ -24443,7 +24443,11 @@ class FtsRebuildContentTests(unittest.TestCase):
 
     def test_fts_content_accepted_and_lock_guarded(self):
         src = Path(self.srv.__file__).read_text(encoding="utf-8")
-        self.assertIn('"docs", "code", "all", "graph", "map", "fts"', src)
+        # 1seax (1seau): the vocabulary lives in the canonical public-contract
+        # module now, consumed by the handler instead of a hand-written literal.
+        self.assertIn("from public_contract import INDEX_BUILD_CONTENT_VALUES", src)
+        import public_contract
+        self.assertIn("fts", public_contract.INDEX_BUILD_CONTENT_VALUES)
         pos = src.index('if content == "fts":')
         block = src[pos:pos + 2200]
         self.assertIn("_index_build_lock(index_dir)", block)
@@ -24744,7 +24748,9 @@ class CloseTimeOptimizeTests(unittest.TestCase):
         import inspect
         src = inspect.getsource(self.srv.wf_close_wave_response)
         opt = src.index("_maybe_optimize_index_on_close(root)")
-        refresh = src.index("_trigger_background_index_refresh_for_paths(root, refresh_paths)")
+        # 1seax (1seat): the refresh moved into the close's forward-recoverable
+        # handoff-convergence block; the optimize-before-refresh ordering holds.
+        refresh = src.index("_trigger_background_index_refresh_for_paths(root, [wave_md, handoff])")
         self.assertGreater(refresh, opt,
                            "close-time optimize must run BEFORE the background refresh (lock still free)")
 

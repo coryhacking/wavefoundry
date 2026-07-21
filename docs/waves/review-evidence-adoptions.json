@@ -1,6 +1,12 @@
 {
   "protocol_version": 1,
   "waves": {
+    "1seax lifecycle-ops-hardening": {
+      "prefix_sha256": "20fb676b3dafd05d271001297f47e4e8fcb59ab5964c47005f06a110444ac973",
+      "record_count": 44,
+      "source": "events.jsonl",
+      "version": 1
+    },
     "1skt1 executable-review-evidence": {
       "prefix_sha256": "8107217de7d58058e86d28a5cededc5b75907f1dd2da21e5644290d0261f6a08",
       "record_count": 186,
@@ -88,6 +94,12 @@
     "1t3gt mcp-tool-hygiene": {
       "prefix_sha256": "9fe9893ddb7733aa1ce7daed4a90dbcad3510acd52c66eb758de03fb3ca660b4",
       "record_count": 7,
+      "source": "events.jsonl",
+      "version": 1
+    },
+    "1t69a retrieval-posture-coverage": {
+      "prefix_sha256": "0d1a3da0cd91aef7a6c60503ae825beee75accf34bf815a6997bb0f52c72237a",
+      "record_count": 6,
       "source": "events.jsonl",
       "version": 1
     },

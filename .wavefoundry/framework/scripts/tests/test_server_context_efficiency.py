@@ -172,7 +172,7 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn(
-            '{"review_evidence", "context_efficiency"}',
+            '{"review_evidence", "context_efficiency", "public_contract"}',
             source,
         )
 
@@ -1384,11 +1384,16 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
 
     def test_retrieval_posture_directive_is_self_contained(self):
         """Wave 1t3ek (1t230) AC-1: the activation envelope carries the rule,
-        the Gapfill escape hatch, and the advisory it clears."""
+        the Gapfill escape hatch, and the advisory it clears. Wave 1t69a AC-1:
+        the rule's scope names repair/reverification work inside review cycles
+        and briefed subagents, with executed probes staying shell work."""
         directive = srv._RETRIEVAL_POSTURE_DIRECTIVE
         self.assertIn("code_*", directive)
         self.assertIn("Gapfill:", directive)
         self.assertIn("retrieval_posture_gap", directive)
+        self.assertIn("repair and reverification work inside review cycles", directive)
+        self.assertIn("subagent briefed for investigation or verification", directive)
+        self.assertIn("executed probes", directive)
         source = (SCRIPTS_ROOT / "server_impl.py").read_text(encoding="utf-8")
         idx = source.index("def wf_implement_wave_response")
         self.assertIn(

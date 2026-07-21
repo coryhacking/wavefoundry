@@ -1,10 +1,10 @@
 # Operational Docs Refresh + Docs-vs-Code Constants Lint
 
 Change ID: `1seau-doc ops-docs-refresh-and-constants-lint`
-Change Status: `planned`
+Change Status: `implemented`
 Owner: Engineering
 Status: planned
-Last verified: 2026-07-20
+Last verified: 2026-07-21
 Wave: `1seax lifecycle-ops-hardening`
 
 ## Rationale
@@ -31,17 +31,17 @@ Second half: the review's suggestion of lint assertions binding documented facts
 
 ## Acceptance Criteria
 
-- [ ] AC-1: RELIABILITY.md describes the shipped reliability posture (stores, locks, degradation, logs, heal) with no future-work framing for shipped systems.
-- [ ] AC-2: performance-budget.md carries measured budgets and the real hotspot list with guards.
-- [ ] AC-3: The docs-constants lint check fails on a seeded drift fixture (wrong model name in a doc) and passes on the refreshed docs; wired into the standard docs gate; the checked vocabularies come from the canonical public-contract constants module (single source of truth, consumed by the handlers too).
-- [ ] AC-5: Admitted change docs with `Wave: TBD`/mismatched wave references fail lint; wave records with unbracketed pre-approval signoff phrasing fail lint (fixtures = this session's actual defects).
-- [ ] AC-4: Full docs validation + framework tests pass (the lint check's own unit fixtures included).
+- [x] AC-1: RELIABILITY.md describes the shipped reliability posture (stores, locks, degradation, logs, heal) with no future-work framing for shipped systems.
+- [x] AC-2: performance-budget.md carries measured budgets and the real hotspot list with guards.
+- [x] AC-3: The docs-constants lint check fails on a seeded drift fixture (wrong model name in a doc) and passes on the refreshed docs; wired into the standard docs gate; the checked vocabularies come from the canonical public-contract constants module (single source of truth, consumed by the handlers too).
+- [x] AC-5: Admitted change docs with `Wave: TBD`/mismatched wave references fail lint; wave records with unbracketed pre-approval signoff phrasing fail lint (fixtures = this session's actual defects).
+- [x] AC-4: Full docs validation + framework tests pass (the lint check's own unit fixtures included) (6,081 tests across 59 files, OK, 2026-07-20).
 
 ## Tasks
 
-- [ ] Rewrite the two docs from current evidence (cite measurements, not aspirations).
-- [ ] Declarative docs-constants check + mapping + fixtures in docs-lint.
-- [ ] Suite + validate.
+- [x] Rewrite the two docs from current evidence (cite measurements, not aspirations).
+- [x] Declarative docs-constants check + mapping + fixtures in docs-lint.
+- [x] Suite + validate.
 
 ## Agent Execution Graph
 
@@ -75,6 +75,7 @@ Second half: the review's suggestion of lint assertions binding documented facts
 | AC-1 | required | Tier-1 contract accuracy. |
 | AC-2 | required | Same. |
 | AC-3 | required | The drift-prevention mechanism, not just a one-time fix. |
+| AC-5 | required | Scaffolding integrity; fixtures are this session's actual defects. |
 | AC-4 | required | Standard gate. |
 
 
@@ -84,6 +85,9 @@ Second half: the review's suggestion of lint assertions binding documented facts
 | Date | Update | Evidence |
 | ---- | ------ | -------- |
 | 2026-07-12 | Plan-review revision (external, validated) + council amendment: canonical public-contract constants required before the lint (two-truths verified: `CONTENT_CHOICES` at indexer.py:150 lacks `map`/`fts` that the server accepts); two scaffolding-quality lint rules adopted (signoff-placeholder phrasing, admitted-doc `Wave:` integrity) with this session's defects as fixtures. | Plan review; constants source reads. |
+| 2026-07-21 | Operator independent review (P1): the freshness/search-mode/fallback vocabularies were consumed only by the lint, not the emitting handlers. Repaired with tuple-unpacked aliases at every producing site (rename/reorder breaks at import) — and the forced full census corrected the canonical module itself: SEARCH_MODES grew from the under-enumerated 2 to the true 5 (semantic, exact, hybrid, lexical_fallback, live_fallback). Source pins guard against bare literals returning. | `ev-contract-vocabularies-not-consumed-by-handlers*`; test_handlers_consume_the_vocabulary_aliases |
+| 2026-07-21 | LIVE-CAUGHT third finding: the vocabulary repair broke hot reload — `public_contract` was missing from server_impl's top-of-module reload-eviction set, so wf_reload_mcp re-executed the new five-name unpacking against the stale two-value cached module ('expected 5, got 2'). One-line repair (the module joins the eviction set + pinned-set test); SELF-HEALING live: the retried reload succeeded because the new eviction block executes before the crashing import. Lesson: every new module-level sibling import in server_impl must join the eviction set | `ev-public-contract-missing-from-reload-eviction*`; the failed and the successful live reload envelopes |
+| 2026-07-21 | Operator review round 2 (fourth finding): LEXICAL_FALLBACK_REASONS itself was under-enumerated — `model_unavailable` and `index_missing` were emitted as public `fallback_reason` values but absent from the tuple, and `_fts_degraded_serve` emitted bare `store_absent`/`query_failed` literals the assignment-only pin missed. Repaired: the tuple grew to the true five values; every producer shape (call arguments, comparisons, failure_reason dict values, shared-spelling diagnostic codes, the code_ask infra-failure tuples) consumes the aliases; the docstring names the contract module instead of quoting values. The pin is now indirection-proof: zero double-quoted occurrences of any canonical reason value in server_impl, iterated from the contract tuple, plus a five-value census test. The follow-up reload live-verified the third finding's eviction fix against a real contract shape change. | `ev-fallback-reason-census-still-incomplete*`; test_handlers_consume_the_vocabulary_aliases; test_lexical_fallback_reasons_cover_every_emitting_site; clean wf_reload_mcp envelope |
 | 2026-07-12 | Drafted from the external code review (P2), staleness validated by direct read ("None currently; all operations are local file I/O with small data volumes"). Measured budget inputs already exist from the 1sc7c design pass and 1sbfk/1seiz live probes. | Review report; doc reads; 1sc7c hook-cost measurements. |
 
 

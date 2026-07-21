@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-20
+Last verified: 2026-07-21
 
 Shortcut: **`Review wave`**
 
@@ -11,6 +11,8 @@ Shortcut: **`Review wave`**
 Run all required review lanes against the admitted changes. Review is not optional when required lanes were confirmed at readiness.
 
 ## Steps
+
+All review, repair, and reverification investigation follows the run contract's Retrieval Rules (`.wavefoundry/framework/seeds/020-run-contract.prompt.md`): MCP retrieval tools first, for every lane and briefed subagent; executed probes remain shell work.
 
 1. Read the wave record and each admitted change doc; confirm which review lanes were required at readiness.
 2. Run each required lane:

@@ -4,8 +4,8 @@ Change ID: `1p6lo-enh unified-cross-host-skill-rendering`
 Change Status: `planned`
 Owner: Engineering
 Status: planned
-Last verified: 2026-06-19
-Wave: TBD
+Last verified: 2026-07-21
+Wave: `1p6lp cross-host-skills`
 
 ## Rationale
 

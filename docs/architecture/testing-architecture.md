@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-20
+Last verified: 2026-07-21
 
 ## Test Tiers
 
@@ -124,6 +124,30 @@ Performance claims use repeated, warm, paired samples against an uninstrumented
 control, never one-shot wall-clock assertions. Contention, source-count, and
 projection samples report distributions; correctness does not depend on a
 machine-specific one-shot timing threshold.
+
+## Performance-Test Budget Policy (wave 1seax / 1t3zv)
+
+The framework suite runs up to six parallel workers; sustained back-to-back
+runs saturate the machine, and tight wall-clock budgets then flake on
+scheduler contention even when the guarded operation is healthy (recorded:
+an isolated 120 ms result failing a 200 ms budget; an isolated 240 ms result
+failing a 3 s budget at 3.2 s contended). Every wall-clock budget in the
+suite follows the policy in
+`.wavefoundry/framework/scripts/tests/perf_budget_policy.py`:
+
+- a NEW timing budget must record an isolated reference measurement (and a
+  contended one when available) and set the threshold with measured
+  contention headroom — at least ~3x the worst observed contended time,
+  while staying an order of magnitude under a genuine regression;
+- budget assertions go through `assert_within_budget`, whose failure message
+  reports the observed timing, the threshold, and the isolated reference
+  (the triage signal separating contention from regression);
+- prefer RELATIVE bounds (a ratio of two timings from the same run — see the
+  chunker's `2.6x` bound) where the invariant allows: they are
+  contention-immune by construction;
+- never globally serialize the suite, and never inflate a budget without the
+  measured basis (a deliberately injected meaningful slowdown must still
+  fail — pinned by `test_perf_budget_policy.py`).
 
 ## Test File Locations
 

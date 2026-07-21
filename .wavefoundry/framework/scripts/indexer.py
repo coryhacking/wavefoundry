@@ -153,7 +153,9 @@ LANCEDB_REFINE_FACTOR = 10       # reranking candidates multiplier
 # whose CoreML compile cache speeds up restarts. Runs on either hardware: GPU FP16, or CPU INT8 (no
 # ranking loss); reranking is skipped only when explicitly disabled (WAVEFOUNDRY_DISABLE_RERANKER).
 RERANKER_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
-CONTENT_CHOICES = ("docs", "code", "all", "graph")
+# Wave 1seax (1seau): derived from the canonical public-contract module so the
+# CLI subset and the public MCP vocabulary cannot drift independently.
+from public_contract import INDEXER_CLI_CONTENT_CHOICES as CONTENT_CHOICES
 
 try:
     import provider_policy

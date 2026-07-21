@@ -11,6 +11,7 @@ import importlib.util
 import json
 import os
 import tempfile
+from contextlib import contextmanager
 import re
 import sys
 import threading
@@ -28,7 +29,7 @@ sys.dont_write_bytecode = True
 for _wll_key in list(sys.modules):
     if (
         _wll_key.startswith("wave_lint_lib")
-        or _wll_key in {"review_evidence", "context_efficiency"}
+        or _wll_key in {"review_evidence", "context_efficiency", "public_contract"}
     ):
         del sys.modules[_wll_key]
 
@@ -2199,6 +2200,53 @@ def docs_lint_full_scan_timeout_seconds(root: Path) -> float:
     return DOCS_LINT_FULL_SCAN_TIMEOUT_DEFAULT
 
 
+# ── Selective short-op subprocess bounds (wave 1seax / 1seat) ─────────────────
+# Timeouts + bounded capture for the SHORT MCP-reachable subprocess operations
+# (docs gardener, platform-surface render). Deliberately selective: upgrade,
+# setup, and index builds are long-running by design (in-line model downloads,
+# full rebuilds) and stay EXEMPT — their observability is persistent progress
+# logs plus status tools, never deadlines. Defaults are generous for slow
+# machines and config-tunable per op (the 1p9bg/1p9iu fail-safe contract).
+SUBPROCESS_OPS_TIMEOUT_DEFAULT = 180.0
+SUBPROCESS_OPS_OUTPUT_CAP_CHARS = 200_000
+
+
+def subprocess_ops_timeout_seconds(root: Path, op: str) -> float:
+    """Timeout (seconds) for a bounded short-op subprocess (``gardener`` or
+    ``surface_render``). Reads ``docs/workflow-config.json``
+    ``subprocess_ops.<op>_timeout_seconds``; any error / missing key /
+    non-positive value falls back to the generous default and never raises."""
+    try:
+        cfg = _read_workflow_config(root)
+        val = (cfg.get("subprocess_ops") or {}).get(f"{op}_timeout_seconds")
+        if isinstance(val, (int, float)) and not isinstance(val, bool) and val > 0:
+            return float(val)
+    except Exception:
+        pass
+    return SUBPROCESS_OPS_TIMEOUT_DEFAULT
+
+
+def _bounded_subprocess_output(text: str) -> tuple[str, bool]:
+    """Cap captured child output; a truncation marker flags the cut."""
+    if len(text) <= SUBPROCESS_OPS_OUTPUT_CAP_CHARS:
+        return text, False
+    return (
+        text[:SUBPROCESS_OPS_OUTPUT_CAP_CHARS]
+        + f"\n[... output truncated at {SUBPROCESS_OPS_OUTPUT_CAP_CHARS} characters ...]",
+        True,
+    )
+
+
+def _subprocess_timeout_summary(op: str, timeout_s: float) -> str:
+    return (
+        f"{op} subprocess exceeded its {timeout_s:.0f}s bound and was stopped. "
+        "No partial output is trusted. Re-run the tool; on a legitimately "
+        f"slower machine raise docs/workflow-config.json subprocess_ops."
+        f"{op}_timeout_seconds (the bound is config-tunable, default "
+        f"{SUBPROCESS_OPS_TIMEOUT_DEFAULT:.0f}s)."
+    )
+
+
 # Wave 1p9pe: defensive mirror of indexer.DOCS_LINT_HOOK_TIMEOUT_DEFAULT (120s), used only when the
 # indexer module itself cannot be loaded. The canonical default and config reader live in indexer.py;
 # this constant exists so the incremental post-write lint path never raises on a broken sibling import.
@@ -3506,21 +3554,37 @@ def run_validate_changed(root: Path) -> dict:
 
 
 def run_garden(root: Path) -> dict:
-    """Run docs_gardener and return structured summary."""
+    """Run docs_gardener and return structured summary (bounded; wave 1seax)."""
+    import subprocess as _subprocess
+
     script = Path(__file__).resolve().parent / "docs_gardener.py"
-    result = _mcp_subprocess_run(
-        [_preferred_python(), str(script)],
-        cwd=str(root),
-        env={**os.environ, "PROJECT_ROOT": str(root)},
-    )
-    output = result.stdout + result.stderr
+    timeout_s = subprocess_ops_timeout_seconds(root, "gardener")
+    try:
+        result = _mcp_subprocess_run(
+            [_preferred_python(), str(script)],
+            cwd=str(root),
+            env={**os.environ, "PROJECT_ROOT": str(root)},
+            timeout=timeout_s,
+        )
+    except _subprocess.TimeoutExpired:
+        return {
+            "passed": False,
+            "timed_out": True,
+            "files_updated": 0,
+            "updated": [],
+            "output": _subprocess_timeout_summary("gardener", timeout_s),
+        }
+    output, truncated = _bounded_subprocess_output(result.stdout + result.stderr)
     updated = [l for l in output.splitlines() if "wrote" in l.lower()]
-    return {
+    summary = {
         "passed": result.returncode == 0,
         "files_updated": len(updated),
         "updated": updated,
         "output": output,
     }
+    if truncated:
+        summary["output_truncated"] = True
+    return summary
 
 
 def run_sync_surfaces(root: Path) -> dict:
@@ -3531,14 +3595,26 @@ def run_sync_surfaces(root: Path) -> dict:
     the old files_written prose-line grep is retired (it held log lines, not
     paths, and had no consumers).
     """
+    import subprocess as _subprocess
+
     script = Path(__file__).resolve().parent / "render_platform_surfaces.py"
+    timeout_s = subprocess_ops_timeout_seconds(root, "surface_render")
     with tempfile.TemporaryDirectory() as manifest_dir:
         manifest_path = Path(manifest_dir) / "render-manifest.json"
-        result = _mcp_subprocess_run(
-            [_preferred_python(), str(script), "--manifest", str(manifest_path)],
-            cwd=str(root),
-            env={**os.environ, "PROJECT_ROOT": str(root)},
-        )
+        try:
+            result = _mcp_subprocess_run(
+                [_preferred_python(), str(script), "--manifest", str(manifest_path)],
+                cwd=str(root),
+                env={**os.environ, "PROJECT_ROOT": str(root)},
+                timeout=timeout_s,
+            )
+        except _subprocess.TimeoutExpired:
+            return {
+                "passed": False,
+                "timed_out": True,
+                "written": [],
+                "output": _subprocess_timeout_summary("surface_render", timeout_s),
+            }
         written: list[str] = []
         try:
             payload = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -3548,12 +3624,15 @@ def run_sync_surfaces(root: Path) -> dict:
             ]
         except (OSError, ValueError):
             written = []
-    output = result.stdout + result.stderr
-    return {
+    output, truncated = _bounded_subprocess_output(result.stdout + result.stderr)
+    summary = {
         "passed": result.returncode == 0,
         "written": written,
         "output": output,
     }
+    if truncated:
+        summary["output_truncated"] = True
+    return summary
 
 
 def _index_dir_for_layer(root: Path, layer: str = "project") -> Path:
@@ -3604,6 +3683,21 @@ _FRESHNESS_TTL_SECONDS = 5.0
 _FRESHNESS_CACHE: "dict[str, tuple[float, object, dict]]" = {}
 
 
+# Wave 1seax (1seau, operator-review repair): the emitting sites consume the
+# canonical vocabularies via tuple unpacking — reordering or renaming in
+# public_contract breaks HERE at import time instead of drifting silently.
+from public_contract import (
+    INDEX_FRESHNESS_STATES as _INDEX_FRESHNESS_STATES,
+    LEXICAL_FALLBACK_REASONS as _LEXICAL_FALLBACK_REASONS,
+    SEARCH_MODES as _SEARCH_MODES,
+)
+_FRESHNESS_CURRENT, _FRESHNESS_STALE, _FRESHNESS_UNKNOWN = _INDEX_FRESHNESS_STATES
+(_MODE_SEMANTIC, _MODE_EXACT, _MODE_HYBRID,
+ _MODE_LEXICAL_FALLBACK, _MODE_LIVE_FALLBACK) = _SEARCH_MODES
+(_REASON_INDEX_NOT_READY, _REASON_STORE_ABSENT, _REASON_QUERY_FAILED,
+ _REASON_MODEL_UNAVAILABLE, _REASON_INDEX_MISSING) = _LEXICAL_FALLBACK_REASONS
+
+
 def _index_freshness_verdict(root: Path) -> dict[str, Any]:
     """Cheap cached three-state freshness verdict (wave 1seav / 1sbxq).
 
@@ -3626,10 +3720,13 @@ def _index_freshness_verdict(root: Path) -> dict[str, Any]:
         idx = _load_script("indexer")
         result = idx.project_layer_freshness(root)
         stale = result.get("stale")
-        state = "unknown" if stale is None else ("stale" if stale else "current")
+        state = (
+            _FRESHNESS_UNKNOWN if stale is None
+            else (_FRESHNESS_STALE if stale else _FRESHNESS_CURRENT)
+        )
         verdict = {"state": state, "reason": str(result.get("reason", ""))}
     except Exception as exc:  # noqa: BLE001 - honesty rule
-        verdict = {"state": "unknown", "reason": f"freshness check failed: {exc}"}
+        verdict = {"state": _FRESHNESS_UNKNOWN, "reason": f"freshness check failed: {exc}"}
     _FRESHNESS_CACHE[key] = (now + _FRESHNESS_TTL_SECONDS, tok, verdict)
     return verdict
 
@@ -3642,12 +3739,12 @@ def _index_rebuilding_response(tool: str, payload: dict) -> dict[str, Any]:
     # AC-3 (review fix): the search_mode/fallback_reason contract is carried
     # on EVERY response from the gated search tools, including refusals.
     payload.setdefault("search_mode", None)
-    payload.setdefault("fallback_reason", "index_not_ready")
+    payload.setdefault("fallback_reason", _REASON_INDEX_NOT_READY)
     payload.setdefault("results", [])
     response = _response(
         "error", payload,
         diagnostics=[_diagnostic(
-            "index_not_ready",
+            _REASON_INDEX_NOT_READY,
             "The semantic index has no completed build epoch (building, interrupted, "
             "or not yet built) or it changed while this query ran — results were "
             "discarded rather than served from a mixed index state. Check "
@@ -4073,7 +4170,8 @@ def run_index_rebuild(
     """
     import subprocess
     import time
-    if content not in {"docs", "code", "all", "graph", "map", "fts"}:
+    from public_contract import INDEX_BUILD_CONTENT_VALUES
+    if content not in INDEX_BUILD_CONTENT_VALUES:
         raise ValueError(f"Unsupported content '{content}'.")
     # Wave 1p4ww: single project index — the framework layer is folded in.
     if layer != "project":
@@ -4562,7 +4660,7 @@ def docs_search_response(index: WaveIndex, query: str, kind: str = "", limit: in
             usage=f"docs_search(query={query!r}, kind='doc')",
         )
     diagnostics: list[dict[str, Any]] = []
-    search_mode = "semantic"
+    search_mode = _MODE_SEMANTIC
     results: list[dict[str, Any]] = []
     fallback_reason: "str | None" = None
     reranked = False
@@ -4576,10 +4674,10 @@ def docs_search_response(index: WaveIndex, query: str, kind: str = "", limit: in
 
     def _live_walk(reason: str, exc_msg: str) -> None:
         nonlocal search_mode, fallback_reason, results
-        search_mode = "live_fallback"
+        search_mode = _MODE_LIVE_FALLBACK
         fallback_reason = reason
         diagnostics.append(_diagnostic(
-            reason if reason in ("index_not_ready",) else "store_absent",
+            reason if reason in (_REASON_INDEX_NOT_READY,) else _REASON_STORE_ABSENT,
             f"{exc_msg} Serving the live-filesystem walk (per-call re-chunk; "
             "slow on large repos) — the only state with no published FTS to serve.",
             recovery_tools=["index_build", "index_build_status"],
@@ -4590,7 +4688,7 @@ def docs_search_response(index: WaveIndex, query: str, kind: str = "", limit: in
             # original 1seaq defect was silent tag loss in this fallback).
             results = index.search_docs_lexical(query, kind=k or None, top_n=n, tags=tags or None)
         except Exception as exc2:  # noqa: BLE001 - typed, never a silent empty
-            fallback_reason = "query_failed"
+            fallback_reason = _REASON_QUERY_FAILED
             results = []
             diagnostics.append(_diagnostic(
                 "live_fallback_failed",
@@ -4605,18 +4703,18 @@ def docs_search_response(index: WaveIndex, query: str, kind: str = "", limit: in
         serve = _fts_degraded_serve(index.root, ("docs",), query, n, kind=(k or None), tags=tags)
         coverage = serve.get("coverage") or {}
         if serve["available"]:
-            search_mode = "lexical_fallback"
+            search_mode = _MODE_LEXICAL_FALLBACK
             fallback_reason = reason
             results = serve["results"]
             diagnostics.append(_diagnostic(
-                "semantic_model_unavailable_offline" if reason == "model_unavailable" else reason,
+                "semantic_model_unavailable_offline" if reason == _REASON_MODEL_UNAVAILABLE else reason,
                 f"{exc_msg} Serving BM25 results from the published FTS layer "
                 "(exact-token recall; semantic recall returns when the cause clears).",
                 recovery_tools=["wf_help"],
                 recovery_usage="python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --root .",
             ))
         else:
-            search_mode = "lexical_fallback"
+            search_mode = _MODE_LEXICAL_FALLBACK
             fallback_reason = serve["failure_reason"]
             results = []
             diagnostics.append(_diagnostic(
@@ -4634,22 +4732,22 @@ def docs_search_response(index: WaveIndex, query: str, kind: str = "", limit: in
         results, reranked = index.search_docs(query, kind=k or None, top_n=n, tags=tags or None)
     except SemanticModelUnavailableOfflineError as exc:
         if _epoch_complete:
-            _fts_fallback("model_unavailable", str(exc))
+            _fts_fallback(_REASON_MODEL_UNAVAILABLE, str(exc))
         else:
-            _live_walk("store_absent" if epoch_state is None else "index_not_ready", str(exc))
+            _live_walk(_REASON_STORE_ABSENT if epoch_state is None else _REASON_INDEX_NOT_READY, str(exc))
     except IndexNotReadyError as exc:
         if _epoch_complete:
             # Published epoch but the semantic tables cannot serve (e.g. a
             # missing Lance table): the FTS layer is still the published one.
-            _fts_fallback("index_missing", str(exc))
+            _fts_fallback(_REASON_INDEX_MISSING, str(exc))
         else:
-            _live_walk("store_absent" if epoch_state is None else "index_not_ready", str(exc))
+            _live_walk(_REASON_STORE_ABSENT if epoch_state is None else _REASON_INDEX_NOT_READY, str(exc))
     except Exception as exc:  # noqa: BLE001 - AC-3: typed end-to-end, never an escaped raw error
-        search_mode = "semantic"
-        fallback_reason = "query_failed"
+        search_mode = _MODE_SEMANTIC
+        fallback_reason = _REASON_QUERY_FAILED
         results = []
         diagnostics.append(_diagnostic(
-            "query_failed",
+            _REASON_QUERY_FAILED,
             f"Semantic retrieval failed unexpectedly ({exc}) — infrastructure failure, "
             "NOT an empty corpus.",
             recovery_tools=["index_health"],
@@ -4657,12 +4755,12 @@ def docs_search_response(index: WaveIndex, query: str, kind: str = "", limit: in
         ))
     _log_degradation_transition(index.root, "docs_search", fallback_reason)
     if not results:
-        if fallback_reason == "query_failed":
+        if fallback_reason == _REASON_QUERY_FAILED:
             # Infrastructure failure already carries its typed diagnostic —
             # a no_results/token-tweak signal would mislabel it as a miss
             # (release-review fix: never both).
             pass
-        elif search_mode == "lexical_fallback" and fallback_reason not in ("store_absent",):
+        elif search_mode == _MODE_LEXICAL_FALLBACK and fallback_reason not in (_REASON_STORE_ABSENT,):
             # Zero hits from a WORKING lexical layer: the token-semantics
             # note applies.
             diagnostics.append(_lexical_zero_hit_note())
@@ -4756,7 +4854,7 @@ def code_search_response(index: WaveIndex, query: str, language: str = "", limit
         return d
 
     reranked = False
-    search_mode = "hybrid"
+    search_mode = _MODE_HYBRID
     fallback_reason: "str | None" = None
     coverage: dict[str, Any] = {}
     diagnostics: list[dict[str, Any]] = []
@@ -4782,12 +4880,12 @@ def code_search_response(index: WaveIndex, query: str, language: str = "", limit
         coverage = serve.get("coverage") or {}
         if not serve["available"]:
             fallback_reason = serve["failure_reason"]
-            search_mode = "lexical_fallback"  # attempted-and-failed: the mode names the path that failed (cross-tool consistency)
+            search_mode = _MODE_LEXICAL_FALLBACK  # attempted-and-failed: the mode names the path that failed (cross-tool consistency)
             return None
-        search_mode = "lexical_fallback"
+        search_mode = _MODE_LEXICAL_FALLBACK
         fallback_reason = reason
         diagnostics.append(_diagnostic(
-            "semantic_model_unavailable_offline" if reason == "model_unavailable" else reason,
+            "semantic_model_unavailable_offline" if reason == _REASON_MODEL_UNAVAILABLE else reason,
             f"{exc_msg} Serving BM25 results from the published FTS layer with the "
             "requested filters (exact-token recall; semantic recall returns when the cause clears).",
             recovery_tools=["wf_help"],
@@ -4808,7 +4906,7 @@ def code_search_response(index: WaveIndex, query: str, language: str = "", limit
                 recovery_usage="python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --root . --include-code",
             )
         ]
-        if reason == "query_failed" and _fts_attempted[0]:
+        if reason == _REASON_QUERY_FAILED and _fts_attempted[0]:
             # Review fix (cross-tool parity with docs_search): a failed FTS
             # fallback is infrastructure failure, named as such — but ONLY
             # when the fallback actually ran (a generic semantic failure
@@ -4836,32 +4934,32 @@ def code_search_response(index: WaveIndex, query: str, language: str = "", limit
         else:
             results, reranked = index.search_code(query, language=language or None, top_n=n, kind=kind, max_per_file=max_per_file, tags=tags or None)
     except SemanticModelUnavailableOfflineError as exc:
-        results = _fts_fallback("model_unavailable", str(exc)) if _epoch_complete else None
+        results = _fts_fallback(_REASON_MODEL_UNAVAILABLE, str(exc)) if _epoch_complete else None
         if results is None:
-            _log_degradation_transition(index.root, "code_search", fallback_reason or "index_not_ready")
+            _log_degradation_transition(index.root, "code_search", fallback_reason or _REASON_INDEX_NOT_READY)
             return _degraded_error(
-                fallback_reason or ("index_not_ready" if epoch_state is not None else "store_absent"),
+                fallback_reason or (_REASON_INDEX_NOT_READY if epoch_state is not None else _REASON_STORE_ABSENT),
                 "semantic_model_unavailable_offline", str(exc),
             )
     except IndexNotReadyError as exc:
         # A complete epoch with unservable semantic tables (e.g. missing
         # code.lance): the published FTS layer is still the honest source.
-        results = _fts_fallback("index_missing", str(exc)) if _epoch_complete else None
+        results = _fts_fallback(_REASON_INDEX_MISSING, str(exc)) if _epoch_complete else None
         if results is None:
-            _log_degradation_transition(index.root, "code_search", fallback_reason or "index_not_ready")
+            _log_degradation_transition(index.root, "code_search", fallback_reason or _REASON_INDEX_NOT_READY)
             return _degraded_error(
-                fallback_reason or ("index_not_ready" if epoch_state is not None else "store_absent"),
-                "index_not_ready", str(exc),
+                fallback_reason or (_REASON_INDEX_NOT_READY if epoch_state is not None else _REASON_STORE_ABSENT),
+                _REASON_INDEX_NOT_READY, str(exc),
             )
     except Exception as exc:  # noqa: BLE001 - AC-3: typed end-to-end
-        fallback_reason = "query_failed"
+        fallback_reason = _REASON_QUERY_FAILED
         _log_degradation_transition(index.root, "code_search", fallback_reason)
-        return _degraded_error("query_failed", "query_failed",
+        return _degraded_error(_REASON_QUERY_FAILED, _REASON_QUERY_FAILED,
                                f"Semantic retrieval failed unexpectedly ({exc}) — infrastructure "
                                "failure, NOT an empty corpus.")
     _log_degradation_transition(index.root, "code_search", fallback_reason)
     if not results:
-        if search_mode == "lexical_fallback" and fallback_reason not in ("query_failed", "store_absent"):
+        if search_mode == _MODE_LEXICAL_FALLBACK and fallback_reason not in (_REASON_QUERY_FAILED, _REASON_STORE_ABSENT):
             diagnostics.append(_lexical_zero_hit_note())
         else:
             diagnostics.append(
@@ -4931,7 +5029,7 @@ def seed_get_response(index: WaveIndex, name: str) -> dict[str, Any]:
             {"name": name},
             diagnostics=[
                 _diagnostic(
-                    "index_not_ready",
+                    _REASON_INDEX_NOT_READY,
                     str(exc),
                     recovery_tools=["wf_help"],
                     recovery_usage="python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --root .",
@@ -7292,7 +7390,7 @@ def _maybe_optimize_index_on_close(root: Path) -> Optional[dict[str, Any]]:
             return {"ran": False, "skipped": "optimize_error", "error": str(exc),
                     "bloated_tables": bloated}
         if isinstance((results or {}).get("error"), str):
-            return {"ran": False, "skipped": "index_not_ready", "error": results["error"],
+            return {"ran": False, "skipped": _REASON_INDEX_NOT_READY, "error": results["error"],
                     "bloated_tables": bloated}
         reclaimed_total = 0
         deferred_rebuild: list[str] = []
@@ -7352,7 +7450,7 @@ def index_health_response(index: WaveIndex) -> dict[str, Any]:
     for layer in health.get("missing_layers", []):
         diagnostics.append(
             _diagnostic(
-                "index_missing",
+                _REASON_INDEX_MISSING,
                 f"Index layer missing: {layer}. Run: python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --root .",
                 recovery_tools=["wf_help"],
                 recovery_usage="python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --root .",
@@ -9214,7 +9312,7 @@ def wf_audit_response(
         overview = index_data.get("readiness_overview", "absent")
         diagnostics.append(
             _diagnostic(
-                "index_not_ready",
+                _REASON_INDEX_NOT_READY,
                 (
                     f"Semantic index is not ready (readiness_overview: {overview!r}). "
                     "Call index_build to recover."
@@ -9847,7 +9945,7 @@ def _index_optimize_response(
             "error",
             {"error": results["error"]},
             diagnostics=[_diagnostic(
-                "index_not_ready",
+                _REASON_INDEX_NOT_READY,
                 results["error"],
                 recovery_tools=["index_build"],
                 recovery_usage="index_build(content='all')",
@@ -12100,6 +12198,42 @@ def _prepare_council_verdict_info(wave_text: str) -> dict[str, Any]:
     }
 
 
+def _council_seat_alignment_issues(
+    verdict_info: Mapping[str, Any], council_brief: Mapping[str, Any]
+) -> list[str]:
+    """Wave 1seax (1seat AC-6): compare the RECORDED council seats against the
+    generated brief's required seats. The structural parser alone accepted
+    councils that never ran the brief's rotating seat — a false readiness
+    approval. Returns human-readable mismatch descriptions (empty = aligned).
+    """
+    meta = verdict_info.get("meta") or {}
+    recorded_seats = [
+        s.strip() for s in re.split(r"[,;]", str(meta.get("seats", ""))) if s.strip()
+    ]
+    recorded_fold = {s.casefold() for s in recorded_seats}
+    recorded_rotating = str(meta.get("rotating-seat") or "").strip()
+    issues: list[str] = []
+    fixed = str(council_brief.get("fixed_seat") or "").strip()
+    rotating = str(council_brief.get("rotating_seat") or "").strip()
+    if fixed and fixed.casefold() not in recorded_fold:
+        issues.append(
+            f"the brief's fixed seat '{fixed}' is missing from the recorded seats"
+        )
+    if rotating and rotating.casefold() != "none":
+        if rotating.casefold() not in recorded_fold:
+            issues.append(
+                f"the brief's rotating seat '{rotating}' is missing from the recorded seats"
+            )
+        if recorded_rotating and recorded_rotating.casefold() not in {
+            rotating.casefold(), "none",
+        }:
+            issues.append(
+                f"the recorded rotating-seat '{recorded_rotating}' does not match "
+                f"the brief's '{rotating}'"
+            )
+    return issues
+
+
 def _prepare_council_verdict_present(wave_text: str) -> bool:
     """True if a valid prepare-council verdict line is recorded."""
     return bool(_prepare_council_verdict_info(wave_text).get("valid"))
@@ -12772,6 +12906,13 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
     verdict_info = _prepare_council_verdict_info(text)
     verdict_present = bool(verdict_info.get("present"))
     verdict_valid = bool(verdict_info.get("valid"))
+    seat_alignment_issues: list[str] = []
+    if verdict_present and verdict_valid:
+        # Wave 1seax (1seat AC-6): a structurally valid verdict whose seats do
+        # not match the brief is not a valid readiness review.
+        seat_alignment_issues = _council_seat_alignment_issues(verdict_info, council_brief)
+        if seat_alignment_issues:
+            verdict_valid = False
     if not verdict_present:
         council_usage = (
             "Run the prepare-phase Wave Council review now (seats and scope in council_brief), "
@@ -12803,15 +12944,28 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
             recovery_usage="wf_prepare_wave(mode='create')",
         ))
     elif not verdict_valid:
-        diagnostics.append(
-            _diagnostic(
-                "prepare_council_verdict_invalid",
-                "A prepare-phase Wave Council verdict exists, but it is not structurally valid. "
-                "Record a structured verdict in ## Review Checkpoints with moderator, primer-depth, seats, rotating-seat, strongest-challenge, and strongest-alternative fields before calling wf_prepare_wave(mode='create').",
-                recovery_tools=["wf_prepare_wave"],
-                recovery_usage="wf_prepare_wave(mode='create')",
+        if seat_alignment_issues:
+            diagnostics.append(
+                _diagnostic(
+                    "council_seats_misaligned",
+                    "The recorded prepare-council verdict does not match the generated "
+                    "brief's required seats: " + "; ".join(seat_alignment_issues) + ". "
+                    "Run the missing seat(s) and update the verdict line before calling "
+                    "wf_prepare_wave(mode='create').",
+                    recovery_tools=["wf_prepare_wave"],
+                    recovery_usage="wf_prepare_wave(mode='create')",
+                )
             )
-        )
+        else:
+            diagnostics.append(
+                _diagnostic(
+                    "prepare_council_verdict_invalid",
+                    "A prepare-phase Wave Council verdict exists, but it is not structurally valid. "
+                    "Record a structured verdict in ## Review Checkpoints with moderator, primer-depth, seats, rotating-seat, strongest-challenge, and strongest-alternative fields before calling wf_prepare_wave(mode='create').",
+                    recovery_tools=["wf_prepare_wave"],
+                    recovery_usage="wf_prepare_wave(mode='create')",
+                )
+            )
         if mode_s == "create":
             return _response(
                 "error",
@@ -13163,10 +13317,14 @@ _RETRIEVAL_POSTURE_DIRECTIVE = (
     "MCP-first retrieval during implementation AND review: search, read, and "
     "navigate code through the code_* and docs_search tools first, while "
     "implementing changes and equally while verifying review claims against "
-    "the tree; harness shell and file search are fallback. When fallback is "
-    "genuinely the right instrument (bulk-mechanical edits, docs-only work), "
-    "record a 'Gapfill:' entry in a Progress Log explaining why. That same "
-    "recorded entry clears the retrieval_posture_gap advisory raised at "
+    "the tree; harness shell and file search are fallback. This scope includes "
+    "repair and reverification work inside review cycles (censuses, region "
+    "reads, claim checks); executed probes (test runs, mutation probes, git "
+    "operations) remain shell work. Carry this same posture into the prompt "
+    "of any subagent briefed for investigation or verification. When fallback "
+    "is genuinely the right instrument (bulk-mechanical edits, docs-only "
+    "work), record a 'Gapfill:' entry in a Progress Log explaining why. That "
+    "same recorded entry clears the retrieval_posture_gap advisory raised at "
     "implementation review and close when implement-stage retrieval telemetry "
     "is near zero against a non-trivial code diff."
 )
@@ -13875,6 +14033,7 @@ def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
     memory_summary: dict[str, Any] = {}
     if mode_s == "create":
         status_match = _STATUS_PATTERN.search(text)
+        _already_closed = bool(status_match and status_match.group(1) == "closed")
         if status_match and status_match.group(1) != "closed":
             import time
             # Summary write precedes status checkpoint (per 12sq4 AC risk note).
@@ -13897,11 +14056,6 @@ def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
             wave_md.write_text(text, encoding="utf-8")
             updated = True
             transitioned_to_closed = True
-            handoff = root / "docs" / "agents" / "session-handoff.md"
-            handoff.parent.mkdir(parents=True, exist_ok=True)
-            prior = handoff.read_text(encoding="utf-8") if handoff.exists() else ""
-            handoff.write_text(_update_handoff_wave_ref(prior, None), encoding="utf-8")
-            handoff_rel = str(handoff.relative_to(root)).replace("\\", "/")
             if cache:
                 cache.invalidate()
             # Wave 1rycf: interim bloat reclaim. Run BEFORE the close's own background refresh so the
@@ -13909,14 +14063,23 @@ def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
             # (skips if a build holds the lock), tier-1-only (never spawns a synchronous rebuild), and
             # fail-safe (never affects the close). Superseded later by the SQLite FTS5 migration.
             close_optimize = _maybe_optimize_index_on_close(root)
-            refresh_paths: list[str | Path] = [wave_md]
-            if handoff_rel:
-                refresh_paths.append(handoff)
-            _trigger_background_index_refresh_for_paths(root, refresh_paths)
             # Defensive fallback: the pre-close validation gate normally means
             # every source already has a disposition. If evidence changed after
             # the gate, create candidates only; never invent a semantic verdict.
             memory_summary = _auto_populate_memory_for_wave(root, wave_id)
+    if mode_s == "create" and (transitioned_to_closed or _already_closed):
+        # Wave 1seax (1seat AC-2): the handoff is the last-written referencing
+        # record, converged on EVERY create-mode close of a closed wave — a
+        # retry after an interruption between the wave.md write and this point
+        # completes the operation instead of skipping it.
+        handoff = root / "docs" / "agents" / "session-handoff.md"
+        handoff.parent.mkdir(parents=True, exist_ok=True)
+        prior = handoff.read_text(encoding="utf-8") if handoff.exists() else ""
+        converged = _update_handoff_wave_ref(prior, None)
+        if converged != prior:
+            handoff.write_text(converged, encoding="utf-8")
+        handoff_rel = str(handoff.relative_to(root)).replace("\\", "/")
+        _trigger_background_index_refresh_for_paths(root, [wave_md, handoff])
     # Wave 1p601: refresh the codebase map at the close-wave lifecycle
     # checkpoint (fail-safe — never affects the close result).
     if mode_s == "create":
@@ -14758,10 +14921,11 @@ def _fts_degraded_serve(
     applied inside the FTS query, ``tags`` row-carried (any-of), ``language``
     as a row-carried post-filter (single name or category set), and
     ``max_per_file`` as a post-group cap. Returns a TYPED result —
-    ``{"available": bool, "failure_reason": None | "store_absent" |
-    "query_failed", "results": [...], "coverage": {...}}`` — so a caught
-    exception maps to ``query_failed`` and is distinguishable from a genuine
-    zero-hit (replacing the old collapse-to-``[]`` at this seam).
+    ``{"available": bool, "failure_reason": None | a store-absent or
+    query-failed member of ``public_contract.LEXICAL_FALLBACK_REASONS``,
+    "results": [...], "coverage": {...}}`` — so a caught exception maps to
+    the query-failed reason and is distinguishable from a genuine zero-hit
+    (replacing the old collapse-to-``[]`` at this seam).
 
     Epoch discipline: callers decide WHETHER to serve from the CAPTURED
     1sed7 state token; this function never reads the epoch itself.
@@ -14771,23 +14935,23 @@ def _fts_degraded_serve(
     try:
         iss = _load_script("index_state_store")
     except Exception:
-        return {"available": False, "failure_reason": "store_absent", "results": [], "coverage": coverage}
+        return {"available": False, "failure_reason": _REASON_STORE_ABSENT, "results": [], "coverage": coverage}
     try:
         if not iss.state_store_path(index_dir).exists():
-            return {"available": False, "failure_reason": "store_absent", "results": [], "coverage": coverage}
+            return {"available": False, "failure_reason": _REASON_STORE_ABSENT, "results": [], "coverage": coverage}
     except Exception:
-        return {"available": False, "failure_reason": "store_absent", "results": [], "coverage": coverage}
+        return {"available": False, "failure_reason": _REASON_STORE_ABSENT, "results": [], "coverage": coverage}
     # Review fix: probe EVERY requested table's FTS liveness up front — a
     # broken fts_code beside a matching fts_docs must not serve a partial
     # result as available (fts_search fails soft to [] per table).
     try:
         for table in tables:
             if not iss.fts_probe(index_dir, table):
-                return {"available": False, "failure_reason": "query_failed",
+                return {"available": False, "failure_reason": _REASON_QUERY_FAILED,
                         "results": [], "coverage": coverage,
                         "detail": f"FTS table for '{table}' is not queryable (store damage?)"}
     except Exception as exc:  # noqa: BLE001
-        return {"available": False, "failure_reason": "query_failed",
+        return {"available": False, "failure_reason": _REASON_QUERY_FAILED,
                 "results": [], "coverage": coverage, "detail": str(exc)}
     hits: list[dict[str, Any]] = []
     try:
@@ -14819,7 +14983,7 @@ def _fts_degraded_serve(
             except Exception:
                 pass
     except Exception as exc:  # noqa: BLE001 - typed, never a silent zero-hit
-        return {"available": False, "failure_reason": "query_failed",
+        return {"available": False, "failure_reason": _REASON_QUERY_FAILED,
                 "results": [], "coverage": coverage, "detail": str(exc)}
     if language_names:
         hits = [h for h in hits if h.get("language") in language_names]
@@ -20778,7 +20942,7 @@ def code_ask_response(index: "WaveIndex", root: Path, question: str, rerank: str
     # of code_ask's envelope in EVERY mode; the serve decision uses the
     # CAPTURED 1sed7 token (passed by the registration; computed once for
     # direct callers).
-    search_mode = "hybrid"
+    search_mode = _MODE_HYBRID
     fallback_reason: "str | None" = None
     if epoch_state == "__compute__":
         epoch_state = _epoch_state(root)
@@ -20790,17 +20954,17 @@ def code_ask_response(index: "WaveIndex", root: Path, question: str, rerank: str
         """FTS-built citations for the degraded mode (complete epoch only)."""
         nonlocal search_mode, fallback_reason, gaps, degraded_coverage
         if not _epoch_complete:
-            fallback_reason = "index_not_ready" if epoch_state is not None else "store_absent"
+            fallback_reason = _REASON_INDEX_NOT_READY if epoch_state is not None else _REASON_STORE_ABSENT
             gaps.append(f"search index unavailable ({fallback_reason}): {exc_msg}")
             return []
         serve = _fts_degraded_serve(root, ("docs", "code"), question, 7)
         degraded_coverage = serve.get("coverage") or {}
         if not serve["available"]:
             fallback_reason = serve["failure_reason"]
-            search_mode = "lexical_fallback"  # attempted-and-failed (cross-tool consistency)
+            search_mode = _MODE_LEXICAL_FALLBACK  # attempted-and-failed (cross-tool consistency)
             gaps.append(f"search infrastructure failure ({serve['failure_reason']}): {exc_msg}")
             return []
-        search_mode = "lexical_fallback"
+        search_mode = _MODE_LEXICAL_FALLBACK
         fallback_reason = reason
         gaps.append(
             f"semantic retrieval unavailable ({reason}) — citations are BM25 exact-token "
@@ -20827,7 +20991,7 @@ def code_ask_response(index: "WaveIndex", root: Path, question: str, rerank: str
         # rule may ever be labeled "artifact_anchored" (it would misclassify
         # semantic results as exact).
         if definition_boosted == ["artifact_anchored"]:
-            search_mode = "exact"
+            search_mode = _MODE_EXACT
         # Detect whether the scaffolding-layer partition fired (explanatory questions only)
         if question_type == "explanatory" and combined_reranked and combined_results:
             infra_paths = {
@@ -20836,12 +21000,12 @@ def code_ask_response(index: "WaveIndex", root: Path, question: str, rerank: str
             }
             infrastructure_demoted = bool(infra_paths)
     except SemanticModelUnavailableOfflineError as exc:
-        combined_results = _degraded_citation_pass("model_unavailable", str(exc))
+        combined_results = _degraded_citation_pass(_REASON_MODEL_UNAVAILABLE, str(exc))
     except IndexNotReadyError as exc:
-        combined_results = _degraded_citation_pass("index_missing", str(exc))
+        combined_results = _degraded_citation_pass(_REASON_INDEX_MISSING, str(exc))
     except Exception as exc:  # noqa: BLE001 - typed, never a bare generic gap
         combined_results = []
-        fallback_reason = "query_failed"
+        fallback_reason = _REASON_QUERY_FAILED
         gaps.append(f"search infrastructure failure (query_failed): {exc}")
     _log_degradation_transition(root, "code_ask", fallback_reason)
 
@@ -20895,8 +21059,8 @@ def code_ask_response(index: "WaveIndex", root: Path, question: str, rerank: str
     # Review fix: SUPPRESSED in lexical fallback — mixing live code_keyword
     # citations into an envelope labeled lexical_fallback would violate the
     # mode contract (the citations would not all be FTS-published data).
-    if len(citations) < 2 and search_mode != "lexical_fallback" and not (
-        fallback_reason in ("query_failed", "store_absent", "index_not_ready")
+    if len(citations) < 2 and search_mode != _MODE_LEXICAL_FALLBACK and not (
+        fallback_reason in (_REASON_QUERY_FAILED, _REASON_STORE_ABSENT, _REASON_INDEX_NOT_READY)
     ):
         # (release-review fix: the live keyword pass must not mask an
         # infrastructure failure with "Based on indexed sources" — during a
@@ -20996,7 +21160,7 @@ def code_ask_response(index: "WaveIndex", root: Path, question: str, rerank: str
         confidence = "low"
 
     # Assemble answer text from top citations
-    _infra_failure = fallback_reason in ("query_failed", "store_absent", "index_not_ready")
+    _infra_failure = fallback_reason in (_REASON_QUERY_FAILED, _REASON_STORE_ABSENT, _REASON_INDEX_NOT_READY)
     if citations:
         top = citations[0]
         answer = f"Based on indexed sources: see {top['ref']}."
@@ -22524,6 +22688,141 @@ def _state_sources_map(root: Path, result: Mapping[str, Any]) -> list[str]:
     if isinstance(path, str) and path and data.get("file_exists"):
         return [path]
     return []
+
+
+# ── Lifecycle mutation lock (wave 1seax / 1seat) ─────────────────────────────
+# One advisory per-root lock so two agents/sessions cannot interleave lifecycle
+# writes on the same repository. OS-lock pattern (kernel-released on process
+# exit — the proven index-build/test-run discipline; never a PID file). The
+# lock is acquired NON-blocking around the mutating lifecycle tools at the
+# registration layer; a held lock returns a structured busy response and never
+# corrupts. Invisible when uncontended. Per the 1t72b TOCTOU/phantom-hold
+# lessons: acquisition is a single non-blocking attempt at operation start —
+# nothing ever WAITS while holding, and there is no cross-lock check-then-act.
+_LIFECYCLE_MUTATION_LOCK_NAME = "lifecycle-mutation.lock"
+_LIFECYCLE_MUTATION_LOCK_SENTINEL = 1 << 30
+
+# The covered set comes from the writer CENSUS in the 1seat change doc: every
+# mutating MCP tool is dispositioned there as lifecycle-lock / protected-by-
+# another-lock / independent-with-rationale. This frozenset is the
+# lifecycle-lock column of that census.
+_LIFECYCLE_MUTATION_LOCK_TOOLS: frozenset[str] = frozenset({
+    "wf_create_wave",
+    "wf_add_change",
+    "wf_remove_change",
+    "wf_prepare_wave",
+    "wf_pause_wave",
+    "wf_close_wave",
+    "wf_reopen_wave",
+    "wf_implement_wave",
+    "wf_set_handoff",
+    "wf_open_gate",
+    "wf_close_gate",
+})
+
+
+class LifecycleMutationBusy(RuntimeError):
+    """Another session holds the per-root lifecycle mutation lock."""
+
+
+@contextmanager
+def _lifecycle_mutation_lock(root: Path):
+    """Non-blocking per-root lifecycle mutation lock.
+
+    Raises :class:`LifecycleMutationBusy` when another process holds it. The
+    lock file persists as a last-owner record (like index-build.lock); the OS
+    lock is the authority.
+    """
+    from runtime_lock import RuntimeFileLock, RuntimeLockBusy, RuntimeLockError
+
+    lock_path = root / ".wavefoundry" / _LIFECYCLE_MUTATION_LOCK_NAME
+    try:
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass
+    lock = RuntimeFileLock(
+        lock_path,
+        blocking=False,
+        offset=_LIFECYCLE_MUTATION_LOCK_SENTINEL,
+        style="record",
+    )
+    try:
+        lock.acquire()
+    except RuntimeLockBusy as exc:
+        raise LifecycleMutationBusy(str(lock_path)) from exc
+    except RuntimeLockError:
+        # Advisory lock: an unusable lock file must never block lifecycle
+        # operations (single-session repos keep working on exotic filesystems).
+        yield
+        return
+    try:
+        try:
+            lock.write_metadata({"pid": os.getpid(), "acquired_at": time.time()})
+        except Exception:  # noqa: BLE001 — metadata is best-effort
+            pass
+        yield
+    finally:
+        try:
+            lock.release()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def _lifecycle_mutation_busy_response(tool_name: str, lock_path_hint: str) -> dict[str, Any]:
+    return _response(
+        "error",
+        {"tool": tool_name, "busy": True, "lock": _LIFECYCLE_MUTATION_LOCK_NAME},
+        diagnostics=[_diagnostic(
+            "lifecycle_mutation_locked",
+            (
+                f"Another session is running a lifecycle mutation on this repository "
+                f"(the {_LIFECYCLE_MUTATION_LOCK_NAME} at {lock_path_hint} is held). "
+                "No state was changed. Retry once the other operation finishes; the "
+                "lock is released automatically when its holder exits."
+            ),
+            recovery_tools=[tool_name, "wf_current_wave"],
+            recovery_usage=f"{tool_name}(...) once the concurrent mutation completes",
+        )],
+        next_tools=[tool_name, "wf_current_wave"],
+        usage=f"retry {tool_name} after the concurrent lifecycle mutation completes",
+    )
+
+
+def _wrap_lifecycle_mutation_lock(mcp: Any, get_handler: Any) -> None:
+    """Registration-layer wrapping pass: serialize the mutating lifecycle tools.
+
+    Wraps each census-covered tool so the whole operation runs under the
+    per-root advisory lock. Applied BEFORE the cost wrapper so busy responses
+    are still cost-accounted. Failure discipline: if the lock layer itself
+    errors, the tool runs unguarded (advisory semantics — never block a
+    single-session repo on lock machinery).
+    """
+    registry = getattr(getattr(mcp, "_tool_manager", None), "_tools", None)
+    if not isinstance(registry, dict):
+        return
+    for name, tool in registry.items():
+        if name not in _LIFECYCLE_MUTATION_LOCK_TOOLS:
+            continue
+        original = getattr(tool, "fn", None)
+        if original is None or getattr(original, "_wf_mutation_locked", False):
+            continue
+
+        def _make(tool_name: str, fn: Any) -> Any:
+            @functools.wraps(fn)
+            def locked(*args: Any, **kwargs: Any) -> Any:
+                try:
+                    root = get_handler().root
+                except Exception:  # noqa: BLE001
+                    return fn(*args, **kwargs)
+                try:
+                    with _lifecycle_mutation_lock(root):
+                        return fn(*args, **kwargs)
+                except LifecycleMutationBusy as busy:
+                    return _lifecycle_mutation_busy_response(tool_name, str(busy))
+            locked._wf_mutation_locked = True  # type: ignore[attr-defined]
+            return locked
+
+        tool.fn = _make(name, original)
 
 
 # Wave 1t3ek (1t2zq/1t15a): state files a tool demonstrably reads on the
@@ -26273,6 +26572,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             "MCP tool name prefix contract violated for: " + ", ".join(violations)
         )
     # Wave 1t3ek (1t3s7): cost-account the rest of the first-party surface.
+    _wrap_lifecycle_mutation_lock(mcp, get_handler)
     _wrap_first_party_tool_costs(mcp, get_handler)
 
 

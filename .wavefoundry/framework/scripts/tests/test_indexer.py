@@ -2983,12 +2983,19 @@ class LanceDriftDetectionScaleTests(unittest.TestCase):
         self.assertLess(elapsed, 1.0,
             f"10K-row drift detection took {elapsed:.3f}s (expected < 1.0s)")
 
-    def test_100k_rows_under_200ms(self):
-        """AC-9 / MF-1: 100K Lance rows + ~1000 drifted paths → < 200ms.
-        Enterprise-scale bound for large-monorepo-shape repos."""
+    def test_100k_rows_contention_safe_budget(self):
+        """AC-9 / MF-1, rebudgeted by 1t3zv: 100K Lance rows + ~1000 drifted
+        paths. Isolated reference 0.120s; worst observed contended 0.276s
+        (six-worker suite, 2026-07-20). Budget 1.0s = 8.3x isolated / 3.6x
+        worst-contended headroom, still an order of magnitude under a real
+        O(rows) regression at this scale."""
+        try:
+            from tests.perf_budget_policy import assert_operation_within_budget
+        except ImportError:
+            from perf_budget_policy import assert_operation_within_budget
+
         elapsed = self._run_with_n_rows(100_000)
-        self.assertLess(elapsed, 0.2,
-            f"100K-row drift detection took {elapsed:.3f}s (expected < 0.2s)")
+        assert_operation_within_budget(self, "100K-row drift detection", elapsed)
 
 
 class LanceDriftEligibilityBuildTests(unittest.TestCase):

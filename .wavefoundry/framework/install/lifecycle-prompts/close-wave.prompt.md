@@ -9,6 +9,10 @@ handoff state are fully reconciled.
 
 ## Closure checks
 
+All closure-time code and docs investigation follows the run contract's
+Retrieval Rules (`seed-020`): MCP retrieval tools first, for every lane and
+briefed subagent.
+
 1. Every AC and task is completed or intentionally deferred with rationale.
 2. Required review lanes and configured council signoffs are current.
 3. Change status, wave status, completion date, and chronology agree.
