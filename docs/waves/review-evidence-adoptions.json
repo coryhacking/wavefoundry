@@ -79,6 +79,12 @@
       "source": "events.jsonl",
       "version": 1
     },
+    "1t3ek context-efficiency-feedback-loop": {
+      "prefix_sha256": "41af0ac39caa77c4d35c3885615b2bde4a2d48cc6812dd3f778749451fcb6c23",
+      "record_count": 71,
+      "source": "events.jsonl",
+      "version": 1
+    },
     "1t3gt mcp-tool-hygiene": {
       "prefix_sha256": "9fe9893ddb7733aa1ce7daed4a90dbcad3510acd52c66eb758de03fb3ca660b4",
       "record_count": 7,

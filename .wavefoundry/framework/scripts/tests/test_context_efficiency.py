@@ -857,6 +857,7 @@ class CheckpointTests(TempRootTest):
             "content_source_credit": 100,
             "structural_source_credit": 0,
             "workflow_prompt_credit": 20,
+            "derived_artifact_credit": 0,
             "request_debit": 10,
             "response_debit": 20,
             "matched_pair_residual": 30,
@@ -1309,6 +1310,207 @@ class ThreeStageModelTests(TempRootTest):
             list(snapshot["stages"]), ["plan", "implement", "review"]
         )
         telemetry.close()
+
+
+class OpenWaveAttributionTests(TempRootTest):
+    """Wave 1t3ek (1t3el): focus-less producers attribute to the single OPEN
+    wave; ambiguity and failure keep today's general-bucket behavior."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        ce._reset_open_wave_cache()
+        self.addCleanup(ce._reset_open_wave_cache)
+
+    def _wave(self, wave_id: str, status: str = "implementing") -> Path:
+        wave_dir = self.root / "docs" / "waves" / wave_id
+        wave_dir.mkdir(parents=True)
+        (wave_dir / "wave.md").write_text(
+            f"# Wave Record\n\nStatus: {status}\n", encoding="utf-8"
+        )
+        return wave_dir
+
+    def test_resolver_single_open_wave_and_stage_derivation(self):
+        self.assertIsNone(ce.resolve_open_wave(self.root))
+        ce._reset_open_wave_cache()
+        wave_dir = self._wave("1aaaa open-wave")
+        self.assertEqual(
+            ce.resolve_open_wave(self.root), ("1aaaa open-wave", "implement")
+        )
+        # Fixture generated through REAL compact serialization, not hand-spaced
+        # JSON — the original spaced fixture echoed the marker bug (1t3el
+        # live-caught defect: the canonical writer emits compact JSON).
+        (wave_dir / "events.jsonl").write_bytes(
+            json.dumps(
+                {"record_type": "review_run", "run_kind": "initial_delivery"},
+                separators=(",", ":"),
+                sort_keys=True,
+            ).encode("utf-8")
+            + b"\n"
+        )
+        ce._reset_open_wave_cache()
+        self.assertEqual(
+            ce.resolve_open_wave(self.root), ("1aaaa open-wave", "review")
+        )
+
+    def test_stage_derivation_parses_real_canonical_ledger(self):
+        """1t3el repair: derivation must work against the ACTUAL canonical
+        writer's output. Uses the real repository's live ledger (which holds
+        delivery runs in compact serialization) as the oracle."""
+        real_wave = Path(__file__).resolve().parents[4] / "docs" / "waves"
+        candidates = [
+            d for d in real_wave.glob("*/events.jsonl")
+            if '"run_kind":"initial_delivery"' in d.read_text(encoding="utf-8", errors="replace")
+        ]
+        if not candidates:
+            self.skipTest("no live ledger with delivery runs available")
+        self.assertEqual(
+            ce._derive_open_wave_stage(candidates[0].parent), "review"
+        )
+
+    def test_resolver_ambiguous_or_closed_returns_none(self):
+        self._wave("1aaaa first")
+        self._wave("1aaab second")
+        self.assertIsNone(ce.resolve_open_wave(self.root))
+        ce._reset_open_wave_cache()
+        # Closed waves are never attribution targets.
+        for name in ("1aaaa first", "1aaab second"):
+            wave_md = self.root / "docs" / "waves" / name / "wave.md"
+            wave_md.write_text("# Wave\n\nStatus: closed\n", encoding="utf-8")
+        self.assertIsNone(ce.resolve_open_wave(self.root))
+
+    def test_focusless_retrieval_attributes_to_open_wave(self):
+        """AC-1/AC-5: no-focus retrieval lands on the OPEN wave with derived
+        stage and 'open_wave' provenance."""
+        self._wave("1aaaa open-wave")
+        telemetry = ce.ProcessTelemetry(self.root)
+        telemetry.record_retrieval(_metric(source_id="helper-src"), event_id="helper-1")
+        telemetry.close()
+        snapshot = ce.read_wave_snapshot(self.root, "1aaaa open-wave")
+        self.assertEqual(snapshot["stages"]["implement"]["calls"], 1)
+        self.assertEqual(
+            snapshot["stages"]["implement"]["content_source_credit"], 100
+        )
+        conn = sqlite3.connect(ce.store_path(self.root))
+        row = conn.execute(
+            "SELECT wave_id, stage, phase_id, attribution FROM telemetry_event "
+            "WHERE event_id='helper-1'"
+        ).fetchone()
+        conn.close()
+        self.assertEqual(
+            row, ("1aaaa open-wave", "implement", "implement", "open_wave")
+        )
+
+    def test_focusless_retrieval_without_open_wave_stays_general(self):
+        """AC-2: byte-identical fallback when no wave is OPEN."""
+        telemetry = ce.ProcessTelemetry(self.root)
+        telemetry.record_retrieval(_metric(), event_id="general-1")
+        self.assertEqual(
+            ce.read_general_totals(self.root, telemetry.producer_id)["calls"], 1
+        )
+        conn = sqlite3.connect(ce.store_path(self.root))
+        row = conn.execute(
+            "SELECT wave_id, stage, attribution FROM telemetry_event "
+            "WHERE event_id='general-1'"
+        ).fetchone()
+        conn.close()
+        self.assertEqual(row, (None, "general", "focus"))
+        telemetry.close()
+
+    def test_direct_focus_unchanged_and_replay_protected(self):
+        """AC-4/R6: focused recording keeps 'focus' provenance; a replayed
+        event_id never double-counts on the attribution path."""
+        self._wave("1aaaa open-wave")
+        telemetry = ce.ProcessTelemetry(self.root)
+        telemetry.set_focus("1aaaa open-wave", "implement", new_phase=True)
+        telemetry.record_retrieval(_metric(source_id="focused"), event_id="dup-1")
+        telemetry.record_retrieval(_metric(source_id="focused"), event_id="dup-1")
+        telemetry.close()
+        conn = sqlite3.connect(ce.store_path(self.root))
+        count, attribution = conn.execute(
+            "SELECT COUNT(*), MIN(attribution) FROM telemetry_event "
+            "WHERE event_id='dup-1'"
+        ).fetchone()
+        conn.close()
+        self.assertEqual((count, attribution), (1, "focus"))
+
+    def test_boundary_adoption_uses_derived_stage_and_marks_adopted(self):
+        """AC-3/AC-5: an exited peer's general bucket adopts with the passed
+        stage and 'adopted' provenance; a live peer is untouched."""
+        self._wave("1aaaa open-wave")
+        # A peer with general work that exits (lease released).
+        # Record BEFORE the wave exists so the events stay general.
+        peer_root = self.root  # same store
+        wave_md = self.root / "docs" / "waves" / "1aaaa open-wave" / "wave.md"
+        original = wave_md.read_text(encoding="utf-8")
+        wave_md.write_text("# Wave\n\nStatus: closed\n", encoding="utf-8")
+        ce._reset_open_wave_cache()
+        peer = ce.ProcessTelemetry(peer_root)
+        peer.record_retrieval(_metric(source_id="peer-src"), event_id="peer-1")
+        peer.close()
+        live = ce.ProcessTelemetry(peer_root)
+        live.record_retrieval(_metric(source_id="live-src"), event_id="live-1")
+        wave_md.write_text(original, encoding="utf-8")
+        ce._reset_open_wave_cache()
+        coordinator = ce.ProcessTelemetry(peer_root)
+        result = coordinator.flush(
+            peer_root,
+            transfer_general_to="1aaaa open-wave",
+            transfer_stage="review",
+        )
+        self.assertTrue(result.success)
+        conn = sqlite3.connect(ce.store_path(self.root))
+        adopted = conn.execute(
+            "SELECT wave_id, stage, phase_id, attribution FROM telemetry_event "
+            "WHERE event_id='peer-1'"
+        ).fetchone()
+        live_row = conn.execute(
+            "SELECT wave_id, stage FROM telemetry_event WHERE event_id='live-1'"
+        ).fetchone()
+        conn.close()
+        self.assertEqual(
+            adopted, ("1aaaa open-wave", "review", "review", "adopted")
+        )
+        self.assertEqual(live_row, (None, "general"))
+        live.close()
+        coordinator.close()
+
+
+class AdditiveColumnMigrationTests(TempRootTest):
+    """Wave 1t3ek (1t3el): an already-current store missing a newly added
+    column must flow through the migration block, not the schema_ready fast
+    path — the fast-path skip is exactly what poisoned the live store."""
+
+    def test_current_store_without_attribution_column_migrates_and_records(self):
+        # Build a current store, then strip the new column to simulate a store
+        # created by pre-1t3el code.
+        telemetry = ce.ProcessTelemetry(self.root)
+        telemetry.record_retrieval(_metric(), event_id="seed-event")
+        telemetry.close()
+        conn = sqlite3.connect(ce.store_path(self.root))
+        conn.execute("ALTER TABLE telemetry_event DROP COLUMN attribution")
+        conn.execute("ALTER TABLE telemetry_event DROP COLUMN derived_artifact_tokens")
+        conn.commit()
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(telemetry_event)")]
+        conn.close()
+        self.assertNotIn("attribution", cols)
+        # Reopen through the write path: migration must restore the column and
+        # the insert must succeed (no poison).
+        second = ce.ProcessTelemetry(self.root)
+        public = second.record_retrieval(_metric(source_id="post-migration"), event_id="post-migration-1")
+        second.close()
+        self.assertEqual(public["persistence"], "durable")
+        conn = sqlite3.connect(ce.store_path(self.root))
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(telemetry_event)")]
+        row = conn.execute(
+            "SELECT attribution FROM telemetry_event WHERE event_id='post-migration-1'"
+        ).fetchone()
+        gap = conn.execute("SELECT value FROM meta WHERE key='accounting_gap'").fetchone()
+        conn.close()
+        self.assertIn("attribution", cols)
+        self.assertIn("derived_artifact_tokens", cols)
+        self.assertEqual(row[0], "focus")
+        self.assertIsNone(gap)
+        self.assertFalse(ce.gap_path(self.root).exists())
 
 
 if __name__ == "__main__":

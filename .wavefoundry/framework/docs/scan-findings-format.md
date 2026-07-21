@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-03
+Last verified: 2026-07-20
 
 The canonical schema for **`docs/scan-findings.json`** — the committed ledger the
 hardcoded-secrets scanner uses to record, classify, and gate every match. It is

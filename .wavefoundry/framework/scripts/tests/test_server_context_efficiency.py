@@ -45,6 +45,8 @@ RETRIEVAL_TOOLS = {
     "code_graph_path",
     "code_graph_community",
     "code_commit_provenance",
+    "code_hover",
+    "code_risk_score",
 }
 LIFECYCLE_TOOLS = {
     "wf_create_wave",
@@ -790,6 +792,10 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
                 ["c.py"],
             ),
             "code_read": ({"path": "d.py", "content": ""}, ["d.py"]),
+            "code_hover": (
+                {"file": "hv.py", "symbol": {"name": "f", "kind": "function"}},
+                ["hv.py"],
+            ),
             "code_outline": (
                 {"file": "e.py", "symbols": [{"name": "E"}]},
                 ["e.py"],
@@ -871,6 +877,16 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
                     "members": [{"source_file": "ignored.py"}],
                 },
                 ["community.py"],
+            ),
+            "code_risk_score": (
+                {
+                    "results": [
+                        {"source_file": "risky.py", "score": 0.9},
+                        {"source_file": "also.py", "score": 0.4},
+                    ],
+                    "scope": "ignored-scope",
+                },
+                ["also.py", "risky.py"],
             ),
         }
         for tool_name, (data, expected) in cases.items():
@@ -1138,6 +1154,689 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
             proxy = result["data"]["workflow_instruction_proxy"]
             self.assertEqual(proxy["prompt_surface_tokens"], 0)
             self.assertEqual(proxy["persistence"], "durable")
+
+    def test_implementation_review_that_ran_publishes_checkpoint(self):
+        """Wave 1t3ek (1t22z) AC-1/AC-2: an implementation-phase review that RAN
+        (structured lane summary present) publishes the checkpoint even when its
+        status is error with pending signoffs — the normal pre-close state."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            wave_id = "1aaaa review-flush"
+            wave_md = root / "docs" / "waves" / wave_id / "wave.md"
+            wave_md.parent.mkdir(parents=True)
+            wave_md.write_text(
+                "# Wave Record\n\nStatus: implementing\n", encoding="utf-8"
+            )
+            handler = SimpleNamespace(
+                root=root, telemetry=ce.ProcessTelemetry(root)
+            )
+            handler.telemetry.set_focus(wave_id, "implement", new_phase=True)
+            handler.telemetry.record_retrieval(
+                {
+                    "estimated_request_tokens": 2,
+                    "estimated_returned_tokens": 5,
+                    "estimated_source_tokens": 100,
+                    "estimated_avoided_tokens": 93,
+                    "source_files_counted": 1,
+                    "source_files_verified": 1,
+                    "source_files_estimated": 0,
+                    "captured": True,
+                    "persistence": "pending",
+                    "method": ce.RETRIEVAL_METHOD,
+                    "_source_credits": [
+                        {
+                            "source_id": "impl-src",
+                            "version_id": "v1",
+                            "tokens": 100,
+                            "classification": "verified",
+                            "credit_kind": "content",
+                        }
+                    ],
+                },
+                event_id="impl-work",
+            )
+            response = {
+                "status": "error",
+                "data": {
+                    "wave_id": wave_id,
+                    "phase": "implementation",
+                    "lane_results": [
+                        {"lane": "operator", "recorded_signoff": False}
+                    ],
+                },
+                "diagnostics": [],
+            }
+            before_events = (wave_md.parent / "events.jsonl")
+            result = srv._lifecycle_context_result(
+                handler,
+                "wf_review_wave",
+                wave_id,
+                response,
+                focus_stage="review",
+                credit=False,
+                flush=True,
+            )
+            rendered = wave_md.read_text(encoding="utf-8")
+            self.assertIn("## Context Efficiency", rendered)
+            self.assertIn("| implement |", rendered)
+            self.assertEqual(
+                result["data"]["context_efficiency_persistence"]["projection"],
+                "published",
+            )
+            # AC-3: no wave-state mutation beyond the checkpoint blocks.
+            self.assertIn("Status: implementing", rendered)
+            self.assertFalse(before_events.exists())
+            handler.telemetry.close()
+
+    def test_review_that_could_not_run_does_not_publish(self):
+        """Wave 1t3ek (1t22z) AC-2: an error response with no structured lane
+        summary (review never ran) publishes nothing."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            wave_id = "1aaaa review-norun"
+            wave_md = root / "docs" / "waves" / wave_id / "wave.md"
+            wave_md.parent.mkdir(parents=True)
+            wave_md.write_text(
+                "# Wave Record\n\nStatus: implementing\n", encoding="utf-8"
+            )
+            handler = SimpleNamespace(
+                root=root, telemetry=ce.ProcessTelemetry(root)
+            )
+            response = {
+                "status": "error",
+                "data": {"wave_id": wave_id},
+                "diagnostics": [],
+            }
+            srv._lifecycle_context_result(
+                handler,
+                "wf_review_wave",
+                wave_id,
+                response,
+                focus_stage="review",
+                credit=False,
+                flush=True,
+            )
+            self.assertNotIn(
+                "## Context Efficiency", wave_md.read_text(encoding="utf-8")
+            )
+            handler.telemetry.close()
+
+    def test_review_registration_flushes_only_implementation_phase(self):
+        """Wave 1t3ek (1t22z): the wf_review_wave registration passes
+        flush=is_implementation_phase — prepare-phase reviews stay
+        non-publishing. Verified structurally against the registration source."""
+        source = (SCRIPTS_ROOT / "server_impl.py").read_text(encoding="utf-8")
+        idx = source.index('_ensure_no_extra_args("wf_review_wave"')
+        window = source[idx : idx + 1800]
+        self.assertIn("flush=is_implementation_phase", window)
+        self.assertIn("transfer_general=is_implementation_phase", window)
+        self.assertIn(
+            'is_implementation_phase = (phase or "").strip().lower() == "implementation"',
+            window,
+        )
+
+    def _posture_repo(self, tmp, *, wave_id="1aaaa posture-wave"):
+        root = Path(tmp)
+        _repo(root)
+        wave_md = root / "docs" / "waves" / wave_id / "wave.md"
+        wave_md.parent.mkdir(parents=True)
+        wave_md.write_text(
+            "# Wave Record\n\nStatus: implementing\n\n"
+            "## Review Evidence\n\n- operator-signoff: approved\n",
+            encoding="utf-8",
+        )
+        return root, wave_id, wave_md
+
+    def test_retrieval_posture_directive_is_self_contained(self):
+        """Wave 1t3ek (1t230) AC-1: the activation envelope carries the rule,
+        the Gapfill escape hatch, and the advisory it clears."""
+        directive = srv._RETRIEVAL_POSTURE_DIRECTIVE
+        self.assertIn("code_*", directive)
+        self.assertIn("Gapfill:", directive)
+        self.assertIn("retrieval_posture_gap", directive)
+        source = (SCRIPTS_ROOT / "server_impl.py").read_text(encoding="utf-8")
+        idx = source.index("def wf_implement_wave_response")
+        self.assertIn(
+            '"retrieval_posture": _RETRIEVAL_POSTURE_DIRECTIVE',
+            source[idx : idx + 16000],
+        )
+
+    def test_retrieval_posture_gap_fires_on_zero_retrieval_with_footprint(self):
+        """Wave 1t3ek (1t230) AC-2: zero implement-stage retrieval + non-trivial
+        footprint fires the advisory at implementation review without changing
+        the review status computation."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root, wave_id, wave_md = self._posture_repo(tmp)
+            telemetry = ce.ProcessTelemetry(root)
+            telemetry.set_focus(wave_id, "implement", new_phase=True)
+            telemetry.close()  # store exists; zero retrieval events recorded
+            srv._FOOTPRINT_PROVIDER = lambda _root: 12
+            try:
+                with patch.object(srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
+                    result = srv.wf_review_wave_response(root, wave_id, phase="implementation")
+            finally:
+                srv._FOOTPRINT_PROVIDER = None
+            codes = [d.get("code") for d in result.get("diagnostics", [])]
+            self.assertIn("retrieval_posture_gap", codes)
+            gap = result["data"]["retrieval_posture_gap"]
+            self.assertEqual(gap["implement_stage_retrieval_calls"], 0)
+            self.assertEqual(gap["changed_non_docs_files"], 12)
+
+    def test_retrieval_posture_gap_cleared_by_gapfill_and_by_retrieval(self):
+        """Wave 1t3ek (1t230) AC-3: a recorded Gapfill entry clears the advisory;
+        healthy retrieval or a trivial footprint never fires it."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root, wave_id, wave_md = self._posture_repo(tmp)
+            telemetry = ce.ProcessTelemetry(root)
+            telemetry.set_focus(wave_id, "implement", new_phase=True)
+            telemetry.close()
+            # Gapfill note clears it.
+            (wave_md.parent / "notes.md").write_text(
+                "## Progress Log\n\nGapfill: bulk-mechanical rename; scripted edits were the right instrument.\n",
+                encoding="utf-8",
+            )
+            srv._FOOTPRINT_PROVIDER = lambda _root: 12
+            try:
+                self.assertIsNone(srv._retrieval_posture_gap(root, wave_md))
+                # Trivial footprint never fires, even without the note.
+                (wave_md.parent / "notes.md").unlink()
+                srv._FOOTPRINT_PROVIDER = lambda _root: 2
+                self.assertIsNone(srv._retrieval_posture_gap(root, wave_md))
+            finally:
+                srv._FOOTPRINT_PROVIDER = None
+
+    def test_retrieval_posture_gap_silent_without_store(self):
+        """Wave 1t3ek (1t230): sensor stays silent when the store is absent
+        (missing data must not fire the advisory)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root, wave_id, wave_md = self._posture_repo(tmp)
+            srv._FOOTPRINT_PROVIDER = lambda _root: 50
+            try:
+                self.assertIsNone(srv._retrieval_posture_gap(root, wave_md))
+            finally:
+                srv._FOOTPRINT_PROVIDER = None
+
+    def test_retrieval_posture_thresholds_configurable(self):
+        """Wave 1t3ek (1t230) AC-5: workflow-config sensors.retrieval_posture
+        overrides the conservative defaults."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            self.assertEqual(srv._retrieval_posture_thresholds(root), (0, 5))
+            cfg_path = root / "docs" / "workflow-config.json"
+            cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+            cfg["sensors"] = {"retrieval_posture": {"max_retrieval_calls": 2, "min_changed_files": 10}}
+            cfg_path.write_text(json.dumps(cfg), encoding="utf-8")
+            self.assertEqual(srv._retrieval_posture_thresholds(root), (2, 10))
+
+    def test_implementation_review_reports_implement_stage_telemetry(self):
+        """Wave 1t3ek (1t230) AC-4: the implementation-phase review response
+        carries the implement-stage totals and retrieval-call count."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root, wave_id, wave_md = self._posture_repo(tmp)
+            telemetry = ce.ProcessTelemetry(root)
+            telemetry.set_focus(wave_id, "implement", new_phase=True)
+            telemetry.record_retrieval(
+                {
+                    "estimated_request_tokens": 3,
+                    "estimated_returned_tokens": 7,
+                    "estimated_source_tokens": 90,
+                    "estimated_avoided_tokens": 80,
+                    "source_files_counted": 1,
+                    "source_files_verified": 1,
+                    "source_files_estimated": 0,
+                    "captured": True,
+                    "persistence": "pending",
+                    "method": ce.RETRIEVAL_METHOD,
+                    "_source_credits": [
+                        {
+                            "source_id": "posture-src",
+                            "version_id": "v1",
+                            "tokens": 90,
+                            "classification": "verified",
+                            "credit_kind": "content",
+                        }
+                    ],
+                },
+                event_id="posture-work",
+            )
+            telemetry.close()
+            srv._FOOTPRINT_PROVIDER = lambda _root: 12
+            try:
+                with patch.object(srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
+                    result = srv.wf_review_wave_response(root, wave_id, phase="implementation")
+            finally:
+                srv._FOOTPRINT_PROVIDER = None
+            summary = result["data"]["implement_stage_telemetry"]
+            self.assertEqual(summary["retrieval_calls"], 1)
+            self.assertEqual(summary["stage_totals"].get("calls"), 1)
+            codes = [d.get("code") for d in result.get("diagnostics", [])]
+            self.assertNotIn("retrieval_posture_gap", codes)
+
+    def _wrapped_registry(self, root, tool_name, fn):
+        """Install fn into a fake FastMCP registry and run the 1t3s7 cost
+        wrapping pass against it."""
+        class _Tool:
+            pass
+        class _TM:
+            pass
+        class _MCP:
+            pass
+        tool = _Tool(); tool.fn = fn
+        tm = _TM(); tm._tools = {tool_name: tool}
+        mcp = _MCP(); mcp._tool_manager = tm
+        handler = SimpleNamespace(root=root, telemetry=ce.ProcessTelemetry(root))
+        srv._wrap_first_party_tool_costs(mcp, lambda: handler)
+        return tool.fn, handler
+
+    def test_review_evidence_artifact_credit_and_replay_dedup(self):
+        """Wave 1t3ek (1t3s7) AC-1/AC-2: a create-mode wf_review_evidence result
+        credits the derived persisted records minus the caller request, and an
+        identical replay derives nothing new."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            records = [{"record_type": "executable_evidence", "request_digest": "d1", "derived": "x" * 400}]
+            canned = {"status": "ok", "data": {"mode": "create", "replayed": False, "appended_records": records}}
+            def fake_tool(wave_id="1aaaa w", kwargs=None):
+                return canned
+            wrapped, handler = self._wrapped_registry(root, "wf_review_evidence", fake_tool)
+            wrapped(wave_id="1aaaa w")
+            wrapped(wave_id="1aaaa w")  # replay: same artifact event id
+            handler.telemetry.close()
+            conn = sqlite3.connect(ce.store_path(root))
+            rows = conn.execute(
+                "SELECT event_id, derived_artifact_tokens, request_tokens FROM telemetry_event "
+                "WHERE tool_name='wf_review_evidence'"
+            ).fetchall()
+            conn.close()
+            self.assertEqual(len(rows), 1)
+            event_id, artifact, request = rows[0]
+            self.assertEqual(event_id, "artifact:d1")
+            expected_records = ce.estimate_tokens_utf8(json.dumps(records, sort_keys=True, default=str))
+            self.assertEqual(artifact, max(0, expected_records - request))
+            self.assertGreater(artifact, 0)
+
+    def test_uninstrumented_tool_records_debit_only(self):
+        """Wave 1t3ek (1t3s7) AC-3: a tool without an extractor records
+        request/response debits and zero credit."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            def fake_tool(kwargs=None):
+                return {"status": "ok", "data": {"passed": True}}
+            wrapped, handler = self._wrapped_registry(root, "wf_validate_docs", fake_tool)
+            wrapped()
+            handler.telemetry.close()
+            conn = sqlite3.connect(ce.store_path(root))
+            row = conn.execute(
+                "SELECT derived_artifact_tokens, response_tokens FROM telemetry_event "
+                "WHERE tool_name='wf_validate_docs'"
+            ).fetchone()
+            conn.close()
+            self.assertEqual(row[0], 0)
+            self.assertGreater(row[1], 0)
+
+    def test_scaffold_artifact_credit_without_prompt_double_count(self):
+        """Wave 1t3ek (1t3s7) AC-4: a wf_new_* result credits the generated
+        document body with no workflow prompt credit involved."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            doc = root / "docs" / "plans" / "1x-bug sample.md"
+            doc.parent.mkdir(parents=True, exist_ok=True)
+            doc.write_text("y" * 800, encoding="utf-8")
+            def fake_tool(slug="sample", kwargs=None):
+                return {"status": "ok", "data": {"path": "docs/plans/1x-bug sample.md"}}
+            wrapped, handler = self._wrapped_registry(root, "wf_new_bug", fake_tool)
+            wrapped(slug="sample")
+            handler.telemetry.close()
+            conn = sqlite3.connect(ce.store_path(root))
+            row = conn.execute(
+                "SELECT derived_artifact_tokens, workflow_prompt_tokens FROM telemetry_event "
+                "WHERE tool_name='wf_new_bug'"
+            ).fetchone()
+            conn.close()
+            self.assertGreater(row[0], 150)
+            self.assertEqual(row[1], 0)
+
+    def test_lifecycle_and_retrieval_tools_are_exempt_from_wrapping(self):
+        """Wave 1t3ek (1t3s7): already-instrumented tools keep their original
+        functions (no double accounting)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            def fake_tool(kwargs=None):
+                return {"status": "ok", "data": {}}
+            wrapped, handler = self._wrapped_registry(root, "wf_close_wave", fake_tool)
+            self.assertIs(wrapped, fake_tool)
+            wrapped2, handler2 = self._wrapped_registry(root, "code_read", fake_tool)
+            self.assertIs(wrapped2, fake_tool)
+            # 1t15a: newly native-instrumented code tools joined the exempt set.
+            wrapped3, handler3 = self._wrapped_registry(root, "code_hover", fake_tool)
+            self.assertIs(wrapped3, fake_tool)
+            wrapped4, handler4 = self._wrapped_registry(root, "code_risk_score", fake_tool)
+            self.assertIs(wrapped4, fake_tool)
+            handler.telemetry.close(); handler2.telemetry.close()
+            handler3.telemetry.close(); handler4.telemetry.close()
+
+    def test_review_evidence_state_file_source_credit_with_dedup(self):
+        """Wave 1t3ek (1t2zq) AC-1/AC-2: a committed create credits the ledger
+        and wave record as verified content sources, once per file version; a
+        grown ledger earns a fresh credit."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            wave_id = "1aaaa credit-wave"
+            wave_dir = root / "docs" / "waves" / wave_id
+            wave_dir.mkdir(parents=True)
+            (wave_dir / "wave.md").write_text("# Wave\n\nStatus: implementing\n" + "w" * 400, encoding="utf-8")
+            events = wave_dir / "events.jsonl"
+            events.write_text('{"seed": 1}\n' + "e" * 400 + "\n", encoding="utf-8")
+            canned = {"status": "ok", "data": {
+                "mode": "create", "replayed": False,
+                "appended_records": [{"request_digest": "s1", "body": "x" * 200}],
+                "events_path": f"docs/waves/{wave_id}/events.jsonl",
+                "path": f"docs/waves/{wave_id}/wave.md",
+            }}
+            calls = {"n": 0}
+            def fake_tool(wave_id="w", kwargs=None):
+                calls["n"] += 1
+                out = json.loads(json.dumps(canned))
+                out["data"]["appended_records"][0]["request_digest"] = f"s{calls['n']}"
+                return out
+            wrapped, handler = self._wrapped_registry(root, "wf_review_evidence", fake_tool)
+            handler.telemetry.set_focus(wave_id, "review", new_phase=True)
+            wrapped(wave_id=wave_id)
+            # Second call, files unchanged: source credits dedupe to zero new rows.
+            wrapped(wave_id=wave_id)
+            # Ledger grows: a new version earns a fresh credit.
+            events.write_text(events.read_text(encoding="utf-8") + "g" * 800 + "\n", encoding="utf-8")
+            wrapped(wave_id=wave_id)
+            handler.telemetry.close()
+            conn = sqlite3.connect(ce.store_path(root))
+            rows = conn.execute(
+                "SELECT source_id, version_id, tokens, credit_kind FROM source_credit "
+                "WHERE wave_key=? ORDER BY tokens",
+                (wave_id,),
+            ).fetchall()
+            conn.close()
+            # wave.md once + events.jsonl v1 once + events.jsonl v2 once = 3 rows,
+            # with two distinct versions sharing the ledger's source_id.
+            self.assertEqual(len(rows), 3)
+            self.assertTrue(all(r[3] == "content" for r in rows))
+            by_source = {}
+            for source_id, version_id, tokens, _ in rows:
+                by_source.setdefault(source_id, set()).add(version_id)
+            self.assertEqual(sorted(len(v) for v in by_source.values()), [1, 2])
+
+    def test_no_read_tools_credit_no_sources(self):
+        """Wave 1t3ek (1t2zq) AC-3/AC-4: memory_add and wf_new_* credit no
+        sources; unresolvable paths credit nothing."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            def add_tool(kwargs=None):
+                return {"status": "ok", "data": {"written": True, "record": {"path": "/outside/etc/passwd"}}}
+            wrapped, handler = self._wrapped_registry(root, "memory_add", add_tool)
+            wrapped()
+            def validate_tool(kwargs=None):
+                return {"status": "ok", "data": {"record": {"path": "../escape.md"}}}
+            wrapped2, handler2 = self._wrapped_registry(root, "memory_validate", validate_tool)
+            wrapped2()
+            handler.telemetry.close(); handler2.telemetry.close()
+            conn = sqlite3.connect(ce.store_path(root))
+            count = conn.execute("SELECT COUNT(*) FROM source_credit").fetchone()[0]
+            conn.close()
+            self.assertEqual(count, 0)
+
+    def test_code_hover_census_matches_canonical_producer(self):
+        """Wave 1t3ek (1t15a, live-caught): the hover envelope names its file
+        under "file", not "path" — the census must credit the canonical
+        builder's real output, not a hand-modeled shape."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            src = root / "mod.py"
+            src.write_text("def f():\n    \"\"\"doc\"\"\"\n    return 1\n", encoding="utf-8")
+            response = srv.code_hover_response(root, "mod.py", 1)
+            self.assertEqual(response.get("status"), "ok")
+            self.assertEqual(
+                srv._context_source_paths("code_hover", response), ["mod.py"]
+            )
+
+    def test_get_change_credits_only_conveyed_content(self):
+        """Wave 1t3ek (1t15a) AC-2: wf_get_change credits exactly the change
+        docs whose content the response conveys — the single-change doc and
+        untruncated bulk rows — never truncated or content-less rows, and a
+        replay with unchanged files dedupes to zero new credits."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            wave_id = "1aaaa get-change"
+            plans = root / "docs" / "plans"
+            plans.mkdir(parents=True, exist_ok=True)
+            (plans / "1x1-enh full.md").write_text("f" * 600, encoding="utf-8")
+            (plans / "1x2-enh capped.md").write_text("c" * 600, encoding="utf-8")
+            (plans / "1x3-enh bare.md").write_text("b" * 600, encoding="utf-8")
+            canned = {"status": "ok", "data": {
+                "change": {"change_id": "1x1", "path": "docs/plans/1x1-enh full.md", "content": "f" * 600},
+                "changes": [
+                    {"id": "1x2", "path": "docs/plans/1x2-enh capped.md", "content": "c" * 100, "truncated": True},
+                    {"id": "1x3", "path": "docs/plans/1x3-enh bare.md", "content": None, "truncated": False},
+                ],
+            }}
+            def fake_tool(change_id="1x1", kwargs=None):
+                return json.loads(json.dumps(canned))
+            wrapped, handler = self._wrapped_registry(root, "wf_get_change", fake_tool)
+            handler.telemetry.set_focus(wave_id, "implement", new_phase=True)
+            wrapped(change_id="1x1")
+            wrapped(change_id="1x1")  # unchanged files: dedup, no new rows
+            handler.telemetry.close()
+            conn = sqlite3.connect(ce.store_path(root))
+            rows = conn.execute(
+                "SELECT source_id, credit_kind FROM source_credit WHERE wave_key=?",
+                (wave_id,),
+            ).fetchall()
+            conn.close()
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0][1], "content")
+
+    def test_wave_listings_credit_live_working_set_only(self):
+        """Wave 1t3ek (1t15a, operator-directed middle ground): wave listings
+        credit exactly the non-closed rows they enumerate — the live working
+        set — never the closed-history tail, so credit is bounded by work in
+        flight rather than repository age."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            live_dir = root / "docs" / "waves" / "1aaaa live"
+            live_dir.mkdir(parents=True)
+            (live_dir / "wave.md").write_text("Status: active\n" + "w" * 900, encoding="utf-8")
+            closed_dir = root / "docs" / "waves" / "1aaab closed"
+            closed_dir.mkdir(parents=True)
+            (closed_dir / "wave.md").write_text("Status: closed\n" + "z" * 900, encoding="utf-8")
+            wave_id = "1aaaa listing-credit"
+            def fake_tool(kwargs=None):
+                return {"status": "ok", "data": {"waves": [
+                    {"wave_id": "1aaaa", "status": "active",
+                     "path": "docs/waves/1aaaa live/wave.md"},
+                    {"wave_id": "1aaab", "status": "closed",
+                     "path": "docs/waves/1aaab closed/wave.md"},
+                ], "total": 2, "has_more": False}}
+            wrapped, handler = self._wrapped_registry(root, "wf_list_waves", fake_tool)
+            handler.telemetry.set_focus(wave_id, "plan", new_phase=True)
+            wrapped()
+            wrapped()  # unchanged files: once-only dedup, no new rows
+            handler.telemetry.close()
+            conn = sqlite3.connect(ce.store_path(root))
+            rows = conn.execute(
+                "SELECT COUNT(*) FROM source_credit WHERE wave_key=?",
+                (wave_id,),
+            ).fetchone()
+            conn.close()
+            self.assertEqual(rows[0], 1)  # the live wave only, once
+
+    def test_map_credits_resolved_doc_only_when_it_exists(self):
+        """Wave 1t3ek (1t15a): wf_map credits exactly its one resolved existing
+        document; an unresolved address credits nothing."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            doc = root / "docs" / "README.md"
+            doc.parent.mkdir(parents=True, exist_ok=True)
+            doc.write_text("d" * 800, encoding="utf-8")
+            def fake_map(address="doc:docs/README.md", kwargs=None):
+                return {"status": "ok", "data": {
+                    "address": address, "path": "docs/README.md",
+                    "file_exists": True, "excerpt": "d" * 100,
+                }}
+            wrapped, handler = self._wrapped_registry(root, "wf_map", fake_map)
+            handler.telemetry.set_focus("1aaaa map-credit", "plan", new_phase=True)
+            wrapped()
+            def fake_missing(address="doc:docs/none.md", kwargs=None):
+                return {"status": "ok", "data": {
+                    "address": address, "path": "docs/none.md",
+                    "file_exists": False, "excerpt": "",
+                }}
+            wrapped2, handler2 = self._wrapped_registry(root, "wf_map", fake_missing)
+            handler2.telemetry.set_focus("1aaaa map-credit", "plan")
+            wrapped2()
+            handler.telemetry.close(); handler2.telemetry.close()
+            conn = sqlite3.connect(ce.store_path(root))
+            count = conn.execute(
+                "SELECT COUNT(*) FROM source_credit WHERE wave_key='1aaaa map-credit'"
+            ).fetchone()[0]
+            conn.close()
+            self.assertEqual(count, 1)  # the resolved doc only
+
+    def test_memory_views_credit_surfaced_record_files(self):
+        """Wave 1t3ek (1t15a, operator-directed): memory views credit the
+        record files they surface — an agent without the tool would open each
+        surfaced record — with the once-only dedup intact."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            mem_dir = root / "docs" / "memory"
+            mem_dir.mkdir(parents=True, exist_ok=True)
+            (mem_dir / "mem-a.md").write_text("a" * 700, encoding="utf-8")
+            (mem_dir / "mem-b.md").write_text("b" * 700, encoding="utf-8")
+            wave_id = "1aaaa memory-views"
+            def fake_brief(kwargs=None):
+                return {"status": "ok", "data": {"advisories": [
+                    {"memory_id": "mem-a", "path": "docs/memory/mem-a.md"},
+                ], "community_scoped": [
+                    {"memory_id": "mem-b", "path": "docs/memory/mem-b.md"},
+                ], "count": 2}}
+            wrapped, handler = self._wrapped_registry(root, "memory_brief", fake_brief)
+            handler.telemetry.set_focus(wave_id, "implement", new_phase=True)
+            wrapped()
+            wrapped()  # unchanged records: dedup, no new rows
+            handler.telemetry.close()
+            conn = sqlite3.connect(ce.store_path(root))
+            count = conn.execute(
+                "SELECT COUNT(*) FROM source_credit WHERE wave_key=?",
+                (wave_id,),
+            ).fetchone()[0]
+            conn.close()
+            self.assertEqual(count, 2)  # both surfaced records, once each
+
+    def test_memory_backfill_artifact_credit(self):
+        """Wave 1t3ek (1t15a) AC-3: memory_backfill credits the written record
+        files as derived artifacts through the shared written-paths extractor."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            rec = root / "docs" / "memory" / "mem-1a.md"
+            rec.parent.mkdir(parents=True, exist_ok=True)
+            rec.write_text("m" * 900, encoding="utf-8")
+            def fake_tool(kwargs=None):
+                return {"status": "ok", "data": {"written": [
+                    {"memory_id": "mem-1a", "path": "docs/memory/mem-1a.md"},
+                ]}}
+            wrapped, handler = self._wrapped_registry(root, "memory_backfill", fake_tool)
+            wrapped()
+            handler.telemetry.close()
+            conn = sqlite3.connect(ce.store_path(root))
+            row = conn.execute(
+                "SELECT derived_artifact_tokens FROM telemetry_event "
+                "WHERE tool_name='memory_backfill'"
+            ).fetchone()
+            conn.close()
+            self.assertGreater(row[0], 150)
+
+    def test_artifact_credit_floors_per_artifact_not_aggregate(self):
+        """Operator review 2026-07-20 (P1): the 1t3s7 contract floors credit at
+        zero PER ARTIFACT — a request larger than each individual output must
+        credit nothing even when the outputs sum higher."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            plans = root / "docs" / "plans"
+            plans.mkdir(parents=True, exist_ok=True)
+            (plans / "a.md").write_text("a" * 400, encoding="utf-8")  # 100 tokens
+            (plans / "b.md").write_text("b" * 400, encoding="utf-8")  # 100 tokens
+            # Request serializes to > 100 tokens but < 200 combined.
+            big_arg = "x" * 600
+            def fake_tool(payload=big_arg, kwargs=None):
+                return {"status": "ok", "data": {"written": [
+                    "docs/plans/a.md", "docs/plans/b.md",
+                ]}}
+            wrapped, handler = self._wrapped_registry(root, "memory_backfill", fake_tool)
+            wrapped(payload=big_arg)
+            handler.telemetry.close()
+            conn = sqlite3.connect(ce.store_path(root))
+            row = conn.execute(
+                "SELECT derived_artifact_tokens, request_tokens FROM telemetry_event "
+                "WHERE tool_name='memory_backfill'"
+            ).fetchone()
+            conn.close()
+            self.assertGreater(row[1], 100)
+            self.assertLess(row[1], 200)
+            self.assertEqual(row[0], 0)  # per-artifact floor: 0 + 0, not sum-request
+
+    def test_artifact_replay_without_operation_digest_dedupes(self):
+        """Operator review 2026-07-20 (P1): artifact tools without their own
+        operation digest get a stable request+response identity — an identical
+        replay records once, while a different outcome records its debits."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            rec = root / "docs" / "memory" / "mem-r.md"
+            rec.parent.mkdir(parents=True, exist_ok=True)
+            rec.write_text("m" * 900, encoding="utf-8")
+            written = {"status": "ok", "data": {"written": [
+                {"memory_id": "mem-r", "path": "docs/memory/mem-r.md"},
+            ]}}
+            empty = {"status": "ok", "data": {"written": []}}
+            responses = [written, written, empty]
+            def fake_tool(kwargs=None):
+                return json.loads(json.dumps(responses.pop(0)))
+            wrapped, handler = self._wrapped_registry(root, "memory_backfill", fake_tool)
+            wrapped()  # first write: credited
+            wrapped()  # identical replay: same event id, no second row
+            wrapped()  # idempotent second run wrote nothing: new row, zero credit
+            handler.telemetry.close()
+            conn = sqlite3.connect(ce.store_path(root))
+            rows = conn.execute(
+                "SELECT derived_artifact_tokens FROM telemetry_event "
+                "WHERE tool_name='memory_backfill' ORDER BY derived_artifact_tokens DESC"
+            ).fetchall()
+            conn.close()
+            self.assertEqual(len(rows), 2)
+            self.assertGreater(rows[0][0], 150)
+            self.assertEqual(rows[1][0], 0)
+
+    def test_risk_score_registration_records_complete_request_arguments(self):
+        """Operator review 2026-07-20 (P2): the recorded request must reflect
+        the actual invocation — layer and include_tests included."""
+        source = (SCRIPTS_ROOT / "server_impl.py").read_text(encoding="utf-8")
+        start = source.index('def code_risk_score(')
+        window = source[start:start + 8000]
+        for arg in ('"scope": scope', '"top": top', '"max_hops": max_hops',
+                    '"layer": layer', '"include_tests": include_tests'):
+            self.assertIn(arg, window)
 
     def test_pending_projection_reports_corrupt_authority_not_success(self):
         with tempfile.TemporaryDirectory() as tmp:

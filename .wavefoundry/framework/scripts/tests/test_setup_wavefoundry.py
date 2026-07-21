@@ -76,6 +76,20 @@ class SetupWavefoundryTests(unittest.TestCase):
         mark = patch.object(memory_backfill, "mark_indexed", return_value=None)
         mark.start()
         self.addCleanup(mark.stop)
+        # Wave 1t3ek (1t231): `ensure_run` was the one unmocked gate call — it
+        # creates .wavefoundry/index/memory-state.sqlite for REAL, and the
+        # `main([])` tests run against cwd, littering the working tree when the
+        # suite runs from the scripts directory. Patch it, and sandbox cwd so
+        # any future unmocked cwd-relative write lands in a tempdir instead of
+        # the repository.
+        run_gate = patch.object(memory_backfill, "ensure_run", return_value="test-run")
+        run_gate.start()
+        self.addCleanup(run_gate.stop)
+        self._sandbox = tempfile.TemporaryDirectory()
+        self.addCleanup(self._sandbox.cleanup)
+        _prev_cwd = os.getcwd()
+        os.chdir(self._sandbox.name)
+        self.addCleanup(os.chdir, _prev_cwd)
         # Wave 1p7pm: setup `main` calls venv_bootstrap.ensure_python_resolves() after Step 1, which
         # is SIDE-EFFECTING (creates ~/.local/bin/python3 + may append to the shell rc). These tests
         # mock Step 1 to succeed, so they would reach that heal against the REAL machine — patch it to
@@ -807,6 +821,49 @@ class LifecyclePolicyStepZeroTests(unittest.TestCase):
         self.assertEqual(order, ["provision", "setup_deps", "setup_index"])
         pol = json.loads(self.cfg.read_text(encoding="utf-8"))["lifecycle_id_policy"]
         self.assertEqual(pol["scheme_version"], "v2")
+
+
+class StrayArtifactGuardTests(unittest.TestCase):
+    """Wave 1t3ek (1t231): the runner-level guard turns cwd-relative test
+    artifacts into a run failure instead of a working-tree surprise."""
+
+    def _load_run_tests(self):
+        scripts = Path(__file__).resolve().parents[1]
+        spec = importlib.util.spec_from_file_location(
+            "run_tests_under_test", scripts / "run_tests.py"
+        )
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+
+    def test_guard_reports_seeded_artifact(self):
+        mod = self._load_run_tests()
+        with tempfile.TemporaryDirectory() as tmp:
+            scripts_dir = Path(tmp)
+            self.assertEqual(mod.stray_artifact_paths(scripts_dir), [])
+            stray = scripts_dir / ".wavefoundry" / "index" / "memory-state.sqlite"
+            stray.parent.mkdir(parents=True)
+            stray.write_bytes(b"seeded")
+            found = mod.stray_artifact_paths(scripts_dir)
+            self.assertEqual(found, [".wavefoundry/index/memory-state.sqlite"])
+
+    def test_guard_failure_message_only_flags_new_artifacts(self):
+        mod = self._load_run_tests()
+        with tempfile.TemporaryDirectory() as tmp:
+            scripts_dir = Path(tmp)
+            stray = scripts_dir / ".wavefoundry" / "index" / "memory-state.sqlite"
+            stray.parent.mkdir(parents=True)
+            stray.write_bytes(b"seeded")
+            with patch.object(mod, "_SCRIPT_DIR", scripts_dir):
+                # Everything pre-existing: no failure.
+                self.assertIsNone(
+                    mod._stray_artifact_failure(mod.stray_artifact_paths(scripts_dir))
+                )
+                # Nothing pre-existing: the seeded artifact fails the run.
+                message = mod._stray_artifact_failure([])
+                self.assertIsNotNone(message)
+                self.assertIn("memory-state.sqlite", message)
+                self.assertIn("STRAY TEST ARTIFACTS", message)
 
 
 if __name__ == "__main__":

@@ -1,7 +1,7 @@
 # Implement Wave Retrieval-Posture Sensor
 
 Change ID: `1t230-enh implement-wave-retrieval-posture-sensor`
-Change Status: `planned`
+Change Status: `implemented`
 Owner: Engineering
 Status: planned
 Last verified: 2026-07-20
@@ -90,32 +90,32 @@ failed twice in three days.
 
 ## Acceptance Criteria
 
-- [ ] AC-1: Successful activation responses carry `retrieval_posture` with the MCP-first
+- [x] AC-1: Successful activation responses carry `retrieval_posture` with the MCP-first
       directive, the explicit `Gapfill:` disposition convention, and the advisory it
       clears, verified by test asserting all three elements are present in the field.
-- [ ] AC-2: A wave with near-zero implement-stage retrieval calls and a non-trivial code
+- [x] AC-2: A wave with near-zero implement-stage retrieval calls and a non-trivial code
       footprint receives the `retrieval_posture_gap` advisory (with both numbers) at
       implementation-phase review and at close dry-run, verified by hermetic test.
-- [ ] AC-3: A recorded `Gapfill:` entry clears the advisory; a wave with healthy
+- [x] AC-3: A recorded `Gapfill:` entry clears the advisory; a wave with healthy
       retrieval or a trivial footprint never receives it, verified by test.
-- [ ] AC-4: The implementation-phase review response includes the
+- [x] AC-4: The implementation-phase review response includes the
       `implement_stage_telemetry` summary, verified by test.
-- [ ] AC-5: Thresholds are configurable via `workflow-config.json`; defaults documented;
+- [x] AC-5: Thresholds are configurable via `workflow-config.json`; defaults documented;
       docs-lint passes.
-- [ ] AC-6: Full framework test suite passes
+- [x] AC-6: Full framework test suite passes
       (`python3 .wavefoundry/framework/scripts/run_tests.py`).
 
 ## Tasks
 
-- [ ] Add `retrieval_posture` to the activation response
-- [ ] Implement the gap computation (store query + code-footprint census) and the
+- [x] Add `retrieval_posture` to the activation response
+- [x] Implement the gap computation (store query + code-footprint census) and the
       advisory with configurable thresholds
-- [ ] Implement `Gapfill:` disposition detection over the wave record and admitted
+- [x] Implement `Gapfill:` disposition detection over the wave record and admitted
       change docs
-- [ ] Add `implement_stage_telemetry` to the implementation-phase review response
-- [ ] Update implement-wave prompt/seed wording and `docs/references/context-efficiency.md`
-- [ ] Add hermetic tests for AC-1 through AC-5
-- [ ] Run full framework test suite
+- [x] Add `implement_stage_telemetry` to the implementation-phase review response
+- [x] Update implement-wave prompt/seed wording and `docs/references/context-efficiency.md`
+- [x] Add hermetic tests for AC-1 through AC-5
+- [x] Run full framework test suite
 
 ## Agent Execution Graph
 
@@ -142,9 +142,14 @@ component or flow.
 (Populated at Prepare wave.)
 
 
-| AC   | Priority | Rationale |
-| ---- | -------- | --------- |
-| AC-1 | TBD      | Populated at Prepare wave. |
+| AC   | Priority  | Rationale |
+| ---- | --------- | --------- |
+| AC-1 | required  | The in-band directive is the feedforward half of the fix; self-containment (rule + escape hatch + consequence) is the operator-directed design |
+| AC-2 | required  | The sensor is the feedback half; without it the pattern stays operator-detected |
+| AC-3 | required  | False-positive control is what makes the advisory trustworthy; a noisy sensor is worse than none |
+| AC-4 | important | Council visibility; the advisory alone carries the enforcement signal |
+| AC-5 | important | Configurability matters for target repos, but conservative defaults carry the value |
+| AC-6 | required  | Suite-green is the delivery gate for all framework script changes |
 
 
 ## Progress Log

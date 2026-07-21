@@ -1,7 +1,7 @@
 # Context Efficiency Review-Boundary Checkpoint Flush
 
 Change ID: `1t22z-enh context-efficiency-review-boundary-flush`
-Change Status: `planned`
+Change Status: `implemented`
 Owner: Engineering
 Status: planned
 Last verified: 2026-07-20
@@ -36,8 +36,12 @@ totals; close publishes the `review` totals and seals.
    beyond what it grants today.
 2. The prepare-phase review (`phase='prepare'`) is unchanged: it runs before implementation
    and the prepare boundary already publishes.
-3. A failed or error-status review must not publish (consistent with the existing
-   core-succeeded gating in `_lifecycle_context_result`).
+3. A review that could not run at all (wave not found, validation crash — no structured
+   lane summary produced) must not publish. A review that RAN but reports pending
+   signoffs (error status with `lane_results` present — the normal pre-close state)
+   MUST still publish: that is precisely when the delivery council needs current
+   numbers. Scope-discovery refinement of the original "error-status reviews do not
+   publish" wording; see Decision Log.
 4. The tool's `_OBSERVATIONAL_TOOL` MCP annotation stays. The checkpoint projection is
    accounting bookkeeping, not a wave-state mutation; the write it performs is the same
    marker-owned block rewrite every other boundary already performs. If the annotation
@@ -76,28 +80,29 @@ delivery council reads a stale activation-time table.
 
 ## Acceptance Criteria
 
-- [ ] AC-1: After instrumented implement-stage activity, `wf_review_wave(phase='implementation')`
+- [x] AC-1: After instrumented implement-stage activity, `wf_review_wave(phase='implementation')`
       leaves the `wave.md` Context Efficiency table reflecting the implement-stage
       accumulation, verified by test.
-- [ ] AC-2: `wf_review_wave(phase='prepare')` and error-status reviews do not publish,
-      verified by test.
-- [ ] AC-3: The review publish performs no wave-state mutation: status, review evidence,
+- [x] AC-2: `wf_review_wave(phase='prepare')` does not publish, and a review that fails
+      to run (no structured lane summary) does not publish; a review that ran with
+      pending signoffs does, verified by test.
+- [x] AC-3: The review publish performs no wave-state mutation: status, review evidence,
       and general-producer buckets are byte-identical before and after, verified by test.
-- [ ] AC-4: `docs/references/context-efficiency.md` documents the symmetric
+- [x] AC-4: `docs/references/context-efficiency.md` documents the symmetric
       boundary-publication model; docs-lint passes.
-- [ ] AC-5: Full framework test suite passes
+- [x] AC-5: Full framework test suite passes
       (`python3 .wavefoundry/framework/scripts/run_tests.py`).
 
 ## Tasks
 
-- [ ] Enable checkpoint publication on successful `wf_review_wave(phase='implementation')`
+- [x] Enable checkpoint publication on successful `wf_review_wave(phase='implementation')`
       via `_lifecycle_context_result`, preserving observational wave-state semantics
-- [ ] Decide and record (Decision Log) whether the observational annotation permits the
+- [x] Decide and record (Decision Log) whether the observational annotation permits the
       projection write or a `flush` parameter is needed
-- [ ] Add tests: implementation-review publishes; prepare/error reviews do not; no
+- [x] Add tests: implementation-review publishes; prepare/error reviews do not; no
       state mutation beyond the checkpoint block
-- [ ] Update `docs/references/context-efficiency.md`
-- [ ] Run full framework test suite
+- [x] Update `docs/references/context-efficiency.md`
+- [x] Run full framework test suite
 
 ## Agent Execution Graph
 
@@ -123,9 +128,13 @@ boundaries.
 (Populated at Prepare wave.)
 
 
-| AC   | Priority | Rationale |
-| ---- | -------- | --------- |
-| AC-1 | TBD      | Populated at Prepare wave. |
+| AC   | Priority  | Rationale |
+| ---- | --------- | --------- |
+| AC-1 | required  | The observed defect: implement numbers invisible to the delivery council until close |
+| AC-2 | required  | Prepare-phase and failure behavior must not change; regression there breaks existing flows |
+| AC-3 | required  | The tool's observational contract is load-bearing; any state mutation beyond the checkpoint block is a new defect class |
+| AC-4 | important | Reference-doc accuracy; behavior is test-verified independently |
+| AC-5 | required  | Suite-green is the delivery gate for all framework script changes |
 
 
 ## Progress Log
@@ -141,7 +150,8 @@ boundaries.
 
 | Date | Decision | Reason | Alternatives |
 | ---- | -------- | ------ | ------------ |
-|      |          |        |              |
+| 2026-07-20 | Requirement 4 resolved: keep the `_OBSERVATIONAL_TOOL` annotation unchanged and publish without a `flush` parameter — the annotation already declares `readOnlyHint: False`, so the checkpoint-block write is annotation-compatible. | Verified in `register_mcp_surface`'s annotation constants; observational means "no wave-state mutation", not "no writes". | Explicit `flush` parameter (rejected: adds API surface for a contract the annotation already permits). |
+| 2026-07-20 | AC-2/Requirement 3 refined: the publish boundary is "review ran" (`reached_review`: structured lane summary present), not "status ok" — a review reporting pending operator signoff is the NORMAL pre-close state and is exactly when the council reads the table. | The original wording would have deferred publication to close in practice, defeating the change's purpose; discovered at implementation against the real `_lifecycle_context_result` error gating. | Publish only on fully-passing reviews (rejected: pre-close reviews nearly always carry a pending operator lane). |
 
 
 ## Risks

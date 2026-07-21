@@ -7,39 +7,31 @@ Last verified: 2026-07-20
 ## Current Session
 
 **Active wave:** *(none)*
-- **Active wave:** `1t3gt mcp-tool-hygiene` (OPEN, `implementing`). All four
-  changes are `implemented`: `1t1b3` (shared `repo_root.py` cwd-independent
-  `--root` discovery for `memory_backfill.py`/`memory_cli.py`), `1t3gs` (full
-  MCP tool rename off the `wave_` prefix: 47 tools renamed to
-  `wf_`/`memory_`/`index_`, `MCP_TOOL_PREFIXES` updated, all seeds/prompts/
-  specs/rendered surfaces updated, repo-wide sweep clean), `1t3gu` (`wave.md`
-  scaffold lint-valid from creation: projection sections rendered via the
-  canonical renderers, Watchpoints placeholder carries marker words), and
-  `1t3ld` (Context Efficiency three-stage model: only `plan`/`implement`/
-  `review` are ever written, adoption lands in `plan`, fixed row order; manual
-  one-time cleanup canonicalized the live sqlite store and 8 wave records).
-- **IMPORTANT for the next session:** the MCP server now serves ONLY the new
-  tool names (`wf_*`, `memory_*`, `index_*`; `docs_`/`code_`/`seed_`
-  unchanged). Any session started before this change must reconnect (`/mcp`).
-  The workflow-config KEYS `wave_review`/`wave_implement` are unchanged (they
-  are config schema, not tool names).
-- Renaming the reload-survivor tool itself (`wave_mcp_reload` to
-  `wf_reload_mcp`) is a one-time process-restart boundary: the in-session hot
-  reload correctly refused to re-register under the old surviving name.
-  Verified instead via a fresh-process MCP `tools/list` probe: 83 tools, zero
-  `wave_`-prefixed, all renamed tools present.
-- Verification: final canonical suite **5,990/5,990 across 56 files** (one
-  interference flake in `test_indexer` during a run concurrent with a server
-  probe; clean isolated and clean on the final uncontended run); docs-lint
-  clean; `server.py --dry-run` OK.
-- Wave `1t3gt` still needs **Review wave** (delivery-phase council) and
-  operator-owned **Close wave**. No commit has been made this implementation
-  pass; commits remain operator-owned.
+- **OPEN wave:** `1t3ek context-efficiency-feedback-loop` — SIX changes
+  implemented and delivery-reviewed across three superseding cycles; suite
+  **6,015/6,015** clean; docs-lint clean; awaiting only operator close.
+  Changes: 1t22z review-boundary flush; 1t230 retrieval-posture loop; 1t231
+  test hygiene + runner guard; 1t3el open-wave attribution; 1t3s7
+  derived-artifact credit + full-surface debits; 1t2zq state-file source
+  credit.
+- **Two live-caught, repaired, independently reverified findings** in the
+  typed ledger (schema_ready migration fast-path; stage-derivation
+  serialization matching), cycle 2 frozen at an auto-recorded convergence
+  checkpoint. Both repairs were actual solutions: additive columns must join
+  the schema_ready check; consumers parse serialized formats instead of
+  substring-matching, with a live-ledger oracle test pinning the contract.
+- **Final live row**: the last approval call recorded stage=review,
+  attribution=open_wave, artifact credit 299, with review-stage source
+  credits at 6 files / 50,840 tokens — four of the wave's changes verified in
+  one event.
+- Stale producer leases cleaned (5 removed, 1 live); empty-stale-lease
+  cleanup and the suite/indexer contention flake are drafted-for-next-wave
+  candidates (not yet written as plan docs).
+- No commit since `0bfdb404`. Close, then commit, both operator-owned.
 
-## Continuation
+## Open Questions / Deferred Decisions
 
-1. Reconnect MCP (`/mcp`) to pick up the renamed tool surface.
-2. Run **Review wave** for `1t3gt` (delivery review lanes + council), then ask
-   the operator about closure.
-3. The dashboard was restarted earlier on PID 66431 (port 43128); unaffected by
-   the rename.
+- Next-wave candidates: suite/indexer mutual exclusion (3 flakes today);
+  empty-stale-lease cleanup at adoption; wf_create_wave generated-body
+  artifact credit; paired evaluation to measure the counterfactual savings
+  (schema-learning + retry loops) the deterministic credits exclude.

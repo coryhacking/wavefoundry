@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-03
+Last verified: 2026-07-20
 
 The canonical schema for the **Wavefoundry install log**, the markdown-native state machine that gates Wavefoundry's two-phase install.
 

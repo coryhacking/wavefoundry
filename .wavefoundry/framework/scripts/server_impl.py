@@ -14,6 +14,8 @@ import re
 import sys
 import threading
 import time
+import hashlib
+import uuid
 from pathlib import Path
 from typing import Any, Callable, Iterable, Literal, Mapping, Optional
 
@@ -5177,6 +5179,7 @@ def wf_get_change_response(root: Path, change_id: str = "", wave_id: str = "") -
                     "status": doc_status,
                     "path": _repo_rel(root, doc_path),
                     "content": content,
+                    "truncated": truncated,
                 })
             else:
                 changes.append({"id": cid, "status": "unknown", "path": None, "content": None})
@@ -13070,6 +13073,21 @@ def wf_review_wave_response(root: Path, wave_id: str, phase: str = "implementati
             recovery_tools=["wf_current_wave"],
             recovery_usage="wf_current_wave()",
         ))
+    # Wave 1t3ek (1t230): retrieval-posture sensor — advisory diagnostic only;
+    # like high_severity_finding it never participates in the status computation.
+    _posture_gap: Optional[dict[str, Any]] = None
+    if phase_s == "implementation":
+        try:
+            _posture_gap = _retrieval_posture_gap(root, wave_md)
+        except Exception:
+            _posture_gap = None
+        if _posture_gap is not None:
+            diagnostics.append(_diagnostic(
+                "retrieval_posture_gap",
+                _posture_gap["message"],
+                recovery_tools=["wf_current_wave"],
+                recovery_usage="wf_current_wave()",
+            ))
     status = "ok" if (
         lint_result["passed"]
         and not missing
@@ -13079,6 +13097,23 @@ def wf_review_wave_response(root: Path, wave_id: str, phase: str = "implementati
     ) else "error"
     # 1p8gy AC-6: prior review findings and lessons relevant to this wave.
     _review_data = {"wave_id": wave_id, "phase": phase_s, "required_lanes": required_lanes, "lane_results": lane_results, "required_council_signoffs": required_council_signoffs, "council_results": council_results, "lint_passed": lint_result["passed"], "max_severity": max_severity}
+    # Wave 1t3ek (1t230): the delivery council reads the implement-stage numbers
+    # in-context rather than discovering them at close.
+    if phase_s == "implementation":
+        try:
+            _stage = context_efficiency.read_wave_snapshot(
+                root, wave_md.parent.name
+            ).get("stages", {}).get("implement")
+        except Exception:
+            _stage = None
+        _review_data["implement_stage_telemetry"] = {
+            "stage_totals": _stage or {},
+            "retrieval_calls": context_efficiency.implement_stage_retrieval_calls(
+                root, wave_md.parent.name
+            ),
+        }
+        if _posture_gap is not None:
+            _review_data["retrieval_posture_gap"] = _posture_gap
     _mem_advisories = _memory_advisories_for_wave(
         root, {"wave_id": wave_id, "changes": [{"id": cid} for cid in _extract_change_ids_from_wave_text(wave_text)]}
     )
@@ -13091,6 +13126,118 @@ def wf_review_wave_response(root: Path, wave_id: str, phase: str = "implementati
         next_tools=["wf_validate_docs", "wf_current_wave"],
         usage="wf_validate_docs()",
     )
+
+
+# Wave 1t3ek (1t230): the retrieval-posture loop. The directive travels in-band
+# on the activation envelope (self-contained: rule + escape hatch + consequence),
+# and the gap sensor fires at implementation review / close dry-run when
+# implement-stage retrieval telemetry is near zero against a non-trivial code
+# diff. A recorded "Gapfill:" entry clears the advisory; it never blocks.
+_RETRIEVAL_POSTURE_DIRECTIVE = (
+    "MCP-first implementation retrieval: search, read, and navigate code through "
+    "the code_* and docs_search tools first; harness shell and file search are "
+    "fallback. When fallback is genuinely the right instrument (bulk-mechanical "
+    "edits, docs-only work), record a 'Gapfill:' entry in a Progress Log "
+    "explaining why. That same recorded entry clears the retrieval_posture_gap "
+    "advisory raised at implementation review and close when implement-stage "
+    "retrieval telemetry is near zero against a non-trivial code diff."
+)
+
+# Test seam: replace to drive the footprint without a real git history.
+_FOOTPRINT_PROVIDER: Optional[Callable[[Path], Optional[int]]] = None
+
+_FOOTPRINT_EXCLUDE_PREFIXES = ("docs/", ".wavefoundry/index/", ".wavefoundry/logs/")
+
+
+def _wave_code_footprint(root: Path) -> Optional[int]:
+    """Count changed tracked non-docs files in the working tree; None when
+    git is unavailable (the sensor then stays silent)."""
+    if _FOOTPRINT_PROVIDER is not None:
+        return _FOOTPRINT_PROVIDER(root)
+    try:
+        proc = subprocess_util.isolated_run(
+            ["git", "-C", str(root), "status", "--porcelain"],
+            capture_output=True, text=True, timeout=10, check=False,
+        )
+    except Exception:
+        return None
+    if proc.returncode != 0:
+        return None
+    count = 0
+    for line in proc.stdout.splitlines():
+        if len(line) < 4:
+            continue
+        rel = line[3:].strip().strip('"')
+        if not rel or rel.endswith("/"):
+            continue
+        if any(rel.startswith(prefix) for prefix in _FOOTPRINT_EXCLUDE_PREFIXES):
+            continue
+        count += 1
+    return count
+
+
+def _retrieval_posture_thresholds(root: Path) -> tuple[int, int]:
+    """(max_retrieval_calls, min_changed_files) — conservative defaults, tunable
+    via workflow-config ``sensors.retrieval_posture``."""
+    max_calls, min_files = 0, 5
+    cfg = _read_workflow_config(root)
+    sensors = cfg.get("sensors") if isinstance(cfg, dict) else None
+    posture = sensors.get("retrieval_posture") if isinstance(sensors, dict) else None
+    if isinstance(posture, dict):
+        try:
+            max_calls = int(posture.get("max_retrieval_calls", max_calls))
+        except (TypeError, ValueError):
+            pass
+        try:
+            min_files = int(posture.get("min_changed_files", min_files))
+        except (TypeError, ValueError):
+            pass
+    return max_calls, min_files
+
+
+def _wave_has_gapfill_note(wave_md: Path) -> bool:
+    try:
+        for doc in sorted(wave_md.parent.glob("*.md")):
+            if "Gapfill:" in doc.read_text(encoding="utf-8"):
+                return True
+    except OSError:
+        pass
+    return False
+
+
+def _retrieval_posture_gap(root: Path, wave_md: Path) -> Optional[dict[str, Any]]:
+    """Return the gap payload, or None when the sensor has nothing to say.
+
+    Fires only when ALL hold: the store is readable, implement-stage retrieval
+    calls are at or below the threshold, the changed-file footprint is at or
+    above its threshold, and no Gapfill entry is recorded in the wave.
+    """
+    calls = context_efficiency.implement_stage_retrieval_calls(
+        root, wave_md.parent.name
+    )
+    if calls is None:
+        return None
+    max_calls, min_files = _retrieval_posture_thresholds(root)
+    if calls > max_calls:
+        return None
+    footprint = _wave_code_footprint(root)
+    if footprint is None or footprint < min_files:
+        return None
+    if _wave_has_gapfill_note(wave_md):
+        return None
+    return {
+        "implement_stage_retrieval_calls": calls,
+        "changed_non_docs_files": footprint,
+        "message": (
+            f"Implement-stage instrumented retrieval calls: {calls}; changed "
+            f"non-docs files in the working tree: {footprint}. Implementation "
+            "appears to have bypassed the MCP retrieval tools (code_*, "
+            "docs_search). Route exploration through them, or record a "
+            "'Gapfill:' entry in a Progress Log explaining why harness "
+            "fallback was the right instrument; the recorded entry clears "
+            "this advisory."
+        ),
+    }
 
 
 def wf_implement_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cache: Optional[McpRepoCache] = None) -> dict[str, Any]:
@@ -13235,6 +13382,9 @@ def wf_implement_wave_response(root: Path, wave_id: str, mode: str = "dry_run", 
         "ordered_changes": ordered_changes,
         "journal_watchpoints": watchpoints_text,
         "serialization_points": serialization_points,
+        # Wave 1t3ek (1t230): the retrieval directive arrives in-band at the
+        # exact moment implementation starts, not only in a prompt doc.
+        "retrieval_posture": _RETRIEVAL_POSTURE_DIRECTIVE,
     }
     envelope = _response(
         "dry_run" if mode_s == "dry_run" else "ok",
@@ -13647,6 +13797,15 @@ def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
     diagnostics.extend(_memory_validation_diagnostics(root, canonical_wave_id))
     diagnostics.extend(_check_secrets_gate(root, canonical_wave_id))
     secrets_notice = _confirmed_secret_notice(root) or {}
+    # Wave 1t3ek (1t230): retrieval-posture sensor at close — surfaced in DATA
+    # (the secrets_notice pattern), never a diagnostic, because close hard-blocks
+    # on any diagnostic and this advisory must never block by itself.
+    try:
+        _close_posture_gap = _retrieval_posture_gap(root, wave_md)
+    except Exception:
+        _close_posture_gap = None
+    if _close_posture_gap is not None:
+        secrets_notice = {**secrets_notice, "retrieval_posture_gap": _close_posture_gap}
     # Wave 1p31b (1p32k): close-time hard gate — every AC and task across admitted changes
     # must be `[x]` (done) or `[~]` (intentionally deferred). Silent `[ ]` items block close.
     silent_unchecked = _collect_silent_unchecked_items_for_close(wave_md, text)
@@ -20930,6 +21089,8 @@ _runner_version: str = ""
 
 _CONTEXT_RETRIEVAL_TOOLS = frozenset(
     {
+        "code_hover",
+        "code_risk_score",
         "code_ask",
         "code_search",
         "code_lexical",
@@ -20960,6 +21121,8 @@ _REFERENCE_ONLY_GRAPH_TOOLS = frozenset(
         "code_callgraph",
         "code_graph_path",
         "code_graph_community",
+        # Wave 1t3ek (1t15a): shipped without instrumentation; structural like its siblings.
+        "code_risk_score",
     }
 )
 _LIFECYCLE_CONTEXT_STAGES = {
@@ -21037,6 +21200,13 @@ def _context_source_paths(
         path = data.get("path")
         if isinstance(path, str) and path and "content" in data:
             paths.add(path)
+    elif tool_name == "code_hover":
+        # The hover envelope names its file under "file" (not "path") —
+        # live-verified against code_hover_response; the symbol dict is the
+        # content-bearing signal.
+        path = data.get("file")
+        if isinstance(path, str) and path and data.get("symbol"):
+            paths.add(path)
     elif tool_name == "code_outline":
         path = data.get("file")
         symbols = data.get("symbols")
@@ -21091,6 +21261,8 @@ def _context_structural_paths(
         add_rows(data.get("path_nodes"), "source_file")
     elif tool_name == "code_graph_community":
         add_rows(data.get("nodes"), "source_file")
+    elif tool_name == "code_risk_score":
+        add_rows(data.get("results"), "source_file")
     return sorted(paths)
 
 
@@ -21485,9 +21657,18 @@ def _flush_context_efficiency(
         context_efficiency.reconcile_checkpoint_authority(
             root, canonical_wave, floor, sealed=sealed
         )
+        # Wave 1t3ek (1t3el): boundary adoption stamps the stage the wave is
+        # actually in — plan while planned/paused (create/prepare boundaries),
+        # implement while OPEN, review once the ledger holds a delivery run.
+        wave_status = status_match.group(1) if status_match else ""
+        if wave_status in ("active", "implementing"):
+            transfer_stage = context_efficiency._derive_open_wave_stage(wave_md.parent)
+        else:
+            transfer_stage = "plan"
         flushed = handler.telemetry.flush(
             root,
             transfer_general_to=canonical_wave if transfer_general else None,
+            transfer_stage=transfer_stage,
             checkpoint_floors=None,
         )
         if not flushed.success:
@@ -21852,14 +22033,22 @@ def _lifecycle_context_result(
         request_arguments=request_arguments,
         milestone_completed=bool(credit),
     )
-    if response.get("status") == "error":
+    if response.get("status") == "error" and not (flush and reached_review):
+        # Wave 1t3ek (1t22z): a review that RAN but reports pending signoffs
+        # (the normal pre-close state) still publishes the checkpoint so the
+        # delivery council reads current implement-stage numbers; a review
+        # that could not run at all (wave not found, validation crash) does not.
         return response
     if not flush:
         return response
     projection, flushed = _flush_context_efficiency(
         handler,
         wave_id,
-        transfer_general=transfer_general and bool(credit),
+        # Wave 1t3ek (1t3el): create/prepare adopt on milestone completion
+        # (unchanged); a review that RAN and a mutating close also adopt, so
+        # exited helper agents' buckets land on THIS wave instead of the next
+        # wave's prepare.
+        transfer_general=transfer_general and (bool(credit) or reached_review),
     )
     data = _context_data(response)
     data["context_efficiency_persistence"] = projection
@@ -22009,6 +22198,371 @@ def wf_gpu_doctor_response(root: Path) -> dict[str, Any]:
         next_tools=["index_health", "wf_server_info"],
         usage="wf_gpu_doctor()",
     )
+
+# --- First-party tool cost accounting (wave 1t3ek / 1t3s7) -------------------
+# Debit-only for the previously unmeasured surface, plus derived-artifact
+# credit (avoided writing) where a tool persists textual artifacts the caller
+# did not supply. Lifecycle tools (workflow proxies) and the retrieval tools
+# (retrieval events) stay on their existing instrumentation.
+
+_COST_EXEMPT_TOOLS = frozenset({
+    "wf_create_wave", "wf_prepare_wave", "wf_implement_wave",
+    "wf_review_wave", "wf_close_wave", "wf_reload_mcp",
+    "code_ask", "code_search", "code_lexical", "docs_search",
+    "code_keyword", "code_pattern", "code_constants",
+    "code_read", "code_outline", "code_definition", "code_references",
+    "code_callhierarchy", "code_impact", "code_dependencies",
+    "code_callgraph", "code_graph_path", "code_graph_community",
+    "code_commit_provenance",
+    # Wave 1t3ek (1t15a): now natively retrieval-instrumented.
+    "code_hover", "code_risk_score",
+})
+
+
+def _artifact_file_token_list(root: Path, rel_paths: Iterable[str]) -> list[int]:
+    """Per-artifact token sizes for contained files — the credit contract
+    floors each artifact independently, so callers get a list, not a sum."""
+    tokens: list[int] = []
+    for rel in rel_paths:
+        if not rel:
+            continue
+        try:
+            candidate = (root / str(rel)).resolve()
+            if candidate.is_relative_to(root.resolve()) and candidate.is_file():
+                tokens.append(candidate.stat().st_size // 4)
+        except (OSError, ValueError):
+            continue
+    return tokens
+
+
+def _artifact_from_review_evidence(root: Path, result: Mapping[str, Any]) -> tuple[int, Optional[str]]:
+    data = result.get("data") if isinstance(result.get("data"), dict) else {}
+    if result.get("status") != "ok" or data.get("mode") != "create" or data.get("replayed"):
+        return 0, None
+    records = data.get("appended_records") or []
+    if not records:
+        return 0, None
+    digest = None
+    for record in records:
+        digest = record.get("request_digest") or digest
+    tokens = [
+        context_efficiency.estimate_tokens_utf8(
+            json.dumps(record, sort_keys=True, default=str)
+        )
+        for record in records
+    ]
+    return tokens, (f"artifact:{digest}" if digest else None)
+
+
+def _artifact_from_written_paths(field: str):
+    def extract(root: Path, result: Mapping[str, Any]) -> tuple[int, Optional[str]]:
+        data = result.get("data") if isinstance(result.get("data"), dict) else {}
+        if result.get("status") != "ok":
+            return 0, None
+        value = data.get(field)
+        paths: list[str] = []
+        if isinstance(value, list):
+            for item in value:
+                if isinstance(item, Mapping) and item.get("path"):
+                    paths.append(str(item["path"]))
+                elif isinstance(item, str):
+                    paths.append(item)
+        elif isinstance(value, Mapping) and value.get("path"):
+            paths.append(str(value["path"]))
+        elif isinstance(value, str):
+            paths.append(value)
+        return _artifact_file_token_list(root, paths), None
+    return extract
+
+
+def _state_sources_review_evidence(root: Path, result: Mapping[str, Any]) -> list[str]:
+    data = result.get("data") if isinstance(result.get("data"), dict) else {}
+    if result.get("status") != "ok" or data.get("mode") != "create" or data.get("replayed"):
+        return []
+    paths = []
+    for field in ("events_path", "path"):
+        value = data.get(field)
+        if isinstance(value, str) and value:
+            paths.append(value)
+    return paths
+
+
+def _state_sources_memory_validate(root: Path, result: Mapping[str, Any]) -> list[str]:
+    data = result.get("data") if isinstance(result.get("data"), dict) else {}
+    if result.get("status") != "ok":
+        return []
+    record = data.get("record")
+    path = record.get("path") if isinstance(record, Mapping) else None
+    return [str(path)] if path else []
+
+
+def _state_sources_memory_propose(root: Path, result: Mapping[str, Any]) -> list[str]:
+    """Best-effort: resolve the change docs the drafted records derive from."""
+    data = result.get("data") if isinstance(result.get("data"), dict) else {}
+    if result.get("status") != "ok" or not data.get("written"):
+        return []
+    change_ids: set[str] = set()
+    for item in data.get("written") or []:
+        source = item.get("source_event") if isinstance(item, Mapping) else None
+        if isinstance(source, str) and source.startswith("decision-log:"):
+            parts = source.split(":", 2)
+            if len(parts) >= 2 and parts[1]:
+                change_ids.add(parts[1])
+    paths: list[str] = []
+    waves_dir = root / "docs" / "waves"
+    try:
+        for change_id in sorted(change_ids):
+            for match in waves_dir.glob(f"*/{change_id}*.md"):
+                paths.append(str(match.relative_to(root)))
+                break
+    except OSError:
+        pass
+    return paths
+
+
+def _state_sources_get_change(root: Path, result: Mapping[str, Any]) -> list[str]:
+    """Credit only change docs whose content the response conveys.
+
+    Bulk rows cap content at 300 lines and carry a structural ``truncated``
+    field; a truncated row conveys an excerpt, not the document, so it earns
+    no whole-file credit. Listing digests (wf_current_wave, wf_list_waves,
+    wf_list_plans, wf_map, memory_search, memory_brief) are deliberately
+    absent from the extractor table for the same reason: their responses
+    reference documents without conveying them, so deterministic whole-file
+    credit would scale with corpus size rather than information delivered.
+    Counterfactual read-avoidance for digests belongs to paired evaluations
+    (wf_context_efficiency_eval), never the measured ledger.
+    """
+    data = result.get("data") if isinstance(result.get("data"), dict) else {}
+    if result.get("status") != "ok":
+        return []
+    paths: list[str] = []
+    change = data.get("change")
+    if isinstance(change, Mapping) and change.get("path") and change.get("content"):
+        paths.append(str(change["path"]))
+    for row in data.get("changes") or []:
+        if (
+            isinstance(row, Mapping)
+            and row.get("path")
+            and row.get("content")
+            and not row.get("truncated")
+        ):
+            paths.append(str(row["path"]))
+    return paths
+
+
+def _state_sources_live_waves(root: Path, result: Mapping[str, Any]) -> list[str]:
+    """Credit the LIVE working set a wave listing enumerates — never history.
+
+    Whole-corpus credit was rejected (operator direction, 2026-07-20): a
+    listing sweeps every wave record to answer a one-line question, so credit
+    would scale with repository age. The bounded middle ground credits only
+    rows the response marks non-closed — the waves an operator acting on this
+    listing would actually open — so credit tracks work in flight, not the
+    archive tail.
+    """
+    data = result.get("data") if isinstance(result.get("data"), dict) else {}
+    if result.get("status") != "ok":
+        return []
+    paths: list[str] = []
+    for row in data.get("waves") or []:
+        if (
+            isinstance(row, Mapping)
+            and row.get("path")
+            and str(row.get("status") or "") not in ("closed", "")
+        ):
+            paths.append(str(row["path"]))
+    return paths
+
+
+def _state_sources_list_plans(root: Path, result: Mapping[str, Any]) -> list[str]:
+    """Plan docs under docs/plans/ are pending work by construction — the
+    listing enumerates the live backlog, bounded by work in flight."""
+    data = result.get("data") if isinstance(result.get("data"), dict) else {}
+    if result.get("status") != "ok":
+        return []
+    return [
+        str(row["path"])
+        for row in data.get("plans") or []
+        if isinstance(row, Mapping) and row.get("path")
+    ]
+
+
+def _state_sources_memory_views(*rows_keys: str):
+    """Memory views credit the record files they surface (operator direction,
+    2026-07-20): each surfaced row names a real record file an agent without
+    the tool would have opened, and the response cap bounds the set."""
+    def extract(root: Path, result: Mapping[str, Any]) -> list[str]:
+        data = result.get("data") if isinstance(result.get("data"), dict) else {}
+        if result.get("status") != "ok":
+            return []
+        paths: list[str] = []
+        for key in rows_keys:
+            for row in data.get(key) or []:
+                if isinstance(row, Mapping) and row.get("path"):
+                    paths.append(str(row["path"]))
+        return paths
+    return extract
+
+
+def _state_sources_map(root: Path, result: Mapping[str, Any]) -> list[str]:
+    """wf_map resolves exactly one address; credit the one resolved document."""
+    data = result.get("data") if isinstance(result.get("data"), dict) else {}
+    if result.get("status") != "ok":
+        return []
+    path = data.get("path")
+    if isinstance(path, str) and path and data.get("file_exists"):
+        return [path]
+    return []
+
+
+# Wave 1t3ek (1t2zq/1t15a): state files a tool demonstrably reads on the
+# caller's behalf — credited through the canonical source-proof machinery
+# (once-only per (wave, phase, source, version)). Tools that read nothing for
+# the caller (memory_add, the wf_new_* scaffolds) are deliberately absent, as
+# are full-content returners whose credit would equal their response debit
+# (seed_get, wf_get_prompt). Listings credit only the live working set they
+# enumerate, never closed history (see _state_sources_live_waves); memory
+# views credit the capped set of record files they surface.
+_STATE_SOURCE_EXTRACTORS: dict[str, Any] = {
+    "wf_review_evidence": _state_sources_review_evidence,
+    "memory_validate": _state_sources_memory_validate,
+    "memory_propose": _state_sources_memory_propose,
+    "wf_get_change": _state_sources_get_change,
+    "wf_current_wave": _state_sources_live_waves,
+    "wf_list_waves": _state_sources_live_waves,
+    "wf_list_plans": _state_sources_list_plans,
+    "wf_map": _state_sources_map,
+    "memory_search": _state_sources_memory_views("records"),
+    "memory_brief": _state_sources_memory_views("advisories", "community_scoped"),
+}
+
+
+_ARTIFACT_EXTRACTORS: dict[str, Any] = {
+    "wf_review_evidence": _artifact_from_review_evidence,
+    "memory_propose": _artifact_from_written_paths("written"),
+    "memory_add": _artifact_from_written_paths("record"),
+    "memory_validate": _artifact_from_written_paths("rewrite_record"),
+    "memory_backfill": _artifact_from_written_paths("written"),
+    **{
+        name: _artifact_from_written_paths("path")
+        for name in (
+            "wf_new_feature", "wf_new_bug", "wf_new_enhancement",
+            "wf_new_refactor", "wf_new_change", "wf_new_documentation",
+            "wf_new_tech_debt", "wf_new_task", "wf_new_maintenance",
+            "wf_new_operations",
+        )
+    },
+}
+
+
+def _wrap_first_party_tool_costs(mcp: Any, get_handler: Any) -> None:
+    """Post-registration pass: wrap uninstrumented first-party tools with a
+    debit recorder (plus artifact credit where an extractor exists). Purely
+    observational — any failure leaves the tool untouched."""
+    try:
+        tm = getattr(mcp, "_tool_manager", None)
+        tools = getattr(tm, "_tools", None) if tm is not None else None
+        if not tools:
+            return
+        for name, tool in tools.items():
+            if name in _COST_EXEMPT_TOOLS:
+                continue
+            if not any(name.startswith(prefix) for prefix in MCP_TOOL_PREFIXES):
+                continue
+            original = getattr(tool, "fn", None)
+            if original is None or getattr(original, "_wf_cost_wrapped", False):
+                continue
+
+            def _make(tool_name: str, fn: Any) -> Any:
+                @functools.wraps(fn)
+                def wrapped(*args: Any, **kwargs: Any) -> Any:
+                    result = fn(*args, **kwargs)
+                    try:
+                        handler = get_handler()
+                        request_payload = {
+                            k: v for k, v in kwargs.items() if k != "kwargs"
+                        }
+                        request_json = json.dumps(
+                            request_payload, sort_keys=True, default=str
+                        )
+                        request_tokens = context_efficiency.estimate_tokens_utf8(
+                            request_json
+                        )
+                        response_json = (
+                            json.dumps(result, sort_keys=True, default=str)
+                            if isinstance(result, (dict, list))
+                            else ""
+                        )
+                        response_tokens = (
+                            context_efficiency.estimate_tokens_utf8(response_json)
+                            if response_json
+                            else 0
+                        )
+                        artifact_tokens = 0
+                        event_id: Optional[str] = None
+                        extractor = _ARTIFACT_EXTRACTORS.get(tool_name)
+                        if extractor is not None and isinstance(result, Mapping):
+                            raw_artifacts, event_id = extractor(handler.root, result)
+                            # Credit only what the caller did not supply,
+                            # floored at zero PER ARTIFACT (the 1t3s7 contract):
+                            # a request larger than every individual artifact
+                            # credits nothing even when outputs sum higher.
+                            artifact_tokens = sum(
+                                max(0, int(raw) - request_tokens)
+                                for raw in raw_artifacts
+                            )
+                            if event_id is None:
+                                # Stable replay identity for artifact tools that
+                                # carry no operation digest: an identical
+                                # request producing an identical response is a
+                                # replay and must not credit twice, while a
+                                # different outcome (e.g. idempotent second run
+                                # writing nothing) still records its debits.
+                                event_id = "artifact:" + hashlib.sha256(
+                                    (tool_name + "\x00" + request_json
+                                     + "\x00" + response_json).encode("utf-8")
+                                ).hexdigest()
+                        source_proofs = None
+                        state_extractor = _STATE_SOURCE_EXTRACTORS.get(tool_name)
+                        if state_extractor is not None and isinstance(result, Mapping):
+                            # Wave 1t3ek (1t2zq): avoided reading — live proofs
+                            # for the state files this call consumed; any
+                            # resolution failure credits nothing.
+                            proofs = []
+                            for rel in state_extractor(handler.root, result):
+                                signature = context_efficiency.contained_stat_signature(
+                                    handler.root, rel
+                                )
+                                if signature is not None:
+                                    proofs.append(
+                                        context_efficiency.SourceProof(
+                                            path=rel,
+                                            kind="live",
+                                            expected=signature,
+                                            boundary_stable=True,
+                                        )
+                                    )
+                            source_proofs = proofs or None
+                        handler.telemetry.record_tool_cost(
+                            tool_name,
+                            request_tokens=request_tokens,
+                            response_tokens=response_tokens,
+                            derived_artifact_tokens=artifact_tokens,
+                            source_proofs=source_proofs,
+                            event_id=event_id or uuid.uuid4().hex,
+                        )
+                    except Exception:
+                        pass
+                    return result
+
+                wrapped._wf_cost_wrapped = True  # type: ignore[attr-defined]
+                return wrapped
+
+            tool.fn = _make(name, original)
+    except Exception:
+        pass
+
 
 def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
     """Register tools and resources; resolve state via get_handler() for hot reload."""
@@ -22287,7 +22841,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             request_arguments={"path": path},
         )
 
-    @mcp.tool(annotations=_READONLY_TOOL)
+    @mcp.tool(annotations=_OBSERVATIONAL_TOOL)
     def code_hover(path: str, line: int, **kwargs: Any) -> dict[str, Any]:
         """Return the symbol (function, class, or method) enclosing a given line number.
 
@@ -22309,7 +22863,13 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         if bad is not None:
             return bad
         t_start = time.monotonic()
-        return _inject_timing(code_hover_response(get_handler().root, path, line), t_start, "code_hover")
+        handler = get_handler()
+        return _record_retrieval_context(
+            handler,
+            "code_hover",
+            _inject_timing(code_hover_response(handler.root, path, line), t_start, "code_hover"),
+            request_arguments={"path": path, "line": line},
+        )
 
     @mcp.tool(annotations=_OBSERVATIONAL_TOOL)
     def code_impact(
@@ -22420,7 +22980,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             },
         )
 
-    @mcp.tool(annotations=_READONLY_TOOL)
+    @mcp.tool(annotations=_OBSERVATIONAL_TOOL)
     def code_risk_score(
         scope: str = "",
         top: int = 20,
@@ -22479,14 +23039,26 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         if bad is not None:
             return bad
         t_start = time.monotonic()
-        return _inject_timing(code_risk_score_response(
-            get_handler().root,
-            scope,
-            top=top,
-            max_hops=max_hops,
-            layer=layer,
-            include_tests=include_tests,
-        ), t_start, "code_risk_score")
+        handler = get_handler()
+        return _record_retrieval_context(
+            handler,
+            "code_risk_score",
+            _inject_timing(code_risk_score_response(
+                handler.root,
+                scope,
+                top=top,
+                max_hops=max_hops,
+                layer=layer,
+                include_tests=include_tests,
+            ), t_start, "code_risk_score"),
+            request_arguments={
+                "scope": scope,
+                "top": top,
+                "max_hops": max_hops,
+                "layer": layer,
+                "include_tests": include_tests,
+            },
+        )
 
     @mcp.tool(annotations=_OBSERVATIONAL_TOOL)
     def code_callgraph(
@@ -23159,6 +23731,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         handler = get_handler()
         result = wf_review_wave_response(handler.root, wave_id, phase=phase)
         canonical = str(_context_data(result).get("wave_id") or wave_id)
+        is_implementation_phase = (phase or "").strip().lower() == "implementation"
         return _lifecycle_context_result(
             handler,
             "wf_review_wave",
@@ -23166,9 +23739,17 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             result,
             focus_stage="review",
             credit=(
-                (phase or "").strip().lower() == "implementation"
+                is_implementation_phase
                 and _implementation_review_complete(result)
             ),
+            # Wave 1t3ek (1t22z): symmetric boundary publication — the
+            # implementation-phase review publishes the implement-stage
+            # accumulation the delivery council is about to read. Prepare-phase
+            # reviews stay non-publishing (the prepare boundary already does).
+            flush=is_implementation_phase,
+            # Wave 1t3ek (1t3el): the review boundary also adopts exited helper
+            # producers' general buckets with the wave's derived stage.
+            transfer_general=is_implementation_phase,
             request_arguments={"wave_id": wave_id, "phase": phase},
         )
 
@@ -23423,6 +24004,9 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
                     "wf_close_wave", result, mutating=mutating
                 ),
                 flush=mutating,
+                # Wave 1t3ek (1t3el): the last boundary sweeps exited helper
+                # producers' buckets into the closing wave.
+                transfer_general=mutating,
                 request_arguments={"wave_id": wave_id, "mode": mode},
             )
 
@@ -25575,6 +26159,8 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         raise RuntimeError(
             "MCP tool name prefix contract violated for: " + ", ".join(violations)
         )
+    # Wave 1t3ek (1t3s7): cost-account the rest of the first-party surface.
+    _wrap_first_party_tool_costs(mcp, get_handler)
 
 
 

@@ -138,6 +138,37 @@ def _clean_pycache() -> None:
                 pass
 
 
+def stray_artifact_paths(scripts_dir: Path | None = None) -> list[str]:
+    """Wave 1t3ek (1t231): paths of stray state artifacts a test run created.
+
+    A test that writes durable state relative to cwd (instead of its fixture
+    root) lands a nested ``.wavefoundry`` directory under the scripts
+    directory. Returns repo-style relative paths; empty when clean.
+    """
+    base = (scripts_dir or _SCRIPT_DIR) / ".wavefoundry"
+    if not base.exists():
+        return []
+    if base.is_file():
+        return [base.name]
+    return sorted(
+        str(p.relative_to(base.parent)) for p in base.rglob("*") if p.is_file()
+    ) or [base.name]
+
+
+def _stray_artifact_failure(preexisting: list[str]) -> str | None:
+    """Return a failure message when the run created new stray artifacts."""
+    created = [p for p in stray_artifact_paths() if p not in preexisting]
+    if not created:
+        return None
+    return (
+        "STRAY TEST ARTIFACTS: a test wrote durable state relative to cwd "
+        "instead of its fixture root:\n  "
+        + "\n  ".join(created)
+        + "\nFix the offending test (see the 1t231 pattern: unmocked "
+        "cwd-relative write paths) and delete the artifacts."
+    )
+
+
 def _cache_hit(inputs_hash: str) -> dict | None:
     """Return the cached entry if its hash matches and the run was passing, else None."""
     cache = _read_cache()
@@ -298,6 +329,9 @@ def main() -> int:
     if lock_error is not None:
         print(lock_error, file=sys.stderr)
         return 1
+    # Wave 1t3ek (1t231): snapshot pre-existing stray artifacts so the
+    # end-of-run guard flags only what THIS run created.
+    preexisting_strays = stray_artifact_paths()
 
     try:
         # Remove stale bytecode before spawning workers.
@@ -344,6 +378,14 @@ def main() -> int:
         if failed_files:
             print(f"FAILED ({', '.join(failed_files)})")
             print(f"Ran {total_tests} tests across {len(test_files)} files in {wall_elapsed:.3f}s")
+            _clean_pycache()
+            return 1
+
+        stray_failure = _stray_artifact_failure(preexisting_strays)
+        if stray_failure is not None:
+            print(f"\n{stray_failure}", file=sys.stderr)
+            print(f"Ran {total_tests} tests across {len(test_files)} files in {wall_elapsed:.3f}s")
+            print("FAILED (stray test artifacts)")
             _clean_pycache()
             return 1
 

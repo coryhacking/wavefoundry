@@ -268,6 +268,128 @@ def store_path(root: Path) -> Path:
     return Path(root) / STORE_RELATIVE_PATH
 
 
+def implement_stage_retrieval_calls(root: Path, wave_id: str) -> int | None:
+    """Read-only count of instrumented retrieval events under the wave's
+    ``implement`` stage — the retrieval-posture sensor signal (wave 1t3ek /
+    1t230). Returns ``None`` when the store is absent or unreadable so the
+    sensor stays silent rather than firing on missing data."""
+    path = store_path(root)
+    if not path.is_file():
+        return None
+    try:
+        conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        try:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM telemetry_event "
+                "WHERE wave_id=? AND stage='implement' AND event_kind='retrieval'",
+                (wave_id,),
+            ).fetchone()
+            return int(row[0])
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return None
+
+
+# --- Open-wave attribution (wave 1t3ek / 1t3el) -----------------------------
+# Multi-agent sessions run their own server processes; only the gate-running
+# process has lifecycle focus. A focus-less producer resolves the single OPEN
+# wave (the single-OPEN invariant makes this unambiguous) and attributes its
+# instrumented work there instead of the general bucket. Any failure or
+# ambiguity falls through to the general bucket unchanged.
+
+_OPEN_WAVE_CACHE_TTL_SECONDS = 10.0
+_open_wave_cache_lock = threading.Lock()
+_open_wave_cache: dict[str, tuple[float, Optional[tuple[str, str]]]] = {}
+_OPEN_WAVE_STATUSES = ("active", "implementing")
+_DELIVERY_RUN_KINDS = frozenset(
+    {"initial_delivery", "repair_start", "reverification", "convergence_checkpoint"}
+)
+
+
+def _reset_open_wave_cache() -> None:
+    """Test seam: drop the TTL cache so state changes resolve immediately."""
+    with _open_wave_cache_lock:
+        _open_wave_cache.clear()
+
+
+def _wave_status_from_text(text: str) -> str:
+    for line in text.splitlines():
+        if line.startswith("Status:"):
+            return line.split(":", 1)[1].strip().lower()
+    return ""
+
+
+def _derive_open_wave_stage(wave_dir: Path) -> str:
+    """`review` once the canonical ledger holds a delivery run, else `implement`.
+
+    Parses ledger lines as JSON rather than substring-matching serialized
+    text — the canonical writer emits compact JSON, and a marker string with
+    different whitespace silently never matches (a live-caught 1t3el defect;
+    the original fixture echoed the spaced assumption). Unparseable lines are
+    skipped; only the shape of the parsed record matters.
+    """
+    events = wave_dir / "events.jsonl"
+    try:
+        if events.is_file():
+            for line in events.read_text(encoding="utf-8", errors="replace").splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    record = json.loads(line)
+                except (json.JSONDecodeError, ValueError):
+                    continue
+                if not isinstance(record, dict):
+                    continue
+                if record.get("run_kind") in _DELIVERY_RUN_KINDS or (
+                    isinstance(record.get("event_identity"), dict)
+                    and record["event_identity"].get("run_kind") in _DELIVERY_RUN_KINDS
+                ):
+                    return "review"
+    except OSError:
+        pass
+    return "implement"
+
+
+def resolve_open_wave(root: Path) -> Optional[tuple[str, str]]:
+    """Return ``(wave_id, stage)`` for the single OPEN wave, else ``None``.
+
+    TTL-cached per root; zero OPEN waves, more than one, or any read failure
+    resolves to ``None`` (the caller keeps today's general-bucket behavior).
+    """
+    key = str(root)
+    now = time.monotonic()
+    with _open_wave_cache_lock:
+        cached = _open_wave_cache.get(key)
+        if cached is not None and now - cached[0] < _OPEN_WAVE_CACHE_TTL_SECONDS:
+            return cached[1]
+    resolved: Optional[tuple[str, str]] = None
+    try:
+        waves_dir = Path(root) / "docs" / "waves"
+        open_dirs: list[Path] = []
+        if waves_dir.is_dir():
+            for entry in waves_dir.iterdir():
+                wave_md = entry / "wave.md"
+                if not entry.is_dir() or not wave_md.is_file():
+                    continue
+                try:
+                    head = wave_md.read_text(encoding="utf-8", errors="replace")[:2048]
+                except OSError:
+                    continue
+                if _wave_status_from_text(head) in _OPEN_WAVE_STATUSES:
+                    open_dirs.append(entry)
+                    if len(open_dirs) > 1:
+                        break
+        if len(open_dirs) == 1:
+            resolved = (open_dirs[0].name, _derive_open_wave_stage(open_dirs[0]))
+    except Exception:
+        resolved = None
+    with _open_wave_cache_lock:
+        _open_wave_cache[key] = (now, resolved)
+    return resolved
+
+
 def producer_lease_path(root: Path, producer_id: str) -> Path:
     return Path(root) / PRODUCER_LEASE_RELATIVE_DIR / f"{producer_id}.lock"
 
@@ -782,8 +904,16 @@ def _open_write_store_once(root: Path) -> sqlite3.Connection:
         }
     )
     if schema_ready:
+        # Every additive column MUST appear here: the fast path skips the
+        # migration block entirely, so a column missing from this check never
+        # gets ALTERed onto an already-current store (wave 1t3ek / 1t3el found
+        # this the hard way — the INSERT then fails and poisons the store).
         schema_ready = (
-            "source_credits_dropped" in _column_names(conn, "telemetry_event")
+            {
+                "source_credits_dropped",
+                "attribution",
+                "derived_artifact_tokens",
+            }.issubset(_column_names(conn, "telemetry_event"))
             and {
                 "floor_json",
                 "compacted_generation",
@@ -846,6 +976,8 @@ def _open_write_store_once(root: Path) -> sqlite3.Connection:
             "request_tokens INTEGER NOT NULL, response_tokens INTEGER NOT NULL,"
             "workflow_prompt_tokens INTEGER NOT NULL DEFAULT 0,"
             "source_credits_dropped INTEGER NOT NULL DEFAULT 0,"
+            "attribution TEXT NOT NULL DEFAULT 'focus',"
+            "derived_artifact_tokens INTEGER NOT NULL DEFAULT 0,"
             "created_at REAL NOT NULL)"
         )
         event_columns = _column_names(conn, "telemetry_event")
@@ -853,6 +985,21 @@ def _open_write_store_once(root: Path) -> sqlite3.Connection:
             conn.execute(
                 "ALTER TABLE telemetry_event ADD COLUMN "
                 "source_credits_dropped INTEGER NOT NULL DEFAULT 0"
+            )
+        if "attribution" not in event_columns:
+            # Wave 1t3ek (1t3el): additive provenance — 'focus' (direct
+            # lifecycle focus), 'open_wave' (attributed to the single OPEN
+            # wave), or 'adopted' (boundary adoption of a general bucket).
+            conn.execute(
+                "ALTER TABLE telemetry_event ADD COLUMN "
+                "attribution TEXT NOT NULL DEFAULT 'focus'"
+            )
+        if "derived_artifact_tokens" not in event_columns:
+            # Wave 1t3ek (1t3s7): avoided-writing credit — the size of textual
+            # artifacts a tool persisted that the caller did not supply.
+            conn.execute(
+                "ALTER TABLE telemetry_event ADD COLUMN "
+                "derived_artifact_tokens INTEGER NOT NULL DEFAULT 0"
             )
         conn.execute(
             "CREATE INDEX IF NOT EXISTS telemetry_event_wave_stage "
@@ -1011,6 +1158,15 @@ def _commit_event(
         wave_id = focus.wave_id
         stage = focus.stage or "general"
         phase_id = focus.phase_id or f"general:{producer_id}"
+        attribution = "focus"
+        if not wave_id:
+            # Wave 1t3ek (1t3el): a focus-less producer attributes to the
+            # single OPEN wave; none/ambiguity/failure keeps the general bucket.
+            resolved_open = resolve_open_wave(root)
+            if resolved_open is not None:
+                wave_id, stage = resolved_open
+                phase_id = stage
+                attribution = "open_wave"
         if conn.execute(
             "SELECT 1 FROM event_tombstone WHERE event_id=?", (event_id,)
         ).fetchone():
@@ -1035,8 +1191,9 @@ def _commit_event(
         inserted = conn.execute(
             "INSERT OR IGNORE INTO telemetry_event("
             "event_id,producer_id,wave_id,phase_id,stage,tool_name,event_kind,"
-            "request_tokens,response_tokens,workflow_prompt_tokens,created_at"
-            ") VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+            "request_tokens,response_tokens,workflow_prompt_tokens,attribution,"
+            "derived_artifact_tokens,created_at"
+            ") VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (
                 event_id,
                 producer_id,
@@ -1048,6 +1205,8 @@ def _commit_event(
                 int(metric.get("estimated_request_tokens", 0)),
                 int(metric.get("estimated_returned_tokens", 0)),
                 int(metric.get("prompt_surface_tokens", 0)),
+                attribution,
+                int(metric.get("derived_artifact_tokens", 0)),
                 time.time(),
             ),
         ).rowcount
@@ -1255,6 +1414,54 @@ class ProcessTelemetry:
         except Exception:
             pass
 
+    def record_tool_cost(
+        self,
+        tool_name: str,
+        *,
+        request_tokens: int,
+        response_tokens: int,
+        derived_artifact_tokens: int = 0,
+        source_proofs: Optional[Iterable[SourceProof]] = None,
+        event_id: str,
+    ) -> dict[str, Any]:
+        """Wave 1t3ek (1t3s7/1t2zq): record a first-party tool call's cost, with
+        optional avoided-writing credit (textual artifacts the tool persisted
+        that the caller did not supply) and avoided-reading credit (state files
+        the tool demonstrably read on the caller's behalf, measured through the
+        canonical source-proof machinery with its once-only dedup). Never
+        counterfactual: no proofs and zero artifact tokens means debit-only.
+        Replays dedupe via ``event_id``."""
+        metric: dict[str, Any] = {
+            "estimated_request_tokens": int(max(0, request_tokens)),
+            "estimated_returned_tokens": int(max(0, response_tokens)),
+            "estimated_source_tokens": 0,
+            "estimated_avoided_tokens": 0,
+            "source_files_counted": 0,
+            "source_files_verified": 0,
+            "source_files_estimated": 0,
+            "derived_artifact_tokens": int(max(0, derived_artifact_tokens)),
+            "captured": True,
+            "persistence": "pending",
+            "method": RETRIEVAL_METHOD,
+        }
+        if source_proofs is not None and self.root is not None:
+            try:
+                measured = measure_source_proofs(self.root, source_proofs)
+                metric["estimated_source_tokens"] = measured.estimated_source_tokens
+                metric["source_files_counted"] = len(measured.candidates)
+                metric["source_files_verified"] = measured.source_files_verified
+                metric["source_files_estimated"] = measured.source_files_estimated
+                metric["_source_credits"] = [
+                    asdict(candidate) for candidate in measured.candidates
+                ]
+            except Exception:
+                pass
+        return self.record_retrieval(
+            metric,
+            tool_name=tool_name,
+            event_id=event_id,
+        )
+
     def record_retrieval(
         self,
         metric: Mapping[str, Any],
@@ -1363,6 +1570,7 @@ class ProcessTelemetry:
         root: Path,
         *,
         transfer_general_to: Optional[str] = None,
+        transfer_stage: str = "plan",
         checkpoint_floors: Optional[Mapping[str, Mapping[str, Any]]] = None,
     ) -> FlushResult:
         """Compatibility boundary for buffered tests and general-state transfer."""
@@ -1424,20 +1632,20 @@ class ProcessTelemetry:
                             "INSERT OR IGNORE INTO source_credit("
                             "wave_key,phase_id,stage,source_id,version_id,tokens,"
                             "credit_kind,provenance) "
-                            "SELECT ?,'plan','plan',source_id,version_id,"
+                            "SELECT ?,?,?,source_id,version_id,"
                             "tokens,credit_kind,provenance FROM source_credit "
                             "WHERE wave_key=?",
-                            (target, general_key),
+                            (target, transfer_stage, transfer_stage, general_key),
                         )
                         conn.execute(
                             "UPDATE source_credit SET provenance='both' "
-                            "WHERE wave_key=? AND phase_id='plan' AND EXISTS("
+                            "WHERE wave_key=? AND phase_id=? AND EXISTS("
                             "SELECT 1 FROM source_credit AS incoming "
                             "WHERE incoming.wave_key=? "
                             "AND incoming.source_id=source_credit.source_id "
                             "AND incoming.version_id=source_credit.version_id "
                             "AND incoming.credit_kind<>source_credit.credit_kind)",
-                            (target, general_key),
+                            (target, transfer_stage, general_key),
                         )
                         conn.execute(
                             "DELETE FROM source_credit WHERE wave_key=?",
@@ -1446,9 +1654,9 @@ class ProcessTelemetry:
                         moved += source_count
                         moved += conn.execute(
                             "UPDATE telemetry_event SET wave_id=?,"
-                            "phase_id='plan',stage='plan' "
+                            "phase_id=?,stage=?,attribution='adopted' "
                             "WHERE wave_id IS NULL AND producer_id=?",
-                            (target, producer_id),
+                            (target, transfer_stage, transfer_stage, producer_id),
                         ).rowcount
                         if producer_id != self.producer_id:
                             conn.execute(
@@ -1534,6 +1742,7 @@ _STAGE_KEYS = (
     "content_source_credit",
     "structural_source_credit",
     "workflow_prompt_credit",
+    "derived_artifact_credit",
     "request_debit",
     "response_debit",
     "matched_pair_residual",
@@ -1622,7 +1831,8 @@ def _snapshot_from_conn(
             "SELECT COUNT(*),COALESCE(SUM(request_tokens),0),"
             "COALESCE(SUM(response_tokens),0),"
             "COALESCE(SUM(workflow_prompt_tokens),0),"
-            "COALESCE(SUM(source_credits_dropped),0) "
+            "COALESCE(SUM(source_credits_dropped),0),"
+            "COALESCE(SUM(derived_artifact_tokens),0) "
             "FROM telemetry_event WHERE wave_id=? AND stage=?",
             (wave_id, stage_name),
         ).fetchone()
@@ -1631,6 +1841,7 @@ def _snapshot_from_conn(
         values["response_debit"] += int(event_row[2])
         values["workflow_prompt_credit"] += int(event_row[3])
         values["source_credit_drop_count"] += int(event_row[4])
+        values["derived_artifact_credit"] += int(event_row[5])
         for kind, token_sum, count in conn.execute(
             "SELECT credit_kind,COALESCE(SUM(tokens),0),COUNT(*)"
             " FROM source_credit WHERE wave_key=? AND stage=? GROUP BY credit_kind",
@@ -1654,6 +1865,7 @@ def _snapshot_from_conn(
             values["content_source_credit"]
             + values["structural_source_credit"]
             + values["workflow_prompt_credit"]
+            + values["derived_artifact_credit"]
             - values["request_debit"]
             - values["response_debit"]
         )
@@ -1671,6 +1883,7 @@ def _snapshot_from_conn(
         totals["content_source_credit"]
         + totals["structural_source_credit"]
         + totals["workflow_prompt_credit"]
+        + totals["derived_artifact_credit"]
         - totals["request_debit"]
         - totals["response_debit"]
     )
@@ -2027,6 +2240,7 @@ def _normalized_checkpoint_state(snapshot: Mapping[str, Any]) -> dict[str, Any]:
         totals["content_source_credit"]
         + totals["structural_source_credit"]
         + totals["workflow_prompt_credit"]
+        + totals["derived_artifact_credit"]
         - totals["request_debit"]
         - totals["response_debit"]
     )
@@ -2232,7 +2446,8 @@ def _phase_direct_net(
     event = conn.execute(
         "SELECT COALESCE(SUM(request_tokens),0),"
         "COALESCE(SUM(response_tokens),0),"
-        "COALESCE(SUM(workflow_prompt_tokens),0) "
+        "COALESCE(SUM(workflow_prompt_tokens),0),"
+        "COALESCE(SUM(derived_artifact_tokens),0) "
         "FROM telemetry_event WHERE wave_id=? AND phase_id=?",
         (wave_id, phase_id),
     ).fetchone()
@@ -2244,6 +2459,7 @@ def _phase_direct_net(
     return (
         int(source[0] if source else 0)
         + int(event[2] if event else 0)
+        + int(event[3] if event else 0)
         - int(event[0] if event else 0)
         - int(event[1] if event else 0)
     )
