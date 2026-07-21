@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: planned
-Last verified: 2026-07-12
+Last verified: 2026-07-20
 
 wave-id: `1seax lifecycle-ops-hardening`
 Title: Lifecycle Ops Hardening
@@ -19,9 +19,33 @@ Change Status: `planned`
 Change ID: `1seau-doc ops-docs-refresh-and-constants-lint`
 Change Status: `planned`
 
+Change ID: `1t3zv-debt contention-safe-performance-test-budgets`
+Change Status: `planned`
+
 ## Wave Summary
 
 P2-priority hardening pair from the external review, both right-sized during validation: lifecycle mutation lock + forward-recoverability + selective subprocess bounds (transaction-journal machinery explicitly rejected), and evidence-based ops-docs refresh with a drift-preventing constants lint.
+
+## Delivery Sequence
+
+Implement in this order to protect release-critical operation first while
+preserving the wave's deliberately narrow boundary:
+
+1. `1seat`: lifecycle-mutation lock, forward-recoverability audit/retry
+   fixtures, and prepare-council seat alignment.
+2. `1seau`: canonical public-contract constants, then the narrow docs-lint
+   rules that consume them (including admitted-change and signoff wording
+   integrity).
+3. `1seau`: evidence-based refresh of `RELIABILITY.md` and the performance
+   budget after the constants contract is settled.
+4. `1seat`: gardener and surface-render subprocess bounds, with generous,
+   configuration-tunable limits that remain safe on slower computers.
+
+All four steps are release scope. Existing subprocess isolation remains in
+place; the new bounds must provide a clear timeout diagnostic and recovery
+path, while upgrade/setup/index builds remain exempt because they are
+legitimately long-running. Do not expand this sequence into a transaction
+journal or blanket subprocess deadlines.
 
 ## Journal Watchpoints
 
@@ -46,3 +70,32 @@ P2-priority hardening pair from the external review, both right-sized during val
 ## Dependencies
 
 - No external wave dependencies. Opportunistic scheduling after `1seav`/`1seaw`; the docs change can land any time.
+
+<!-- wave:context-efficiency begin -->
+## Context Efficiency
+
+Estimated token savings use phase-unique returned source versions and mapped workflow prompts, minus recorded request and response tokens. Saved model output or avoided tool loops count only through quality-equivalent paired evidence.
+
+| Stage | Tool calls | Estimated token savings |
+| --- | ---: | ---: |
+| plan | 9 | 403,809 |
+| review | 14 | 847,495 |
+| **Total** | **23** | **1,251,304** |
+
+<!-- wave:context-efficiency-state {"generation":23,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"plan":{"calls":9,"content_source_credit":412922,"derived_artifact_credit":0,"direct_net":403809,"estimated_tokens_saved":403809,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":224,"response_debit":12662,"source_credit_count":11,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":3773},"review":{"calls":14,"content_source_credit":874181,"derived_artifact_credit":0,"direct_net":847495,"estimated_tokens_saved":847495,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":662,"response_debit":26024,"source_credit_count":17,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":0}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":23,"content_source_credit":1287103,"derived_artifact_credit":0,"direct_net":1251304,"estimated_tokens_saved":1251304,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":886,"response_debit":38686,"source_credit_count":28,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":3773},"wave_id":"1seax lifecycle-ops-hardening"} -->
+<!-- wave:context-efficiency end -->
+
+## Estimated Exploration Avoided
+
+<!-- wave:exploration-avoided begin -->
+
+This is a bounded estimate from exact-match memory advisories. It is not added to measured Context Efficiency.
+
+| Advisory surfaces | Citations | Records credited | Estimated tokens avoided |
+| ---: | ---: | ---: | ---: |
+| 0 | 0 | 0 | 0 |
+
+estimated: a surfaced (or cited) advisory does not prove a re-exploration was avoided; this is grounded in the measured cost of the original exploration, scaled by a bounded exact-match attribution, and is NEVER summed into the measured Context Efficiency token total.
+
+<!-- wave:exploration-avoided-state {"cited_events":0,"credited_records":0,"estimated_exploration_avoided":0,"surfaced_events":0} -->
+<!-- wave:exploration-avoided end -->

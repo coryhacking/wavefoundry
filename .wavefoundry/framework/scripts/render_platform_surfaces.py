@@ -66,8 +66,30 @@ def ensure_parent(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
 
 
+# Wave 1t72b (1t729): manifest of files this render actually changed. The
+# collector records from INSIDE the write chokepoint (never a parallel list)
+# and only new-or-changed content counts — a byte-identical rewrite is not
+# "written" for manifest purposes even though the write still happens.
+_MANIFEST_WRITTEN: list[Path] | None = None
+
+
+def _manifest_start() -> None:
+    global _MANIFEST_WRITTEN
+    _MANIFEST_WRITTEN = []
+
+
+def _manifest_record(path: Path, changed: bool) -> None:
+    if _MANIFEST_WRITTEN is not None and changed:
+        _MANIFEST_WRITTEN.append(path)
+
+
 def write_text(path: Path, content: str, executable: bool = False) -> None:
     ensure_parent(path)
+    try:
+        changed = not path.exists() or path.read_bytes() != content.encode("utf-8")
+    except OSError:
+        changed = True
+    _manifest_record(path, changed)
     # newline="" disables newline translation so the embedded line terminators are written VERBATIM,
     # byte-identical on every rendering host (wave 1p7tz). With the default newline=None, a re-render
     # on native Windows translates every "\n" → os.linesep ("\r\n"): the `wf.cmd` source (which
@@ -1316,6 +1338,90 @@ _RETIRED_BIN_WRAPPERS = (
 # Renames are 1:1 to a `wf` subcommand. The one non-1:1 case is `mcp-server`: it has NO `wf`
 # replacement — the MCP server launches via `python3 .wavefoundry/framework/scripts/server.py`, so the
 # scan/recommendation must say "remove/rewrite" rather than emit a wrong `wf` form.
+# The 1.14.0 MCP tool rename map: every `wave_`-prefixed tool renamed to the
+# `wf_`/`memory_`/`index_` scheme. Consumed by reconcile_scan (like the retired
+# bin-wrapper table below) so target-repo docs/configs/allow-rules naming an
+# old tool get a concrete `old -> new` suggestion at upgrade time. NOTE:
+# `wave_review` and `wave_implement` are ALSO legitimate workflow-config KEYS;
+# the scan never flags their bare-token form (see reconcile_scan
+# _CONFIG_KEY_TOOL_NAMES) — only the `mcp__wavefoundry__` tool-call form.
+_RENAMED_MCP_TOOLS: dict[str, str] = {
+    # Wave-lifecycle tools
+    "wave_current": "wf_current_wave",
+    "wave_list_waves": "wf_list_waves",
+    "wave_get_change": "wf_get_change",
+    "wave_create_wave": "wf_create_wave",
+    "wave_add_change": "wf_add_change",
+    "wave_remove_change": "wf_remove_change",
+    "wave_prepare": "wf_prepare_wave",
+    "wave_pause": "wf_pause_wave",
+    "wave_review": "wf_review_wave",
+    "wave_record_review_evidence": "wf_review_evidence",
+    "wave_context_efficiency_attach_evaluation": "wf_context_efficiency_eval",
+    "wave_implement": "wf_implement_wave",
+    "wave_reopen": "wf_reopen_wave",
+    "wave_close": "wf_close_wave",
+    # Memory subsystem
+    "wave_memory_add": "memory_add",
+    "wave_memory_propose": "memory_propose",
+    "wave_memory_backfill": "memory_backfill",
+    "wave_memory_validate": "memory_validate",
+    "wave_memory_search": "memory_search",
+    "wave_memory_brief": "memory_brief",
+    "wave_memory_reconcile": "memory_reconcile",
+    # Index subsystem
+    "wave_index_health": "index_health",
+    "wave_index_build": "index_build",
+    "wave_index_optimize": "index_optimize",
+    "wave_index_build_status": "index_build_status",
+    # General framework/server tools
+    "wave_help": "wf_help",
+    "wave_server_info": "wf_server_info",
+    "wave_gpu_doctor": "wf_gpu_doctor",
+    "wave_mcp_reload": "wf_reload_mcp",
+    "wave_dashboard_start": "wf_start_dashboard",
+    "wave_dashboard_open": "wf_open_dashboard",
+    "wave_dashboard_stop": "wf_stop_dashboard",
+    "wave_dashboard_restart": "wf_restart_dashboard",
+    "wave_upgrade": "wf_upgrade",
+    "wave_upgrade_status": "wf_upgrade_status",
+    "wave_validate": "wf_validate_docs",
+    "wave_garden": "wf_garden_docs",
+    "wave_sync_surfaces": "wf_sync_surfaces",
+    "wave_gate_open": "wf_open_gate",
+    "wave_gate_close": "wf_close_gate",
+    "wave_gate_status": "wf_gate_status",
+    "wave_map": "wf_map",
+    "wave_get_prompt": "wf_get_prompt",
+    "wave_get_handoff": "wf_get_handoff",
+    "wave_set_handoff": "wf_set_handoff",
+    "wave_audit": "wf_audit",
+    "wave_list_plans": "wf_list_plans",
+    "wave_graph_report": "wf_graph_report",
+    "wave_install_audit": "wf_audit_install",
+    "wave_run_sensors": "wf_run_sensors",
+    "wave_scan_secrets": "wf_scan_secrets",
+    "wave_new_feature": "wf_new_feature",
+    "wave_new_bug": "wf_new_bug",
+    "wave_new_enhancement": "wf_new_enhancement",
+    "wave_new_refactor": "wf_new_refactor",
+    "wave_new_change": "wf_new_change",
+    "wave_new_documentation": "wf_new_documentation",
+    "wave_new_tech_debt": "wf_new_tech_debt",
+    "wave_new_task": "wf_new_task",
+    "wave_new_maintenance": "wf_new_maintenance",
+    "wave_new_operations": "wf_new_operations",
+}
+
+
+def renamed_tool_suggestion(old_name: str) -> str:
+    """Human-facing suggestion for a renamed MCP tool reference."""
+    new_name = _RENAMED_MCP_TOOLS.get(old_name)
+    if not new_name:
+        return "removed tool; consult the current tool list (wf_help)"
+    return f"{new_name} (MCP tool renamed in 1.14.0)"
+
+
 _RETIRED_SURFACE_REPLACEMENTS: dict[str, str | None] = {
     "docs-lint": "wf docs-lint",
     "docs-gardener": "wf docs-gardener",
@@ -1748,6 +1854,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Render repo-local hook/config surfaces from the wave framework.")
     parser.add_argument("--repo-root", default="", help="Override the repository root.")
     parser.add_argument("--platform", action="append", choices=("claude", "cursor", "copilot", "junie", "windsurf", "antigravity"))
+    parser.add_argument("--manifest", default="", help="Write a JSON manifest of changed files to this path.")
     return parser.parse_args(argv)
 
 
@@ -1792,10 +1899,12 @@ def main(argv: list[str] | None = None) -> int:
     # the committed .github/hooks/* (that clobber shipped twice before this guard).
     if "copilot" not in detected_platforms:
         remove_copilot_artifacts(repo_root)
+    if args.manifest:
+        _manifest_start()
     for platform in sorted(platforms):
         render_platform_entrypoints(repo_root, platform)
     try:
-        render_agent_surfaces(repo_root)
+        agent_written = render_agent_surfaces(repo_root)
     except RuntimeError as exc:
         print(f"render_platform_surfaces: ERROR — {exc}", file=sys.stderr)
         return 1
@@ -1808,6 +1917,25 @@ def main(argv: list[str] | None = None) -> int:
             ds.unlink()
         except OSError:
             pass
+    if args.manifest:
+        # render_agent_surfaces already returns changed-only paths (its writers
+        # compare before writing); merge with this module's chokepoint records.
+        written: list[str] = []
+        for entry in [*(_MANIFEST_WRITTEN or []), *agent_written]:
+            candidate = Path(entry)
+            if not candidate.is_absolute():
+                candidate = repo_root / candidate
+            try:
+                rel = str(candidate.resolve().relative_to(repo_root.resolve()))
+            except ValueError:
+                continue
+            written.append(rel.replace("\\", "/"))
+        manifest_path = Path(args.manifest)
+        ensure_parent(manifest_path)
+        manifest_path.write_text(
+            json.dumps({"written": sorted(dict.fromkeys(written))}, indent=1),
+            encoding="utf-8",
+        )
     return 0
 
 

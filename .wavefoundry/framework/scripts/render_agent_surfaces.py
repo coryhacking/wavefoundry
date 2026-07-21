@@ -783,8 +783,19 @@ def patch_root_bridge(path: Path) -> bool:
     return False
 
 
-def write_text(path: Path, content: str) -> None:
+def write_text(path: Path, content: str) -> bool:
+    """Write ``content`` and report whether the on-disk bytes changed.
+
+    Wave 1t72b (1t727-adjacent live find): callers report written paths into
+    the sync manifest, so a byte-identical rewrite must return False — the
+    same changed-only semantics as this module's marker-block writers.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        if path.exists() and path.read_bytes() == content.encode("utf-8"):
+            return False
+    except OSError:
+        pass
     # newline="" disables newline translation so the embedded line terminators are written
     # VERBATIM, byte-identical on every rendering host (mirrors render_platform_surfaces.write_text,
     # wave 1p7tz). With the default newline=None, a re-render on native Windows translates every
@@ -793,6 +804,7 @@ def write_text(path: Path, content: str) -> None:
     # already carry LF terminators, so newline="" is right for all hosts.
     with path.open("w", encoding="utf-8", newline="") as handle:
         handle.write(content)
+    return True
 
 
 def _carrier_protocol_block(carrier: ReviewProtocolCarrier) -> str:
@@ -1187,20 +1199,33 @@ def render_agent_surfaces(repo_root: Path) -> list[str]:
 
     written: list[str] = list(framework_written)
 
+    # Wave 1t72b (1t729 live find): tier-3 templates are written unconditionally
+    # and then RECONCILED by the closing carrier pass, so write-time comparison
+    # oscillates (template != reconciled bytes every render). "Written" for the
+    # manifest means NET change across the whole render: snapshot pre-render
+    # bytes here, decide after the closing reconcile pass below.
+    tier3_candidates: list[Path] = []
+    tier3_pre_bytes: dict[Path, "bytes | None"] = {}
+
+    def _tier3_write(path: Path, content: str) -> None:
+        try:
+            tier3_pre_bytes[path] = path.read_bytes() if path.exists() else None
+        except OSError:
+            tier3_pre_bytes[path] = None
+        tier3_candidates.append(path)
+        write_text(path, content)
+
     # Tier 3 — optional native surfaces
     if (repo_root / ".cursor").exists():
         cursor_rule = repo_root / ".cursor" / "rules" / "auto-guru.mdc"
-        write_text(cursor_rule, CURSOR_AUTO_GURU_MDC)
-        written.append(cursor_rule.relative_to(repo_root).as_posix())  # Wave 1p6dx: forward-slash
+        _tier3_write(cursor_rule, CURSOR_AUTO_GURU_MDC)
 
     if (repo_root / ".claude").exists():
         claude_agent = repo_root / ".claude" / "agents" / "guru.md"
-        write_text(claude_agent, CLAUDE_GURU_AGENT)
-        written.append(claude_agent.relative_to(repo_root).as_posix())  # Wave 1p6dx: forward-slash
+        _tier3_write(claude_agent, CLAUDE_GURU_AGENT)
 
     codex_skill = repo_root / ".codex" / "skills" / "auto-guru" / "SKILL.md"
-    write_text(codex_skill, CODEX_AUTO_GURU_SKILL)
-    written.append(codex_skill.relative_to(repo_root).as_posix())  # Wave 1p6dx: forward-slash
+    _tier3_write(codex_skill, CODEX_AUTO_GURU_SKILL)
 
     # Wave 1p9pe (renderer-overwrite-safety): upsert the framework-managed
     # region only — never clobber operator-authored TOML (approval modes,
@@ -1227,8 +1252,7 @@ def render_agent_surfaces(repo_root: Path) -> list[str]:
             file=sys.stderr,
         )
     else:
-        write_text(codex_mcp_config, merged_codex_config)
-        written.append(codex_mcp_config.relative_to(repo_root).as_posix())  # Wave 1p6dx: forward-slash
+        _tier3_write(codex_mcp_config, merged_codex_config)
 
     # Root @import bridge — make CLAUDE.md a real @AGENTS.md import (1p5xc).
     # The single, contained @import; replaces the prose "read AGENTS.md first"
@@ -1286,8 +1310,27 @@ def render_agent_surfaces(repo_root: Path) -> list[str]:
     # Native Guru wrappers are materialized above, after the initial carrier
     # census. Reconcile again so the first public render gives them the same
     # protocol minimum and later renders cannot overwrite it away.
-    for rel in reconcile_review_protocol_surfaces(repo_root):
-        if rel not in written:
+    reconciled_again = reconcile_review_protocol_surfaces(repo_root)
+
+    # Net-change decision for the tier-3 candidates: a file whose final
+    # post-reconcile bytes equal its pre-render bytes was not written in any
+    # sense the manifest should report.
+    for path in tier3_candidates:
+        try:
+            post = path.read_bytes() if path.exists() else None
+        except OSError:
+            continue
+        if post != tier3_pre_bytes.get(path):
+            written.append(path.relative_to(repo_root).as_posix())  # Wave 1p6dx: forward-slash
+
+    # The closing reconcile pass legitimately rewrites tier-3 templates back to
+    # their reconciled form every render; those paths' NET verdict was already
+    # decided above, so only non-candidate carriers merge from its return.
+    tier3_rels = {
+        path.relative_to(repo_root).as_posix() for path in tier3_candidates
+    }
+    for rel in reconciled_again:
+        if rel not in written and rel not in tier3_rels:
             written.append(rel)
 
     # Dedupe while preserving order (CLAUDE.md may be touched by both the

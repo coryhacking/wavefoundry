@@ -1852,6 +1852,89 @@ class MemoryProposeTests(_MemoryCase):
             "finding:1aaaa:real-ledger-defect",
         )
 
+    def test_verification_command_never_becomes_a_target(self):
+        """Wave 1t72b (1t728) AC-1: command_or_fixture describes HOW a claim was
+        verified; its file tokens (the verification harness) must never become
+        draft targets. Mirrors the real 1t3ek misattribution shape through the
+        canonical ledger producer."""
+        self._wave("1aaaa", "demo", decision_rows=[])
+        review = _load("review_evidence")
+        base = {
+            "event": "finding", "actor": "qa-reviewer",
+            "context_id": "target-misattribution",
+            "finding_id": "wrapper-defect", "run_kind": "initial_delivery",
+            "cycle": 0,
+            "judgment": {
+                "validation_status": "real", "scope_relation": "admitted",
+                "introduced_or_worsened_by_wave": True,
+                "contract_relevance": "required_ac",
+                "supported_reachability": True, "attacker_reachability": False,
+                "authority_domain": "integrity", "authority_delta": "low",
+                "observable_impact": "material", "containment": "none",
+            },
+            "proposition": "the wrapper credit computation matches the contract",
+            "failure_condition": "aggregate flooring returns",
+            "public_path": "src/server_impl.py credit wrapper",
+            "command_or_fixture": "python3 run_tests.py (6024 OK, uncontended)",
+            "expected": "per-artifact flooring", "observed": "repaired",
+            "artifact_or_test_id": "canonical suite green; boundary regression",
+            "known_bad_detection_method": "pre-repair behavior probe",
+            "limitations": "local fixture", "safety_and_authorization": "local",
+            "disposition_rationale": "a reproduced required-contract defect",
+            "integrity_confirmed": True, "review_boundaries_changed": [],
+            "source_lanes": ["qa-reviewer"],
+            "blocking_required_lanes": ["qa-reviewer"],
+            "approval_recheck_lanes": ["qa-reviewer"],
+        }
+        records = ()
+        for run_kind, cycle in (
+            ("initial_delivery", 0), ("repair_start", 1), ("reverification", 1),
+        ):
+            event = dict(base, run_kind=run_kind, cycle=cycle,
+                         context_id=f"misattribution-{run_kind}")
+            if run_kind == "reverification":
+                event["blocking_required_lanes"] = []
+                event["fresh_context"] = True
+                event["independent"] = True
+            rows, errors = review.build_compact_review_event(records, event)
+            self.assertEqual(errors, ())
+            records = (*records, *rows)
+        events = self.root / "docs" / "waves" / "1aaaa demo" / "events.jsonl"
+        events.write_text(
+            "".join(json.dumps(r, sort_keys=True, separators=(",", ":")) + "\n"
+                    for r in records),
+            encoding="utf-8",
+        )
+        drafts = self.supply.draft_candidates(self.root, "1aaaa")
+        self.assertEqual(len(drafts), 1)
+        self.assertEqual(drafts[0]["targets"], ["src/server_impl.py"],
+                         "the repaired surface, never the verification command")
+        all_targets = [t for d in drafts for t in d["targets"]]
+        self.assertNotIn("run_tests.py", all_targets)
+
+    def test_command_only_file_token_drafts_nothing(self):
+        """Wave 1t72b (1t728) AC-2: when the only file token lives in
+        command_or_fixture, the finding has no concrete repaired-surface anchor
+        and drafts nothing — an honest gap beats a wrong advisory."""
+        self._wave("1aaaa", "demo", decision_rows=[])
+        heads = (
+            {"record_type": "executable_evidence", "evidence_record_id": "ev-1",
+             "artifact_or_test_id": "canonical suite green",
+             "public_path": "the credit wrapper path",
+             "command_or_fixture": "python3 run_tests.py"},
+            {"record_type": "finding_synthesis", "finding_id": "finding-1",
+             "disposition": "do_now", "repair_execution_state": "completed",
+             "disposition_rationale": "Fixed.", "evidence_record_id": "ev-1"},
+        )
+        orig = self.supply.read_review_event_ledger
+        self.supply.read_review_event_ledger = lambda wave_dir: (heads, ())
+        try:
+            drafts = self.supply.draft_candidates(self.root, "1aaaa")
+        finally:
+            self.supply.read_review_event_ledger = orig
+        self.assertEqual(drafts, [],
+                         "no repaired-surface anchor: draft nothing, not run_tests.py")
+
     def test_conservative_skips_unrepaired_findings(self):
         self._wave("1aaaa", "demo", decision_rows=[])
         heads = (

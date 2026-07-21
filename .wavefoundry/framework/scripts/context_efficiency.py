@@ -268,22 +268,39 @@ def store_path(root: Path) -> Path:
     return Path(root) / STORE_RELATIVE_PATH
 
 
-def implement_stage_retrieval_calls(root: Path, wave_id: str) -> int | None:
+def implement_stage_retrieval_calls(
+    root: Path, wave_id: str, tool_names: Optional[Iterable[str]] = None
+) -> int | None:
     """Read-only count of instrumented retrieval events under the wave's
     ``implement`` stage — the retrieval-posture sensor signal (wave 1t3ek /
     1t230). Returns ``None`` when the store is absent or unreadable so the
-    sensor stays silent rather than firing on missing data."""
+    sensor stays silent rather than firing on missing data.
+
+    Wave 1t72b (1t67p): since the full-surface wrapper, ``event_kind
+    ='retrieval'`` covers every wrapped first-party call, so an incidental
+    lifecycle probe could mask a code-exploration drought. Pass ``tool_names``
+    (the code-retrieval census) to count only those tools; None keeps the
+    unfiltered total for telemetry summaries."""
     path = store_path(root)
     if not path.is_file():
         return None
+    names = sorted(set(str(n) for n in tool_names)) if tool_names else None
     try:
         conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
         try:
-            row = conn.execute(
+            query = (
                 "SELECT COUNT(*) FROM telemetry_event "
-                "WHERE wave_id=? AND stage='implement' AND event_kind='retrieval'",
-                (wave_id,),
-            ).fetchone()
+                "WHERE wave_id=? AND stage='implement' AND event_kind='retrieval'"
+            )
+            params: list = [wave_id]
+            if names is not None:
+                query += (
+                    " AND tool_name IN ("
+                    + ",".join("?" for _ in names)
+                    + ")"
+                )
+                params.extend(names)
+            row = conn.execute(query, params).fetchone()
             return int(row[0])
         finally:
             conn.close()
@@ -2463,6 +2480,34 @@ def _phase_direct_net(
         - int(event[0] if event else 0)
         - int(event[1] if event else 0)
     )
+
+
+def registered_applicability(
+    root: Path, wave_id: str, phase_id: str
+) -> Optional[dict[str, str]]:
+    """Read-only: the applicability registered for (wave, phase), or None."""
+    path = store_path(root)
+    if not Path(path).exists():
+        return None
+    try:
+        conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        try:
+            row = conn.execute(
+                "SELECT applicability_json FROM evaluation_scope"
+                " WHERE wave_id=? AND phase_id=?",
+                (str(wave_id), str(phase_id)),
+            ).fetchone()
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return None
+    if not row:
+        return None
+    try:
+        loaded = json.loads(row[0])
+    except ValueError:
+        return None
+    return loaded if isinstance(loaded, dict) else None
 
 
 def attach_evaluation(

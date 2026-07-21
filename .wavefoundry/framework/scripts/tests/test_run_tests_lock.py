@@ -179,3 +179,215 @@ class RunLockPosixMutualExclusionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SuiteIndexerExclusionTests(unittest.TestCase):
+    """Wave 1t72b (1t727): mutual exclusion between the suite and the project
+    index build, both directions, bounded, never lost."""
+
+    def setUp(self) -> None:
+        self._orig_wait = run_tests._INDEX_BUILD_WAIT_SECONDS
+        self._orig_poll = run_tests._INDEX_BUILD_POLL_SECONDS
+        self._orig_probe = run_tests._INDEX_BUILD_PROBE
+
+    def tearDown(self) -> None:
+        run_tests._INDEX_BUILD_WAIT_SECONDS = self._orig_wait
+        run_tests._INDEX_BUILD_POLL_SECONDS = self._orig_poll
+        run_tests._INDEX_BUILD_PROBE = self._orig_probe
+
+    def test_suite_waits_for_running_build_then_proceeds(self):
+        states = iter([(True, 4242), (True, 4242), (False, None)])
+        run_tests._INDEX_BUILD_PROBE = lambda index_dir: next(states)
+        run_tests._INDEX_BUILD_POLL_SECONDS = 0.01
+        self.assertIsNone(run_tests._wait_for_index_build())
+
+    def test_suite_times_out_with_holder_naming_diagnostic(self):
+        run_tests._INDEX_BUILD_PROBE = lambda index_dir: (True, 4242)
+        run_tests._INDEX_BUILD_WAIT_SECONDS = 0.05
+        run_tests._INDEX_BUILD_POLL_SECONDS = 0.01
+        message = run_tests._wait_for_index_build()
+        self.assertIsNotNone(message)
+        self.assertIn("4242", message)
+        self.assertIn("index-build.lock", message)
+
+    def test_probe_failure_never_blocks_the_runner(self):
+        def broken(index_dir):
+            raise RuntimeError("probe exploded")
+        run_tests._INDEX_BUILD_PROBE = broken
+        self.assertIsNone(run_tests._wait_for_index_build())
+        run_tests._INDEX_BUILD_PROBE = lambda index_dir: (None, None)
+        self.assertIsNone(run_tests._wait_for_index_build(),
+                          "undetermined lock state must not block")
+
+
+class IndexerDeferralTests(unittest.TestCase):
+    """Wave 1t72b (1t727, revised): a build requested during a test run defers
+    without being lost and WITHOUT holding the build lock while waiting."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        spec = importlib.util.spec_from_file_location(
+            "indexer_for_deferral", SCRIPTS_DIR / "indexer.py"
+        )
+        cls.indexer = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.indexer)
+
+    def setUp(self) -> None:
+        self._orig_wait = self.indexer._TEST_RUN_WAIT_SECONDS
+        self._orig_poll = self.indexer._TEST_RUN_POLL_SECONDS
+        self._orig_probe = self.indexer._TEST_RUN_PROBE
+
+    def tearDown(self) -> None:
+        self.indexer._TEST_RUN_WAIT_SECONDS = self._orig_wait
+        self.indexer._TEST_RUN_POLL_SECONDS = self._orig_poll
+        self.indexer._TEST_RUN_PROBE = self._orig_probe
+
+    def _build_lock_free(self, index_dir):
+        from runtime_lock import RuntimeFileLock, RuntimeLockBusy
+        lock_path = index_dir / self.indexer.INDEX_BUILD_LOCK_NAME
+        if not lock_path.exists():
+            return True
+        probe = RuntimeFileLock(
+            lock_path, blocking=False,
+            offset=self.indexer.INDEX_BUILD_LOCK_SENTINEL, style="record",
+        )
+        try:
+            probe.acquire()
+        except RuntimeLockBusy:
+            return False
+        probe.release()
+        return True
+
+    def test_build_defers_unlocked_until_test_lock_releases(self):
+        """Held test lock: the build releases its lock, waits unlocked, then
+        re-acquires and proceeds once the suite finishes."""
+        idx = self.indexer
+        states = iter([True, False, False])  # atomic check: held once, then free
+        free_during_wait: list[bool] = []
+        with tempfile.TemporaryDirectory() as tmp:
+            index_dir = Path(tmp) / ".wavefoundry" / "index"
+            index_dir.mkdir(parents=True)
+
+            def probe(path):
+                held = next(states)
+                if held:
+                    pass
+                return held
+
+            orig_wait = idx._wait_for_test_run_release
+            def instrumented_wait(d):
+                # While the build waits for the suite, the BUILD LOCK must be
+                # free — a deferring build must never present as running.
+                free_during_wait.append(self._build_lock_free(index_dir))
+                return orig_wait(d)
+
+            idx._TEST_RUN_PROBE = probe
+            idx._TEST_RUN_POLL_SECONDS = 0.01
+            idx._TEST_RUN_WAIT_SECONDS = 0.05
+            idx._wait_for_test_run_release = instrumented_wait
+            try:
+                with idx._index_build_lock(index_dir):
+                    pass
+            finally:
+                idx._wait_for_test_run_release = orig_wait
+        self.assertEqual(free_during_wait, [True],
+                         "the build lock is FREE while deferring to the suite")
+
+    def test_final_cycle_proceeds_never_cancelled(self):
+        idx = self.indexer
+        idx._TEST_RUN_PROBE = lambda path: True  # suite never finishes
+        idx._TEST_RUN_POLL_SECONDS = 0.01
+        idx._TEST_RUN_WAIT_SECONDS = 0.02
+        with tempfile.TemporaryDirectory() as tmp:
+            index_dir = Path(tmp) / ".wavefoundry" / "index"
+            index_dir.mkdir(parents=True)
+            entered = []
+            with idx._index_build_lock(index_dir):
+                entered.append(True)
+        self.assertEqual(entered, [True], "bounded cycles, then the build runs")
+
+    def test_probe_failure_or_missing_lock_proceeds_immediately(self):
+        idx = self.indexer
+        def broken(path):
+            raise RuntimeError("probe exploded")
+        idx._TEST_RUN_PROBE = broken
+        with tempfile.TemporaryDirectory() as tmp:
+            index_dir = Path(tmp) / ".wavefoundry" / "index"
+            index_dir.mkdir(parents=True)
+            self.assertFalse(idx._test_run_lock_held(index_dir))
+        idx._TEST_RUN_PROBE = lambda path: None
+        with tempfile.TemporaryDirectory() as tmp:
+            index_dir = Path(tmp) / ".wavefoundry" / "index"
+            index_dir.mkdir(parents=True)
+            self.assertFalse(idx._test_run_lock_held(index_dir),
+                             "undetermined resolves to not-held")
+
+
+class ExclusionInterleavingTests(unittest.TestCase):
+    """Wave 1t72b (1t727 TOCTOU repair): the suite yields after acquiring its
+    lock when a build slipped in; the build defers while HOLDING its lock."""
+
+    def setUp(self) -> None:
+        self._orig_probe = run_tests._INDEX_BUILD_PROBE
+
+    def tearDown(self) -> None:
+        run_tests._INDEX_BUILD_PROBE = self._orig_probe
+
+    def test_probe_helper_reports_held_state(self):
+        run_tests._INDEX_BUILD_PROBE = lambda index_dir: (True, 777)
+        held, holder = run_tests._probe_index_build_lock()
+        self.assertTrue(held)
+        self.assertEqual(holder, 777)
+        run_tests._INDEX_BUILD_PROBE = lambda index_dir: (None, None)
+        held, _ = run_tests._probe_index_build_lock()
+        self.assertFalse(held, "undetermined resolves to not-held")
+
+    def test_suite_yield_source_discipline(self):
+        """The main start sequence re-probes AFTER acquiring the run lock and
+        releases + re-waits when a build holds — pinned at source level so the
+        check-then-act ordering cannot silently return."""
+        source = (SCRIPTS_DIR / "run_tests.py").read_text(encoding="utf-8")
+        wait_pos = source.index("build_wait_error = _wait_for_index_build()")
+        acquire_pos = source.index(
+            "lock_file, lock_error = _acquire_run_lock()", wait_pos
+        )
+        reprobe_pos = source.index(
+            "held, _holder = _probe_index_build_lock()", acquire_pos
+        )
+        release_pos = source.index("_release_run_lock(lock_file)", reprobe_pos)
+        self.assertTrue(wait_pos < acquire_pos < reprobe_pos < release_pos)
+        self.assertIn("for _yield_cycle in range(3):", source)
+
+
+class IndexerDeferralOrderingTests(unittest.TestCase):
+    """Wave 1t72b (1t727 TOCTOU repair): deferral happens while HOLDING the
+    build lock — atomic with ownership, so the suite's post-acquire re-probe
+    always observes it."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        spec = importlib.util.spec_from_file_location(
+            "indexer_for_ordering", SCRIPTS_DIR / "indexer.py"
+        )
+        cls.indexer = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.indexer)
+
+    def test_deferral_ordering_is_post_acquire(self):
+        """The test-lock check sits AFTER lock.acquire() (atomic with
+        ownership) and the wait sits AFTER lock.release() (never wait while
+        holding). Source-ordering assertions: fcntl record locks never
+        conflict within one process, so a same-process probe cannot observe
+        held-ness — ordering is pinned at source level alongside the behavior
+        tests above."""
+        source = (SCRIPTS_DIR / "indexer.py").read_text(encoding="utf-8")
+        fn_start = source.index("def _index_build_lock(")
+        acquire_pos = source.index("lock.acquire()", fn_start)
+        check_pos = source.index("_test_run_lock_held(", fn_start)
+        release_pos = source.index("lock.release()", check_pos)
+        wait_pos = source.index("_wait_for_test_run_release(index_dir)", release_pos)
+        self.assertTrue(
+            acquire_pos < check_pos < release_pos < wait_pos,
+            "acquire < atomic check < release < unlocked wait",
+        )
+        head = source[fn_start:acquire_pos]
+        self.assertNotIn("_test_run_lock_held", head)

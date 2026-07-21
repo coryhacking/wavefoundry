@@ -40,7 +40,9 @@ from typing import Iterator
 # ``_RETIRED_BIN_WRAPPERS`` in render_platform_surfaces.py; ``retired_surface_suggestion`` resolves
 # the human-facing replacement form (``wf <subcommand>`` or the no-replacement guidance).
 from render_platform_surfaces import (  # noqa: E402 — SCRIPTS_DIR is on sys.path
+    _RENAMED_MCP_TOOLS,
     _RETIRED_SURFACE_REPLACEMENTS,
+    renamed_tool_suggestion,
     retired_surface_suggestion,
 )
 
@@ -72,6 +74,39 @@ _VAR_BINDIR_PATTERN = re.compile(
     r"""\b\w*bin\w*\s*/\s*["'](""" + _RETIRED_ALT + r""")["']"""
 )
 
+# ── Renamed MCP tools (wave 1t72b / 1.14.0 rename) ────────────────────────────
+# Old tool names, longest-first so alternation can never match a shorter name
+# inside a longer one (`wave_index_build` inside `wave_index_build_status`).
+RENAMED_TOOLS: tuple[str, ...] = tuple(
+    sorted(_RENAMED_MCP_TOOLS, key=len, reverse=True)
+)
+
+# `wave_review` and `wave_implement` are legitimate workflow-config KEYS as
+# well as old tool names. Flagging their bare-token form would instruct agents
+# to rename config keys — actively breaking target workflow configs — so bare
+# matching skips them; only the unambiguous `mcp__wavefoundry__` tool-call
+# form flags these two.
+_CONFIG_KEY_TOOL_NAMES: frozenset[str] = frozenset({"wave_review", "wave_implement"})
+
+_RENAMED_ALT_ALL = "|".join(re.escape(n) for n in RENAMED_TOOLS)
+_RENAMED_ALT_BARE = "|".join(
+    re.escape(n) for n in RENAMED_TOOLS if n not in _CONFIG_KEY_TOOL_NAMES
+)
+
+# 4. Fully-qualified MCP tool reference (host allow rules, MCP client configs):
+#    `mcp__wavefoundry__wave_close`. Trailing guard: `_` and word chars end the
+#    match honestly via the alternation's longest-first ordering plus `(?![\w])`.
+_TOOL_MCP_PATTERN = re.compile(
+    r"mcp__wavefoundry__(" + _RENAMED_ALT_ALL + r")(?!\w)"
+)
+
+# 5. Bare tool-name reference in docs/prompts/scripts: `wave_close(...)`,
+#    backticked names, allowlists. Word-boundary on both sides; the two
+#    workflow-config key names are excluded (see _CONFIG_KEY_TOOL_NAMES).
+_TOOL_BARE_PATTERN = re.compile(
+    r"(?<![\w.])(" + _RENAMED_ALT_BARE + r")(?!\w)"
+)
+
 # ── Exclusion set ─────────────────────────────────────────────────────────────
 # Directory exclusions matched on path COMPONENT/PREFIX (NOT raw substring) — mirrors
 # ``build_pack.should_exclude`` (``rel == d or rel.startswith(d + "/")``). Raw substring matching
@@ -86,6 +121,7 @@ EXCLUDED_DIRS: tuple[str, ...] = (
     ".wavefoundry/index",      # generated/runtime semantic index artifacts
     "docs/waves",              # wave history records
     "docs/reports",            # report history
+    "docs/agents/memory",      # memory records quote history; the memory corpus has its own hygiene loop
 )
 # File-name exclusions matched on BASENAME anywhere in the tree (not root-only). A file named
 # `CHANGELOG.md` is release history wherever it lives (e.g. a nested `.wavefoundry/CHANGELOG.md`), and
@@ -240,6 +276,39 @@ def scan_repo(root: Path | str) -> list[StaleReference]:
                         host_permission=host_perm,
                     )
                 )
+        # Renamed MCP tools (1.14.0): the fully-qualified form first; its match
+        # spans are masked so the bare pattern cannot double-report the tool
+        # name embedded inside `mcp__wavefoundry__<old>`.
+        qualified_spans: list[tuple[int, int]] = []
+        for m in _TOOL_MCP_PATTERN.finditer(text):
+            qualified_spans.append(m.span())
+            old_name = m.group(1)
+            line = text.count("\n", 0, m.start()) + 1
+            findings.append(
+                StaleReference(
+                    file=rel,
+                    line=line,
+                    retired_surface=old_name,
+                    matched=m.group(0),
+                    suggested=renamed_tool_suggestion(old_name),
+                    host_permission=host_perm,
+                )
+            )
+        for m in _TOOL_BARE_PATTERN.finditer(text):
+            if any(s <= m.start() < e for s, e in qualified_spans):
+                continue
+            old_name = m.group(1)
+            line = text.count("\n", 0, m.start()) + 1
+            findings.append(
+                StaleReference(
+                    file=rel,
+                    line=line,
+                    retired_surface=old_name,
+                    matched=m.group(0),
+                    suggested=renamed_tool_suggestion(old_name),
+                    host_permission=host_perm,
+                )
+            )
     findings.sort(key=lambda f: (f.file, f.line, f.retired_surface))
     return findings
 

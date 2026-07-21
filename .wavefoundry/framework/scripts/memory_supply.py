@@ -381,10 +381,13 @@ def draft_candidates(
         rationale = str(head.get("disposition_rationale") or "")
         evidence_id = str(head.get("evidence_record_id") or "")
         evidence_record = evidence_by_id.get(evidence_id, {})
+        # Targets name WHAT was repaired, so only the repaired-surface fields
+        # qualify. command_or_fixture describes HOW the claim was verified —
+        # its file tokens are the verification harness (e.g. run_tests.py),
+        # which produced a live wrong-target fragile_file draft on 1t3ek.
         targets = _code_targets(_text_refs(
             evidence_record.get("artifact_or_test_id"),
             evidence_record.get("public_path"),
-            evidence_record.get("command_or_fixture"),
         ))
         if not targets:  # need a concrete code anchor to attach the advisory to
             continue

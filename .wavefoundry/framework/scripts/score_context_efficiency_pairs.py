@@ -19,6 +19,18 @@ APPLICABILITY_KEYS = (
     "tool_configuration_digest",
 )
 MIN_QUALIFYING_PAIRS = 5
+# Canonical per-arm and per-pair field sets. The scaffold generator derives its
+# skeleton from these same constants, so scaffold and validator cannot drift.
+ARM_KEYS = (
+    "input_tokens",
+    "output_tokens",
+    "tool_calls",
+    "completed",
+    "usage_source",
+    "quality_scored_blind",
+    "quality",
+)
+PAIR_KEYS = ("pair_id", "baseline", "assisted", "assisted_direct_net")
 
 
 def _nonnegative_int(value: Any, label: str) -> int:
@@ -40,16 +52,7 @@ def _validate_quality(value: Any, label: str) -> dict[str, int]:
 
 
 def _validate_arm(value: Any, label: str) -> dict[str, Any]:
-    required = {
-        "input_tokens",
-        "output_tokens",
-        "tool_calls",
-        "completed",
-        "usage_source",
-        "quality_scored_blind",
-        "quality",
-    }
-    if not isinstance(value, Mapping) or set(value) != required:
+    if not isinstance(value, Mapping) or set(value) != set(ARM_KEYS):
         raise ValueError(f"{label} has non-canonical fields")
     if type(value["completed"]) is not bool:
         raise ValueError(f"{label}.completed must be a boolean")
@@ -108,12 +111,7 @@ def score_pairs(payload: Mapping[str, Any]) -> dict[str, Any]:
     qualifying: list[dict[str, Any]] = []
     all_deltas: list[dict[str, Any]] = []
     for index, raw in enumerate(pairs):
-        if not isinstance(raw, Mapping) or set(raw) != {
-            "pair_id",
-            "baseline",
-            "assisted",
-            "assisted_direct_net",
-        }:
+        if not isinstance(raw, Mapping) or set(raw) != set(PAIR_KEYS):
             raise ValueError(f"pairs[{index}] has non-canonical fields")
         pair_id = raw.get("pair_id")
         if not isinstance(pair_id, str) or not pair_id or pair_id in pair_ids:

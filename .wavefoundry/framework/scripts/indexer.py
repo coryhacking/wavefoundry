@@ -2996,6 +2996,66 @@ def _index_build_lock_held(index_dir: Path) -> "tuple[Optional[bool], Optional[i
         return (None, None)
 
 
+# Wave 1t72b (1t727, TOCTOU repair revised): defense-in-depth exclusion
+# against the framework test suite. A build requested while run_tests.py holds
+# test-run.lock DEFERS (bounded wait) instead of racing the suite. Atomicity
+# discipline: the test-lock check runs while HOLDING the build lock (so the
+# suite's post-acquire re-probe always observes a committed build), but the
+# build never WAITS while holding — a deferring build must not present as
+# running to status tools or other waiters (live-caught: a deferring
+# hook-spawned build made unit tests wait 600s on a phantom build). On a held
+# test lock the build releases, waits unlocked, and retries; the final cycle
+# proceeds regardless — deferral is never cancellation.
+_TEST_RUN_WAIT_SECONDS = 900
+_TEST_RUN_POLL_SECONDS = 3.0
+_TEST_RUN_MAX_YIELD_CYCLES = 3
+_TEST_RUN_PROBE = None  # test seam; defaults to the runtime_lock probe
+_TEST_RUN_LOCK_SENTINEL = 1 << 30  # mirrors run_tests._LOCK_BYTE_OFFSET
+
+
+def _test_run_lock_path(index_dir: Path) -> Path:
+    return index_dir.parent.parent / ".wavefoundry" / "framework" / "test-run.lock"
+
+
+def _test_run_lock_held(index_dir: Path) -> bool:
+    """One non-destructive probe; undetermined resolves to not-held."""
+    probe = _TEST_RUN_PROBE
+    if probe is None:
+        def probe(path: Path):
+            from runtime_lock import probe_runtime_lock
+
+            if os.name == "nt":
+                return probe_runtime_lock(
+                    path, offset=_TEST_RUN_LOCK_SENTINEL, style="record"
+                ).held
+            return probe_runtime_lock(path, style="flock").held
+    try:
+        return bool(probe(_test_run_lock_path(index_dir)))
+    except Exception:  # noqa: BLE001 — the guard must never break a build
+        return False
+
+
+def _wait_for_test_run_release(index_dir: Path) -> None:
+    """Bounded UNLOCKED wait for the suite to finish; always returns."""
+    deadline = time.monotonic() + _TEST_RUN_WAIT_SECONDS
+    print(
+        "build_index: deferred — the framework test suite is running "
+        f"(test-run.lock held at {_test_run_lock_path(index_dir)}); waiting "
+        f"up to {_TEST_RUN_WAIT_SECONDS}s without holding the build lock …",
+        file=sys.stderr,
+    )
+    while time.monotonic() < deadline:
+        if not _test_run_lock_held(index_dir):
+            return
+        time.sleep(_TEST_RUN_POLL_SECONDS)
+    print(
+        "build_index: test run still active after "
+        f"{_TEST_RUN_WAIT_SECONDS}s; proceeding (deferral is not "
+        "cancellation; the OS build lock remains the authority)",
+        file=sys.stderr,
+    )
+
+
 @contextmanager
 def _index_build_lock(index_dir: Path):
     """Acquire the whole-index build lock for ``index_dir``.
@@ -3025,20 +3085,34 @@ def _index_build_lock(index_dir: Path):
             # Permission or filesystem issue — fall through and let the
             # `open()` below surface the underlying error.
             pass
-    lock = RuntimeFileLock(
-        lock_path,
-        blocking=False,
-        offset=INDEX_BUILD_LOCK_SENTINEL,
-        style="record",
-    )
+    lock = None
     lock_meta: Optional[dict] = None
     try:
-        try:
-            lock.acquire()
-        except RuntimeLockBusy as exc:
-            raise IndexBuildAlreadyRunning(
-                format_index_build_lock_conflict(index_dir, lock_path=lock_path)
-            ) from exc
+        for _yield_cycle in range(_TEST_RUN_MAX_YIELD_CYCLES + 1):
+            lock = RuntimeFileLock(
+                lock_path,
+                blocking=False,
+                offset=INDEX_BUILD_LOCK_SENTINEL,
+                style="record",
+            )
+            try:
+                lock.acquire()
+            except RuntimeLockBusy as exc:
+                raise IndexBuildAlreadyRunning(
+                    format_index_build_lock_conflict(index_dir, lock_path=lock_path)
+                ) from exc
+            # Wave 1t72b (1t727 TOCTOU repair, revised): the test-lock check
+            # happens while HOLDING the build lock (atomic with ownership),
+            # but the build never waits while holding — on a held test lock it
+            # releases, waits UNLOCKED, and retries. The final cycle proceeds
+            # regardless (deferral is never cancellation).
+            if _yield_cycle >= _TEST_RUN_MAX_YIELD_CYCLES or not _test_run_lock_held(
+                index_dir
+            ):
+                break
+            lock.release()
+            lock = None
+            _wait_for_test_run_release(index_dir)
 
         if prior_owner == "stale":
             print(
@@ -3056,7 +3130,7 @@ def _index_build_lock(index_dir: Path):
         lock.write_metadata(lock_meta)
         yield
     finally:
-        if lock.acquired:
+        if lock is not None and lock.acquired:
             if lock_meta is not None:
                 try:  # best-effort ended_at; a hard kill skips it → status sees an interrupted build
                     lock_meta["ended_at"] = time.time()

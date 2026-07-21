@@ -10,6 +10,7 @@ import functools
 import importlib.util
 import json
 import os
+import tempfile
 import re
 import sys
 import threading
@@ -3523,18 +3524,34 @@ def run_garden(root: Path) -> dict:
 
 
 def run_sync_surfaces(root: Path) -> dict:
-    """Run render_platform_surfaces and return structured summary."""
+    """Run render_platform_surfaces and return structured summary.
+
+    Wave 1t72b (1t729): the renderer emits a JSON manifest of the files it
+    actually changed via --manifest (recorded inside its write chokepoints);
+    the old files_written prose-line grep is retired (it held log lines, not
+    paths, and had no consumers).
+    """
     script = Path(__file__).resolve().parent / "render_platform_surfaces.py"
-    result = _mcp_subprocess_run(
-        [_preferred_python(), str(script)],
-        cwd=str(root),
-        env={**os.environ, "PROJECT_ROOT": str(root)},
-    )
+    with tempfile.TemporaryDirectory() as manifest_dir:
+        manifest_path = Path(manifest_dir) / "render-manifest.json"
+        result = _mcp_subprocess_run(
+            [_preferred_python(), str(script), "--manifest", str(manifest_path)],
+            cwd=str(root),
+            env={**os.environ, "PROJECT_ROOT": str(root)},
+        )
+        written: list[str] = []
+        try:
+            payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+            written = [
+                str(entry) for entry in payload.get("written") or []
+                if isinstance(entry, str)
+            ]
+        except (OSError, ValueError):
+            written = []
     output = result.stdout + result.stderr
-    written = [l for l in output.splitlines() if "wrote" in l.lower() or "rendered" in l.lower()]
     return {
         "passed": result.returncode == 0,
-        "files_written": written,
+        "written": written,
         "output": output,
     }
 
@@ -12869,6 +12886,11 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
     if mode_s == "create":
         _regenerate_codebase_map_safe(root)
     resp_data = {"wave_id": wave_id, "mode": mode_s, "readied": mode_s == "ready", "transitioned_to_active": transitioned_to_active, "change_count": len(change_ids), "lint_passed": lint_passed, "garden_passed": garden_passed, "updated": updated, "repairs_needed": repairs_needed, "repaired": repaired, "required_council_signoffs": required_council_signoffs, "council_brief": council_brief, "council_verdict_present": verdict_present, "council_verdict_valid": verdict_valid}
+    if transitioned_to_active:
+        # Wave 1t72b (1t67p): prepare-and-open ACTIVATES the wave, so it must
+        # serve the same in-band posture directive as wf_implement_wave —
+        # activation without the directive was the live-demonstrated bypass.
+        resp_data["retrieval_posture"] = _RETRIEVAL_POSTURE_DIRECTIVE
     # 1p8gy AC-6: prior-learning advisories before implementation begins —
     # fragile files, repeated failed attempts, operator preferences.
     _mem_advisories = _memory_advisories_for_wave(
@@ -13114,6 +13136,10 @@ def wf_review_wave_response(root: Path, wave_id: str, phase: str = "implementati
         }
         if _posture_gap is not None:
             _review_data["retrieval_posture_gap"] = _posture_gap
+    # Wave 1t72b (1t67p, operator extension): review work is retrieval work —
+    # verifying claims against the tree should route through the same MCP
+    # surface, so the review entry point carries the directive in-band too.
+    _review_data["retrieval_posture"] = _RETRIEVAL_POSTURE_DIRECTIVE
     _mem_advisories = _memory_advisories_for_wave(
         root, {"wave_id": wave_id, "changes": [{"id": cid} for cid in _extract_change_ids_from_wave_text(wave_text)]}
     )
@@ -13134,13 +13160,15 @@ def wf_review_wave_response(root: Path, wave_id: str, phase: str = "implementati
 # implement-stage retrieval telemetry is near zero against a non-trivial code
 # diff. A recorded "Gapfill:" entry clears the advisory; it never blocks.
 _RETRIEVAL_POSTURE_DIRECTIVE = (
-    "MCP-first implementation retrieval: search, read, and navigate code through "
-    "the code_* and docs_search tools first; harness shell and file search are "
-    "fallback. When fallback is genuinely the right instrument (bulk-mechanical "
-    "edits, docs-only work), record a 'Gapfill:' entry in a Progress Log "
-    "explaining why. That same recorded entry clears the retrieval_posture_gap "
-    "advisory raised at implementation review and close when implement-stage "
-    "retrieval telemetry is near zero against a non-trivial code diff."
+    "MCP-first retrieval during implementation AND review: search, read, and "
+    "navigate code through the code_* and docs_search tools first, while "
+    "implementing changes and equally while verifying review claims against "
+    "the tree; harness shell and file search are fallback. When fallback is "
+    "genuinely the right instrument (bulk-mechanical edits, docs-only work), "
+    "record a 'Gapfill:' entry in a Progress Log explaining why. That same "
+    "recorded entry clears the retrieval_posture_gap advisory raised at "
+    "implementation review and close when implement-stage retrieval telemetry "
+    "is near zero against a non-trivial code diff."
 )
 
 # Test seam: replace to drive the footprint without a real git history.
@@ -13212,8 +13240,11 @@ def _retrieval_posture_gap(root: Path, wave_md: Path) -> Optional[dict[str, Any]
     calls are at or below the threshold, the changed-file footprint is at or
     above its threshold, and no Gapfill entry is recorded in the wave.
     """
+    # Wave 1t72b (1t67p): the gap DECISION counts only the code-retrieval
+    # census — an incidental wrapped lifecycle call (live-demonstrated:
+    # one wf_sync_surfaces probe) must never mask a code-exploration drought.
     calls = context_efficiency.implement_stage_retrieval_calls(
-        root, wave_md.parent.name
+        root, wave_md.parent.name, tool_names=_CONTEXT_RETRIEVAL_TOOLS
     )
     if calls is None:
         return None
@@ -13935,7 +13966,19 @@ def wf_reopen_wave_response(root: Path, wave_id: str) -> dict[str, Any]:
     text = re.sub(r"^Completed At:.*\n?", "", text, flags=re.MULTILINE)
     wave_md.write_text(text, encoding="utf-8")
     _trigger_background_index_refresh_for_paths(root, [wave_md])
-    envelope = _response("ok", {"wave_id": wave_id, "status": "active", "updated": True}, next_tools=["wf_current_wave", "wf_review_wave"], usage="wf_current_wave()")
+    envelope = _response(
+        "ok",
+        {
+            "wave_id": wave_id,
+            "status": "active",
+            "updated": True,
+            # Wave 1t72b (1t67p): reopening activates the wave; serve the
+            # posture directive like every other activation path.
+            "retrieval_posture": _RETRIEVAL_POSTURE_DIRECTIVE,
+        },
+        next_tools=["wf_current_wave", "wf_review_wave"],
+        usage="wf_current_wave()",
+    )
     # wf_reopen_wave has no `mode` param — it always writes. Pass "create" so the
     # lint integration fires.
     return _attach_lint_to_response(envelope, root, "create")
@@ -21888,7 +21931,70 @@ def wf_context_efficiency_eval_response(
 
     mode_s = str(mode or "").strip().lower()
     try:
-        if mode_s == "register":
+        if mode_s == "scaffold":
+            # Wave 1t72b (1t72a): write a pair-artifact skeleton whose shape is
+            # derived from the scorer's own canonical constants — no parallel
+            # schema. Placeholders (negative tokens, empty ids, incomplete
+            # arms) FAIL score_pairs until genuinely filled, so a scaffold can
+            # never accidentally qualify.
+            applicability = context_efficiency.registered_applicability(
+                root, wave_id, phase_id
+            )
+            if applicability is None:
+                raise ValueError(
+                    "no applicability registered for this (wave, phase) — run "
+                    "mode='register' first, then mode='scaffold'"
+                )
+            candidate = Path(report_path)
+            if not candidate.is_absolute():
+                candidate = root / candidate
+            resolved_root = root.resolve(strict=True)
+            target = candidate.resolve()
+            if not target.is_relative_to(resolved_root):
+                raise ValueError("report_path must be a contained path")
+            if target.exists():
+                raise ValueError("report_path already exists; refusing to overwrite")
+            scorer = _load_script("score_context_efficiency_pairs")
+            placeholder_arm = {}
+            for key in scorer.ARM_KEYS:
+                if key == "quality":
+                    placeholder_arm[key] = {k: -1 for k in scorer.QUALITY_KEYS}
+                elif key == "completed":
+                    placeholder_arm[key] = False
+                elif key == "usage_source":
+                    placeholder_arm[key] = "provider_reported"
+                elif key == "quality_scored_blind":
+                    placeholder_arm[key] = True
+                else:
+                    placeholder_arm[key] = -1
+            skeleton = {
+                "schema_version": 1,
+                "evaluation_id": "",
+                "supersedes_evaluation_id": None,
+                "applicability": applicability,
+                "pairs": [
+                    {
+                        key: (
+                            "" if key == "pair_id"
+                            else 0 if key == "assisted_direct_net"
+                            else dict(placeholder_arm)
+                        )
+                        for key in scorer.PAIR_KEYS
+                    }
+                    for _ in range(scorer.MIN_QUALIFYING_PAIRS)
+                ],
+            }
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(
+                json.dumps(skeleton, indent=1) + "\n", encoding="utf-8"
+            )
+            result = {
+                "scaffolded": True,
+                "path": str(target.relative_to(resolved_root)),
+                "pairs": scorer.MIN_QUALIFYING_PAIRS,
+                "protocol": "docs/references/context-efficiency-paired-evaluation.md",
+            }
+        elif mode_s == "register":
             result = context_efficiency.attach_evaluation(
                 root,
                 wave_id,
@@ -21927,7 +22033,9 @@ def wf_context_efficiency_eval_response(
                 root, wave_id, phase_id, mode=mode_s
             )
         else:
-            raise ValueError("mode must be register, attach, replace, or revoke")
+            raise ValueError(
+                "mode must be register, scaffold, attach, replace, or revoke"
+            )
         return _response(
             "ok",
             result,
@@ -21952,8 +22060,10 @@ def wf_context_efficiency_eval_response(
                 }
             ],
             usage=(
-                "Register applicability before running pairs, then attach a "
-                "contained context-efficiency pair artifact."
+                "Register applicability first, generate a skeleton with "
+                "mode='scaffold', fill it per "
+                "docs/references/context-efficiency-paired-evaluation.md, then "
+                "attach the contained pair artifact."
             ),
         )
 
@@ -22444,6 +22554,9 @@ _ARTIFACT_EXTRACTORS: dict[str, Any] = {
     "memory_add": _artifact_from_written_paths("record"),
     "memory_validate": _artifact_from_written_paths("rewrite_record"),
     "memory_backfill": _artifact_from_written_paths("written"),
+    # Wave 1t72b (1t729): the renderer's changed-file manifest; dry-run and
+    # failed runs expose no written list, so they credit nothing.
+    "wf_sync_surfaces": _artifact_from_written_paths("written"),
     **{
         name: _artifact_from_written_paths("path")
         for name in (

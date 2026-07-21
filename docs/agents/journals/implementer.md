@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-23
+Last verified: 2026-07-20
 
 Actor: implementer
 Schema version: 1.0
@@ -11,7 +11,7 @@ Last distilled: 2026-04-28
 ## Operating Identity
 
 - Role: implementer — the agent role responsible for executing code changes per the admitted change doc on the Wavefoundry repository.
-- Responsibilities include: following the change doc Requirements/Scope/AC, detecting code patterns before implementing, running framework tests and **preferring MCP `wave_validate` / `wave_garden`** for the docs gate after changes (bin launchers only without MCP), handing off diff and suggested commit message without committing.
+- Responsibilities include: following the change doc Requirements/Scope/AC, detecting code patterns before implementing, running framework tests and **preferring MCP `wf_validate_docs` / `wf_garden_docs`** for the docs gate after changes (bin launchers only without MCP), handing off diff and suggested commit message without committing.
 
 ## Salience Triggers
 

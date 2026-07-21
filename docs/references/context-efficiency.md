@@ -28,8 +28,10 @@ estimated token savings =
 Derived artifact credit is avoided WRITING: the UTF-8/4 size of textual
 artifacts a tool persisted that the caller did not supply (canonical review
 ledger records and their projections, drafted memory records, generated
-change-doc scaffolds), floored per artifact after subtracting the
-caller-supplied request. It is a deterministic byte count of a real persisted
+change-doc scaffolds, and the platform surfaces a sync render actually
+changed — its manifest records new-or-changed content from inside the write
+chokepoints, so a byte-identical re-render credits nothing), floored per
+artifact after subtracting the caller-supplied request. It is a deterministic byte count of a real persisted
 artifact — never an estimate of what an agent "would have" done manually;
 that counterfactual remains gated behind paired evaluations. Tools that
 derive nothing textual (validation, gardening, gates, audits) are
@@ -261,6 +263,13 @@ retains both `matched_pair_residual` and `paired_evaluation_count`, so a
 non-zero residual and its active quality-qualified evidence count remain
 auditable without expanding the human table. Pair artifacts are
 operator-supplied evidence and are not collected automatically.
+
+Producing an artifact is a guided flow: register the applicability, generate a
+skeleton with `wf_context_efficiency_eval(mode='scaffold')` (its shape derives
+from the scorer's own canonical constants, and unfilled placeholders are
+rejected by the scorer so a scaffold can never accidentally qualify), run and
+blind-score the pairs, fill, and attach. The full protocol is
+`docs/references/context-efficiency-paired-evaluation.md`.
 
 ## Privacy and limits
 

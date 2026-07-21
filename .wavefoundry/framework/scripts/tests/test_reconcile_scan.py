@@ -407,3 +407,139 @@ class ShipsInPackTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RenamedMcpToolScanTests(unittest.TestCase):
+    """Wave 1t72b (1t6p8): the scan covers the 1.14.0 MCP tool renames."""
+
+    def setUp(self):
+        self.render = _load("render_platform_surfaces", RENDER_PATH)
+        self.scan = _load("reconcile_scan", RECONCILE_PATH)
+
+    def test_map_is_oracle_anchored_to_the_live_registration_census(self):
+        """AC-1 (two directions): every NEW name is a currently registered MCP
+        tool; no OLD name is. The census source is server_impl's registration
+        AST — the same authority the envelope census test uses — so a
+        hand-copied map cannot drift from the shipped surface."""
+        import ast as _ast
+        registered: set[str] = set()
+        # server_impl registers the surface; server.py registers the reload
+        # survivor (wf_reload_mcp) in build_server — census both.
+        for file_name, fn_name in (
+            ("server_impl.py", "register_mcp_surface"),
+            ("server.py", "build_server"),
+        ):
+            source = (SCRIPTS_ROOT / file_name).read_text(encoding="utf-8")
+            tree = _ast.parse(source)
+            for node in _ast.walk(tree):
+                if isinstance(node, _ast.FunctionDef) and node.name == fn_name:
+                    for inner in _ast.walk(node):
+                        if isinstance(inner, _ast.FunctionDef) and any(
+                            isinstance(d, _ast.Call) for d in inner.decorator_list
+                        ):
+                            registered.add(inner.name)
+        self.assertGreater(len(registered), 60, "census sanity: the surface is large")
+        mapping = self.render._RENAMED_MCP_TOOLS
+        missing_new = sorted(v for v in mapping.values() if v not in registered)
+        self.assertEqual(missing_new, [],
+                         "every NEW name must be a registered tool")
+        stale_old = sorted(k for k in mapping if k in registered)
+        self.assertEqual(stale_old, [],
+                         "no OLD name may still be registered")
+
+    def test_doc_naming_old_tool_is_flagged_with_new_name(self):
+        """AC-2: bare form in an editable doc."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "docs").mkdir()
+            (root / "docs" / "howto.md").write_text(
+                "Close the wave with `wave_close(mode='create')`.\n",
+                encoding="utf-8",
+            )
+            reconciliation, host_flags = self.scan.scan_repo_channels(root)
+        self.assertEqual(host_flags, [])
+        self.assertEqual(len(reconciliation), 1)
+        ref = reconciliation[0]
+        self.assertEqual(ref.retired_surface, "wave_close")
+        self.assertIn("wf_close_wave", ref.suggested)
+
+    def test_allow_rule_routes_to_host_permission_channel(self):
+        """AC-2: fully-qualified form in a host allow-rule file."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            claude = root / ".claude"
+            claude.mkdir()
+            (claude / "settings.local.json").write_text(
+                '{"permissions": {"allow": ["mcp__wavefoundry__wave_validate"]}}\n',
+                encoding="utf-8",
+            )
+            reconciliation, host_flags = self.scan.scan_repo_channels(root)
+        self.assertEqual(reconciliation, [])
+        self.assertEqual(len(host_flags), 1)
+        self.assertEqual(host_flags[0].retired_surface, "wave_validate")
+        self.assertIn("wf_validate_docs", host_flags[0].suggested)
+
+    def test_config_key_names_bare_form_never_flagged(self):
+        """AC-3: wave_review/wave_implement are workflow-config KEYS — a bare
+        flag would instruct a config-breaking rename. Only the qualified
+        tool-call form flags them."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "docs").mkdir()
+            (root / "docs" / "workflow-config.json").write_text(
+                '{"wave_review": {"lanes": []}, "wave_implement": {}}\n',
+                encoding="utf-8",
+            )
+            (root / "docs" / "note.md").write_text(
+                "Run mcp__wavefoundry__wave_review then check wave_implement config.\n",
+                encoding="utf-8",
+            )
+            reconciliation, host_flags = self.scan.scan_repo_channels(root)
+        self.assertEqual(host_flags, [])
+        self.assertEqual(
+            [(r.file, r.retired_surface, r.matched) for r in reconciliation],
+            [("docs/note.md", "wave_review", "mcp__wavefoundry__wave_review")],
+            "only the qualified form of a config-key name flags; bare never does",
+        )
+
+    def test_longest_name_wins_at_the_sharpest_boundary(self):
+        """AC-3: wave_index_build must not match inside wave_index_build_status."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "docs").mkdir()
+            (root / "docs" / "ops.md").write_text(
+                "Poll wave_index_build_status until done.\n", encoding="utf-8"
+            )
+            reconciliation, _ = self.scan.scan_repo_channels(root)
+        self.assertEqual([r.retired_surface for r in reconciliation],
+                         ["wave_index_build_status"])
+        self.assertIn("index_build_status", reconciliation[0].suggested)
+
+    def test_history_exclusions_hold_for_tool_renames(self):
+        """AC-4: wave archives, journals, memory records, CHANGELOG stay unflagged."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for rel in (
+                "docs/waves/1x old/wave.md",
+                "docs/agents/journals/session.md",
+                "docs/agents/memory/mem-old-decision.md",
+                "CHANGELOG.md",
+            ):
+                path = root / rel
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("Used wave_close and mcp__wavefoundry__wave_validate.\n",
+                                encoding="utf-8")
+            reconciliation, host_flags = self.scan.scan_repo_channels(root)
+        self.assertEqual(reconciliation, [])
+        self.assertEqual(host_flags, [])
+
+    def test_live_self_repo_scan_is_clean_on_the_editable_channel(self):
+        """AC-4 end-to-end oracle: this repository's own editable surfaces carry
+        no stale tool names under the extended scan."""
+        reconciliation, _host = self.scan.scan_repo_channels(REPO_ROOT)
+        tool_refs = [r for r in reconciliation
+                     if r.retired_surface in self.render._RENAMED_MCP_TOOLS]
+        self.assertEqual(
+            [(r.file, r.line, r.retired_surface) for r in tool_refs], [],
+            "self-repo editable surfaces must be clean of old tool names",
+        )

@@ -1406,3 +1406,62 @@ class CopilotRemovalDetectionGateTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ManifestChannelTests(unittest.TestCase):
+    """Wave 1t72b (1t729): the renderer emits a JSON manifest of changed files
+    recorded inside the write chokepoints — canonical producer, no log parsing."""
+
+    def _render(self, root, manifest):
+        mod = _load_render_module()
+        import venv_bootstrap
+        with patch.object(venv_bootstrap, "ensure_python_resolves", return_value="ok"):
+            code = mod.main([
+                "--repo-root", str(root), "--platform", "claude",
+                "--manifest", str(manifest),
+            ])
+        self.assertEqual(code, 0)
+        return json.loads(manifest.read_text(encoding="utf-8"))
+
+    def test_first_render_lists_changed_files_and_rerender_is_empty(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir).resolve()
+            (root / ".wavefoundry" / "framework" / "seeds").mkdir(parents=True)
+            # Guru-enabled repo with native surface dirs: render_agent_surfaces
+            # must actually render its tier-3 files, not early-return — the
+            # live-caught blind spot where a Guru-less fixture hid the
+            # unconditional agent-surface writes.
+            guru = root / "docs" / "agents" / "guru.md"
+            guru.parent.mkdir(parents=True)
+            guru.write_text("# Guru\n", encoding="utf-8")
+            (root / ".cursor").mkdir()
+            (root / ".claude").mkdir()
+            manifest = root / "m1.json"
+            payload = self._render(root, manifest)
+            self.assertIn("written", payload)
+            self.assertTrue(payload["written"], "first render must write files")
+            self.assertIn(".claude/agents/guru.md", payload["written"],
+                          "tier-3 agent surfaces are manifest-covered")
+            for entry in payload["written"]:
+                self.assertFalse(Path(entry).is_absolute(), "repo-relative paths only")
+                self.assertTrue((root / entry).is_file(), f"manifest names a real file: {entry}")
+            manifest2 = root / "m2.json"
+            payload2 = self._render(root, manifest2)
+            self.assertEqual(payload2["written"], [],
+                             "byte-identical re-render changes nothing, "
+                             "including the tier-3 agent surfaces")
+
+    def test_no_manifest_argument_writes_no_manifest(self):
+        mod = _load_render_module()
+        import venv_bootstrap
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir).resolve()
+            (root / ".wavefoundry" / "framework" / "seeds").mkdir(parents=True)
+            with patch.object(venv_bootstrap, "ensure_python_resolves", return_value="ok"):
+                self.assertEqual(
+                    mod.main(["--repo-root", str(root), "--platform", "claude"]), 0
+                )
+            self.assertFalse(
+                (root / "render-manifest.json").exists(),
+                "no manifest file without the --manifest argument",
+            )

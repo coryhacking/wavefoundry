@@ -54,6 +54,68 @@ _LOCK_FILE = _FRAMEWORK_DIR / "test-run.lock"
 # byte 0 below is not blocked, mirroring dashboard_lib.py's sentinel-offset rationale.
 _LOCK_BYTE_OFFSET = 1 << 30  # 1 GiB — well beyond the short pid line written at byte 0
 
+# Wave 1t72b (1t727): defense-in-depth exclusion against the background project
+# indexer. A bounded reproduction effort (isolated x3, full suite vs live code
+# rebuild, six parallel runs vs rebuild) could NOT reproduce the test_indexer
+# interference on demand, so the suite waits for a running index build rather
+# than racing it. Bounded: on timeout the run fails with a diagnostic naming
+# the holder instead of starting a contended run.
+_INDEX_BUILD_WAIT_SECONDS = 600
+_INDEX_BUILD_POLL_SECONDS = 2.0
+_INDEX_BUILD_PROBE = None  # test seam; defaults to indexer._index_build_lock_held
+
+
+def _probe_index_build_lock() -> "tuple[bool, object]":
+    """One non-destructive probe of the project index-build lock."""
+    index_dir = _FRAMEWORK_DIR.parent / "index"
+    probe = _INDEX_BUILD_PROBE
+    if probe is None:
+        try:
+            import indexer as _indexer
+            probe = _indexer._index_build_lock_held
+        except Exception:
+            return (False, None)
+    try:
+        held, holder = probe(index_dir)
+    except Exception:
+        return (False, None)
+    return (bool(held), holder)
+
+
+def _wait_for_index_build() -> "str | None":
+    """Wait (bounded) for a running project index build; None means proceed."""
+    index_dir = _FRAMEWORK_DIR.parent / "index"
+    probe = _INDEX_BUILD_PROBE
+    if probe is None:
+        try:
+            import indexer as _indexer
+            probe = _indexer._index_build_lock_held
+        except Exception:
+            return None  # best-effort: never let the guard break the runner
+    deadline = time.monotonic() + _INDEX_BUILD_WAIT_SECONDS
+    announced = False
+    while True:
+        try:
+            held, holder_pid = probe(index_dir)
+        except Exception:
+            return None
+        if not held:  # False or undetermined (None): proceed
+            return None
+        if not announced:
+            print(
+                "run_tests: waiting for the running project index build to "
+                f"finish (holder pid {holder_pid or 'unknown'}) …"
+            )
+            announced = True
+        if time.monotonic() >= deadline:
+            return (
+                "run_tests: a project index build is still running after "
+                f"{_INDEX_BUILD_WAIT_SECONDS}s (holder pid {holder_pid or 'unknown'}, "
+                f"lock {index_dir / 'index-build.lock'}); refusing to start a "
+                "contended run. Re-run once the build finishes."
+            )
+        time.sleep(_INDEX_BUILD_POLL_SECONDS)
+
 # Ensure scripts/ is on sys.path explicitly — tests/__init__.py handles this
 # for individual-file runs; repeat it here so run_tests.py is self-contained
 # and does not rely on Python's implicit entry-point path insertion.
@@ -208,16 +270,32 @@ def _acquire_run_lock():
         if os.name == "nt":
             import msvcrt
             lock_file.seek(_LOCK_BYTE_OFFSET)
-            try:
-                msvcrt.locking(lock_file.fileno(), msvcrt.LK_NBLCK, 1)
-            except OSError:
+            acquired = False
+            for attempt in range(3):
+                try:
+                    msvcrt.locking(lock_file.fileno(), msvcrt.LK_NBLCK, 1)
+                    acquired = True
+                    break
+                except OSError:
+                    # Wave 1t72b (1t727): a lock PROBE (indexer deferral check)
+                    # holds the lock for microseconds; retry briefly before
+                    # concluding another suite run is active.
+                    time.sleep(0.1)
+            if not acquired:
                 lock_file.close()
                 return None, busy_msg
         else:
             import fcntl
-            try:
-                fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError:
+            acquired = False
+            for attempt in range(3):
+                try:
+                    fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    acquired = True
+                    break
+                except BlockingIOError:
+                    # Wave 1t72b (1t727): see the probe-collision note above.
+                    time.sleep(0.1)
+            if not acquired:
                 lock_file.close()
                 return None, busy_msg
     except Exception as exc:  # noqa: BLE001
@@ -325,9 +403,35 @@ def main() -> int:
             )
             return 0
 
-    lock_file, lock_error = _acquire_run_lock()
-    if lock_error is not None:
-        print(lock_error, file=sys.stderr)
+    # Wave 1t72b (1t727 TOCTOU repair): check-then-act raced the indexer's
+    # mirrored sequence — both sides could see the other's lock free, then
+    # acquire their own and run concurrently. Both sides now re-check the
+    # other's lock only AFTER acquiring their own (atomic with ownership) and
+    # neither waits while holding: the suite releases and re-waits here when a
+    # build holds; the build releases its lock before waiting on the suite.
+    # Bounded cycles with safe endgames on both sides make ties converge.
+    lock_file = None
+    for _yield_cycle in range(3):
+        build_wait_error = _wait_for_index_build()
+        if build_wait_error is not None:
+            print(build_wait_error, file=sys.stderr)
+            return 1
+        lock_file, lock_error = _acquire_run_lock()
+        if lock_error is not None:
+            print(lock_error, file=sys.stderr)
+            return 1
+        held, _holder = _probe_index_build_lock()
+        if not held:
+            break
+        _release_run_lock(lock_file)
+        lock_file = None
+    if lock_file is None:
+        print(
+            "run_tests: an index build kept starting during three yield "
+            "cycles; refusing to start a contended run. Re-run once builds "
+            "settle.",
+            file=sys.stderr,
+        )
         return 1
     # Wave 1t3ek (1t231): snapshot pre-existing stray artifacts so the
     # end-of-run guard flags only what THIS run created.

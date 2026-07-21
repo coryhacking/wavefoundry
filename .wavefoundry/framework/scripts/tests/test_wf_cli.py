@@ -244,15 +244,17 @@ class NoLiveReferenceToRetiredWrapperTests(unittest.TestCase):
         self.scan = _load_reconcile_scan()
 
     def test_no_live_file_references_a_retired_wrapper(self):
-        # The literal `.wavefoundry/bin/<wrapper>` references and the dynamic/variable bin-join forms
-        # are both surfaced by the shared helper. The self-host's own framework pack tree is excluded
-        # by the helper, so a green scan over the repo means no LIVE consumer-authored reference exists.
-        findings = self.scan.scan_repo(REPO_ROOT)
-        offenders = [f"{f.file}:{f.line} (.wavefoundry/bin/{f.retired_surface})" for f in findings]
+        # The literal `.wavefoundry/bin/<wrapper>` references, the dynamic/variable bin-join forms,
+        # and (wave 1t72b / 1t6p8) renamed-MCP-tool references are all surfaced by the shared helper.
+        # The guard asserts the EDITABLE channel only: host permission/allow-rule findings route to
+        # the operator-flag channel by design (an agent must not self-edit those files), so they are
+        # surfaced at upgrade time rather than gating the framework suite on operator-owned files.
+        reconciliation, _host_flags = self.scan.scan_repo_channels(REPO_ROOT)
+        offenders = [f"{f.file}:{f.line} ({f.matched} -> {f.suggested})" for f in reconciliation]
         self.assertEqual(
             offenders,
             [],
-            "live docs/config/scripts must not name a retired bin wrapper (use `wf <subcommand>`):\n"
+            "live editable docs/config/scripts must not name a retired or renamed surface:\n"
             + "\n".join(offenders),
         )
 

@@ -4,7 +4,7 @@ Change ID: `1seau-doc ops-docs-refresh-and-constants-lint`
 Change Status: `planned`
 Owner: Engineering
 Status: planned
-Last verified: 2026-07-12
+Last verified: 2026-07-20
 Wave: `1seax lifecycle-ops-hardening`
 
 ## Rationale
@@ -48,14 +48,18 @@ Second half: the review's suggestion of lint assertions binding documented facts
 
 | Workstream | Owner | Depends On | Notes |
 | ---------- | ----- | ---------- | ----- |
-| docs-refresh | implementer | — | Evidence-based rewrite |
-| constants-lint | implementer | — | Declarative check |
-| verify | qa-reviewer | both | Fixtures + gate |
+| canonical-contract | implementer | — | First: one public-contract source consumed by handlers and lint |
+| constants-lint | implementer | canonical-contract | Second: narrow declarative checks plus admitted-change/signoff integrity fixtures |
+| docs-refresh | implementer | constants-lint | Third: evidence-based rewrite against the settled contract |
+| verify | qa-reviewer | docs-refresh + constants-lint | Fixtures + gate |
 
 
 ## Serialization Points
 
-- None; independent of the other review-derived waves.
+- Canonical public-contract constants precede the lint that reads them; the
+  lint precedes the operational-doc refresh so those public facts have one
+  settled source. This keeps documentation claims and handler behavior aligned
+  during the same release.
 
 ## Affected Architecture Docs
 

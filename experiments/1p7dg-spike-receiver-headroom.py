@@ -27,7 +27,7 @@ Usage:
   python3 1p7dg-spike-receiver-headroom.py            # defaults to wavefoundry
 
 The repo must have a graph at <root>/.wavefoundry/index/graph/project-graph.json.
-Build one with:  wave_index_build(content='graph', mode='rebuild')   (MCP)
+Build one with:  index_build(content='graph', mode='rebuild')   (MCP)
               or  python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --include-code --root <root>
 
 Side B (Python-only source-AST receiver census) runs only when --root has Python.
@@ -181,7 +181,7 @@ def main():
     root = Path(args.root).resolve()
     graph = root / ".wavefoundry/index/graph/project-graph.json"
     if not graph.exists():
-        print(f"NO GRAPH at {graph}\nBuild one first: wave_index_build(content='graph', mode='rebuild')\n"
+        print(f"NO GRAPH at {graph}\nBuild one first: index_build(content='graph', mode='rebuild')\n"
               f"or: python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --include-code --root {root}")
         return 1
     payload = json.loads(graph.read_text(encoding="utf-8"))

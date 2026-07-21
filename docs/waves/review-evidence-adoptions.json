@@ -90,6 +90,12 @@
       "record_count": 7,
       "source": "events.jsonl",
       "version": 1
+    },
+    "1t72b ce-hardening-and-paired-eval": {
+      "prefix_sha256": "87be9f1e1b9f2d18bb3f84069a9469411e5eff5ccb7599e1c94867cba1dbe899",
+      "record_count": 28,
+      "source": "events.jsonl",
+      "version": 1
     }
   }
 }

@@ -293,14 +293,28 @@ class MainCacheBehaviorTests(unittest.TestCase):
         self._patcher_clean = patch.object(run_tests, "_clean_pycache")
         self._patcher_lock = patch.object(run_tests, "_acquire_run_lock", return_value=(object(), None))
         self._patcher_release = patch.object(run_tests, "_release_run_lock")
+        # Wave 1t72b (1t727): main() now waits on the PROJECT index-build lock
+        # before starting; unit tests must never probe (or wait on) the real
+        # repository's lock — a live deferring build once made this file wait
+        # out its whole 600s budget.
+        self._patcher_build_wait = patch.object(
+            run_tests, "_wait_for_index_build", return_value=None
+        )
+        self._patcher_build_probe = patch.object(
+            run_tests, "_probe_index_build_lock", return_value=(False, None)
+        )
         self._patcher_clean.start()
         self._patcher_lock.start()
         self._patcher_release.start()
+        self._patcher_build_wait.start()
+        self._patcher_build_probe.start()
 
     def tearDown(self):
         self._patcher_clean.stop()
         self._patcher_lock.stop()
         self._patcher_release.stop()
+        self._patcher_build_wait.stop()
+        self._patcher_build_probe.stop()
         run_tests._CACHE_FILE = self._orig_cache_file
         run_tests._TESTS_DIR = self._orig_tests_dir
         shutil.rmtree(self._tmp, ignore_errors=True)

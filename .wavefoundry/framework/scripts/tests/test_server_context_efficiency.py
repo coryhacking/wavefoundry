@@ -374,6 +374,99 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
                 attached["data"]["scorer"]["matched_pair_residual"], 250
             )
 
+    def test_scaffold_derives_from_scorer_constants_and_gates_hold(self):
+        """Wave 1t72b (1t72a) AC-1/AC-2: the scaffold's shape derives from the
+        scorer's own canonical constants; the unfilled scaffold is REJECTED by
+        the scorer, and the same skeleton genuinely filled attaches cleanly."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            telemetry = ce.ProcessTelemetry(root)
+            telemetry.set_focus("1wave", "review", new_phase=True)
+            phase_id = telemetry.focus.phase_id
+            telemetry.record_retrieval(
+                {
+                    "estimated_request_tokens": 5,
+                    "estimated_returned_tokens": 10,
+                    "estimated_source_tokens": 265,
+                    "estimated_avoided_tokens": 250,
+                    "source_files_counted": 1,
+                    "source_files_verified": 1,
+                    "source_files_estimated": 0,
+                    "captured": True,
+                    "persistence": "pending",
+                    "method": ce.RETRIEVAL_METHOD,
+                    "_source_credits": [
+                        {"source_id": "s", "version_id": "v1", "tokens": 265,
+                         "classification": "verified", "credit_kind": "content"},
+                    ],
+                },
+                event_id="scaffold-ledger",
+            )
+            applicability = {
+                "wave_id": "1wave", "phase_id": phase_id, "stage": "review",
+                "task_spec_digest": "task", "repository_snapshot_digest": "repo",
+                "model_id": "model", "model_version": "version",
+                "tool_configuration_digest": "tools",
+            }
+            # Scaffold before register: must fail with guidance.
+            early = srv.wf_context_efficiency_eval_response(
+                root, "1wave", phase_id, mode="scaffold", report_path="pairs.json"
+            )
+            self.assertEqual(early["status"], "error")
+            self.assertIn("register", early["data"]["error"])
+            registered = srv.wf_context_efficiency_eval_response(
+                root, "1wave", phase_id, mode="register",
+                applicability=applicability,
+            )
+            self.assertEqual(registered["status"], "ok")
+            scaffolded = srv.wf_context_efficiency_eval_response(
+                root, "1wave", phase_id, mode="scaffold", report_path="pairs.json"
+            )
+            self.assertEqual(scaffolded["status"], "ok")
+            skeleton = json.loads((root / "pairs.json").read_text(encoding="utf-8"))
+            self.assertEqual(skeleton["applicability"], applicability)
+            self.assertEqual(len(skeleton["pairs"]), pair_scorer.MIN_QUALIFYING_PAIRS)
+            for pair in skeleton["pairs"]:
+                self.assertEqual(set(pair), set(pair_scorer.PAIR_KEYS))
+                for arm_key in ("baseline", "assisted"):
+                    self.assertEqual(set(pair[arm_key]), set(pair_scorer.ARM_KEYS))
+                    self.assertEqual(
+                        set(pair[arm_key]["quality"]), set(pair_scorer.QUALITY_KEYS)
+                    )
+            # AC-2 first half: unfilled placeholders never qualify.
+            with self.assertRaises(ValueError):
+                pair_scorer.score_pairs(skeleton)
+            # Refusing to overwrite an existing scaffold.
+            again = srv.wf_context_efficiency_eval_response(
+                root, "1wave", phase_id, mode="scaffold", report_path="pairs.json"
+            )
+            self.assertEqual(again["status"], "error")
+            # AC-2 second half: genuinely filled, the same skeleton attaches.
+            skeleton["evaluation_id"] = "eval-scaffold"
+            quality = {k: 3 for k in pair_scorer.QUALITY_KEYS}
+            for index, pair in enumerate(skeleton["pairs"]):
+                pair["pair_id"] = f"pair-{index}"
+                pair["baseline"].update(
+                    input_tokens=1000, output_tokens=500, tool_calls=20,
+                    completed=True, quality=dict(quality),
+                )
+                pair["assisted"].update(
+                    input_tokens=700, output_tokens=300, tool_calls=9,
+                    completed=True, quality=dict(quality),
+                )
+                pair["assisted_direct_net"] = 250
+            (root / "pairs.json").write_text(
+                json.dumps(skeleton), encoding="utf-8"
+            )
+            attached = srv.wf_context_efficiency_eval_response(
+                root, "1wave", phase_id, mode="attach", report_path="pairs.json"
+            )
+            self.assertEqual(attached["status"], "ok")
+            self.assertEqual(
+                attached["data"]["scorer"]["matched_pair_residual"], 250
+            )
+
     def test_review_evidence_tool_description_names_repeatable_terminal_states(self):
         source = (SCRIPTS_ROOT / "server_impl.py").read_text(encoding="utf-8")
         self.assertIn("truthful ``not_issue`` /", source)
@@ -1400,6 +1493,9 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
                         }
                     ],
                 },
+                # 1t67p: the sensor counts the code-retrieval census, so the
+                # fixture names a census tool like the real instrumentation.
+                tool_name="code_read",
                 event_id="posture-work",
             )
             telemetry.close()
@@ -1837,6 +1933,133 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
         for arg in ('"scope": scope', '"top": top', '"max_hops": max_hops',
                     '"layer": layer', '"include_tests": include_tests'):
             self.assertIn(arg, window)
+
+    def test_sync_surfaces_credits_written_manifest_files(self):
+        """Wave 1t72b (1t729) AC-2/AC-3: a run-mode sync credits the manifest's
+        changed files as derived artifacts; an empty manifest and a dry-run
+        credit nothing."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            rendered = root / ".claude" / "hooks" / "post-edit.py"
+            rendered.parent.mkdir(parents=True, exist_ok=True)
+            rendered.write_text("h" * 900, encoding="utf-8")
+            def run_tool(mode="run", kwargs=None):
+                return {"status": "ok", "data": {
+                    "passed": True, "written": [".claude/hooks/post-edit.py"],
+                    "output": "",
+                }}
+            wrapped, handler = self._wrapped_registry(root, "wf_sync_surfaces", run_tool)
+            wrapped(mode="run")
+            def noop_tool(mode="run", kwargs=None):
+                return {"status": "ok", "data": {"passed": True, "written": [], "output": ""}}
+            wrapped2, handler2 = self._wrapped_registry(root, "wf_sync_surfaces", noop_tool)
+            wrapped2(mode="run")
+            def dry_tool(mode="dry_run", kwargs=None):
+                return {"status": "ok", "data": {"mode": "dry_run", "skipped": True}}
+            wrapped3, handler3 = self._wrapped_registry(root, "wf_sync_surfaces", dry_tool)
+            wrapped3(mode="dry_run")
+            handler.telemetry.close(); handler2.telemetry.close(); handler3.telemetry.close()
+            conn = sqlite3.connect(ce.store_path(root))
+            rows = conn.execute(
+                "SELECT derived_artifact_tokens FROM telemetry_event "
+                "WHERE tool_name='wf_sync_surfaces' ORDER BY derived_artifact_tokens DESC"
+            ).fetchall()
+            conn.close()
+            self.assertEqual(len(rows), 3)
+            self.assertGreater(rows[0][0], 150)  # the run that changed a file
+            self.assertEqual(rows[1][0], 0)      # no-op re-render
+            self.assertEqual(rows[2][0], 0)      # dry-run
+
+    def test_posture_gap_not_masked_by_non_census_retrieval(self):
+        """Wave 1t72b (1t67p) AC-2/AC-3: the gap decision counts only the
+        code-retrieval census — reproducing the live masking scenario where a
+        wave's sole implement-stage retrieval row was wf_sync_surfaces."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            wave_id = "1aaaa masked"
+            wave_md = root / "docs" / "waves" / wave_id / "wave.md"
+            wave_md.parent.mkdir(parents=True)
+            wave_md.write_text("# Wave\n\nStatus: active\n", encoding="utf-8")
+            telemetry = ce.ProcessTelemetry(root)
+            telemetry.set_focus(wave_id, "implement", new_phase=True)
+            def record(tool):
+                telemetry.record_retrieval(
+                    {"estimated_request_tokens": 1, "estimated_returned_tokens": 5,
+                     "estimated_source_tokens": 0, "estimated_avoided_tokens": 0,
+                     "source_files_counted": 0, "source_files_verified": 0,
+                     "source_files_estimated": 0, "captured": True,
+                     "persistence": "pending", "method": ce.RETRIEVAL_METHOD},
+                    tool_name=tool,
+                    event_id=f"mask-{tool}",
+                )
+            record("wf_sync_surfaces")  # the live masking call
+            telemetry.close()
+            srv._FOOTPRINT_PROVIDER = lambda _root: 12
+            try:
+                gap = srv._retrieval_posture_gap(root, wave_md)
+                self.assertIsNotNone(
+                    gap, "a non-census call must not mask the code-retrieval drought"
+                )
+                self.assertEqual(gap["implement_stage_retrieval_calls"], 0)
+                # AC-3: census calls above threshold keep the sensor silent.
+                telemetry2 = ce.ProcessTelemetry(root)
+                telemetry2.set_focus(wave_id, "implement")
+                telemetry2.record_retrieval(
+                    {"estimated_request_tokens": 1, "estimated_returned_tokens": 5,
+                     "estimated_source_tokens": 0, "estimated_avoided_tokens": 0,
+                     "source_files_counted": 0, "source_files_verified": 0,
+                     "source_files_estimated": 0, "captured": True,
+                     "persistence": "pending", "method": ce.RETRIEVAL_METHOD},
+                    tool_name="code_read",
+                    event_id="mask-code-read",
+                )
+                telemetry2.close()
+                self.assertIsNone(srv._retrieval_posture_gap(root, wave_md))
+            finally:
+                srv._FOOTPRINT_PROVIDER = None
+
+    def test_activation_paths_serve_posture_directive(self):
+        """Wave 1t72b (1t67p) AC-1: prepare(mode='create') and wf_reopen_wave
+        serve the shared posture directive on activation; readiness-only
+        prepare modes do not. Source-census assertions pin the shared constant
+        at all three activation sites."""
+        source = (SCRIPTS_ROOT / "server_impl.py").read_text(encoding="utf-8")
+        self.assertEqual(
+            source.count('"retrieval_posture": _RETRIEVAL_POSTURE_DIRECTIVE'),
+            2,
+            "reopen + implement serve the shared constant directly",
+        )
+        self.assertIn(
+            '_review_data["retrieval_posture"] = _RETRIEVAL_POSTURE_DIRECTIVE',
+            source,
+            "wf_review_wave serves the directive in-band (operator extension: "
+            "review work is retrieval work)",
+        )
+        self.assertIn(
+            'resp_data["retrieval_posture"] = _RETRIEVAL_POSTURE_DIRECTIVE',
+            source,
+            "prepare serves it only on the transitioned_to_active branch",
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            wave_id = "1aaaa reopen-me"
+            wave_md = root / "docs" / "waves" / wave_id / "wave.md"
+            wave_md.parent.mkdir(parents=True)
+            wave_md.write_text(
+                "# Wave\n\nStatus: closed\n\nwave-id: `1aaaa reopen-me`\n",
+                encoding="utf-8",
+            )
+            with patch.object(srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
+                reopened = srv.wf_reopen_wave_response(root, "1aaaa")
+            self.assertEqual(reopened["status"], "ok")
+            self.assertIn("retrieval_posture", reopened["data"])
+            self.assertEqual(
+                reopened["data"]["retrieval_posture"],
+                srv._RETRIEVAL_POSTURE_DIRECTIVE,
+            )
 
     def test_pending_projection_reports_corrupt_authority_not_success(self):
         with tempfile.TemporaryDirectory() as tmp:
