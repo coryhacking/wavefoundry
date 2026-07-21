@@ -55,6 +55,8 @@ from review_evidence import (
     adopted_protocol_state,
     build_identified_review_event,
     canonical_review_events_bytes,
+    current_synthesis_heads,
+    derive_disposition,
     derive_review_event_identity,
     empty_external_finding_synthesis_section,
     parse_review_evidence_source,
@@ -462,6 +464,90 @@ def _index_readiness_overview(
     if not has_any_index:
         return "absent"
     return "ready"
+
+
+def _audit_build_summary(index_dir: Path) -> dict[str, Any]:
+    """Bounded store read for the audit snapshot; {} on any failure.
+
+    Operator review repair (1t59p cycle 1): this MUST stay on the
+    read_build_summary path (layer scalars plus one COUNT). The per-file
+    exporter materializes every per-file bookkeeping row, which is the
+    O(indexed-files) cost this snapshot exists to avoid.
+    """
+    try:
+        iss = _load_script("index_state_store")
+        return iss.read_build_summary(index_dir) or {}
+    except Exception:
+        return {}
+
+
+def _audit_index_snapshot(root: Path, index_dir: Path) -> dict[str, Any]:
+    """Bounded metadata-only index readiness for ``wf_audit`` (wave 1t59p).
+
+    Reads ONLY the index control plane: the completed-build epoch (SQLite),
+    Lance table DIRECTORY presence (never a table open), the bounded build
+    summary (layer scalars plus one COUNT — never per-file rows), and the
+    configured include-prefixes. It must never import LanceDB, open a table,
+    load a model, hash the working tree, or materialize per-file store rows —
+    those are the unbounded first-call costs this snapshot exists to avoid
+    (the native-Windows field report). Freshness is therefore UNKNOWN here by
+    construction; the explicit ``index_health`` tool owns full hash-walk
+    verification.
+    """
+    epoch_complete = _store_has_completed_build(index_dir)
+    docs_present = (index_dir / "docs.lance").is_dir()
+    code_present = (index_dir / "code.lance").is_dir()
+    snapshot = _audit_build_summary(index_dir) if epoch_complete else {}
+    try:
+        code_prefixes = tuple(
+            _load_script("indexer")._workflow_project_include_prefixes(root).get("code", ())
+        )
+    except Exception:
+        code_prefixes = ()
+    # Operator review repair (1t59p cycle 1): readiness derives from NO
+    # per-file metadata — configuration is the scope authority. Prefixes
+    # configured with no code.lance is the 1p7is missing-layer signal
+    # (e.g. an OOM-killed code embedding pass), read fail-closed.
+    code_sources_in_scope = bool(code_prefixes)
+    code_layer_missing = code_sources_in_scope and not code_present
+    raw_chunker_versions = snapshot.get("chunker_versions", {})
+    indexed_chunker_versions: dict[str, str] = (
+        raw_chunker_versions if isinstance(raw_chunker_versions, dict) else {}
+    )
+    current_chunker_version = _read_chunker_version()
+    chunker_version_mismatch = bool(
+        current_chunker_version
+        and epoch_complete
+        and any(v != current_chunker_version for v in indexed_chunker_versions.values() if v)
+    )
+    missing_layers: list[str] = []
+    if epoch_complete and not (docs_present or code_present):
+        missing_layers.append("project")
+    if code_layer_missing:
+        missing_layers.append("code")
+    metadata_ready = (
+        epoch_complete and (docs_present or code_present) and not code_layer_missing
+    )
+    readiness_overview = _index_readiness_overview(
+        missing_layers, [], docs_present or code_present, epoch_complete
+    )
+    return {
+        "metadata_ready": metadata_ready,
+        "epoch_complete": epoch_complete,
+        "docs_present": docs_present,
+        "code_present": code_present,
+        "code_sources_in_scope": code_sources_in_scope,
+        "code_layer_missing": code_layer_missing,
+        "indexed_chunker_versions": indexed_chunker_versions,
+        "current_chunker_version": current_chunker_version,
+        "chunker_version_mismatch": chunker_version_mismatch,
+        "readiness_overview": readiness_overview,
+        # The honesty contract (1t59o AC-2): this snapshot never scanned the
+        # working tree, so it must never be read as a freshness verdict.
+        "freshness_checked": False,
+        "freshness": "unknown",
+        "freshness_verification_tool": "index_health",
+    }
 
 
 @contextlib.contextmanager
@@ -9216,14 +9302,18 @@ def wf_audit_response(
     index: Optional[WaveIndex] = None,
     cache: Optional[McpRepoCache] = None,
 ) -> dict[str, Any]:
-    """Aggregate read-only audit: wave state + docs validation + index health.
+    """Aggregate read-only audit: wave state + docs validation + a bounded index snapshot.
 
     Returns a single ``data`` payload with three sub-objects (``wave``,
     ``validation``, ``index``) and a top-level ``ready`` boolean that is
     ``True`` only when all three sub-checks pass:
     - wave is active or planned
     - docs-lint reports zero failures
-    - ``semantic_ready`` is ``True`` in the index health report
+    - ``metadata_ready`` is ``True`` in the bounded index snapshot
+
+    The index leg never cold-loads native storage or hashes the working tree
+    (wave 1t59p); it reports ``freshness: "unknown"`` and defers full
+    verification to the explicit ``index_health`` tool.
 
     Safe to call at any time; does not trigger writes or reindexes.
     """
@@ -9259,17 +9349,30 @@ def wf_audit_response(
         val_result = {"passed": False, "errors": [str(exc)], "warnings": []}
         lint_ok = False
 
-    # --- Index health sub-check ---
-    index_data: dict[str, Any] = {}
-    index_ok = False
-    if index is not None:
-        try:
-            index_data = index.docs_health()
-            index_ok = bool(index_data.get("semantic_ready"))
-        except Exception as exc:  # pragma: no cover
-            index_data = {"error": str(exc), "semantic_ready": False}
-    else:
-        index_data = {"semantic_ready": False}
+    # --- Index readiness sub-check (wave 1t59p: bounded metadata snapshot) ---
+    # wf_audit is the default first call of a session; the old full
+    # index-health leg cold-loaded native storage and hashed every indexed
+    # file with no deadline (the field-reported native-Windows "hangs
+    # forever"). The snapshot reads only the index control plane, so
+    # freshness is honestly UNKNOWN here; the explicit index_health tool
+    # keeps the full hash-walk verification.
+    index_dir = (
+        Path(getattr(index, "index_dir"))
+        if index is not None and isinstance(getattr(index, "index_dir", None), (str, Path))
+        else root / ".wavefoundry" / "index"
+    )
+    try:
+        index_data = _audit_index_snapshot(root, index_dir)
+        index_ok = bool(index_data.get("metadata_ready"))
+    except Exception as exc:  # pragma: no cover
+        index_data = {
+            "error": str(exc),
+            "metadata_ready": False,
+            "freshness_checked": False,
+            "freshness": "unknown",
+            "freshness_verification_tool": "index_health",
+        }
+        index_ok = False
 
     # --- Doc-code drift summary (wave 1ro44 / 1ro43 Req 7) ---
     # The gardening worklist surface: flagged living docs, worst first,
@@ -9314,11 +9417,24 @@ def wf_audit_response(
             _diagnostic(
                 _REASON_INDEX_NOT_READY,
                 (
-                    f"Semantic index is not ready (readiness_overview: {overview!r}). "
-                    "Call index_build to recover."
+                    f"Semantic index is not ready (readiness_overview: {overview!r}, "
+                    "metadata snapshot only). Call index_build to recover."
                 ),
                 recovery_tools=["index_build"],
                 recovery_usage="index_build(content='docs', mode='update')",
+            )
+        )
+    else:
+        diagnostics.append(
+            _diagnostic(
+                "index_freshness_unverified",
+                (
+                    "Index readiness comes from the bounded metadata snapshot; working-tree "
+                    "freshness was NOT scanned. Call index_health for full hash-walk "
+                    "verification when freshness matters."
+                ),
+                recovery_tools=["index_health"],
+                recovery_usage="index_health()",
             )
         )
 
@@ -12494,6 +12610,150 @@ def _identified_review_event_bundle(
     return None
 
 
+# Wave 1t59p (1t6ow): bounded output for the review-evidence list event.
+REVIEW_EVIDENCE_LIST_CAP = 500
+
+
+def _review_evidence_list_response(
+    root: Path,
+    wave_id: str,
+    wave_md: Path,
+    events_path: Path,
+    *,
+    finding_id: str | None = None,
+    record_type: str = "",
+    run_kind: str | None = None,
+    verbose: bool = False,
+) -> dict[str, Any]:
+    """Read-only listing of the review-evidence ledger (wave 1t59p / 1t6ow).
+
+    Composes ONLY the gate's own derivations (validate_external_review_evidence
+    for records, current_synthesis_heads, review_status_rows,
+    review_evidence_summary) so appenders see exactly what the close gate will
+    see. Never takes the write lock, never mutates the ledger.
+    """
+    rel_events = str(events_path.resolve().relative_to(root.resolve())).replace("\\", "/")
+    base: dict[str, Any] = {
+        "wave_id": wave_id,
+        "event": "list",
+        "events_path": rel_events,
+        "filters": {
+            **({"finding_id": finding_id} if finding_id else {}),
+            **({"record_type": record_type} if record_type else {}),
+            **({"run_kind": run_kind} if run_kind else {}),
+        },
+    }
+    if not events_path.exists():
+        return _response(
+            "ok",
+            {**base, "records": [], "total_records": 0, "truncated": False,
+             "summary": {}, "chain_summary": {}, "approvals": []},
+            diagnostics=[_diagnostic(
+                "review_evidence_empty",
+                "No events.jsonl ledger exists for this wave yet — nothing recorded.",
+                recovery_tools=["wf_review_evidence"],
+                recovery_usage="wf_review_evidence(wave_id=..., event='run', ...)",
+            )],
+            next_tools=["wf_review_evidence"],
+            usage="wf_review_evidence(wave_id=..., event='run', mode='dry_run', ...)",
+        )
+    result = validate_external_review_evidence(wave_md)
+    records = list(result.records or ())
+    diagnostics: list[dict[str, Any]] = []
+    for error in result.errors or ():
+        diagnostics.append(_diagnostic("review_evidence_invalid", str(error)))
+
+    def _identity(record: dict[str, Any]) -> str:
+        return str(
+            record.get("record_id")
+            or record.get("evidence_record_id")
+            or record.get("review_run_id")
+            or ""
+        )
+
+    def _row(record: dict[str, Any]) -> dict[str, Any]:
+        if verbose:
+            return dict(record)
+        compact: dict[str, Any] = {"id": _identity(record), "record_type": record.get("record_type")}
+        for key in (
+            "run_kind", "cycle", "finding_id", "claim_kind", "claim_id",
+            "signoff_key", "disposition", "repair_execution_state",
+            "source_lanes", "blocking_required_lanes", "approval_recheck_lanes",
+            "supersedes_record_id", "verification_context",
+        ):
+            if key in record:
+                compact[key] = record[key]
+        identity = record.get(EVENT_IDENTITY_FIELD)
+        if isinstance(identity, dict):
+            compact["event_identity"] = {
+                k: identity.get(k) for k in ("actor", "context_id", "run_kind", "cycle", "signoff_key")
+                if identity.get(k) is not None
+            }
+        return compact
+
+    filtered = records
+    if finding_id:
+        filtered = [
+            r for r in filtered
+            if r.get("finding_id") == finding_id or r.get("claim_id") == finding_id
+        ]
+    if record_type:
+        filtered = [r for r in filtered if r.get("record_type") == record_type]
+    if run_kind:
+        filtered = [r for r in filtered if r.get("run_kind") == run_kind]
+    total = len(filtered)
+    truncated = total > REVIEW_EVIDENCE_LIST_CAP
+    # Keep the TAIL on truncation: recent records are what an appender needs.
+    visible = filtered[-REVIEW_EVIDENCE_LIST_CAP:] if truncated else filtered
+
+    chain_summary: dict[str, Any] = {}
+    for fid, head in current_synthesis_heads(records).items():
+        disposition = derive_disposition(head)
+        repair_state = head.get("repair_execution_state")
+        lanes = [l for l in (head.get("blocking_required_lanes") or []) if isinstance(l, str)]
+        terminal = (
+            disposition in {"not_issue", "dont_do_later"}
+            or (repair_state in {"completed", "operator_waived", "not_required"} and not lanes)
+        )
+        chain_summary[fid] = {
+            "head_record_id": str(head.get("record_id") or ""),
+            "cycle": head.get("cycle"),
+            "disposition": disposition,
+            "repair_execution_state": repair_state,
+            "unresolved_required_lanes": lanes,
+            "terminal": terminal,
+        }
+    try:
+        wave_text = wave_md.read_text(encoding="utf-8")
+        required_keys = required_review_status_keys(root, wave_text, records)
+        approvals = review_status_rows(records, required_keys)
+    except Exception as exc:  # noqa: BLE001 - listing must not fail on status derivation
+        approvals = []
+        diagnostics.append(_diagnostic("review_status_unavailable", str(exc)))
+    if truncated:
+        diagnostics.append(_diagnostic(
+            "review_evidence_list_truncated",
+            f"Listing capped at {REVIEW_EVIDENCE_LIST_CAP} of {total} matching records "
+            "(most recent kept). Narrow with finding_id/record_type/run_kind filters.",
+        ))
+    return _response(
+        "ok",
+        {
+            **base,
+            "records": [_row(r) for r in visible],
+            "total_records": total,
+            "truncated": truncated,
+            "record_cap": REVIEW_EVIDENCE_LIST_CAP,
+            "summary": review_evidence_summary(records),
+            "chain_summary": chain_summary,
+            "approvals": approvals,
+        },
+        diagnostics=diagnostics,
+        next_tools=["wf_review_evidence", "wf_review_wave"],
+        usage="wf_review_evidence(wave_id=..., event='finding'|'run'|'approval', mode='dry_run', ...)",
+    )
+
+
 def wf_review_evidence_response(
     root: Path,
     wave_id: str,
@@ -12515,11 +12775,19 @@ def wf_review_evidence_response(
     fresh_context: bool = False,
     independent: bool = False,
     integrity_confirmed: bool = False,
+    record_type: str = "",
+    verbose: bool = False,
 ) -> dict[str, Any]:
-    """Preview or append a compact semantic review event to a marked wave."""
+    """Preview or append a compact semantic review event to a marked wave.
 
+    ``event="list"`` is the read-only listing surface (wave 1t59p / 1t6ow):
+    it branches before any write-path validation, ignores ``mode``, and never
+    takes the write lock.
+    """
+
+    is_list = (event or "").strip().lower() == "list"
     mode_s = (mode or "dry_run").strip().lower()
-    if mode_s not in {"dry_run", "create"}:
+    if not is_list and mode_s not in {"dry_run", "create"}:
         return _response(
             "error",
             {"wave_id": wave_id, "mode": mode_s},
@@ -12550,6 +12818,12 @@ def wf_review_evidence_response(
             "error",
             {"wave_id": wave_id, "mode": mode_s, "event": event},
             diagnostics=[_diagnostic("review_evidence_path_escape", str(exc))],
+        )
+    if is_list:
+        return _review_evidence_list_response(
+            root, wave_id, wave_md, _events_path,
+            finding_id=finding_id, record_type=record_type,
+            run_kind=run_kind, verbose=verbose,
         )
     semantic_event: dict[str, Any] = {
         "event": event,
@@ -12595,7 +12869,11 @@ def wf_review_evidence_response(
         return _response(
             "error",
             {"wave_id": wave_id, "mode": mode_s, "event": event},
-            diagnostics=[_diagnostic("invalid_review_event", str(exc))],
+            diagnostics=[_diagnostic(
+                "invalid_review_event", str(exc),
+                recovery_tools=["wf_review_evidence"],
+                recovery_usage=f"wf_review_evidence(wave_id={wave_id!r}, event='list', actor={actor!r}, context_id={context_id!r})  # inspect chain state",
+            )],
         )
 
     def transact() -> dict[str, Any]:
@@ -12639,7 +12917,14 @@ def wf_review_evidence_response(
                 return _response(
                     "error",
                     {"wave_id": wave_id, "mode": mode_s, "event": event},
-                    diagnostics=[_diagnostic("invalid_review_event", error) for error in build_errors],
+                    diagnostics=[
+                        _diagnostic(
+                            "invalid_review_event", error,
+                            recovery_tools=["wf_review_evidence"],
+                            recovery_usage=f"wf_review_evidence(wave_id={wave_id!r}, event='list', actor={actor!r}, context_id={context_id!r})  # inspect chain state (lanes, cycles, heads) before retrying",
+                        )
+                        for error in build_errors
+                    ],
                     next_tools=["wf_help"],
                 )
             proposed_records = (*current.records, *appended)
@@ -21975,8 +22260,15 @@ def project_pending_context_efficiency(
         }
     pending = list(pending_state.get("pending", []))
     projected: list[str] = []
+    skipped_unknown: list[dict[str, Any]] = []
     for wave_id in pending:
         result, _flushed = _flush_context_efficiency(handler, wave_id)
+        if result.get("projection") == "wave_not_found":
+            # Hardening (1t59p, operator-approved): a phantom or misattributed
+            # wave key must never brick reload/upgrade. Leave its rows pending,
+            # surface it explicitly, and keep projecting the real waves.
+            skipped_unknown.append({"wave_id": wave_id, "detail": result})
+            continue
         if result.get("projection") != "published":
             return {
                 "ok": False,
@@ -21985,7 +22277,10 @@ def project_pending_context_efficiency(
                 "detail": result,
             }
         projected.append(wave_id)
-    return {"ok": True, "projected": projected}
+    out: dict[str, Any] = {"ok": True, "projected": projected}
+    if skipped_unknown:
+        out["skipped_unknown_waves"] = skipped_unknown
+    return out
 
 
 def _context_efficiency_state(
@@ -22290,7 +22585,17 @@ def _lifecycle_context_result(
         and isinstance(response_data.get("lane_results"), list)
         and (response_data.get("phase") in {"prepare", "implementation"})
     )
-    if (core_succeeded or reached_review) and focus_stage is not None:
+    # Hardening (1t59p, operator-approved): NEVER set focus from an
+    # unresolved wave argument — a stale-code session once focused the raw
+    # string "1t6ow" (a change ID) and the resulting phantom wave key made
+    # every reload/upgrade projection refuse. When resolution fails, focus is
+    # left untouched (not nulled: a typo must not clobber a valid focus) and
+    # the call's cost attributes through the normal fallbacks.
+    if (
+        (core_succeeded or reached_review)
+        and focus_stage is not None
+        and wave_md is not None
+    ):
         try:
             handler.telemetry.set_focus(
                 wave_id, focus_stage, new_phase=bool(credit)
@@ -22509,13 +22814,29 @@ def _artifact_file_token_list(root: Path, rel_paths: Iterable[str]) -> list[int]
     return tokens
 
 
-def _artifact_from_review_evidence(root: Path, result: Mapping[str, Any]) -> tuple[int, Optional[str]]:
+def _artifact_from_review_evidence(root: Path, result: Mapping[str, Any]) -> "tuple[list[int], Optional[str]]":
+    # 1t6ow live-caught repair: early returns MUST be list-typed. The 1t3ek
+    # per-artifact-floor repair made the wrapper iterate raw_artifacts, so an
+    # int `0` here raised TypeError inside the observational recorder and
+    # silently dropped the ENTIRE debit row for every non-create response.
     data = result.get("data") if isinstance(result.get("data"), dict) else {}
+    if result.get("status") == "ok" and data.get("event") == "list":
+        # Operator policy (1t6ow): an identical-content repeat listing is
+        # NEUTRAL — 0 credit AND 0 debit. The response hash IS the version
+        # identity (the list response echoes no caller identity, so same
+        # ledger version + same filters + same verbosity => same response
+        # => same event id => the store's replay dedup drops the whole
+        # event). A changed ledger, different filters, or any response
+        # difference yields a new id and records normally.
+        digest = hashlib.sha256(
+            json.dumps(result, sort_keys=True, default=str).encode("utf-8")
+        ).hexdigest()
+        return [], f"list:{digest}"
     if result.get("status") != "ok" or data.get("mode") != "create" or data.get("replayed"):
-        return 0, None
+        return [], None
     records = data.get("appended_records") or []
     if not records:
-        return 0, None
+        return [], None
     digest = None
     for record in records:
         digest = record.get("request_digest") or digest
@@ -22529,10 +22850,11 @@ def _artifact_from_review_evidence(root: Path, result: Mapping[str, Any]) -> tup
 
 
 def _artifact_from_written_paths(field: str):
-    def extract(root: Path, result: Mapping[str, Any]) -> tuple[int, Optional[str]]:
+    def extract(root: Path, result: Mapping[str, Any]) -> "tuple[list[int], Optional[str]]":
         data = result.get("data") if isinstance(result.get("data"), dict) else {}
         if result.get("status") != "ok":
-            return 0, None
+            # Same 1t6ow list-typed contract as _artifact_from_review_evidence.
+            return [], None
         value = data.get(field)
         paths: list[str] = []
         if isinstance(value, list):
@@ -22551,7 +22873,17 @@ def _artifact_from_written_paths(field: str):
 
 def _state_sources_review_evidence(root: Path, result: Mapping[str, Any]) -> list[str]:
     data = result.get("data") if isinstance(result.get("data"), dict) else {}
-    if result.get("status") != "ok" or data.get("mode") != "create" or data.get("replayed"):
+    if result.get("status") != "ok":
+        return []
+    # Wave 1t59p (1t6ow): the read-only list event conveys whole-ledger state
+    # on every response (summary, chain heads, and approval currency derive
+    # from every record, not just the filtered rows), so it credits the live
+    # ledger file it read on the caller's behalf. The canonical source-proof
+    # machinery keeps this once-only per (wave, phase, source, version).
+    if data.get("event") == "list":
+        value = data.get("events_path")
+        return [value] if isinstance(value, str) and value else []
+    if data.get("mode") != "create" or data.get("replayed"):
         return []
     paths = []
     for field in ("events_path", "path"):
@@ -24217,11 +24549,28 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         fresh_context: bool = False,
         independent: bool = False,
         integrity_confirmed: bool = False,
+        record_type: str = "",
+        verbose: bool = False,
         **kwargs: Any,
     ) -> dict[str, Any]:
-        """Preview or append compact executable-review evidence without hand-authoring JSONL.
+        """Preview, append, or LIST compact executable-review evidence without hand-authoring JSONL.
 
-        ``event`` is ``approval``, ``finding``, or ``run``. The default ``dry_run`` returns the
+        ``event`` is ``approval``, ``finding``, ``run``, or ``list``.
+
+        ``event="list"`` (wave 1t59p) is the READ-ONLY inspection surface for the
+        ledger: it returns a compact per-record index (identity, type, run kind,
+        cycle, finding, lanes, supersession, verification context), a per-finding
+        ``chain_summary`` (current head, disposition, repair state, unresolved
+        required lanes, terminal flag — the same derivation the close gate uses),
+        and ``approvals`` (per-signoff currency). ``finding_id``/``record_type``/
+        ``run_kind`` filter; ``verbose=true`` returns full records; output is
+        capped with an explicit truncation marker. For list, ``mode`` is ignored
+        and ``actor``/``context_id`` are identity pass-through only; nothing is
+        written and no lock is taken. Inspect chain state with list BEFORE
+        appending to an existing finding chain instead of hand-parsing
+        ``events.jsonl``.
+
+        For the write events: the default ``dry_run`` returns the
         exact derived records without writing; ``create`` serializes under the project-global lock,
         atomically replaces the fixed sibling ``events.jsonl`` authority, advances its bounded
         adoption proof, and rebuilds the Markdown current-state projection. The server derives a
@@ -24275,6 +24624,9 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             fresh_context: Whether the actor started without retained repair context.
             independent: Whether the actor did not implement the repair and formed its own verdict.
             integrity_confirmed: Explicit confirmation of the five evidence-integrity checks.
+            record_type: list only — filter rows to one record type
+                (``executable_evidence``, ``review_run``, ``finding_synthesis``).
+            verbose: list only — return full records instead of the compact index.
         """
         bad = _ensure_no_extra_args("wf_review_evidence", kwargs)
         if bad is not None:
@@ -24299,6 +24651,8 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             fresh_context=fresh_context,
             independent=independent,
             integrity_confirmed=integrity_confirmed,
+            record_type=record_type,
+            verbose=verbose,
         )
 
     @mcp.tool(annotations=_MUTATING_TOOL)
@@ -24608,12 +24962,18 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
 
     @mcp.tool(annotations=_READONLY_TOOL)
     def wf_audit(wave_id: str = "", **kwargs: Any) -> dict[str, Any]:
-        """Aggregate read-only audit: wave state + docs validation + index health.
+        """Aggregate read-only audit: wave state + docs validation + a FAST index readiness snapshot.
 
         Returns ``data.ready`` (``true`` only when wave is active/planned, docs-lint
-        passes, and ``semantic_ready`` is ``true``), plus three sub-objects:
+        passes, and ``metadata_ready`` is ``true``), plus three sub-objects:
         ``wave`` (current wave record), ``validation`` (lint pass/fail + errors),
-        and ``index`` (semantic index health summary).
+        and ``index`` (bounded metadata readiness snapshot).
+
+        The index leg is metadata-only by design (wave 1t59p): it reads the
+        completed-build epoch, table-directory presence, and recorded store meta,
+        and never cold-loads native storage or hashes the working tree. It
+        therefore reports ``freshness: "unknown"`` / ``freshness_checked: false`` —
+        call ``index_health`` for full freshness verification when that matters.
 
         Use this as the preferred landing tool after any mutation or uncertainty.
         When any sub-check fails, ``next_tools`` lists the specific recovery tool

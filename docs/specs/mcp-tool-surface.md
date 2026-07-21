@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-20
+Last verified: 2026-07-21
 
 Behavioral contract for the Wavefoundry local MCP server. This spec covers the
 tool names, response conventions, safety rules, and compatibility expectations that
@@ -555,7 +555,8 @@ mapped prompt credit.
 
 `wf_review_evidence(wave_id, event, actor, context_id, mode="dry_run", ...)`
 
-- Typed authoring surface for external-ledger executable review evidence. `event` is `approval`, `finding`, or an empty lightweight `run`; `dry_run` previews exact derived rows and `create` atomically appends them to the fixed sibling `docs/waves/<wave>/events.jsonl`.
+- Typed authoring surface for external-ledger executable review evidence. `event` is `approval`, `finding`, an empty lightweight `run`, or the read-only `list`; `dry_run` previews exact derived rows and `create` atomically appends them to the fixed sibling `docs/waves/<wave>/events.jsonl`.
+- **`event="list"` (wave 1t59p): the standardized READ surface for the ledger.** Returns a compact per-record index (identity, `record_type`, `run_kind`, `cycle`, `finding_id`, claim/signoff fields, lanes, `supersedes_record_id`, `verification_context`), a per-finding `chain_summary` (current head record, disposition, repair state, unresolved required lanes, `terminal` flag — composed from the same `current_synthesis_heads`/`review_status_rows` derivations the close gate uses, never a parallel reimplementation), and `approvals` (per-signoff currency rows). `finding_id`/`record_type`/`run_kind` filter; `verbose=true` returns full records; output is capped (`record_cap`, tail kept) with an explicit named-total truncation diagnostic. For `list`, `mode` is ignored, `actor`/`context_id` are pass-through identity, nothing is written, and no lock is taken; an absent/empty ledger returns an empty listing with a `review_evidence_empty` diagnostic. **Accounting (operator policy):** the first listing of a ledger version earns the state-source credit (the response conveys whole-ledger state); an identical-content repeat listing is NEUTRAL — zero credit AND zero debit — via a content-hash event identity (same ledger version + same filters + same verbosity ⇒ same response ⇒ replay-deduplicated). A changed ledger, different filters, or any response difference records as a normal measured call. Chain-state-dependent write rejections name the list event in their recovery hints — inspect before appending instead of hand-parsing `events.jsonl`.
 - Finding callers explicitly provide the load-bearing judgment object plus evidence narrative; the tool never guesses contract relevance, reachability, authority, impact, containment, scope, or wave causality. It derives IDs, disposition, blocking, review depth, supersession, cycle linkage, and append order.
 - Approval callers must name the exact authority actor for the signoff; specialist/council approvals are accepted only with explicit fresh, independent context. Finding events require at least one originating source lane.
 - `approval_recheck_lanes` scopes specialist approval chronology to affected findings/lanes. Wave Council remains stale after later full-depth or council-named synthesis; operator approval remains final-wave scoped.
@@ -740,13 +741,14 @@ not rely on `status` to signal index absence.
 
 `wf_audit(wave_id: str = "")`
 
-- Aggregate read-only audit: wave state + docs validation + index health in one call.
+- Aggregate read-only audit: wave state + docs validation + a bounded index readiness snapshot in one call.
 - Optional `wave_id`: audit a specific wave by ID prefix; defaults to the active/planned wave.
+- **Bounded index leg (wave 1t59p):** the `index` sub-object is a metadata-only readiness snapshot (completed build epoch, table-directory presence, the bounded `read_build_summary` scalars, configured code prefixes). It never cold-loads native storage, never materializes per-file store rows, and never hashes the working tree, so it always carries `freshness: "unknown"` / `freshness_checked: false` and a `freshness_verification_tool: "index_health"` pointer. `wf_audit` therefore cannot claim the index is current; call `index_health` for the full hash-walk freshness verification. A healthy audit carries an `index_freshness_unverified` advisory diagnostic making the distinction explicit.
 - Response `data` contains:
-  - `ready` (boolean) — `true` only when wave is active/planned, docs-lint passes, and `semantic_ready` is `true`.
+  - `ready` (boolean) — `true` only when wave is active/planned, docs-lint passes, and `metadata_ready` is `true`.
   - `wave` — current wave record (empty dict when no wave is found).
   - `validation` — docs-lint result (`passed`, `errors`, `warnings`).
-  - `index` — semantic index health summary (`semantic_ready`, `readiness_overview`, etc.).
+  - `index` — bounded readiness snapshot (`metadata_ready`, `epoch_complete`, `docs_present`, `code_present`, `code_layer_missing`, `chunker_version_mismatch`, `readiness_overview`, `freshness: "unknown"`, `freshness_checked: false`, `freshness_verification_tool`).
   - `context_efficiency` — durable SQLite wave/general totals, the last published
     checkpoint, current process focus, pending projection, and explicit
     persistence/accounting-gap health. The headline is the unified closed-ledger
@@ -854,7 +856,8 @@ Use this table to select the right tool for a query type.
 | Browse or discover all waves | `wf_list_waves` | — |
 | Combined health check after a mutation | `wf_audit` | `wf_validate_docs` + `index_health` |
 | Lint-only targeted check | `wf_validate_docs` | `wf_audit` (`data.validation` contains the same lint result) |
-| Check semantic index layer readiness | `index_health` | `wf_audit` (`data.index` contains the same health summary) |
+| Check semantic index layer readiness (fast, metadata-only) | `wf_audit` (`data.index` snapshot; freshness unknown) | `index_health` |
+| Verify index freshness against the working tree (full hash walk) | `index_health` | none — `wf_audit` deliberately does not scan freshness |
 | Identify structural hotspots across the whole graph | `wf_graph_report` | `code_search` (semantic) |
 | Find direct callers/callees of a symbol with line numbers | `code_callhierarchy` | `code_references` |
 | Trace call tree beyond one hop or get raw graph edges | `code_callgraph` | `code_callhierarchy` chained |
@@ -1030,4 +1033,4 @@ target clients, or whether `wf_help` remains the portable instruction surface.
 are now applied to all tools. Whether annotations are consistently consumed across
 Claude, Cursor, Copilot, Codex, Junie, and other MCP clients remains to be validated;
 correctness of the hints in `server.py` is no longer an open question.
-- ~~Whether a dedicated `wf_audit` tool should be added in this wave or deferred~~ **Resolved:** `wf_audit` is shipped; it aggregates `wf_current_wave`-class wave state, `wf_validate_docs` output, and index health (`semantic_ready`) in one read-only call. Lifecycle mutation tools remain separate; agents use `wf_audit` as the preferred post-mutation landing check.
+- ~~Whether a dedicated `wf_audit` tool should be added in this wave or deferred~~ **Resolved:** `wf_audit` is shipped; it aggregates `wf_current_wave`-class wave state, `wf_validate_docs` output, and the bounded index readiness snapshot (`metadata_ready`; freshness deliberately unverified, see wave 1t59p) in one read-only call. Lifecycle mutation tools remain separate; agents use `wf_audit` as the preferred post-mutation landing check.

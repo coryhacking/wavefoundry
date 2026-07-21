@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-20
+Last verified: 2026-07-21
 
 Durable reusable workflow guidance discovered during waves and promoted from journals.
 
@@ -24,7 +24,7 @@ Wavefoundry is both the framework source repository and a target repository cons
 
 ## MCP audit landing (`wf_audit`)
 
-Use MCP **`wf_audit`** as the default read-only **combined** check after uncertainty or a mutating tool: it returns **`data.wave`**, **`data.validation`** (same information as **`wf_validate_docs`** / docs-lint), **`data.index`** (semantic readiness summary), and **`data.ready`** (`true` only when a wave is present **active or planned**, lint passes, and **`semantic_ready`** is true). It does **not** write docs or trigger reindexes. When a sub-check fails, follow **`next_tools`** (`wf_validate_docs`, `index_build`, or `wf_current_wave`) instead of guessing. When **`ready`** is **`true`**, **`next_tools`** is still **`["wf_current_wave"]`** — a default navigation hint, not a recovery step. Individual tools remain available for targeted debugging.
+Use MCP **`wf_audit`** as the default read-only **combined** check after uncertainty or a mutating tool: it returns **`data.wave`**, **`data.validation`** (same information as **`wf_validate_docs`** / docs-lint), **`data.index`** (a bounded metadata readiness snapshot, wave 1t59p: `metadata_ready` with `freshness: "unknown"` — it never cold-loads native storage or hashes the working tree; call **`index_health`** when verified freshness matters), and **`data.ready`** (`true` only when a wave is present **active or planned**, lint passes, and **`metadata_ready`** is true). It does **not** write docs or trigger reindexes. When a sub-check fails, follow **`next_tools`** (`wf_validate_docs`, `index_build`, or `wf_current_wave`) instead of guessing. When **`ready`** is **`true`**, **`next_tools`** is still **`["wf_current_wave"]`** — a default navigation hint, not a recovery step. Individual tools remain available for targeted debugging.
 
 ## Framework VERSION Semantics
 

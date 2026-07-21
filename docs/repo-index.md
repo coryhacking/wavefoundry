@@ -35,26 +35,26 @@ between the markers is machine-maintained; the surrounding narrative is not.
 
 | Area | Path | Kind | Size (nodes) |
 | ---- | ---- | ---- | ------------ |
-| tests | `.wavefoundry/framework/scripts/tests` | code | 8995 |
-| server_impl | `.wavefoundry/framework/scripts` | code | 775 |
+| tests | `.wavefoundry/framework/scripts/tests` | code | 9026 |
+| server_impl | `.wavefoundry/framework/scripts` | code | 879 |
 | graph | `.wavefoundry/framework/scripts` | code | 352 |
 | dashboard | `.wavefoundry/framework/dashboard` | code | 214 |
-| wave_lint_lib | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 199 |
+| scripts/dashboard_lib | `.wavefoundry/framework/scripts` | code | 208 |
+| wave_lint_lib | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 197 |
 | chunker | `.wavefoundry/framework/scripts` | code | 179 |
-| upgrade_wavefoundry | `.wavefoundry/framework/scripts` | code | 164 |
-| subprocess_util | `.wavefoundry/framework/scripts` | code | 148 |
-| indexer | `.wavefoundry/framework/scripts` | code | 144 |
-| context_efficiency | `.wavefoundry/framework/scripts` | code | 133 |
-| scripts/dashboard_lib | `.wavefoundry/framework/scripts` | code | 123 |
+| subprocess_util | `.wavefoundry/framework/scripts` | code | 171 |
+| context_efficiency | `.wavefoundry/framework/scripts` | code | 117 |
 | dashboard/dashboard | `.wavefoundry/framework/scripts` | code | 117 |
-| review_evidence | `.wavefoundry/framework/scripts` | code | 96 |
+| indexer | `.wavefoundry/framework/scripts` | code | 113 |
+| review_evidence | `.wavefoundry/framework/scripts` | code | 99 |
+| upgrade_wavefoundry | `.wavefoundry/framework/scripts` | code | 93 |
 | render_agent_surfaces | `.wavefoundry/framework/scripts` | code | 90 |
-| gen_codebase_map | `.wavefoundry/framework/scripts` | code | 55 |
+| docs/dashboard_lib | `.wavefoundry/framework/scripts` | code | 67 |
+| gen_codebase_map | `.wavefoundry/framework/scripts` | code | 57 |
 | graph_di_signals | `.wavefoundry/framework/scripts` | code | 44 |
-| framework/scripts — read_cluster_payload | `.wavefoundry/framework/scripts` | code | 40 |
+| framework/scripts — update_graph_clusters | `.wavefoundry/framework/scripts` | code | 38 |
 | upgrade_extensions | `.wavefoundry/framework/scripts` | code | 33 |
 | framework/scripts — register_mcp_surface | `.wavefoundry/framework/scripts` | code | 32 |
-| scripts/workflow-config | `.wavefoundry/framework/scripts` | code | 26 |
 | design_token_build | `.wavefoundry/framework/scripts` | code | 25 |
 | run_tests | `.wavefoundry/framework/scripts` | code | 18 |
 | docs_gardener | `.wavefoundry/framework/scripts` | code | 17 |

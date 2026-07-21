@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-20
+Last verified: 2026-07-21
 
 ## The Problem
 
@@ -400,6 +400,24 @@ never clear drift.
 docs path with a `memory` tag and served by `memory_search`/`memory_brief` — record files are the
 source of truth, the semantic index is an optional assist, and ranking is kind-aware-decayed confidence (via the
 per-path freshness primitive) with persisted-betweenness tie-breaks.
+
+## Index Readiness: Two Surfaces (wave 1t59p)
+
+Index health is deliberately split into a fast surface and a deep surface:
+
+- **`wf_audit` (bounded metadata snapshot):** readiness from the index control plane only — completed build
+  epoch (SQLite), Lance table-directory presence, the bounded build summary (`read_build_summary`: layer
+  scalars plus one COUNT, never per-file rows), configured include-prefixes. It never
+  imports LanceDB, never opens a table, never materializes per-file store rows, and never hashes the
+  working tree, so it is bounded on every OS
+  (the unbounded native cold-load plus full-corpus hash walk was a field-reported native-Windows hang on the
+  default first call of a session). Consequently it reports `freshness: "unknown"` and can never claim the
+  index is current.
+- **`index_health` (full verification):** the complete hash-walk freshness scan (`stale_paths`,
+  `semantic_ready`) — O(total-indexed-bytes) by design, invoked explicitly when verified freshness matters.
+
+The fast surface always names the deep surface (`freshness_verification_tool: "index_health"` plus an
+`index_freshness_unverified` advisory), so metadata readiness is never mistaken for a freshness verdict.
 
 ## Relationship to Other Architecture Docs
 

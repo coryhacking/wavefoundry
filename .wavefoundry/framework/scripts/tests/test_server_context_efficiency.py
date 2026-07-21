@@ -241,6 +241,71 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
                     ce.read_wave_snapshot(root, wave_id)["pending"]
                 )
 
+    def test_projection_skips_phantom_wave_keys_instead_of_refusing(self):
+        """1t59p hardening (operator-approved): a pending phase attributed to
+        a wave key with no wave record on disk (the live '1t6ow' phantom: a
+        change ID focused by a stale-code session) must not brick the
+        reload/upgrade projection barrier. Real waves still project; the
+        phantom is surfaced in skipped_unknown_waves and left pending."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            telemetry = ce.ProcessTelemetry(root)
+            real = "1aaaa real"
+            wave_md = root / "docs" / "waves" / real / "wave.md"
+            wave_md.parent.mkdir(parents=True)
+            wave_md.write_text(
+                f"# Wave\n\nwave-id: {real}\n\noperator prose\n", encoding="utf-8"
+            )
+            for wave_id in (real, "1zzzz-phantom-change-id"):
+                telemetry.set_focus(wave_id, "review", new_phase=True)
+                telemetry.record_retrieval(
+                    {
+                        "estimated_request_tokens": 1,
+                        "estimated_returned_tokens": 2,
+                        "estimated_source_tokens": 0,
+                        "estimated_avoided_tokens": 0,
+                        "source_files_counted": 0,
+                        "source_files_verified": 0,
+                        "source_files_estimated": 0,
+                        "captured": True,
+                        "persistence": "pending",
+                        "method": ce.RETRIEVAL_METHOD,
+                    },
+                    event_id=f"event-{wave_id}",
+                )
+            handler = SimpleNamespace(root=root, telemetry=telemetry)
+            projected = srv.project_pending_context_efficiency(handler)
+            self.assertTrue(projected["ok"], projected)
+            self.assertEqual(projected["projected"], [real])
+            skipped = projected.get("skipped_unknown_waves", [])
+            self.assertEqual([s["wave_id"] for s in skipped], ["1zzzz-phantom-change-id"])
+            self.assertFalse(ce.read_wave_snapshot(root, real)["pending"])
+
+    def test_lifecycle_focus_never_set_from_unresolved_wave_argument(self):
+        """1t59p hardening: _lifecycle_context_result must leave the process
+        focus untouched (not set, not cleared) when the wave argument does not
+        resolve to a wave record — the phantom-key writer path."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            telemetry = ce.ProcessTelemetry(root)
+            real = "1aaaa real"
+            wave_md = root / "docs" / "waves" / real / "wave.md"
+            wave_md.parent.mkdir(parents=True)
+            wave_md.write_text(
+                f"# Wave\n\nwave-id: {real}\n\noperator prose\n", encoding="utf-8"
+            )
+            telemetry.set_focus(real, "implement", new_phase=True)
+            handler = SimpleNamespace(root=root, telemetry=telemetry, index=None, cache=None)
+            response = {"status": "ok", "data": {"wave_id": "1zzzz-phantom"}}
+            srv._lifecycle_context_result(
+                handler, "wf_review_wave", "1zzzz-phantom", response,
+                focus_stage="review",
+            )
+            self.assertEqual(telemetry.focus.wave_id, real)
+            self.assertEqual(telemetry.focus.stage, "implement")
+
     def test_public_paired_evaluation_authority_recomputes_contained_artifact(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

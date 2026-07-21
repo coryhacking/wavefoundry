@@ -97,6 +97,12 @@
       "source": "events.jsonl",
       "version": 1
     },
+    "1t59p wf-audit-bounded-index-health": {
+      "prefix_sha256": "12467c48a571d2ad88dbb9d4c0b9129004d249f04f1c169f475e102287e5bc52",
+      "record_count": 41,
+      "source": "events.jsonl",
+      "version": 1
+    },
     "1t69a retrieval-posture-coverage": {
       "prefix_sha256": "0d1a3da0cd91aef7a6c60503ae825beee75accf34bf815a6997bb0f52c72237a",
       "record_count": 6,

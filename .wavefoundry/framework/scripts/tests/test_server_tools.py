@@ -6094,29 +6094,34 @@ class WaveAuditTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def _healthy_index(self):
-        idx = MagicMock()
-        idx.docs_health.return_value = {
-            "semantic_ready": True,
+    # Wave 1t59p: wf_audit's index leg is the bounded metadata snapshot, not
+    # docs_health(); these fixtures patch the snapshot helper accordingly.
+    def _healthy_snapshot(self):
+        return {
+            "metadata_ready": True,
+            "epoch_complete": True,
+            "docs_present": True,
+            "code_present": True,
+            "code_sources_in_scope": True,
+            "code_layer_missing": False,
+            "indexed_chunker_versions": {},
+            "current_chunker_version": "1",
+            "chunker_version_mismatch": False,
             "readiness_overview": "ready",
-            "stale_layers": [],
-            "missing_layers": [],
-            "compatible_chunks": True,
-            "has_any_index": True,
+            "freshness_checked": False,
+            "freshness": "unknown",
+            "freshness_verification_tool": "index_health",
         }
-        return idx
 
-    def _absent_index(self):
-        idx = MagicMock()
-        idx.docs_health.return_value = {
-            "semantic_ready": False,
+    def _absent_snapshot(self):
+        return {
+            **self._healthy_snapshot(),
+            "metadata_ready": False,
+            "epoch_complete": False,
+            "docs_present": False,
+            "code_present": False,
             "readiness_overview": "absent",
-            "stale_layers": [],
-            "missing_layers": [],
-            "compatible_chunks": False,
-            "has_any_index": False,
         }
-        return idx
 
     def _passing_validate(self):
         return {"passed": True, "errors": [], "warnings": [], "output": ""}
@@ -6134,10 +6139,9 @@ class WaveAuditTests(unittest.TestCase):
             "path": "docs/waves/w1/wave.md",
         }
         with patch.object(self.srv, "current_wave", return_value=wave_record), \
-             patch.object(self.srv, "run_validate", return_value=self._passing_validate()):
-            result = self.srv.wf_audit_response(
-                self.root, index=self._healthy_index()
-            )
+             patch.object(self.srv, "run_validate", return_value=self._passing_validate()), \
+             patch.object(self.srv, "_audit_index_snapshot", return_value=self._healthy_snapshot()):
+            result = self.srv.wf_audit_response(self.root)
         self.assertEqual(result["status"], "ok")
         self.assertTrue(result["data"]["ready"])
         # Advisory diagnostics (e.g. harness_coverage_gap) are allowed in healthy state.
@@ -6148,10 +6152,9 @@ class WaveAuditTests(unittest.TestCase):
         """AC-3: lint failure adds wf_validate_docs to next_tools, ready=False."""
         wave_record = {"id": "w1", "status": "active", "changes": [], "title": "Wave", "path": ""}
         with patch.object(self.srv, "current_wave", return_value=wave_record), \
-             patch.object(self.srv, "run_validate", return_value=self._failing_validate()):
-            result = self.srv.wf_audit_response(
-                self.root, index=self._healthy_index()
-            )
+             patch.object(self.srv, "run_validate", return_value=self._failing_validate()), \
+             patch.object(self.srv, "_audit_index_snapshot", return_value=self._healthy_snapshot()):
+            result = self.srv.wf_audit_response(self.root)
         self.assertEqual(result["status"], "ok")
         self.assertFalse(result["data"]["ready"])
         self.assertIn("wf_validate_docs", result["next_tools"])
@@ -6162,10 +6165,9 @@ class WaveAuditTests(unittest.TestCase):
         """AC-4: index not ready adds index_build to next_tools, ready=False."""
         wave_record = {"id": "w1", "status": "active", "changes": [], "title": "Wave", "path": ""}
         with patch.object(self.srv, "current_wave", return_value=wave_record), \
-             patch.object(self.srv, "run_validate", return_value=self._passing_validate()):
-            result = self.srv.wf_audit_response(
-                self.root, index=self._absent_index()
-            )
+             patch.object(self.srv, "run_validate", return_value=self._passing_validate()), \
+             patch.object(self.srv, "_audit_index_snapshot", return_value=self._absent_snapshot()):
+            result = self.srv.wf_audit_response(self.root)
         self.assertEqual(result["status"], "ok")
         self.assertFalse(result["data"]["ready"])
         self.assertIn("index_build", result["next_tools"])
@@ -6175,10 +6177,9 @@ class WaveAuditTests(unittest.TestCase):
     def test_no_active_wave_path(self):
         """AC-5: no wave found → wave={}, ready=False, no unhandled exception."""
         with patch.object(self.srv, "current_wave", return_value=None), \
-             patch.object(self.srv, "run_validate", return_value=self._passing_validate()):
-            result = self.srv.wf_audit_response(
-                self.root, index=self._healthy_index()
-            )
+             patch.object(self.srv, "run_validate", return_value=self._passing_validate()), \
+             patch.object(self.srv, "_audit_index_snapshot", return_value=self._healthy_snapshot()):
+            result = self.srv.wf_audit_response(self.root)
         self.assertEqual(result["status"], "ok")
         self.assertFalse(result["data"]["ready"])
         self.assertEqual(result["data"]["wave"], {})
@@ -6199,10 +6200,9 @@ class WaveAuditTests(unittest.TestCase):
             "path": "docs/waves/w1/wave.md",
         }
         with patch.object(self.srv, "current_wave", return_value=wave_record), \
-             patch.object(self.srv, "run_validate", return_value=self._passing_validate()):
-            result = self.srv.wf_audit_response(
-                self.root, index=self._healthy_index()
-            )
+             patch.object(self.srv, "run_validate", return_value=self._passing_validate()), \
+             patch.object(self.srv, "_audit_index_snapshot", return_value=self._healthy_snapshot()):
+            result = self.srv.wf_audit_response(self.root)
         diag_by_code = {d["code"]: d for d in result.get("diagnostics", [])}
         self.assertIn("no_agent_role_docs", diag_by_code)
         diag = diag_by_code["no_agent_role_docs"]
@@ -6227,12 +6227,432 @@ class WaveAuditTests(unittest.TestCase):
             "path": "docs/waves/w1/wave.md",
         }
         with patch.object(self.srv, "current_wave", return_value=wave_record), \
-             patch.object(self.srv, "run_validate", return_value=self._passing_validate()):
-            result = self.srv.wf_audit_response(
-                self.root, index=self._healthy_index()
-            )
+             patch.object(self.srv, "run_validate", return_value=self._passing_validate()), \
+             patch.object(self.srv, "_audit_index_snapshot", return_value=self._healthy_snapshot()):
+            result = self.srv.wf_audit_response(self.root)
         codes = [d["code"] for d in result.get("diagnostics", [])]
         self.assertNotIn("no_agent_role_docs", codes)
+
+
+# ---------------------------------------------------------------------------
+# wf_audit bounded index snapshot (wave 1t59p / 1t59o)
+# ---------------------------------------------------------------------------
+
+class WfAuditBoundedIndexSnapshotTests(unittest.TestCase):
+    """1t59o: wf_audit's index leg is a bounded metadata snapshot — it must
+    never cold-load native storage or hash the working tree, and it must
+    never present metadata readiness as a freshness verdict."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        self.srv = type(self).srv
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+        self.index_dir = self.root / ".wavefoundry" / "index"
+        self.index_dir.mkdir(parents=True, exist_ok=True)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_audit_trips_no_native_load_and_no_full_hash(self):
+        """AC-1/AC-4 tripwire: a REAL WaveIndex with poisoned native-load and
+        full-hash seams must survive wf_audit untouched."""
+        idx = self.srv.WaveIndex(self.root)
+        wave_record = {"id": "w1", "status": "active", "changes": [], "title": "W", "path": ""}
+        with patch.object(idx, "_ensure_loaded", side_effect=AssertionError("native load")), \
+             patch.object(idx, "docs_health", side_effect=AssertionError("full health")), \
+             patch.object(idx, "_layer_current_hashes", side_effect=AssertionError("full hash")), \
+             patch.object(self.srv, "current_wave", return_value=wave_record), \
+             patch.object(self.srv, "run_validate",
+                          return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
+            result = self.srv.wf_audit_response(self.root, index=idx)
+        self.assertEqual(result["status"], "ok")
+        self.assertIn("metadata_ready", result["data"]["index"])
+
+    def test_audit_source_has_no_native_or_hash_references(self):
+        """AC-1 source pin: neither the wf_audit_response body nor the
+        snapshot-helper region references the native-load path, the full-hash
+        walk, or the per-file store exporter (operator P1, 1t59p cycle 1:
+        export_meta_snapshot materializes every build_file_meta row —
+        O(indexed files) — and its own docstring says to prefer the bounded
+        read_build_summary)."""
+        source = (SCRIPTS_ROOT / "server_impl.py").read_text(encoding="utf-8")
+        start = source.index("def wf_audit_response")
+        end = source.index("def wf_audit_install_response")
+        body = source[start:end]
+        for forbidden in ("docs_health", "_ensure_loaded", "_layer_current_hashes",
+                          "lancedb", "export_meta_snapshot", "file_meta"):
+            self.assertNotIn(forbidden, body, f"wf_audit_response references {forbidden}")
+        helper_start = source.index("def _audit_build_summary")
+        helper_end = source.index("@contextlib.contextmanager", helper_start)
+        helper_body = source[helper_start:helper_end]
+        self.assertIn("read_build_summary", helper_body)
+        for forbidden in ("export_meta_snapshot", "file_meta", "docs_health",
+                          "_ensure_loaded", "_layer_current_hashes", "lancedb"):
+            self.assertNotIn(forbidden, helper_body, f"snapshot helper references {forbidden}")
+
+    def test_snapshot_ready_from_metadata_only(self):
+        """AC-1: completed epoch + table dirs + matching store meta → ready,
+        with freshness explicitly unknown."""
+        (self.index_dir / "docs.lance").mkdir()
+        current_cv = self.srv._read_chunker_version()
+        with patch.object(self.srv, "_store_has_completed_build", return_value=True), \
+             patch.object(self.srv, "_audit_build_summary", return_value={
+                 "chunker_versions": {"docs": current_cv},
+                 "file_count": 1,
+             }):
+            snap = self.srv._audit_index_snapshot(self.root, self.index_dir)
+        self.assertTrue(snap["metadata_ready"])
+        self.assertEqual(snap["readiness_overview"], "ready")
+        self.assertFalse(snap["freshness_checked"])
+        self.assertEqual(snap["freshness"], "unknown")
+        self.assertEqual(snap["freshness_verification_tool"], "index_health")
+        self.assertFalse(snap["chunker_version_mismatch"])
+
+    def test_snapshot_truthful_when_not_ready(self):
+        """AC-2: an absent/incomplete store is reported honestly (never
+        current, never a stale claim it could not have measured)."""
+        snap = self.srv._audit_index_snapshot(self.root, self.index_dir)
+        self.assertFalse(snap["metadata_ready"])
+        self.assertEqual(snap["readiness_overview"], "absent")
+        self.assertEqual(snap["freshness"], "unknown")
+        self.assertNotIn("stale_layers", snap)
+        self.assertNotIn("semantic_ready", snap)
+
+    def test_snapshot_flags_missing_code_layer_from_configuration(self):
+        """AC-2: configured code prefixes with no code.lance directory → not
+        ready (the 1p7is missing-layer contract, config-authority form per the
+        cycle-1 repair: readiness derives from no per-file metadata)."""
+        (self.index_dir / "docs.lance").mkdir()
+        idx_mod = self.srv._load_script("indexer")
+        with patch.object(self.srv, "_store_has_completed_build", return_value=True), \
+             patch.object(self.srv, "_audit_build_summary", return_value={
+                 "chunker_versions": {},
+                 "file_count": 1,
+             }), \
+             patch.object(idx_mod, "_workflow_project_include_prefixes",
+                          return_value={"code": ("src/",)}):
+            snap = self.srv._audit_index_snapshot(self.root, self.index_dir)
+        self.assertTrue(snap["code_layer_missing"])
+        self.assertFalse(snap["metadata_ready"])
+
+    def test_chunker_mismatch_reported_not_conflated_with_freshness(self):
+        """AC-2: an older indexed chunker version is surfaced as its own field
+        while freshness stays unknown."""
+        (self.index_dir / "docs.lance").mkdir()
+        with patch.object(self.srv, "_store_has_completed_build", return_value=True), \
+             patch.object(self.srv, "_audit_build_summary", return_value={
+                 "chunker_versions": {"docs": "0"},
+                 "file_count": 1,
+             }):
+            snap = self.srv._audit_index_snapshot(self.root, self.index_dir)
+        self.assertTrue(snap["chunker_version_mismatch"])
+        self.assertEqual(snap["freshness"], "unknown")
+
+    def test_index_health_retains_full_scan_contrast(self):
+        """AC-3: explicit index_health still routes through docs_health (the
+        full hash-walk verification surface is unchanged)."""
+        idx = MagicMock()
+        idx.docs_health.return_value = {
+            "semantic_ready": True,
+            "readiness_overview": "ready",
+            "stale_layers": [],
+            "missing_layers": [],
+            "compatible_chunks": True,
+            "has_any_index": True,
+            "project": {"stale_paths": [], "stale_paths_count": 0},
+        }
+        result = self.srv.index_health_response(idx)
+        idx.docs_health.assert_called_once()
+        self.assertEqual(result["status"], "ok")
+        source = (SCRIPTS_ROOT / "server_impl.py").read_text(encoding="utf-8")
+        start = source.index("def index_health_response")
+        self.assertIn("docs_health", source[start:start + 4000])
+
+
+# ---------------------------------------------------------------------------
+# wf_review_evidence list event (wave 1t59p / 1t6ow)
+# ---------------------------------------------------------------------------
+
+class ReviewEvidenceListEventTests(unittest.TestCase):
+    """1t6ow: the read-only listing surface for the review-evidence ledger.
+    Fixtures are generated through the canonical writer, never hand-authored."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        self.srv = type(self).srv
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+        created = self.srv.wf_create_wave_response(self.root, "list-fixture", mode="create")
+        self.wave_id = created["data"]["wave_id"]
+        self.wave_md = self.root / "docs" / "waves" / self.wave_id / "wave.md"
+        self.events_path = sys.modules["review_evidence"].review_event_path(self.wave_md)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _list(self, **kwargs):
+        return self.srv.wf_review_evidence_response(
+            self.root, self.wave_id, "list", "probe", "list-test", **kwargs
+        )
+
+    def _finding_payloads(self, *, repair_state="pending"):
+        judgment = {
+            "validation_status": "real", "scope_relation": "admitted",
+            "introduced_or_worsened_by_wave": True, "contract_relevance": "required_ac",
+            "observable_impact": "low", "disposition": "do_now",
+            "decision_authority": "moderator", "repair_execution_state": repair_state,
+            "attacker_reachability": False, "supported_reachability": True,
+            "authority_delta": "none", "authority_domain": "none", "containment": "none",
+            "trust_boundary_changed": False, "architecture_or_ownership_changed": False,
+            "contract_or_required_ac_semantics_changed": False,
+            "cross_component_protocol_or_state_changed": False,
+            "failure_or_readiness_semantics_changed": False,
+            "benefit_vs_fix_risk": "unverified", "fix_risk": "unverified",
+            "optional_value": "none", "rejection_basis": "none",
+            "repair_safety": "unverified", "repair_scope_bounded": "unverified",
+            "review_depth": "focused",
+        }
+        evidence = {
+            "disposition_rationale": "fixture rationale", "failure_condition": "fixture fails",
+            "proposition": "fixture proposition", "public_path": "fixture path",
+            "command_or_fixture": "fixture command", "expected": "fixture expected",
+            "observed": "fixture observed", "artifact_or_test_id": "fixture artifact",
+            "known_bad_detection_method": "fixture detection", "limitations": "fixture limits",
+            "safety_and_authorization": "local only",
+        }
+        return judgment, evidence
+
+    def _seed_finding_chain(self, *, complete=True):
+        self.srv.wf_review_evidence_response(
+            self.root, self.wave_id, "run", "wave-council", "delivery-run",
+            mode="create", run_kind="initial_delivery", cycle=0,
+        )
+        judgment, evidence = self._finding_payloads()
+        self.srv.wf_review_evidence_response(
+            self.root, self.wave_id, "finding", "qa-reviewer", "find-ctx",
+            mode="create", finding_id="fixture-finding", run_kind="initial_delivery",
+            cycle=0, judgment=judgment, evidence=evidence,
+            source_lanes=["qa-reviewer"], integrity_confirmed=True,
+        )
+        if not complete:
+            return
+        judgment, evidence = self._finding_payloads()
+        self.srv.wf_review_evidence_response(
+            self.root, self.wave_id, "finding", "implementer", "repair-ctx",
+            mode="create", finding_id="fixture-finding", run_kind="repair_start",
+            cycle=1, judgment=judgment, evidence=evidence,
+            source_lanes=["qa-reviewer"], integrity_confirmed=True,
+        )
+        judgment, evidence = self._finding_payloads(repair_state="completed")
+        self.srv.wf_review_evidence_response(
+            self.root, self.wave_id, "finding", "reverifier", "reverify-ctx",
+            mode="create", finding_id="fixture-finding", run_kind="reverification",
+            cycle=1, judgment=judgment, evidence=evidence,
+            source_lanes=["qa-reviewer"], integrity_confirmed=True,
+            fresh_context=True, independent=True,
+        )
+
+    def test_list_missing_ledger_is_empty_ok(self):
+        """AC-1/AC-3: an absent ledger lists empty with a diagnostic, no error."""
+        if self.events_path.exists():
+            self.events_path.unlink()
+        result = self._list()
+        self.assertEqual(result["status"], "ok", result)
+        self.assertEqual(result["data"]["records"], [])
+        self.assertEqual(result["data"]["total_records"], 0)
+        codes = [d["code"] for d in result.get("diagnostics", [])]
+        self.assertIn("review_evidence_empty", codes)
+
+    def test_list_compact_rows_summary_and_approvals(self):
+        """AC-1: compact index rows, summary, and per-signoff approvals."""
+        self._seed_finding_chain()
+        self.srv.wf_review_evidence_response(
+            self.root, self.wave_id, "approval", "qa-reviewer", "qa-approval",
+            mode="create", signoff_key="qa-reviewer", fresh_context=True,
+            independent=True, integrity_confirmed=True,
+            evidence={"observed": "qa pass", "artifact_or_test_id": "qa:list"},
+        )
+        result = self._list()
+        self.assertEqual(result["status"], "ok", result)
+        data = result["data"]
+        self.assertGreaterEqual(data["total_records"], 8)
+        for row in data["records"]:
+            self.assertTrue(row["id"], row)
+            self.assertIn("record_type", row)
+        self.assertEqual(data["summary"]["findings"], 1)
+        qa = [r for r in data["approvals"] if r["signoff_key"] == "qa-reviewer"]
+        self.assertEqual(len(qa), 1)
+        self.assertEqual(qa[0]["state"], "approved")
+
+    def test_chain_summary_terminal_and_pending_match_gate_derivation(self):
+        """AC-2: terminal after completed reverification; pending before it;
+        composed from the gate's own current_synthesis_heads (source-pinned)."""
+        self._seed_finding_chain(complete=False)
+        pending = self._list()["data"]["chain_summary"]["fixture-finding"]
+        self.assertFalse(pending["terminal"])
+        self.assertEqual(pending["repair_execution_state"], "pending")
+        self._seed_finding_chain_completion()
+        done = self._list()["data"]["chain_summary"]["fixture-finding"]
+        self.assertTrue(done["terminal"])
+        self.assertEqual(done["repair_execution_state"], "completed")
+        self.assertEqual(done["unresolved_required_lanes"], [])
+        records = self.srv.validate_external_review_evidence(self.wave_md).records
+        heads = sys.modules["review_evidence"].current_synthesis_heads(records)
+        self.assertEqual(done["head_record_id"], heads["fixture-finding"]["record_id"])
+        source = (SCRIPTS_ROOT / "server_impl.py").read_text(encoding="utf-8")
+        start = source.index("def _review_evidence_list_response")
+        end = source.index("def wf_review_evidence_response")
+        body = source[start:end]
+        self.assertIn("current_synthesis_heads", body)
+        self.assertIn("review_status_rows", body)
+        self.assertNotIn("supersedes_record_id\"] ==", body)
+
+    def _seed_finding_chain_completion(self):
+        judgment, evidence = self._finding_payloads()
+        self.srv.wf_review_evidence_response(
+            self.root, self.wave_id, "finding", "implementer", "repair-ctx",
+            mode="create", finding_id="fixture-finding", run_kind="repair_start",
+            cycle=1, judgment=judgment, evidence=evidence,
+            source_lanes=["qa-reviewer"], integrity_confirmed=True,
+        )
+        judgment, evidence = self._finding_payloads(repair_state="completed")
+        self.srv.wf_review_evidence_response(
+            self.root, self.wave_id, "finding", "reverifier", "reverify-ctx",
+            mode="create", finding_id="fixture-finding", run_kind="reverification",
+            cycle=1, judgment=judgment, evidence=evidence,
+            source_lanes=["qa-reviewer"], integrity_confirmed=True,
+            fresh_context=True, independent=True,
+        )
+
+    def test_list_is_read_only_and_lock_free(self):
+        """AC-3: byte-identical ledger, and the write lock is never entered."""
+        self._seed_finding_chain()
+        before = self.events_path.read_bytes()
+        with patch.object(self.srv, "review_event_write_lock",
+                          side_effect=AssertionError("write lock taken on list")):
+            result = self._list()
+        self.assertEqual(result["status"], "ok", result)
+        self.assertEqual(self.events_path.read_bytes(), before)
+
+    def test_list_filters_and_truncation(self):
+        """AC-1: finding/record_type filters; capped output keeps the tail
+        with an explicit named-total truncation marker."""
+        self._seed_finding_chain()
+        by_finding = self._list(finding_id="fixture-finding", record_type="finding_synthesis")
+        ids = [r["id"] for r in by_finding["data"]["records"]]
+        self.assertTrue(ids)
+        self.assertTrue(all(i.startswith("syn-fixture-finding") for i in ids), ids)
+        with patch.object(self.srv, "REVIEW_EVIDENCE_LIST_CAP", 2):
+            capped = self._list()
+        self.assertTrue(capped["data"]["truncated"])
+        self.assertEqual(len(capped["data"]["records"]), 2)
+        codes = [d["code"] for d in capped.get("diagnostics", [])]
+        self.assertIn("review_evidence_list_truncated", codes)
+        marker = next(d for d in capped["diagnostics"] if d["code"] == "review_evidence_list_truncated")
+        self.assertIn(str(capped["data"]["total_records"]), marker["message"])
+
+    def test_list_ignores_mode_and_never_validates_write_fields(self):
+        """AC-1: mode is ignored for list; no judgment/evidence demanded."""
+        result = self.srv.wf_review_evidence_response(
+            self.root, self.wave_id, "list", "probe", "list-test", mode="bogus"
+        )
+        self.assertEqual(result["status"], "ok", result)
+
+    def test_list_event_credits_ledger_state_source(self):
+        """Operator extension: the list response credits the live ledger file
+        through the state-source census; previews and errors credit nothing.
+        All inputs are REAL responses from the canonical builder (fragile-CE
+        rule: never hand-model the envelope)."""
+        self._seed_finding_chain()
+        listed = self._list()
+        credited = self.srv._state_sources_review_evidence(self.root, listed)
+        rel_events = str(self.events_path.resolve().relative_to(self.root.resolve())).replace("\\", "/")
+        self.assertEqual(credited, [rel_events])
+        preview = self.srv.wf_review_evidence_response(
+            self.root, self.wave_id, "run", "wave-council", "credit-preview",
+            run_kind="initial_delivery", cycle=0,
+        )
+        self.assertEqual(preview["status"], "dry_run")
+        self.assertEqual(self.srv._state_sources_review_evidence(self.root, preview), [])
+        written = self.srv.wf_review_evidence_response(
+            self.root, self.wave_id, "run", "wave-council", "credit-write",
+            mode="create", run_kind="initial_delivery", cycle=0,
+        )
+        self.assertEqual(written["status"], "ok")
+        write_credit = self.srv._state_sources_review_evidence(self.root, written)
+        self.assertIn(rel_events, write_credit)
+
+    def test_artifact_extractors_return_iterable_on_every_real_envelope(self):
+        """1t6ow live-caught repair: the 1t3ek per-artifact wrapper iterates
+        raw_artifacts, so every extractor return must be list-typed. The int
+        `0` early returns made the observational recorder throw and silently
+        drop the whole debit row for every non-create wf_review_evidence
+        response (dry runs, errors, and the new list event). Inputs here are
+        REAL envelopes from the canonical builder, and the wrapper's exact
+        consumption expression is exercised against each."""
+        self._seed_finding_chain()
+        listed = self._list()
+        dry = self.srv.wf_review_evidence_response(
+            self.root, self.wave_id, "run", "wave-council", "extractor-preview",
+            run_kind="initial_delivery", cycle=0,
+        )
+        error = self.srv.wf_review_evidence_response(
+            self.root, self.wave_id, "finding", "qa-reviewer", "extractor-error",
+            mode="create", finding_id="extractor-error", run_kind="initial_delivery",
+        )
+        written = self.srv.wf_review_evidence_response(
+            self.root, self.wave_id, "run", "wave-council", "extractor-write",
+            mode="create", run_kind="initial_delivery", cycle=0,
+        )
+        for label, envelope in (("list", listed), ("dry_run", dry),
+                                ("error", error), ("create", written)):
+            raw, _event_id = self.srv._artifact_from_review_evidence(self.root, envelope)
+            # The wrapper's exact expression must not raise (TypeError was the
+            # silent-drop failure mode).
+            total = sum(max(0, int(r) - 5) for r in raw)
+            self.assertGreaterEqual(total, 0, label)
+        raw, _ = self.srv._artifact_from_written_paths("written")(self.root, listed)
+        self.assertEqual(list(raw), [])
+
+    def test_identical_repeat_listings_are_neutral_by_content_identity(self):
+        """Operator policy: identical-content repeat listings share one
+        content-hash event id, so the store's replay dedup makes them neutral
+        (0 credit, 0 debit); a different filter or a changed ledger yields a
+        new id and records normally. Real envelopes throughout."""
+        self._seed_finding_chain()
+        first = self._list()
+        second = self._list()
+        _, id_first = self.srv._artifact_from_review_evidence(self.root, first)
+        _, id_second = self.srv._artifact_from_review_evidence(self.root, second)
+        self.assertTrue(id_first and id_first.startswith("list:"))
+        self.assertEqual(id_first, id_second)
+        filtered = self._list(record_type="review_run")
+        _, id_filtered = self.srv._artifact_from_review_evidence(self.root, filtered)
+        self.assertNotEqual(id_first, id_filtered)
+        self.srv.wf_review_evidence_response(
+            self.root, self.wave_id, "run", "wave-council", "neutral-version-bump",
+            mode="create", run_kind="initial_delivery", cycle=0,
+        )
+        after_write = self._list()
+        _, id_after = self.srv._artifact_from_review_evidence(self.root, after_write)
+        self.assertNotEqual(id_first, id_after)
+
+    def test_write_rejection_recovery_hint_names_list_event(self):
+        """AC-4: chain-state-dependent write rejections point at event='list'."""
+        response = self.srv.wf_review_evidence_response(
+            self.root, self.wave_id, "finding", "qa-reviewer", "missing-facts",
+            mode="create", finding_id="missing-facts", run_kind="initial_delivery",
+        )
+        self.assertEqual(response["status"], "error")
+        usages = " ".join(d.get("recovery_usage", "") for d in response["diagnostics"])
+        self.assertIn("event='list'", usages)
 
 
 # ---------------------------------------------------------------------------
