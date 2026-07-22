@@ -6,6 +6,72 @@ the individual wave records under [`docs/waves/`](docs/waves/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.14.0] - 2026-07-21
+
+### Added
+
+- **The MCP tool surface uses subsystem-prefixed names.** Framework and wave-lifecycle tools are `wf_*` (verb-first: `wf_close_wave`, `wf_open_gate`, `wf_start_dashboard`), agent-memory tools are `memory_*`, and index tools are `index_*`; the old `wave_`-prefixed names are retired with no aliases. Upgrades reconcile stale tool references in rendered surfaces automatically via a complete rename map, but host permission allowlists that pin exact tool names may need a one-time update, and the MCP host must be fully restarted after upgrading so the client picks up the renamed surface.
+
+- **`wf_audit` answers instantly with a bounded index-readiness snapshot.** The default first-call audit no longer cold-loads native vector storage or hashes the working tree — the two unbounded costs behind a field-reported native-Windows hang. The snapshot reads only the index control plane, honestly reports `freshness: "unknown"`, and defers full hash-walk verification to the explicit `index_health` tool; a diagnostic on every healthy audit makes the two-surface split explicit.
+
+- **The review-evidence ledger has a standardized read surface.** `wf_review_evidence(event="list")` returns a compact per-record index, a per-finding chain summary composed from the close gate's own derivations (current head, repair state, unresolved required lanes, terminal flag), and per-signoff approval currency, with filters and bounded output. Chain-state-dependent write rejections now point at the list event, replacing hand-parsing of the ledger file. Accounting is honest by design: the first listing of a ledger version earns source credit; identical-content repeat listings are neutral (no credit, no debit).
+
+- **Wave records render a current-state review projection.** `wave.md` carries a generated signoff table (one `Signoff | State | Why | Next action` row per required key) and a finding-synthesis summary derived from the canonical event ledger, so approval currency and open blocks are readable at a glance while `events.jsonl` remains the only authority.
+
+- **Context-efficiency telemetry measures per-wave token savings end to end.** A three-stage model (plan/implement/review) records every first-party tool call durably per wave, publishes checkpoints into wave records at lifecycle boundaries, and seals/compacts at close. Credits cover derived artifacts (floored per artifact against the request), demonstrably-read state files, and digest tools under a bounded-enumeration rule — a response credits only what it conveys or enumerates as live, and listings never credit closed history. Pre-wave exploration is held in an explicit general bucket and folded into the next wave at creation or preparation. A separately labeled exploration-avoided estimate from memory advisories is reported but never summed into the measured total.
+
+- **An in-band MCP-first retrieval directive with a measuring sensor.** Every wave activation and review response carries the retrieval-posture directive (rule, recorded escape hatch, and the advisory it clears), now covering implementation, review verification, repair work, and briefed subagents; a sensor flags near-zero code-retrieval telemetry against a non-trivial diff, cleared by a recorded rationale.
+
+- **A paired-evaluation scaffold makes the counterfactual measurable.** Registered evaluation scopes accept quality-equivalent paired evidence (with-tooling vs without) through a typed attach/replace/revoke surface, so "what would the agent have spent" claims can graduate from estimates to measurements.
+
+- **Commits trace back to their reasoning.** `code_commit_provenance` maps a commit SHA or a blamed line to the wave(s) that produced it and their recorded decision-log reasoning, honest about conflicts and absences.
+
+- **The agent memory layer supplies, validates, and populates its own records.** Evidence-derived candidates draft conservatively from decision logs and repaired findings (`memory_propose`); duplicate detection is diagnostic, never destructive; wave close requires each candidate to be explicitly validated (promote/retain/reject/rewrite) against its evidence and current target; and deterministic structural criteria may auto-promote a candidate to active — auto-supersede, merge, and delete remain forbidden. A hermetic retrieval eval records the ranking-policy baseline.
+
+- **Historical memory backfill at install and upgrade.** Existing wave history is mechanically drafted into memory candidates with resumable, transactionally unique runs; setup and upgrade refuse semantic-index publication while drafted candidates await validation, and publication is protected by a run-scoped receipt integrated with the index epoch, so it happens exactly once even across interrupted or version-mixed runs.
+
+### Fixed
+
+- **Lifecycle mutations are serialized and forward-recoverable.** An advisory per-repository lock covers the mutating lifecycle tools with a clear busy diagnostic; multi-file wave mutations write their referencing record last so an interruption converges on retry; prepare validates council seat alignment against the generated brief.
+
+- **The test suite and background index builds no longer interfere.** Mutual exclusion with atomic post-acquire rechecks in both directions (suite defers to a running build, hook-spawned builds defer to a running suite) — holding nothing while waiting, so neither side can present as a phantom peer.
+
+- **Public search vocabularies have one source of truth.** A canonical contract module now feeds both the serving handlers and a docs-vs-code constants lint, including the complete five-value fallback-reason set; documented model names, versions, and content values fail the docs gate when they drift from code.
+
+- **Silent telemetry losses repaired.** Non-writing review-evidence responses (previews, errors, listings) record their costs instead of being dropped by a swallowed type error; lifecycle focus can no longer be set from an unresolvable wave argument; one unprojectable telemetry row can no longer block MCP reload or upgrade (unknown wave keys are skipped and surfaced explicitly); per-stage savings reconcile exactly with the displayed total (a net-negative stage floors at zero); and general-bucket savings survive process restarts instead of orphaning.
+
+- **Memory retrieval ranking respects policy tiers.** Semantic similarity now tie-breaks within a confidence tier instead of overriding trust policy wholesale, so high-trust records are never demoted below fresher-but-less-trusted matches; the recorded eval baseline independently confirms the fix.
+
+- **`memory_propose` extracts repair targets from the right fields.** Candidate targets now come from the public path and artifact identifiers, never from the verification command line — a finding repaired in one file no longer gets attributed to the test runner that verified it.
+
+- **Dashboard rendering repairs.** Multi-line acceptance-criteria and task continuation lines render completely (backend list-item extraction, not a CSS patch), and wave-document rendering handles the current record format.
+
+- **The `wf` CLI resolves its repository root independently of the working directory.** Dispatched subcommands work from any cwd inside the checkout.
+
+- **Freshly scaffolded wave records pass docs-lint as generated** and survive their first lifecycle transition without manual repair.
+
+- **Operational contracts rewritten from measured evidence.** RELIABILITY and the performance budget now cite recorded measurements with lint-bound claim lines, and performance-test budgets are contention-safe: a registered budget table, a slowdown guard that exercises the real thresholds, and a permissiveness invariant that fails on inflated budgets.
+
+- **Upgrades crossing the tool rename no longer fail at the pre-extract dashboard stop.** The lock-cutover hook resolves the dashboard-stop entry point with a fallback to the retired pre-rename symbol and raises a legible error only when neither exists.
+
+- **Post-extraction upgrade hooks run the newly extracted code, not a stale cache.** The docs-gate projection reloads a pre-extraction `review_evidence` module in place before running, and the memory-backfill loader applies the same in-place reload, so a pre-upgrade runner's cached modules can no longer shadow the just-installed implementation.
+
+- **A recovered memory resume clears its own failure marker.** A successful `--resume-after-memory` removes the retained `failed_phase` marker when it names the phase the resume just recovered, so cleanup proceeds without a full re-run; markers naming other phases are never cleared by an unrelated success.
+
+- **Memory-publication success survives trailing index passes.** Publication is recorded at the moment the authorized build epoch commits instead of being re-derived from the last-build row, and follow-on passes in the same publication scope (graph extraction, lexical derived rebuilds, optimization) finalize normally instead of being refused by the memory gate — previously a validated resume deterministically failed with the index left looking mid-build, forcing a manual workaround. The validation gate and every crash-recovery window are unchanged.
+
+- **Opening a wave directly from prepare attributes work to the implement stage.** Context-efficiency focus advances on any activation path, so implementation retrieval no longer counts against planning and the retrieval-posture sensor no longer false-fires on prepare-activated waves.
+
+### Changed
+
+- **MCP-first retrieval guidance covers the full lifecycle.** The in-band directive, the canonical exploration-order seed, and the rendered implement/review/close prompts now name review verification, repair work, and briefed subagents explicitly — investigation at any stage routes through the retrieval tools first.
+
+- **`wf_sync_surfaces` reports a structured changed-file manifest** (written/skipped, per file) instead of an opaque render log.
+
+- **Dedicated lock files are consolidated under `.wavefoundry/locks/`** with a one-way migration; every lock creator owns its parent directory, and the dashboard launch mutex is preserved as a persistent file.
+
+- **Short operational subprocesses are time-bounded.** Gardener and surface-render spawns carry configurable timeouts with truncation-flagged captured output; upgrade, setup, and index builds remain intentionally unbounded.
+
 ## [1.13.0] - 2026-07-16
 
 ### Added
