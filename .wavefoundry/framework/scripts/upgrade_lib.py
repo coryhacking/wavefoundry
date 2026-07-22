@@ -100,6 +100,19 @@ def update_upgrade_lock(root: Path, **fields: Any) -> bool:
         return False
 
 
+def clear_failed_phase(root: Path, recovered_phase: str) -> bool:
+    """Reset the failure marker only when it names *recovered_phase*.
+
+    A later successful phase must never launder an earlier unrecovered
+    failure, so a marker naming any other phase is preserved untouched.
+    Returns True when the marker was cleared.
+    """
+    lock = read_upgrade_lock(root)
+    if lock is None or lock.get("failed_phase") != recovered_phase:
+        return False
+    return update_upgrade_lock(root, failed_phase=None, failed_at=None)
+
+
 def remove_upgrade_lock(root: Path) -> bool:
     """Remove the upgrade lock file.  Returns True if removed, False if not present."""
     p = upgrade_lock_path(root)

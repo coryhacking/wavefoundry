@@ -731,6 +731,47 @@ def authorize_index_finalize(
         conn.close()
 
 
+def run_state(root: Path, run_id: str) -> str | None:
+    """Light state read for the finalize gate; ``None`` for an unknown run."""
+
+    conn = _connect(root)
+    try:
+        row = conn.execute(
+            "SELECT state FROM memory_backfill_runs WHERE run_id=?", (run_id,)
+        ).fetchone()
+        return str(row["state"]) if row else None
+    finally:
+        conn.close()
+
+
+def record_publication_success(root: Path, run_id: str, attempt_id: str) -> bool:
+    """Mark the run indexed at CAS time, for the AUTHORIZED attempt only.
+
+    The last-build row is legitimately overwritten by trailing passes
+    (graph-only, FTS derived rebuild, optimize), so success is recorded at
+    the one moment it is known with certainty — immediately after the epoch
+    compare-and-set — instead of being re-derived later from that row.
+    """
+
+    conn = _connect(root)
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        cur = conn.execute(
+            "UPDATE memory_backfill_runs SET state='indexed',last_failure='',"
+            "updated_at=? WHERE run_id=? AND state='publishing_index' "
+            "AND publication_attempt_id=?",
+            (_now(), run_id, str(attempt_id)),
+        )
+        conn.execute("COMMIT")
+        return cur.rowcount == 1
+    except Exception:
+        if conn.in_transaction:
+            conn.execute("ROLLBACK")
+        raise
+    finally:
+        conn.close()
+
+
 def reconcile_index_publication(root: Path, run_id: str) -> dict[str, Any]:
     """Recover a publication/checkpoint split without repeating the index pass."""
 

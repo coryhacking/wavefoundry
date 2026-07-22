@@ -2210,6 +2210,54 @@ class RuntimeLockCutoverMigrationTests(unittest.TestCase):
         self.assertEqual(state["dashboard_restart_port"], 43210)
         self.assertFalse((self.wf / "locks").exists())
 
+    def test_cutover_falls_back_to_pre_rename_dashboard_stop_symbol(self):
+        """1t49m: the hook runs from the NEW archive against an INSTALLED
+        server_impl that may predate the wf_ tool rename (field report:
+        upgrading across the rename aborted at pre_extract)."""
+        import types
+
+        calls: list[Path] = []
+
+        def old_stop(root):
+            calls.append(root)
+            return {
+                "status": "ok",
+                "data": {"stopped": False, "already_stopped": True},
+            }
+
+        pre_rename = types.SimpleNamespace(wave_dashboard_stop_response=old_stop)
+        with patch.dict(sys.modules, {"server_impl": pre_rename}):
+            stopped, port = self.ext._stop_dashboard_for_lock_cutover(self.root)
+        self.assertFalse(stopped)
+        self.assertIsNone(port)
+        self.assertEqual(calls, [self.root])
+
+    def test_cutover_prefers_current_symbol_when_both_exist(self):
+        import types
+
+        def new_stop(root):
+            return {"status": "ok", "data": {"stopped": True}}
+
+        def old_stop(root):
+            raise AssertionError("retired symbol must not be preferred")
+
+        both = types.SimpleNamespace(
+            wf_stop_dashboard_response=new_stop,
+            wave_dashboard_stop_response=old_stop,
+        )
+        with patch.dict(sys.modules, {"server_impl": both}):
+            stopped, _port = self.ext._stop_dashboard_for_lock_cutover(self.root)
+        self.assertTrue(stopped)
+
+    def test_cutover_fails_legibly_when_no_stop_symbol_exists(self):
+        import types
+
+        with patch.dict(sys.modules, {"server_impl": types.SimpleNamespace()}):
+            with self.assertRaisesRegex(
+                RuntimeError, "wave_dashboard_stop_response"
+            ):
+                self.ext._stop_dashboard_for_lock_cutover(self.root)
+
     @unittest.skipIf(os.name == "nt", "POSIX flock contention fixture")
     def test_held_old_adoption_lock_blocks_without_deleting_carrier(self):
         import fcntl
@@ -5044,6 +5092,66 @@ class HistoricalMemoryUpgradeGateTests(unittest.TestCase):
             "ready_for_index",
         )
 
+    def test_resume_success_clears_only_its_own_failure_marker(self):
+        """1t49m field report: a failed resume left a marker that no later
+        success cleared, so cleanup refused until a full re-run."""
+
+        with patch.object(
+            self.mod, "phase_index_update", side_effect=RuntimeError("disk full")
+        ), contextlib.redirect_stderr(io.StringIO()):
+            first = self.mod.main(
+                ["--root", str(self.root), "--resume-after-memory"]
+            )
+        self.assertEqual(first, 1)
+        lock = self.upgrade_lib.read_upgrade_lock(self.root)
+        self.assertEqual(lock["failed_phase"], "index_update")
+
+        with patch.object(self.mod, "phase_index_update"):
+            second = self.mod.main(
+                ["--root", str(self.root), "--resume-after-memory"]
+            )
+        self.assertEqual(second, 0)
+        lock = self.upgrade_lib.read_upgrade_lock(self.root)
+        self.assertIsNone(lock["failed_phase"])
+        self.assertIsNone(lock["failed_at"])
+
+    def test_resume_success_preserves_marker_naming_a_different_phase(self):
+        """A later success must not launder an earlier unrecovered failure."""
+
+        self.upgrade_lib.update_upgrade_lock(
+            self.root, failed_phase="dashboard_restart", failed_at="t"
+        )
+        with patch.object(self.mod, "phase_index_update"):
+            result = self.mod.main(
+                ["--root", str(self.root), "--resume-after-memory"]
+            )
+        self.assertEqual(result, 0)
+        lock = self.upgrade_lib.read_upgrade_lock(self.root)
+        self.assertEqual(lock["failed_phase"], "dashboard_restart")
+        self.assertEqual(lock["failed_at"], "t")
+
+    def test_resume_already_complete_clears_retained_index_marker(self):
+        """The idempotent re-run recovers a stale marker for the phase that
+        reconciliation just proved complete, without a second index pass."""
+
+        with patch.object(self.mod, "phase_index_update"):
+            self.assertEqual(
+                self.mod.main(["--root", str(self.root), "--resume-after-memory"]),
+                0,
+            )
+        self.upgrade_lib.update_upgrade_lock(
+            self.root, failed_phase="index_update", failed_at="t"
+        )
+        with patch.object(self.mod, "phase_index_update") as phase_again:
+            self.assertEqual(
+                self.mod.main(["--root", str(self.root), "--resume-after-memory"]),
+                0,
+            )
+        phase_again.assert_not_called()
+        lock = self.upgrade_lib.read_upgrade_lock(self.root)
+        self.assertIsNone(lock["failed_phase"])
+        self.assertIsNone(lock["failed_at"])
+
     def test_publication_verbs_cannot_bypass_failed_review_or_docs_gate(self):
         """Both incremental and full publication stop before the new-code backstop."""
 
@@ -5295,6 +5403,102 @@ class HistoricalMemoryUpgradeExtensionBootstrapTests(unittest.TestCase):
         resumed_lock = upgrade_lib.read_upgrade_lock(self.root)
         self.assertIsNone(resumed_lock.get("failed_phase"))
         self.assertIn("review_status_projection", resumed_lock)
+
+    def test_pre_docs_gate_reloads_stale_review_evidence_module_in_place(self):
+        """1t49m field report: the installed upgrader resolves its function-local
+        ``from review_evidence import ...`` through ``sys.modules``, so a
+        pre-extraction cache handed the new projection OLD code.  The hook must
+        re-execute the on-disk source in place before projecting."""
+
+        scripts = self.root / ".wavefoundry" / "framework" / "scripts"
+        scripts.mkdir(parents=True)
+        shutil.copy2(UPGRADE_PATH, scripts / "upgrade_wavefoundry.py")
+
+        if str(SCRIPTS_ROOT) not in sys.path:
+            sys.path.insert(0, str(SCRIPTS_ROOT))
+        import review_evidence
+
+        wave_key = "1typed active"
+        wave_dir = self.root / "docs" / "waves" / wave_key
+        wave_dir.mkdir()
+        records = [ReviewStatusUpgradeProjectionTests._run_record()]
+        text = (
+            "# Wave Record\n\n"
+            "Status: implementing\n"
+            "review-evidence-protocol: 1\n\n"
+            "## Participants\n\n"
+            "- Required review lanes: security-reviewer\n\n"
+            "## Finding Synthesis\n\n"
+            "<!-- wave:finding-synthesis begin -->\n"
+            "<!-- wave:finding-synthesis end -->\n\n"
+            "## Review Evidence\n\n"
+            "Stale-module reload fixture.\n"
+        )
+        wave_md = wave_dir / "wave.md"
+        wave_md.write_text(
+            review_evidence.render_review_evidence_records(text, records),
+            encoding="utf-8",
+        )
+        adoption_path = self.root / review_evidence.ADOPTION_LEDGER_REL
+        adoption_path.parent.mkdir(parents=True, exist_ok=True)
+        adoption_path.write_text(
+            json.dumps(
+                {
+                    "protocol_version": 1,
+                    "waves": {wave_key: {"version": 1, "records": records}},
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        # Poison the cached module the way a pre-upgrade runner leaves it:
+        # same module object, out-of-date behavior behind the same name.
+        original = review_evidence.parse_review_evidence_source
+
+        def stale(*_args, **_kwargs):
+            raise AssertionError(
+                "stale pre-extraction review_evidence was used for the projection"
+            )
+
+        review_evidence.parse_review_evidence_source = stale
+        try:
+            self.ext.pre_docs_gate(self.ctx)
+        finally:
+            if review_evidence.parse_review_evidence_source is stale:
+                review_evidence.parse_review_evidence_source = original
+
+        # The reload repaired the cached module IN PLACE: same object, fresh code.
+        self.assertIs(sys.modules["review_evidence"], review_evidence)
+        self.assertIsNot(review_evidence.parse_review_evidence_source, stale)
+        projected = wave_md.read_text(encoding="utf-8")
+        self.assertIn(review_evidence.REVIEW_STATUS_MARKER_BEGIN, projected)
+        lock = json.loads(
+            (self.root / ".wavefoundry" / "upgrade-in-progress.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertIn("review_status_projection", lock)
+
+    def test_installed_memory_backfill_reloads_stale_cached_module_in_place(self):
+        """Sibling of the review_evidence seam: a pre-upgrade runner's cached
+        ``memory_backfill`` must not shadow the just-extracted coordinator."""
+
+        original = self.backfill.ensure_run
+
+        def stale(*_args, **_kwargs):
+            raise AssertionError("stale pre-extraction memory_backfill was used")
+
+        self.backfill.ensure_run = stale
+        try:
+            loaded = self.ext._installed_memory_backfill(self.root)
+        finally:
+            if self.backfill.ensure_run is stale:
+                self.backfill.ensure_run = original
+
+        self.assertIs(loaded, self.backfill)
+        self.assertIs(sys.modules["memory_backfill"], self.backfill)
+        self.assertIsNot(loaded.ensure_run, stale)
 
     def test_post_index_hook_seals_ready_run_for_pre_upgrade_runner(self):
         with patch.object(

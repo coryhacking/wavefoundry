@@ -24415,12 +24415,19 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
                 handler.root, wave_id, mode=mode, cache=handler.cache
             )
             canonical = str(_context_data(result).get("wave_id") or wave_id)
+            # A prepare that OPENED the wave is an activation boundary: work
+            # after it is implementation, so focus must not stay parked on
+            # plan (wf_implement_wave/wf_reopen_wave are otherwise the only
+            # implement transitions and neither runs on this path).
+            transitioned = bool(
+                _context_data(result).get("transitioned_to_active")
+            )
             return _lifecycle_context_result(
                 handler,
                 "wf_prepare_wave",
                 canonical,
                 result,
-                focus_stage="plan",
+                focus_stage="implement" if transitioned else "plan",
                 credit=_lifecycle_milestone_completed(
                     "wf_prepare_wave", result, mutating=mutating
                 ),

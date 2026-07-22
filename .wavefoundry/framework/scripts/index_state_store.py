@@ -2297,17 +2297,32 @@ def finalize_build_epoch(index_dir: Path, attempt_id: str) -> bool:
             or state.get("attempt_id") != str(attempt_id)
         ):
             return False
+        authorized = False
         if backfill_run_id:
             import memory_backfill
 
             root = index_dir.parent.parent
-            if not memory_backfill.authorize_index_finalize(
-                root,
-                backfill_run_id,
-                str(attempt_id),
-                int(state["generation"]) + 1,
-            ):
+            # The gate exists to stop publication while memory work is
+            # pending. `publishing_index`/`indexed` mean the zero-pending
+            # census was already frozen by this scope's authorized pass, so
+            # trailing passes (graph, FTS derived rebuild, optimize)
+            # finalize ungated instead of being refused and stranding the
+            # epoch at `building`. Every other stored state routes through
+            # authorize, which re-syncs the census before deciding (the
+            # stored state may lag validation); an unknown run stays
+            # fail-closed.
+            gate_state = memory_backfill.run_state(root, backfill_run_id)
+            if gate_state is None:
                 return False
+            if gate_state not in {"publishing_index", "indexed"}:
+                if not memory_backfill.authorize_index_finalize(
+                    root,
+                    backfill_run_id,
+                    str(attempt_id),
+                    int(state["generation"]) + 1,
+                ):
+                    return False
+                authorized = True
         conn = _full_durable_connection(index_dir)
         try:
             with conn:
@@ -2316,9 +2331,19 @@ def finalize_build_epoch(index_dir: Path, attempt_id: str) -> bool:
                     "completed_at = ? WHERE id = 1 AND attempt_id = ? AND status = 'building'",
                     (time.time(), str(attempt_id)),
                 )
-                return cur.rowcount == 1
+                finalized = cur.rowcount == 1
         finally:
             conn.close()
+        if finalized and authorized:
+            import memory_backfill
+
+            # Success is certain exactly here; the last-build row this CAS
+            # just wrote is legitimately overwritten by trailing passes, so
+            # the run is completed now rather than re-derived from it later.
+            memory_backfill.record_publication_success(
+                index_dir.parent.parent, backfill_run_id, str(attempt_id)
+            )
+        return finalized
 
     if not backfill_run_id:
         return _finalize()

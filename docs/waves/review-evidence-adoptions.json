@@ -97,6 +97,12 @@
       "source": "events.jsonl",
       "version": 1
     },
+    "1t550 upgrade-field-fixes": {
+      "prefix_sha256": "4536c0f361750c10d28047c35750dc3bc7dbb43cf2b0bf0f57ab316c2357706f",
+      "record_count": 9,
+      "source": "events.jsonl",
+      "version": 1
+    },
     "1t59p wf-audit-bounded-index-health": {
       "prefix_sha256": "12467c48a571d2ad88dbb9d4c0b9129004d249f04f1c169f475e102287e5bc52",
       "record_count": 41,
@@ -112,6 +118,12 @@
     "1t72b ce-hardening-and-paired-eval": {
       "prefix_sha256": "87be9f1e1b9f2d18bb3f84069a9469411e5eff5ccb7599e1c94867cba1dbe899",
       "record_count": 28,
+      "source": "events.jsonl",
+      "version": 1
+    },
+    "1t9ti memory-publication-receipt": {
+      "prefix_sha256": "7a8530e033555682f97944d445094ebcbae3b3713414f9086fac630441a47ee1",
+      "record_count": 5,
       "source": "events.jsonl",
       "version": 1
     }

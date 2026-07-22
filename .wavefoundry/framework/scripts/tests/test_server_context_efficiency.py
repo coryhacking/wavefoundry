@@ -306,6 +306,86 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
             self.assertEqual(telemetry.focus.wave_id, real)
             self.assertEqual(telemetry.focus.stage, "implement")
 
+    def test_prepare_create_activation_advances_focus_to_implement(self):
+        """1t551: a prepare that OPENED the wave is an activation boundary, so
+        focus must advance to implement; every non-transitioning prepare
+        outcome stays on plan (live-caught on wave 1t550, where all
+        implementation retrieval attributed to plan)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            wave_id = "1aaaa focus-activation"
+            wave_md = root / "docs" / "waves" / wave_id / "wave.md"
+            wave_md.parent.mkdir(parents=True)
+            wave_md.write_text("# Wave\n", encoding="utf-8")
+            telemetry = ce.ProcessTelemetry(root)
+            handler = SimpleNamespace(root=root, cache={}, telemetry=telemetry)
+
+            class FakeMcp:
+                def __init__(self):
+                    self.tools = {}
+
+                def tool(self, **_kwargs):
+                    def register(fn):
+                        self.tools[fn.__name__] = fn
+                        return fn
+
+                    return register
+
+                def resource(self, *_args, **_kwargs):
+                    def register(fn):
+                        return fn
+
+                    return register
+
+            mcp = FakeMcp()
+            srv.register_mcp_surface(mcp, lambda: handler)
+            cases = [
+                (
+                    "dry_run",
+                    {"wave_id": wave_id, "mode": "dry_run"},
+                    "plan",
+                ),
+                (
+                    "ready",
+                    {
+                        "wave_id": wave_id,
+                        "mode": "ready",
+                        "readied": True,
+                        "transitioned_to_active": False,
+                    },
+                    "plan",
+                ),
+                (
+                    "create",
+                    {
+                        "wave_id": wave_id,
+                        "mode": "create",
+                        "readied": False,
+                        "transitioned_to_active": False,
+                    },
+                    "plan",
+                ),
+                (
+                    "create",
+                    {
+                        "wave_id": wave_id,
+                        "mode": "create",
+                        "transitioned_to_active": True,
+                    },
+                    "implement",
+                ),
+            ]
+            for mode, data, expected_stage in cases:
+                with self.subTest(mode=mode, expected=expected_stage):
+                    core = {"status": "ok", "data": data, "diagnostics": []}
+                    with patch.object(
+                        srv, "wf_prepare_wave_response", return_value=core
+                    ):
+                        mcp.tools["wf_prepare_wave"](wave_id, mode=mode)
+                    self.assertEqual(telemetry.focus.wave_id, wave_id)
+                    self.assertEqual(telemetry.focus.stage, expected_stage)
+
     def test_public_paired_evaluation_authority_recomputes_contained_artifact(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -2841,6 +2841,9 @@ def main(argv: list[str] | None = None) -> int:
             summary = backfill.sync_inventory(root, run_id)
             summary = backfill.reconcile_index_publication(root, run_id)
             if summary["state"] == "indexed":
+                # A marker from an earlier failed resume names the phase this
+                # reconciliation just proved complete; only that marker clears.
+                upgrade_lib.clear_failed_phase(root, "index_update")
                 _log("Historical memory index publication is already complete.")
                 return 0
             if summary["state"] != "ready_for_index":
@@ -2879,6 +2882,7 @@ def main(argv: list[str] | None = None) -> int:
                 memory_backfill_state="indexed",
                 index_rebuilt_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
             )
+            upgrade_lib.clear_failed_phase(root, "index_update")
             _log("Historical memory validated; Phase 4 index publication complete.")
             return 0
         finally:

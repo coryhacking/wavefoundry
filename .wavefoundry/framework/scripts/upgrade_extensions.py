@@ -168,7 +168,18 @@ def _stop_dashboard_for_lock_cutover(root: Path) -> tuple[bool, int | None]:
     try:
         import server_impl
 
-        response = server_impl.wf_stop_dashboard_response(root)
+        # This hook runs from the NEW archive before extraction, so the
+        # installed server_impl may predate the wf_ tool rename and expose
+        # only the retired symbol.
+        stop_dashboard = getattr(
+            server_impl, "wf_stop_dashboard_response", None
+        ) or getattr(server_impl, "wave_dashboard_stop_response", None)
+        if stop_dashboard is None:
+            raise RuntimeError(
+                "installed server implementation exposes neither "
+                "wf_stop_dashboard_response nor wave_dashboard_stop_response"
+            )
+        response = stop_dashboard(root)
     except Exception as exc:
         raise RuntimeError(f"unable to stop dashboard before lock cutover: {exc}") from exc
     if response.get("status") != "ok":
@@ -247,6 +258,12 @@ def _installed_memory_backfill(root: Path):
     scripts = root / ".wavefoundry" / "framework" / "scripts"
     if str(scripts) not in sys.path:
         sys.path.insert(0, str(scripts))
+    # Same cross-extraction seam as ``_reload_cached_review_evidence``: a
+    # pre-upgrade runner's cached module would shadow the extracted one.
+    cached = sys.modules.get("memory_backfill")
+    if cached is not None:
+        importlib.reload(cached)
+        return cached
     import memory_backfill
 
     return memory_backfill
@@ -272,6 +289,22 @@ def _installed_upgrade_module(root: Path):
     return module
 
 
+def _reload_cached_review_evidence() -> None:
+    """Re-execute a pre-extraction ``review_evidence`` module in place.
+
+    The installed upgrader loaded by :func:`_installed_upgrade_module` resolves
+    its function-local ``from review_evidence import ...`` through
+    ``sys.modules``.  A pre-upgrade runner that already imported the module
+    would hand the new projection the OLD implementation; reloading in place
+    re-executes the freshly extracted source while preserving module identity
+    for any existing holders.
+    """
+
+    cached = sys.modules.get("review_evidence")
+    if cached is not None:
+        importlib.reload(cached)
+
+
 def pre_docs_gate(ctx):
     """Project review state before a newly extracted validator can enforce it.
 
@@ -286,6 +319,7 @@ def pre_docs_gate(ctx):
     )
     if "review_status_projection" in lock:
         return
+    _reload_cached_review_evidence()
     installed = _installed_upgrade_module(ctx.root)
     counts = installed.phase_review_status_projection(ctx.root)
     _update_upgrade_state(ctx.root, review_status_projection=counts)

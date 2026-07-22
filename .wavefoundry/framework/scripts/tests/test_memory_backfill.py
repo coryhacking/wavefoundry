@@ -907,10 +907,16 @@ os._exit(23)
         for patch in patches:
             patch.start()
             self.addCleanup(patch.stop)
+        # 1t9th crash-window retarget: suppress the CAS-time success record
+        # too, so the run is stranded at publishing_index — the state this
+        # recovery path exists for. Without the suppression the success
+        # record already lands at the CAS and the retry is a plain setup.
         with mock.patch.object(
             memory_backfill,
             "complete_index_publication",
             side_effect=RuntimeError("checkpoint unavailable"),
+        ), mock.patch.object(
+            memory_backfill, "record_publication_success", return_value=False
         ):
             self.assertEqual(
                 setup_wavefoundry.main(["--root", str(self.root)]),
@@ -929,7 +935,9 @@ os._exit(23)
             "indexed",
         )
 
-    def test_receipt_does_not_alias_a_later_unrelated_generation(self):
+    def _validated_publication_run(self) -> str:
+        """Canonical-producer fixture: one promoted candidate, run ready_for_index."""
+
         self._wave("1aaa closed")
         batch = server_impl.memory_backfill_response(
             self.root, mode="create", entry_path="setup"
@@ -946,13 +954,95 @@ os._exit(23)
             "none",
         )
         self.assertEqual(validated["status"], "ok")
-        run_id = batch["data"]["run_id"]
+        return str(batch["data"]["run_id"])
+
+    def test_publication_survives_trailing_graph_pass_in_same_scope(self):
+        """1t9th field reproduction: a content pass followed by a trailing
+        graph-only pass inside ONE publication scope. Pre-fix, the trailing
+        finalize consulted the gate while the run was already
+        `publishing_index`, was refused, stranded the build state at
+        `building`, and the receipt could never match again — so
+        resume_after_memory failed deterministically."""
+
+        run_id = self._validated_publication_run()
         index_dir = self.root / ".wavefoundry" / "index"
         with memory_backfill.index_publication_scope(run_id):
-            receipt_attempt = index_state_store.begin_build_epoch(index_dir, "all")
+            content_attempt = index_state_store.begin_build_epoch(index_dir, "all")
             self.assertTrue(
-                index_state_store.finalize_build_epoch(index_dir, receipt_attempt)
+                index_state_store.finalize_build_epoch(index_dir, content_attempt)
             )
+            graph_attempt = index_state_store.begin_build_epoch(index_dir, "graph")
+            self.assertTrue(
+                index_state_store.finalize_build_epoch(index_dir, graph_attempt)
+            )
+        self.assertEqual(
+            memory_backfill.run_summary(self.root, run_id)["state"], "indexed"
+        )
+        state = index_state_store.read_build_state(index_dir)
+        self.assertEqual(state["status"], "complete")
+        self.assertEqual(state["attempt_id"], graph_attempt)
+        # The lifecycle completion check must now pass without any recovery.
+        memory_backfill.complete_index_publication(self.root, run_id)
+
+    def test_pending_validation_still_refuses_in_scope_finalize(self):
+        """The real gate is untouched: pending memory work blocks publication."""
+
+        self._wave("1aaa closed")
+        run_id = memory_backfill.ensure_run(self.root, "setup")
+        summary = memory_backfill.sync_inventory(self.root, run_id)
+        self.assertEqual(summary["state"], "awaiting_validation")
+        index_dir = self.root / ".wavefoundry" / "index"
+        with memory_backfill.index_publication_scope(run_id):
+            attempt = index_state_store.begin_build_epoch(index_dir, "all")
+            self.assertFalse(
+                index_state_store.finalize_build_epoch(index_dir, attempt)
+            )
+        self.assertEqual(
+            index_state_store.read_build_state(index_dir)["status"], "building"
+        )
+
+    def test_unknown_run_in_scope_refuses_finalize_fail_closed(self):
+        index_dir = self.root / ".wavefoundry" / "index"
+        with memory_backfill.index_publication_scope("run-that-does-not-exist"):
+            attempt = index_state_store.begin_build_epoch(index_dir, "all")
+            self.assertFalse(
+                index_state_store.finalize_build_epoch(index_dir, attempt)
+            )
+
+    def test_success_record_only_fires_for_the_authorized_attempt(self):
+        run_id = self._validated_publication_run()
+        index_dir = self.root / ".wavefoundry" / "index"
+        attempt = index_state_store.begin_build_epoch(index_dir, "all")
+        self.assertTrue(
+            memory_backfill.authorize_index_finalize(self.root, run_id, attempt, 1)
+        )
+        self.assertFalse(
+            memory_backfill.record_publication_success(
+                self.root, run_id, "some-other-attempt"
+            )
+        )
+        self.assertEqual(memory_backfill.run_state(self.root, run_id), "publishing_index")
+        self.assertTrue(
+            memory_backfill.record_publication_success(self.root, run_id, attempt)
+        )
+        self.assertEqual(memory_backfill.run_state(self.root, run_id), "indexed")
+
+    def test_receipt_does_not_alias_a_later_unrelated_generation(self):
+        """Crash-window retarget (1t9th): with the CAS-time success record
+        suppressed — simulating a crash between the epoch CAS and the run
+        update — a later unrelated build's generation advance must never be
+        read as this run's publication."""
+
+        run_id = self._validated_publication_run()
+        index_dir = self.root / ".wavefoundry" / "index"
+        with mock.patch.object(
+            memory_backfill, "record_publication_success", return_value=False
+        ):
+            with memory_backfill.index_publication_scope(run_id):
+                receipt_attempt = index_state_store.begin_build_epoch(index_dir, "all")
+                self.assertTrue(
+                    index_state_store.finalize_build_epoch(index_dir, receipt_attempt)
+                )
         unrelated_attempt = index_state_store.begin_build_epoch(index_dir, "code")
         self.assertTrue(
             index_state_store.finalize_build_epoch(index_dir, unrelated_attempt)
