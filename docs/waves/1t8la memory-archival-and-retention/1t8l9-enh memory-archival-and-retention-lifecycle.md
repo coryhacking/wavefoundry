@@ -1,10 +1,10 @@
 # Memory archival and retention lifecycle
 
 Change ID: `1t8l9-enh memory-archival-and-retention-lifecycle`
-Change Status: `planned`
+Change Status: `implemented`
 Owner: Engineering
-Status: planned
-Last verified: 2026-07-22
+Status: active
+Last verified: 2026-07-23
 Wave: `1t8la memory-archival-and-retention`
 
 ## Rationale
@@ -73,36 +73,36 @@ archive-safe migration path.
 
 ## Acceptance Criteria
 
-- [ ] AC-1: An archive action renames a valid memory body to the archive
+- [x] AC-1: An archive action renames a valid memory body to the archive
   directory, preserves its ID and provenance, marks it `archived`, and creates
   one valid active pointer; a second invocation is a no-op.
-- [ ] AC-2: Default memory search, briefs, action-time advisories, semantic
+- [x] AC-2: Default memory search, briefs, action-time advisories, semantic
   indexing, and graph extraction never expose an archived body; an explicit
   history/archive query can return its body through the documented contract.
-- [ ] AC-3: The active pointer is searchable by ID, title, targets, and keywords
+- [x] AC-3: The active pointer is searchable by ID, title, targets, and keywords
   and resolves to the archived record without duplicating its body in the active
   corpus.
-- [ ] AC-4: Eligibility protects decisions, operator preferences, and relevant
+- [x] AC-4: Eligibility protects decisions, operator preferences, and relevant
   fragile-file records from age-only archival; every eligible archival category
   requires an explicit reason and reconciliation decision.
-- [ ] AC-5: Forced interruption at each archive transition and restart/retry
+- [x] AC-5: Forced interruption at each archive transition and restart/retry
   converges to exactly one active-or-archived body, one correct pointer state,
   and no stranded live references or store rows.
-- [ ] AC-6: Proposal, backfill, and close-time capture do not regenerate an
+- [x] AC-6: Proposal, backfill, and close-time capture do not regenerate an
   archived source event; upgrade/setup preserve a resumable, non-mixed state.
-- [ ] AC-7: Documentation, full framework tests, and docs validation are clean.
+- [x] AC-7: Documentation, full framework tests, and docs validation are clean.
 
 ## Tasks
 
-- [ ] Define the archive status, metadata, pointer schema, and lint/parser rules.
-- [ ] Implement fenced, state-derived archive/recovery operations and explicit
+- [x] Define the archive status, metadata, pointer schema, and lint/parser rules.
+- [x] Implement fenced, state-derived archive/recovery operations and explicit
   archive/history search.
-- [ ] Exclude archived bodies from default index/graph/advisory paths while
+- [x] Exclude archived bodies from default index/graph/advisory paths while
   indexing active pointers deliberately.
-- [ ] Add retention eligibility and lifecycle review guidance.
-- [ ] Integrate with proposal/backfill/upgrade state and memory invalidation.
-- [ ] Add interruption, migration, indexing, retrieval, and upgrade regressions.
-- [ ] Update architecture, MCP contract, memory README, and lifecycle prompts.
+- [x] Add retention eligibility and lifecycle review guidance.
+- [x] Integrate with proposal/backfill/upgrade state and memory invalidation.
+- [x] Add interruption, migration, indexing, retrieval, and upgrade regressions.
+- [x] Update architecture, MCP contract, memory README, and lifecycle prompts.
 
 ## Agent Execution Graph
 
@@ -149,6 +149,12 @@ archive-safe migration path.
 | Date | Update | Evidence |
 | --- | --- | --- |
 | 2026-07-22 | Planned from operator direction and review of 1ro44, 1sufo, 1t3dm, 1t9w8, and 1t9wa. | Physical archive selected; retrieval work split into companion change. |
+| 2026-07-22 | Thought: begin the ordered implementation with the archive schema and filesystem-state model, then carry the distinction through every default retrieval and indexing path before adding regressions. | Pre-implementation review passed; MCP retrieval identified `memory_records.py`, `server_impl.py`, index, graph, lint, proposal/backfill, and upgrade as the coordinated contract. |
+| 2026-07-22 | Gapfill: MCP-first code and docs retrieval established the owning modules and cross-cutting contract. Targeted shell reads were then used for exact already-located regions, framework test fixtures (excluded from the semantic code index), diff inspection, and executable tests after MCP output truncation; no broad repository exploration was substituted for the retrieval pass. | `code_ask`/`code_read` implementation briefing; targeted `rg`/`sed`; framework test policy. |
+| 2026-07-22 | Implemented the physical archive lifecycle: cross-process serialized, memory-fenced rename-first transaction; atomic archive metadata and compact pointer publication; protected-kind eligibility; explicit history retrieval; default advisory/docs/graph isolation; archived source-disposition suppression; and state-derived recovery across all three interruption windows. The rename-first ordering keeps every interruption state outside the active semantic/graph corpus before archive metadata is rewritten. | `memory_records.py`; `server_impl.py`; `indexer.py`; `graph_indexer.py`; lint validators; archive/source-disposition tests. |
+| 2026-07-22 | Reconciled the public contract and lifecycle guidance, including the memory README, MCP spec, five architecture surfaces, accepted ADR, close/review prompts, and canonical finalize seed. Full framework suite passed 6,163/6,163 across 59 files; `wf_validate_docs` passed with no errors or warnings; all edit gates are closed; live MCP reload matched disk and refreshed 82 tools with the two changed descriptions propagated. | `run_tests.py` (6,163 OK); `wf_validate_docs`; `wf_gate_status`; `wf_reload_mcp`. |
+| 2026-07-22 | Independent delivery review found two adjacent pending-archive gaps after the rename crash window: docs lint blocked without naming the retry, and unfiltered/history loads hid the source disposition so proposal/backfill could regenerate it. Repair: lint now identifies the pending state and exact reconcile recovery; the loader surfaces it only as `pending_archive_body` to unfiltered/history consumers, preserving default advisory/index isolation. Added direct lint, loader/history, proposal-suppression, and ambiguous-both-bodies regressions. | Findings `pending-archive-docs-gate-has-no-recovery` and `pending-archive-disposition-invisible`; targeted memory tests 161/161; targeted lint regression. |
+| 2026-07-22 | Repair verification on the final tree: full framework suite 6,168/6,168 across 59 files, docs validation clean, MCP implementation reloaded and matching disk, and both implementer repair-start heads recorded. The chains intentionally remain blocking for independent code/QA reverification. | `run_tests.py` (6,168 OK); `wf_validate_docs`; `wf_reload_mcp`; cycle-1 repair evidence. |
 
 ## Decision Log
 

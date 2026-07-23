@@ -38,8 +38,10 @@ from .constants import (
     MEMORY_CREATED_PATTERN,
     MEMORY_DISALLOWED_PATTERNS,
     MEMORY_ID_PATTERN,
+    MEMORY_ARCHIVE_ELIGIBLE_STATUSES,
     MEMORY_KIND_PATTERN,
     MEMORY_KINDS,
+    MEMORY_POINTER_TO_PATTERN,
     MEMORY_RECORD_DIR,
     MEMORY_REQUIRED_SECTIONS,
     MEMORY_STATUSES,
@@ -1213,6 +1215,9 @@ def check_memory_docs(root: Path, only: set[Path] | None = None, skip: set[Path]
     validation_line = re.compile(
         r"^Validation:\s*(pending|promote|retain|reject|rewrite)\s*$", re.MULTILINE
     )
+    archived_line = re.compile(r"^Archived:\s*(\d{4}-\d{2}-\d{2})\s*$", re.MULTILINE)
+    archive_reason_line = re.compile(r"^Archive reason:\s*(\S[^\r\n]*)$", re.MULTILINE)
+    archive_path_line = re.compile(r"^Archive path:\s*`([^`\r\n]+)`\s*$", re.MULTILINE)
     for path in sorted(memory_root.rglob("*.md")):
         rel = relative_to_root(root, path)
         if path.name == "README.md":
@@ -1222,6 +1227,9 @@ def check_memory_docs(root: Path, only: set[Path] | None = None, skip: set[Path]
         if skip is not None and path in skip:
             continue
         text = read_text(path)
+        memory_rel = path.relative_to(memory_root)
+        is_archive_body = bool(memory_rel.parts and memory_rel.parts[0] == "archive")
+        is_pointer = bool(memory_rel.parts and memory_rel.parts[0] == "pointers")
         mem_id = MEMORY_ID_PATTERN.search(text)
         if not mem_id:
             failures.append(f"{rel}: missing backticked `Memory ID:` line")
@@ -1249,6 +1257,25 @@ def check_memory_docs(root: Path, only: set[Path] | None = None, skip: set[Path]
                 f"{rel}: memory `Status` must be one of {', '.join(MEMORY_STATUSES)} "
                 f"(got {status.group(1)!r})"
             )
+        elif status.group(1) == "archived":
+            if not (is_archive_body or is_pointer):
+                failures.append(
+                    f"{rel}: archived records must live under memory/archive or memory/pointers"
+                )
+        elif (
+            is_archive_body
+            and status.group(1) in MEMORY_ARCHIVE_ELIGIBLE_STATUSES
+        ):
+            failures.append(
+                f"{rel}: pending memory archive detected after the body rename; "
+                "retry "
+                f"`memory_reconcile(memory_id='{path.stem}', status='archived', "
+                "archive_reason='<reason>')` to finish metadata and pointer publication"
+            )
+        elif is_archive_body or is_pointer:
+            failures.append(
+                f"{rel}: memory/archive and memory/pointers records require `Status: archived`"
+            )
         source_event = source_event_line.search(text)
         validation = validation_line.search(text)
         if source_event and not validation:
@@ -1267,7 +1294,11 @@ def check_memory_docs(root: Path, only: set[Path] | None = None, skip: set[Path]
                 "reject": "rejected",
                 "rewrite": "superseded",
             }[verdict]
-            if status and status.group(1) != expected_status:
+            if (
+                status
+                and status.group(1) != "archived"
+                and status.group(1) != expected_status
+            ):
                 failures.append(
                     f"{rel}: `Validation: {verdict}` requires `Status: {expected_status}`"
                 )
@@ -1314,6 +1345,36 @@ def check_memory_docs(root: Path, only: set[Path] | None = None, skip: set[Path]
                 f"{rel}: a superseded record must carry a backticked `Superseded by:` memory-id "
                 "(history is preserved through supersession, never deletion)"
             )
+        if status and status.group(1) == "archived":
+            archived = archived_line.search(text)
+            reason = archive_reason_line.search(text)
+            archive_path = archive_path_line.search(text)
+            if not archived:
+                failures.append(f"{rel}: archived records require `Archived: YYYY-MM-DD`")
+            else:
+                try:
+                    _dt.date.fromisoformat(archived.group(1))
+                except ValueError:
+                    failures.append(f"{rel}: `Archived` is not a valid calendar date")
+            if not reason:
+                failures.append(f"{rel}: archived records require a non-empty `Archive reason:`")
+            expected_archive_path = (
+                f"docs/agents/memory/archive/{path.stem}.md"
+            )
+            if not archive_path or archive_path.group(1) != expected_archive_path:
+                failures.append(
+                    f"{rel}: `Archive path` must be `{expected_archive_path}`"
+                )
+            pointer_to = MEMORY_POINTER_TO_PATTERN.search(text)
+            if is_pointer:
+                if not pointer_to or pointer_to.group(1) != path.stem:
+                    failures.append(
+                        f"{rel}: archive pointers require `Pointer to: `{path.stem}``"
+                    )
+                if "## Keywords" not in text:
+                    failures.append(f"{rel}: archive pointers require `## Keywords`")
+            elif pointer_to:
+                failures.append(f"{rel}: only archive pointers may carry `Pointer to:`")
         sections = _extract_sections(text)
         for section in MEMORY_REQUIRED_SECTIONS:
             if section not in text:

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import re
 import sys
+import tempfile
 import time
 from pathlib import Path
 from typing import Any, Iterable, Optional
@@ -26,6 +27,8 @@ if _scripts_dir not in sys.path:
     sys.path.insert(0, _scripts_dir)
 
 MEMORY_DIR = "docs/agents/memory"
+MEMORY_ARCHIVE_DIR = f"{MEMORY_DIR}/archive"
+MEMORY_POINTER_DIR = f"{MEMORY_DIR}/pointers"
 
 # Memory-id grammar (security boundary, delivery-review finding 2026-07-13):
 # ids are PATH COMPONENTS (`docs/agents/memory/<id>.md`), and the MCP tools
@@ -52,7 +55,11 @@ MEMORY_KINDS = (
     "decision",
     "dependency_gotcha",
 )
-MEMORY_STATUSES = ("candidate", "active", "stale", "superseded", "rejected")
+MEMORY_STATUSES = (
+    "candidate", "active", "stale", "superseded", "rejected", "archived",
+)
+ARCHIVE_ELIGIBLE_STATUSES = ("stale", "superseded", "rejected")
+ARCHIVE_PROTECTED_KINDS = ("decision", "operator_preference", "fragile_file")
 # Statuses that may surface as advisories/briefings by default. Candidates are
 # included so freshly-proposed lessons are visible before the close-time
 # distillation checkpoint promotes or rejects them (they are labeled).
@@ -83,6 +90,12 @@ _STATUS_RE = re.compile(r"^Status:\s+(\S+)\s*$", re.MULTILINE)
 _CONFIDENCE_RE = re.compile(r"^Confidence:\s*(\S+)\s*$", re.MULTILINE)
 _CREATED_RE = re.compile(r"^Created:\s*(\d{4}-\d{2}-\d{2})\s*$", re.MULTILINE)
 _UPDATED_RE = re.compile(r"^Updated:\s*(\d{4}-\d{2}-\d{2})\s*$", re.MULTILINE)
+_ARCHIVED_RE = re.compile(r"^Archived:\s*(\d{4}-\d{2}-\d{2})\s*$", re.MULTILINE)
+_ARCHIVE_REASON_RE = re.compile(r"^Archive reason:\s*(\S[^\r\n]*)$", re.MULTILINE)
+_ARCHIVE_PATH_RE = re.compile(r"^Archive path:\s*`([^`\r\n]+)`\s*$", re.MULTILINE)
+_POINTER_TO_RE = re.compile(
+    rf"^Pointer to:\s*`({_MEMORY_ID_PATTERN})`\s*$", re.MULTILINE
+)
 _SUPERSEDES_RE = re.compile(
     rf"^Supersedes:\s*`({_MEMORY_ID_PATTERN})`\s*$", re.MULTILINE
 )
@@ -190,6 +203,24 @@ def parse_memory_record(path: Path, text: Optional[str] = None) -> Optional[dict
     # record MUST carry `Superseded by:`.
     if status.group(1) == "superseded" and not _SUPERSEDED_BY_RE.search(text):
         return None
+    archived = _ARCHIVED_RE.search(text)
+    archive_reason = _ARCHIVE_REASON_RE.search(text)
+    archive_path = _ARCHIVE_PATH_RE.search(text)
+    pointer_to = _POINTER_TO_RE.search(text)
+    if status.group(1) == "archived":
+        if (
+            not archived
+            or _date_ts(archived.group(1)) is None
+            or not archive_reason
+            or not archive_path
+            or archive_path.group(1)
+            != f"{MEMORY_ARCHIVE_DIR}/{mem_id.group(1)}.md"
+        ):
+            return None
+    elif any((archived, archive_reason, archive_path, pointer_to)):
+        return None
+    if pointer_to and pointer_to.group(1) != mem_id.group(1):
+        return None
     summary = _section(text, "## Summary").strip()
     evidence_body = _section(text, "## Evidence")
     targets_body = _section(text, "## Targets")
@@ -212,6 +243,10 @@ def parse_memory_record(path: Path, text: Optional[str] = None) -> Optional[dict
         "confidence": conf_value,
         "created_at": created.group(1),
         "updated_at": updated.group(1),
+        "archived_at": archived.group(1) if archived else None,
+        "archive_reason": archive_reason.group(1).strip() if archive_reason else None,
+        "archive_path": archive_path.group(1).strip() if archive_path else None,
+        "pointer_to": pointer_to.group(1) if pointer_to else None,
         "supersedes": (m.group(1) if (m := _SUPERSEDES_RE.search(text)) else None),
         "superseded_by": (m.group(1) if (m := _SUPERSEDED_BY_RE.search(text)) else None),
         "source_exploration_cost": (
@@ -272,6 +307,15 @@ def load_memory_records(
     for path in sorted(memory_root.rglob("*.md")):
         if path.name == "README.md":
             continue
+        try:
+            rel_parts = path.relative_to(memory_root).parts
+        except ValueError:
+            continue
+        if rel_parts and rel_parts[0] == "pointers":
+            continue
+        is_archive_body = bool(rel_parts and rel_parts[0] == "archive")
+        if is_archive_body and wanted is not None and "archived" not in wanted:
+            continue
         # Per-record containment (delivery-review defense-in-depth): a
         # symlinked record file pointing outside the canonical memory root must
         # not be read/surfaced. Skip symlinks and any candidate whose resolved
@@ -287,8 +331,73 @@ def load_memory_records(
         record = parse_memory_record(path)
         if record is None:
             continue
+        if is_archive_body:
+            if record["status"] == "archived" and not record.get("pointer_to"):
+                record["record_type"] = "archive_body"
+            elif (
+                wanted is None
+                and record["status"] in ARCHIVE_ELIGIBLE_STATUSES
+                and not any((
+                    record.get("archived_at"),
+                    record.get("archive_reason"),
+                    record.get("archive_path"),
+                    record.get("pointer_to"),
+                ))
+            ):
+                # Rename-first archival intentionally creates this bounded
+                # crash state. Keep it visible to unfiltered/history consumers
+                # (proposal/backfill disposition census and include_history)
+                # without ever surfacing it through default status filters.
+                record["record_type"] = "pending_archive_body"
+                record["pending_archive"] = True
+            else:
+                continue
+        elif record["status"] == "archived":
+            # An interrupted archive can leave an archived-status body at its
+            # old path. Never surface it; retrying the archive operation moves
+            # it based on current filesystem state.
+            continue
+        else:
+            record["record_type"] = "memory"
         if wanted is not None and record["status"] not in wanted:
             continue
+        records.append(record)
+    return records
+
+
+def load_memory_pointers(root: Path) -> list[dict[str, Any]]:
+    """Parse compact active pointers without ever traversing archive bodies."""
+    memory_root = canonical_memory_root(root)
+    if memory_root is None:
+        return []
+    pointer_root = memory_root / "pointers"
+    try:
+        if pointer_root.resolve() != root.resolve() / MEMORY_POINTER_DIR:
+            return []
+    except OSError:
+        return []
+    if not pointer_root.is_dir() or pointer_root.is_symlink():
+        return []
+    records: list[dict[str, Any]] = []
+    for path in sorted(pointer_root.glob("*.md")):
+        try:
+            if path.is_symlink() or path.resolve().parent != pointer_root.resolve():
+                continue
+        except OSError:
+            continue
+        record = parse_memory_record(path)
+        expected_archive = f"{MEMORY_ARCHIVE_DIR}/{path.stem}.md"
+        if (
+            record is None
+            or record["status"] != "archived"
+            or record.get("pointer_to") != record["memory_id"]
+            or record.get("archive_path") != expected_archive
+        ):
+            continue
+        record["record_type"] = "archive_pointer"
+        record["keywords"] = _BACKTICK_RE.findall(_section(
+            path.read_text(encoding="utf-8", errors="replace"), "## Keywords"
+        ))
         records.append(record)
     return records
 
@@ -589,6 +698,26 @@ def _contained_record_path(root: Path, memory_id: str) -> Path:
     return path
 
 
+def _contained_memory_subdir_path(root: Path, memory_id: str, subdir: str) -> Path:
+    """Resolve one reserved memory subdirectory path without allowing escapes."""
+    memory_id = validate_memory_id(memory_id)
+    if subdir not in ("archive", "pointers"):
+        raise ValueError(f"unknown memory subdirectory: {subdir!r}")
+    memory_root = canonical_memory_root(root)
+    if memory_root is None:
+        raise ValueError(
+            "memory root resolves outside its canonical repository location "
+            "(symlinked memory directory or ancestor) — refusing"
+        )
+    repo = root.resolve()
+    expected_parent = repo / MEMORY_DIR / subdir
+    path = memory_root / subdir / f"{memory_id}.md"
+    resolved = path.resolve()
+    if resolved.parent != expected_parent or not resolved.is_relative_to(repo):
+        raise ValueError(f"memory id {memory_id!r} escapes the {subdir} directory")
+    return path
+
+
 def render_memory_record(
     *,
     memory_id: str,
@@ -842,6 +971,218 @@ def reconcile_memory_record(
         )
     path.write_text(text, encoding="utf-8", newline="")
     return path
+
+
+def archive_eligibility(record: dict[str, Any]) -> dict[str, Any]:
+    """Return explicit archive eligibility and the protected-kind review cue."""
+    status = str(record.get("status") or "")
+    kind = str(record.get("kind") or "")
+    eligible = status in ARCHIVE_ELIGIBLE_STATUSES
+    return {
+        "eligible": eligible,
+        "protected": kind in ARCHIVE_PROTECTED_KINDS,
+        "reason": (
+            "record status is archive-eligible"
+            if eligible
+            else "archive requires stale, superseded, or rejected status"
+        ),
+    }
+
+
+def _render_archive_pointer(record: dict[str, Any]) -> str:
+    memory_id = record["memory_id"]
+    archived_at = record["archived_at"]
+    archive_path = f"{MEMORY_ARCHIVE_DIR}/{memory_id}.md"
+    summary = " ".join(str(record.get("summary") or "").split())
+    evidence = list(record.get("evidence_refs") or [])
+    targets = list(record.get("target_refs") or [])
+    keyword_values = sorted({
+        memory_id,
+        str(record.get("title") or memory_id),
+        str(record.get("kind") or ""),
+        *(str(value) for value in targets),
+    })
+    lines = [
+        f"# {record.get('title') or memory_id}",
+        "",
+        "Owner: Engineering",
+        "Status: archived",
+        f"Last verified: {archived_at}",
+        "",
+        f"Memory ID: `{memory_id}`",
+        f"Kind: `{record['kind']}`",
+        f"Confidence: {record.get('confidence', 0.0)}",
+        f"Created: {record['created_at']}",
+        f"Updated: {record['updated_at']}",
+        f"Archived: {archived_at}",
+        f"Archive reason: {record['archive_reason']}",
+        f"Archive path: `{archive_path}`",
+        f"Pointer to: `{memory_id}`",
+    ]
+    if record.get("superseded_by"):
+        lines.append(f"Superseded by: `{record['superseded_by']}`")
+    lines += [
+        "",
+        "## Summary",
+        "",
+        summary[:280],
+        "",
+        "## Evidence",
+        "",
+        *[f"- `{value}`" for value in evidence],
+        "",
+        "## Targets",
+        "",
+        *[f"- `{value}`" for value in targets],
+        "",
+        "## Keywords",
+        "",
+        *[f"- `{value}`" for value in keyword_values if value],
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def _atomic_replace_text(path: Path, content: str) -> None:
+    """Publish one complete text file atomically in its destination directory."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    handle = tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        newline="",
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+        dir=path.parent,
+        delete=False,
+    )
+    tmp_path = Path(handle.name)
+    try:
+        with handle:
+            handle.write(content)
+            handle.flush()
+        tmp_path.replace(path)
+    finally:
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+def archive_memory_record(
+    root: Path,
+    memory_id: str,
+    *,
+    reason: str,
+    eligibility_confirmed: bool = False,
+    date: Optional[str] = None,
+    _interrupt_after: str = "",
+) -> dict[str, Any]:
+    """State-derived rename + compact pointer publication.
+
+    The caller serializes this transaction with the shared cross-process
+    memory/review lock and holds a writer-owned memory fence. Every retry
+    re-derives progress from the active body, archive body, and pointer
+    currently on disk. The body is renamed with ``Path.replace``; copy/delete
+    is never used.
+    """
+    memory_id = validate_memory_id(memory_id)
+    reason = str(reason or "").strip()
+    if not reason or any(char in reason for char in ("\r", "\n")):
+        raise ValueError("archive_reason must be a non-empty single line")
+    active_path = _contained_record_path(root, memory_id)
+    archive_path = _contained_memory_subdir_path(root, memory_id, "archive")
+    pointer_path = _contained_memory_subdir_path(root, memory_id, "pointers")
+
+    if active_path.exists() and archive_path.exists():
+        raise ValueError(
+            f"{memory_id}: both active and archived bodies exist; refusing to guess"
+        )
+
+    moved = False
+    if archive_path.is_file():
+        text = archive_path.read_text(encoding="utf-8")
+        record = parse_memory_record(archive_path, text)
+        if record is None:
+            # The first transition deliberately moves the still-retired body
+            # under the index-excluded archive path before rewriting metadata.
+            # Parse it against its stable id so a retry can finish that state.
+            record = parse_memory_record(active_path, text)
+        if record is None:
+            raise ValueError(f"{memory_id}: malformed archived memory body")
+    elif active_path.is_file():
+        text = active_path.read_text(encoding="utf-8")
+        record = parse_memory_record(active_path, text)
+        if record is None:
+            raise ValueError(f"{memory_id}: malformed memory record")
+        eligibility = archive_eligibility(record)
+        if not eligibility["eligible"]:
+            raise ValueError(f"{memory_id}: {eligibility['reason']}")
+        if eligibility["protected"] and not eligibility_confirmed:
+            raise ValueError(
+                f"{memory_id}: {record['kind']} is protected; set "
+                "eligibility_confirmed=true only after verifying it is no longer operational"
+            )
+        archive_path.parent.mkdir(parents=True, exist_ok=True)
+        active_path.replace(archive_path)
+        moved = True
+        if _interrupt_after == "body_rename":
+            raise RuntimeError("injected interruption after body rename")
+    else:
+        raise FileNotFoundError(f"memory record not found: {memory_id}")
+
+    if record["status"] != "archived":
+        eligibility = archive_eligibility(record)
+        if not eligibility["eligible"]:
+            raise ValueError(f"{memory_id}: {eligibility['reason']}")
+        if eligibility["protected"] and not eligibility_confirmed:
+            raise ValueError(
+                f"{memory_id}: {record['kind']} is protected; set "
+                "eligibility_confirmed=true only after verifying it is no longer operational"
+            )
+        today = date or time.strftime("%Y-%m-%d")
+        if _date_ts(today) is None:
+            raise ValueError("archive date must be YYYY-MM-DD")
+        text = _STATUS_LINE_RE.sub(r"\g<1>archived", text, count=1)
+        text = _UPDATED_LINE_RE.sub(rf"\g<1>{today}", text, count=1)
+        text = _replace_or_insert_metadata(text, _ARCHIVED_RE, f"Archived: {today}")
+        text = _replace_or_insert_metadata(
+            text, _ARCHIVE_REASON_RE, f"Archive reason: {reason}"
+        )
+        text = _replace_or_insert_metadata(
+            text,
+            _ARCHIVE_PATH_RE,
+            f"Archive path: `{MEMORY_ARCHIVE_DIR}/{memory_id}.md`",
+        )
+        _atomic_replace_text(archive_path, text)
+        if _interrupt_after == "status_rewrite":
+            raise RuntimeError("injected interruption after status rewrite")
+        record = parse_memory_record(archive_path)
+        if record is None:
+            raise ValueError(f"{memory_id}: archived body failed schema validation")
+
+    record["record_type"] = "archive_body"
+    pointer_text = _render_archive_pointer(record)
+    no_op = not moved
+    try:
+        existing_pointer = pointer_path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        existing_pointer = ""
+    if existing_pointer != pointer_text:
+        _atomic_replace_text(pointer_path, pointer_text)
+        no_op = False
+        if _interrupt_after == "pointer_publish":
+            raise RuntimeError("injected interruption after pointer publication")
+    pointer = parse_memory_record(pointer_path)
+    if pointer is None or pointer.get("pointer_to") != memory_id:
+        raise ValueError(f"{memory_id}: archive pointer failed schema validation")
+    pointer["record_type"] = "archive_pointer"
+    return {
+        "archive_path": archive_path,
+        "pointer_path": pointer_path,
+        "record": record,
+        "pointer": pointer,
+        "moved": moved,
+        "no_op": no_op,
+    }
 
 
 def apply_decay(

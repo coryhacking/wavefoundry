@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-20
+Last verified: 2026-07-23
 
 ## Primary Control Paths
 
@@ -321,8 +321,20 @@ seqlock** → writes the record markdown under `docs/agents/memory/` → **final
 background index refresh (docs embedding + graph per-file delta). `memory_search`/`memory_brief` read
 the record files directly (source of truth), decay confidence kind-awarely through `freshness_for_path(since_ts)`,
 rank with persisted-betweenness tie-breaks, and degrade gracefully without index/graph layers.
-`memory_reconcile` transitions status in place (supersession preserves history; nothing deletes), under the
-same fence. Hot read tools and lifecycle tools attach capped advisories from the same record store.
+`memory_reconcile` transitions status in place or explicitly archives an
+already-retired record. Archival holds the shared cross-process mutation lock
+and memory fence, renames the retired body into the index-excluded
+`docs/agents/memory/archive/`, atomically rewrites archive metadata there, and
+atomically publishes a compact pointer under `docs/agents/memory/pointers/`.
+Every retry derives progress from those three filesystem states. Default record
+reads, advisories, semantic indexing, and
+graph extraction exclude archive bodies; targeted search may return the
+pointer, while an explicit history/status query returns the body. Hot read tools
+and lifecycle tools attach capped advisories from the same active record store.
+The rename-before-rewrite crash state is represented as a pending archive:
+unfiltered/history and source-disposition consumers retain the retired body,
+default-status consumers do not, and docs lint blocks with the exact reconcile
+retry rather than leaving recovery implicit.
 
 Evidence-derived supply adds a semantic checkpoint without adding another event
 store: `memory_supply.draft_candidates` assigns each source a stable identity →
@@ -332,8 +344,9 @@ store: `memory_supply.draft_candidates` assigns each source a stable identity �
 delta and compact judgment. Rewrites create the corrected record and supersede
 the generated candidate under the shared cross-process lock; multi-file crash
 atomicity is not claimed and partial failures return explicit recovery.
-Proposal scans every status by source identity, so rejected and superseded
-history suppress regeneration. `wf_close_wave` blocks on missing or pending
+Proposal scans every status by source identity, including archived bodies, so
+rejected, superseded, and archived history suppress regeneration.
+`wf_close_wave` blocks on missing or pending
 eligible sources; a wave with no eligible source passes with no memory.
 Deterministic Python owns extraction/linkage/mutation while the agent owns
 semantic usefulness. Contradictions remain surfaced, never auto-resolved.

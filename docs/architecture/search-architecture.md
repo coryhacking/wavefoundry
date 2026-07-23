@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-21
+Last verified: 2026-07-23
 
 ## The Problem
 
@@ -400,6 +400,12 @@ never clear drift.
 docs path with a `memory` tag and served by `memory_search`/`memory_brief` — record files are the
 source of truth, the semantic index is an optional assist, and ranking is kind-aware-decayed confidence (via the
 per-path freshness primitive) with persisted-betweenness tie-breaks.
+Physical archive bodies under `docs/agents/memory/archive/` are a historical
+storage class and are excluded by both repository walking and explicit-file
+index seams; graph extraction applies the same boundary. Compact pointers under
+`docs/agents/memory/pointers/` remain indexable and searchable. Normal targeted
+memory search may return a pointer, while `include_history=true` or
+`status="archived"` reads the archived body directly from the record store.
 
 ## Index Readiness: Two Surfaces (wave 1t59p)
 

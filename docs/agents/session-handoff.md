@@ -2,36 +2,28 @@
 
 Owner: Engineering
 Status: generated
-Last verified: 2026-07-22
+Last verified: 2026-07-23
 
 ## Current Session
 
 **Active wave:** *(none)*
-- **OPEN wave:** `1t3ek context-efficiency-feedback-loop` — SIX changes
-  implemented and delivery-reviewed across three superseding cycles; suite
-  **6,015/6,015** clean; docs-lint clean; awaiting only operator close.
-  Changes: 1t22z review-boundary flush; 1t230 retrieval-posture loop; 1t231
-  test hygiene + runner guard; 1t3el open-wave attribution; 1t3s7
-  derived-artifact credit + full-surface debits; 1t2zq state-file source
-  credit.
-- **Two live-caught, repaired, independently reverified findings** in the
-  typed ledger (schema_ready migration fast-path; stage-derivation
-  serialization matching), cycle 2 frozen at an auto-recorded convergence
-  checkpoint. Both repairs were actual solutions: additive columns must join
-  the schema_ready check; consumers parse serialized formats instead of
-  substring-matching, with a live-ledger oracle test pinning the contract.
-- **Final live row**: the last approval call recorded stage=review,
-  attribution=open_wave, artifact credit 299, with review-stage source
-  credits at 6 files / 50,840 tokens — four of the wave's changes verified in
-  one event.
-- Stale producer leases cleaned (5 removed, 1 live); empty-stale-lease
-  cleanup and the suite/indexer contention flake are drafted-for-next-wave
-  candidates (not yet written as plan docs).
-- No commit since `0bfdb404`. Close, then commit, both operator-owned.
 
-## Open Questions / Deferred Decisions
+- Wave `1t8la memory-archival-and-retention` is closed.
+- All seven ACs were independently verified; both P2 repair chains are
+  terminal with empty required lanes.
+- Independent full suite: 6,168/6,168 across 59 files; docs-lint clean.
+- Current `wave-council-delivery` and operator signoff follow every repair.
+- Durable promoted memories:
+  `1td27-mem interrupted-lifecycle-states-need-a-named-recovery-route` and
+  `1tb3b-mem pending-states-stay-visible-to-history-and-dedup-consumers`.
+- The operator authorized committing the closed wave in the current request.
 
-- Next-wave candidates: suite/indexer mutual exclusion (3 flakes today);
-  empty-stale-lease cleanup at adoption; wf_create_wave generated-body
-  artifact credit; paired evaluation to measure the counterfactual savings
-  (schema-learning + retry loops) the deterministic credits exclude.
+## Next Action
+
+Commit the closed 1t8la wave as one changeset.
+
+## Follow-Up Plan
+
+`1tbw4-doc review-evidence-lane-clearing-docs` captures the review observation
+that multi-lane findings need an explicit, discoverable per-lane clearing
+contract. It remains planned and is not part of 1t8la.

@@ -128,8 +128,8 @@
       "version": 1
     },
     "1t8la memory-archival-and-retention": {
-      "prefix_sha256": "7712a46ed9c44d85a61b33bb74ad49daf7c51f9e7f98d5b342d30215cd011522",
-      "record_count": 2,
+      "prefix_sha256": "f4130feda96924026a02def597021056810e9785990eb7fe2515deed5bc678b3",
+      "record_count": 45,
       "source": "events.jsonl",
       "version": 1
     },

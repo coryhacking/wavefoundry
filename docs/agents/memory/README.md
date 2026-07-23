@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-22
+Last verified: 2026-07-23
 
 Typed, evidence-backed memory records for the agent memory layer: prior failed
 attempts, operator preferences, fragile files, review findings, environment
@@ -26,7 +26,7 @@ Required lines (in the header block):
 
 | Line | Form | Meaning |
 | ---- | ---- | ------- |
-| `Owner:` / `Status:` / `Last verified:` | standard doc metadata | `Status:` carries the MEMORY status: `candidate`, `active`, `stale`, `superseded`, or `rejected` |
+| `Owner:` / `Status:` / `Last verified:` | standard doc metadata | `Status:` carries the MEMORY status: `candidate`, `active`, `stale`, `superseded`, `rejected`, or `archived` |
 | `Memory ID:` | `` `<lifecycleId>-mem <slug>` `` (must equal the filename stem; legacy bare-slug ids from before wave 1t9w7 remain valid) | stable identity for supersession links |
 | `Kind:` | `` `one of the eight kinds` `` | drives decay policy and advisory routing |
 | `Confidence:` | number in `[0.0, 1.0]` | advisory ranking input; decays kind-awarely, never deletes |
@@ -48,6 +48,37 @@ Required sections:
     renumbered by re-clustering)
 
 Optional: `## Notes`.
+
+## Physical archive and active pointers
+
+Retired records may be archived only through
+`memory_reconcile(memory_id, status="archived", archive_reason=...)`. Eligible
+statuses are `stale`, `superseded`, and `rejected`; decisions, operator
+preferences, and fragile-file records additionally require
+`eligibility_confirmed=true` after a current review confirms the knowledge is no
+longer operational.
+
+The operation first renames the retired body into the index-excluded
+`docs/agents/memory/archive/`, then atomically marks it with `Archived:`,
+`Archive reason:`, and `Archive path:`. It leaves a compact record-shaped
+pointer in `docs/agents/memory/pointers/` with `Pointer to:` and `## Keywords`.
+The rename, metadata rewrite, and pointer publication are
+state-derived and retry-safe under the cross-process mutation lock and memory
+fence; no copy/delete move is used.
+
+Archive bodies are excluded from ordinary semantic indexing, graph extraction,
+briefings, and action-time advisories. A targeted normal `memory_search` may
+return the compact pointer. Use `memory_search(include_history=true)` or
+`memory_search(status="archived")` to retrieve the archived body. Archived
+source-event dispositions remain part of proposal/backfill duplicate history,
+so archival never regenerates old candidates.
+
+If a process stops after the rename but before metadata/pointer publication, the
+retired-status body is a **pending archive**. It stays excluded from every
+default advisory and index path, but unfiltered/history reads retain it so its
+source disposition cannot be regenerated. Docs lint fails loudly with the exact
+`memory_reconcile(memory_id=..., status="archived", archive_reason=...)` retry
+needed to finish the transaction.
 
 ## Kinds and decay
 

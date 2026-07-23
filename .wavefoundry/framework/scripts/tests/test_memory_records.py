@@ -461,6 +461,117 @@ class ReconcileTests(_MemoryCase):
             self.mem.reconcile_memory_record(self.root, "mem-missing", "stale")
 
 
+class MemoryArchiveTests(_MemoryCase):
+    def _stale(self, memory_id="mem-archive", kind="failed_attempt") -> Path:
+        return self._add(memory_id, kind, status="stale", targets=("src/locks.py",))
+
+    def test_archive_renames_body_creates_pointer_and_second_call_is_no_op(self):
+        active = self._stale()
+        result = self.mem.archive_memory_record(
+            self.root, "mem-archive", reason="Superseded tactical guidance."
+        )
+        archive = self.root / self.mem.MEMORY_ARCHIVE_DIR / "mem-archive.md"
+        pointer = self.root / self.mem.MEMORY_POINTER_DIR / "mem-archive.md"
+        self.assertFalse(active.exists())
+        self.assertTrue(archive.is_file())
+        self.assertTrue(pointer.is_file())
+        self.assertTrue(result["moved"])
+        body = self.mem.parse_memory_record(archive)
+        self.assertEqual(body["status"], "archived")
+        self.assertEqual(body["archive_reason"], "Superseded tactical guidance.")
+        self.assertEqual(
+            body["archive_path"],
+            "docs/agents/memory/archive/mem-archive.md",
+        )
+        pointers = self.mem.load_memory_pointers(self.root)
+        self.assertEqual([record["memory_id"] for record in pointers], ["mem-archive"])
+        self.assertEqual(pointers[0]["record_type"], "archive_pointer")
+        self.assertEqual(
+            self.mem.load_memory_records(
+                self.root, statuses=self.mem.DEFAULT_SURFACED_STATUSES
+            ),
+            [],
+        )
+        history = self.mem.load_memory_records(self.root)
+        self.assertEqual([record["record_type"] for record in history], ["archive_body"])
+
+        again = self.mem.archive_memory_record(
+            self.root, "mem-archive", reason="Superseded tactical guidance."
+        )
+        self.assertTrue(again["no_op"])
+        self.assertFalse(again["moved"])
+        self.assertEqual(len(list(archive.parent.glob("mem-archive.md"))), 1)
+        self.assertEqual(len(list(pointer.parent.glob("mem-archive.md"))), 1)
+
+    def test_archive_requires_retired_status_reason_and_protected_confirmation(self):
+        self._add("mem-active", "failed_attempt", status="active")
+        with self.assertRaisesRegex(ValueError, "stale, superseded, or rejected"):
+            self.mem.archive_memory_record(
+                self.root, "mem-active", reason="Too old."
+            )
+        self._stale("mem-decision", "decision")
+        with self.assertRaisesRegex(ValueError, "protected"):
+            self.mem.archive_memory_record(
+                self.root, "mem-decision", reason="Decision was superseded."
+            )
+        result = self.mem.archive_memory_record(
+            self.root,
+            "mem-decision",
+            reason="Decision was superseded.",
+            eligibility_confirmed=True,
+        )
+        self.assertTrue(result["moved"])
+        self._stale("mem-empty-reason")
+        with self.assertRaisesRegex(ValueError, "non-empty single line"):
+            self.mem.archive_memory_record(
+                self.root, "mem-empty-reason", reason=""
+            )
+
+    def test_each_interruption_window_converges_from_filesystem_state(self):
+        for transition in ("status_rewrite", "body_rename", "pointer_publish"):
+            memory_id = f"mem-{transition.replace('_', '-')}"
+            self._stale(memory_id)
+            with self.assertRaisesRegex(RuntimeError, "injected interruption"):
+                self.mem.archive_memory_record(
+                    self.root,
+                    memory_id,
+                    reason=f"Archive after {transition}.",
+                    _interrupt_after=transition,
+                )
+            repaired = self.mem.archive_memory_record(
+                self.root,
+                memory_id,
+                reason=f"Archive after {transition}.",
+            )
+            active = self.root / self.mem.MEMORY_DIR / f"{memory_id}.md"
+            archive = self.root / self.mem.MEMORY_ARCHIVE_DIR / f"{memory_id}.md"
+            pointer = self.root / self.mem.MEMORY_POINTER_DIR / f"{memory_id}.md"
+            self.assertFalse(active.exists(), transition)
+            self.assertTrue(archive.is_file(), transition)
+            self.assertTrue(pointer.is_file(), transition)
+            self.assertEqual(
+                self.mem.parse_memory_record(archive)["status"], "archived"
+            )
+            self.assertEqual(
+                self.mem.parse_memory_record(pointer)["pointer_to"], memory_id
+            )
+            self.assertIn(repaired["no_op"], (True, False))
+
+    def test_both_active_and_archive_bodies_refuse_ambiguity(self):
+        active = self._stale("mem-ambiguous")
+        archive = (
+            self.root / self.mem.MEMORY_ARCHIVE_DIR / "mem-ambiguous.md"
+        )
+        archive.parent.mkdir(parents=True, exist_ok=True)
+        archive.write_text(active.read_text(encoding="utf-8"), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "both active and archived bodies"):
+            self.mem.archive_memory_record(
+                self.root,
+                "mem-ambiguous",
+                reason="Must not guess which body wins.",
+            )
+
+
 class DecayTests(_MemoryCase):
     """1p8gy Req 13 / AC-13 via the landed 1ro43 freshness primitive."""
 
@@ -590,6 +701,70 @@ class MemoryToolTests(_MemoryCase):
         self.assertEqual(resp["status"], "ok")
         self.assertEqual(resp["data"]["count"], 1)  # text containment served
         self.assertFalse(resp["data"]["semantic_assist"])
+
+    def test_archive_pointer_is_searchable_but_brief_isolated_and_history_resolves_body(self):
+        self._add(
+            "mem-lock-contention",
+            "failed_attempt",
+            status="stale",
+            targets=("src/locks.py",),
+        )
+        archived = self.srv.memory_reconcile_response(
+            self.root,
+            "mem-lock-contention",
+            "archived",
+            archive_reason="Replaced by the current lock playbook.",
+        )
+        self.assertEqual(archived["status"], "ok", archived)
+        self.assertTrue(archived["data"]["archived"])
+        self.assertEqual(
+            archived["data"]["pointer"]["record_type"], "archive_pointer"
+        )
+        search = self.srv.memory_search_response(
+            self.root, query="lock contention"
+        )
+        self.assertEqual(search["data"]["count"], 1)
+        self.assertEqual(
+            search["data"]["records"][0]["record_type"], "archive_pointer"
+        )
+        self.assertEqual(search["data"]["archive_pointer_count"], 1)
+        brief = self.srv.memory_brief_response(
+            self.root, targets=["src/locks.py"]
+        )
+        self.assertEqual(brief["data"]["count"], 0)
+        history = self.srv.memory_search_response(
+            self.root,
+            query="lock contention",
+            include_history=True,
+        )
+        self.assertEqual(history["data"]["count"], 1)
+        self.assertEqual(
+            history["data"]["records"][0]["record_type"], "archive_body"
+        )
+        self.assertEqual(history["data"]["archived_body_count"], 1)
+
+    def test_archive_reconcile_uses_the_cross_process_mutation_lock(self):
+        self._add("mem-locked-archive", "failed_attempt", status="stale")
+        entered = []
+
+        class _Lock:
+            def __enter__(self):
+                entered.append("enter")
+
+            def __exit__(self, exc_type, exc, tb):
+                entered.append("exit")
+
+        with patch.object(
+            self.srv, "review_event_write_lock", return_value=_Lock()
+        ):
+            result = self.srv.memory_reconcile_response(
+                self.root,
+                "mem-locked-archive",
+                "archived",
+                archive_reason="Retired after replacement.",
+            )
+        self.assertEqual(result["status"], "ok", result)
+        self.assertEqual(entered, ["enter", "exit"])
 
     def test_brief_cap_and_invalid_context(self):
         for i in range(8):
@@ -1411,7 +1586,9 @@ class NestedRecordTests(_MemoryCase):
             "Created: 2026-07-13\nUpdated: 2026-07-13\n\n"
             "## Summary\n\nNested lesson.\n\n## Evidence\n\n- `1x`\n\n## Targets\n\n- `src/a.py`\n"
         )
-        nested = self.root / self.mem.MEMORY_DIR / "archive"
+        # ``archive`` and ``pointers`` are lifecycle-reserved directories;
+        # ordinary nested records remain supported everywhere else.
+        nested = self.root / self.mem.MEMORY_DIR / "team"
         nested.mkdir(parents=True, exist_ok=True)
         (nested / "mem-nested.md").write_text(good, encoding="utf-8")
         ids = {r["memory_id"] for r in self.mem.load_memory_records(self.root)}
@@ -2933,6 +3110,113 @@ class MemoryAgentValidationTests(_MemoryCase):
             action_delta="No memory action; the canonical contract owns the rule.",
         )
         self.assertEqual(rejected["status"], "ok", rejected)
+        rerun = self.srv.memory_propose_response(
+            self.root, "1aaaa", "dry_run"
+        )
+        self.assertEqual(rerun["data"]["records_proposed"], 0)
+        self.assertEqual(rerun["data"]["skipped_dispositions"], 1)
+
+    def test_archived_source_disposition_is_not_regenerated(self):
+        wave = self.root / "docs" / "waves" / "1aaaa demo"
+        wave.mkdir(parents=True)
+        change_id = "1aaaak-feat demo"
+        (wave / f"{change_id}.md").write_text(
+            "# Demo\n\n"
+            f"Change ID: `{change_id}`\n\n## Decision Log\n\n"
+            "| Date | Decision | Reason | Alternatives |\n"
+            "| --- | --- | --- | --- |\n"
+            "| 2026-01-01 | Use `src/a.py` | grounded | none |\n",
+            encoding="utf-8",
+        )
+        (wave / "wave.md").write_text(
+            f"# Wave\n\nwave-id: `1aaaa demo`\n\nChange ID: `{change_id}`\n",
+            encoding="utf-8",
+        )
+        created = self.srv.memory_propose_response(
+            self.root, "1aaaa", "create"
+        )
+        mid = created["data"]["written"][0]["memory_id"]
+        rejected = self._validate(
+            mid,
+            "reject",
+            evidence_verified=False,
+            current_target_verified=False,
+            canonical_overlap="duplicates",
+            action_delta="The canonical contract owns the rule.",
+        )
+        self.assertEqual(rejected["status"], "ok", rejected)
+        archived = self.srv.memory_reconcile_response(
+            self.root,
+            mid,
+            "archived",
+            archive_reason="Rejected candidate retained only as history.",
+            eligibility_confirmed=True,
+        )
+        self.assertEqual(archived["status"], "ok", archived)
+        rerun = self.srv.memory_propose_response(
+            self.root, "1aaaa", "dry_run"
+        )
+        self.assertEqual(rerun["data"]["records_proposed"], 0)
+        self.assertEqual(rerun["data"]["skipped_dispositions"], 1)
+
+    def test_pending_archive_source_disposition_remains_history_and_is_not_regenerated(self):
+        wave = self.root / "docs" / "waves" / "1aaaa demo"
+        wave.mkdir(parents=True)
+        change_id = "1aaaak-feat demo"
+        (wave / f"{change_id}.md").write_text(
+            "# Demo\n\n"
+            f"Change ID: `{change_id}`\n\n## Decision Log\n\n"
+            "| Date | Decision | Reason | Alternatives |\n"
+            "| --- | --- | --- | --- |\n"
+            "| 2026-01-01 | Use `src/a.py` | grounded | none |\n",
+            encoding="utf-8",
+        )
+        (wave / "wave.md").write_text(
+            f"# Wave\n\nwave-id: `1aaaa demo`\n\nChange ID: `{change_id}`\n",
+            encoding="utf-8",
+        )
+        created = self.srv.memory_propose_response(
+            self.root, "1aaaa", "create"
+        )
+        mid = created["data"]["written"][0]["memory_id"]
+        rejected = self._validate(
+            mid,
+            "reject",
+            evidence_verified=False,
+            current_target_verified=False,
+            canonical_overlap="duplicates",
+            action_delta="The canonical contract owns the rule.",
+        )
+        self.assertEqual(rejected["status"], "ok", rejected)
+        with self.assertRaisesRegex(RuntimeError, "body rename"):
+            self.mem.archive_memory_record(
+                self.root,
+                mid,
+                reason="Rejected candidate retained only as history.",
+                eligibility_confirmed=True,
+                _interrupt_after="body_rename",
+            )
+
+        all_records = self.mem.load_memory_records(self.root)
+        pending = next(record for record in all_records if record["memory_id"] == mid)
+        self.assertEqual(pending["record_type"], "pending_archive_body")
+        self.assertTrue(pending["pending_archive"])
+        self.assertTrue(pending["source_event"])
+        self.assertEqual(
+            self.mem.load_memory_records(
+                self.root, statuses=self.mem.DEFAULT_SURFACED_STATUSES
+            ),
+            [],
+        )
+        history = self.srv.memory_search_response(
+            self.root, include_history=True
+        )
+        self.assertEqual(history["data"]["count"], 1)
+        self.assertEqual(
+            history["data"]["records"][0]["record_type"],
+            "pending_archive_body",
+        )
+        self.assertTrue(history["data"]["records"][0]["pending_archive"])
         rerun = self.srv.memory_propose_response(
             self.root, "1aaaa", "dry_run"
         )

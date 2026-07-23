@@ -199,7 +199,13 @@ MEMORY_KINDS = (
     "decision",
     "dependency_gotcha",
 )
-MEMORY_STATUSES = ("candidate", "active", "stale", "superseded", "rejected")
+MEMORY_STATUSES = (
+    "candidate", "active", "stale", "superseded", "rejected", "archived",
+)
+# Mirror memory_records.ARCHIVE_ELIGIBLE_STATUSES. A body with one of these
+# statuses under memory/archive is the rename-first transaction's recoverable
+# pending state, not an arbitrary schema violation.
+MEMORY_ARCHIVE_ELIGIBLE_STATUSES = ("stale", "superseded", "rejected")
 # Two-form memory-id union (wave 1t9w7), mirroring memory_records.py: new
 # mints carry `<lifecycleId>-mem <slug>`; legacy bare-slug ids stay valid
 # because field stores reference them.
@@ -215,6 +221,9 @@ MEMORY_CREATED_PATTERN = re.compile(r"^Created:\s*(\d{4}-\d{2}-\d{2})\s*$", re.M
 MEMORY_UPDATED_PATTERN = re.compile(r"^Updated:\s*(\d{4}-\d{2}-\d{2})\s*$", re.MULTILINE)
 MEMORY_SUPERSEDED_BY_PATTERN = re.compile(
     rf"^Superseded by:\s*`({_MEMORY_ID_BODY})`\s*$", re.MULTILINE
+)
+MEMORY_POINTER_TO_PATTERN = re.compile(
+    rf"^Pointer to:\s*`({_MEMORY_ID_BODY})`\s*$", re.MULTILINE
 )
 MEMORY_REQUIRED_SECTIONS = ("## Summary", "## Evidence", "## Targets")
 # Memory records reuse the journal forbidden-content posture (secrets, raw

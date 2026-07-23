@@ -132,6 +132,23 @@ class FileWalkerTests(unittest.TestCase):
         self.assertIn("foo.py", names)
         self.assertIn("guide.md", names)
 
+    def test_memory_archive_bodies_are_excluded_but_pointers_are_indexable(self):
+        _make_repo(self.root, {
+            "docs/agents/memory/archive/mem-old.md": "# Archived full body\n",
+            "docs/agents/memory/pointers/mem-old.md": "# Compact archive pointer\n",
+        })
+        rels = {
+            str(path.relative_to(self.root)).replace("\\", "/")
+            for path in self.bi.walk_repo(self.root)
+        }
+        self.assertNotIn("docs/agents/memory/archive/mem-old.md", rels)
+        self.assertIn("docs/agents/memory/pointers/mem-old.md", rels)
+        self.assertTrue(
+            self.bi._is_memory_archive_body_path(
+                r"docs\agents\memory\archive\mem-old.md"
+            )
+        )
+
     def test_excludes_only_canonical_wave_event_ledgers(self):
         """1slep AC-8: raw wave authority is excluded without a basename-wide rule."""
         _make_repo(self.root, {

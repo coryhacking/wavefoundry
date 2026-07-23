@@ -3023,6 +3023,89 @@ class MemoryRecordLintTests(DocsLintFixtureTests):
             shutil.rmtree(root)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_archived_body_and_compact_pointer_schema(self):
+        root = self.copy_fixture()
+        memory_root = root / "docs" / "agents" / "memory"
+        archive = memory_root / "archive" / "mem-old.md"
+        pointer = memory_root / "pointers" / "mem-old.md"
+        archive.parent.mkdir(parents=True, exist_ok=True)
+        pointer.parent.mkdir(parents=True, exist_ok=True)
+        metadata = (
+            "Archived: 2026-07-13\n"
+            "Archive reason: Replaced tactical guidance.\n"
+            "Archive path: `docs/agents/memory/archive/mem-old.md`\n"
+        )
+        archive.write_text(
+            self._record(
+                "mem-old",
+                "failed_attempt",
+                status="archived",
+                extra=metadata,
+            ),
+            encoding="utf-8",
+        )
+        pointer.write_text(
+            self._record(
+                "mem-old",
+                "failed_attempt",
+                status="archived",
+                extra=metadata + "Pointer to: `mem-old`\n",
+            )
+            + "\n## Keywords\n\n- `mem-old`\n- `src/module.py`\n",
+            encoding="utf-8",
+        )
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_archived_status_outside_reserved_paths_fails(self):
+        root = self.copy_fixture()
+        self._write_record(
+            root,
+            "mem-old",
+            self._record(
+                "mem-old",
+                "failed_attempt",
+                status="archived",
+                extra=(
+                    "Archived: 2026-07-13\nArchive reason: Retired.\n"
+                    "Archive path: `docs/agents/memory/archive/mem-old.md`\n"
+                ),
+            ),
+        )
+        result = self.run_docs_lint(root)
+        shutil.rmtree(root)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("archived records must live under", result.stderr)
+
+    def test_pending_archive_body_names_the_reconcile_recovery(self):
+        root = self.copy_fixture()
+        archive = (
+            root / "docs" / "agents" / "memory" / "archive" / "mem-pending.md"
+        )
+        archive.parent.mkdir(parents=True, exist_ok=True)
+        archive.write_text(
+            self._record(
+                "mem-pending",
+                "failed_attempt",
+                status="rejected",
+            ),
+            encoding="utf-8",
+        )
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("pending memory archive detected", result.stderr)
+        self.assertIn(
+            "memory_reconcile(memory_id='mem-pending', status='archived', "
+            "archive_reason='<reason>')",
+            result.stderr,
+        )
+
     def test_evidence_derived_validation_contract(self):
         valid_cases = (
             ("mem-pending", "candidate", "Source event: `finding:x`\nValidation: pending\n"),

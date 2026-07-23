@@ -7812,12 +7812,16 @@ def _memory_view(record: dict[str, Any], decay: dict[str, Any]) -> dict[str, Any
     for key in (
         "source_event", "validation", "validated_by", "action_delta",
         "validation_rationale", "evidence_verified",
-        "current_target_verified", "canonical_overlap",
+        "current_target_verified", "canonical_overlap", "record_type",
+        "archived_at", "archive_reason", "archive_path", "pointer_to",
+        "pending_archive",
     ):
         if record.get(key) is not None:
             view[key] = record[key]
     if record.get("superseded_by"):
         view["superseded_by"] = record["superseded_by"]
+    if record.get("keywords"):
+        view["keywords"] = record["keywords"]
     if decay.get("needs_reverification"):
         view["needs_reverification"] = True
     return view
@@ -9047,8 +9051,16 @@ def memory_search_response(
                                      recovery_tools=["memory_search"], recovery_usage="memory_search()")],
             next_tools=["memory_search"], usage="",
         )
-    statuses = None if include_history else ([status] if status else list(mem.DEFAULT_SURFACED_STATUSES))
+    statuses = (
+        [status]
+        if status
+        else (None if include_history else list(mem.DEFAULT_SURFACED_STATUSES))
+    )
     records = mem.load_memory_records(root, statuses=statuses)
+    pointer_records: list[dict[str, Any]] = []
+    if not include_history and not status and (query or target or symbol):
+        pointer_records = mem.load_memory_pointers(root)
+        records.extend(pointer_records)
     if kind:
         records = [r for r in records if r["kind"] == kind]
     if target or symbol:
@@ -9076,6 +9088,7 @@ def memory_search_response(
                 (r.get("summary") or ""), (r.get("title") or ""),
                 " ".join(r.get("target_refs") or []),
                 " ".join(r.get("evidence_refs") or []),
+                " ".join(r.get("keywords") or []),
             ]).lower()
             return bool(tokens) and all(t in haystack for t in tokens)
 
@@ -9112,6 +9125,14 @@ def memory_search_response(
         "ok",
         {"records": views, "count": len(views),
          "statuses_searched": statuses or list(mem.MEMORY_STATUSES),
+         "archive_pointer_count": sum(
+             1 for record in records
+             if record.get("record_type") == "archive_pointer"
+         ),
+         "archived_body_count": sum(
+             1 for record in records
+             if record.get("record_type") == "archive_body"
+         ),
          "semantic_assist": bool(semantic_hit_order)},
         diagnostics=diagnostics,
         next_tools=["memory_brief", "memory_reconcile"],
@@ -9183,6 +9204,28 @@ def memory_reconcile_response(
     memory_id: str,
     status: str,
     superseded_by: str = "",
+    archive_reason: str = "",
+    eligibility_confirmed: bool = False,
+) -> dict[str, Any]:
+    """Serialize status/archive reconciliation across server processes."""
+    with review_event_write_lock(root):
+        return _memory_reconcile_response_locked(
+            root,
+            memory_id,
+            status,
+            superseded_by=superseded_by,
+            archive_reason=archive_reason,
+            eligibility_confirmed=eligibility_confirmed,
+        )
+
+
+def _memory_reconcile_response_locked(
+    root: Path,
+    memory_id: str,
+    status: str,
+    superseded_by: str = "",
+    archive_reason: str = "",
+    eligibility_confirmed: bool = False,
 ) -> dict[str, Any]:
     mem = _memory_mod()
     # Fence BEFORE the status rewrite (delivery-review round 4): refuse if the
@@ -9200,10 +9243,21 @@ def memory_reconcile_response(
         )
     try:
         try:
-            path = mem.reconcile_memory_record(
-                root, (memory_id or "").strip(), (status or "").strip(),
-                superseded_by=(superseded_by or "").strip(),
-            )
+            normalized_status = (status or "").strip()
+            if normalized_status == "archived":
+                archived = mem.archive_memory_record(
+                    root,
+                    (memory_id or "").strip(),
+                    reason=(archive_reason or "").strip(),
+                    eligibility_confirmed=bool(eligibility_confirmed),
+                )
+                path = archived["archive_path"]
+            else:
+                archived = None
+                path = mem.reconcile_memory_record(
+                    root, (memory_id or "").strip(), normalized_status,
+                    superseded_by=(superseded_by or "").strip(),
+                )
         except (FileNotFoundError, ValueError) as exc:
             return _response(
                 "error", {"updated": False},
@@ -9214,12 +9268,29 @@ def memory_reconcile_response(
             )
     finally:
         _memory_finalize(root, _fence_token)
-    _trigger_background_index_refresh_for_paths(root, [path])
+    changed_paths = [path]
+    if archived:
+        changed_paths.extend([
+            root / mem.MEMORY_DIR / f"{(memory_id or '').strip()}.md",
+            archived["pointer_path"],
+        ])
+    _trigger_background_index_refresh_for_paths(root, changed_paths)
     record = mem.parse_memory_record(path)
     decay = mem.apply_decay(record, index_dir=root / ".wavefoundry" / "index") if record else {}
+    data = {
+        "updated": True,
+        "record": _memory_view(record, decay) if record else {"memory_id": memory_id},
+    }
+    if archived:
+        data.update({
+            "archived": True,
+            "moved": archived["moved"],
+            "no_op": archived["no_op"],
+            "pointer": _memory_view(archived["pointer"], {}),
+        })
     return _response(
         "ok",
-        {"updated": True, "record": _memory_view(record, decay) if record else {"memory_id": memory_id}},
+        data,
         diagnostics=[],
         next_tools=["memory_search"],
         usage="memory_search(include_history=True)",
@@ -25501,8 +25572,9 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         Record files are the source of truth (live filesystem); the semantic
         docs index is an optional assist whose absence degrades silently.
         Ranking is kind-aware-decayed confidence with centrality tie-breaks;
-        stale/superseded/rejected records are excluded unless
-        ``include_history`` or an explicit ``status`` asks for them.
+        stale/superseded/rejected/archived bodies are excluded unless
+        ``include_history`` or an explicit ``status`` asks for them. A targeted
+        normal search may return a compact archive pointer, never the body.
 
         Args:
             query: Free-text query (semantic assist + text containment).
@@ -25510,7 +25582,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             symbol: Symbol name a record must target (matches "symbol:" refs).
             kind: Restrict to one memory kind.
             status: Restrict to one status (default: active + candidate).
-            include_history: Include stale/superseded/rejected records.
+            include_history: Include stale/superseded/rejected/archived bodies.
             limit: Max records (default 10, cap 20).
         """
         bad = _ensure_no_extra_args("memory_search", kwargs)
@@ -25548,24 +25620,33 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
 
     @mcp.tool(annotations=_MUTATING_TOOL)
     def memory_reconcile(memory_id: str, status: str, superseded_by: str = "",
+                              archive_reason: str = "",
+                              eligibility_confirmed: bool = False,
                               **kwargs: Any) -> dict[str, Any]:
-        """Transition a memory record's status — active, stale, superseded, rejected, candidate.
+        """Transition status or explicitly archive a retired memory record.
 
-        History is preserved through supersession, never deletion: a
-        ``superseded`` transition requires ``superseded_by`` and leaves the
-        record in place as history. Reconciliation is the ONLY way a
-        ``fragile_file`` advisory retires.
+        A ``superseded`` transition requires ``superseded_by``. An
+        ``archived`` transition requires a stale/superseded/rejected record and
+        ``archive_reason``; it renames the body into memory/archive and publishes
+        a compact searchable pointer under memory/pointers. Decisions, operator
+        preferences, and fragile-file records additionally require an explicit
+        ``eligibility_confirmed`` review judgment.
 
         Args:
             memory_id: The record's memory id (filename stem).
-            status: New status (one of the five memory statuses).
+            status: New status, including ``archived`` for physical archival.
             superseded_by: Required when status is "superseded".
+            archive_reason: Required non-empty reason when status is "archived".
+            eligibility_confirmed: Required for protected memory kinds after
+                verifying the knowledge is no longer operational.
         """
         bad = _ensure_no_extra_args("memory_reconcile", kwargs)
         if bad is not None:
             return bad
         return memory_reconcile_response(
             get_handler().root, memory_id, status, superseded_by=superseded_by,
+            archive_reason=archive_reason,
+            eligibility_confirmed=eligibility_confirmed,
         )
 
     # --- Code navigation tools ---

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-22
+Last verified: 2026-07-23
 
 Behavioral contract for the Wavefoundry local MCP server. This spec covers the
 tool names, response conventions, safety rules, and compatibility expectations that
@@ -576,13 +576,37 @@ mapped prompt credit.
 
 **Memory record identity (wave 1t9w7):** generated records mint the repository-wide lifecycle naming `<lifecycleId>-mem <slug>` (the prefix comes from the repo's own lifecycle policy; the filename stem is the memory id, so resolution is unchanged). Legacy bare-slug ids (`mem-...`) remain valid indefinitely — field stores reference them — but nothing mints one again; upgrades from pre-1.15 rename existing generated `mem-*` records deterministically, backdating each prefix from the record's `Created` date (explicit bare-slug ids stay frozen-valid and are never auto-renamed) so filesystem order shows true chronology (append-only history keeps the old ids).
 
+**Memory physical archive (wave 1t8la):**
+
+- `memory_reconcile(memory_id, status="archived", archive_reason,
+  eligibility_confirmed=false)` archives only a `stale`, `superseded`, or
+  `rejected` record. `decision`, `operator_preference`, and `fragile_file`
+  additionally require `eligibility_confirmed=true`.
+- Under the shared cross-process mutation lock and writer-owned memory fence,
+  the tool renames the retired body into the index-excluded
+  `docs/agents/memory/archive/`, atomically marks archive date/reason/path there,
+  and atomically publishes a compact pointer in
+  `docs/agents/memory/pointers/`. Reruns derive state from disk and converge; a
+  completed identical rerun reports `no_op: true`.
+- Default briefs, action-time advisories, semantic indexing, and graph
+  extraction exclude archive bodies. A targeted default `memory_search` may
+  return an `archive_pointer`; `include_history=true` or `status="archived"`
+  returns the `archive_body`.
+- Between the rename and metadata rewrite, the retired body is exposed only as
+  `record_type="pending_archive_body"` to unfiltered/history and
+  source-disposition consumers. Default briefs/advisories remain isolated.
+  Docs lint reports the exact `memory_reconcile(..., status="archived",
+  archive_reason=...)` retry needed to converge.
+- Archived source-event dispositions remain authoritative for proposal and
+  historical backfill and suppress regeneration.
+
 `memory_propose(wave_id: str, mode: str = "dry_run", limit: int = 20)`
 
 - Drafts conservative candidates from admitted Decision Logs and repaired
   real-defect evidence.
 - `create` persists a stable source-event identity and `Validation: pending`.
 - Re-running suppresses any source already represented by active, candidate,
-  rejected, stale, or superseded history.
+  rejected, stale, superseded, or archived history.
 
 `memory_backfill(mode: str = "dry_run", limit: int = 20, entry_path: str = "manual")`
 
@@ -625,8 +649,8 @@ mapped prompt credit.
   claimed; partial failures return explicit recovery diagnostics.
 - The `wf memory-validate` CLI fallback accepts every rewrite field exposed by
   this tool, including repeatable evidence and target arguments.
-- The durable source disposition prevents rejection or supersession from being
-  regenerated.
+- The durable source disposition prevents rejection, supersession, or archival
+  from being regenerated.
 
 ### Change Creation
 

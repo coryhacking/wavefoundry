@@ -869,6 +869,13 @@ def _file_stem(path: str) -> str:
     return Path(path).stem
 
 
+def _is_memory_archive_body_path(rel_path: str) -> bool:
+    """Archived memory bodies are historical storage, never graph input."""
+    return rel_path.replace("\\", "/").startswith(
+        "docs/agents/memory/archive/"
+    )
+
+
 def _kind_for_path(rel_path: str) -> str:
     rel = rel_path.replace("\\", "/")
     if rel.startswith(".wavefoundry/framework/seeds/"):
@@ -14711,6 +14718,8 @@ def update_graph_index(
     def _read_one(file_path: "Path") -> tuple[str, str, str] | None:
         rel = _repo_rel(file_path.relative_to(root))
         if rel not in changed_set:
+            return None
+        if _is_memory_archive_body_path(rel):
             return None
         if _is_minified_file(rel):
             return None

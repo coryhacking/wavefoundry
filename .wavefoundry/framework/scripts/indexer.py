@@ -649,7 +649,10 @@ _DOT_DIR_ALLOWLIST_PREFIX = ".wavefoundry/"
 # 6 -> 7 (1slep): canonical per-wave ``docs/waves/<wave>/events.jsonl``
 # ledgers are machine authority, not retrieval content.  Generated ``wave.md``
 # projections remain indexable; unrelated same-named JSONL files remain eligible.
-WALKER_VERSION = "7"
+# 7 -> 8 (1t8la): physical memory archive bodies are historical storage, not
+# default docs/graph retrieval content. Compact pointers remain indexable.
+WALKER_VERSION = "8"
+_MEMORY_ARCHIVE_PREFIX = "docs/agents/memory/archive/"
 
 # Environment variable used by the MCP server to tell the background indexer
 # which state file to remove once the process exits.
@@ -776,6 +779,19 @@ def _filter_canonical_wave_event_ledgers(files: list[Path], root: Path) -> list[
     ]
 
 
+def _is_memory_archive_body_path(rel_path: str) -> bool:
+    return rel_path.replace("\\", "/").startswith(_MEMORY_ARCHIVE_PREFIX)
+
+
+def _filter_memory_archive_bodies(files: list[Path], root: Path) -> list[Path]:
+    return [
+        path for path in files
+        if not _is_memory_archive_body_path(
+            str(path.relative_to(root)).replace("\\", "/")
+        )
+    ]
+
+
 def walk_repo(root: Path, *, respect_ignore: bool = True) -> list[Path]:
     """Return all indexable files under root, respecting ignore rules.
 
@@ -836,6 +852,8 @@ def walk_repo(root: Path, *, respect_ignore: bool = True) -> list[Path]:
             # state.  Search the generated wave.md current-head projection,
             # never the ledger (which also contains superseded findings).
             if _is_canonical_wave_events_path(rel_str, root):
+                continue
+            if _is_memory_archive_body_path(rel_str):
                 continue
 
             # Check hardcoded prefix excludes
@@ -3926,6 +3944,7 @@ def _build_index_locked(
         # ``files=`` is a public build seam used by targeted/incremental callers
         # and bypasses walk_repo(), so enforce the same corpus boundary here.
         files = _filter_canonical_wave_event_ledgers(files, root)
+        files = _filter_memory_archive_bodies(files, root)
         if str(index_dir).replace("\\", "/").endswith("/.wavefoundry/framework/index"):
             files = _filter_framework_pack_artifacts(files, root)
         graph_layer = _graph_layer_for_index_dir(index_dir)

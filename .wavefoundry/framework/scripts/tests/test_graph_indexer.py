@@ -11762,6 +11762,45 @@ class MemoryGraphExtractionTests(unittest.TestCase):
         nodes, _ = self._payload_parts(payload)
         self.assertEqual(nodes["docs/agents/memory/README.md"]["kind"], "doc")
 
+    def test_archive_body_is_excluded_even_when_explicitly_passed(self):
+        archived = self.RECORD.replace(
+            "Status: active",
+            "Status: archived",
+        ).replace(
+            "Updated: 2026-07-13",
+            "Updated: 2026-07-13\nArchived: 2026-07-13\n"
+            "Archive reason: Replaced tactical guidance.\n"
+            "Archive path: `docs/agents/memory/archive/mem-fragile-tools.md`",
+        )
+        pointer = archived.replace(
+            "Archive path: `docs/agents/memory/archive/mem-fragile-tools.md`",
+            "Archive path: `docs/agents/memory/archive/mem-fragile-tools.md`\n"
+            "Pointer to: `mem-fragile-tools`",
+        )
+        self._write(
+            "docs/agents/memory/archive/mem-fragile-tools.md", archived
+        )
+        self._write(
+            "docs/agents/memory/pointers/mem-fragile-tools.md", pointer
+        )
+        payload = self._update(
+            {
+                "docs/agents/memory/archive/mem-fragile-tools.md": "h1",
+                "docs/agents/memory/pointers/mem-fragile-tools.md": "h2",
+            },
+            {
+                "docs/agents/memory/archive/mem-fragile-tools.md",
+                "docs/agents/memory/pointers/mem-fragile-tools.md",
+            },
+        )
+        nodes, _edges = self._payload_parts(payload)
+        self.assertNotIn(
+            "docs/agents/memory/archive/mem-fragile-tools.md", nodes
+        )
+        self.assertIn(
+            "docs/agents/memory/pointers/mem-fragile-tools.md", nodes
+        )
+
     def test_memory_write_rides_the_incremental_delta_path(self):
         # Initial build: code only. Then ADD a record and update with ONLY the
         # record changed — the code file must not re-extract (delta path), and

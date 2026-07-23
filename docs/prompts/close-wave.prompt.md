@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-22
+Last verified: 2026-07-23
 
 Shortcut: **`Close wave`**
 
@@ -59,3 +59,11 @@ This is a bounded focused curation pass, not a new council. A wave may correctly
 yield no memories. A pending candidate blocks close; rejected and superseded
 source-event dispositions persist and prevent regeneration. History is preserved
 through supersession, never deletion, and contradictions are never auto-resolved.
+
+Physical archival is an explicit retention decision after reconciliation, not
+automatic age cleanup. Only `stale`, `superseded`, or `rejected` records are
+eligible through
+`memory_reconcile(status='archived', archive_reason=...)`. Decisions, operator
+preferences, and fragile-file records require a current evidence check before
+setting `eligibility_confirmed=true`. Archival renames the canonical body and
+leaves a compact active pointer; it does not delete history.

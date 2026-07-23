@@ -57,6 +57,14 @@ Required closure tasks:
 14. Confirm the wave-owned change docs are already in place. For each item in the closed wave(s), verify `docs/waves/<wave-id>/<change-id>.md` exists and repair any stale references that still point at `docs/plans/` staging paths before closure. The wave folder is the permanent archive and active working home; normal wave flow should not route admitted docs through `docs/plans/completed/`.
 15. Archive reports into the wave folder. Scan `docs/reports/` for any reports that fall within the wave's active period (review reports, audit reports, or any other generated artifacts dated within `Activated at`–`Completed at`). Move them into `docs/waves/<wave-id>/`. Add a `## Reports` section to `wave.md` summarizing the key findings from each archived report. After moving, `docs/reports/` should contain only reports that belong to future waves — the wave folder is the permanent archive; `docs/reports/` is a staging area only.
 16. Refresh role/persona guidance when lessons changed their operating advice, and retire stale cautions. For each active caution and memory record touched by this wave: ask whether the risk still exists in the current codebase. If the root cause was fixed by this change, retire or supersede the memory record — do not leave it as a false warning for future agents. Stale cautions are actively harmful: they train agents to distrust memory.
+   - When physical memory archival is available, treat it as a separate,
+     explicit retention judgment after reconciliation—not an age-based cleanup.
+     Only `stale`, `superseded`, or `rejected` records are eligible through
+     `memory_reconcile(status='archived', archive_reason=...)`. Before setting
+     `eligibility_confirmed=true` for a decision, operator preference, or
+     fragile-file record, verify against current evidence that it is no longer
+     operational. Archival renames the body and leaves a compact active pointer;
+     it never deletes history.
 17. Run the docs gate: **agents with MCP** — **`wf_garden_docs`** then **`wf_validate_docs`** (or **`wf_audit`**); **operators / CI / no MCP** — **`wf docs-gardener`** then **`wf docs-lint`**. Pass `--date <YYYY-MM-DD>` only when overriding today’s date; use `--paths <doc>` or `--all-docs` to stamp files that are not git-changed.
 
 Promotion destinations may include:

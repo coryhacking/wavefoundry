@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-20
+Last verified: 2026-07-23
 
 ## Domains
 
@@ -10,7 +10,7 @@ Last verified: 2026-07-20
 |--------|------|----------------------|-------------|---------------|
 | **Framework Seeds** | `.wavefoundry/framework/seeds/` | Canonical prompt source; numbered seed prompts; overview docs; reference appendices | None — canonical source | Consumed by target repositories via install/upgrade; indexed by `indexer.py` |
 | **Framework Scripts** | `.wavefoundry/framework/scripts/` | Lifecycle ID generation; docs linting; docs gardening; platform and framework-owned review-carrier rendering; executable-review validation/adoption; packaging; test running; MCP server | `docs/workflow-config.json` (config read); `docs/` tree (lint/gardener and explicitly marked lifecycle/carrier regions) | `.wavefoundry/framework/VERSION` (write); zip archives (write); `.claude/`, `.cursor/`, `.github/hooks/` (render writes); marker-bounded review carriers under `docs/` and explicitly enabled native roles under `.claude/agents/` / `.codex/skills/`; review-adoption state; MCP tool responses (stdio) |
-| **MCP Server** | `.wavefoundry/framework/scripts/server.py` | Tool and resource surface for MCP clients: wave lifecycle, search, code navigation, session handoff, index management, and context-efficiency response telemetry | `.wavefoundry/index/` (search reads); `docs/` (wave/change/prompt reads and lifecycle writes); process-local telemetry focus; `chunker.py` tree-sitter parser stack (lazy-loaded at query time for two-hop symbol extraction in `search_combined`); `lancedb` (embedded vector store, primary semantic search backend); `fastembed`, `numpy` (embedding and numpy fallback) | MCP client responses (stdio); background index refresh requests; write-through operational telemetry; marker-owned wave checkpoints at lifecycle/reload/upgrade barriers |
+| **MCP Server** | `.wavefoundry/framework/scripts/server.py` | Tool and resource surface for MCP clients: wave lifecycle, search, code navigation, typed memory plus physical archival, session handoff, index management, and context-efficiency response telemetry | `.wavefoundry/index/` (search reads); `docs/` (wave/change/prompt/memory reads and bounded lifecycle writes); process-local telemetry focus; `chunker.py` tree-sitter parser stack (lazy-loaded at query time for two-hop symbol extraction in `search_combined`); `lancedb` (embedded vector store, primary semantic search backend); `fastembed`, `numpy` (embedding and numpy fallback) | MCP client responses (stdio); background index refresh requests; memory body rename plus compact-pointer publication; write-through operational telemetry; marker-owned wave checkpoints at lifecycle/reload/upgrade barriers |
 | **Dashboard Surface** | `.wavefoundry/framework/dashboard/` + `.wavefoundry/framework/scripts/dashboard_{lib,server}.py` | Local operational dashboard assets, loopback HTTP serving, shared repository-state snapshot readers | `docs/` tree (read); `.wavefoundry/framework/VERSION` (read); `docs/workflow-config.json` dashboard settings | Browser responses over localhost HTTP; `.wavefoundry/locks/dashboard-server.lock` (host-local lifetime lock + metadata write) |
 | **Semantic Index** | `.wavefoundry/index/` | Embedding vectors and chunk metadata for docs and code semantic search; incremental rebuild via file hashes | Repository files (read); `indexer.py` (write) | `server.py` search tools (read) |
 | **Operational Telemetry** | `.wavefoundry/logs/context-efficiency.sqlite` | Ignored host-local write-through event/source/evaluation ledger, phase state, replay protection, store identity, and pending checkpoint state; numeric authority for live telemetry | Eligible retrieval/lifecycle calls and typed paired-evaluation attachment | Marker-owned `## Context Efficiency` snapshots in wave records; `wf_current_wave` / `wf_audit` durable-state reads |
@@ -47,6 +47,7 @@ Last verified: 2026-07-20
 | `server.py` → `docs/waves/<wave>/wave.md` `## Context Efficiency` marker | project-global locked, marker-only atomic projection | stable | MCP server (context-efficiency telemetry) |
 | `server.py` → `docs/waves/`, `docs/plans/`, `docs/prompts/` | file read/write | stable | MCP server (lifecycle + inspection tools) |
 | `server.py` → `docs/agents/session-handoff.md` | file read/write | stable | MCP server (handoff tools) |
+| `server.py` → `docs/agents/memory/{archive,pointers}/` | fenced rename plus atomic pointer write; archive bodies are explicit-history-only | stable | MCP server (memory lifecycle tools) |
 | `dashboard_server.py` → `docs/waves/`, `docs/plans/`, `docs/prompts/prompt-surface-manifest.json`, `docs/agents/session-handoff.md` | file read | stable | Dashboard server |
 | `dashboard_server.py` → `.wavefoundry/locks/dashboard-server.lock` | persistent OS-lock carrier + in-place metadata write | stable | Dashboard server |
 | MCP client → `server.py` | stdio (FastMCP protocol) | stable | MCP client (Claude Code, Cursor, etc.) |

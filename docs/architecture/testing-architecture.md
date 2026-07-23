@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-21
+Last verified: 2026-07-23
 
 ## Test Tiers
 
@@ -23,6 +23,7 @@ Last verified: 2026-07-21
 | Memory supply and exploration-estimate integrity (waves 1stwm/1sxj7) | Real compact review-event repair chains, admitted-change Decision Logs, escaped pipes, implementation-only anchors, Unicode/evidence identity, concurrent add/propose idempotency, SQLite event replay and origin budgets, exact-match passive/explicit surfaces, current source-cost authority, lazy schema extension, and lifecycle/reload/upgrade projection | `test_memory_records.py`, `test_context_efficiency.py` | Same runner |
 | Commit provenance integrity (waves 1sufq/1sxj7) | Canonical local commit identity, anchored landing grammar, explicit metadata authority, mixed blame coverage, conflict propagation, file-relevance labeling, exact public input union, and read-only/traversal controls | `test_commit_provenance.py`, `test_server_context_efficiency.py` | Same runner |
 | Memory-retrieval eval (wave 1sufo) | Hermetic golden set over a synthetic memory corpus scoring the shipped `memory_search`/`brief` paths: recall@k / MRR plus explicit pass/fail on the five policy invariants (exact-target, paraphrase-does-not-demote-trust, no-index, decay, supersession), and a recorded baseline vs lexical-only/semantic-only that a future ranking/fusion change must beat. Measurement-only; builds its own corpus, never depends on the live one. See `docs/references/memory-retrieval-eval.md`. Sibling of the code/docs golden-query recall eval | `tests/eval/run_memory_eval.py` (runner + `memory_golden.json`), `test_memory_eval.py` | Same runner |
+| Memory archival lifecycle (wave 1t8la) | Rename-only body migration, compact-pointer schema, protected-kind eligibility, cross-process serialization, interruption/retry convergence at every transition, proposal disposition suppression, default/history retrieval isolation, and semantic/graph explicit-file corpus boundaries | `test_memory_records.py`, `test_indexer.py`, `test_graph_indexer.py`, `test_docs_lint.py` | Same runner |
 | Manual docs gate | MCP **`wf_validate_docs`** succeeds, **or** `wf docs-lint` passes | MCP / repo root | `wf_validate_docs` / `wf docs-lint` |
 | Manual gardener | MCP **`wf_garden_docs`**, **or** `wf docs-gardener` | MCP / repo root | `wf_garden_docs` / `wf docs-gardener` |
 
