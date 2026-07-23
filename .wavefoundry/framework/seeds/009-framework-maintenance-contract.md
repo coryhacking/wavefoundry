@@ -11,7 +11,7 @@ Treat the Wave Framework as complete enough for active use only when all of the 
    - `001-feature-wave-framework-overview.md` explains the conceptual operating model.
    - `002-wave-framework-seeding-overview.md` explains init, upgrade, migration, and seeded-output behavior.
 2. Every public command has a canonical shared prompt and a documented repo-local counterpart or generation path.
-3. Shared subsystem docs exist for numbering, wave memory, personas, journals, and review, with links from the package README.
+3. Shared subsystem docs exist for numbering, wave memory, personas, memory records, and review, with links from the package README.
 4. The package includes a maintainer-facing framework map and maintainer-facing maintenance rules.
 5. Init and upgrade expectations are explicit enough to audit what a seeded project should create, refresh, preserve, or reconcile in its repository.
 6. The framework includes example flows that demonstrate the intended operating model end to end.
@@ -38,7 +38,7 @@ When one or more items above are false, treat the framework as still hardening r
 - the repo-local lifecycle companion at `docs/contributing/feature-wave-lifecycle-overview.md`
 - the public prompt surface under `docs/prompts/`
 - supporting prompt bodies under `docs/prompts/agents/` when the project keeps them checked in
-- wave, journal, persona, handoff, and memory artifact roots in topical homes
+- wave, persona, handoff, and memory artifact roots in topical homes
 - `docs/workflow-config.json`
 - root wrappers and supported agent entry files
 
@@ -76,13 +76,13 @@ When one or more items above are false, treat the framework as still hardening r
 1. The active wave reaches review or reconciliation with some items still incomplete.
 2. The project records what shipped, what did not, and why the remainder is not closed yet.
 3. The unfinished work is moved into the next planned wave under the same `change-id`.
-4. Wave memory, handoff state, journals, and next-wave notes are refreshed so the feature thread continues cleanly.
+4. Wave memory, handoff state, memory records, and next-wave notes are refreshed so the feature thread continues cleanly.
 
 ### Example C: feature finalization
 
 1. All planned wave work is complete, archived, or intentionally deferred.
 2. `Finalize feature` reruns the readiness evaluation during final review, then reconciles the final wave state and checks behind-the-scenes maintenance work.
-3. Durable lessons are promoted into canonical docs, workflow memory, personas, and journals where appropriate.
+3. Durable lessons are promoted into canonical docs, workflow memory, personas, and typed memory records where appropriate.
 4. Temporary execution artifacts are archived or frozen, and the feature closes with a clear final review outcome.
 
 ## 4. Prompt-to-Doc Maintenance Rules
@@ -91,7 +91,7 @@ Use these anti-drift rules whenever the shared framework changes:
 
 1. If a public prompt changes meaning, routing, required outputs, or lifecycle expectations, update the relevant overview docs and README entries in the same change.
 2. If init/upgrade changes generated artifacts or overwrite/preserve behavior, update `002-wave-framework-seeding-overview.md`, this contract, and any repo-local pointer docs that describe generated outputs.
-3. If a subsystem prompt changes durable behavior for memory, personas, journals, or review, update the corresponding numbered subsystem overview doc.
+3. If a subsystem prompt changes durable behavior for memory, personas, or review, update the corresponding numbered subsystem overview doc.
 4. If a new numbered overview doc is added or renamed, update `README.md`, repo-local framework pointers, and any docs indexes that surface the shared pack.
 5. If a change affects generated repo-local lifecycle guidance, update both the shared conceptual source and the documented generation path for `docs/contributing/feature-wave-lifecycle-overview.md`.
 6. Run the docs gate after shared framework doc or prompt changes, and treat failing docs verification as a blocker for calling the package coherent.

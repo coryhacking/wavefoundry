@@ -32,9 +32,8 @@ Tasks:
    - **Failure modes** — what goes wrong for them and how they recognize it
    - **Invocation signals** — which phases and change types should invoke this persona (spec authoring, design review, acceptance, edge-case analysis)
    - **Operating identity** — the persona's stance, priorities, decision pressure, success criteria, and what they are responsible for noticing during software delivery
-   - **Salience triggers** — persona-specific signals that should cause an agent to stop and journal before context is lost, such as repeated workflow friction, trust-risk, operator-signal, confidence-shift, or a hard-to-rediscover domain constraint
-   - **Associated journal** — path to their journal under `docs/agents/journals/`
-5. Generate persona journals when personas are created. Persona journals use the same operating-memory schema as role journals defined in `seed-130` — they must include operating identity, salience triggers, recent captures or evidence-based observations, and distillation sections populated from evidence, not placeholder text. When no incidents exist yet, write a brief evidence-based observation about the persona's primary workflows and failure modes as a seed entry rather than leaving the sections empty.
+   - **Salience triggers** — persona-specific signals that should cause an agent to stop and record a typed memory candidate before context is lost, such as repeated workflow friction, trust-risk, operator-signal, confidence-shift, or a hard-to-rediscover domain constraint
+5. Do not generate persona journals — the journal system is retired. Durable persona lessons are captured as typed memory records with evidence references and validated at wave close.
 6. **Persona coverage checklist.** Before declaring done, answer each of the following four questions explicitly with `yes — <persona-name>` or `no — <one-line evidence-grounded reason>`. A silent skip is not a valid answer; "no, this project has no admin role because <evidence>" is. The checklist exists because the install retrospective surfaced agents satisficing on the primary end-user persona and missing admin / operator / configurator / integrator usage patterns even when evidence existed for them.
    1. **Elevated-privilege user.** Is there a user with elevated privilege — admin, superuser, `ROLE_ADMIN`, or equivalent? Look for: role-gated routes, `is_admin` flags, admin panels, separate auth flows, RBAC tables.
    2. **Installer / deployer / operator.** Is there someone who installs, deploys, configures, or operates the system — distinct from the end user? Look for: deployment docs, infra-as-code, ops runbooks, CI/CD configuration, on-call rotations referenced in code or docs.
@@ -45,13 +44,13 @@ Tasks:
 
 Guardrails:
 
-- When evidence is thin, record explicit **unknown** gaps in journal or wave watchpoints instead of inventing operators or workflows.
+- When evidence is thin, record explicit **unknown** gaps in wave watchpoints instead of inventing operators or workflows.
 - Do not generate personas without evidence or user confirmation. Speculative personas produce misleading acceptance signals.
 - Do not conflate persona agents with agent roles. Personas live in `docs/agents/personas/`, agent roles live in `docs/agents/`.
 - Start with the smallest well-grounded set. A single well-defined persona is more useful than five vague ones.
 - Personas should challenge designs and surface edge cases, not rubber-stamp them. Ground their feedback in their specific workflows and failure modes.
 - Persona salience triggers must be job-specific and evidence-based. Do not invent emotional states; record operational impact signals that affect software delivery, acceptance, trust, or supportability.
-- Do not promote repeated historical guidance into persona docs unless it is specifically about the user's experience — system-level lessons belong in core memory and agent journals.
+- Do not promote repeated historical guidance into persona docs unless it is specifically about the user's experience — system-level lessons belong in core memory records.
 
 
 ## Persona Doc Structure
@@ -73,16 +72,14 @@ Persona docs-lint contract (exact structure the docs gate enforces — author to
   - `## Invocation signals`
   - `## Operating identity`
   - `## Salience triggers`
-  - `## Associated journal`
 - **Bullets, not prose or numbered lists.** Each of those eight sections must contain at least one `-` bullet — lead every content line with `- `.
 - **`## Operating identity`** must describe the persona perspective or role (one of: persona, perspective, role, evaluate, protect).
 - **`## Salience triggers`** must contain at least one salience-marker word: `critical`, `high`, `medium`, `low`, `operator`, `compaction`, `restart`, `regression`, `security`, `release`, or `trust`.
-- **`## Associated journal`** must reference an existing journal file as a bullet in the exact path form `- docs/agents/journals/<slug>.md` — and that file must exist on disk (generate the persona journal per step 5 first).
 
 **Do not add a `## Scope` section.** `## Scope` is a plan/change doc concept — it describes what a wave or change covers. It has no meaning in a persona doc, which defines a user or operator role, not a delivery boundary. The docs gate rejects any persona doc that contains `## Scope`.
 
 Persona docs use only these sections (short reference):
 
-**Who** · **Goals** · **Workflows** · **Failure modes** · **Invocation signals** · **Operating identity** · **Salience triggers** · **Associated journal**
+**Who** · **Goals** · **Workflows** · **Failure modes** · **Invocation signals** · **Operating identity** · **Salience triggers**
 
 **Do not include wave-id references in persona doc content.** A wave-id records when a persona was synthesized — it is synthesis metadata, not part of the persona's definition. Wave-id references belong in wave records and change docs, not in persona docs. A persona's evidence should be embedded inline in the **Who** and **Goals** sections where it is contextually useful (e.g. "Evidence: E2E fixtures distinguish admin vs. non-admin users in `apps/web/e2e/...`").

@@ -9,7 +9,7 @@ This seed used to carry the full install body. As of wave `1p35d` (1.5.0), insta
 | Phase | Seed | When MCP is available | Scope |
 |---|---|---|---|
 | 1 — Harness | `seed-011` | NO (this phase installs MCP) | venv, deps, bin/ launchers, host configs, framework + project indexes, MCP-server-can-start check, restart-agent marker |
-| 2 — Project discovery | `seed-012` | YES (restart between phases) | architecture, agents, personas, prompt surface, docs gate, journals, drift expectations, final completion check |
+| 2 — Project discovery | `seed-012` | YES (restart between phases) | architecture, agents, personas, prompt surface, docs gate, drift expectations, final completion check |
 
 ## Where the state lives
 

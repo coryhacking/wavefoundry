@@ -1475,6 +1475,7 @@ def phase_review_status_projection(root: Path) -> dict[str, int]:
     import re
 
     from review_evidence import (
+        canonicalize_finding_synthesis_markers,
         externalize_adopted_inline_wave_locked,
         parse_review_evidence_source,
         render_review_evidence_projection,
@@ -1593,7 +1594,12 @@ def phase_review_status_projection(root: Path) -> dict[str, int]:
                 records,
                 required_review_status_keys(root, projected, records),
             )
-            if projected != text:
+            # Compare in canonical form (wave 1tb4z): a projection that differs
+            # only by legacy presentation (marker namespace, retired bodyless
+            # details block) is byte-preserved — the upgrade never rewrites
+            # history for a presentation-only equivalence. Only a substantive
+            # difference against the canonical events.jsonl reprojects.
+            if projected != canonicalize_finding_synthesis_markers(text):
                 _atomic_write_text(wave_md, projected, "review-status-projection")
                 counts["projected"] += 1
     if blocked_legacy_waves:

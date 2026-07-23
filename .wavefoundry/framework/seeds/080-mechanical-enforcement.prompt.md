@@ -12,7 +12,7 @@ Tasks:
 4. Ensure generated files are trackable in git and not accidentally hidden by broad ignore rules.
 5. Keep generated prompts, persona wrappers, and key framework files versioned when they are part of the checked-in project contract in the repository.
 6. Ensure generated artifact indexes and prompt manifests stay synchronized with the generated outputs.
-7. Ensure validation covers wave artifacts, journals, persona docs, prompt-surface docs, and wrapper references.
+7. Ensure validation covers wave artifacts, memory records, persona docs, prompt-surface docs, and wrapper references.
 
 Required semantics:
 
@@ -40,7 +40,7 @@ Validation targets to cover:
 - required readiness prompt and supporting agent prompt body when the seeded surface exposes wave operator commands
 - prompt-surface manifest presence and basic integrity
 - generated waves root
-- generated journals root
+- generated memory-records root
 - required metadata in docs
 - `factor_review_policy` anchors when factor-review agents are applicable
 - `persona_review_policy` anchors when user/operator personas exist

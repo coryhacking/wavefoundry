@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-20
+Last verified: 2026-07-22
 
 Typed, evidence-backed memory records for the agent memory layer: prior failed
 attempts, operator preferences, fragile files, review findings, environment
@@ -27,7 +27,7 @@ Required lines (in the header block):
 | Line | Form | Meaning |
 | ---- | ---- | ------- |
 | `Owner:` / `Status:` / `Last verified:` | standard doc metadata | `Status:` carries the MEMORY status: `candidate`, `active`, `stale`, `superseded`, or `rejected` |
-| `Memory ID:` | `` `slug` `` (must equal the filename stem) | stable identity for supersession links |
+| `Memory ID:` | `` `<lifecycleId>-mem <slug>` `` (must equal the filename stem; legacy bare-slug ids from before wave 1t9w7 remain valid) | stable identity for supersession links |
 | `Kind:` | `` `one of the eight kinds` `` | drives decay policy and advisory routing |
 | `Confidence:` | number in `[0.0, 1.0]` | advisory ranking input; decays kind-awarely, never deletes |
 | `Created:` / `Updated:` | `YYYY-MM-DD` | `Created` anchors churn-based decay |

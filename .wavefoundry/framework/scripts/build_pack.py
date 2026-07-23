@@ -992,6 +992,24 @@ def main():
         except RuntimeError as exc:
             print(f"error: release preflight failed: {exc}", file=sys.stderr)
             sys.exit(1)
+    else:
+        # Pre-flight: every versioned build requires its changelog entry
+        # (wave 1t9tj). The pack ships CHANGELOG.md as its only offline
+        # release surface, so the entry must exist before any zip is built —
+        # otherwise a circulating pack carries a stale release history, as the
+        # published 1.14.0 archive did. The release path performs the same
+        # check inside its own preflight above.
+        if not _extract_changelog_section(
+            repo_root / "CHANGELOG.md", args.version
+        ).strip():
+            print(
+                f"error: CHANGELOG.md has no `## [{args.version}]` section. "
+                "Create the changelog entry first — the pack ships "
+                "CHANGELOG.md, and every build must carry the release "
+                "history for the version it stamps.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
 
     # Pre-flight: docs gate (gardener + lint).
     if not args.skip_docs_gate:

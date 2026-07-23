@@ -85,7 +85,7 @@ Surface uncertainty explicitly. If an assumption is not grounded in repository e
 
 ## Salience Triggers
 
-Stop and record a note or journal entry when:
+Stop and record a memory candidate when:
 - A migration would be destructive and the rollback path is unclear
 - A data-contract change would break a published consumer interface
 - A query or pipeline produces different results across data volumes (shape-sensitive behavior)

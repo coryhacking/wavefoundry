@@ -53,7 +53,7 @@ Use this precedence order when assembling or reconciling context:
 2. code and canonical docs in the repository
 3. repo-local workflow config and prompt surface
 4. active wave artifacts for the current `change-id`
-5. relevant role or persona journals
+5. relevant typed memory records (memory_brief / memory_search when attached)
 6. repo-local durable workflow memory
 7. shared seed-pack behavior from this framework
 
@@ -95,15 +95,15 @@ If memory conflicts with current evidence from the repository, favor that eviden
 - For sensitive framework-maintenance surfaces (`.wavefoundry/framework/`, `docs/prompts/`, `AGENTS.md`, hook configs, and prompt-surface manifests), keep one write owner at a time and require the delegated lane to list intended file edits before it writes; if the scope expands, return to the coordinator for replanning.
 - After a subagent reports edits, the coordinating agent must re-read each changed file and verify that the content matches the intended change before accepting the result.
 
-## Journal Rules
+## Memory Capture Rules
 
-- Journals are advisory episodic memory, not source of truth.
-- **Write journal entries only when the lesson is durable, non-obvious, or high-salience enough to improve future work.** This includes corrections, hard-to-find constraints, reversed assumptions, and validated patterns worth reusing. Do not journal routine successful work or generic progress — if the task completed cleanly and taught nothing durable, it does not belong in a journal.
-- Triggers for a journal entry: a bug that reached review, a review cycle that caused rework, a mistake that had to be corrected, a constraint or behavior that was hard to discover and needed extra investigation, a tool failure or environment issue that caused significant lost time, an invalidated assumption that caused backtracking, or a validated approach that is likely to help future sessions avoid repeated discovery.
-- **Do not create a journal entry for an issue that was fully fixed and cleaned up in the same session unless the lesson is still actionable.** If the root cause is structurally resolved and no remaining risk or rediscovery cost exists, skip the entry. Create an entry only when the lesson is still useful: the risk persists, the pattern is worth repeating, the mistake is easy to repeat, or the constraint is hard to rediscover.
+- Typed memory records are advisory episodic memory, not source of truth.
+- **Record a memory candidate only when the lesson is durable, non-obvious, or high-salience enough to improve future work.** This includes corrections, hard-to-find constraints, reversed assumptions, and validated patterns worth reusing. Do not record routine successful work or generic progress — if the task completed cleanly and taught nothing durable, it does not belong in memory.
+- Triggers for a candidate: a bug that reached review, a review cycle that caused rework, a mistake that had to be corrected, a constraint or behavior that was hard to discover and needed extra investigation, a tool failure or environment issue that caused significant lost time, an invalidated assumption that caused backtracking, or a validated approach that is likely to help future sessions avoid repeated discovery.
+- **Do not record a candidate for an issue that was fully fixed and cleaned up in the same session unless the lesson is still actionable.** If the root cause is structurally resolved and no remaining risk or rediscovery cost exists, skip it. Record only when the lesson is still useful: the risk persists, the pattern is worth repeating, the mistake is easy to repeat, or the constraint is hard to rediscover.
 - Repeated, validated lessons that appeared in more than one wave or incident may be promoted into repo-local workflow memory, prompt docs, persona docs, or canonical docs.
 - Do not promote one-off observations unless they reveal a stable pattern — an incident that happened once and has since been resolved structurally does not need to live in memory indefinitely.
-- Retention model: if a lesson is still relevant (the risk still exists, the constraint still applies, the validated pattern still helps, or the mistake is still easy to make), keep it — promoted or not. If a lesson addresses a problem that no longer exists (the code was removed, the tool was fixed, the process changed), retire it from the journal and from memory rather than leaving stale cautions that mislead future agents.
+- Retention model: if a lesson is still relevant (the risk still exists, the constraint still applies, the validated pattern still helps, or the mistake is still easy to make), keep it — promoted or not. If a lesson addresses a problem that no longer exists (the code was removed, the tool was fixed, the process changed), retire or supersede the memory record rather than leaving stale cautions that mislead future agents.
 
 ## Persona Rules
 
@@ -119,6 +119,6 @@ If memory conflicts with current evidence from the repository, favor that eviden
 
 ## Handoff Rules
 
-- Keep durable architecture, product, reliability, security, and process decisions in canonical docs or decision records, not only in wave artifacts or journals.
+- Keep durable architecture, product, reliability, security, and process decisions in canonical docs or decision records, not only in wave artifacts or memory records.
 - Use wave-close summaries and next-wave handoffs to preserve current understanding.
 - If work pauses, refresh the session handoff artifact in the target repository.

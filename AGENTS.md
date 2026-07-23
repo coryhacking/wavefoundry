@@ -90,7 +90,7 @@ Wavefoundry uses the Wave Framework to develop the Wave Framework.
 This is intentional bootstrapping, not a source-of-truth collapse:
 
 - `.wavefoundry/framework/` is the canonical framework product source: seed prompts, reference material, scripts, renderers, validators, packaging logic, and upgrade logic.
-- `docs/` is Wavefoundry's self-hosted project operating surface: plans, waves, local prompt surfaces, agent roles, handoff, journals, MCP design docs, and project-specific decision records.
+- `docs/` is Wavefoundry's self-hosted project operating surface: plans, waves, local prompt surfaces, agent roles, handoff, memory records, MCP design docs, and project-specific decision records.
 - Changes to framework behavior should be planned, reviewed, and closed through Wavefoundry's local `docs/` wave process.
 - When `.wavefoundry/framework/seeds/` conflicts with rendered local prompt surfaces under `docs/prompts/`, treat `.wavefoundry/framework/seeds/` as source of truth for framework behavior.
 - When project-specific process policy under `docs/` conflicts with generic framework defaults, treat the project-specific `docs/` policy as the local operating rule for Wavefoundry, then decide whether the framework default should be changed through an explicit wave.
@@ -122,7 +122,7 @@ Public Wave Framework commands for Wavefoundry's self-hosted surface. Full detai
 | **Finalize feature** | Single-change closure path | `docs/prompts/finalize-feature.prompt.md` |
 | **Interrogate this plan** | Stress-test a change doc before admission | `docs/prompts/interrogate-plan.prompt.md` |
 | **Evaluate decision** | Structured decision evaluation for ADR-shaped choices | `docs/prompts/evaluate-decision.prompt.md` |
-| **Distill journals** | Promote stable journal findings to durable memory; retire stale ones | `docs/prompts/distill-journals.prompt.md` |
+| **Migrate journals** | One-time retirement of remaining journal files into the memory system (legacy alias: **Distill journals**) | `.wavefoundry/framework/seeds/210-migrate-journals.prompt.md` |
 | **Archetype review** / **Archetype council** | Optional stance-based review applied to plans, design docs, code, prose, decision narratives, naming, AC formulation | `docs/prompts/archetype-council.prompt.md` |
 | **Package Wavefoundry** | Build framework zip distribution | `docs/prompts/package-wavefoundry.prompt.md` |
 | **Migrate to Wavefoundry** | Migrate a target repo from legacy layout | `.wavefoundry/framework/seeds/250-migrate-existing-wave-project.prompt.md` |

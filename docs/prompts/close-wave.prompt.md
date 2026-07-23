@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-21
+Last verified: 2026-07-22
 
 Shortcut: **`Close wave`**
 
@@ -19,7 +19,7 @@ All closure-time code and docs investigation follows the run contract's Retrieva
 3. When `wave_review.enabled` is true, both `wave-council-readiness` and `wave-council-delivery` are present in `## Review Evidence`
 4. **Docs-contract review:** recorded as performed with findings, or `Docs-contract review: not applicable` with rationale — required whenever any `docs/specs/*.md` changed during the wave
 5. Chronology reconciled: `Status: completed`, `Completed at:` date, all change statuses finalized
-6. Journal distillation: important implementation/review lessons added to relevant role or persona journals (absence of new journal entries is acceptable if nothing warranted one)
+6. Memory capture: important implementation/review lessons recorded as typed memory candidates and validated at the close checkpoint (absence of new candidates is acceptable if nothing warranted one)
 7. Durable memory promoted to `docs/references/project-context-memory.md` (and other canonical docs when applicable)
 8. **Retrospective step completed:** ask "what was non-obvious in this wave that a future session should know?" — surface memory candidates for architectural decisions (why an approach was chosen), validated approaches that should carry forward (positive confirmations, not only corrections), and workflow discoveries; promote findings to auto-memory or `docs/references/project-context-memory.md`
 9. `docs/agents/session-handoff.md` updated to idle format: last-closed wave ID and one-line summary of what shipped, plus an **Open questions / Deferred decisions** section for any intent not captured in a change doc
@@ -35,7 +35,7 @@ All closure-time code and docs investigation follows the run contract's Retrieva
 - What was delivered
 - What was deferred (with rationale)
 - Key decisions made during the wave
-- Lessons promoted to journals or canonical docs
+- Lessons promoted to memory records or canonical docs
 
 ## Wavefoundry-Specific Closure Checks
 

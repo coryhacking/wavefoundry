@@ -55,6 +55,7 @@ from review_evidence import (
     adopted_protocol_state,
     build_identified_review_event,
     canonical_review_events_bytes,
+    canonicalize_finding_synthesis_markers,
     current_synthesis_heads,
     derive_disposition,
     derive_review_event_identity,
@@ -3201,9 +3202,8 @@ def _help_catalog() -> dict[str, Any]:
                 "recommended_chain": ["wf_create_wave", "wf_add_change", "wf_prepare_wave"],
                 "rationale": (
                     "Create the wave, admit planned changes, then run transactional prepare checks. "
-                    "Before wf_prepare_wave will pass, a journal artifact under docs/agents/journals/ "
-                    "must contain a line in the exact form: wave-id: `<wave-id>` "
-                    "(the key alone on its own line, wave ID in backticks, no trailing content after the closing backtick)."
+                    "Capture in-flight observations in the change doc's Progress Log and durable "
+                    "lessons as memory candidates (memory_add) — waves no longer use journals."
                 ),
                 "fallback_tools": ["wf_help"],
                 "next_step": "Create the wave in dry_run first.",
@@ -3661,7 +3661,20 @@ def run_garden(root: Path) -> dict:
             "output": _subprocess_timeout_summary("gardener", timeout_s),
         }
     output, truncated = _bounded_subprocess_output(result.stdout + result.stderr)
-    updated = [l for l in output.splitlines() if "wrote" in l.lower()]
+    # Stable output contract with docs_gardener.py (wave 1tbvo): one
+    # `docs-gardener: updated <path>` line per updated file. Exact-prefix
+    # parse — the old "wrote" grep silently matched nothing once the
+    # gardener's prose changed, dropping the index-refresh trigger.
+    # Parse the COMPLETE stdout, never the bounded text: the bound exists for
+    # the human-facing `output` field only, and parsing the shortened value
+    # under-counted large runs and emitted a corrupted final path fragment
+    # (operator reproduction: 6,000 records -> 2,273 reported).
+    _updated_prefix = "docs-gardener: updated "
+    updated = [
+        l[len(_updated_prefix):].strip()
+        for l in result.stdout.splitlines()
+        if l.startswith(_updated_prefix)
+    ]
     summary = {
         "passed": result.returncode == 0,
         "files_updated": len(updated),
@@ -6540,19 +6553,13 @@ def create_wave(root: Path, slug: str, mode: str = "dry_run") -> dict[str, Any]:
     wave_md = wave_dir / "wave.md"
     rel_path = str(wave_md.relative_to(root)).replace("\\", "/")
     exists = wave_md.exists()
-    # Wave 1p3dk / 1p3do: co-create a journal stub alongside the wave doc so
-    # the wave's journal-reference lint check passes immediately and operators
-    # don't have to hand-author the 9-section structure.
-    journal_filename = f"{wave_id.replace(' ', '-')}.md"
-    journal_path = root / "docs" / "agents" / "journals" / journal_filename
-    journal_rel_path = str(journal_path.relative_to(root)).replace("\\", "/")
-    journal_exists = journal_path.exists()
+    # Wave 1t9w9: waves no longer scaffold journals — in-flight capture goes
+    # to Progress Logs and memory candidates, close-time distillation to
+    # memory_propose + validation. Existing journals are historical artifacts.
     if mode_s == "dry_run":
         return {
             "wave_id": wave_id, "path": rel_path, "mode": mode_s,
             "created": False, "exists": exists,
-            "journal_path": journal_rel_path,
-            "journal_exists": journal_exists,
         }
     wave_md, events_path = _contained_wave_review_paths(root, wave_md)
     today_iso = datetime.date.today().isoformat()
@@ -6572,7 +6579,7 @@ def create_wave(root: Path, slug: str, mode: str = "dry_run") -> dict[str, Any]:
             "## Changes\n\n"
             "## Wave Summary\n\n"
             "<Describe the purpose and scope of this wave in 1–3 sentences.>\n\n"
-            "## Journal Watchpoints\n\n"
+            "## Watchpoints\n\n"
             "- <Add watchpoint, follow-up, or blocking notes here — coordination "
             "constraints, sequencing, or guard requirements.>\n\n"
             f"{empty_external_finding_synthesis_section()}\n"
@@ -6619,8 +6626,6 @@ def create_wave(root: Path, slug: str, mode: str = "dry_run") -> dict[str, Any]:
                 "wave_id": wave_id, "path": rel_path, "mode": mode_s,
                 "created": False, "exists": True,
                 "events_path": str(events_path.relative_to(root.resolve())).replace("\\", "/"),
-                "journal_path": journal_rel_path,
-                "journal_exists": journal_exists,
             }
         wave_dir.mkdir(parents=True, exist_ok=True)
         _atomic_replace_bytes(events_path, b"", "create-events")
@@ -6630,86 +6635,11 @@ def create_wave(root: Path, slug: str, mode: str = "dry_run") -> dict[str, Any]:
             raise RuntimeError(
                 f"Wave record and event ledger were created but durable adoption failed: {adoption_error}"
             )
-    # Co-create journal stub (1p3do). Idempotent: skip when the file already
-    # exists so operator-customized journals are never overwritten.
-    journal_created = False
-    if not journal_exists:
-        journal_path.parent.mkdir(parents=True, exist_ok=True)
-        journal_path.write_text(
-            _scaffold_wave_journal(wave_id, title, today_iso),
-            encoding="utf-8",
-        )
-        journal_created = True
     return {
         "wave_id": wave_id, "path": rel_path, "mode": mode_s,
         "created": True, "exists": False,
         "events_path": str(events_path.relative_to(root.resolve())).replace("\\", "/"),
-        "journal_path": journal_rel_path,
-        "journal_created": journal_created,
-        "journal_exists": journal_exists,
     }
-
-
-def _scaffold_wave_journal(wave_id: str, title: str, today_iso: str) -> str:
-    """Return a lint-clean journal stub for a newly-created wave (1p3do).
-
-    Every section satisfies the docs-lint content requirements with explicit
-    `Pending:` placeholders the operator fills in as the wave progresses.
-    The Salience Triggers section uses critical/high/medium/low keywords;
-    Operating Identity includes role/responsibility; Promotion Evidence
-    references a stable artifact in backticks.
-    """
-    return (
-        f"# Journal - {title}\n\n"
-        "Owner: Engineering\n"
-        "Status: active\n"
-        "Role: wave-coordinator\n"
-        f"Last verified: {today_iso}\n\n"
-        "Actor: wave-coordinator\n"
-        "Schema version: 1.0\n"
-        f"Last distilled: {today_iso}\n\n"
-        f"wave-id: `{wave_id}`\n\n"
-        "## Operating Identity\n\n"
-        f"- **Role:** wave-coordinator for wave `{wave_id}`. **Responsibility:** "
-        "coordinate the wave's admitted changes through prepare → implement → "
-        "review → close per the lifecycle contract.\n\n"
-        "## Salience Triggers\n\n"
-        "- **critical** — operator directives that change wave scope, admitted "
-        "changes, or close authorization\n"
-        "- **high** — review-time findings that block close, dependency changes "
-        "between admitted changes\n"
-        "- **medium** — implementation-time observations about scope drift or "
-        "unexpected blockers\n"
-        "- **low** — routine coordination notes, status updates, lint pass/fail "
-        "signals\n\n"
-        "## Default Stance\n\n"
-        "Maintain the wave's load-bearing invariants throughout implementation. "
-        "Preserve the change-doc contracts admitted at prepare time; surface drift "
-        "from operator immediately rather than silently absorbing scope.\n\n"
-        "## Memory Responsibilities\n\n"
-        "- Track per-change implementation state (gate-open/close pairs, AC "
-        "completion, follow-up findings)\n"
-        "- Record decisions made during implementation that affected scope, "
-        "AC formulation, or test strategy\n\n"
-        "## Active Signals\n\n"
-        f"- Pending: wave `{wave_id}` opened {today_iso}; populate as admitted "
-        "changes move through implementation.\n\n"
-        "## Distillation\n\n"
-        "- Pending: distilled lessons emerge as the wave delivers; promote durable "
-        "findings to `docs/agents/journals/README.md` at close.\n\n"
-        "## Promotion Evidence\n\n"
-        "- Pending: promotion candidates against `docs/agents/journals/README.md` "
-        "emerge as the wave delivers and durable lessons are identified.\n\n"
-        "## Retirement And Supersession\n\n"
-        "- Pending: retirement happens at wave close per the closure contract in "
-        "`docs/agents/journals/README.md`.\n\n"
-        "## Governance\n\n"
-        "- This journal follows the operating-memory contract in "
-        "`docs/agents/journals/README.md`. Critical/high signals may be journaled "
-        "during planning, implementation, review, handoff, reindex, or closure — "
-        "not only at close. Distillation, promotion, and retirement happen at "
-        "close.\n"
-    )
 
 
 def wf_create_wave_response(root: Path, slug: str, mode: str = "dry_run", cache: Optional[McpRepoCache] = None) -> dict[str, Any]:
@@ -8246,7 +8176,7 @@ def _memory_add_response_locked(
                 _canonical_overlap=_canonical_overlap,
             )
     explicit = bool(memory_id)
-    base_id = memory_id or f"mem-{mem.slugify(title or summary)}"
+    base_id = memory_id or mem.mint_memory_id(root, title or summary)
 
     # Duplicate detection (wave 1stwl) — DETECTION ONLY. Compare a pseudo-record
     # of this add against existing active/candidate records. Non-blocking by
@@ -8541,7 +8471,7 @@ def _memory_propose_response_locked(
                     "forbidden pattern (not echoed).",
                     recovery_tools=[], recovery_usage=""))
                 continue
-            base_id = f"mem-{mem.slugify(d['title'] or d['summary'])}"
+            base_id = mem.mint_memory_id(root, d["title"] or d["summary"])
 
             def _render(mid: str, _d: dict[str, Any] = d) -> str:
                 return mem.render_memory_record(
@@ -12452,22 +12382,29 @@ def _review_evidence_diagnostics(
             if not result.errors:
                 try:
                     raw_projection = wave_md.read_text(encoding="utf-8")
-                    if render_review_evidence_projection(raw_projection, result.records) != raw_projection:
+                    # Compare in canonical form (wave 1tb4z, same seam as the
+                    # lint and dashboard paths): legacy marker namespaces and
+                    # the retired bodyless-details projection are current, not
+                    # stale — archives are never rewritten or flagged.
+                    canonical_projection = canonicalize_finding_synthesis_markers(
+                        raw_projection
+                    )
+                    if render_review_evidence_projection(canonical_projection, result.records) != canonical_projection:
                         errors.append(
                             "Finding Synthesis projection is stale relative to canonical events.jsonl; "
                             "replay the last typed review event to reconcile it"
                         )
                     marker_present = (
-                        REVIEW_STATUS_MARKER_BEGIN in raw_projection
-                        or REVIEW_STATUS_MARKER_END in raw_projection
+                        REVIEW_STATUS_MARKER_BEGIN in canonical_projection
+                        or REVIEW_STATUS_MARKER_END in canonical_projection
                     )
                     if marker_present and render_review_status_projection(
-                        raw_projection,
+                        canonical_projection,
                         result.records,
                         _review_status_signoff_keys(
-                            root, raw_projection, result.records
+                            root, canonical_projection, result.records
                         ),
-                    ) != raw_projection:
+                    ) != canonical_projection:
                         errors.append(
                             "Review Status projection is stale relative to canonical "
                             "events.jsonl; replay the last typed review event to reconcile it"
@@ -13725,7 +13662,7 @@ def wf_implement_wave_response(root: Path, wave_id: str, mode: str = "dry_run", 
     4. Single-OPEN guard (wave 1p45l): no OTHER wave is already active/implementing.
 
     On create: runs the single-OPEN guard, then transitions wave status to 'implementing'.
-    Returns ordered change list, Journal Watchpoints, and serialization points.
+    Returns ordered change list, watchpoints, and serialization points.
     """
     mode_s = "create" if (mode or "").strip().lower() == "apply" else (mode or "").strip().lower()
     _VALID_MODES = ["dry_run", "create"]
@@ -13825,16 +13762,20 @@ def wf_implement_wave_response(root: Path, wave_id: str, mode: str = "dry_run", 
         deps_m = re.findall(r"Depends On:\s*`([^`]+)`", ct)
         ordered_changes.append({"change_id": cid, "status": cs, "depends_on": deps_m})
 
-    # Journal Watchpoints section
+    # Watchpoints section — new scaffolds use `## Watchpoints` (wave 1t9w9);
+    # existing waves keep the legacy `## Journal Watchpoints` heading forever.
     watchpoints_text = ""
-    wp_idx = wave_text.find("## Journal Watchpoints")
-    if wp_idx != -1:
-        tail = wave_text[wp_idx + len("## Journal Watchpoints"):]
+    for heading in ("## Watchpoints", "## Journal Watchpoints"):
+        wp_idx = wave_text.find(heading)
+        if wp_idx == -1:
+            continue
+        tail = wave_text[wp_idx + len(heading):]
         nl = tail.find("\n")
         if nl != -1:
             tail = tail[nl + 1:]
         m_end = re.search(r"\n(?=## )", tail)
         watchpoints_text = (tail[: m_end.start()] if m_end else tail).strip()
+        break
 
     # Serialization points: changes that other changes depend on
     all_deps: set[str] = set()
@@ -13854,7 +13795,7 @@ def wf_implement_wave_response(root: Path, wave_id: str, mode: str = "dry_run", 
         "transitioned_to_implementing": mode_s == "create",
         "status_transition": {"from": current_status, "to": "implementing"} if mode_s == "create" else {"from": current_status, "to": f"{current_status} (dry_run)"},
         "ordered_changes": ordered_changes,
-        "journal_watchpoints": watchpoints_text,
+        "watchpoints": watchpoints_text,
         "serialization_points": serialization_points,
         # Wave 1t3ek (1t230): the retrieval directive arrives in-band at the
         # exact moment implementation starts, not only in a prompt doc.
@@ -24668,8 +24609,8 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
 
         Verifies that both the prepare-phase Wave Council verdict and the prepare-phase
         lane review are complete before implementation begins. On create mode, transitions
-        the wave status to 'implementing' and returns the ordered change list, Journal
-        Watchpoints, and serialization points.
+        the wave status to 'implementing' and returns the ordered change list,
+        watchpoints, and serialization points.
 
         Args:
             wave_id: Wave ID or unique prefix.

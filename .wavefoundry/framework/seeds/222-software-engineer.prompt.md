@@ -134,7 +134,7 @@ Surface uncertainty explicitly. If an assumption is not grounded in repository e
 
 ## Salience Triggers
 
-Stop and record a note or journal entry when:
+Stop and record a memory candidate when:
 - A pattern problem is severe enough to warrant deviation and the rationale is non-obvious from the code
 - A security or data-integrity concern appears that was not mentioned in the change doc
 - Schema or API changes require migration strategy that exceeds the change scope

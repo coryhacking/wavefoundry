@@ -34,7 +34,7 @@ Intent:
 Before planning, consult:
 
 - `docs/references/project-context-memory.md` — for known pitfalls, recurring anti-patterns, and durable constraints relevant to the planned scope. If memory records a past mistake in this area, the plan must address it explicitly rather than repeating it.
-- Relevant role and persona journals (`docs/agents/journals/`) — for operating identity, salience triggers, active cautions, unresolved watchpoints, promotion queues, and hard-to-rediscover observations that touch the planned scope. A caution or high-salience memory is a signal that risks, reviewer/persona routing, and acceptance criteria should address that area.
+- Relevant typed memory records (`memory_brief` / `memory_search` when attached; `docs/agents/memory/` directly otherwise) — for active cautions, fragile areas, prior failed attempts, and hard-to-rediscover observations that touch the planned scope. A caution or high-salience memory is a signal that risks, reviewer/persona routing, and acceptance criteria should address that area.
 
 Divergent Pre-Plan (required before drafting):
 
@@ -54,7 +54,7 @@ Required planning outputs for non-trivial work:
 - `Knowledge Transfer Plan`
 - `Persona Review Plan`
 - `Wave Readiness Plan`
-- `Journal Watchpoints`
+- `Watchpoints` (legacy heading `Journal Watchpoints` on old waves)
 - `Salience / Impact` notes only where they change priority, reviewer/persona routing, escalation, handoff, or memory preservation
 - factor-review plan when factor-oriented review is relevant for the project and the current wave; source applicable factor docs from `docs/agents/factor-<nn>-<name>.md` and record the dashboard grouping expectations via `Category: factor`
 - for framework/prompt-surface maintenance, an explicit file-touch plan naming intended edits, protected surfaces, and read-only vs write-owning lanes before execution starts
@@ -118,12 +118,12 @@ Wave planning rules:
 - planning should identify the wave coordinator and decision rights
 - planning should define the readiness gate that must pass before implementation begins and again during final review
 - **`Prepare wave`** records **AC priority** on admitted change docs for product-impacting work — required / important / nice-to-have / not this scope, recommended heading **`## AC priority`** — and **`seed-100`** requires **product-owner** delivery scope sign-off before merge plus **`qa-reviewer`** required-row reconciliation at **`Review wave`**; see **`100-project-prompt-surface-bootstrap.prompt.md`** (**prepare-wave** / **review-wave**) and repo **`docs/prompts/prepare-wave.prompt.md`**
-- planning should identify high-salience risks, operator signals, repeated rework, trust-risk, and compaction-sensitive knowledge that should affect admission, reviewer/persona routing, or journal watchpoints
+- planning should identify high-salience risks, operator signals, repeated rework, trust-risk, and compaction-sensitive knowledge that should affect admission, reviewer/persona routing, or wave watchpoints
 - planning should state explicitly when the operator is creating a new wave versus changing the admitted set of an existing wave
 - when a request clearly extends work already admitted into the current wave, prefer adjusting that existing change instead of creating a new change; extend the change's ACs and tasks to capture the added scope, and create a new change only when the remaining work is materially different or should be tracked separately
 - when **Add change to wave** admits a **feature** or otherwise shifts product semantics, plan **`product-owner`** on the admission delta and a fresh **`product-owner`** pass at the next **`Prepare wave`** for the full admit set (`docs/prompts/add-change-to-wave.prompt.md`, `docs/prompts/prepare-wave.prompt.md`, `docs/contributing/agent-team-workflow.md`)
 - planning should define how the wave will actually be orchestrated, not only what work belongs inside it
-- planning should define whether any role/persona operating-memory signal should be journaled immediately rather than deferred to closure
+- planning should define whether any operating-memory signal should be captured as a memory candidate immediately rather than deferred to closure
 - when a wave touches shared framework, prompt-surface, entrypoint, or hook files, planning should define the protected surfaces and require a short operator review pause on the file plan before execution starts
 - incomplete changes carry forward into the next wave under the same `Change ID`; create a new change-id only when the remaining work is materially different from the original change
 - planning should not introduce speculative abstractions, generalization work, or configurability that is not justified by the request, acceptance criteria, or repository evidence

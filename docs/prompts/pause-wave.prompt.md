@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-20
+Last verified: 2026-07-22
 
 Shortcut: **`Pause wave`**
 
@@ -46,10 +46,10 @@ At next session start, read `docs/agents/session-handoff.md` and the wave record
 
 `wf_current_wave` returns paused waves in its `data.waves[]` response alongside active and planned waves. Paused entries carry `next_action: "resume_wave"` — a hint that maps to calling `wf_prepare_wave` on that wave.
 
-## What Belongs in Handoff vs Journals
+## What Belongs in Handoff vs Memory Records
 
 - **Session handoff:** active blockers, next actions, temporary working-memory state
-- **Journals:** lessons, constraints, observations that survive beyond the current session
+- **Memory records:** lessons, constraints, observations that survive beyond the current session (`memory_add(status='candidate', ...)`)
 - **Wave record:** coordination truth, admitted changes, review checkpoints
 
 ## Memory Candidates at Pause

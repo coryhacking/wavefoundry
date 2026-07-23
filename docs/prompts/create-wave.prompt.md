@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-20
+Last verified: 2026-07-22
 
 Shortcut: **`Create wave`**
 
@@ -19,7 +19,7 @@ Create a wave record at `docs/waves/<wave-id>/wave.md`. The wave is the coordina
    - `Objective`, `Coordinator`, `Participants`
    - `Planned or active changes`, `Dependencies`
    - `Current assumptions`, `Outputs produced or expected`
-   - `Review checkpoints`, `Journal refs`, `Journal Watchpoints`
+   - `Review checkpoints`, `Watchpoints`
    - `Completion criteria`, `Handoff or next-wave notes`
    - `Wave Summary` placeholder: *(Populated at closure.)*
    - one generated, non-authoritative `## Finding Synthesis` current-state

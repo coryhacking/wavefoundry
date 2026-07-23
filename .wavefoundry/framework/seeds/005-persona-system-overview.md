@@ -34,7 +34,7 @@ Do not conflate persona agents with agent roles. They are complementary, not int
 - Persona creation should be evidence-driven; do not invent personas for symmetry or aesthetics.
 - Ground each persona in concrete usage patterns: architecture docs, behavior contracts, UI surfaces, failure docs, or user-facing bugs from the baseline wave.
 - When evidence is sparse, ask the user who operates or uses the system before generating persona docs.
-- Persona docs should stay stable and low-noise; changing lessons flow into journals and durable memory.
+- Persona docs should stay stable and low-noise; changing lessons flow into typed memory records.
 - Repo-local docs, not the shared pack, define the exact personas that exist for a given project.
 - Start with the smallest well-grounded set. A single well-defined persona is more useful than five vague ones.
 
@@ -51,13 +51,13 @@ Init and upgrade should synthesize or refresh project persona docs under:
 
 - `docs/agents/personas/`
 
-The local persona README and generated persona docs should define actual evidence, usage patterns, failure modes, invocation signals, and associated journals for that project.
+The local persona README and generated persona docs should define actual evidence, usage patterns, failure modes, and invocation signals for that project.
 
 ## Persona Doc Section Structure
 
 Persona docs use a fixed set of sections. Do not add sections from other doc types:
 
-**Who** · **Goals** · **Workflows** · **Failure modes** · **Invocation signals** · **Operating identity** · **Salience triggers** · **Associated journal**
+**Who** · **Goals** · **Workflows** · **Failure modes** · **Invocation signals** · **Operating identity** · **Salience triggers**
 
 `## Scope` is a plan/change doc concept and must not appear in persona docs. Persona docs define a user or operator role — they do not have a delivery boundary or wave anchor. Evidence supporting a persona's existence belongs inline in **Who** and **Goals**, not in a separate section.
 

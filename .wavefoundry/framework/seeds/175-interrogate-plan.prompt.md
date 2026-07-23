@@ -17,7 +17,7 @@ Before interrogating, consult all available project resources to self-answer que
 - `docs/specs/*.md` — behavior contracts and acceptance expectations
 - `docs/architecture/` — module boundaries, layering rules, data/control flows, decisions
 - `docs/references/` — project context memory, recurring patterns, durable constraints
-- `docs/agents/` — role journals, personas, operating identity
+- `docs/agents/` — role docs, personas, memory records, operating identity
 - `docs/contributing/` — workflow rules, review policies, verification contracts
 - `docs/waves/` — prior wave records, change history, decision logs
 - Any other checked-in project knowledge base artifact

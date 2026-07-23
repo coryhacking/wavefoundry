@@ -121,9 +121,45 @@
       "source": "events.jsonl",
       "version": 1
     },
+    "1t87f relocated-journal-naming": {
+      "prefix_sha256": "b3a566ac0b7927ece5befcd647af152dda5869f940d532b666d3d448518110c5",
+      "record_count": 5,
+      "source": "events.jsonl",
+      "version": 1
+    },
+    "1t8la memory-archival-and-retention": {
+      "prefix_sha256": "7712a46ed9c44d85a61b33bb74ad49daf7c51f9e7f98d5b342d30215cd011522",
+      "record_count": 2,
+      "source": "events.jsonl",
+      "version": 1
+    },
     "1t9ti memory-publication-receipt": {
       "prefix_sha256": "7a8530e033555682f97944d445094ebcbae3b3713414f9086fac630441a47ee1",
       "record_count": 5,
+      "source": "events.jsonl",
+      "version": 1
+    },
+    "1t9tk changelog-first-packaging": {
+      "prefix_sha256": "37abc8a65a24fc81bcdc1e8989229a7b37060f60a68a62c263718636e4e34ee8",
+      "record_count": 5,
+      "source": "events.jsonl",
+      "version": 1
+    },
+    "1t9w8 memory-lifecycle-naming": {
+      "prefix_sha256": "9ae6a08215bf47253d3c917e53c8971079d2bace56d3c408608f5f0c55e847ca",
+      "record_count": 37,
+      "source": "events.jsonl",
+      "version": 1
+    },
+    "1t9wa retire-wave-journals": {
+      "prefix_sha256": "fabdded517acb024748b569566f3484ddf77c2f765fabf58b77da1d180482b44",
+      "record_count": 26,
+      "source": "events.jsonl",
+      "version": 1
+    },
+    "1tbvp retire-reindex-reports": {
+      "prefix_sha256": "cc1793eb34abc2962e8178b9082655dc34baec81612cdef1632b3426df586420",
+      "record_count": 36,
       "source": "events.jsonl",
       "version": 1
     }

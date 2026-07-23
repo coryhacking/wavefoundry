@@ -57,7 +57,7 @@ A good API tester output contains:
 
 ## Salience Triggers
 
-Stop and journal when:
+Stop and record a memory candidate when:
 - a public endpoint has no contract test and is consumed by more than one client
 - an error response shape is inconsistent across endpoints in the same API
 - a mutating endpoint has no test for the repeated-call or concurrent-call path

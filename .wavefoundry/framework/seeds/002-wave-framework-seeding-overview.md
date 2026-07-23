@@ -45,7 +45,7 @@ This usually creates or refreshes:
 - public prompt entry docs under `docs/prompts/`
 - agent-oriented prompt bodies under `docs/prompts/agents/` when the project keeps checked-in planning/context prompt bodies separate from the public shortcut surface
 - workflow config in `docs/workflow-config.json`, including **`lifecycle_id_policy`** when the install ships `lifecycle_id.py` so epoch and optional hour offset are explicit for new repositories
-- refresh-first manifests, handoff snapshots, wave state, and journal artifacts in their topical `docs/` homes such as `docs/prompts/`, `docs/agents/`, and `docs/waves/`, with explicit regeneration paths documented nearby
+- refresh-first manifests, handoff snapshots, wave state, and memory artifacts in their topical `docs/` homes such as `docs/prompts/`, `docs/agents/`, and `docs/waves/`, with explicit regeneration paths documented nearby
 - optional agent-role wrappers and root entrypoint files such as `AGENTS.md`, `CLAUDE.md`, and `WARP.md`
 - docs tooling: **`wf docs-lint`** and **`wf docs-gardener`** for hooks, CI, and CLI fallback; **agents** with the Wavefoundry MCP server should prefer **`wf_validate_docs`**, **`wf_garden_docs`**, and **`wf_audit`** over shelling to the `wf` dispatcher (see `seed-050` / `seed-080`)
 
@@ -55,7 +55,7 @@ The framework assumes work should be grouped into waves when assumptions and bou
 
 - describe boundaries and shared assumptions clearly
 - plan non-trivial work in a docs-first way
-- preserve agent handoff and journal context across sessions
+- preserve agent handoff and memory context across sessions
 - route people and agents toward canonical docs instead of duplicating instructions everywhere
 
 The shared conceptual explanation of that lifecycle lives in `.wavefoundry/framework/seeds/001-feature-wave-framework-overview.md`. Seeded repositories should generate a project-specific companion under `docs/contributing/` that adds local reviewer roles, personas, and artifact specifics without changing the shared model.
@@ -68,10 +68,10 @@ A `00000 wave-zero-plans-and-specs` is the reserved baseline wave for historical
 
 - create it during **`Init Wavefoundry`** (legacy: **`Init wave framework`** / **`Init wave context`**) when the repository contains legacy `project-context` artifacts, OpenSpec material, or other custom spec/feature/change corpora that should seed the wave system
 - move or normalize those legacy documents into `docs/waves/00000 wave-zero-plans-and-specs/`
-- keep the wave folder flat: a single `wave.md` file holds all baseline content (corpus inventory, normalization notes, review checkpoints, journal refs); do not create subdirectories like `legacy/` or `evidence/` inside the wave folder
+- keep the wave folder flat: a single `wave.md` file holds all baseline content (corpus inventory, normalization notes, review checkpoints); do not create subdirectories like `legacy/` or `evidence/` inside the wave folder
 - give the closed baseline wave a final title that starts with `Legacy`, using `Legacy` for broad mixed corpora or a generated title such as `Legacy plans and specs` when the harvested material is more specific
-- synthesize journals, persona starting guidance, workflow memory, and shared-core-doc updates from that baseline corpus
-- close the wave-0 legacy baseline only after the baseline synthesis and close-wave follow-through are complete, including journal distillation, workflow-memory promotion, persona refresh when needed, and explicit completion metadata in the wave-0 baseline wave record
+- synthesize typed memory records, persona starting guidance, workflow memory, and shared-core-doc updates from that baseline corpus
+- close the wave-0 legacy baseline only after the baseline synthesis and close-wave follow-through are complete, including memory-candidate validation, workflow-memory promotion, persona refresh when needed, and explicit completion metadata in the wave-0 baseline wave record
 
 `wave-0` is the first installed wave-context state for a repository.
 
@@ -114,7 +114,7 @@ flowchart TD
     C -->|Legacy docs or alternate spec corpus| E[Capture and close wave-0 legacy baseline]
     C -->|Installed Wave Framework layer| F[Hand off to Upgrade Wavefoundry]
     D --> G[Generate repo-local docs, prompt surface, workflow config, wrappers, and generated indexes]
-    E --> H[Synthesize journals, personas, memory, and core-doc updates from legacy corpus]
+    E --> H[Synthesize memory records, personas, and core-doc updates from legacy corpus]
     H --> G
     F --> I[Reconcile local customizations and refresh repo-local outputs]
     G --> J[Run docs gate and verify outputs]
@@ -157,7 +157,7 @@ Use the full contract in `.wavefoundry/framework/seeds/009-framework-maintenance
 Use these examples to sanity-check whether the framework is still understandable as an end-to-end system:
 
 1. A project with no prior install runs **`Init Wavefoundry`** (legacy: **`Init wave framework`** / **`Init wave context`**), receives the local docs/prompt/memory layer, then uses `Plan feature` plus `wf lifecycle-id --kind wave --slug <slug>` to start the first normal wave after `wave-0` scaffolding is in place.
-2. A project in mid-delivery completes part of a wave, carries unfinished work into the next wave under the same `change-id`, and refreshes wave memory, journals, and handoff state instead of pretending the feature is fully closed.
+2. A project in mid-delivery completes part of a wave, carries unfinished work into the next wave under the same `change-id`, and refreshes wave memory, memory records, and handoff state instead of pretending the feature is fully closed.
 3. A project that has completed planning runs `Prepare wave`, records the required implementer, reviewer, and persona lanes (including **`product-owner`** when product semantics move, and again after **`Add change to wave`** changes the admit set), and only then begins implementation. `Ready wave` remains an accepted alias.
 4. A project that has completed the planned work runs **`Review wave`** to **execute and record** the **Prepare wave** reviewer matrix (verdicts in **Review checkpoints**), reruns the **readiness evaluation** as part of that closure review, then runs `Finalize feature` or `Close wave`, records **docs-contract review** in the wave when `docs/specs/*.md` or other behavior contracts changed, promotes durable lessons into canonical docs and long-lived memory, archives temporary execution artifacts, and closes the feature or wave cleanly.
 
@@ -171,7 +171,7 @@ The upgrade flow should:
 
 1. inspect the current local context state
 2. detect whether legacy migration is required
-3. preserve valid repo-grown docs, personas, wrappers, and journals where supported
+3. preserve valid repo-grown docs, personas, wrappers, and historical journals where supported
 4. backfill missing wave-era artifacts
 5. reconcile `AGENTS.md` **Implementation guard** and implement/plan prompt guardrails with the current `050` / `100` standards (same obligations as init — `160-upgrade-wavefoundry.prompt.md` and `150-refresh-wavefoundry.prompt.md`)
 6. retire stale legacy references only after replacement artifacts exist
@@ -193,7 +193,7 @@ At a base level, an implementation should expect the framework to establish thes
 | Public prompt surface | `docs/prompts/*.md` | Defines the commands users and agents should actually invoke. |
 | Agent prompt bodies | `docs/prompts/agents/*.md` | Stores checked-in agent-oriented planning/context prompt bodies without treating them as public commands. |
 | Workflow config | `docs/workflow-config.json`, `docs/repo-profile.json` | Makes repo-specific policy and generation settings explicit. |
-| Refresh-first artifacts | topical docs such as prompt manifests, session handoff artifacts, wave state, journals, and other docs with explicit regeneration paths | Supports indexing, drift detection, and continuation between sessions without forcing durable docs into a generic folder. |
+| Refresh-first artifacts | topical docs such as prompt manifests, session handoff artifacts, wave state, memory records, and other docs with explicit regeneration paths | Supports indexing, drift detection, and continuation between sessions without forcing durable docs into a generic folder. |
 | Agent entry surfaces | `AGENTS.md`, `CLAUDE.md`, `WARP.md`, optional native role wrappers | Gives each host environment a thin entrypoint back to the canonical docs. |
 | Docs tooling | MCP **`wf_validate_docs`** / **`wf_garden_docs`** / **`wf_audit`** for agents when registered; **`wf docs-lint`**, **`wf docs-gardener`** for hooks, CI, and no-MCP CLI | Enforces docs consistency and helps maintain the seeded surface over time. |
 

@@ -33,11 +33,11 @@ It typically includes:
 
 ## Relationship To The Agent Memory Layer
 
-“Wave Memory” (this doc) is the CONTINUITY model: wave records, session handoff, journals, and project-context
+“Wave Memory” (this doc) is the CONTINUITY model: wave records, session handoff, and project-context
 memory — prose surfaces that carry working state and durable narrative across sessions. The **agent memory
 layer** is a separate, typed system: evidence-backed records under `docs/agents/memory/` (kinds like
 `fragile_file`, `failed_attempt`, `operator_preference`) served at action time through the `memory_*` MCP
-tools and as capped advisories on read/impact tools. The two link but do not replace each other: journals stay
+tools and as capped advisories on read/impact tools. The two link but do not replace each other: wave records stay
 role retrospectives, handoff stays session state, and memory records stay retrieval/action artifacts distilled
 from them at lifecycle checkpoints.
 
@@ -55,7 +55,7 @@ ledger cannot supply.
 ## Relationship To Other Framework Systems
 
 - Wave artifacts capture the current execution slice.
-- Journals capture lessons learned by roles or personas while working that slice.
+- Typed memory records capture lessons learned while working that slice (journals are retired; historical journal files remain readable history).
 - Persona docs explain who should participate when domain-specific review or planning help is needed.
 - Review outputs validate whether a wave is ready to implement, ready to close, or should carry forward.
 

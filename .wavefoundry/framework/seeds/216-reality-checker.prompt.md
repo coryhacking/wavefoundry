@@ -83,7 +83,7 @@ A good reality check output contains:
 
 ## Salience Triggers
 
-Stop and journal when:
+Stop and record a memory candidate when:
 
 - a critical decision is framed as obvious when its dependencies are uncertain
 - the same unverified assumption has appeared in multiple waves without being resolved

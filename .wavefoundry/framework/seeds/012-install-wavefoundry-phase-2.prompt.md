@@ -140,13 +140,13 @@ For richer per-role content on the other roles, consult the authoritative per-ro
 
 ### 2.8 — Generate prompt surface (seed-100)
 
-**Action:** Read `seed-100`. Generate `docs/prompts/*.prompt.md` for every public framework prompt and `docs/prompts/prompt-surface-manifest.json`. Include the public-prompt entries for seeds 175 (interrogate-plan), 176 (evaluate-decision), 210 (distill journals) — these are easy to miss; verify they're present.
+**Action:** Read `seed-100`. Generate `docs/prompts/*.prompt.md` for every public framework prompt and `docs/prompts/prompt-surface-manifest.json`. Include the public-prompt entries for seeds 175 (interrogate-plan) and 176 (evaluate-decision) — these are easy to miss; verify they're present. Do NOT generate a migrate-journals prompt at install time (seed 210 is upgrade-only: fresh installs have no journals to migrate).
 
 **Expected artifact:** `docs/prompts/index.md`, `docs/prompts/prompt-surface-manifest.json`, individual prompt files.
 
 ### 2.9 — Bootstrap wave artifacts (seed-110)
 
-**Action:** Read `seed-110`. Create `docs/waves/README.md`, `docs/agents/journals/` directory, and any other wave-coordination artifacts.
+**Action:** Read `seed-110`. Create `docs/waves/README.md` and any other wave-coordination artifacts (journals are retired; do not create a journals directory).
 
 **Expected artifact:** `docs/waves/README.md` exists.
 
@@ -163,11 +163,9 @@ Answer each explicitly. A "no, this project has no admin role" is a valid answer
 
 **Expected artifact:** `docs/agents/personas/<persona>.md` for each persona that applies; `docs/agents/personas/README.md`.
 
-### 2.11 — Bootstrap per-role journals (seed-130)
+### 2.11 — Per-role journals (retired)
 
-**Action:** Read `seed-130`. Generate `docs/agents/journals/<role>.md` for each role in `enabled_agent_roles`.
-
-**Expected artifact:** A `<role>.md` file under `docs/agents/journals/` for each enabled role.
+**Action:** None. The journal system is retired; durable capture uses typed memory records (`docs/agents/memory/`) with close-time validation. Do not create `docs/agents/journals/`.
 
 ### 2.12 — Register drift expectations (seed-140)
 

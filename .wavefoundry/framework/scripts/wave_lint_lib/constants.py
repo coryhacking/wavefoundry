@@ -32,7 +32,6 @@ ADDITIONAL_REQUIRED_DOCS = (
     "docs/agents/session-handoff.md",
     "docs/workflow-config.json",
     "docs/waves/README.md",
-    "docs/agents/journals/README.md",
     "docs/prompts/prompt-surface-manifest.json",
     "docs/references/project-context-memory.md",
     "docs/references/project-overview.md",
@@ -41,7 +40,6 @@ ADDITIONAL_REQUIRED_DOCS = (
 
 WAVE_REQUIRED_PATHS = (
     "docs/waves",
-    "docs/agents/journals",
     "docs/prompts/prompt-surface-manifest.json",
     "docs/agents/personas",
 )
@@ -83,7 +81,6 @@ MANIFEST_REQUIRED_GENERATED_ARTIFACTS = (
     "docs/prompts/prompt-surface-manifest.json",
     "docs/agents/session-handoff.md",
     "docs/waves/",
-    "docs/agents/journals/",
     "docs/agents/personas/",
 )
 
@@ -91,11 +88,16 @@ INDEX_REQUIRED_REFERENCES = (
     "docs/prompts/prompt-surface-manifest.json",
     "docs/agents/session-handoff.md",
     "docs/waves/",
-    "docs/agents/journals/",
 )
 
 WAVE_REQUIRED_SECTIONS = (
     "## Wave Summary",
+)
+# Wave 1t9w9: new scaffolds carry `## Watchpoints`; existing waves keep the
+# legacy `## Journal Watchpoints` heading forever. Either satisfies the
+# watchpoints requirement.
+WAVE_WATCHPOINT_HEADINGS = (
+    "## Watchpoints",
     "## Journal Watchpoints",
 )
 
@@ -109,6 +111,9 @@ JOURNAL_REQUIRED_SECTIONS = (
     "## Governance",
 )
 
+# Wave 1t9w9: `## Associated journal` dropped from the REQUIRED set with the
+# journal retirement; persona docs that still carry the section keep working
+# (its referenced paths must resolve) until their content migrates.
 PERSONA_REQUIRED_SECTIONS = (
     "## Who",
     "## Goals",
@@ -117,7 +122,6 @@ PERSONA_REQUIRED_SECTIONS = (
     "## Invocation signals",
     "## Operating identity",
     "## Salience triggers",
-    "## Associated journal",
 )
 
 # Root wrapper names that must not exist at the repository root.
@@ -196,12 +200,22 @@ MEMORY_KINDS = (
     "dependency_gotcha",
 )
 MEMORY_STATUSES = ("candidate", "active", "stale", "superseded", "rejected")
-MEMORY_ID_PATTERN = re.compile(r"^Memory ID:\s*`([a-z0-9][a-z0-9-]*)`\s*$", re.MULTILINE)
+# Two-form memory-id union (wave 1t9w7), mirroring memory_records.py: new
+# mints carry `<lifecycleId>-mem <slug>`; legacy bare-slug ids stay valid
+# because field stores reference them.
+_MEMORY_ID_BODY = (
+    r"(?:[0-9a-z]{5,6}-mem [a-z0-9][a-z0-9-]{0,63}|[a-z0-9][a-z0-9-]{0,63})"
+)
+MEMORY_ID_PATTERN = re.compile(
+    rf"^Memory ID:\s*`({_MEMORY_ID_BODY})`\s*$", re.MULTILINE
+)
 MEMORY_KIND_PATTERN = re.compile(r"^Kind:\s*`([a-z_]+)`\s*$", re.MULTILINE)
 MEMORY_CONFIDENCE_PATTERN = re.compile(r"^Confidence:\s*(\S+)\s*$", re.MULTILINE)
 MEMORY_CREATED_PATTERN = re.compile(r"^Created:\s*(\d{4}-\d{2}-\d{2})\s*$", re.MULTILINE)
 MEMORY_UPDATED_PATTERN = re.compile(r"^Updated:\s*(\d{4}-\d{2}-\d{2})\s*$", re.MULTILINE)
-MEMORY_SUPERSEDED_BY_PATTERN = re.compile(r"^Superseded by:\s*`([a-z0-9][a-z0-9-]*)`\s*$", re.MULTILINE)
+MEMORY_SUPERSEDED_BY_PATTERN = re.compile(
+    rf"^Superseded by:\s*`({_MEMORY_ID_BODY})`\s*$", re.MULTILINE
+)
 MEMORY_REQUIRED_SECTIONS = ("## Summary", "## Evidence", "## Targets")
 # Memory records reuse the journal forbidden-content posture (secrets, raw
 # transcripts, routine noise) plus personal-fact phrasing — memory is scoped

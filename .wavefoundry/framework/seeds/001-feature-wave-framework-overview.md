@@ -148,7 +148,7 @@ After each review cycle the coordinator evaluates every finding against the chan
 
 ### Root Cause Capture (Reflexion)
 
-After any blocking finding the coordinator records a `Reflect:` entry identifying the root cause pattern and updating remaining tasks proactively to avoid the same class of finding recurring within the same wave. Persistent patterns from Reflexion entries are promoted to the wave's incident journal.
+After any blocking finding the coordinator records a `Reflect:` entry identifying the root cause pattern and updating remaining tasks proactively to avoid the same class of finding recurring within the same wave. Persistent patterns from Reflexion entries are promoted to typed memory candidates.
 
 ### Three Loop Levels
 
@@ -185,7 +185,7 @@ flowchart TD
     B --> C[Confirm change docs are already rooted in the wave folder]
     C --> D[Archive reports from the wave period into the wave folder]
     D --> E[Update wave.md with final status, Completed at, and review checkpoints]
-    E --> F[Promote durable lessons to journals and core memory docs]
+    E --> F[Promote durable lessons to memory records and core memory docs]
     F --> G[Commit the wave result]
     G --> H{More work remains under these or related changes?}
     H -->|Yes| I[Carry incomplete changes forward in the next wave]
@@ -200,14 +200,13 @@ flowchart TD
 - Rerun the readiness evaluation during final review before closure so new reviewer or persona triggers introduced during implementation do not get skipped.
 - The wave folder (`docs/waves/<wave-id>/`) becomes the self-contained permanent archive.
 - If changes remain, carry them forward in the next wave — do not let incomplete work drift without a new wave home.
-- If no work remains, finalize: promote durable behavior into canonical docs, persona guidance, workflow memory, and journals.
+- If no work remains, finalize: promote durable behavior into canonical docs, persona guidance, workflow memory, and typed memory records.
 
 ## Canonical References
 
 - `.wavefoundry/framework/seeds/002-wave-framework-seeding-overview.md`
 - `.wavefoundry/framework/seeds/004-wave-memory-overview.md`
 - `.wavefoundry/framework/seeds/005-persona-system-overview.md`
-- `.wavefoundry/framework/seeds/006-agent-journal-system-overview.md`
 - `.wavefoundry/framework/seeds/007-review-system-overview.md`
 - `docs/contributing/change-workflow.md`
 - `docs/contributing/feature-workflow.md`

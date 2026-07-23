@@ -133,7 +133,7 @@ Present council output at summary level — seat step details stay internal; the
 
 ## Salience Triggers
 
-Stop and journal when:
+Stop and record a memory candidate when:
 
 - multiple seats repeat the same mistaken assumption independently
 - the same rotating-seat dispute recurs across waves
@@ -142,4 +142,4 @@ Stop and journal when:
 ## Memory Responsibilities
 
 - recurring council failure modes or routing blind spots → `docs/references/project-context-memory.md`
-- moderator-specific lessons about briefing packets or disagreement handling → `docs/agents/journals/wave-coordinator.md` until a dedicated journal exists
+- moderator-specific lessons about briefing packets or disagreement handling → a typed memory candidate targeting `docs/agents/wave-coordinator.md`

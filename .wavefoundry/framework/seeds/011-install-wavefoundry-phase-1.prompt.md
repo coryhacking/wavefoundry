@@ -80,7 +80,6 @@ If any Phase 1 row is not `[x]`, do not proceed. Return to that row.
 These belong to Phase 2 (seed-012):
 
 - Generating agent role docs (`docs/agents/<role>.md`) — needs MCP for verification
-- Generating per-role journals
 - Synthesizing personas
 - Bootstrapping architecture docs
 - Bootstrapping design system

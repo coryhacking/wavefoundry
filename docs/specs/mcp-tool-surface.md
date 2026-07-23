@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-21
+Last verified: 2026-07-22
 
 Behavioral contract for the Wavefoundry local MCP server. This spec covers the
 tool names, response conventions, safety rules, and compatibility expectations that
@@ -573,6 +573,8 @@ mapped prompt credit.
   an eligible source has no persisted candidate or its candidate still has
   `Validation: pending`; zero-memory waves pass.
 - On apply/create writes, requests a background docs-index refresh for the closed wave record, archive summary, and handoff doc when present.
+
+**Memory record identity (wave 1t9w7):** generated records mint the repository-wide lifecycle naming `<lifecycleId>-mem <slug>` (the prefix comes from the repo's own lifecycle policy; the filename stem is the memory id, so resolution is unchanged). Legacy bare-slug ids (`mem-...`) remain valid indefinitely — field stores reference them — but nothing mints one again; upgrades from pre-1.15 rename existing generated `mem-*` records deterministically, backdating each prefix from the record's `Created` date (explicit bare-slug ids stay frozen-valid and are never auto-renamed) so filesystem order shows true chronology (append-only history keeps the old ids).
 
 `memory_propose(wave_id: str, mode: str = "dry_run", limit: int = 20)`
 

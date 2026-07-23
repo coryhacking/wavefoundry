@@ -769,7 +769,8 @@ os._exit(23)
         (self.root / ".wavefoundry" / "framework").mkdir(parents=True)
         config = self.root / "docs" / "workflow-config.json"
         config.write_text(
-            '{"lifecycle_id_policy":{"scheme_version":"v2"}}\n',
+            '{"lifecycle_id_policy":{"scheme_version":"v2",'
+            '"epoch_utc":"2022-04-28T00:00:00Z","offset":46656}}\n',
             encoding="utf-8",
         )
         calls: list[list[str] | None] = []
@@ -862,7 +863,8 @@ os._exit(23)
         self._wave("1aaa closed")
         (self.root / ".wavefoundry" / "framework").mkdir(parents=True)
         (self.root / "docs" / "workflow-config.json").write_text(
-            '{"lifecycle_id_policy":{"scheme_version":"v2"}}\n',
+            '{"lifecycle_id_policy":{"scheme_version":"v2",'
+            '"epoch_utc":"2022-04-28T00:00:00Z","offset":46656}}\n',
             encoding="utf-8",
         )
         index_calls = 0
@@ -1056,7 +1058,8 @@ os._exit(23)
         wave = self._wave("1aaa closed")
         (self.root / ".wavefoundry" / "framework").mkdir(parents=True)
         (self.root / "docs" / "workflow-config.json").write_text(
-            '{"lifecycle_id_policy":{"scheme_version":"v2"}}\n',
+            '{"lifecycle_id_policy":{"scheme_version":"v2",'
+            '"epoch_utc":"2022-04-28T00:00:00Z","offset":46656}}\n',
             encoding="utf-8",
         )
         server_impl.memory_backfill_response(

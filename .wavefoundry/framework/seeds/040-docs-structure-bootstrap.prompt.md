@@ -7,7 +7,7 @@ Intent:
 Tasks:
 
 1. Create or update the canonical `docs/` structure.
-2. Ensure architecture, plans, specs, references, reports, wave artifacts, agent journals, prompt manifests, and contributing docs have clear topical homes.
+2. Ensure architecture, plans, specs, references, reports, wave artifacts, agent memory records, prompt manifests, and contributing docs have clear topical homes.
 3. Ensure the target project has the expected canonical folder set in the repository, including as applicable:
    - `docs/architecture/`
    - `docs/architecture/decisions/`
@@ -18,10 +18,8 @@ Tasks:
    - `docs/references/`
    - `docs/agents/`
    - `docs/waves/`
-   - `docs/agents/journals/`
 4. Create or update machine-generated folders used by the Wave Framework:
    - `docs/waves/`
-   - `docs/agents/journals/`
 5. Ensure `docs/prompts/prompt-surface-manifest.json` exists as the machine-readable prompt-surface artifact.
 6. Ensure `docs/agents/session-handoff.md` exists as the paused-work snapshot artifact.
 7. Ensure `docs/agents/personas/` exists for synthesized persona docs.
@@ -302,7 +300,7 @@ Tasks:
 Required target-repo outputs:
 
 - canonical docs index structure
-- wave, journal, prompt-manifest, and other refreshable artifact homes
+- wave, memory, prompt-manifest, and other refreshable artifact homes
 - persona directory
 - project overview reference doc
 - `docs/references/roles.md` for doc metadata conventions

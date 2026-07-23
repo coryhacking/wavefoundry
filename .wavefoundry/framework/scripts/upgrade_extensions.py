@@ -305,6 +305,201 @@ def _reload_cached_review_evidence() -> None:
         importlib.reload(cached)
 
 
+def _fresh_installed_module(name: str):
+    """Import a just-extracted scripts module, refreshing a pre-upgrade cache.
+
+    Same cross-extraction seam as ``_reload_cached_review_evidence``: a
+    pre-upgrade runner's cached module would shadow the extracted one, so a
+    cached entry is re-executed in place (preserving module identity) and a
+    cold entry imports normally from the installed scripts directory.
+    """
+
+    cached = sys.modules.get(name)
+    if cached is not None:
+        importlib.reload(cached)
+        return cached
+    return importlib.import_module(name)
+
+
+def _migrate_memory_naming(root: Path) -> None:
+    """Rename legacy memory records to lifecycle naming (wave 1t9w7).
+
+    Deterministic and idempotent (prefixes backdate from each record's own
+    Created date), so re-running on an interrupted upgrade converges. The
+    mapping is reported in the upgrade output; a repo with no memory records
+    is a silent no-op.
+    """
+
+    scripts = root / ".wavefoundry" / "framework" / "scripts"
+    if str(scripts) not in sys.path:
+        sys.path.insert(0, str(scripts))
+    memory_records = _fresh_installed_module("memory_records")
+    _fresh_installed_module("lifecycle_id")
+    result = memory_records.migrate_memory_ids_to_lifecycle_naming(root)
+    if result.get("renamed"):
+        print(
+            f"memory-naming migration: renamed {result['renamed']} record(s) "
+            f"to lifecycle ids ({result['skipped']} already current or "
+            "unparsable):",
+            flush=True,
+        )
+        for old_id, new_id in sorted(result["mapping"].items()):
+            print(f"  {old_id} -> {new_id}", flush=True)
+    if result.get("references_repaired"):
+        print(
+            f"memory-naming migration: repaired {result['references_repaired']} "
+            "live reference(s) to migrated records.",
+            flush=True,
+        )
+    for residue in result.get("residual_references", ()):
+        print(
+            "memory-naming migration WARNING: stale memory reference "
+            f"`{residue['token']}` in {residue['path']} could not be resolved "
+            "to a migrated record — review it manually.",
+            flush=True,
+        )
+
+
+def _pristine_journal_template(wave_id: str, title: str, date: str) -> str:
+    """The retired wave-journal scaffold, frozen as a migration oracle.
+
+    Byte-identical to what ``wf_create_wave`` generated before wave 1t9w9
+    retired journals. A journal file that EQUALS this rendering (with its own
+    wave-id, title, and creation date substituted back in) provably carries
+    zero operator content, so deleting it loses nothing.
+    """
+
+    return (
+        f"# Journal - {title}\n\n"
+        "Owner: Engineering\n"
+        "Status: active\n"
+        "Role: wave-coordinator\n"
+        f"Last verified: {date}\n\n"
+        "Actor: wave-coordinator\n"
+        "Schema version: 1.0\n"
+        f"Last distilled: {date}\n\n"
+        f"wave-id: `{wave_id}`\n\n"
+        "## Operating Identity\n\n"
+        f"- **Role:** wave-coordinator for wave `{wave_id}`. **Responsibility:** "
+        "coordinate the wave's admitted changes through prepare → implement → "
+        "review → close per the lifecycle contract.\n\n"
+        "## Salience Triggers\n\n"
+        "- **critical** — operator directives that change wave scope, admitted "
+        "changes, or close authorization\n"
+        "- **high** — review-time findings that block close, dependency changes "
+        "between admitted changes\n"
+        "- **medium** — implementation-time observations about scope drift or "
+        "unexpected blockers\n"
+        "- **low** — routine coordination notes, status updates, lint pass/fail "
+        "signals\n\n"
+        "## Default Stance\n\n"
+        "Maintain the wave's load-bearing invariants throughout implementation. "
+        "Preserve the change-doc contracts admitted at prepare time; surface drift "
+        "from operator immediately rather than silently absorbing scope.\n\n"
+        "## Memory Responsibilities\n\n"
+        "- Track per-change implementation state (gate-open/close pairs, AC "
+        "completion, follow-up findings)\n"
+        "- Record decisions made during implementation that affected scope, "
+        "AC formulation, or test strategy\n\n"
+        "## Active Signals\n\n"
+        f"- Pending: wave `{wave_id}` opened {date}; populate as admitted "
+        "changes move through implementation.\n\n"
+        "## Distillation\n\n"
+        "- Pending: distilled lessons emerge as the wave delivers; promote durable "
+        "findings to `docs/agents/journals/README.md` at close.\n\n"
+        "## Promotion Evidence\n\n"
+        "- Pending: promotion candidates against `docs/agents/journals/README.md` "
+        "emerge as the wave delivers and durable lessons are identified.\n\n"
+        "## Retirement And Supersession\n\n"
+        "- Pending: retirement happens at wave close per the closure contract in "
+        "`docs/agents/journals/README.md`.\n\n"
+        "## Governance\n\n"
+        "- This journal follows the operating-memory contract in "
+        "`docs/agents/journals/README.md`. Critical/high signals may be journaled "
+        "during planning, implementation, review, handoff, reindex, or closure — "
+        "not only at close. Distillation, promotion, and retirement happen at "
+        "close.\n"
+    )
+
+
+def _migrate_journals(root: Path) -> None:
+    """Mechanically migrate the retired journal directory (wave 1t9w9).
+
+    Fail-safe by construction: (a) a journal that provably equals the pristine
+    rendered scaffold (its own wave-id/title/date substituted into the frozen
+    template — zero information loss) is deleted; (b) a content-bearing WAVE
+    journal is moved into its wave's directory when that directory exists
+    (self-contained history); (c) everything else — role journals, template
+    drift, unknown shapes — is left in place and listed in the upgrade report
+    for the operator-invoked Migrate journals prompt. Idempotent: deleted and
+    moved files are gone from the source on rerun.
+    """
+
+    journals_dir = root / "docs" / "agents" / "journals"
+    if not journals_dir.is_dir():
+        return
+    deleted = 0
+    moved: list[str] = []
+    left: list[str] = []
+    for path in sorted(journals_dir.glob("*.md")):
+        if path.name == "README.md":
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            left.append(path.name)
+            continue
+        wave_m = re.search(r"^wave-id: `(.+)`$", text, re.MULTILINE)
+        title_m = re.search(r"^# Journal - (.+)$", text, re.MULTILINE)
+        date_m = re.search(r"^Last verified: (\d{4}-\d{2}-\d{2})\s*$", text, re.MULTILINE)
+        if wave_m and title_m and date_m:
+            expected = _pristine_journal_template(
+                wave_m.group(1), title_m.group(1), date_m.group(1)
+            )
+            if text == expected:
+                path.unlink()
+                deleted += 1
+                continue
+        if wave_m:
+            # Relocation needs only the wave identity — older journals may
+            # lack template fields and must still move, never delete. A WAVE
+            # journal is identified by its filename equalling its wave id
+            # (the generator's contract); a ROLE journal merely REFERENCES
+            # wave ids in its content and must be left in place (live-caught
+            # on this repository's own migration: guru.md carried a wave-id
+            # reference and was mis-relocated before this filename check).
+            wave_id = wave_m.group(1)
+            is_wave_journal = path.name == f"{wave_id.replace(' ', '-')}.md"
+            wave_dir = root / "docs" / "waves" / wave_id
+            # Wave 1t76w: the relocated artifact carries the lifecycle type
+            # suffix like every other typed artifact in a wave folder
+            # (`<prefix>-jrnl <slug>.md`, space form).
+            prefix, _, slug = wave_id.partition(" ")
+            destination_name = f"{prefix}-jrnl {slug}.md" if slug else f"{prefix}-jrnl.md"
+            destination = wave_dir / destination_name
+            if is_wave_journal and wave_dir.is_dir() and not destination.exists():
+                destination.write_text(text, encoding="utf-8")
+                path.unlink()
+                moved.append(f"{path.name} -> docs/waves/{wave_id}/{destination_name}")
+                continue
+        left.append(path.name)
+    if deleted or moved:
+        print(
+            f"journal migration: deleted {deleted} pristine scaffold(s); "
+            f"moved {len(moved)} wave journal(s) into their wave directories.",
+            flush=True,
+        )
+        for entry in moved:
+            print(f"  {entry}", flush=True)
+    for name in left:
+        print(
+            f"journal migration: left {name} in place (role journal, template "
+            "drift, or missing wave directory) — run the Migrate journals "
+            "prompt to finish by hand.",
+            flush=True,
+        )
+
+
 def pre_docs_gate(ctx):
     """Project review state before a newly extracted validator can enforce it.
 
@@ -313,6 +508,15 @@ def pre_docs_gate(ctx):
     installed module by file path avoids the old ``sys.modules`` entry and gives
     that runner the new one-way projection migration before docs-lint runs.
     """
+
+    # Wave 1t9w7 — runs before docs-lint so renamed memory records are what
+    # the gate validates. Version-gated as a cheap skip; the migration itself
+    # is idempotent either way. Non-string from_version falls to the module's
+    # unknown-means-old safe default.
+    from_version = ctx.from_version if isinstance(ctx.from_version, str) else ""
+    if _from_version_predates(from_version, "1.15.0"):
+        _migrate_memory_naming(ctx.root)
+        _migrate_journals(ctx.root)
 
     lock = _read_json_object(
         ctx.root / ".wavefoundry" / "upgrade-in-progress.json"

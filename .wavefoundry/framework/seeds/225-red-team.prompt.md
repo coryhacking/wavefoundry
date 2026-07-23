@@ -154,7 +154,7 @@ When Wave Council runs, `red-team` participates in two distinct roles:
 
 ## Salience Triggers
 
-Stop and record a note or journal entry when:
+Stop and record a memory candidate when:
 - A bypass or failure path involves a trust boundary or data integrity constraint that a functional review lane may not have explicitly checked
 - A technology evaluation surfaces a strong vendor lock-in or migration risk that was not part of the original change scope
 - A feature-definition challenge reveals that the proposed feature solves the wrong problem

@@ -21,8 +21,8 @@ Native role-wrapper examples when enabled:
 Generated role and persona docs must preserve operating identity for software-engineering work. Each generated or refreshed role/persona surface should define:
 
 - **Operating identity:** stance, priorities, judgment style, non-negotiables, success criteria, and what the actor is responsible for noticing.
-- **Salience triggers:** job-specific signals that should cause the actor to stop and journal before context is lost, such as trust-risk, repeated friction, invalidated assumptions, hard-to-rediscover constraints, operator-signal, or confidence-shift.
-- **Memory responsibilities:** which observations belong in the actor journal, which belong in handoff or active wave records, and which should be promoted to canonical docs.
+- **Salience triggers:** job-specific signals that should cause the actor to stop and record a typed memory candidate before context is lost, such as trust-risk, repeated friction, invalidated assumptions, hard-to-rediscover constraints, operator-signal, or confidence-shift.
+- **Memory responsibilities:** which observations belong in typed memory records, which belong in handoff or active wave records, and which should be promoted to canonical docs.
 
 Keep these sections concise and role-specific. Do not claim agents have emotions; operational salience records observed engineering impact.
 
@@ -498,13 +498,13 @@ Use the following heading strings exactly. Only include sections relevant to the
 
 1. `## Operating Identity` — 2–5 sentences describing the role's stance, priorities, and what success looks like. Do not duplicate content already in `AGENTS.md` or `020-run-contract`.
 2. `## Responsibilities` — what the role owns and does
-3. `## Salience Triggers` — signals that should cause the agent to stop and journal
+3. `## Salience Triggers` — signals that should cause the agent to stop and record a memory candidate
 4. `## Default Stance` — how the role approaches uncertainty or conflict
 5. `## Review Dimensions` / `## Evidence Requirements` — reviewer roles only
 6. `## Output Shape` — what the role produces
 7. `## Do Not` — explicit guardrails
 8. `## Assumption Tracking` — how the role surfaces and records assumptions
-9. `## Memory Responsibilities` — what the role must capture in its journal
+9. `## Memory Responsibilities` — what the role must capture as memory records
 10. `## Execution Contract` — role-relevant subset of run-contract rules (see section below)
 
 **Role-type applicability:**
@@ -558,7 +558,7 @@ To reduce tool-schema friction that causes agents to default to shell exploratio
 
 When role docs for persona agents exist under `docs/agents/personas/`, add the same orientation guidance — persona agents should ground answers to user questions in `code_ask` / `docs_search` results, not memory recall. Reference `docs/agents/guru.md` **Persona guidance**.
 
-**Guru journal:** When seeding the Guru agent surface, also create `docs/agents/journals/guru.md` if it does not already exist. Use the same journal contract as other role journals (Operating Identity, Salience Triggers, Distillation, Active Signals, Index Gaps, Promotion Evidence, Retirement, Governance). The Guru journal is the recording surface for durable discoveries, index gaps, edge cases, and operator Q&A answers. Seed it with Guru's operating identity and salience triggers from `docs/agents/guru.md` (or `seed-211`).
+**Guru durable capture:** Guru records durable discoveries, index gaps, edge cases, and notable operator Q&A answers as typed memory candidates (`memory_add(status='candidate', ...)`) with evidence references — no journal file is created (journals are retired).
 
 ## Cleanup and Destructive Operations
 

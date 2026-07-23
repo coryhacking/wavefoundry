@@ -6,6 +6,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -4598,6 +4599,42 @@ class ReviewStatusUpgradeProjectionTests(unittest.TestCase):
         self.assertEqual(rerun["projected"], 0)
         self.assertEqual(after, before)
 
+    def test_legacy_form_external_archive_is_byte_preserved(self):
+        """Wave 1tb4z P1 repair: an external-ledger archive whose projection
+        carries the retired bodyless-details form differs only by
+        presentation — the upgrade must byte-preserve it (projected: 0),
+        never rewrite history."""
+        key = "1aaac legacy-form"
+        wave_md, _records = self._inline_wave(key)
+        self.mod.phase_review_status_projection(self.root)
+
+        text = wave_md.read_text(encoding="utf-8")
+        match = re.search(r"^\*(Machine review evidence[^\n]*)\*$", text, re.MULTILINE)
+        self.assertIsNotNone(match, "current-form projection must carry the plain summary line")
+        legacy = (
+            text[: match.start()]
+            + '<details class="wavefoundry-review-evidence">\n'
+            + f"<summary>{match.group(1)}</summary>\n"
+            + "</details>"
+            + text[match.end():]
+        )
+        wave_md.write_text(legacy, encoding="utf-8")
+
+        before = {
+            path.relative_to(self.root): path.read_bytes()
+            for path in self.root.rglob("*")
+            if path.is_file()
+        }
+        counts = self.mod.phase_review_status_projection(self.root)
+        after = {
+            path.relative_to(self.root): path.read_bytes()
+            for path in self.root.rglob("*")
+            if path.is_file()
+        }
+        self.assertEqual(counts["projected"], 0)
+        self.assertEqual(after, before)
+        self.assertIn("wavefoundry-review-evidence", wave_md.read_text(encoding="utf-8"))
+
     def test_active_prose_only_wave_blocks_with_recovery_actions(self):
         wave_dir = self.root / "docs" / "waves" / "1aaab prose-only"
         wave_dir.mkdir()
@@ -5500,6 +5537,59 @@ class HistoricalMemoryUpgradeExtensionBootstrapTests(unittest.TestCase):
         self.assertIs(sys.modules["memory_backfill"], self.backfill)
         self.assertIsNot(loaded.ensure_run, stale)
 
+    def test_pre_docs_gate_migrates_memory_naming_for_pre_1_15_runner(self):
+        """1t9w7: upgrades from pre-1.15 rename legacy memory records to the
+        lifecycle naming before docs-lint sees them; the gate is version-
+        gated but the migration itself is idempotent."""
+        import io as _io
+        import contextlib as _contextlib
+
+        if str(SCRIPTS_ROOT) not in sys.path:
+            sys.path.insert(0, str(SCRIPTS_ROOT))
+        import memory_records
+
+        content = memory_records.render_memory_record(
+            memory_id="mem-old-lesson", kind="decision",
+            summary="A durable decision from the pre-naming era.",
+            evidence=["`1abcd-bug some-change` — observed"],
+            targets=["src/a.py"], date="2026-01-10",
+        )
+        memory_records.write_memory_record(self.root, content, "mem-old-lesson")
+        live_doc = self.root / "docs" / "live.md"
+        live_doc.write_text(
+            "Live ref `mem-old-lesson`; unknown `mem-never-existed-here`.\n",
+            encoding="utf-8",
+        )
+        # Short-circuit the projection half: the migration runs before it.
+        (self.root / ".wavefoundry" / "upgrade-in-progress.json").write_text(
+            '{"review_status_projection": {}}\n', encoding="utf-8"
+        )
+        ctx = MagicMock(root=self.root, from_version="1.14.0")
+        out = _io.StringIO()
+        with _contextlib.redirect_stdout(out):
+            self.ext.pre_docs_gate(ctx)
+        memory_dir = self.root / "docs" / "agents" / "memory"
+        self.assertFalse((memory_dir / "mem-old-lesson.md").exists())
+        migrated = list(memory_dir.glob("*-mem old-lesson.md"))
+        self.assertEqual(len(migrated), 1, list(memory_dir.iterdir()))
+        # Live doc surfaces are rewritten and the mapping and residuals are
+        # reported loudly in the upgrade output (operator P1 repair).
+        live_text = live_doc.read_text(encoding="utf-8")
+        self.assertIn(f"`{migrated[0].stem}`", live_text)
+        self.assertNotIn("`mem-old-lesson`", live_text)
+        report = out.getvalue()
+        self.assertIn("mem-old-lesson ->", report)
+        self.assertIn("repaired", report)
+        self.assertIn("mem-never-existed-here", report)
+        self.assertIn("docs/live.md", report)
+
+        # From-versions at or past the gate skip the migration call entirely.
+        with patch.object(self.ext, "_migrate_memory_naming") as migrate:
+            self.ext.pre_docs_gate(
+                MagicMock(root=self.root, from_version="1.15.0")
+            )
+        migrate.assert_not_called()
+
     def test_post_index_hook_seals_ready_run_for_pre_upgrade_runner(self):
         with patch.object(
             self.ext, "_installed_memory_backfill", return_value=self.backfill
@@ -5574,6 +5664,150 @@ class HistoricalMemoryUpgradeExtensionBootstrapTests(unittest.TestCase):
             "ready_for_index",
         )
         self.assertNotIn(self.backfill.INDEX_PUBLICATION_RUN_ENV, os.environ)
+
+
+class JournalMigrationTests(unittest.TestCase):
+    """1t9w9 journal retirement: the mechanical ``_migrate_journals`` hook.
+
+    The pristine-template oracle was validated live against this repository's
+    own 99 historical scaffolds before being frozen; these tests pin the
+    classification gates, including two bugs that live run caught (relocation
+    demanding all template fields; role journals with wave-id REFERENCES being
+    mis-relocated before the filename check).
+    """
+
+    def setUp(self):
+        self.ext = _load_upgrade_extensions()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.journals = self.root / "docs" / "agents" / "journals"
+        self.journals.mkdir(parents=True)
+        (self.root / "docs" / "waves").mkdir(parents=True)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _run(self):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.ext._migrate_journals(self.root)
+        return out.getvalue()
+
+    def _write_pristine(self, wave_id, title, date):
+        text = self.ext._pristine_journal_template(wave_id, title, date)
+        name = f"{wave_id.replace(' ', '-')}.md"
+        (self.journals / name).write_text(text, encoding="utf-8")
+        return name, text
+
+    def test_pristine_scaffold_is_deleted(self):
+        self._write_pristine("1aaaa demo-wave", "demo-wave", "2026-01-05")
+        report = self._run()
+        self.assertEqual(list(self.journals.glob("*.md")), [])
+        self.assertIn("deleted 1 pristine scaffold(s)", report)
+
+    def test_one_content_line_prevents_deletion(self):
+        name, text = self._write_pristine("1aaab demo-wave", "demo-wave", "2026-01-05")
+        (self.journals / name).write_text(
+            text.replace(
+                "- Pending: distilled lessons emerge as the wave delivers",
+                "- Operator ruled the retry budget stays at 3",
+                1,
+            ),
+            encoding="utf-8",
+        )
+        report = self._run()
+        # No wave dir exists, so the content-bearing journal is left+reported,
+        # never deleted.
+        self.assertTrue((self.journals / name).exists())
+        self.assertIn(f"left {name} in place", report)
+
+    def test_content_bearing_wave_journal_relocates_into_wave_dir(self):
+        """Destination carries the lifecycle type suffix (wave 1t76w):
+        `<prefix>-jrnl <slug>.md`, never the bare scaffold name."""
+
+        wave_id = "1aaac demo-wave"
+        name, text = self._write_pristine(wave_id, "demo-wave", "2026-01-05")
+        edited = text + "\n- Real observation captured mid-wave.\n"
+        (self.journals / name).write_text(edited, encoding="utf-8")
+        (self.root / "docs" / "waves" / wave_id).mkdir()
+        report = self._run()
+        destination = self.root / "docs" / "waves" / wave_id / "1aaac-jrnl demo-wave.md"
+        self.assertFalse((self.journals / name).exists())
+        self.assertFalse(
+            (self.root / "docs" / "waves" / wave_id / name).exists(),
+            "relocation must not use the bare scaffold name",
+        )
+        self.assertEqual(destination.read_text(encoding="utf-8"), edited)
+        self.assertIn("moved 1 wave journal(s)", report)
+        self.assertIn(f"{name} -> docs/waves/{wave_id}/1aaac-jrnl demo-wave.md", report)
+
+    def test_old_journal_without_template_fields_still_relocates(self):
+        """Live-caught: relocation must need only the wave identity — older
+        journals lack ``Last verified:``/title lines and must still move."""
+
+        wave_id = "1aaad old-wave"
+        name = f"{wave_id.replace(' ', '-')}.md"
+        (self.journals / name).write_text(
+            f"# Old journal\n\nwave-id: `{wave_id}`\n\n- Historical note.\n",
+            encoding="utf-8",
+        )
+        (self.root / "docs" / "waves" / wave_id).mkdir()
+        self._run()
+        self.assertFalse((self.journals / name).exists())
+        self.assertTrue(
+            (self.root / "docs" / "waves" / wave_id / "1aaad-jrnl old-wave.md").exists()
+        )
+
+    def test_role_journal_referencing_wave_id_stays_in_place(self):
+        """Live-caught: a ROLE journal that merely references a wave id must
+        not be relocated into that wave's directory — only a journal whose
+        filename equals its wave id is a wave journal."""
+
+        wave_id = "1aaae other-wave"
+        (self.root / "docs" / "waves" / wave_id).mkdir()
+        (self.journals / "guru.md").write_text(
+            "# Journal - guru\n\n"
+            f"wave-id: `{wave_id}`\n\n"
+            "- Durable role lesson referencing that wave.\n",
+            encoding="utf-8",
+        )
+        report = self._run()
+        self.assertTrue((self.journals / "guru.md").exists())
+        self.assertEqual(
+            list((self.root / "docs" / "waves" / wave_id).iterdir()), []
+        )
+        self.assertIn("left guru.md in place", report)
+
+    def test_readme_untouched_and_rerun_is_silent_noop(self):
+        (self.journals / "README.md").write_text(
+            "# Journal contract\n", encoding="utf-8"
+        )
+        self._write_pristine("1aaaf demo-wave", "demo-wave", "2026-01-05")
+        self._run()
+        self.assertTrue((self.journals / "README.md").exists())
+        report = self._run()
+        self.assertEqual(report, "")
+
+    def test_missing_journals_dir_is_noop(self):
+        shutil.rmtree(self.journals)
+        self.assertEqual(self._run(), "")
+
+    def test_pre_docs_gate_version_gates_journal_migration(self):
+        (self.root / ".wavefoundry").mkdir()
+        (self.root / ".wavefoundry" / "upgrade-in-progress.json").write_text(
+            '{"review_status_projection": {}}\n', encoding="utf-8"
+        )
+        with patch.object(self.ext, "_migrate_memory_naming"), patch.object(
+            self.ext, "_migrate_journals"
+        ) as journals:
+            self.ext.pre_docs_gate(MagicMock(root=self.root, from_version="1.14.0"))
+        journals.assert_called_once_with(self.root)
+        with patch.object(self.ext, "_migrate_memory_naming") as naming, patch.object(
+            self.ext, "_migrate_journals"
+        ) as journals:
+            self.ext.pre_docs_gate(MagicMock(root=self.root, from_version="1.15.0"))
+        naming.assert_not_called()
+        journals.assert_not_called()
 
 
 if __name__ == "__main__":

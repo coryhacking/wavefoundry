@@ -156,8 +156,6 @@ def default_manifest_payload(date_value: str) -> dict:
             "docs/agents/session-handoff.md",
             "docs/waves/",
             "docs/waves/README.md",
-            "docs/agents/journals/",
-            "docs/agents/journals/README.md",
             "docs/agents/personas/",
             "docs/agents/personas/README.md",
             "docs/reports/",
@@ -225,35 +223,6 @@ def ensure_session_handoff(root: Path, date_value: str) -> tuple[Path, bool]:
     return path, True
 
 
-def render_report(date_value: str, updated_paths: list[str]) -> str:
-    lines = [
-        "# Reindex Report",
-        "",
-        "Owner: Engineering",
-        "Status: generated",
-        f"Last verified: {date_value}",
-        "Verification method: `.wavefoundry/framework/scripts/docs_gardener.py`.",
-        "",
-        "## Updated Paths",
-        "",
-    ]
-    if updated_paths:
-        lines.extend([f"- `{path}`" for path in sorted(updated_paths)])
-    else:
-        lines.append("- none")
-    lines.extend(
-        [
-            "",
-            "## Notes",
-            "",
-            "- Stamps `Last verified:` on git-changed docs under `docs/` and refreshes this report.",
-            "- Use `--paths <doc> [...]` to stamp specific files; use `--all-docs` for a full sweep.",
-            "- Pass `--date <YYYY-MM-DD>` only when overriding today's date.",
-        ]
-    )
-    return "\n".join(lines) + "\n"
-
-
 def gardener_run(root: Path, args: argparse.Namespace) -> tuple[int, list[str]]:
     root = root.resolve()
     validate_args(args)
@@ -264,7 +233,7 @@ def gardener_run(root: Path, args: argparse.Namespace) -> tuple[int, list[str]]:
     targets = resolve_metadata_targets(root, args)
     for path in targets:
         if refresh_last_verified(path, date_value):
-            rel = path.relative_to(root).as_posix()  # Wave 1p6dx: forward-slash in the reindex report
+            rel = path.relative_to(root).as_posix()  # Wave 1p6dx: forward-slash rels in output
             updated_paths.append(rel)
             stamped_paths.append(rel)
 
@@ -281,20 +250,17 @@ def gardener_run(root: Path, args: argparse.Namespace) -> tuple[int, list[str]]:
         print("docs-gardener: ok (nothing to report)")
         return 0, sorted(set(updated_paths))
 
-    report_rel = f"docs/reports/reindex-{date_value}.md"
-    report_path = root / report_rel
-    report_path.parent.mkdir(parents=True, exist_ok=True)
+    # Wave 1tbvo: no reindex report is written — nothing consumed the dated
+    # files and every validator already exempted them. Stdout and the returned
+    # list are the record of what was stamped; git history keeps the rest.
+    # The per-path `docs-gardener: updated <path>` lines are a STABLE OUTPUT
+    # CONTRACT parsed by run_garden() in server_impl.py — the MCP envelope's
+    # updated/files_updated fields and the background index refresh depend on
+    # them. Change both sides together.
     paths_for_body = sorted(set(updated_paths))
-    content = render_report(date_value, paths_for_body)
-    need_write = not report_path.exists() or report_path.read_text(encoding="utf-8") != content
-    if need_write:
-        paths_for_body = sorted(set(updated_paths + [report_rel]))
-        content = render_report(date_value, paths_for_body)
-        report_path.write_text(content, encoding="utf-8")
-        print(f"docs-gardener: wrote {report_path.relative_to(root)}")
-    else:
-        print(f"docs-gardener: ok ({report_path.relative_to(root)} unchanged)")
-
+    for rel in paths_for_body:
+        print(f"docs-gardener: updated {rel}")
+    print(f"docs-gardener: stamped {len(stamped_paths)} doc(s)")
     return 0, paths_for_body
 
 

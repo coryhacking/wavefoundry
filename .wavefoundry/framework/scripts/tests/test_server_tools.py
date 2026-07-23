@@ -2777,12 +2777,11 @@ class PostWriteLintIncrementalGitBehaviorTests(unittest.TestCase):
 
 
 class WaveCreateScaffoldAlignmentTests(unittest.TestCase):
-    """Wave 1p3dk / 1p3do: newly-created waves emerge lint-clean from
-    `wf_create_wave` without operators having to structurally repair the
-    skeleton before filling in content. The skeleton includes `## Objective`,
-    co-creates a journal stub with valid placeholder content for every
-    lint-required section, and the Change-ID lint deferral keeps the wave
-    valid until the first change is admitted."""
+    """Newly-created waves emerge lint-clean from `wf_create_wave` without
+    operators having to structurally repair the skeleton. The skeleton
+    includes `## Objective`; journals are retired (wave 1t9w9) so none is
+    scaffolded; the Change-ID lint deferral keeps the wave valid until the
+    first change is admitted."""
 
     @classmethod
     def setUpClass(cls):
@@ -2856,110 +2855,36 @@ class WaveCreateScaffoldAlignmentTests(unittest.TestCase):
             response,
         )
 
-    def test_co_creates_journal_stub(self):
-        """AC-4: a journal stub appears at docs/agents/journals/<wave-id>.md."""
+    def test_wave_creation_scaffolds_no_journal(self):
+        """1t9w9: journals are retired — wave creation writes no journal file
+        and the envelope no longer advertises one; in-flight capture belongs
+        to Progress Logs and memory candidates."""
         result = self._create_wave("beta-wave")
-        self.assertIn("journal_path", result)
-        journal = self.root / result["journal_path"]
-        self.assertTrue(journal.is_file(), f"expected journal at {journal}")
-        text = journal.read_text(encoding="utf-8")
-        for section in (
-            "## Operating Identity", "## Salience Triggers", "## Default Stance",
-            "## Memory Responsibilities", "## Active Signals", "## Distillation",
-            "## Promotion Evidence", "## Retirement And Supersession",
-            "## Governance",
-        ):
-            self.assertIn(section, text, f"journal missing {section}")
-
-    def test_journal_satisfies_lint_keyword_requirements(self):
-        """AC-5: journal stub satisfies content rules — keyword matches in
-        Salience Triggers, role/responsibility in Operating Identity, stable
-        artifact backtick reference in Promotion Evidence."""
-        result = self._create_wave("gamma-wave")
-        text = (self.root / result["journal_path"]).read_text(encoding="utf-8")
-        self.assertIn("critical", text.lower())
-        self.assertIn("high", text.lower())
-        self.assertIn("medium", text.lower())
-        self.assertIn("low", text.lower())
-        self.assertIn("Role:", text)
-        self.assertIn("Responsibility:", text)
-        # Promotion Evidence references a stable artifact in backticks
-        self.assertIn(
-            "`docs/agents/journals/README.md`", text,
-            "Promotion Evidence must reference a stable artifact in backticks",
+        self.assertNotIn("journal_path", result)
+        self.assertNotIn("journal_created", result)
+        journals_dir = self.root / "docs" / "agents" / "journals"
+        self.assertFalse(
+            journals_dir.exists() and any(journals_dir.iterdir()),
+            "no journal file may be created for a new wave",
         )
 
-    def test_journal_contains_wave_id_reference_line(self):
-        """AC-6: the journal includes the exact wave-id reference line so
-        the wave's journal-reference check passes immediately."""
-        result = self._create_wave("delta-wave")
-        text = (self.root / result["journal_path"]).read_text(encoding="utf-8")
-        wave_id = result["wave_id"]
-        self.assertIn(f"wave-id: `{wave_id}`", text)
-
-    def test_response_includes_journal_path(self):
-        """AC-7: the response dict reports the journal path so callers know
-        what was co-created."""
-        result = self._create_wave("epsilon-wave")
-        self.assertIn("journal_path", result)
-        self.assertTrue(result["journal_path"].startswith("docs/agents/journals/"))
-        self.assertTrue(result["journal_path"].endswith(".md"))
-        self.assertTrue(result["journal_created"])
-
-    def test_dry_run_reports_journal_path_without_writing(self):
-        """AC-8: dry_run reports the journal path but does not write the file."""
+    def test_dry_run_advertises_no_journal(self):
         result = self.srv.wf_create_wave_response(
             self.root, "zeta-wave", mode="dry_run",
         )["data"]
-        self.assertIn("journal_path", result)
-        self.assertFalse((self.root / result["journal_path"]).exists())
+        self.assertNotIn("journal_path", result)
         self.assertFalse((self.root / result["path"]).exists())
 
-    def test_existing_wave_does_not_overwrite_journal(self):
-        """AC-9: idempotency — when `create_wave` is invoked but the wave doc
-        for the computed id already exists on disk, the journal is not
-        touched. Operator customizations to the existing journal survive."""
-        # Pre-create a wave + journal directly so the next create_wave call
-        # hits the exists=True branch deterministically (without depending on
-        # lifecycle-counter assumptions).
-        from unittest.mock import patch
-        target_wave_id = "00abc test-wave"
-        wave_dir = self.root / "docs" / "waves" / target_wave_id
-        wave_dir.mkdir(parents=True)
-        review = sys.modules["review_evidence"]
-        (wave_dir / "wave.md").write_text(
-            "# Wave Record\n\nOwner: Engineering\nStatus: planned\n"
-            "review-evidence-source: events.jsonl\n\n"
-            + review.empty_external_finding_synthesis_section(),
-            encoding="utf-8",
-        )
-        (wave_dir / "events.jsonl").write_bytes(b"")
-        journal_path = (
-            self.root / "docs" / "agents" / "journals"
-            / "00abc-test-wave.md"
-        )
-        journal_path.parent.mkdir(parents=True, exist_ok=True)
-        operator_text = "# Custom Journal\n\nOperator-customized content.\n"
-        journal_path.write_text(operator_text, encoding="utf-8")
+    def test_new_scaffold_uses_watchpoints_heading(self):
+        """New wave scaffolds carry `## Watchpoints`; the legacy
+        `## Journal Watchpoints` heading remains lint-valid on old waves."""
+        result = self._create_wave("eta-wave")
+        text = (self.root / result["path"]).read_text(encoding="utf-8")
+        self.assertIn("## Watchpoints\n", text)
+        self.assertNotIn("## Journal Watchpoints", text)
 
-        # Pin the generated wave_id to match the pre-created path so the
-        # `if exists` branch in create_wave fires.
-        with patch.object(
-            self.srv._lifecycle_module(), "build_id",
-            return_value=target_wave_id,
-        ):
-            result = self.srv.wf_create_wave_response(
-                self.root, "test-wave", mode="create",
-            )["data"]
 
-        self.assertFalse(result["created"])
-        self.assertTrue(result["exists"])
-        # Journal must remain operator content, untouched.
-        self.assertEqual(
-            journal_path.read_text(encoding="utf-8"), operator_text,
-            "operator-customized journal must not be overwritten when the "
-            "wave already exists (1p3do AC-9)",
-        )
+
 
 
 class LifecycleIdPreservationTests(unittest.TestCase):
@@ -3455,6 +3380,50 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             )
         )
 
+    def test_legacy_form_projection_yields_no_stale_lifecycle_diagnostic(self):
+        """Wave 1tb4z P1 repair: an old-form external archive (bodyless
+        details wrapper, legacy class) is presentation-only equivalent — the
+        lifecycle diagnostics must not report its projection as stale."""
+        created = self.srv.wf_create_wave_response(
+            self.root, "legacy-form-diag", mode="create"
+        )
+        wave_id = created["data"]["wave_id"]
+        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        written = self.srv.wf_review_evidence_response(
+            self.root,
+            wave_id,
+            "run",
+            "wave-council",
+            "legacy-form-diag-ctx",
+            mode="create",
+            run_kind="initial_delivery",
+            cycle=0,
+        )
+        self.assertEqual(written["status"], "ok", written)
+        text = wave_md.read_text(encoding="utf-8")
+        match = re.search(r"^\*(Machine review evidence[^\n]*)\*$", text, re.MULTILINE)
+        self.assertIsNotNone(match)
+        legacy = (
+            text[: match.start()]
+            + '<details class="wavefoundry-review-evidence">\n'
+            + f"<summary>{match.group(1)}</summary>\n"
+            + "</details>"
+            + text[match.end():]
+        )
+        wave_md.write_text(legacy, encoding="utf-8")
+        diagnostics = self.srv._review_evidence_diagnostics(
+            legacy, root=self.root, wave_key=wave_id
+        )
+        rendered = json.dumps(diagnostics)
+        self.assertNotIn("stale", rendered, diagnostics)
+        # A genuinely stale projection is still detected through the same path.
+        broken = legacy.replace("Machine review evidence", "Machine review evidence TAMPERED", 1)
+        wave_md.write_text(broken, encoding="utf-8")
+        diagnostics = self.srv._review_evidence_diagnostics(
+            broken, root=self.root, wave_key=wave_id
+        )
+        self.assertIn("stale", json.dumps(diagnostics), diagnostics)
+
     def test_typed_review_evidence_tool_previews_then_writes_lightweight_run(self):
         created = self.srv.wf_create_wave_response(
             self.root, "typed-review-run", mode="create"
@@ -3487,7 +3456,10 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             )
         self.assertEqual(written["status"], "ok", written)
         text = wave_md.read_text(encoding="utf-8")
-        self.assertIn("<details class=\"wavefoundry-review-evidence\">", text)
+        # Wave 1tb4z: external-ledger projections carry a plain italic summary
+        # line, no HTML details wrapper.
+        self.assertIn("*Machine review evidence", text)
+        self.assertNotIn("<details", text)
         self.assertIn("| Current finding | Disposition | Open block |", text)
         self.assertTrue(self.srv.validate_external_review_evidence(wave_md).ok)
         refresh.assert_called_once_with(self.root, [wave_md.resolve()])
@@ -5310,13 +5282,127 @@ class RunGardenTests(unittest.TestCase):
         result = self._run(0, "")
         self.assertTrue(result["passed"])
 
-    def test_files_updated_count(self):
-        result = self._run(0, "Wrote docs/foo.md\nWrote docs/bar.md\n")
+    def test_files_updated_parses_stable_updated_lines(self):
+        """Wave 1tbvo P1 repair: run_garden parses the exact
+        `docs-gardener: updated <path>` contract lines — prose summaries and
+        legacy 'wrote' phrasing must not count."""
+        result = self._run(
+            0,
+            "docs-gardener: updated docs/foo.md\n"
+            "docs-gardener: updated docs/bar.md\n"
+            "docs-gardener: stamped 2 doc(s)\n",
+        )
         self.assertEqual(result["files_updated"], 2)
+        self.assertEqual(result["updated"], ["docs/foo.md", "docs/bar.md"])
+
+    def test_summary_and_legacy_lines_do_not_count_as_updates(self):
+        result = self._run(0, "docs-gardener: stamped 3 doc(s)\nWrote docs/foo.md\n")
+        self.assertEqual(result["files_updated"], 0)
+        self.assertEqual(result["updated"], [])
+
+    def test_over_cap_output_parses_all_records_from_complete_stdout(self):
+        """1tbvp P2 repair: contract records are parsed from the COMPLETE
+        stdout — the 200k output bound applies only to the human-facing
+        `output` field. Operator reproduction: 6,000 records came back as
+        2,273 with a corrupted final path when parsing the bounded text."""
+        paths = [f"docs/{i:05d}-{'x' * 30}.md" for i in range(6000)]
+        stdout = (
+            "".join(f"docs-gardener: updated {p}\n" for p in paths)
+            + "docs-gardener: stamped 6000 doc(s)\n"
+        )
+        self.assertGreater(len(stdout), 200_000, "fixture must exceed the output bound")
+        result = self._run(0, stdout)
+        self.assertTrue(result["passed"])
+        self.assertEqual(result["files_updated"], 6000)
+        self.assertEqual(result["updated"], paths)
+        self.assertTrue(all(p.endswith(".md") for p in result["updated"]))
+        self.assertTrue(result.get("output_truncated"))
+        self.assertLessEqual(len(result["output"]), 200_000 + 200)
 
     def test_no_updates_when_empty_output(self):
         result = self._run(0, "")
         self.assertEqual(result["files_updated"], 0)
+
+    def test_integration_real_gardener_stamping_run_reports_updated_paths(self):
+        """Fixtures-from-canonical-producers: run the REAL docs_gardener
+        subprocess against a git fixture repo and assert run_garden sees the
+        stamped file through the live output contract — this is the test
+        shape that would have caught the 'wrote'-grep break."""
+        subprocess.run(["git", "init"], cwd=self.root, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "config", "user.email", "t@e.st"], cwd=self.root,
+            check=True, capture_output=True,
+        )
+        subprocess.run(
+            ["git", "config", "user.name", "test"], cwd=self.root,
+            check=True, capture_output=True,
+        )
+        doc = self.root / "docs" / "stamped.md"
+        doc.parent.mkdir(parents=True, exist_ok=True)
+        doc.write_text(
+            "# Doc\n\nOwner: Engineering\nStatus: active\nLast verified: 2000-01-01\n\nBody.\n",
+            encoding="utf-8",
+        )
+        subprocess.run(["git", "add", "-A"], cwd=self.root, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "commit", "-m", "seed"], cwd=self.root,
+            check=True, capture_output=True,
+        )
+        doc.write_text(
+            doc.read_text(encoding="utf-8").replace("Body.", "Body changed."),
+            encoding="utf-8",
+        )
+        result = self.srv.run_garden(self.root)
+        self.assertTrue(result["passed"], result.get("output"))
+        self.assertIn("docs/stamped.md", result["updated"])
+        self.assertGreaterEqual(result["files_updated"], 1)
+        self.assertNotIn("Last verified: 2000-01-01", doc.read_text(encoding="utf-8"))
+
+    def test_integration_real_gardener_empty_run_reports_zero_updates(self):
+        subprocess.run(["git", "init"], cwd=self.root, check=True, capture_output=True)
+        (self.root / "docs").mkdir(parents=True, exist_ok=True)
+        result = self.srv.run_garden(self.root)
+        self.assertTrue(result["passed"], result.get("output"))
+        self.assertEqual(result["files_updated"], 0)
+        self.assertEqual(result["updated"], [])
+
+
+class GardenDocsIndexRefreshTriggerTests(unittest.TestCase):
+    """Wave 1tbvo P1 repair: wf_garden_docs starts the background docs-index
+    refresh exactly when the gardener updated files."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        self.srv = type(self).srv
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _garden(self, garden_result: dict) -> tuple[dict, MagicMock]:
+        with patch.object(self.srv, "run_garden", return_value=garden_result), patch.object(
+            self.srv, "_trigger_background_index_refresh_for_paths"
+        ) as trigger:
+            result = self.srv.wf_garden_docs_response(self.root, mode="run")
+        return result, trigger
+
+    def test_stamping_run_triggers_background_index_refresh(self):
+        result, trigger = self._garden(
+            {"passed": True, "files_updated": 1, "updated": ["docs/a.md"], "output": ""}
+        )
+        self.assertEqual(result["status"], "ok")
+        trigger.assert_called_once_with(self.root, ["docs/"])
+
+    def test_empty_run_does_not_trigger_background_index_refresh(self):
+        result, trigger = self._garden(
+            {"passed": True, "files_updated": 0, "updated": [], "output": ""}
+        )
+        self.assertEqual(result["status"], "ok")
+        trigger.assert_not_called()
 
 
 class RunIndexRebuildTests(unittest.TestCase):
@@ -7812,7 +7898,7 @@ class WaveCloseModeDiscoverabilityTests(unittest.TestCase):
 
 
 class WaveCreateWaveTemplateTests(unittest.TestCase):
-    """AC-17: wf_create_wave produces wave.md with Wave Summary and Journal Watchpoints stubs."""
+    """AC-17: wf_create_wave produces wave.md with Wave Summary and Watchpoints stubs."""
 
     @classmethod
     def setUpClass(cls):
@@ -7833,12 +7919,12 @@ class WaveCreateWaveTemplateTests(unittest.TestCase):
         text = wave_md.read_text(encoding="utf-8")
         self.assertIn("## Wave Summary", text)
 
-    def test_wave_md_contains_journal_watchpoints_section(self):
+    def test_wave_md_contains_watchpoints_section(self):
         result = self.srv.wf_create_wave_response(self.root, "test-wave", mode="create")
         self.assertEqual(result["status"], "ok")
         wave_md = self.root / result["data"]["path"]
         text = wave_md.read_text(encoding="utf-8")
-        self.assertIn("## Journal Watchpoints", text)
+        self.assertIn("## Watchpoints", text)
 
 
 class WaveCreateWaveLastVerifiedTests(unittest.TestCase):
@@ -8033,8 +8119,8 @@ class WaveAddChangeBrokenLinksTests(unittest.TestCase):
         self.assertIn("broken_links", result["data"])
 
 
-class WavePrepareJournalFormatHintTests(unittest.TestCase):
-    """AC-19: wf_prepare_wave journal diagnostic includes exact format hint."""
+class WaveLifecycleWithoutJournalTests(unittest.TestCase):
+    """1t9w9: no lifecycle step requires a journal to exist."""
 
     @classmethod
     def setUpClass(cls):
@@ -8044,74 +8130,38 @@ class WavePrepareJournalFormatHintTests(unittest.TestCase):
         self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
-        # Ensure journals dir exists
-        (self.root / "docs" / "agents" / "journals").mkdir(parents=True, exist_ok=True)
 
     def tearDown(self):
         self.tmp.cleanup()
 
-    def test_journal_missing_error_includes_format_hint(self):
-        # Create a minimal wave with a planned change but no journal reference
-        wave_response = self.srv.wf_create_wave_response(self.root, "hint-test", mode="create")["data"]
+    def test_prepare_dry_run_raises_no_journal_diagnostics(self):
+        wave_response = self.srv.wf_create_wave_response(
+            self.root, "journal-free", mode="create"
+        )["data"]
         wave_id = wave_response["wave_id"]
-        # Wave 1p3dk / 1p3do: wf_create_wave now co-creates a journal stub.
-        # This test verifies the format-hint behavior when a journal is MISSING
-        # (e.g., operator deleted it). Remove the auto-created stub to restore
-        # the original test scenario.
-        auto_journal = self.root / wave_response["journal_path"]
-        if auto_journal.exists():
-            auto_journal.unlink()
-        change_id = self.srv.new_change(self.root, "feat", "needs-journal")["id"]
+        change_id = self.srv.new_change(self.root, "feat", "no-journal-needed")["id"]
         self.srv.wf_add_change_response(self.root, wave_id, change_id, mode="create")
-        # Patch wave summary and last-verified so prepare has minimal failures
-        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
-        text = wave_md.read_text(encoding="utf-8")
-        text = text.replace("Last verified: <date>", "Last verified: 2026-05-01")
-        wave_md.write_text(text, encoding="utf-8")
         result = self.srv.wf_prepare_wave_response(self.root, wave_id, mode="dry_run")
-        diagnostics_text = " ".join(
+        combined = " ".join(
             d.get("message", "") for d in result.get("diagnostics", [])
+        ) + " " + " ".join(result.get("data", {}).get("errors", []))
+        # The retired requirement must be gone; the minimal fixture's
+        # unrelated missing-file noise is not what this test pins.
+        self.assertNotIn("must be referenced by at least one journal artifact", combined)
+        self.assertNotIn("add exactly this line to a file under docs/agents/journals/", combined)
+        journals_dir = self.root / "docs" / "agents" / "journals"
+        self.assertFalse(
+            journals_dir.exists() and any(journals_dir.glob("*.md")),
+            "the lifecycle must not have created a journal",
         )
-        errors_text = " ".join(result.get("data", {}).get("errors", []))
-        combined = diagnostics_text + " " + errors_text
-        # The hint should contain the required format description
-        self.assertIn("wave-id:", combined.lower() + " " + combined)
-        self.assertTrue(
-            "backtick" in combined.lower() or "wave-id:" in combined,
-            f"Expected journal format hint in prepare output, got: {combined[:500]}",
-        )
 
-
-class WaveHelpStartWaveJournalNoteTests(unittest.TestCase):
-    """AC-20: wf_help(goal='start_wave') includes journal key-line note."""
-
-    @classmethod
-    def setUpClass(cls):
-        cls.srv = load_server()
-
-    def setUp(self):
-        self.srv = type(self).srv
-        self.tmp = tempfile.TemporaryDirectory()
-        self.root = _make_repo(Path(self.tmp.name))
-
-    def tearDown(self):
-        self.tmp.cleanup()
-
-    def test_start_wave_rationale_mentions_journal_requirement(self):
+    def test_start_wave_help_routes_capture_to_memory_not_journals(self):
         result = self.srv.wf_help_response(goal="start_wave")
         self.assertEqual(result["status"], "ok")
-        data_str = str(result["data"])
-        self.assertIn("journal", data_str.lower())
-        self.assertIn("wave-id", data_str.lower())
+        rationale = str(result["data"])
+        self.assertIn("memory", rationale.lower())
+        self.assertNotIn("docs/agents/journals", rationale)
 
-
-# ---------------------------------------------------------------------------
-# MCP Resource and Resource Template tests (1298v)
-# ---------------------------------------------------------------------------
-
-# ---------------------------------------------------------------------------
-# Code navigation tests (12991)
-# ---------------------------------------------------------------------------
 
 class CodeNavigationPathSafetyTests(unittest.TestCase):
     """AC-4: Root safety — path traversal and absolute paths are rejected."""
@@ -21711,14 +21761,18 @@ class WaveImplementTests(unittest.TestCase):
     # --- AC-5: implementation context ---
 
     def test_wf_implement_wave_returns_ordered_changes_and_watchpoints(self):
-        """AC-5: wf_implement_wave returns ordered changes and Journal Watchpoints when gates pass."""
+        """AC-5: wf_implement_wave returns ordered changes and watchpoints when gates pass.
+
+        Wave 1t9w9 journal retirement: the response key is `watchpoints` (renamed
+        from `journal_watchpoints`, no alias) and must never regress to the old name."""
         wave_id = self._make_wave("impl-context")
         self._add_council_verdict(wave_id)
         result = self.srv.wf_implement_wave_response(self.root, wave_id, mode="dry_run")
         self.assertEqual(result["status"], "dry_run")
         data = result["data"]
         self.assertIn("ordered_changes", data)
-        self.assertIn("journal_watchpoints", data)
+        self.assertIn("watchpoints", data)
+        self.assertNotIn("journal_watchpoints", data)
         self.assertIn("serialization_points", data)
         self.assertGreater(len(data["ordered_changes"]), 0)
 

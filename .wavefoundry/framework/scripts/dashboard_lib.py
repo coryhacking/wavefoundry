@@ -26,6 +26,7 @@ from runtime_lock import (
 from review_evidence import (
     REVIEW_EVIDENCE_SOURCE,
     adopted_protocol_state,
+    canonicalize_finding_synthesis_markers,
     empty_external_finding_synthesis_section,
     parse_review_evidence_source,
     read_review_event_ledger,
@@ -993,7 +994,14 @@ def _review_evidence_dashboard_state(
     except ValueError:
         projection_status = "missing"
     else:
-        projection_status = "current" if expected_wave == text else "stale"
+        # Compare in canonical form (same as the lint path): legacy marker
+        # namespaces and the retired bodyless-details projection form (wave
+        # 1tb4z) are current, not stale — archives are never rewritten.
+        projection_status = (
+            "current"
+            if expected_wave == canonicalize_finding_synthesis_markers(text)
+            else "stale"
+        )
     projection_diagnostics: list[str] = []
     if projection_status != "current":
         projection_diagnostics.append(

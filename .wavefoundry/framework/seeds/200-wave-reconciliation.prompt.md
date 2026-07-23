@@ -73,7 +73,7 @@ Required wave start semantics:
 - expected outputs
 - review checkpoints and gating rules — for admitted **bug** or product-defect changes, confirm **`qa-reviewer`** is selected at readiness and recorded before closure (`docs/contributing/agent-team-workflow.md`, `docs/workflow-config.json` `review_policies.require_qa_reviewer_for_bug_fixes`) unless waived explicitly
 - readiness checkpoints and gating rules, including salience-trigger effects on reviewer/persona routing when relevant
-- journal refs when already known, including critical/high operating-memory captures that cannot wait for closure
+- memory candidates already recorded, including critical/high operating-memory captures that cannot wait for closure
 
 Required active-wave update semantics:
 
@@ -102,8 +102,7 @@ Required wave close semantics:
 - missteps and corrections
 - review status
 - final readiness-evaluation status
-- journal updates required
-- journal distillation, promotion, retirement, and supersession decisions required
+- memory-candidate validation, promotion, retirement, and supersession decisions required
 - next-wave handoff
 - explicit readiness or non-readiness of the next wave
 - explicit statement of whether the wave closed because the objective was satisfied, superseded, or intentionally cut at an operational boundary

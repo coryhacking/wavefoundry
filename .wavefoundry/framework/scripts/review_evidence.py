@@ -35,8 +35,23 @@ _LEGACY_FINDING_SYNTHESIS_MARKER_BEGIN = (
 _LEGACY_FINDING_SYNTHESIS_MARKER_END = (
     "<!-- waveframework:finding-synthesis end -->"
 )
-REVIEW_EVIDENCE_DETAILS_BEGIN = '<details class="wavefoundry-review-evidence">'
+# Wave 1tb4z: the `<details>` wrapper survives ONLY on the legacy
+# inline-authority projection, where it collapses an embedded ```jsonl fence
+# of machine records in rendered views. External-ledger projections (records
+# in events.jsonl) emit a plain italic summary line instead — no HTML in a
+# human-first document. The class matches the `wave:` marker vocabulary; the
+# legacy `wavefoundry-` spelling is normalized by the canonicalizer.
+REVIEW_EVIDENCE_DETAILS_BEGIN = '<details class="wave-review-evidence">'
 REVIEW_EVIDENCE_DETAILS_END = "</details>"
+_LEGACY_REVIEW_EVIDENCE_DETAILS_BEGIN = '<details class="wavefoundry-review-evidence">'
+# A BODYLESS details block (summary-close immediately followed by
+# details-close, whitespace only) is the retired external-projection form;
+# collapse it to the plain line. A bodied inline block always carries the
+# jsonl fence between the two closes and is never matched.
+_BODYLESS_DETAILS_RE = re.compile(
+    r"<details class=\"wave(?:foundry)?-review-evidence\">\s*\n"
+    r"<summary>(?P<summary>[^\n]*)</summary>\s*\n\s*</details>"
+)
 ADOPTION_LEDGER_REL = Path("docs/waves/review-evidence-adoptions.json")
 ADOPTION_LOCK_REL = Path(".wavefoundry/locks/review-evidence-adoptions.lock")
 EVENTS_FILENAME = "events.jsonl"
@@ -67,13 +82,28 @@ _JSONL_FENCE_RE = re.compile(
 def _canonicalize_finding_synthesis_markers(text: str) -> str:
     """Accept legacy projections while emitting only the canonical namespace."""
 
-    return text.replace(
+    text = text.replace(
         _LEGACY_FINDING_SYNTHESIS_MARKER_BEGIN,
         FINDING_SYNTHESIS_MARKER_BEGIN,
     ).replace(
         _LEGACY_FINDING_SYNTHESIS_MARKER_END,
         FINDING_SYNTHESIS_MARKER_END,
     )
+    # Wave 1tb4z: collapse the retired bodyless-details external form to the
+    # plain summary line, and normalize the legacy class spelling on bodied
+    # inline blocks — archives validate as-is, never rewritten on disk.
+    text = _BODYLESS_DETAILS_RE.sub(
+        lambda m: review_evidence_plain_summary(m.group("summary")), text
+    )
+    return text.replace(
+        _LEGACY_REVIEW_EVIDENCE_DETAILS_BEGIN, REVIEW_EVIDENCE_DETAILS_BEGIN
+    )
+
+
+def review_evidence_plain_summary(summary_text: str) -> str:
+    """The external-ledger projection's summary form (wave 1tb4z): plain markdown."""
+
+    return f"*{summary_text}*"
 
 
 def canonicalize_finding_synthesis_markers(text: str) -> str:
@@ -1488,9 +1518,7 @@ def empty_external_finding_synthesis_section() -> str:
         "## Finding Synthesis\n\n"
         f"{FINDING_SYNTHESIS_MARKER_BEGIN}\n"
         f"{review_evidence_human_table(())}\n\n"
-        f"{REVIEW_EVIDENCE_DETAILS_BEGIN}\n"
-        f"<summary>{review_evidence_summary_line(())}</summary>\n"
-        f"{REVIEW_EVIDENCE_DETAILS_END}\n"
+        f"{review_evidence_plain_summary(review_evidence_summary_line(()))}\n"
         f"{FINDING_SYNTHESIS_MARKER_END}\n"
     )
 
@@ -1513,9 +1541,7 @@ def render_review_evidence_projection(
     owned = (
         f"{FINDING_SYNTHESIS_MARKER_BEGIN}\n"
         f"{review_evidence_human_table(rows)}\n\n"
-        f"{REVIEW_EVIDENCE_DETAILS_BEGIN}\n"
-        f"<summary>{review_evidence_summary_line(rows)}</summary>\n"
-        f"{REVIEW_EVIDENCE_DETAILS_END}\n"
+        f"{review_evidence_plain_summary(review_evidence_summary_line(rows))}\n"
         f"{FINDING_SYNTHESIS_MARKER_END}"
     )
     body_start = section_matches[0].start("body")

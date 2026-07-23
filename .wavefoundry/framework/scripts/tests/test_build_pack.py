@@ -589,6 +589,78 @@ process.stdout.write(JSON.stringify(rendered.map(text)));
         self.assertNotEqual(ctx.exception.code, 0)
 
     # ------------------------------------------------------------------
+    # Changelog-first builds (1t9tj)
+    # ------------------------------------------------------------------
+
+    def _main_with_repo(self, version, changelog_text):
+        """Drive main() against a temp repo root; returns (exit_code, stderr,
+        build_zip mock, check_docs_gate mock)."""
+        import contextlib
+        import io
+
+        if changelog_text is not None:
+            (self.tmp / "CHANGELOG.md").write_text(
+                changelog_text, encoding="utf-8"
+            )
+        argv = ["build_pack.py", "--version", version, "--output", str(self.tmp)]
+        stderr = io.StringIO()
+        fake_zip = self.tmp / f"wavefoundry-{version}.{FAKE_PREFIX}.zip"
+        code = 0
+        with patch.object(sys, "argv", argv), \
+             patch.object(build_pack, "_reexec_with_venv_if_needed"), \
+             patch.object(build_pack, "find_repo_root", return_value=self.tmp), \
+             patch.object(build_pack, "_current_build_suffix", return_value=FAKE_PREFIX), \
+             patch.object(build_pack, "check_docs_gate") as gate, \
+             patch.object(build_pack, "build_zip", return_value=fake_zip) as bz, \
+             contextlib.redirect_stderr(stderr), \
+             contextlib.redirect_stdout(io.StringIO()):
+            try:
+                build_pack.main()
+            except SystemExit as exc:
+                code = exc.code
+        return code, stderr.getvalue(), bz, gate
+
+    def test_versioned_build_refuses_without_changelog_section(self):
+        """Every versioned build requires its `## [version]` entry, before any
+        side effect — the pack ships CHANGELOG.md as its only offline release
+        surface."""
+        code, err, bz, gate = self._main_with_repo(
+            "9.9.9", "# Changelog\n\n## [1.0.0] - 2026-01-01\n\n- old\n"
+        )
+        self.assertNotEqual(code, 0)
+        self.assertIn("## [9.9.9]", err)
+        self.assertIn("Create the changelog entry first", err)
+        bz.assert_not_called()
+        gate.assert_not_called()
+
+    def test_versioned_build_refuses_when_changelog_missing_entirely(self):
+        code, err, bz, _gate = self._main_with_repo("9.9.9", None)
+        self.assertNotEqual(code, 0)
+        self.assertIn("Create the changelog entry first", err)
+        bz.assert_not_called()
+
+    def test_versioned_build_proceeds_once_section_exists(self):
+        code, err, bz, _gate = self._main_with_repo(
+            "9.9.9", "# Changelog\n\n## [9.9.9] - 2026-07-22\n\n- the fix\n"
+        )
+        self.assertEqual(code, 0)
+        self.assertNotIn("Create the changelog entry first", err)
+        bz.assert_called_once()
+
+    def test_release_preflight_changelog_check_is_unchanged(self):
+        """The release path keeps its own preflight wording; the new plain-path
+        check must not fire there (source pin: the plain-path check lives in
+        the else branch of the release-mode preflight)."""
+        source = (SCRIPTS_DIR / "build_pack.py").read_text(encoding="utf-8")
+        release_msg = source.index("Add the section (with release notes) before --release.")
+        plain_msg = source.index("Create the changelog entry first")
+        self.assertLess(release_msg, plain_msg)
+        release_gate = source.index("if args.release or args.release_dry_run:")
+        else_branch = source.index("    else:", release_gate)
+        self.assertLess(release_gate, else_branch)
+        self.assertLess(else_branch, plain_msg)
+
+    # ------------------------------------------------------------------
     # MANIFEST
     # ------------------------------------------------------------------
 

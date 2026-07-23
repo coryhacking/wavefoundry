@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: wave-council
 Category: specialist
-Last verified: 2026-07-17
+Last verified: 2026-07-22
 
 ## Operating Identity
 
@@ -107,7 +107,7 @@ Deduplication: when multiple seats surface findings with the same `finding_id` (
 ## Memory Responsibilities
 
 - recurring council failure modes or routing blind spots → `docs/references/project-context-memory.md`
-- moderator-specific lessons about briefing packets or disagreement handling → `docs/agents/journals/wave-coordinator.md` until a dedicated journal exists
+- moderator-specific lessons about briefing packets or disagreement handling → a typed memory candidate targeting `docs/agents/wave-coordinator.md`
 
 ## Associated Seed
 

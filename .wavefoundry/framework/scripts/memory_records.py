@@ -31,7 +31,16 @@ MEMORY_DIR = "docs/agents/memory"
 # ids are PATH COMPONENTS (`docs/agents/memory/<id>.md`), and the MCP tools
 # accept caller-supplied ids — every filesystem access validates against this
 # grammar FIRST, then enforces resolved-path containment as defense in depth.
-MEMORY_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
+# Two-form union (wave 1t9w7): new mints carry the repository-wide lifecycle
+# naming `<lifecycleId>-mem <slug>`; legacy bare-slug ids remain valid
+# indefinitely because field stores reference them. The single space joins two
+# independently validated segments and is never a path separator, so the
+# containment boundary is unchanged.
+_MEMORY_SLUG_PATTERN = r"[a-z0-9][a-z0-9-]{0,63}"
+_MEMORY_ID_PATTERN = (
+    rf"(?:[0-9a-z]{{5,6}}-mem {_MEMORY_SLUG_PATTERN}|{_MEMORY_SLUG_PATTERN})"
+)
+MEMORY_ID_RE = re.compile(rf"^{_MEMORY_ID_PATTERN}$")
 
 MEMORY_KINDS = (
     "failed_attempt",
@@ -65,7 +74,7 @@ TIME_DECAYED_KINDS = ("environment_gotcha", "dependency_gotcha")
 # needs_reverification instead and never drops below inclusion.
 BRIEFING_CONFIDENCE_FLOOR = 0.2
 
-_ID_RE = re.compile(r"^Memory ID:\s*`([a-z0-9][a-z0-9-]*)`\s*$", re.MULTILINE)
+_ID_RE = re.compile(rf"^Memory ID:\s*`({_MEMORY_ID_PATTERN})`\s*$", re.MULTILINE)
 _KIND_RE = re.compile(r"^Kind:\s*`([a-z_]+)`\s*$", re.MULTILINE)
 _STATUS_RE = re.compile(r"^Status:\s+(\S+)\s*$", re.MULTILINE)
 # Confidence grammar mirrors the lint (`MEMORY_CONFIDENCE_PATTERN`): any
@@ -74,8 +83,12 @@ _STATUS_RE = re.compile(r"^Status:\s+(\S+)\s*$", re.MULTILINE)
 _CONFIDENCE_RE = re.compile(r"^Confidence:\s*(\S+)\s*$", re.MULTILINE)
 _CREATED_RE = re.compile(r"^Created:\s*(\d{4}-\d{2}-\d{2})\s*$", re.MULTILINE)
 _UPDATED_RE = re.compile(r"^Updated:\s*(\d{4}-\d{2}-\d{2})\s*$", re.MULTILINE)
-_SUPERSEDES_RE = re.compile(r"^Supersedes:\s*`([a-z0-9][a-z0-9-]*)`\s*$", re.MULTILINE)
-_SUPERSEDED_BY_RE = re.compile(r"^Superseded by:\s*`([a-z0-9][a-z0-9-]*)`\s*$", re.MULTILINE)
+_SUPERSEDES_RE = re.compile(
+    rf"^Supersedes:\s*`({_MEMORY_ID_PATTERN})`\s*$", re.MULTILINE
+)
+_SUPERSEDED_BY_RE = re.compile(
+    rf"^Superseded by:\s*`({_MEMORY_ID_PATTERN})`\s*$", re.MULTILINE
+)
 # Optional 1stwk metadata: the measured consumed-token cost of the wave that
 # produced an evidence-derived candidate (grounds the 1svuk avoided estimate).
 _SOURCE_COST_RE = re.compile(r"^Source exploration cost:\s*(\d+)\s*$", re.MULTILINE)
@@ -296,10 +309,234 @@ def validate_memory_id(memory_id: Any) -> str:
     candidate = str(memory_id or "").strip()
     if not MEMORY_ID_RE.fullmatch(candidate):
         raise ValueError(
-            f"invalid memory id {memory_id!r}: must match [a-z0-9][a-z0-9-]* "
-            "(lowercase alphanumerics and dashes, max 64 chars)"
+            f"invalid memory id {memory_id!r}: must be a bare slug "
+            "([a-z0-9][a-z0-9-]*, max 64 chars) or the lifecycle form "
+            "'<lifecycleId>-mem <slug>'"
         )
     return candidate
+
+
+def mint_memory_id(root: Path, slug_source: str, *, timestamp=None) -> str:
+    """Mint a new-form memory id ``<lifecycleId>-mem <slug>`` (wave 1t9w7).
+
+    The prefix is minted under the repository's own lifecycle policy —
+    deterministic for a given (day, slug) via the v2 entropy hash, which
+    makes backdated migration minting idempotent. There is no legacy
+    fallback: a repository whose policy cannot resolve raises exactly as a
+    wave or change mint would.
+    """
+    import lifecycle_id
+
+    slug = slugify(slug_source)
+    prefix = lifecycle_id.build_prefix(
+        timestamp,
+        policy=lifecycle_id.load_lifecycle_policy(root),
+        kind="mem",
+        slug=slug,
+    )
+    return f"{prefix}-mem {slug}"
+
+
+# Migration scope (operator ruling on finding bare-legacy-id-references-
+# stranded): only GENERATED legacy records — always `mem-*` — are renamed,
+# so reference discovery is mem-prefixed by design. Non-mem bare ids remain
+# contract-valid but frozen: never auto-renamed, so their references never
+# go stale. A bare token is also indistinguishable from ordinary prose,
+# which is why widening discovery was rejected.
+_LEGACY_REF_TOKEN_RE = re.compile(r"`(mem-[a-z0-9][a-z0-9-]{0,60})`")
+
+
+def _wave_dir_status(wave_dir: Path) -> Optional[str]:
+    """The ``Status:`` value of a wave directory's wave.md; None when unreadable."""
+
+    try:
+        text = (wave_dir / "wave.md").read_text(encoding="utf-8")
+    except OSError:
+        return None
+    match = re.search(r"^Status:\s+(\S+)\s*$", text, re.MULTILINE)
+    return match.group(1).lower() if match else None
+
+
+def migrate_memory_ids_to_lifecycle_naming(root: Path) -> dict[str, Any]:
+    """Rename generated legacy ``mem-*`` records to ``<lifecycleId>-mem <slug>``.
+
+    Scope (wave 1t9w7, operator ruling): only generated legacy records —
+    which are always ``mem-*`` — are renamed. Explicit bare-slug ids remain
+    contract-valid but FROZEN: never auto-renamed, never half-migrated, and
+    therefore never a source of stranded references.
+
+    Deterministic (each prefix is minted from the record's own ``Created``
+    date, and v2 entropy is a hash of kind+slug) and interruption-safe by
+    construction (operator finding, delivery cycle 0): every pass derives its
+    work from CURRENT on-disk state, never from an earlier pass's in-run
+    bookkeeping, so a rerun after a crash in ANY window converges.
+
+    - Rename pass: a new-form target that already exists with the SAME
+      internal memory id is this rename's own crash residue (deterministic
+      minting is injective over distinct legacy records), so the leftover
+      legacy file is removed to complete the interrupted step; only a target
+      whose internal id disagrees raises.
+    - Reference passes: stale backticked ``mem-``-prefixed tokens are
+      DISCOVERED by scanning and resolved to their migrated record by slug
+      lookup against the directory — so references are repaired even when the
+      rename happened in an earlier interrupted run. Scope: the memory root,
+      every live doc surface (``docs/**/*.md`` plus repository-root
+      markdown), and the ``memory_backfill_sources`` rows. Closed or
+      unclassifiable wave directories are skipped silently — archives keep
+      historical ids by policy — and only markdown is ever touched, so events
+      ledgers and other append-only history are structurally out of reach.
+    - A stale token on a live surface that cannot be resolved to a migrated
+      record is returned in ``residual_references`` for loud reporting, never
+      silently rewritten or dropped.
+
+    Returns ``{"renamed", "skipped", "mapping", "references_repaired",
+    "residual_references"}``.
+    """
+    from datetime import datetime as _dt
+    from datetime import timezone as _tz
+
+    memory_root = canonical_memory_root(root)
+    if memory_root is None or not memory_root.is_dir():
+        return {
+            "renamed": 0,
+            "skipped": 0,
+            "mapping": {},
+            "references_repaired": 0,
+            "residual_references": [],
+        }
+    mapping: dict[str, str] = {}
+    skipped = 0
+    renamed = 0
+    for path in sorted(memory_root.glob("*.md")):
+        parsed = parse_memory_record(path)
+        if not parsed:
+            skipped += 1
+            continue
+        old_id = parsed["memory_id"]
+        if " " in old_id or not old_id.startswith("mem-"):
+            # New-form records AND non-mem bare ids are both left alone: the
+            # migration renames only generated `mem-*` legacy records, so a
+            # bare-id record is never half-migrated with stranded references
+            # (operator scope ruling on the bare-id finding).
+            skipped += 1
+            continue
+        slug_source = old_id[4:]
+        timestamp = None
+        created = str(parsed.get("created_at") or "")
+        try:
+            timestamp = _dt.strptime(created, "%Y-%m-%d").replace(tzinfo=_tz.utc)
+        except ValueError:
+            pass
+        new_id = mint_memory_id(root, slug_source, timestamp=timestamp)
+        new_path = _contained_record_path(root, new_id)
+        if new_path.exists():
+            existing = parse_memory_record(new_path)
+            if existing and existing["memory_id"] == new_id:
+                # Crash residue of this exact rename: the migrated copy is
+                # already durable, so complete the interrupted step.
+                path.unlink()
+                mapping[old_id] = new_id
+                renamed += 1
+                continue
+            raise ValueError(
+                f"migration collision: {new_id!r} already exists with a "
+                f"different internal id while renaming {old_id!r} — refusing"
+            )
+        text = path.read_text(encoding="utf-8")
+        text = text.replace(f"Memory ID: `{old_id}`", f"Memory ID: `{new_id}`")
+        new_path.write_text(text, encoding="utf-8")
+        path.unlink()
+        mapping[old_id] = new_id
+        renamed += 1
+
+    def _resolve_stale(token: str) -> Optional[str]:
+        slug = token[4:]
+        if len(slug) < 2:
+            return None
+        matches = list(memory_root.glob(f"*-mem {slug}.md"))
+        if len(matches) == 1:
+            return matches[0].stem
+        return None
+
+    def _repair_text_file(path: Path) -> tuple[int, list[str]]:
+        text = original = path.read_text(encoding="utf-8")
+        repaired = 0
+        unresolved: list[str] = []
+        for token in sorted(set(_LEGACY_REF_TOKEN_RE.findall(text))):
+            new_id = _resolve_stale(token)
+            if new_id is None:
+                unresolved.append(token)
+                continue
+            text = text.replace(f"`{token}`", f"`{new_id}`")
+            repaired += 1
+        if text != original:
+            path.write_text(text, encoding="utf-8")
+        return repaired, unresolved
+
+    references_repaired = 0
+    residual_references: list[dict[str, str]] = []
+
+    def _repair_and_record(path: Path) -> None:
+        nonlocal references_repaired
+        repaired, unresolved = _repair_text_file(path)
+        references_repaired += repaired
+        for token in unresolved:
+            residual_references.append(
+                {"path": str(path.relative_to(root)), "token": token}
+            )
+
+    for path in sorted(memory_root.glob("*.md")):
+        _repair_and_record(path)
+    docs_root = root / "docs"
+    if docs_root.is_dir():
+        for path in sorted(docs_root.rglob("*.md")):
+            rel_parts = path.relative_to(root).parts
+            if rel_parts[:3] == ("docs", "agents", "memory"):
+                continue
+            if rel_parts[:2] == ("docs", "waves"):
+                if len(rel_parts) < 3:
+                    continue
+                status = _wave_dir_status(root / Path(*rel_parts[:3]))
+                if status != "closed" and status is not None:
+                    _repair_and_record(path)
+                continue
+            _repair_and_record(path)
+    for path in sorted(root.glob("*.md")):
+        _repair_and_record(path)
+
+    db_path = root / ".wavefoundry" / "index" / "memory-state.sqlite"
+    if db_path.exists():
+        import sqlite3
+
+        conn = sqlite3.connect(db_path)
+        try:
+            with conn:
+                rows = conn.execute(
+                    "SELECT DISTINCT memory_id FROM memory_backfill_sources "
+                    "WHERE memory_id LIKE 'mem-%'"
+                ).fetchall()
+                for (stale_id,) in rows:
+                    new_id = _resolve_stale(str(stale_id))
+                    if new_id is None:
+                        residual_references.append(
+                            {"path": "memory-state.sqlite", "token": str(stale_id)}
+                        )
+                        continue
+                    conn.execute(
+                        "UPDATE memory_backfill_sources SET memory_id=? "
+                        "WHERE memory_id=?",
+                        (new_id, stale_id),
+                    )
+                    references_repaired += 1
+        finally:
+            conn.close()
+    return {
+        "renamed": renamed,
+        "skipped": skipped,
+        "mapping": mapping,
+        "references_repaired": references_repaired,
+        "residual_references": residual_references,
+    }
 
 
 def canonical_memory_root(root: Path) -> Optional[Path]:
@@ -470,7 +707,13 @@ def create_memory_record(
         try:
             return write_memory_record(root, content_for_id(memory_id), memory_id), memory_id
         except FileExistsError:
-            memory_id = f"{base[:60]}-{n}"
+            # New-form ids suffix the SLUG segment only, so truncation can
+            # never corrupt the lifecycle prefix or strand the separator.
+            if " " in base:
+                head, slug_part = base.split(" ", 1)
+                memory_id = f"{head} {slug_part[:56].rstrip('-') or 'record'}-{n}"
+            else:
+                memory_id = f"{base[:60]}-{n}"
             n += 1
             if n > 1000:  # pathological; never expected
                 raise

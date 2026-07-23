@@ -13,11 +13,11 @@ This document is the maintainer-facing map of how the shared Wave Framework pack
 ```mermaid
 flowchart TD
     A[Shared package entry docs\nREADME + numbered overview docs] --> B[Public shortcut prompts\nInit / Upgrade / Plan / Ready / Implement / Review / Finalize]
-    B --> C[Internal helper prompts\nbootstrap, memory, journal, migration, reconciliation]
+    B --> C[Internal helper prompts\nbootstrap, memory, migration, reconciliation]
     C --> D[Repo evidence + generation decisions]
-    D --> E[Repo-local outputs\ndocs, prompts, waves, journals, personas, wrappers]
+    D --> E[Repo-local outputs\ndocs, prompts, waves, memory, personas, wrappers]
     E --> F[Wave delivery lifecycle\nplan -> ready -> implement/review -> finalize]
-    F --> G[Ongoing maintenance\nreindex, journal distillation, upgrade, docs gate]
+    F --> G[Ongoing maintenance\nreindex, memory validation, upgrade, docs gate]
     G --> A
 ```
 
@@ -65,7 +65,7 @@ In the shared pack, those map to:
 These prompts shape seeding, reconciliation, and maintenance behavior but are not intended to be the public shortcut surface in a seeded project:
 
 - bootstrap and generation helpers: `020-150`
-- wave and journal helpers: `200-210`
+- wave and memory helpers: `200-210` (210 is the one-time Migrate journals retirement prompt)
 - migration helper: `220-legacy-framework-migration.prompt.md`
 
 Maintain these prompts as the implementation layer behind the public commands and the shared docs.
@@ -78,7 +78,7 @@ Init and upgrade generate or refresh repo-local outputs derived from evidence in
 - prompt entry docs under `docs/prompts/`
 - optional prompt bodies under `docs/prompts/agents/`
 - wave state and execution artifacts under `docs/waves/`
-- journals, handoff, and personas under `docs/agents/`
+- memory records, handoff, and personas under `docs/agents/`
 - project references and memory under `docs/references/`
 - root wrappers and entry files such as `AGENTS.md`, `CLAUDE.md`, `WARP.md`, and the cross-OS `wf` shim pair (`.wavefoundry/bin/wf` + `wf.cmd`) that dispatches `wf docs-lint` / `wf docs-gardener` and the other subcommands (the `wf` dispatcher serves hooks/CI/CLI; **agents** prefer MCP **`wf_validate_docs`** / **`wf_garden_docs`** when the server is attached — `seed-050`)
 
@@ -89,7 +89,7 @@ The framework expects repo-local work to close the loop through:
 - docs gate verification
 - review lanes and repo-local reviewer routing
 - wave reconciliation and carry-forward handling
-- journal distillation and memory promotion
+- memory validation and promotion
 - upgrade/reindex passes when the framework evolves
 
 ## Prompt file naming convention
@@ -108,7 +108,7 @@ When generating new runnable prompt files, always apply the `.prompt.md` suffix.
 | --- | --- | --- |
 | Conceptual lifecycle model | `001-feature-wave-framework-overview.md` | `docs/contributing/feature-wave-lifecycle-overview.md` adapts the model with local reviewers, personas, and artifact paths |
 | Seeding and generation rules | `002-wave-framework-seeding-overview.md` and shared prompts | `docs/README.md`, `docs/prompts/index.md`, and related local docs explain the instantiated local surface |
-| Memory/persona/journal/review model | `004-007` overview docs and supporting prompts | `docs/references/project-context-memory.md`, `docs/agents/personas/`, `docs/agents/journals/`, local review docs |
+| Memory/persona/review model | `004-007` overview docs and supporting prompts | `docs/references/project-context-memory.md`, `docs/agents/personas/`, `docs/agents/memory/`, local review docs |
 | Public command behavior | shared public prompt files | local prompt docs and optional local agent prompt bodies |
 
 ## Maintainer Reading Order

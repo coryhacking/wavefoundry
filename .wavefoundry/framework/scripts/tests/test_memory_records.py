@@ -73,6 +73,341 @@ class _MemoryCase(unittest.TestCase):
         return self.mem.write_memory_record(self.root, content, memory_id)
 
 
+class LifecycleMemoryIdTests(_MemoryCase):
+    """Wave 1t9w7: `<lifecycleId>-mem <slug>` naming with the legacy form frozen."""
+
+    def _v2_policy(self):
+        (self.root / "docs").mkdir(parents=True, exist_ok=True)
+        (self.root / "docs" / "workflow-config.json").write_text(
+            '{"lifecycle_id_policy":{"scheme_version":"v2",'
+            '"epoch_utc":"2022-04-28T00:00:00Z","offset":46656}}\n',
+            encoding="utf-8",
+        )
+
+    def test_two_form_grammar_accepts_and_rejects(self):
+        for good in (
+            "mem-legacy-slug",
+            "legacy",
+            "1t9w7-mem some-slug",
+            "0abc12-mem s",
+        ):
+            self.assertEqual(self.mem.validate_memory_id(good), good)
+        # Trailing whitespace normalizes away (the validator strips), so
+        # "1t9w7-mem " becomes the legacy-valid bare id "1t9w7-mem".
+        self.assertEqual(self.mem.validate_memory_id("1t9w7-mem "), "1t9w7-mem")
+        for bad in (
+            "1t9w7-mem -leading-dash",
+            "1t9w7 mem slug",
+            "1t9w7-mem two  spaces",
+            "1t9w7-mem bad/slug",
+            "1t9w7-mem ../evil",
+            "Mem-Upper",
+            "a b",
+            "1t9w7-mem " + "a" * 65,
+        ):
+            with self.assertRaises(ValueError, msg=bad):
+                self.mem.validate_memory_id(bad)
+
+    def test_containment_rejects_escapes_in_both_forms(self):
+        (self.root / "docs" / "agents" / "memory").mkdir(parents=True)
+        for bad in ("../evil", "1t9w7-mem ../evil", "1t9w7-mem a/../b"):
+            with self.assertRaises(ValueError, msg=bad):
+                self.mem._contained_record_path(self.root, bad)
+
+    def test_mint_is_new_form_deterministic_and_day_ordered(self):
+        from datetime import datetime, timezone
+
+        self._v2_policy()
+        early = datetime(2026, 1, 15, tzinfo=timezone.utc)
+        late = datetime(2026, 3, 1, tzinfo=timezone.utc)
+        a = self.mem.mint_memory_id(self.root, "Some Title Here", timestamp=early)
+        b = self.mem.mint_memory_id(self.root, "Some Title Here", timestamp=early)
+        self.assertEqual(a, b)
+        self.assertRegex(a, r"^[0-9a-z]{5,6}-mem some-title-here$")
+        self.assertEqual(self.mem.validate_memory_id(a), a)
+        c = self.mem.mint_memory_id(self.root, "Some Title Here", timestamp=late)
+        lifecycle_id = _load("lifecycle_id")
+        self.assertLess(
+            lifecycle_id.decode_base36(a.split("-mem ")[0]),
+            lifecycle_id.decode_base36(c.split("-mem ")[0]),
+        )
+
+    def test_collision_suffix_preserves_new_form(self):
+        base = "1t9w7-mem shared-slug"
+
+        def content(mid: str) -> str:
+            return self.mem.render_memory_record(
+                memory_id=mid, kind="decision", summary="A recorded decision.",
+                evidence=["`1abcd-bug some-change` — observed"],
+                targets=["src/a.py"],
+            )
+
+        _path1, id1 = self.mem.create_memory_record(
+            self.root, content, base, explicit=False
+        )
+        _path2, id2 = self.mem.create_memory_record(
+            self.root, content, base, explicit=False
+        )
+        self.assertEqual(id1, base)
+        self.assertEqual(id2, "1t9w7-mem shared-slug-2")
+        self.assertEqual(self.mem.validate_memory_id(id2), id2)
+
+    def test_migration_renames_backdated_and_is_idempotent(self):
+        self._v2_policy()
+        alpha = self._add("mem-alpha-lesson", "decision", created="2026-01-10")
+        self._add("mem-beta-lesson", "failed_attempt", created="2026-02-20")
+        beta_path = self.root / "docs" / "agents" / "memory" / "mem-beta-lesson.md"
+        beta_text = beta_path.read_text(encoding="utf-8")
+        beta_text = beta_text.replace(
+            "`1abcd-bug some-change` — observed",
+            "`1abcd-bug some-change` — observed; related: `mem-alpha-lesson`",
+        )
+        beta_path.write_text(beta_text, encoding="utf-8")
+
+        backfill = _load("memory_backfill")
+        run_id = backfill.ensure_run(self.root, "manual")
+        conn = backfill._connect(self.root)
+        try:
+            with conn:
+                conn.execute(
+                    "INSERT INTO memory_backfill_sources"
+                    "(run_id,wave_id,source_event,memory_id) VALUES (?,?,?,?)",
+                    (run_id, "1aaa closed", "decision-log:x", "mem-alpha-lesson"),
+                )
+        finally:
+            conn.close()
+
+        result = self.mem.migrate_memory_ids_to_lifecycle_naming(self.root)
+        self.assertEqual(result["renamed"], 2)
+        mapping = result["mapping"]
+        new_alpha = mapping["mem-alpha-lesson"]
+        new_beta = mapping["mem-beta-lesson"]
+        self.assertRegex(new_alpha, r"^[0-9a-z]{5,6}-mem alpha-lesson$")
+        self.assertRegex(new_beta, r"^[0-9a-z]{5,6}-mem beta-lesson$")
+        lifecycle_id = _load("lifecycle_id")
+        self.assertLess(
+            lifecycle_id.decode_base36(new_alpha.split("-mem ")[0]),
+            lifecycle_id.decode_base36(new_beta.split("-mem ")[0]),
+            "backdated prefixes must preserve created-date chronology",
+        )
+        self.assertFalse(alpha.exists())
+        records = {
+            r["memory_id"]: r for r in self.mem.load_memory_records(self.root)
+        }
+        self.assertIn(new_alpha, records)
+        self.assertIn(new_beta, records)
+        migrated_beta = Path(records[new_beta]["path"]).read_text(encoding="utf-8")
+        self.assertIn(f"`{new_alpha}`", migrated_beta)
+        self.assertNotIn("`mem-alpha-lesson`", migrated_beta)
+        conn = backfill._connect(self.root)
+        try:
+            row = conn.execute(
+                "SELECT memory_id FROM memory_backfill_sources WHERE run_id=?",
+                (run_id,),
+            ).fetchone()
+        finally:
+            conn.close()
+        self.assertEqual(str(row["memory_id"]), new_alpha)
+
+        again = self.mem.migrate_memory_ids_to_lifecycle_naming(self.root)
+        self.assertEqual(again["renamed"], 0)
+        self.assertEqual(again["mapping"], {})
+        self.assertEqual(again["references_repaired"], 0)
+        self.assertEqual(again["residual_references"], [])
+
+    def test_rerun_repairs_references_after_rename_only_crash(self):
+        """Operator P1 reproduction (window 1): a crash after the rename pass
+        but before any reference rewrite left new-form files with stale
+        backticked legacy references and a stale store row; the rerun's
+        mapping was empty and repaired nothing. The reference passes must be
+        state-derived."""
+
+        self._v2_policy()
+        from datetime import datetime, timezone
+
+        ts = datetime(2026, 1, 10, tzinfo=timezone.utc)
+        alpha_new = self.mem.mint_memory_id(self.root, "alpha-lesson", timestamp=ts)
+        beta_new = self.mem.mint_memory_id(self.root, "beta-lesson", timestamp=ts)
+        for new_id, slug in ((alpha_new, "alpha"), (beta_new, "beta")):
+            content = self.mem.render_memory_record(
+                memory_id=new_id, kind="decision",
+                summary=f"Lesson {slug} carrying a stale reference.",
+                evidence=["`1abcd-bug some-change` — observed; related: `mem-alpha-lesson`"],
+                targets=["src/a.py"], date="2026-01-10",
+            )
+            self.mem.write_memory_record(self.root, content, new_id)
+
+        backfill = _load("memory_backfill")
+        run_id = backfill.ensure_run(self.root, "manual")
+        conn = backfill._connect(self.root)
+        try:
+            with conn:
+                conn.execute(
+                    "INSERT INTO memory_backfill_sources"
+                    "(run_id,wave_id,source_event,memory_id) VALUES (?,?,?,?)",
+                    (run_id, "1aaa closed", "decision-log:x", "mem-alpha-lesson"),
+                )
+        finally:
+            conn.close()
+
+        result = self.mem.migrate_memory_ids_to_lifecycle_naming(self.root)
+        self.assertEqual(result["renamed"], 0)
+        self.assertGreaterEqual(result["references_repaired"], 3)
+        self.assertEqual(result["residual_references"], [])
+        for record in self.mem.load_memory_records(self.root):
+            text = Path(record["path"]).read_text(encoding="utf-8")
+            self.assertNotIn("`mem-alpha-lesson`", text)
+            self.assertIn(f"`{alpha_new}`", text)
+        conn = backfill._connect(self.root)
+        try:
+            row = conn.execute(
+                "SELECT memory_id FROM memory_backfill_sources WHERE run_id=?",
+                (run_id,),
+            ).fetchone()
+        finally:
+            conn.close()
+        self.assertEqual(str(row["memory_id"]), alpha_new)
+
+    def test_rerun_completes_interrupted_rename_without_collision(self):
+        """Operator P1 reproduction (window 2): a crash between writing the
+        new file and unlinking the old made the rerun raise the self-created
+        migration-collision ValueError. Same-internal-id residue must be
+        completed, not refused."""
+
+        self._v2_policy()
+        old_path = self._add("mem-alpha-lesson", "decision", created="2026-01-10")
+        from datetime import datetime, timezone
+
+        ts = datetime(2026, 1, 10, tzinfo=timezone.utc)
+        new_id = self.mem.mint_memory_id(self.root, "alpha-lesson", timestamp=ts)
+        residue = old_path.read_text(encoding="utf-8").replace(
+            "Memory ID: `mem-alpha-lesson`", f"Memory ID: `{new_id}`"
+        )
+        self.mem.write_memory_record(self.root, residue, new_id)
+
+        result = self.mem.migrate_memory_ids_to_lifecycle_naming(self.root)
+        self.assertEqual(result["renamed"], 1)
+        self.assertEqual(result["mapping"], {"mem-alpha-lesson": new_id})
+        self.assertFalse(old_path.exists())
+        records = self.mem.load_memory_records(self.root)
+        self.assertEqual([r["memory_id"] for r in records], [new_id])
+
+    def test_genuine_collision_with_different_internal_id_still_raises(self):
+        self._v2_policy()
+        self._add("mem-alpha-lesson", "decision", created="2026-01-10")
+        from datetime import datetime, timezone
+
+        ts = datetime(2026, 1, 10, tzinfo=timezone.utc)
+        new_id = self.mem.mint_memory_id(self.root, "alpha-lesson", timestamp=ts)
+        squatter = self.mem.render_memory_record(
+            memory_id="unrelated-record", kind="decision",
+            summary="A different record squatting on the target path.",
+            evidence=["`1abcd-bug some-change` — observed"], targets=["src/a.py"],
+        )
+        self.mem.write_memory_record(self.root, squatter, new_id)
+        with self.assertRaisesRegex(ValueError, "different internal id"):
+            self.mem.migrate_memory_ids_to_lifecycle_naming(self.root)
+
+    def test_explicit_bare_id_records_are_frozen_not_half_migrated(self):
+        """Operator scope ruling: the migration renames only generated
+        `mem-*` records. An explicit bare-id record stays entirely untouched
+        — file, references, and store rows — rather than being renamed with
+        its references stranded."""
+
+        self._v2_policy()
+        self._add("custom-lesson", "decision", created="2026-01-10")
+        (self.root / "docs" / "live.md").write_text(
+            "See `custom-lesson` before editing.\n", encoding="utf-8"
+        )
+        backfill = _load("memory_backfill")
+        run_id = backfill.ensure_run(self.root, "manual")
+        conn = backfill._connect(self.root)
+        try:
+            with conn:
+                conn.execute(
+                    "INSERT INTO memory_backfill_sources"
+                    "(run_id,wave_id,source_event,memory_id) VALUES (?,?,?,?)",
+                    (run_id, "1aaa closed", "decision-log:x", "custom-lesson"),
+                )
+        finally:
+            conn.close()
+
+        result = self.mem.migrate_memory_ids_to_lifecycle_naming(self.root)
+        self.assertEqual(result["renamed"], 0)
+        self.assertEqual(result["mapping"], {})
+        self.assertEqual(result["residual_references"], [])
+        record_path = self.root / "docs" / "agents" / "memory" / "custom-lesson.md"
+        self.assertTrue(record_path.exists())
+        self.assertIn(
+            "`custom-lesson`",
+            (self.root / "docs" / "live.md").read_text(encoding="utf-8"),
+        )
+        conn = backfill._connect(self.root)
+        try:
+            row = conn.execute(
+                "SELECT memory_id FROM memory_backfill_sources WHERE run_id=?",
+                (run_id,),
+            ).fetchone()
+        finally:
+            conn.close()
+        self.assertEqual(str(row["memory_id"]), "custom-lesson")
+        # The frozen record still validates and resolves through the tools.
+        self.assertEqual(self.mem.validate_memory_id("custom-lesson"), "custom-lesson")
+        records = {r["memory_id"] for r in self.mem.load_memory_records(self.root)}
+        self.assertIn("custom-lesson", records)
+
+    def test_migration_rewrites_live_docs_and_preserves_archives(self):
+        """Operator P1 reproduction: docs/live.md stayed stale. Live doc
+        surfaces are rewritten; closed-wave archives keep historical ids;
+        unresolvable stale tokens are reported, never silently dropped."""
+
+        self._v2_policy()
+        self._add("mem-alpha-lesson", "decision", created="2026-01-10")
+        docs = self.root / "docs"
+        (docs / "live.md").write_text(
+            "See `mem-alpha-lesson` and the unknown `mem-nonexistent-thing`.\n",
+            encoding="utf-8",
+        )
+        closed = docs / "waves" / "1old closed"
+        closed.mkdir(parents=True)
+        (closed / "wave.md").write_text(
+            "# Wave\n\nStatus: closed\n\nHistoric ref `mem-alpha-lesson`.\n",
+            encoding="utf-8",
+        )
+        active = docs / "waves" / "1act active"
+        active.mkdir(parents=True)
+        (active / "wave.md").write_text(
+            "# Wave\n\nStatus: implementing\n\nLive ref `mem-alpha-lesson`.\n",
+            encoding="utf-8",
+        )
+        (active / "events.jsonl").write_text(
+            '{"ref": "mem-alpha-lesson"}\n', encoding="utf-8"
+        )
+        (self.root / "NOTES.md").write_text(
+            "Root-level ref `mem-alpha-lesson`.\n", encoding="utf-8"
+        )
+
+        result = self.mem.migrate_memory_ids_to_lifecycle_naming(self.root)
+        new_id = result["mapping"]["mem-alpha-lesson"]
+        self.assertIn(f"`{new_id}`", (docs / "live.md").read_text(encoding="utf-8"))
+        self.assertNotIn("`mem-alpha-lesson`", (docs / "live.md").read_text(encoding="utf-8"))
+        self.assertIn(
+            "`mem-alpha-lesson`", (closed / "wave.md").read_text(encoding="utf-8")
+        )
+        self.assertIn(f"`{new_id}`", (active / "wave.md").read_text(encoding="utf-8"))
+        self.assertEqual(
+            (active / "events.jsonl").read_text(encoding="utf-8"),
+            '{"ref": "mem-alpha-lesson"}\n',
+        )
+        self.assertIn(
+            f"`{new_id}`", (self.root / "NOTES.md").read_text(encoding="utf-8")
+        )
+        self.assertEqual(
+            result["residual_references"],
+            [{"path": "docs/live.md", "token": "mem-nonexistent-thing"}],
+        )
+
+
 class RecordRoundTripTests(_MemoryCase):
     def test_render_parse_round_trip_all_kinds(self):
         for kind in self.mem.MEMORY_KINDS:
@@ -199,7 +534,8 @@ class MemoryToolTests(_MemoryCase):
         self.assertEqual(resp["status"], "ok", resp)
         self.assertTrue(resp["data"]["written"])
         mid = resp["data"]["record"]["memory_id"]
-        self.assertTrue(mid.startswith("mem-"))
+        # 1t9w7: generated ids carry the repository-wide lifecycle naming.
+        self.assertRegex(mid, r"^[0-9a-z]{5,6}-mem [a-z0-9]")
 
         search = self.srv.memory_search_response(self.root, target="src/chunker.py")
         self.assertEqual(search["data"]["count"], 1)

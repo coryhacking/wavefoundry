@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-12
+Last verified: 2026-07-22
 
 Reference doc for how target repositories declare custom data sources, port preferences, terminology, and file-activity scope for the local dashboard. The dashboard is a generic Wave Framework feature; this doc defines the knobs available to any seeded repo without forking the core UI or server.
 
@@ -61,7 +61,7 @@ The dashboard reads exclusively from Wave Framework doc conventions. There are n
 | Wave status and progress | `docs/waves/<id>/wave.md` | `collect_waves` |
 | Change docs | `docs/waves/<id>/*.md`, `docs/plans/*.md` | `collect_changes` |
 | Session handoff | `docs/agents/session-handoff.md` | `collect_dashboard_snapshot` |
-| Agent / persona / specialist info | `docs/agents/personas/`, `docs/agents/specialists/`, `docs/agents/journals/` | `collect_agents` |
+| Agent / persona / specialist info | `docs/agents/personas/`, `docs/agents/specialists/` | `collect_agents` |
 | Prompt count | `docs/prompts/prompt-surface-manifest.json` | `collect_dashboard_snapshot` |
 | Framework version | `.wavefoundry/framework/VERSION` | `collect_dashboard_snapshot` |
 | Index health | `.wavefoundry/index/index-state.sqlite` (build snapshot; wave 1sed7) | `collect_dashboard_snapshot` |

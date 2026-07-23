@@ -57,7 +57,7 @@ Do not install the canonical framework at top-level `framework/` inside arbitrar
 ## Migration Rules
 
 - This is an explicit migration, not a silent side effect of package upgrade.
-- Preserve local `docs/`, `AGENTS.md`, waves, plans, journals, personas, specs, architecture docs, reports, and project-specific customizations.
+- Preserve local `docs/`, `AGENTS.md`, waves, plans, historical journals, personas, specs, architecture docs, reports, and project-specific customizations.
 - Treat `agent-workflows/wave-context-framework/` as the old vendored framework source.
 - Treat `.wavefoundry/framework/` as the new vendored framework source/cache for target repositories.
 - Treat rendered local prompt and agent surfaces under `docs/` as target-owned outputs.
@@ -80,7 +80,6 @@ Do not install the canonical framework at top-level `framework/` inside arbitrar
    - `docs/prompts/`
    - `docs/agents/`
    - `docs/agents/session-handoff.md`
-   - `docs/agents/journals/`
    - `docs/waves/`
    - `docs/plans/`
 6. Run the target repository's current docs gate when available before changing migration-sensitive files — **prefer MCP `wf_garden_docs` then `wf_validate_docs`** when the Wavefoundry server is attached; otherwise **`wf docs-lint`** (and **`wf docs-gardener`** when metadata refresh is part of the repo's documented gate).
@@ -167,7 +166,7 @@ rg -n "agent-workflows/wave-context-framework|wave-context-framework-|package-wa
 
 4. Confirm `docs/prompts/prompt-surface-manifest.json` and `docs/workflow-config.json` point at `.wavefoundry/framework`.
 5. Confirm **`.wavefoundry/bin/`** launchers (and any legacy repo-root wrappers) and platform hooks invoke `.wavefoundry/framework/scripts/...` when activation occurred. If activation was deferred, confirm they still point at the old active layout.
-6. Confirm active wave, plan, handoff, journal, and persona files still exist and were not regenerated destructively.
+6. Confirm active wave, plan, handoff, memory, and persona files still exist and were not regenerated destructively.
 7. Record a migration note in `docs/reports/` or the active wave record. The note should include invocation mode, selected package or source path, staged revision, compatibility-gate result, activation decision, validation result, and old-layout removal decision.
 8. Ask the operator before deleting `agent-workflows/wave-context-framework/`.
 

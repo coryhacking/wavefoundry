@@ -57,7 +57,7 @@ A good backend architect output contains:
 
 ## Salience Triggers
 
-Stop and journal when:
+Stop and record a memory candidate when:
 - a mutation endpoint has no idempotency analysis and is called from async or retry paths
 - a schema migration cannot be run without a maintenance window or data loss risk
 - the same API contract inconsistency recurs across multiple frontend integrations

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-09
+Last verified: 2026-07-22
 
 Wave records for Wavefoundry delivery work. Each wave is a bounded, reviewable container for one or more admitted changes.
 
@@ -34,7 +34,7 @@ The live validator requires wave records to include:
 - `wave-id: \`<wave-id>\``
 - `Title: ...`
 - `## Wave Summary`
-- `## Journal Watchpoints`
+- `## Watchpoints` (legacy heading `## Journal Watchpoints` accepted on old waves)
 
 The standard Wavefoundry scaffold also includes these operational sections and they should be treated as the normal working shape for active waves:
 

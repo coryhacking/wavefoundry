@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-20
+Last verified: 2026-07-22
 
 ## What Wavefoundry Is
 
@@ -63,7 +63,7 @@ wavefoundry/
 Wavefoundry uses the Wave Framework to develop itself:
 
 - `.wavefoundry/framework/` is the **canonical framework directory**. Edits here change the framework for all target repositories. `build_pack.py` packages this directory into dated zip distributions for operators.
-- `docs/` is **Wavefoundry's self-hosted project operating surface**. Plans, waves, architecture notes, agent roles, and journals live here.
+- `docs/` is **Wavefoundry's self-hosted project operating surface**. Plans, waves, architecture notes, agent roles, and memory records live here.
 - When `docs/` guidance conflicts with `.wavefoundry/framework/seeds/` on generic framework behavior, the seed source wins.
 - When project-specific policy under `docs/` conflicts with generic framework defaults, the local policy governs Wavefoundry until a wave changes the framework default.
 
@@ -76,7 +76,7 @@ Wavefoundry uses the Wave Framework lifecycle for its own development:
 3. **Prepare wave** — confirm readiness (docs, AC priority, council verdict) and repair any admitted-doc placement drift. This **readies** the wave (it stays `planned`); `wf_prepare_wave(mode='ready')` readies without opening, so any number of waves can be readied in parallel.
 4. **Implement wave / Implement feature** — **open** a readied wave (the single-OPEN activation step) and execute the admitted changes. Only one wave may be OPEN (`active`/`implementing`) at a time; the guard fires here, not at readiness.
 5. **Review wave** — code review, QA, architecture review, and Wave Council delivery synthesis as required by policy and change type.
-6. **Close wave / Finalize feature** — record closure, distill journals, promote memory, clear handoff.
+6. **Close wave / Finalize feature** — record closure, validate and promote memory candidates, clear handoff.
 
 See `AGENTS.md` for the shortcut phrase table and stage gate. See `docs/prompts/index.md` for the full public command catalog.
 

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: closed
-Last verified: 2026-07-20
+Last verified: 2026-07-22
 review-evidence-source: events.jsonl
 wave-id: `1slep external-wave-event-ledger`
 Title: External Wave Event Ledger
@@ -97,3 +97,31 @@ Wave `1slep` (External Wave Event Ledger) delivered one change: External Wave Ev
 ## Dependencies
 
 - No external wave dependencies.
+
+<!-- wave:context-efficiency begin -->
+## Context Efficiency
+
+Estimated token savings use phase-unique returned source versions and mapped workflow prompts, minus recorded request and response tokens. Saved model output or avoided tool loops count only through quality-equivalent paired evidence.
+
+| Stage | Tool calls | Estimated token savings |
+| --- | ---: | ---: |
+| review | 1 | 564 |
+| **Total** | **1** | **564** |
+
+<!-- wave:context-efficiency-state {"generation":1,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"review":{"calls":1,"content_source_credit":0,"derived_artifact_credit":0,"direct_net":564,"estimated_tokens_saved":564,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":11,"response_debit":1189,"source_credit_count":0,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":1764}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":1,"content_source_credit":0,"derived_artifact_credit":0,"direct_net":564,"estimated_tokens_saved":564,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":11,"response_debit":1189,"source_credit_count":0,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":1764},"wave_id":"1slep external-wave-event-ledger"} -->
+<!-- wave:context-efficiency end -->
+
+## Estimated Exploration Avoided
+
+<!-- wave:exploration-avoided begin -->
+
+This is a bounded estimate from exact-match memory advisories. It is not added to measured Context Efficiency.
+
+| Advisory surfaces | Citations | Records credited | Estimated tokens avoided |
+| ---: | ---: | ---: | ---: |
+| 0 | 0 | 0 | 0 |
+
+estimated: a surfaced (or cited) advisory does not prove a re-exploration was avoided; this is grounded in the measured cost of the original exploration, scaled by a bounded exact-match attribution, and is NEVER summed into the measured Context Efficiency token total.
+
+<!-- wave:exploration-avoided-state {"cited_events":0,"credited_records":0,"estimated_exploration_avoided":0,"surfaced_events":0} -->
+<!-- wave:exploration-avoided end -->

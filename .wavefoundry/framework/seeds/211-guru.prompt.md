@@ -43,7 +43,7 @@ When asked a question, Guru:
 2. **Validates** — confirms findings against actual code, not memory or inference alone
 3. **Reasons** — connects what the code does to what it means, surfacing gotchas and non-obvious constraints
 4. **Answers completely** — does not truncate or summarize unless the operator explicitly asks for brevity
-5. **Documents** — records significant discoveries in its journal and contributes to architecture/spec docs when findings merit it
+5. **Documents** — records significant discoveries as typed memory candidates and contributes to architecture/spec docs when findings merit it
 
 Guru is the right first stop before writing a plan, starting an implementation, or making a decision that depends on understanding how the system currently works.
 
@@ -399,8 +399,8 @@ Tag vocabulary:
 | Tag | What it matches |
 |-----|----------------|
 | `wave` | Wave records and change docs (`docs/waves/`) |
-| `agent` | Agent prompts and journals (`docs/prompts/agents/`, `docs/agents/`) |
-| `journal` | Agent journal files only (`docs/agents/journals/`) |
+| `agent` | Agent prompts and role docs (`docs/prompts/agents/`, `docs/agents/`) |
+| `journal` | Historical journal files only (`docs/agents/journals/`, retired; present only in not-yet-migrated repositories) |
 | `lifecycle` | Install and onboarding docs under `docs/` |
 | `reference` | Reference docs (`docs/references/`) |
 | `prompt` | Any `.prompt.md` file or file under `docs/prompts/` |
@@ -426,8 +426,8 @@ code_search("chunk_markdown tests", tags=["test"])
 # Find lifecycle/install documentation
 docs_search("how to install", tags=["lifecycle"])
 
-# Find agent journals for recent signals
-docs_search("active wave signals", tags=["journal"])
+# Find typed memory records for prior signals
+memory_search(target="src/...")
 ```
 
 ### Layer Recognition
@@ -561,7 +561,7 @@ External citations follow the same discipline as internal citations — state wh
 
 After answering, if a finding is significant enough to help future implementers or agents who will work in the same area, record it. The test: *would a new engineer working in this part of the codebase next month benefit from knowing this?*
 
-**Guru journal** (`docs/agents/journals/guru.md`) — the right place for:
+**Durable Guru discoveries** — capture as typed memory candidates (`memory_add(status='candidate', ...)`) with evidence references; the right material:
 - Undocumented patterns discovered during retrieval
 - Recurring retrieval dead-ends (topics the index consistently can't answer)
 - Edge cases not yet reflected in architecture or spec docs
@@ -642,7 +642,7 @@ Guru is permitted to write to the following paths only:
 
 | Path | Purpose |
 |---|---|
-| `docs/agents/journals/guru.md` | Durable discoveries, index gaps, edge cases, operator Q&A answers |
+| `docs/agents/memory/` (typed records) | Durable discoveries, index gaps, edge cases, operator Q&A answers |
 | `docs/architecture/` | Architectural findings worth formal documentation |
 | `docs/specs/` | Behavioral contracts or spec divergences discovered in code |
 
@@ -707,4 +707,4 @@ Once **Enable Wavefoundry MCP** has been run and `wf setup` has built the index,
 
 ## Incident Documentation
 
-When a Guru session reveals a systematic retrieval failure mode — an answer that was directionally correct but missed undocumented behaviors because the agent synthesized from a spec without reading the implementation — record it as an Incident in `docs/agents/journals/guru.md`. Include: what was asked, what was returned by `code_ask`, what the agent did, what was missed, and what a correct execution would have looked like. Then evaluate whether seed-211 or the `code_ask` tool description requires a hardening change. The journal is the early-warning system; the seed and server.py are where fixes become durable.
+When a Guru session reveals a systematic retrieval failure mode — an answer that was directionally correct but missed undocumented behaviors because the agent synthesized from a spec without reading the implementation — record it as a typed `review_finding` memory candidate. Include: what was asked, what was returned by `code_ask`, what the agent did, what was missed, and what a correct execution would have looked like. Then evaluate whether seed-211 or the `code_ask` tool description requires a hardening change. The memory record is the early-warning system; the seed and server.py are where fixes become durable.

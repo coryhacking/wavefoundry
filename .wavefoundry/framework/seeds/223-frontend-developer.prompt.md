@@ -116,7 +116,7 @@ Surface uncertainty explicitly. If an assumption is not grounded in repository e
 
 ## Salience Triggers
 
-Stop and record a note or journal entry when:
+Stop and record a memory candidate when:
 - Design-system governance policy is absent and the change requires touching design-system surfaces
 - An accessibility baseline violation appears in the existing code that would be made worse by the admitted change
 - The admitted scope requires design-system evolution but the governance policy does not permit it without approval

@@ -1956,6 +1956,53 @@ class ExternalReviewEventLedgerTests(unittest.TestCase):
         self.assertIn("<!-- wave:finding-synthesis begin -->", rendered)
         self.assertNotIn("waveframework:finding-synthesis", rendered)
 
+    def test_external_projection_uses_plain_summary_without_html(self) -> None:
+        """Wave 1tb4z: the external-ledger projection is plain markdown — the
+        details wrapper collapsed nothing once records moved to events.jsonl."""
+        base = (
+            "# Wave\nreview-evidence-source: events.jsonl\n\n"
+            + subject.empty_external_finding_synthesis_section()
+            + "\n## Notes\nkeep me\n"
+        )
+        rendered = subject.render_review_evidence_projection(base, [synthesis()])
+        self.assertIn("*Machine review evidence — 1 records", rendered)
+        self.assertNotIn("<details", rendered)
+        self.assertNotIn("<summary>", rendered)
+        self.assertNotIn("wavefoundry-review-evidence", rendered)
+
+    def test_legacy_bodyless_details_form_validates_without_rewrite(self) -> None:
+        """Wave 1tb4z: an archived external projection in the retired
+        details-wrapped form canonicalizes to the plain line, so the
+        stale-projection equality holds without touching the file."""
+        summary = subject.review_evidence_summary_line(())
+        legacy = (
+            "# Wave\nreview-evidence-source: events.jsonl\n\n"
+            "## Finding Synthesis\n\n"
+            "<!-- wave:finding-synthesis begin -->\n"
+            f"{subject.review_evidence_human_table(())}\n\n"
+            '<details class="wavefoundry-review-evidence">\n'
+            f"<summary>{summary}</summary>\n"
+            "</details>\n"
+            "<!-- wave:finding-synthesis end -->\n"
+        )
+        canonical = subject.canonicalize_finding_synthesis_markers(legacy)
+        self.assertNotIn("<details", canonical)
+        self.assertIn(f"*{summary}*", canonical)
+        expected = subject.render_review_evidence_projection(legacy, [])
+        self.assertEqual(expected, canonical)
+
+    def test_canonicalizer_never_collapses_bodied_inline_details(self) -> None:
+        """The inline-authority form keeps its details wrapper (it collapses a
+        real JSONL body); only the class spelling normalizes."""
+        inline = subject.empty_finding_synthesis_section().replace(
+            'class="wave-review-evidence"', 'class="wavefoundry-review-evidence"'
+        )
+        canonical = subject.canonicalize_finding_synthesis_markers(inline)
+        self.assertIn('<details class="wave-review-evidence">', canonical)
+        self.assertNotIn("wavefoundry-review-evidence", canonical)
+        self.assertIn("```jsonl", canonical)
+        self.assertIn("<summary>", canonical)
+
     def test_structured_identity_distinguishes_finding_and_lifecycle_variants(self) -> None:
         common = {
             "event": "finding",

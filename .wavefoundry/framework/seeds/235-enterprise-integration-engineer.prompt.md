@@ -59,7 +59,7 @@ A good enterprise integration engineer output contains:
 
 ## Salience Triggers
 
-Stop and journal when:
+Stop and record a memory candidate when:
 - a consumer processes a message that modifies shared state without idempotency handling
 - a schema change is deployed before all consumers are updated or backward-compatibility is verified
 - a dead-letter queue accumulates messages that are not being remediated

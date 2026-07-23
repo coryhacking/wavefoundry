@@ -19,7 +19,7 @@ Explain how the shared Wave Framework uses numbering so the highest-value concep
 - `100-149`: prompt-surface generation, memory bootstrap, and reindex prompts
 - `150-169`: update and upgrade prompts
 - `170-199`: feature lifecycle prompts
-- `200-249`: wave, journal, and migration helper prompts
+- `200-249`: wave, memory, and migration helper prompts
 
 ## Why The Framework Uses This Scheme
 

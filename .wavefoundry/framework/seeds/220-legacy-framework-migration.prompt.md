@@ -28,8 +28,7 @@ Migration tasks:
 5. Backfill missing wave-context-only artifacts:
    - prompt-surface manifest
    - waves root
-   - journals root
-   - persona docs and persona journals when evidence supports them
+   - persona docs when evidence supports them
    - expanded workflow-config sections for wave execution, memory, persona generation, and prompt generation
    - generated index and session-handoff artifacts when missing
    - canonical wave-context prompt docs when missing
@@ -38,18 +37,18 @@ Migration tasks:
    - if any active `docs/specs/changes/<id>/` or `docs/product-specs/changes/<id>/` packages still exist, fold their `proposal.md` rationale, `spec.md` requirements, and `tasks.md` tasks into the corresponding plan file as `## Rationale`, `## Requirements`, and `## Tasks` sections, then remove the now-redundant spec folder
    - after migrating all packages, **remove the legacy workspace directories** if they are now empty: `docs/exec-plans/`, `docs/product-specs/`, `docs/gaps/`, `docs/performance/`, `docs/specs/changes/`; do not leave empty shell directories
    - if a `docs/tasks.md` pre-wave scratch backlog exists, review it for items worth promoting to `docs/references/tech-debt-tracker.md`, then remove it — a flat uncategorized task list has no place in the wave model
-   - if `docs/gaps/missing-docs.md` exists alongside `docs/missing-docs.md`, consolidate into `docs/missing-docs.md` (the canonical wave-context path) and remove `docs/gaps/` — update any references to the old path in journals, session-handoff, or agent docs
+   - if `docs/gaps/missing-docs.md` exists alongside `docs/missing-docs.md`, consolidate into `docs/missing-docs.md` (the canonical wave-context path) and remove `docs/gaps/` — update any references to the old path in session-handoff or agent docs
    - if `docs/performance/` exists as a legacy location for a performance budget doc, check whether `docs/architecture/performance-budget.md` now exists with richer content; if so, remove `docs/performance/` and update any references
    - if legacy lifecycle roots or alternate spec workspaces exist, preserve their contents before retiring them
    - stop and report conflicts rather than overwriting divergent lifecycle artifacts
    - do not move durable `docs/specs/*.md` behavior contracts — they are canonical reference docs that stay in place
 7. Execute the full baseline wave closure procedure so durable lessons are not left trapped in moved source files:
    - Run applicable agent review lanes (architecture, QA, docs-contract, security, performance) for the change types present in the baseline and document real findings — not pass/fail placeholders — as review checkpoint sections in `wave.md`
-   - Seed journal files with `## Observations` and `## Distillation` bullets drawn from the moved plans; do not use generic placeholder text
+   - Capture durable lessons from the moved plans as typed memory records with evidence references; do not use generic placeholder text
    - Promote reusable workflow lessons to `docs/references/project-context-memory.md`; this file must have at least one substantive entry after baseline closure
    - Update `docs/RELIABILITY.md`, `docs/ARCHITECTURE.md`, and `docs/QUALITY_SCORE.md` with any durable patterns introduced by baseline changes
    - Refresh persona agent invocation signals and failure modes when the baseline corpus reveals new user-facing patterns
-   - Mark the wave `Status: completed` only after all reviews, journals, and core-doc promotions are recorded
+   - Mark the wave `Status: completed` only after all reviews, memory records, and core-doc promotions are recorded
 8. Retire or rewrite stale local prompt docs and generated-doc references that still point to legacy project-context phrasing or obsolete helper names after replacement artifacts are in place.
 9. Document **`Init Wavefoundry`** (legacy: **`Init wave framework`** / **`Init wave context`**) as the first-phase detector for baseline capture and **`Upgrade Wavefoundry`** (legacy: **`Upgrade wave framework`** / **`Upgrade wave context`**) as the refresh handoff for already-installed wave repos; treat **`Install Wavefoundry`** / **`Install wave framework`** / **`Install wave context`** only as convenience aliases that resolve through init detection.
 10. Preserve useful repo-grown behavior instead of flattening it.
@@ -61,9 +60,9 @@ Migration validation checks:
 - prompt docs point at `.wavefoundry/framework` rather than the legacy framework
 - root wrappers point at the wave-context scripts
 - workflow config contains wave/memory/persona/prompt-generation sections
-- generated roots for waves, journals, and manifests exist
+- generated roots for waves and manifests exist
 - generated indexes reflect the new artifact set
-- any migrated `wave-0` baseline wave is a single `wave.md` (no subdirectories), plan files were physically moved into the wave folder (not left in `docs/plans/completed/`), all reports from `docs/reports/` were moved into the wave folder (not left in `docs/reports/`), `## Corpus` table paths reflect the wave folder locations, `wave.md` has a `## Reports` section summarizing archived reports, `docs/plans/completed/` is empty, `docs/reports/` is empty, review checkpoints contain actual findings, journal files have real distilled lessons, and `docs/references/project-context-memory.md` has at least one promoted entry
+- any migrated `wave-0` baseline wave is a single `wave.md` (no subdirectories), plan files were physically moved into the wave folder (not left in `docs/plans/completed/`), all reports from `docs/reports/` were moved into the wave folder (not left in `docs/reports/`), `## Corpus` table paths reflect the wave folder locations, `wave.md` has a `## Reports` section summarizing archived reports, `docs/plans/completed/` is empty, `docs/reports/` is empty, review checkpoints contain actual findings, distilled lessons exist as typed memory records, and `docs/references/project-context-memory.md` has at least one promoted entry
 - legacy helper or wrapper references are either migrated or explicitly reported
 - factor-review policy survives migration when still relevant
 

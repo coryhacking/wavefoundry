@@ -37,7 +37,7 @@ A briefing packet is the structured context shared with every council seat or re
 | Field | Description |
 |-------|-------------|
 | `architecture_refs` | Relevant architecture docs consulted |
-| `prior_artifacts` | Prior review outputs, journals, or prior-wave findings that are still relevant |
+| `prior_artifacts` | Prior review outputs, memory records, or prior-wave findings that are still relevant |
 | `explicit_non_goals` | What is intentionally out of scope |
 | `recommended_model_tier` | Suggested model capability tier for complex seats |
 

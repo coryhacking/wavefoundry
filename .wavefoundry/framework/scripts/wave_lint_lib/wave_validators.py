@@ -65,6 +65,7 @@ from .constants import (
     WAVE_ID_PATTERN,
     WAVE_REQUIRED_PATHS,
     WAVE_REQUIRED_SECTIONS,
+    WAVE_WATCHPOINT_HEADINGS,
 )
 from .helpers import load_json, read_text, relative_to_root
 
@@ -1031,14 +1032,28 @@ def check_wave_docs(root: Path, only: set[Path] | None = None, skip: set[Path] |
             for section in WAVE_REQUIRED_SECTIONS:
                 if section not in text:
                     failures.append(f"{rel}: missing required section `{section}`")
+            if not any(heading in text for heading in WAVE_WATCHPOINT_HEADINGS):
+                failures.append(
+                    f"{rel}: missing required section `## Watchpoints` "
+                    "(legacy `## Journal Watchpoints` also accepted)"
+                )
             if not _metadata_value(text, "Title"):
                 failures.append(f"{rel}: wave doc must declare `Title:` metadata (displayed in the dashboard wave card)")
             if "## Objective" not in text:
                 failures.append(f"{rel}: wave doc must declare `## Objective` section (displayed in the dashboard wave card)")
             sections = _extract_sections(text)
-            watchpoints = sections.get("## Journal Watchpoints", "")
+            watchpoints = next(
+                (
+                    sections.get(heading, "")
+                    for heading in WAVE_WATCHPOINT_HEADINGS
+                    if sections.get(heading, "")
+                ),
+                "",
+            )
             if watchpoints and not _section_has_bullets(watchpoints):
-                failures.append(f"{rel}: `## Journal Watchpoints` must include at least one bullet")
+                failures.append(
+                    f"{rel}: the watchpoints section must include at least one bullet"
+                )
 
         forward_wave = _wave_requires_wave_owned_change_docs(text) if is_wave_record else False
         change_records = _parse_change_records(text, rel)
@@ -1145,7 +1160,7 @@ def check_wave_docs(root: Path, only: set[Path] | None = None, skip: set[Path] |
         }
         if non_terminal_states and watchpoints and not _contains_any(watchpoints, WAVE_WATCHPOINT_MARKERS):
             failures.append(
-                f"{rel}: `## Journal Watchpoints` should capture follow-up, watchpoint, or blocking language for non-terminal changes"
+                f"{rel}: the watchpoints section should capture follow-up, watchpoint, or blocking language for non-terminal changes"
             )
         if wave_matches and _wave_requires_wave_owned_change_docs(text):
             for change_id in sorted(set(CHANGE_ID_PATTERN.findall(text))):
@@ -1459,9 +1474,10 @@ def check_persona_docs(root: Path, only: set[Path] | None = None, skip: set[Path
                 f"{rel}: `## Salience triggers` — every bullet must contain a salience marker word; "
                 f"accepted markers: {', '.join(JOURNAL_SALIENCE_MARKERS)}"
             )
+        # Wave 1t9w9: journals are retired in favor of the memory system, so a
+        # persona doc no longer REQUIRES a journal reference. Any reference it
+        # still carries must resolve (link integrity for not-yet-migrated docs).
         journal_paths = JOURNAL_PATH_PATTERN.findall(text)
-        if not journal_paths:
-            failures.append(f"{rel}: persona doc must reference an associated journal path")
         for journal_path in journal_paths:
             if not (root / journal_path).exists():
                 failures.append(f"{rel}: persona doc references missing journal `{journal_path}`")
@@ -1553,30 +1569,10 @@ def check_cross_artifact_consistency(root: Path) -> list[str]:
                 else:
                     seen_shortcuts.add(shortcut)
 
-    wave_inventory, record_inventory = _collect_wave_state(root)
-    journal_root = root / "docs/agents/journals"
-    journal_wave_refs: set[str] = set()
-    for path in sorted(journal_root.rglob("*.md")):
-        if path.name == "README.md":
-            continue
-        text = read_text(path)
-        journal_wave_refs.update(WAVE_REFERENCE_PATTERN.findall(text))
-    for wave_id, record in wave_inventory.items():
-        active_records = [
-            record_inventory[record_id]
-            for record_id in record.record_ids
-            if record_id in record_inventory
-            and record_inventory[record_id].status
-            not in (TERMINAL_CHANGE_STATUSES if record_inventory[record_id].anchor_type == "change" else TERMINAL_ITEM_STATUSES)
-        ]
-        if active_records and wave_id not in journal_wave_refs:
-            failures.append(
-                f"{record.path}: active wave `{wave_id}` must be referenced by at least one journal artifact"
-                f" — add exactly this line to a file under docs/agents/journals/:"
-                f" wave-id: `{wave_id}`"
-                f" (the wave-id key must be alone on its line with no trailing content after the closing backtick)"
-            )
-
+    # Wave 1t9w9: the "active wave must be referenced by a journal" requirement
+    # is retired with the journal system — in-flight capture lives in Progress
+    # Logs and memory candidates. Remaining journal files (historical) keep
+    # their reference-integrity checks below.
     failures.extend(
         _check_doc_references(
             root=root,

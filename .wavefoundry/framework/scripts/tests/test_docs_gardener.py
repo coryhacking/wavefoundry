@@ -131,30 +131,44 @@ class DocsGardenerTests(unittest.TestCase):
         self.assertIn("Last verified: 2020-06-01", a.read_text(encoding="utf-8"))
         self.assertIn("Last verified: 2020-06-01", b.read_text(encoding="utf-8"))
 
-    def test_empty_run_skips_report_creation_and_prints_nothing_to_report(self) -> None:
+    def test_stamping_run_writes_no_reindex_report(self) -> None:
+        """Wave 1tbvo: the daily reindex-report artifact is retired — a
+        stamping run stamps docs, prints a summary, and writes NOTHING under
+        docs/reports/; the render_report helper no longer exists."""
+        self._write_doc("docs/a.md", "2000-01-01")
         self._minimal_manifest()
         self._ensure_session_handoff()
         out = io.StringIO()
         with redirect_stdout(out):
-            code, paths = dg.gardener_run(self.root, dg.parse_args(["--date", "2020-06-01"]))
+            code, paths = dg.gardener_run(
+                self.root, dg.parse_args(["--date", "2020-06-01", "--paths", "docs/a.md"])
+            )
         self.assertEqual(code, 0)
-        self.assertEqual(paths, [])
-        self.assertEqual(out.getvalue().strip(), "docs-gardener: ok (nothing to report)")
-        self.assertFalse((self.root / "docs" / "reports" / "reindex-2020-06-01.md").exists())
+        self.assertTrue(any("docs/a.md" in p for p in paths))
+        reports_dir = self.root / "docs" / "reports"
+        self.assertFalse(
+            reports_dir.exists() and any(reports_dir.iterdir()),
+            "a stamping run must not create anything under docs/reports/",
+        )
+        self.assertFalse(any("docs/reports/" in p for p in paths))
+        # Stable output contract (parsed by run_garden in server_impl.py):
+        # one `updated <path>` line per updated file, then the count summary.
+        lines = out.getvalue().strip().splitlines()
+        self.assertEqual(lines[-1], "docs-gardener: stamped 1 doc(s)")
+        self.assertIn("docs-gardener: updated docs/a.md", lines)
+        for line in lines[:-1]:
+            self.assertTrue(line.startswith("docs-gardener: updated "), line)
+        self.assertFalse(hasattr(dg, "render_report"))
 
-    def test_empty_run_leaves_existing_report_untouched(self) -> None:
+    def test_empty_run_prints_nothing_to_report(self) -> None:
         self._minimal_manifest()
         self._ensure_session_handoff()
-        report = self.root / "docs" / "reports" / "reindex-2020-06-01.md"
-        report.parent.mkdir(parents=True, exist_ok=True)
-        report.write_text("existing report\n", encoding="utf-8")
         out = io.StringIO()
         with redirect_stdout(out):
             code, paths = dg.gardener_run(self.root, dg.parse_args(["--date", "2020-06-01"]))
         self.assertEqual(code, 0)
         self.assertEqual(paths, [])
         self.assertEqual(out.getvalue().strip(), "docs-gardener: ok (nothing to report)")
-        self.assertEqual(report.read_text(encoding="utf-8"), "existing report\n")
 
     def _init_git(self) -> None:
         subprocess.run(

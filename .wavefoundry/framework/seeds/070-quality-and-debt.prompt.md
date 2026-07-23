@@ -23,4 +23,4 @@ Required semantics:
 Guardrails:
 
 - Keep these docs evidence-based.
-- Promote durable quality/process expectations into canonical docs, not journals.
+- Promote durable quality/process expectations into canonical docs, not memory records alone.
