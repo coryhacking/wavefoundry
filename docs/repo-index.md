@@ -35,7 +35,7 @@ between the markers is machine-maintained; the surrounding narrative is not.
 
 | Area | Path | Kind | Size (nodes) |
 | ---- | ---- | ---- | ------------ |
-| tests | `.wavefoundry/framework/scripts/tests` | code | 9112 |
+| tests | `.wavefoundry/framework/scripts/tests` | code | 9123 |
 | server_impl | `.wavefoundry/framework/scripts` | code | 854 |
 | graph | `.wavefoundry/framework/scripts` | code | 353 |
 | dashboard | `.wavefoundry/framework/dashboard` | code | 214 |
@@ -48,16 +48,16 @@ between the markers is machine-maintained; the surrounding narrative is not.
 | indexer | `.wavefoundry/framework/scripts` | code | 115 |
 | review_evidence | `.wavefoundry/framework/scripts` | code | 99 |
 | render_agent_surfaces | `.wavefoundry/framework/scripts` | code | 90 |
-| docs/dashboard_lib | `.wavefoundry/framework/scripts` | code | 67 |
 | gen_codebase_map | `.wavefoundry/framework/scripts` | code | 55 |
+| dashboard_server | `.wavefoundry/framework/scripts` | code | 44 |
 | graph_di_signals | `.wavefoundry/framework/scripts` | code | 44 |
 | framework/scripts — update_graph_clusters | `.wavefoundry/framework/scripts` | code | 38 |
 | upgrade_extensions | `.wavefoundry/framework/scripts` | code | 38 |
 | framework/scripts — register_mcp_surface | `.wavefoundry/framework/scripts` | code | 32 |
+| docs/dashboard_lib | `.wavefoundry/framework/scripts` | code | 26 |
 | design_token_build | `.wavefoundry/framework/scripts` | code | 25 |
 | run_tests | `.wavefoundry/framework/scripts` | code | 18 |
 | docs_gardener | `.wavefoundry/framework/scripts` | code | 16 |
-| server | `.wavefoundry/framework/scripts` | code | 13 |
 | tokens | `docs/design-system/tokens` | config | 320 |
 <!-- wave:repo-index-modules end -->
 

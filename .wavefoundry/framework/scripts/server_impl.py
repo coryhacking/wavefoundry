@@ -8088,6 +8088,7 @@ def _memory_add_response_locked(
     _current_target_verified: Optional[bool] = None,
     _canonical_overlap: str = "",
     _defer_index_refresh: bool = False,
+    _source_exploration_cost: Optional[int] = None,
 ) -> dict[str, Any]:
     mem = _memory_mod()
     problems: list[str] = []
@@ -8178,6 +8179,8 @@ def _memory_add_response_locked(
                 _evidence_verified=_evidence_verified,
                 _current_target_verified=_current_target_verified,
                 _canonical_overlap=_canonical_overlap,
+                _defer_index_refresh=_defer_index_refresh,
+                _source_exploration_cost=_source_exploration_cost,
             )
     explicit = bool(memory_id)
     base_id = memory_id or mem.mint_memory_id(root, title or summary)
@@ -8211,6 +8214,29 @@ def _memory_add_response_locked(
             next_tools=["memory_search"], usage="",
         )
 
+    # Wave 1tdl8: a successor record inherits the superseded record's measured
+    # `source_exploration_cost` — the grounding exploration is shared by
+    # construction through the explicit supersession link (this covers both
+    # memory_validate rewrites and hand-authored memory_add(supersedes=...)).
+    # An explicitly provided cost wins over inheritance. Inheritance never
+    # stamps a record without supersession lineage, and only a POSITIVE
+    # measured cost is carried (zero grounds nothing).
+    _inherited_cost: Optional[int] = _source_exploration_cost
+    if _inherited_cost is None and supersedes:
+        try:
+            _prior_record = mem.parse_memory_record(
+                mem._contained_record_path(root, supersedes)
+            )
+            _prior_cost = (
+                _prior_record.get("source_exploration_cost")
+                if _prior_record
+                else None
+            )
+            if _prior_cost is not None and int(_prior_cost) > 0:
+                _inherited_cost = int(_prior_cost)
+        except (OSError, ValueError):
+            _inherited_cost = None
+
     def _render(mid: str) -> str:
         return mem.render_memory_record(
             memory_id=mid, kind=kind, summary=summary, evidence=evidence,
@@ -8222,6 +8248,7 @@ def _memory_add_response_locked(
             evidence_verified=_evidence_verified,
             current_target_verified=_current_target_verified,
             canonical_overlap=_canonical_overlap,
+            source_exploration_cost=_inherited_cost,
         )
 
     # Fence the durable seqlock BEFORE any filesystem write (delivery-review
@@ -8954,6 +8981,11 @@ def memory_validate_response(
             if existing_rewrite is not None:
                 rewritten = _memory_view(existing_rewrite, {})
             else:
+                # Wave 1tdl8: the rewrite record inherits the rewritten
+                # candidate's measured grounding cost (the rewrite path applies
+                # supersession to the OLD record afterwards, so the inherited
+                # cost is passed explicitly here rather than via `supersedes`).
+                _prior_cost = record.get("source_exploration_cost")
                 add = _memory_add_response_locked(
                     root, rewrite_kind, rewrite_summary, rewrite_evidence, rewrite_targets,
                     title=rewrite_title, confidence=rewrite_confidence, status="active",
@@ -8964,6 +8996,11 @@ def memory_validate_response(
                     _evidence_verified=True, _current_target_verified=True,
                     _canonical_overlap=canonical_overlap,
                     _defer_index_refresh=bool(backfill_run),
+                    _source_exploration_cost=(
+                        int(_prior_cost)
+                        if _prior_cost is not None and int(_prior_cost) > 0
+                        else None
+                    ),
                 )
                 if add.get("status") != "ok" or not add.get("data", {}).get("written"):
                     return _response(

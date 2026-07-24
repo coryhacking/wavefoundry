@@ -329,7 +329,11 @@ def draft_candidates(
     if wave_dir is None:
         return []
     wid = _wave_id_token(wave_id)
-    cost = source_exploration_cost(wave_dir)
+    # Wave 1tdl8: a measured cost of 0 (historical waves with no telemetry)
+    # grounds nothing and reads as false precision — omit the stamp entirely
+    # rather than writing `Source exploration cost: 0`.
+    measured_cost = source_exploration_cost(wave_dir)
+    cost = measured_cost if measured_cost > 0 else None
     drafts: list[dict[str, Any]] = []
 
     # (A) Decision Log rows -> `decision` candidates (durable by definition).

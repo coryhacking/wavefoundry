@@ -282,9 +282,33 @@ def credit_surface(
 
 
 def render_checkpoint_block(root: Path, wave_id: str) -> str:
-    """Render the human projection; the SQLite ledger remains authoritative."""
+    """Render the human projection; the SQLite ledger remains authoritative.
+
+    Wave 1tdl8: the visible section (heading, prose, table, caveat) renders
+    only when the wave has NONZERO totals — a permanently-empty table is
+    noise. The zero state keeps the markers and machine state comment so the
+    flush stays idempotent and the zero-to-nonzero transition adds the table
+    at the next flush. Closed waves' historical blocks are never rewritten
+    (flushes only touch open waves).
+    """
     totals = read_wave(root, wave_id)
     state = json.dumps(totals, sort_keys=True, separators=(",", ":"))
+    nonzero = any(
+        int(totals.get(key, 0)) > 0
+        for key in (
+            "estimated_exploration_avoided",
+            "surfaced_events",
+            "cited_events",
+            "credited_records",
+        )
+    )
+    if not nonzero:
+        return "\n".join([
+            MARKER_BEGIN,
+            f"<!-- wave:exploration-avoided-state {state} -->",
+            MARKER_END,
+            "",
+        ])
     return "\n".join([
         "## Estimated Exploration Avoided",
         "",

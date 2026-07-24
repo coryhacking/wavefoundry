@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-20
+Last verified: 2026-07-23
 
 ## What this is (and is not)
 
@@ -66,6 +66,19 @@ phase may earn new credit because it represents a new review/repair context.
   its own label (`estimated_exploration_avoided` on `wf_current_wave` /
   `wf_audit`, plus `## Estimated Exploration Avoided` in `wave.md`) and is
   NEVER added to the measured `## Context Efficiency` token total.
+- **Rendered only when nonzero (wave 1tdl8).** The visible `wave.md` section
+  (heading, table, caveat) appears only when a wave has nonzero totals; the
+  zero state keeps the markers and machine state comment so the flush stays
+  idempotent and the zero-to-nonzero transition adds the table at the next
+  flush. Closed waves' historical blocks are never rewritten. `wf_audit` and
+  `wf_current_wave` already surface the number only when positive.
+- **Grounding survives supersession (wave 1tdl8).** A record minted with an
+  explicit supersession link (a `memory_validate` rewrite or
+  `memory_add(supersedes=...)`) inherits its predecessor's positive measured
+  `Source exploration cost` unless a cost is explicitly provided; a record
+  without supersession lineage is never stamped by inheritance, and a zero
+  cost is never carried (it grounds nothing). Backfill drafts omit the stamp
+  entirely when the producing wave's measured cost is zero.
 - **Surfaced vs cited, recorded distinctly.** `surfaced_events` and
   `cited_events` are tracked separately; surface is discounted for the gap.
 - **Telemetry-only.** It never affects retrieval, ranking, gating, or the

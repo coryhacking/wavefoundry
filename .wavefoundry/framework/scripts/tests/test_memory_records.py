@@ -2012,6 +2012,107 @@ class MemoryAddDuplicateDiagnosticTests(_MemoryCase):
         )
 
 
+class SupersessionCostInheritanceTests(_MemoryCase):
+    """Wave 1tdl8: `source_exploration_cost` survives supersession at the one
+    minting seam (memory_validate rewrites AND memory_add(supersedes=...))."""
+
+    def setUp(self):
+        super().setUp()
+        self.srv = load_server()
+
+    def _predecessor(self, mid="mem-old", *, cost, extra=""):
+        target = self.root / "src" / "a.py"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("VALUE = 1\n", encoding="utf-8")
+        content = self.mem.render_memory_record(
+            memory_id=mid, kind="failed_attempt", summary="Old lesson.",
+            evidence=["`1abcd`"], targets=["src/a.py"], title="Old",
+            status="active", source_exploration_cost=cost,
+        )
+        if extra:
+            content = content.replace(
+                "\n## Summary", f"\n{extra}\n## Summary", 1
+            )
+        return self.mem.write_memory_record(self.root, content, mid)
+
+    def _add(self, **kwargs):
+        return self.srv.memory_add_response(
+            self.root, "failed_attempt", "New lesson.",
+            ["`1abcd`"], ["src/a.py"], **kwargs,
+        )
+
+    def test_supersedes_add_inherits_positive_cost(self):
+        self._predecessor(cost=1234)
+        result = self._add(memory_id="mem-new", supersedes="mem-old")
+        self.assertEqual(result["status"], "ok", result)
+        record = self.mem.parse_memory_record(
+            self.root / self.mem.MEMORY_DIR / "mem-new.md"
+        )
+        self.assertEqual(record["source_exploration_cost"], 1234)
+
+    def test_non_superseding_add_stays_unstamped(self):
+        result = self._add(memory_id="mem-solo")
+        self.assertEqual(result["status"], "ok", result)
+        record = self.mem.parse_memory_record(
+            self.root / self.mem.MEMORY_DIR / "mem-solo.md"
+        )
+        self.assertIsNone(record["source_exploration_cost"])
+
+    def test_zero_cost_predecessor_does_not_stamp(self):
+        self._predecessor(mid="mem-zero", cost=0)
+        result = self._add(memory_id="mem-after-zero", supersedes="mem-zero")
+        self.assertEqual(result["status"], "ok", result)
+        record = self.mem.parse_memory_record(
+            self.root / self.mem.MEMORY_DIR / "mem-after-zero.md"
+        )
+        self.assertIsNone(record["source_exploration_cost"])
+
+    def test_explicit_cost_wins_over_inheritance(self):
+        self._predecessor(mid="mem-base", cost=1234)
+        result = self.srv._memory_add_response_locked(
+            self.root, "failed_attempt", "New lesson.",
+            ["`1abcd`"], ["src/a.py"],
+            memory_id="mem-explicit", supersedes="mem-base",
+            _source_exploration_cost=777,
+        )
+        self.assertEqual(result["status"], "ok", result)
+        record = self.mem.parse_memory_record(
+            self.root / self.mem.MEMORY_DIR / "mem-explicit.md"
+        )
+        self.assertEqual(record["source_exploration_cost"], 777)
+
+    def test_validate_rewrite_inherits_cost(self):
+        self._predecessor(
+            mid="mem-drafted",
+            cost=4321,
+            extra=(
+                "Source event: `decision-log:1zzzz-feat demo:abc123`\n"
+                "Validation: pending\n"
+            ),
+        )
+        rewritten = self.srv.memory_validate_response(
+            self.root,
+            "mem-drafted",
+            "rewrite",
+            "Corrected action delta.",
+            "The drafted summary was imprecise.",
+            True,
+            True,
+            "none",
+            rewrite_kind="failed_attempt",
+            rewrite_title="corrected-lesson",
+            rewrite_summary="The corrected durable lesson.",
+            rewrite_evidence=["`1abcd`"],
+            rewrite_targets=["src/a.py"],
+        )
+        self.assertEqual(rewritten["status"], "ok", rewritten)
+        new_id = rewritten["data"]["rewrite_record"]["memory_id"]
+        record = self.mem.parse_memory_record(
+            self.root / self.mem.MEMORY_DIR / f"{new_id}.md"
+        )
+        self.assertEqual(record["source_exploration_cost"], 4321)
+
+
 class MemoryProposeTests(_MemoryCase):
     """Wave 1stwk: draft candidate records from a wave's typed review evidence."""
 
@@ -2055,6 +2156,20 @@ class MemoryProposeTests(_MemoryCase):
         self.assertEqual(draft["kind"], "decision")
         self.assertEqual(draft["targets"], ["src/foo.py"])
         self.assertEqual(draft["source_exploration_cost"], 1000)
+
+    def test_zero_measured_cost_omits_the_stamp(self):
+        """Wave 1tdl8: a measured cost of 0 grounds nothing — drafts carry
+        None and the written record has no `Source exploration cost:` line."""
+        self._wave("1aaab", "nocost",
+                   decision_rows=[("Use `src/bar.py` for Z", "grounded")])
+        dry = self.srv.memory_propose_response(self.root, "1aaab", "dry_run")
+        self.assertEqual(dry["data"]["records_proposed"], 1)
+        self.assertIsNone(dry["data"]["proposed"][0]["source_exploration_cost"])
+        created = self.srv.memory_propose_response(self.root, "1aaab", "create")
+        mid = created["data"]["written"][0]["memory_id"]
+        path = self.root / self.mem.MEMORY_DIR / f"{mid}.md"
+        self.assertNotIn("Source exploration cost", path.read_text(encoding="utf-8"))
+        self.assertIsNone(self.mem.parse_memory_record(path)["source_exploration_cost"])
 
     def test_only_admitted_change_docs_supply_decisions(self):
         self._wave(
@@ -2768,6 +2883,52 @@ class ExplorationAvoidedTests(_MemoryCase):
             self.root / "docs" / "waves" / wid / "wave.md"
         ).read_text(encoding="utf-8")
         self.assertIn("<!-- wave:exploration-avoided begin -->", text)
+
+    def test_zero_totals_render_markers_only_and_transition_adds_table(self):
+        """Wave 1tdl8: the visible section renders only when totals are
+        nonzero; the zero state keeps markers + machine state for flush
+        idempotence, and the zero-to-nonzero transition adds the table."""
+        wid = self._open_wave()
+        zero_block = self.ea.render_checkpoint_block(self.root, wid)
+        self.assertIn(self.ea.MARKER_BEGIN, zero_block)
+        self.assertIn("wave:exploration-avoided-state", zero_block)
+        self.assertNotIn("## Estimated Exploration Avoided", zero_block)
+        self.assertNotIn("| Advisory surfaces |", zero_block)
+        self.assertNotIn("bounded estimate", zero_block)
+
+        # Zero-state replace is idempotent (flush twice, same document).
+        doc = "# Wave\n\nBody.\n\n" + zero_block
+        once = self.ea.replace_checkpoint_block(doc, self.root, wid)
+        twice = self.ea.replace_checkpoint_block(once, self.root, wid)
+        self.assertEqual(once, twice)
+        self.assertNotIn("## Estimated Exploration Avoided", twice)
+
+        # Migration-on-flush: an existing document carrying the OLD full zero
+        # table (heading included) collapses to the compact zero state.
+        legacy = (
+            "# Wave\n\nBody.\n\n## Estimated Exploration Avoided\n\n"
+            + self.ea.MARKER_BEGIN + "\n\n"
+            "| Advisory surfaces | Citations | Records credited | Estimated tokens avoided |\n"
+            "| ---: | ---: | ---: | ---: |\n| 0 | 0 | 0 | 0 |\n\n"
+            + self.ea.MARKER_END + "\n"
+        )
+        collapsed = self.ea.replace_checkpoint_block(legacy, self.root, wid)
+        self.assertNotIn("## Estimated Exploration Avoided", collapsed)
+        self.assertNotIn("| 0 | 0 | 0 | 0 |", collapsed)
+        self.assertIn(self.ea.MARKER_BEGIN, collapsed)
+
+        # Transition: crediting makes the table appear exactly once.
+        self.ea.credit_surface(
+            self.root, wid,
+            [{"memory_id": "mem-a", "source_origin": "1srca",
+              "source_exploration_cost": 1000, "match_confidence": 1.0}],
+            context_key="src/a.py")
+        grown = self.ea.replace_checkpoint_block(twice, self.root, wid)
+        self.assertEqual(grown.count("## Estimated Exploration Avoided"), 1)
+        self.assertIn("| 1 | 0 | 1 | 500 |", grown)
+        self.assertIn("bounded estimate", grown)
+        regrown = self.ea.replace_checkpoint_block(grown, self.root, wid)
+        self.assertEqual(regrown.count("## Estimated Exploration Avoided"), 1)
 
     def test_existence_alone_does_not_accrue(self):
         wid = self._open_wave()

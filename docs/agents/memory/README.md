@@ -224,7 +224,12 @@ context-efficiency `request_debit + response_debit`; the closed `wave.md`
 projection is a portability fallback only when no authoritative live row
 exists). It is a measured number, never a constant,
 and grounds the separately-labeled "estimated exploration avoided" wave metric.
-Absent on manually-authored records.
+Absent on manually-authored records, and omitted (not stamped as 0) when the
+producing wave's measured cost is zero. A successor record minted through an
+explicit supersession link (a validation rewrite or `memory_add` with
+`supersedes`) inherits its predecessor's positive cost so the grounding
+survives rewrites; an explicitly provided cost wins, and records without
+supersession lineage are never stamped by inheritance (wave 1tdl8).
 
 ## Forbidden content
 

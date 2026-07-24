@@ -8,57 +8,128 @@ Last verified: 2026-07-20
 
 Wave: `1tbt5 memory-retrieval-quality-adaptive-freshness`
 
-> **DEFERRED (2026-07-17, council review).** Split out of wave `1sufo` and returned to `docs/plans/`. Both the red-team and reality-checker seats found full lexical+semantic RRF disproportionate for an empty/sparse typed corpus (RRF's benefit needs many candidates with divergent rankings; a handful of short records will largely agree, so it most likely evaluates to "do not adopt", and only against synthetic fixtures). The real defect is a ~2-line wholesale-`sort()` override, fixed by change `1svuj` (semantic-as-tie-break). Revisit this full-RRF apparatus only once a real corpus exists and the `1sufm` eval can prove fusion beats a *real* baseline. Two corrections to carry when revisited: (1) the framing below is imprecise — a non-matching high-trust record is *filtered out entirely* by the pre-filter (records must be a semantic hit OR a full-token `_text_match`), not "pushed down"; (2) the "reuse the FTS layer" claim is overstated — the current memory path uses `search_docs` + a Python token-match and does NOT touch FTS, so the lexical stream is genuinely new (in-process BM25 over the small loaded set, which is actually better for the hermetic/degraded path).
+> **REACTIVATED (2026-07-24 readiness review).** This was deferred from wave
+> `1sufo` because the corpus was sparse and the standing evaluation was
+> synthetic. The minimal correctness defect was fixed by `1svuj`
+> (semantic-as-tie-break), so this change is no longer a bug fix. Wave `1tbt5`
+> now reconsiders fusion strictly as an optional measured relevance improvement:
+> it expands the hermetic corpus, adds an aggregate-only curated real-corpus
+> pass, and keeps fusion default-off unless the explicit adoption gate passes.
 
 ## Rationale
 
-`memory_search` today conflates relevance and policy: it computes the decay/centrality order (`_memory_ranked`) and then re-sorts wholesale by semantic rank when a query has semantic hits (`memory_search_response`, semantic re-sort ~`server_impl.py:8008-8010`, anchor by symbol under concurrent edits). Among the records that pass the pre-filter, a high-trust `operator_preference`, `decision`, or `fragile_file` advisory can be outranked by a lower-trust one on pure text relevance — backwards for advisory memory. (Note: a record matching *neither* the query semantically nor by full-token text is filtered out by the pre-filter, not merely demoted.)
+`memory_search` now correctly keeps policy primary and uses semantic rank only
+as a tie-break within the rounded effective-confidence tier (`1svuj`). Its
+query candidate set is still the union of docs-index semantic hits and a
+full-token Python containment match. The open question is therefore quality,
+not correctness: does a real lexical rank plus the semantic rank improve
+ordering over the shipped tie-break without weakening policy constraints?
+A record matching neither relevance stream remains filtered out; fusion does
+not make unrelated high-trust memories surface.
 
-The fix, validated in design against the agentmemory review, is to separate relevance from policy: fuse only the lexical and semantic relevance rankings (RRF), apply exact-target matches as deterministic filters/priority, apply status/decay/confidence/fragile-file as policy constraints, and use centrality only as a final tie-break. We do NOT fold confidence/decay/centrality into the fused score (they are not relevance engines), and we add a graph stream only if the memory eval proves incremental benefit. This change adopts fusion ONLY if it beats the `1sufm` baseline without regressing the exact-target, decay, or supersession invariants.
+The candidate design keeps that separation: fuse only lexical and semantic
+relevance rankings, apply exact-target matches as deterministic filters or
+priority, retain status/decay/confidence/fragile-file as policy, and use
+centrality only as a final tie-break. Confidence, decay, freshness, and
+centrality never enter the RRF score. The design ships default-on only if the
+expanded `1t7ab` evaluation gate passes.
 
 ## Requirements
 
-1. **Relevance fusion.** Produce two candidate rankings over the surfaced records — lexical (exact-token / FTS-style over summary/title/evidence/targets, reusing the existing lexical infrastructure) and semantic (the docs-index embedding over the record text) — and fuse the two RANKINGS with Reciprocal Rank Fusion. Only these two relevance signals are fused.
+1. **Relevance fusion for `memory_search`.** After status/kind/history and any
+   exact-target filters, produce two rankings over the remaining records:
+   lexical (deterministic in-process BM25 over normalized
+   summary/title/evidence/targets/keywords) and semantic (the docs-index
+   embedding hits for memory records). Fuse the positive-match union with
+   Reciprocal Rank Fusion. The lexical stream reuses the documented FTS token
+   semantics but does not query or mutate the shared FTS tables and creates no
+   new index.
 2. **Exact-target as deterministic priority/filter.** A `target=`/`symbol=` exact match is applied deterministically (filter or top-priority), never diluted by fusion scores.
-3. **Policy as constraints, not fused relevance.** Status (surfaced-status filter), decay/`briefing_included` floor, confidence floor, and the `fragile_file` always-surface rule are applied as constraints/ordering policy layered on top of the fused relevance order — never blended into the RRF score.
+3. **Policy as constraints, not fused relevance.** Status
+   (surfaced-status filter), the existing confidence/freshness policy key,
+   `briefing_included` behavior where applicable, and the `fragile_file`
+   always-surface rule are applied as constraints or ordering policy layered on
+   top of the fused relevance order — never blended into the RRF score. The
+   final search order is policy partition, adaptive freshness/effective
+   confidence, RRF rank, centrality, then memory id; RRF cannot move a record
+   across a policy partition.
 4. **Centrality as tie-break only.** Betweenness centrality is used only to break ties in the final order, not as a relevance stream.
-5. **No graph stream initially.** Add a graph-proximity relevance stream only if `1sufm` demonstrates incremental benefit on the memory eval; default is lexical+semantic.
-6. **Adoption gated on measured improvement.** Ship fusion only when the `1sufm` harness shows it beats the recorded baseline (and lexical-only / semantic-only) on the required metrics WITHOUT regressing any policy-invariant case (exact-target, decay, supersession, degraded no-index). If it does not, this change lands the fusion behind a default-off flag with the measurements recorded, and the current order stays default.
+5. **No graph stream.** Graph-proximity relevance remains out of this wave even
+   if the evaluation suggests future value; adding a third stream requires a
+   separately planned contract.
+6. **Adoption gated on measured improvement.** Ship fusion default-on only when
+   the expanded `1t7ab` harness satisfies its explicit gate: every hermetic
+   invariant passes, hermetic recall@3 does not regress, curated-corpus MRR
+   strictly improves over the shipped baseline, curated recall@3 does not
+   regress, and lexical-only plus semantic-only controls are recorded. A tie,
+   unavailable curated pass, or any regression leaves fusion default-off with
+   measurements recorded.
 7. **Determinism + degradation.** RRF is deterministic; with no semantic index the path degrades to lexical-only (still fused-shaped, single stream) with the same policy constraints, never worse than today's text-containment fallback.
+8. **`memory_brief` remains queryless.** Do not add lexical/semantic fusion or a
+   query parameter to `memory_brief`. It consumes the shared adaptive
+   policy/freshness order from `1t7ab` and retains exact-target promotion.
 
 ## Scope
 
 **Problem statement:** memory search lets semantic relevance override the trust/decay policy; we need a principled fusion that keeps relevance and policy separate, adopted only on measured evidence.
 
 **In scope (edited under `framework_edit_allowed`):**
-- `.wavefoundry/framework/scripts/server_impl.py` — replace the `memory_search` semantic-override (`:8002-8004`) with: lexical+semantic RRF for relevance, exact-target as filter/priority, policy constraints layered on top, centrality tie-break. Apply the same relevance/policy separation to `memory_brief` ordering where the semantic path applies.
-- Reuse the existing lexical/FTS infrastructure (the `code_lexical`/1.12.0 lexical layer) for the lexical stream over memory-record text, and the docs semantic index for the semantic stream — no new index.
+- `.wavefoundry/framework/scripts/server_impl.py` — replace the current
+  semantic-tie-break branch in `memory_search_response` with the gated
+  lexical+semantic RRF candidate order while preserving policy as the primary
+  ordering contract.
+- Add a small pure in-process BM25 helper over the already-loaded surfaced
+  record set, using documented FTS token semantics. Do not query the global FTS
+  tables and do not add an index.
 - Docs — memory README ranking section documenting relevance-vs-policy separation.
-- Tests — RRF determinism, relevance/policy separation (a high-trust low-text-overlap record is not demoted below its policy position), degraded lexical-only path, and the `1sufm` gate assertions.
+- Tests — RRF determinism, relevance/policy separation for records that both
+  pass the relevance candidate union, degraded lexical-only path, queryless
+  brief invariance, and the expanded `1t7ab` gate assertions.
 
 **Out of scope:**
-- **The eval harness itself** — companion `1sufm` (this change consumes it).
-- **A graph relevance stream** — only if `1sufm` proves benefit; not in this change by default.
+- **The base eval harness** — the completed `1sufm` harness is reused and
+  expanded by companion change `1t7ab`; this change consumes that result.
+- **A graph relevance stream** — separately planned even if evaluation suggests
+  it may help.
 - **Reranker over memory** — out of scope (a small typed corpus does not need a cross-encoder; and it would reintroduce score-blending with policy).
 - **Brief count-cap → token-budget** — separate deferred item.
+- **Query/relevance changes to `memory_brief`** — it has no query relevance
+  input; only the shared freshness-policy changes from `1t7ab` apply.
 
 ## Acceptance Criteria
 
 - [ ] AC-1: Memory search fuses only the lexical and semantic relevance rankings via RRF; confidence/decay/centrality are NOT folded into the fused score. (required)
 - [ ] AC-2: Exact target/symbol matches are applied as a deterministic filter/priority, not diluted by fusion. (required)
-- [ ] AC-3: Status, decay/briefing floor, confidence floor, and `fragile_file` always-surface are applied as policy constraints layered on the fused order; a high-trust low-text-overlap record is not demoted below its policy position (test). (required)
-- [ ] AC-4: Centrality is used only as a final tie-break. No graph stream unless `1sufm` proves benefit. (required)
-- [ ] AC-5: Fusion is adopted as default ONLY when the `1sufm` harness shows it beats baseline + lexical-only + semantic-only without regressing exact-target/decay/supersession/no-index; otherwise it lands default-off with measurements recorded. (required)
+- [ ] AC-3: Status, the existing confidence/freshness policy key,
+  briefing-inclusion behavior, and `fragile_file` visibility remain policy
+  constraints layered on the fused order; among records admitted by the
+  relevance candidate union, fusion cannot move a record across its policy
+  partition. (required)
+- [ ] AC-4: Centrality is used only as a final tie-break; no graph relevance
+  stream is added in this wave. (required)
+- [ ] AC-5: Fusion is adopted as default ONLY when the expanded `1t7ab` gate
+  passes every hermetic invariant, non-regresses hermetic and curated recall@3,
+  strictly improves curated MRR, and records lexical-only plus semantic-only
+  controls; otherwise it lands default-off with measurements recorded.
+  (required)
 - [ ] AC-6: Deterministic RRF; no-semantic-index degrades to lexical-only with the same policy, never worse than today's fallback. (required)
-- [ ] AC-7: Full framework suite green; docs-lint clean. (required)
+- [ ] AC-7: `memory_brief` remains queryless and receives no lexical/semantic
+  fusion; target priority and shared policy/freshness ordering are
+  regression-pinned. (required)
+- [ ] AC-8: Full framework suite green; docs-lint clean. (required)
 
 ## Tasks
 
 - [ ] Build lexical + semantic candidate rankings over surfaced records; RRF fuse (relevance only).
-- [ ] Apply exact-target as filter/priority; layer status/decay/confidence/fragile as policy constraints; centrality tie-break.
-- [ ] Replace the `memory_search` semantic-override; apply separation to `brief` semantic ordering.
-- [ ] Gate adoption on the `1sufm` harness (default-off if it does not beat baseline); record measurements.
-- [ ] Tests: RRF determinism, relevance/policy separation, degraded lexical-only, gate assertions.
+- [ ] Apply exact-target as filter/priority; layer
+  status/confidence/freshness/fragile behavior as policy constraints;
+  centrality tie-break.
+- [ ] Replace the `memory_search` semantic tie-break only; keep `memory_brief`
+  queryless and on shared policy/freshness ordering.
+- [ ] Gate adoption on the expanded `1t7ab` harness; record measurements and
+  leave default-off on a tie or any incomplete/regressed gate.
+- [ ] Tests: RRF determinism, relevance/policy separation, degraded
+  lexical-only, queryless brief invariance, and gate assertions.
 - [ ] Memory README ranking section; full suite + docs-lint.
 
 ## Agent Execution Graph
@@ -68,17 +139,26 @@ The fix, validated in design against the agentmemory review, is to separate rele
 | ---------- | ----- | ---------- | ----- |
 | fusion | framework | — | lexical+semantic RRF relevance over records |
 | policy | framework | fusion | exact-target filter + decay/confidence/fragile constraints + centrality tie-break |
-| gate | framework | policy | adopt only if `1sufm` beats baseline; else default-off + measurements |
+| gate | framework | policy | apply the explicit `1t7ab` adoption gate; else default-off + measurements |
 | verify | framework | gate | tests + docs |
 
 
 ## Serialization Points
 
-- `.wavefoundry/framework/scripts/server_impl.py` (`memory_search`/`brief`) — edited under `framework_edit_allowed`. Depends on `1sufm` (eval) as the adoption gate.
+- `.wavefoundry/framework/scripts/server_impl.py`
+  (`memory_search_response`, `_memory_ranked`) — edited under
+  `framework_edit_allowed`. `memory_brief_response` is a regression boundary,
+  not a fusion edit site. Depends on the expanded `1t7ab` evaluation gate.
 
 ## Affected Architecture Docs
 
-`docs/specs/mcp-tool-surface.md` note (ranking semantics of memory search); memory README ranking section. No new boundary — a ranking rewrite within the existing tools, reusing existing indices.
+- `docs/specs/mcp-tool-surface.md`
+- `docs/agents/memory/README.md`
+- `docs/architecture/search-architecture.md`
+- `docs/architecture/testing-architecture.md`
+- `docs/references/memory-retrieval-eval.md`
+
+No new public tool or index boundary.
 
 ## AC Priority
 
@@ -93,7 +173,8 @@ The fix, validated in design against the agentmemory review, is to separate rele
 | AC-4 | required | Centrality is a tie-break, not a relevance engine |
 | AC-5 | required | Adopt only on measured improvement (the gate) |
 | AC-6 | required | Deterministic + safe degradation |
-| AC-7 | required | No regression |
+| AC-7 | required | Brief has no query stream and must not acquire one accidentally |
+| AC-8 | required | No regression |
 
 
 ## Progress Log
@@ -102,6 +183,7 @@ The fix, validated in design against the agentmemory review, is to separate rele
 | Date | Update | Evidence |
 | ---- | ------ | -------- |
 | 2026-07-17 | Change doc authored; separation design validated against the agentmemory review | `server_impl.py:8002-8004` (semantic override); enhancement plan retrieval design |
+| 2026-07-24 | Readiness review reconciled the plan to the shipped `1svuj` tie-break, the queryless brief path, in-process lexical ranking, and the expanded `1t7ab` gate. | `memory_search_response`; `memory_brief_response`; `run_memory_eval.py` |
 
 
 ## Decision Log
@@ -113,6 +195,9 @@ The fix, validated in design against the agentmemory review, is to separate rele
 | 2026-07-17 | Reranker out of scope | Small typed corpus; reranker would reintroduce score-blending with policy | Cross-encoder rerank (rejected per the RRF-vs-reranker analysis) |
 | 2026-07-17 | Graph stream only if eval proves it | Do not assume graph traversal helps a small typed corpus | Include graph stream now (rejected — unproven) |
 | 2026-07-17 | Adopt only if it beats the `1sufm` baseline | Measured, not assumed | Ship unconditionally (rejected) |
+| 2026-07-24 | Treat `1svuj` as the correct shipped baseline, not an unfixed defect. | The wholesale semantic override is already gone; fusion must justify itself as quality improvement. | Reopen the old bug framing: rejected as stale. |
+| 2026-07-24 | Use in-process BM25 over loaded records and keep `memory_brief` queryless. | The memory path does not use shared FTS today, and brief has no query relevance signal. | Query global FTS or add a brief query: rejected as needless boundary expansion. |
+| 2026-07-24 | Require strict curated-MRR improvement and recall/invariant non-regression. | Makes default-on adoption falsifiable; a tie remains evidence to keep the simpler shipped order. | "Looks better" council judgment: rejected as non-repeatable. |
 
 
 ## Risks
@@ -120,9 +205,11 @@ The fix, validated in design against the agentmemory review, is to separate rele
 
 | Risk | Mitigation |
 | ---- | ---------- |
-| Fusion regresses a policy invariant | AC-3/AC-5 gate on the `1sufm` invariant cases; default-off if it regresses |
+| Fusion regresses a policy invariant | AC-3/AC-5 gate on the expanded `1t7ab` invariant cases; default-off if it regresses |
 | RRF nondeterminism | Fixed k, stable input orders, determinism test |
 | Reintroducing relevance/policy conflation | Policy applied strictly as post-fusion constraints; test that a low-text-overlap trust record holds position |
+| Lexical helper drifts from degraded behavior | One pure tokenizer/BM25 helper shared by default-on and lexical-only paths |
+| Fusion leaks into queryless briefing | `memory_brief` no-query and ordering invariance regression |
 
 
 ## Session Handoff
