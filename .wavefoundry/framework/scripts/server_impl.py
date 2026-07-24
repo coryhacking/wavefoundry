@@ -23034,6 +23034,40 @@ def _state_sources_map(root: Path, result: Mapping[str, Any]) -> list[str]:
     return []
 
 
+def _review_evidence_cost_focus(
+    root: Path,
+    request_payload: Mapping[str, Any],
+    result: Mapping[str, Any],
+) -> Optional[context_efficiency.Focus]:
+    """Resolve one review-evidence call's explicit target without changing focus."""
+    data = result.get("data") if isinstance(result.get("data"), Mapping) else {}
+    requested_wave = request_payload.get("wave_id") or data.get("wave_id")
+    if not isinstance(requested_wave, str) or not requested_wave.strip():
+        return None
+    try:
+        wave_md = _find_wave_md(root, requested_wave)
+        if wave_md is None:
+            return None
+        status = str(_parse_wave_record(wave_md).get("status") or "").lower()
+        if status in {"active", "implementing"}:
+            stage = context_efficiency._derive_open_wave_stage(wave_md.parent)
+        elif status == "closed":
+            # The target is still passed through so _commit_event's sealed-wave
+            # protection redirects the observation to the general bucket.
+            stage = "review"
+        elif status == "paused":
+            stage = "plan"
+        else:
+            stage = "plan"
+        phase_id = (
+            context_efficiency.latest_phase_id(root, wave_md.parent.name, stage)
+            or stage
+        )
+        return context_efficiency.Focus(wave_md.parent.name, stage, phase_id)
+    except (OSError, ValueError):
+        return None
+
+
 # ── Lifecycle mutation lock (wave 1seax / 1seat) ─────────────────────────────
 # One advisory per-root lock so two agents/sessions cannot interleave lifecycle
 # writes on the same repository. OS-lock pattern (kernel-released on process
@@ -23211,6 +23245,12 @@ _ARTIFACT_EXTRACTORS: dict[str, Any] = {
     },
 }
 
+_COST_FOCUS_EXTRACTORS: dict[str, Any] = {
+    # Explicitly scoped: a parameter named wave_id is not enough to prove that
+    # another tool's response belongs to that wave.
+    "wf_review_evidence": _review_evidence_cost_focus,
+}
+
 
 def _wrap_first_party_tool_costs(mcp: Any, get_handler: Any) -> None:
     """Post-registration pass: wrap uninstrumented first-party tools with a
@@ -23300,12 +23340,29 @@ def _wrap_first_party_tool_costs(mcp: Any, get_handler: Any) -> None:
                                         )
                                     )
                             source_proofs = proofs or None
+                        focus_override = None
+                        focus_extractor = _COST_FOCUS_EXTRACTORS.get(tool_name)
+                        if focus_extractor is not None and isinstance(result, Mapping):
+                            target_focus = focus_extractor(
+                                handler.root, request_payload, result
+                            )
+                            if target_focus is not None:
+                                current_focus = handler.telemetry.focus
+                                focus_override = (
+                                    current_focus
+                                    if (
+                                        current_focus.wave_id == target_focus.wave_id
+                                        and current_focus.stage == target_focus.stage
+                                    )
+                                    else target_focus
+                                )
                         handler.telemetry.record_tool_cost(
                             tool_name,
                             request_tokens=request_tokens,
                             response_tokens=response_tokens,
                             derived_artifact_tokens=artifact_tokens,
                             source_proofs=source_proofs,
+                            focus_override=focus_override,
                             event_id=event_id or uuid.uuid4().hex,
                         )
                     except Exception:
@@ -24604,7 +24661,18 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         by that finding; unrelated lane approvals remain current. Approval events require the exact
         signoff actor, and non-operator approvals require fresh independent context.
         A repair cycle may contain several findings and ordered same-finding reverification
-        progress as fresh independent actors clear their own required lanes. The cycle is
+        progress as fresh independent actors clear their own required lanes.
+        Lane-clearing recipe (state-derived): first call ``event="list"`` for the
+        finding and read its ``chain_summary`` unresolved required lanes. Then
+        submit ONE reverification per lane: the acting lane is ``actor``,
+        ``fresh_context=true`` and ``independent=true`` are required, and
+        ``blocking_required_lanes`` is the CURRENT list minus that one actor.
+        The server auto-mints the linked ``lane_reassessment`` evidence for the
+        cleared lane; lanes clear one per event, in any order, until the head's
+        list is empty. A reverification that repeats the current list unchanged
+        verifies without clearing anything. A separately recorded
+        protocol-valid operator waiver is another terminal state; it is not a
+        lane-reverification shortcut. The cycle is
         aggregate-complete only when every started actionable finding has a terminal current head
         with no unresolved required lanes: completed reverification, truthful ``not_issue`` /
         ``dont_do_later`` reclassification with ``not_required`` repair state, or a valid distinct

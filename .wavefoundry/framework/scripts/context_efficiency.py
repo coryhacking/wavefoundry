@@ -454,6 +454,25 @@ def _open_read_store(root: Path) -> Optional[sqlite3.Connection]:
         return None
 
 
+def latest_phase_id(root: Path, wave_id: str, stage: str) -> Optional[str]:
+    """Return the newest durable phase for one wave-stage without creating state."""
+
+    conn = _open_read_store(root)
+    if conn is None:
+        return None
+    try:
+        row = conn.execute(
+            "SELECT phase_id FROM phase_state WHERE wave_id=? AND stage=? "
+            "ORDER BY ordinal DESC LIMIT 1",
+            (str(wave_id), str(stage)),
+        ).fetchone()
+        return str(row[0]) if row else None
+    except sqlite3.Error:
+        return None
+    finally:
+        conn.close()
+
+
 
 def _canonicalize_context_efficiency_markers(markdown: str) -> str:
     """Map legacy owned-region markers to the one canonical ``wave:`` namespace."""
@@ -1439,6 +1458,7 @@ class ProcessTelemetry:
         response_tokens: int,
         derived_artifact_tokens: int = 0,
         source_proofs: Optional[Iterable[SourceProof]] = None,
+        focus_override: Focus | None = None,
         event_id: str,
     ) -> dict[str, Any]:
         """Wave 1t3ek (1t3s7/1t2zq): record a first-party tool call's cost, with
@@ -1476,6 +1496,7 @@ class ProcessTelemetry:
         return self.record_retrieval(
             metric,
             tool_name=tool_name,
+            focus_override=focus_override,
             event_id=event_id,
         )
 
@@ -1484,6 +1505,7 @@ class ProcessTelemetry:
         metric: Mapping[str, Any],
         *,
         tool_name: str = "retrieval",
+        focus_override: Focus | None = None,
         event_id: str | None = None,
     ) -> dict[str, Any]:
         payload = dict(metric)
@@ -1496,11 +1518,14 @@ class ProcessTelemetry:
             return public
         with self._lock:
             reclaimable = self._ensure_lease()
+            event_focus = (
+                focus_override if focus_override is not None else self._focus
+            )
             status, credited_tokens, credited_files, dropped_credits = _commit_event(
                 self.root,
                 self.producer_id,
                 reclaimable,
-                self._focus,
+                event_focus,
                 tool_name,
                 "retrieval",
                 payload,

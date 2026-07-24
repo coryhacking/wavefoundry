@@ -3991,6 +3991,83 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             all(row["blocking_required_lanes"] == [] for row in heads.values())
         )
 
+    def test_lane_clearing_errors_carry_state_derived_recovery_guidance(self):
+        """Wave 1tbw4: both lane-clearing diagnostics route the caller to the
+        state-derived recipe (list, one blocking lane as actor, current list
+        minus that actor) instead of leaving a bare rule statement."""
+        created = self.srv.wf_create_wave_response(
+            self.root, "typed-lane-recovery", mode="create"
+        )
+        wave_id = created["data"]["wave_id"]
+        judgment = {
+            "validation_status": "real",
+            "scope_relation": "admitted",
+            "introduced_or_worsened_by_wave": True,
+            "contract_relevance": "required_ac",
+            "supported_reachability": True,
+            "attacker_reachability": False,
+            "authority_domain": "integrity",
+            "authority_delta": "low",
+            "observable_impact": "material",
+            "containment": "none",
+        }
+        evidence = {
+            "proposition": "the lane-clearing diagnostics carry recovery guidance",
+            "failure_condition": "a bare rule statement without a recovery route",
+            "public_path": "wf_review_evidence",
+            "command_or_fixture": "two-lane fixture with an invalid clear-both attempt",
+            "expected": "the error names the list-first per-lane recipe",
+            "observed": "the public transition reached the requested state",
+            "artifact_or_test_id": "test:lane-recovery-guidance",
+            "known_bad_detection_method": "the pre-1tbw4 messages lacked recovery text",
+            "limitations": "local temporary wave",
+            "safety_and_authorization": "local non-destructive fixture",
+            "disposition_rationale": "required lifecycle state is actionable",
+        }
+        lanes = ["code-reviewer", "qa-reviewer"]
+
+        def record(kind, cycle, actor, context, blocking):
+            return self.srv.wf_review_evidence_response(
+                self.root,
+                wave_id,
+                "finding",
+                actor,
+                context,
+                mode="create",
+                finding_id="recovery-finding",
+                run_kind=kind,
+                cycle=cycle,
+                judgment=judgment,
+                evidence=evidence,
+                source_lanes=lanes,
+                blocking_required_lanes=blocking,
+                approval_recheck_lanes=lanes,
+                review_boundaries_changed=[],
+                fresh_context=True,
+                independent=True,
+                integrity_confirmed=True,
+            )
+
+        self.assertEqual(record("initial_delivery", 0, "qa-reviewer", "rg-init", lanes)["status"], "ok")
+        self.assertEqual(record("repair_start", 1, "implementer", "rg-start", lanes)["status"], "ok")
+
+        # Builder diagnostic: clearing both lanes in one event is rejected with
+        # the state-derived recovery text.
+        both = record("reverification", 1, "qa-reviewer", "rg-clear-both", [])
+        self.assertEqual(both["status"], "error", both)
+        messages = "\n".join(item["message"] for item in both["diagnostics"])
+        self.assertIn('event="list"', messages)
+        self.assertIn("current list minus that actor", messages)
+
+        # Closure diagnostic: an unresolved-lanes head reports the same
+        # recovery text at closure validation.
+        wave_md = self.root / created["data"]["path"]
+        closure = self.srv.validate_external_review_evidence(wave_md, closure=True)
+        closure_errors = "\n".join(closure.errors)
+        self.assertIn("retains unresolved required lanes", closure_errors)
+        self.assertIn('event="list"', closure_errors)
+        self.assertIn("current list minus that actor", closure_errors)
+
     def test_typed_reverification_can_reclassify_started_finding(self):
         created = self.srv.wf_create_wave_response(
             self.root, "typed-reclassification", mode="create"
@@ -20246,6 +20323,36 @@ class TestMcpWrapperParameterExposure(unittest.TestCase):
                 required,
                 props,
                 f"{required} missing from wf_review_evidence MCP schema; got {props}",
+            )
+
+    def _tool_description(self, tool_name: str) -> str:
+        mcp = self._build_thin_runner.build_server(self.root)
+        tm = getattr(mcp, "_tool_manager", None)
+        tools = getattr(tm, "_tools", None) if tm is not None else None
+        if tools is None:
+            tools = getattr(mcp, "_tools", None) or {}
+        tool = tools.get(tool_name)
+        return str(getattr(tool, "description", "") or "")
+
+    def test_review_evidence_description_carries_lane_clearing_recipe(self):
+        """Wave 1tbw4: the registered description must keep the operational
+        lane-clearing recipe discoverable. Semantic anchors, not a verbatim
+        pin, so rewording survives while the contract cannot silently drop."""
+        description = self._tool_description("wf_review_evidence")
+        for anchor in (
+            'event="list"',
+            "ONE reverification per lane",
+            "minus that one actor",
+            "fresh_context=true",
+            "independent=true",
+            "lane_reassessment",
+            "lane-reverification shortcut",
+        ):
+            self.assertIn(
+                anchor,
+                description,
+                f"lane-clearing anchor {anchor!r} missing from the registered "
+                "wf_review_evidence description",
             )
 
 

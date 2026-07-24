@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-20
+Last verified: 2026-07-23
 
 Wavefoundry reports one conservative estimate of tokens saved while its tools
 support a wave. The estimate is an accounting signal, not a billing record and
@@ -151,6 +151,22 @@ debits. A completed new milestone may also credit exactly one contained
 project-local lifecycle prompt. Dry runs, refused operations, retries that do
 not advance state, and incomplete reviews receive no prompt credit, but their
 debits remain in the ledger.
+
+`wf_review_evidence` is explicitly target-scoped even though it is not a
+lifecycle transition: when its resolved target differs from the process focus,
+the call's debit and any ledger-source or derived-artifact credit use that
+target wave. Planned/readied and paused targets use `plan`; OPEN targets use
+`implement` until the canonical evidence ledger contains a delivery run and
+`review` afterward. This per-call override never changes process focus, so the
+next ordinary tool call stays with the ambient wave. When the target is already
+the focused wave and stage, the current phase identity is retained. Otherwise,
+the call reuses the newest durable phase identity for the target wave-stage
+when one exists; the bare stage is the stable fallback before that wave-stage
+has minted a phase. This keeps ambient and targeted calls in the same
+phase-scoped source-credit deduplication key while preserving legitimate
+recredit after a real phase transition. A closed target still passes through
+the sealed-wave guard and lands in the general bucket rather than changing
+frozen history.
 
 General retrieval work performed with no lifecycle focus first tries
 open-wave attribution: when exactly one wave is OPEN (`active`/`implementing`),

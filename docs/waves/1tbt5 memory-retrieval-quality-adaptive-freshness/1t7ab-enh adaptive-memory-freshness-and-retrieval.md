@@ -5,7 +5,7 @@ Change Status: `planned`
 Owner: Engineering
 Status: planned
 Last verified: 2026-07-22
-Wave: TBD
+Wave: `1tbt5 memory-retrieval-quality-adaptive-freshness`
 
 ## Rationale
 

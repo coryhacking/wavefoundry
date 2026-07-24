@@ -157,9 +157,33 @@
       "source": "events.jsonl",
       "version": 1
     },
+    "1tamx review-evidence-lane-clearing-recipe": {
+      "prefix_sha256": "ae4843fcd164a9b14d2aeeeee62b5966c9eb56f31afe115ed07b9b692c653232",
+      "record_count": 5,
+      "source": "events.jsonl",
+      "version": 1
+    },
+    "1tbt5 memory-retrieval-quality-adaptive-freshness": {
+      "prefix_sha256": "7c084e00e8d30be88718bf3c171fbd527b9252b7eaedc413cae071ae008fd550",
+      "record_count": 0,
+      "source": "events.jsonl",
+      "version": 1
+    },
+    "1tbt7 review-evidence-telemetry-attribution": {
+      "prefix_sha256": "6fc77c02c436a4ded94e715b3d269f958c9154821db727eb4682d72c0ef36025",
+      "record_count": 24,
+      "source": "events.jsonl",
+      "version": 1
+    },
     "1tbvp retire-reindex-reports": {
       "prefix_sha256": "cc1793eb34abc2962e8178b9082655dc34baec81612cdef1632b3426df586420",
       "record_count": 36,
+      "source": "events.jsonl",
+      "version": 1
+    },
+    "1tg55 exploration-avoided-signal-quality": {
+      "prefix_sha256": "d3b75205f6c5fe8e85e3c6d6090c65d406332c958147d2b8c4eef3cf6643abdf",
+      "record_count": 2,
       "source": "events.jsonl",
       "version": 1
     }

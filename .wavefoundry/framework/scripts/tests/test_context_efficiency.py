@@ -1433,6 +1433,64 @@ class OpenWaveAttributionTests(TempRootTest):
         conn.close()
         self.assertEqual((count, attribution), (1, "focus"))
 
+    def test_per_call_focus_override_preserves_ambient_focus(self):
+        """A targeted observation can land on another wave without changing
+        the process focus used by the next ordinary call."""
+        telemetry = ce.ProcessTelemetry(self.root)
+        telemetry.set_focus("1aaab ambient-wave", "implement", new_phase=True)
+        ambient = telemetry.focus
+        telemetry.record_retrieval(
+            _metric(source_id="targeted"),
+            tool_name="wf_review_evidence",
+            focus_override=ce.Focus("1aaaa target-wave", "plan", "plan"),
+            event_id="targeted-1",
+        )
+        self.assertEqual(telemetry.focus, ambient)
+        telemetry.record_retrieval(
+            _metric(source_id="ambient"),
+            tool_name="wf_validate_docs",
+            event_id="ambient-1",
+        )
+        telemetry.close()
+        conn = sqlite3.connect(ce.store_path(self.root))
+        rows = conn.execute(
+            "SELECT event_id,wave_id,stage,phase_id FROM telemetry_event "
+            "WHERE event_id IN ('targeted-1','ambient-1') ORDER BY event_id"
+        ).fetchall()
+        conn.close()
+        self.assertEqual(
+            rows,
+            [
+                ("ambient-1", "1aaab ambient-wave", "implement", ambient.phase_id),
+                ("targeted-1", "1aaaa target-wave", "plan", "plan"),
+            ],
+        )
+
+    def test_latest_phase_id_is_read_only_and_stage_scoped(self):
+        self.assertIsNone(
+            ce.latest_phase_id(self.root, "1aaaa target-wave", "implement")
+        )
+        self.assertFalse(ce.store_path(self.root).exists())
+
+        telemetry = ce.ProcessTelemetry(self.root)
+        telemetry.set_focus("1aaaa target-wave", "implement", new_phase=True)
+        implement_phase = telemetry.focus.phase_id
+        telemetry.set_focus("1aaaa target-wave", "review", new_phase=True)
+        review_phase = telemetry.focus.phase_id
+        telemetry.close()
+
+        self.assertEqual(
+            ce.latest_phase_id(self.root, "1aaaa target-wave", "implement"),
+            implement_phase,
+        )
+        self.assertEqual(
+            ce.latest_phase_id(self.root, "1aaaa target-wave", "review"),
+            review_phase,
+        )
+        self.assertIsNone(
+            ce.latest_phase_id(self.root, "1aaaa target-wave", "plan")
+        )
+
     def test_boundary_adoption_uses_derived_stage_and_marks_adopted(self):
         """AC-3/AC-5: an exited peer's general bucket adopts with the passed
         stage and 'adopted' provenance; a live peer is untouched."""

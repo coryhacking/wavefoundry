@@ -6,7 +6,7 @@ Owner: framework
 Status: planned
 Last verified: 2026-07-20
 
-Wave: `1sufo memory-retrieval-eval-and-fusion`
+Wave: `1tbt5 memory-retrieval-quality-adaptive-freshness`
 
 > **DEFERRED (2026-07-17, council review).** Split out of wave `1sufo` and returned to `docs/plans/`. Both the red-team and reality-checker seats found full lexical+semantic RRF disproportionate for an empty/sparse typed corpus (RRF's benefit needs many candidates with divergent rankings; a handful of short records will largely agree, so it most likely evaluates to "do not adopt", and only against synthetic fixtures). The real defect is a ~2-line wholesale-`sort()` override, fixed by change `1svuj` (semantic-as-tie-break). Revisit this full-RRF apparatus only once a real corpus exists and the `1sufm` eval can prove fusion beats a *real* baseline. Two corrections to carry when revisited: (1) the framing below is imprecise — a non-matching high-trust record is *filtered out entirely* by the pre-filter (records must be a semantic hit OR a full-token `_text_match`), not "pushed down"; (2) the "reuse the FTS layer" claim is overstated — the current memory path uses `search_docs` + a Python token-match and does NOT touch FTS, so the lexical stream is genuinely new (in-process BM25 over the small loaded set, which is actually better for the hermetic/degraded path).
 

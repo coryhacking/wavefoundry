@@ -1902,7 +1902,13 @@ def build_compact_review_event(
         cleared = set(prior_head.get("blocking_required_lanes", [])) - set(blocking_lanes)
         if cleared:
             if cleared != {actor} or event.get("fresh_context") is not True or event.get("independent") is not True:
-                return (), ("clearing a required lane requires the same fresh independent actor",)
+                return (), (
+                    "clearing a required lane requires the same fresh independent actor. "
+                    'Recovery: call event="list" for the finding, choose one currently '
+                    "blocking lane as the actor, then submit a fresh independent "
+                    "reverification with blocking_required_lanes equal to the current "
+                    "list minus that actor.",
+                )
             reassessment_id = _unique_record_id([*prior, *rows], "ev-reassess", str(finding_id))
             reassessment = dict(evidence)
             reassessment.update(
@@ -2777,7 +2783,11 @@ def _validate_relationships(records: list[dict[str, Any]], *, closure: bool) -> 
                 )
             if current.get("blocking_required_lanes"):
                 errors.append(
-                    f"current synthesis `{record_id}` for `{finding_id}` retains unresolved required lanes"
+                    f"current synthesis `{record_id}` for `{finding_id}` retains unresolved required lanes. "
+                    'Recovery: call event="list" for the finding, choose one currently '
+                    "blocking lane as the actor, then submit a fresh independent "
+                    "reverification with blocking_required_lanes equal to the current "
+                    "list minus that actor."
                 )
 
     last_cycle = -1

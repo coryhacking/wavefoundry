@@ -1677,6 +1677,242 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
         srv._wrap_first_party_tool_costs(mcp, lambda: handler)
         return tool.fn, handler
 
+    def test_review_evidence_explicit_wave_attribution_is_targeted_and_sealed_safe(self):
+        """The registered wrapper follows the resolved review-evidence target
+        across plan/implement/review while preserving ambient focus. A sealed
+        target redirects to general without changing its frozen snapshot."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            target = "1aaaa target-wave"
+            ambient_wave = "1aaab ambient-wave"
+            target_dir = root / "docs" / "waves" / target
+            ambient_dir = root / "docs" / "waves" / ambient_wave
+            target_dir.mkdir(parents=True)
+            ambient_dir.mkdir(parents=True)
+            target_md = target_dir / "wave.md"
+            target_md.write_text(
+                f"# Wave Record\n\nWave ID: {target}\nStatus: planned\n",
+                encoding="utf-8",
+            )
+            events_path = target_dir / "events.jsonl"
+            events_path.write_text('{"seed":1}\n', encoding="utf-8")
+            (ambient_dir / "wave.md").write_text(
+                f"# Wave Record\n\nWave ID: {ambient_wave}\nStatus: implementing\n",
+                encoding="utf-8",
+            )
+            calls = {"n": 0}
+
+            def fake_tool(wave_id=target, kwargs=None):
+                calls["n"] += 1
+                return {
+                    "status": "ok",
+                    "data": {
+                        "mode": "create",
+                        "replayed": False,
+                        "wave_id": wave_id,
+                        "appended_records": [
+                            {
+                                "request_digest": f"target-{calls['n']}",
+                                "body": "x" * 400,
+                            }
+                        ],
+                        "events_path": (
+                            f"docs/waves/{target}/events.jsonl"
+                        ),
+                        "path": f"docs/waves/{target}/wave.md",
+                    },
+                }
+
+            wrapped, handler = self._wrapped_registry(
+                root, "wf_review_evidence", fake_tool
+            )
+            handler.telemetry.set_focus(
+                ambient_wave, "implement", new_phase=True
+            )
+            ambient = handler.telemetry.focus
+
+            wrapped(wave_id=target)
+            self.assertEqual(handler.telemetry.focus, ambient)
+
+            target_md.write_text(
+                f"# Wave Record\n\nWave ID: {target}\nStatus: paused\n",
+                encoding="utf-8",
+            )
+            wrapped(wave_id=target)
+
+            target_md.write_text(
+                f"# Wave Record\n\nWave ID: {target}\nStatus: implementing\n",
+                encoding="utf-8",
+            )
+            wrapped(wave_id=target)
+            events_path.write_text(
+                json.dumps(
+                    {
+                        "record_type": "review_run",
+                        "run_kind": "initial_delivery",
+                    },
+                    separators=(",", ":"),
+                    sort_keys=True,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            wrapped(wave_id=target)
+
+            handler.telemetry.record_tool_cost(
+                "wf_validate_docs",
+                request_tokens=1,
+                response_tokens=1,
+                event_id="ambient-after-target",
+            )
+            self.assertEqual(handler.telemetry.focus, ambient)
+
+            conn = sqlite3.connect(ce.store_path(root))
+            target_rows = [
+                tuple(row)
+                for row in conn.execute(
+                    "SELECT stage,derived_artifact_tokens FROM telemetry_event "
+                    "WHERE tool_name='wf_review_evidence' AND wave_id=? "
+                    "ORDER BY created_at",
+                    (target,),
+                )
+            ]
+            ambient_row = conn.execute(
+                "SELECT wave_id,stage,phase_id FROM telemetry_event "
+                "WHERE event_id='ambient-after-target'"
+            ).fetchone()
+            credited_stages = {
+                row[0]
+                for row in conn.execute(
+                    "SELECT DISTINCT stage FROM source_credit WHERE wave_key=?",
+                    (target,),
+                )
+            }
+            conn.close()
+            self.assertEqual(
+                [row[0] for row in target_rows],
+                ["plan", "plan", "implement", "review"],
+            )
+            self.assertTrue(
+                all(row[1] > 0 for row in target_rows), target_rows
+            )
+            self.assertEqual(
+                credited_stages, {"plan", "implement", "review"}
+            )
+            self.assertEqual(
+                ambient_row, (ambient_wave, "implement", ambient.phase_id)
+            )
+
+            snapshot = ce.read_wave_snapshot(root, target)
+            published = dict(snapshot)
+            published["pending"] = False
+            generation = int(snapshot["generation"])
+            self.assertTrue(
+                ce.mark_checkpoint_published(
+                    root,
+                    target,
+                    published,
+                    expected_generation=generation,
+                    seal=True,
+                )
+            )
+            self.assertTrue(
+                ce.compact_published_wave(
+                    root, target, expected_generation=generation
+                )
+            )
+            frozen = ce.read_wave_snapshot(root, target)
+            target_md.write_text(
+                f"# Wave Record\n\nWave ID: {target}\nStatus: closed\n",
+                encoding="utf-8",
+            )
+            wrapped(wave_id=target)
+            self.assertEqual(ce.read_wave_snapshot(root, target), frozen)
+            self.assertEqual(
+                ce.read_general_totals(root, handler.telemetry.producer_id)["calls"],
+                1,
+            )
+            self.assertEqual(handler.telemetry.focus, ambient)
+            handler.telemetry.close()
+
+    def test_targeted_review_evidence_reuses_latest_target_stage_phase(self):
+        """Ambient and targeted paths share one source-credit key for the same
+        durable target phase."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            target = "1aaaa target-wave"
+            ambient_wave = "1aaab ambient-wave"
+            target_dir = root / "docs" / "waves" / target
+            ambient_dir = root / "docs" / "waves" / ambient_wave
+            target_dir.mkdir(parents=True)
+            ambient_dir.mkdir(parents=True)
+            (target_dir / "wave.md").write_text(
+                f"# Wave Record\n\nWave ID: {target}\nStatus: implementing\n",
+                encoding="utf-8",
+            )
+            events_path = target_dir / "events.jsonl"
+            events_path.write_text('{"seed":1}\n', encoding="utf-8")
+            (ambient_dir / "wave.md").write_text(
+                f"# Wave Record\n\nWave ID: {ambient_wave}\nStatus: implementing\n",
+                encoding="utf-8",
+            )
+            calls = {"n": 0}
+
+            def fake_tool(wave_id=target, kwargs=None):
+                calls["n"] += 1
+                return {
+                    "status": "ok",
+                    "data": {
+                        "mode": "create",
+                        "replayed": False,
+                        "wave_id": wave_id,
+                        "appended_records": [
+                            {
+                                "request_digest": f"phase-dedup-{calls['n']}",
+                                "body": "x" * 400,
+                            }
+                        ],
+                        "events_path": f"docs/waves/{target}/events.jsonl",
+                    },
+                }
+
+            wrapped, handler = self._wrapped_registry(
+                root, "wf_review_evidence", fake_tool
+            )
+            handler.telemetry.set_focus(target, "implement", new_phase=True)
+            target_phase = handler.telemetry.focus.phase_id
+            wrapped(wave_id=target)
+
+            handler.telemetry.set_focus(
+                ambient_wave, "implement", new_phase=True
+            )
+            ambient = handler.telemetry.focus
+            wrapped(wave_id=target)
+            self.assertEqual(handler.telemetry.focus, ambient)
+
+            conn = sqlite3.connect(ce.store_path(root))
+            event_phases = [
+                row[0]
+                for row in conn.execute(
+                    "SELECT phase_id FROM telemetry_event "
+                    "WHERE tool_name='wf_review_evidence' AND wave_id=? "
+                    "ORDER BY created_at",
+                    (target,),
+                )
+            ]
+            source_rows = conn.execute(
+                "SELECT COUNT(*),MIN(phase_id),MAX(phase_id) "
+                "FROM source_credit WHERE wave_key=? AND stage='implement'",
+                (target,),
+            ).fetchone()
+            conn.close()
+            handler.telemetry.close()
+
+            self.assertEqual(event_phases, [target_phase, target_phase])
+            self.assertEqual(source_rows, (1, target_phase, target_phase))
+
     def test_review_evidence_artifact_credit_and_replay_dedup(self):
         """Wave 1t3ek (1t3s7) AC-1/AC-2: a create-mode wf_review_evidence result
         credits the derived persisted records minus the caller request, and an
