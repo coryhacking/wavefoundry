@@ -164,8 +164,8 @@
       "version": 1
     },
     "1tbt5 memory-retrieval-quality-adaptive-freshness": {
-      "prefix_sha256": "7c084e00e8d30be88718bf3c171fbd527b9252b7eaedc413cae071ae008fd550",
-      "record_count": 0,
+      "prefix_sha256": "dce10f4345083d3782d5ba9afdd8f0e6c91c4f7393eafcdab7c3d408e0f4ce00",
+      "record_count": 19,
       "source": "events.jsonl",
       "version": 1
     },
@@ -184,6 +184,18 @@
     "1tg55 exploration-avoided-signal-quality": {
       "prefix_sha256": "5ee8fcdc0e571ab83035ee487cd0cddb43b4a5dd9ebef38ba44ef3cc609cff05",
       "record_count": 36,
+      "source": "events.jsonl",
+      "version": 1
+    },
+    "1ti11 remove-unused-context-efficiency-schema": {
+      "prefix_sha256": "376a631b96c684ee95ee24ec808a2ebb05db2162ed904324d50ce50efa45e8f0",
+      "record_count": 2,
+      "source": "events.jsonl",
+      "version": 1
+    },
+    "1tis8 memory-eval-mcp-tool-and-decision-log-target": {
+      "prefix_sha256": "2a9bf46cce012963b4d3c02d215dc961d3bdf5e6c140fc9e5428bf8a30cc26e1",
+      "record_count": 31,
       "source": "events.jsonl",
       "version": 1
     }

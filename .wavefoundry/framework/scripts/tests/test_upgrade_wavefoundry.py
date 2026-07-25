@@ -1859,13 +1859,6 @@ class PublicUpgradeReviewProtocolIntegrationTests(unittest.TestCase):
                             encoding="utf-8"
                         ),
                     )
-                zf.writestr(
-                    ".wavefoundry/framework/evals/context-efficiency-pairs.schema.json",
-                    SCRIPTS_ROOT.parent.joinpath(
-                        "evals", "context-efficiency-pairs.schema.json"
-                    ).read_text(encoding="utf-8"),
-                )
-
             with patch.object(
                 mod,
                 "phase_preflight",
@@ -1906,7 +1899,7 @@ class PublicUpgradeReviewProtocolIntegrationTests(unittest.TestCase):
                 scripts.joinpath("review_evidence.py").read_text(encoding="utf-8"),
             )
             self.assertIn(
-                "def wf_review_evidence(",
+                "def wf_review_event(",
                 scripts.joinpath("server_impl.py").read_text(encoding="utf-8"),
             )
             self.assertIn(
@@ -1931,7 +1924,7 @@ class PublicUpgradeReviewProtocolIntegrationTests(unittest.TestCase):
                     "score_context_efficiency_pairs.py"
                 ).read_text(encoding="utf-8"),
             )
-            self.assertTrue(
+            self.assertFalse(
                 scripts.parent.joinpath(
                     "evals", "context-efficiency-pairs.schema.json"
                 ).is_file()
@@ -4648,7 +4641,7 @@ class ReviewStatusUpgradeProjectionTests(unittest.TestCase):
             self.mod.phase_review_status_projection(self.root)
 
         message = str(raised.exception)
-        self.assertIn("wf_review_evidence", message)
+        self.assertIn("wf_review_event", message)
         self.assertIn("wf upgrade", message)
 
     def test_external_projection_converges_before_legacy_action_required(self):

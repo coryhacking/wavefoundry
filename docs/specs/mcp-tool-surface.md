@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-23
+Last verified: 2026-07-25
 
 Behavioral contract for the Wavefoundry local MCP server. This spec covers the
 tool names, response conventions, safety rules, and compatibility expectations that
@@ -309,6 +309,25 @@ report_path="", applicability=null)` is the typed authority:
   evaluation.
 - `mode="revoke"` deactivates the current residual without deleting chronology.
 
+### `wf_memory_eval`
+
+`wf_memory_eval()` measures the configured repository's memory-retrieval
+quality by running the curated live-corpus pass (wave 1tgws). It is read-only:
+no records are written and no index is built. It takes no target-directory
+argument — like every other tool it operates on the configured root, per the
+allowed-roots safety rule.
+
+The response `data` carries the engine's aggregate report only: `available`,
+`sample_size`/`sample_cap`, `sample_strategy`, `fingerprint`, `counts_by_kind`,
+`counts_by_status`, metrics, and the adoption gate. It NEVER carries record
+bodies, summaries, or memory ids — the privacy boundary is structural, pinned
+by `test_memory_eval_tool_reports_aggregate_only`. When the semantic backend or
+corpus is unavailable the report returns `available: false` with
+`unavailable_reason`, surfaced as a `curated_pass_unavailable` diagnostic
+rather than an error. The hermetic invariant pass remains a test
+(`tests/test_memory_eval.py`); its golden fixture is test scaffolding and is
+not packaged.
+
 Fresh install/package, public surface rendering, and upgrade ship the telemetry
 implementation, pair schema/scorer, and packaged missing-only templates for all
 five project-local prompt baselines, plus a managed `.wavefoundry/logs/` ignore,
@@ -553,7 +572,7 @@ adoption-ledger write. Like every eligible lifecycle handler it records telemetr
 request/response debits; a fully completed implementation review may receive the
 mapped prompt credit.
 
-`wf_review_evidence(wave_id, event, actor, context_id, mode="dry_run", ...)`
+`wf_review_event(wave_id, event, actor, context_id, mode="dry_run", ...)`
 
 - Typed authoring surface for external-ledger executable review evidence. `event` is `approval`, `finding`, an empty lightweight `run`, or the read-only `list`; `dry_run` previews exact derived rows and `create` atomically appends them to the fixed sibling `docs/waves/<wave>/events.jsonl`.
 - **`event="list"` (wave 1t59p): the standardized READ surface for the ledger.** Returns a compact per-record index (identity, `record_type`, `run_kind`, `cycle`, `finding_id`, claim/signoff fields, lanes, `supersedes_record_id`, `verification_context`), a per-finding `chain_summary` (current head record, disposition, repair state, unresolved required lanes, `terminal` flag — composed from the same `current_synthesis_heads`/`review_status_rows` derivations the close gate uses, never a parallel reimplementation), and `approvals` (per-signoff currency rows). `finding_id`/`record_type`/`run_kind` filter; `verbose=true` returns full records; output is capped (`record_cap`, tail kept) with an explicit named-total truncation diagnostic. For `list`, `mode` is ignored, `actor`/`context_id` are pass-through identity, nothing is written, and no lock is taken; an absent/empty ledger returns an empty listing with a `review_evidence_empty` diagnostic. **Accounting (operator policy):** the first listing of a ledger version earns the state-source credit (the response conveys whole-ledger state); an identical-content repeat listing is NEUTRAL — zero credit AND zero debit — via a content-hash event identity (same ledger version + same filters + same verbosity ⇒ same response ⇒ replay-deduplicated). A changed ledger, different filters, or any response difference records as a normal measured call. Chain-state-dependent write rejections name the list event in their recovery hints — inspect before appending instead of hand-parsing `events.jsonl`.
@@ -599,6 +618,24 @@ mapped prompt credit.
   archive_reason=...)` retry needed to converge.
 - Archived source-event dispositions remain authoritative for proposal and
   historical backfill and suppress regeneration.
+
+**Adaptive memory freshness (wave 1tbt5):**
+
+- `memory_search` and `memory_brief` collect all surfaced file targets and use
+  one `file_commit_times` query. Tactical and time-sensitive records derive a
+  target cadence from the median commit interval, apply named multiplier and
+  min/max clamps, and use the most conservative multi-target half-life. Sparse
+  or unreadable histories retain the established fixed half-life.
+- Decisions and operator preferences have no automatic age penalty.
+  `fragile_file` remains visible and reports `needs_reverification` after target
+  churn.
+- Exact-target class, base-confidence band, surfaced status, and kind family
+  are policy partitions ahead of adaptive freshness, semantic query rank,
+  centrality, and id. Missing semantic/freshness/graph state preserves the same
+  filters and deterministic order.
+- `memory_brief` remains queryless. The evaluated lexical+semantic RRF
+  candidate did not pass the measured adoption gate, so the public search path
+  retains semantic-as-tie-break with no product fusion flag or dormant branch.
 
 `memory_propose(wave_id: str, mode: str = "dry_run", limit: int = 20)`
 

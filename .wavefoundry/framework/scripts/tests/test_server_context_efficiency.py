@@ -1725,7 +1725,7 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
                 }
 
             wrapped, handler = self._wrapped_registry(
-                root, "wf_review_evidence", fake_tool
+                root, "wf_review_event", fake_tool
             )
             handler.telemetry.set_focus(
                 ambient_wave, "implement", new_phase=True
@@ -1773,7 +1773,7 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
                 tuple(row)
                 for row in conn.execute(
                     "SELECT stage,derived_artifact_tokens FROM telemetry_event "
-                    "WHERE tool_name='wf_review_evidence' AND wave_id=? "
+                    "WHERE tool_name='wf_review_event' AND wave_id=? "
                     "ORDER BY created_at",
                     (target,),
                 )
@@ -1879,7 +1879,7 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
                 }
 
             wrapped, handler = self._wrapped_registry(
-                root, "wf_review_evidence", fake_tool
+                root, "wf_review_event", fake_tool
             )
             handler.telemetry.set_focus(target, "implement", new_phase=True)
             target_phase = handler.telemetry.focus.phase_id
@@ -1897,7 +1897,7 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
                 row[0]
                 for row in conn.execute(
                     "SELECT phase_id FROM telemetry_event "
-                    "WHERE tool_name='wf_review_evidence' AND wave_id=? "
+                    "WHERE tool_name='wf_review_event' AND wave_id=? "
                     "ORDER BY created_at",
                     (target,),
                 )
@@ -1914,7 +1914,7 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
             self.assertEqual(source_rows, (1, target_phase, target_phase))
 
     def test_review_evidence_artifact_credit_and_replay_dedup(self):
-        """Wave 1t3ek (1t3s7) AC-1/AC-2: a create-mode wf_review_evidence result
+        """Wave 1t3ek (1t3s7) AC-1/AC-2: a create-mode wf_review_event result
         credits the derived persisted records minus the caller request, and an
         identical replay derives nothing new."""
         with tempfile.TemporaryDirectory() as tmp:
@@ -1924,14 +1924,14 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
             canned = {"status": "ok", "data": {"mode": "create", "replayed": False, "appended_records": records}}
             def fake_tool(wave_id="1aaaa w", kwargs=None):
                 return canned
-            wrapped, handler = self._wrapped_registry(root, "wf_review_evidence", fake_tool)
+            wrapped, handler = self._wrapped_registry(root, "wf_review_event", fake_tool)
             wrapped(wave_id="1aaaa w")
             wrapped(wave_id="1aaaa w")  # replay: same artifact event id
             handler.telemetry.close()
             conn = sqlite3.connect(ce.store_path(root))
             rows = conn.execute(
                 "SELECT event_id, derived_artifact_tokens, request_tokens FROM telemetry_event "
-                "WHERE tool_name='wf_review_evidence'"
+                "WHERE tool_name='wf_review_event'"
             ).fetchall()
             conn.close()
             self.assertEqual(len(rows), 1)
@@ -2029,7 +2029,7 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
                 out = json.loads(json.dumps(canned))
                 out["data"]["appended_records"][0]["request_digest"] = f"s{calls['n']}"
                 return out
-            wrapped, handler = self._wrapped_registry(root, "wf_review_evidence", fake_tool)
+            wrapped, handler = self._wrapped_registry(root, "wf_review_event", fake_tool)
             handler.telemetry.set_focus(wave_id, "review", new_phase=True)
             wrapped(wave_id=wave_id)
             # Second call, files unchanged: source credits dedupe to zero new rows.

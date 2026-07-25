@@ -1607,7 +1607,7 @@ def phase_review_status_projection(root: Path) -> dict[str, int]:
             "active/readied prose-only review evidence cannot be adopted losslessly "
             "for: "
             + ", ".join(blocked_legacy_waves)
-            + ". Record canonical typed evidence with wf_review_evidence, "
+            + ". Record canonical typed evidence with wf_review_event, "
             "then rerun `wf upgrade`; arbitrary review prose is never parsed as "
             "approval authority. External-ledger waves were still projected before "
             "this action-required report."

@@ -71,15 +71,45 @@ DEFAULT_SURFACED_STATUSES = ("active", "candidate")
 # half strength; it never reaches zero (decay orders, status retires).
 CHURN_DECAY_HALVING_COMMITS = 10
 CHURN_DECAYED_KINDS = ("failed_attempt", "review_finding", "successful_pattern")
+# Adaptive cadence calibration (wave 1tbt5). Seven days is the selected
+# reference interval: a target changed weekly retains the established 10-commit
+# half-life, faster targets receive more commit headroom, and slower targets
+# receive less. Candidate reference intervals 3.5 and 14 days were rejected by
+# the hermetic calibration as respectively over-eager and too permissive.
+ADAPTIVE_CADENCE_MULTIPLIER_DAYS = 7.0
+ADAPTIVE_CHURN_MIN_HALVING_COMMITS = 5
+ADAPTIVE_CHURN_MAX_HALVING_COMMITS = 40
 # Time-decayed kinds: same hyperbolic shape in days. 180 days ≈ the ecosystem
 # cadence of tool/dependency releases the gotchas describe.
 TIME_DECAY_HALVING_DAYS = 180
 TIME_DECAYED_KINDS = ("environment_gotcha", "dependency_gotcha")
+ADAPTIVE_TIME_CADENCE_MULTIPLIER = 6.0
+ADAPTIVE_TIME_MIN_HALVING_DAYS = 30
+ADAPTIVE_TIME_MAX_HALVING_DAYS = 365
 # Briefing exclusion floor for churn-decayed kinds only (1p8gy AC-13: a
 # heavily-churned failed_attempt can drop OUT of briefings). fragile_file is
 # exempt by council amendment: churn is ambiguous evidence there, so it sets
 # needs_reverification instead and never drops below inclusion.
 BRIEFING_CONFIDENCE_FLOOR = 0.2
+
+MEMORY_KIND_POLICY_FAMILY = {
+    "failed_attempt": "tactical",
+    "review_finding": "tactical",
+    "successful_pattern": "tactical",
+    "environment_gotcha": "time_sensitive",
+    "dependency_gotcha": "time_sensitive",
+    "decision": "protected",
+    "operator_preference": "protected",
+    "fragile_file": "fragile",
+}
+_MEMORY_STATUS_ORDER = {
+    "active": 0, "candidate": 1, "stale": 2, "superseded": 3,
+    "rejected": 4, "archived": 5,
+}
+_MEMORY_FAMILY_ORDER = {
+    "protected": 0, "fragile": 1, "tactical": 2, "time_sensitive": 3,
+    "other": 4,
+}
 
 _ID_RE = re.compile(rf"^Memory ID:\s*`({_MEMORY_ID_PATTERN})`\s*$", re.MULTILINE)
 _KIND_RE = re.compile(r"^Kind:\s*`([a-z_]+)`\s*$", re.MULTILINE)
@@ -1185,12 +1215,118 @@ def archive_memory_record(
     }
 
 
+def _median_commit_interval_days(values: Iterable[int]) -> Optional[float]:
+    times = sorted({int(ts) for ts in values if int(ts) > 0})
+    ordered = sorted(
+        newer - older for older, newer in zip(times, times[1:])
+        if newer > older
+    )
+    if not ordered:
+        return None
+    middle = len(ordered) // 2
+    median_gap = (
+        float(ordered[middle])
+        if len(ordered) % 2
+        else (ordered[middle - 1] + ordered[middle]) / 2.0
+    )
+    return max(median_gap / 86400.0, 1.0 / 86400.0)
+
+
+def _target_cadences(
+    target_refs: Iterable[str],
+    commit_times_by_path: Optional[dict[str, list[int]]],
+) -> list[Optional[float]]:
+    histories = commit_times_by_path or {}
+    return [
+        _median_commit_interval_days(histories.get(ref, []))
+        for ref in target_refs
+        if not ref.startswith(("symbol:", "community:"))
+    ]
+
+
+def adaptive_churn_halving_commits(
+    target_refs: Iterable[str],
+    commit_times_by_path: Optional[dict[str, list[int]]] = None,
+) -> int:
+    """Return the conservative cadence-derived tactical churn half-life."""
+    candidates: list[int] = []
+    for cadence_days in _target_cadences(target_refs, commit_times_by_path):
+        if cadence_days is None:
+            candidates.append(CHURN_DECAY_HALVING_COMMITS)
+            continue
+        derived = round(
+            CHURN_DECAY_HALVING_COMMITS
+            * ADAPTIVE_CADENCE_MULTIPLIER_DAYS
+            / cadence_days
+        )
+        candidates.append(max(
+            ADAPTIVE_CHURN_MIN_HALVING_COMMITS,
+            min(ADAPTIVE_CHURN_MAX_HALVING_COMMITS, derived),
+        ))
+    return min(candidates, default=CHURN_DECAY_HALVING_COMMITS)
+
+
+def adaptive_time_halving_days(
+    target_refs: Iterable[str],
+    commit_times_by_path: Optional[dict[str, list[int]]] = None,
+) -> int:
+    """Return the conservative cadence-derived time-sensitive half-life."""
+    candidates: list[int] = []
+    for cadence_days in _target_cadences(target_refs, commit_times_by_path):
+        if cadence_days is None:
+            candidates.append(TIME_DECAY_HALVING_DAYS)
+            continue
+        derived = round(cadence_days * ADAPTIVE_TIME_CADENCE_MULTIPLIER)
+        candidates.append(max(
+            ADAPTIVE_TIME_MIN_HALVING_DAYS,
+            min(ADAPTIVE_TIME_MAX_HALVING_DAYS, derived),
+        ))
+    return min(candidates, default=TIME_DECAY_HALVING_DAYS)
+
+
+def memory_comparability_partition(
+    record: dict[str, Any], *, exact_target_match: bool = False
+) -> tuple[Any, ...]:
+    """Policy identity inside which freshness/relevance may reorder records."""
+    return (
+        round(float(record.get("confidence") or 0.5), 2),
+        str(record.get("status") or ""),
+        bool(exact_target_match),
+        MEMORY_KIND_POLICY_FAMILY.get(str(record.get("kind") or ""), "other"),
+    )
+
+
+def memory_policy_sort_key(
+    record: dict[str, Any],
+    decay: dict[str, Any],
+    *,
+    exact_target_match: bool = False,
+    relevance_rank: int = 0,
+    centrality: float = 0.0,
+) -> tuple[Any, ...]:
+    """Canonical policy -> freshness -> relevance -> centrality ordering."""
+    base_band, status, exact, family = memory_comparability_partition(
+        record, exact_target_match=exact_target_match
+    )
+    return (
+        0 if exact else 1,
+        -base_band,
+        _MEMORY_STATUS_ORDER.get(status, 99),
+        _MEMORY_FAMILY_ORDER.get(family, 99),
+        -round(float(decay.get("effective_confidence") or 0.0), 6),
+        int(relevance_rank),
+        -float(centrality),
+        str(record.get("memory_id") or ""),
+    )
+
+
 def apply_decay(
     record: dict[str, Any],
     *,
     index_dir: Optional[Path] = None,
     now: Optional[float] = None,
     churn_provider: Optional[Any] = None,
+    commit_times_by_path: Optional[dict[str, list[int]]] = None,
 ) -> dict[str, Any]:
     """Kind-aware effective confidence (1p8gy Req 13 / AC-13).
 
@@ -1241,15 +1377,29 @@ def apply_decay(
 
     if kind in CHURN_DECAYED_KINDS:
         churn = _max_target_churn(created_ts)
+        halving = adaptive_churn_halving_commits(
+            record.get("target_refs") or [], commit_times_by_path
+        )
+        out["halving_commits"] = halving
         if churn:
-            out["effective_confidence"] = base / (1.0 + churn / float(CHURN_DECAY_HALVING_COMMITS))
-            out["decay_basis"] = f"target_churn:{churn}"
+            out["effective_confidence"] = base / (1.0 + churn / float(halving))
+            out["decay_basis"] = (
+                f"target_churn:{churn};halving_commits:{halving}"
+            )
         out["briefing_included"] = out["effective_confidence"] >= BRIEFING_CONFIDENCE_FLOOR
     elif kind in TIME_DECAYED_KINDS and created_ts:
         age_days = max(0.0, (now - created_ts) / 86400.0)
+        halving_days = adaptive_time_halving_days(
+            record.get("target_refs") or [], commit_times_by_path
+        )
+        out["halving_days"] = halving_days
         if age_days > 0:
-            out["effective_confidence"] = base / (1.0 + age_days / float(TIME_DECAY_HALVING_DAYS))
-            out["decay_basis"] = f"age_days:{round(age_days)}"
+            out["effective_confidence"] = base / (
+                1.0 + age_days / float(halving_days)
+            )
+            out["decay_basis"] = (
+                f"age_days:{round(age_days)};halving_days:{halving_days}"
+            )
         out["briefing_included"] = out["effective_confidence"] >= BRIEFING_CONFIDENCE_FLOOR
     elif kind == "fragile_file":
         churn = _max_target_churn(created_ts)

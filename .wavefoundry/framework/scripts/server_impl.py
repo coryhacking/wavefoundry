@@ -7830,12 +7830,17 @@ def _memory_view(record: dict[str, Any], decay: dict[str, Any]) -> dict[str, Any
 def _memory_ranked(
     root: Path,
     records: list[dict[str, Any]],
+    *,
+    relevance_rank_by_id: Optional[dict[str, int]] = None,
+    commit_times_override: Optional[dict[str, list[int]]] = None,
 ) -> list[tuple[dict[str, Any], dict[str, Any]]]:
-    """Decay + centrality-weighted ordering (1p8gy Req 12).
+    """Policy-partitioned freshness/relevance ordering.
 
-    Primary key: decayed confidence. Tie-band: persisted betweenness of the
-    highest-centrality file target (degree/centrality absence degrades to
-    flat). Returns [(record, decay)] best-first.
+    Exact-target handling (at caller filters/promotion), base confidence,
+    surfaced status, and kind family remain policy boundaries. Adaptive
+    effective confidence and optional semantic relevance order only inside
+    them; persisted betweenness is the final scored tie-break before memory id.
+    Returns ``[(record, decay)]`` best-first.
 
     Freshness is read ONCE for the whole batch (delivery-review perf finding):
     all file targets across the records are collected and their windowed
@@ -7852,7 +7857,19 @@ def _memory_ranked(
         if not ref.startswith(("symbol:", "community:"))
     }
     commit_times: dict[str, list[int]] = {}
-    if file_targets:
+    if commit_times_override is not None:
+        # Wave 1tis8: an evaluation caller freezes a commit-history snapshot so
+        # its scoring is deterministic. It passes that snapshot in EXPLICITLY —
+        # it must never rebind the shared `index_state_store.file_commit_times`
+        # global, because this server is long-lived and concurrent: overlapping
+        # calls restore out of order and leave a frozen subset installed for
+        # every later reader.
+        commit_times = {
+            path: list(times)
+            for path, times in commit_times_override.items()
+            if path in file_targets
+        }
+    elif file_targets:
         try:
             commit_times = _load_script("index_state_store").file_commit_times(
                 index_dir, file_targets
@@ -7876,15 +7893,25 @@ def _memory_ranked(
             best = max(best, betweenness.get(ref, 0.0))
         return best
 
+    relevance_ranks = relevance_rank_by_id or {}
+    missing_relevance_rank = max(relevance_ranks.values(), default=0) + 1
     scored = []
     for record in records:
-        decay = mem.apply_decay(record, index_dir=index_dir, churn_provider=_churn_provider)
+        decay = mem.apply_decay(
+            record,
+            index_dir=index_dir,
+            churn_provider=_churn_provider,
+            commit_times_by_path=commit_times,
+        )
         scored.append((record, decay, _centrality(record)))
     scored.sort(
-        key=lambda item: (
-            -round(float(item[1].get("effective_confidence") or 0.0), 2),
-            -item[2],
-            item[0]["memory_id"],
+        key=lambda item: mem.memory_policy_sort_key(
+            item[0],
+            item[1],
+            relevance_rank=relevance_ranks.get(
+                item[0]["memory_id"], missing_relevance_rank
+            ) if relevance_ranks else 0,
+            centrality=item[2],
         )
     )
     return [(record, decay) for record, decay, _c in scored]
@@ -9133,21 +9160,11 @@ def memory_search_response(
             r for r in records
             if r["memory_id"] in semantic_hit_order or _text_match(r)
         ]
-    ranked = _memory_ranked(root, records)
-    if query and semantic_hit_order:
-        # Semantic rank is a tie-break WITHIN the trust/decay policy, not a
-        # wholesale override (1svuj). The policy's primary key is the decayed
-        # confidence tier (`round(effective_confidence, 2)`, matching
-        # `_memory_ranked`); semantic rank only orders records within the same
-        # tier, replacing the arbitrary memory_id tie-break there. So a
-        # higher-trust record is never demoted below a lower-trust one by text
-        # relevance alone. (No-index path is untouched: `semantic_hit_order` is
-        # empty then, so this re-sort never runs.)
-        ranked.sort(key=lambda pair: (
-            -round(float(pair[1].get("effective_confidence") or 0.0), 2),
-            semantic_hit_order.get(pair[0]["memory_id"], MEMORY_SEARCH_CAP),
-            pair[0]["memory_id"],
-        ))
+    ranked = _memory_ranked(
+        root,
+        records,
+        relevance_rank_by_id=semantic_hit_order if query else None,
+    )
     views = [_memory_view(record, decay) for record, decay in ranked[:n]]
     diagnostics = []
     if not views:
@@ -12696,11 +12713,11 @@ def _review_evidence_list_response(
             diagnostics=[_diagnostic(
                 "review_evidence_empty",
                 "No events.jsonl ledger exists for this wave yet — nothing recorded.",
-                recovery_tools=["wf_review_evidence"],
-                recovery_usage="wf_review_evidence(wave_id=..., event='run', ...)",
+                recovery_tools=["wf_review_event"],
+                recovery_usage="wf_review_event(wave_id=..., event='run', ...)",
             )],
-            next_tools=["wf_review_evidence"],
-            usage="wf_review_evidence(wave_id=..., event='run', mode='dry_run', ...)",
+            next_tools=["wf_review_event"],
+            usage="wf_review_event(wave_id=..., event='run', mode='dry_run', ...)",
         )
     result = validate_external_review_evidence(wave_md)
     records = list(result.records or ())
@@ -12794,12 +12811,12 @@ def _review_evidence_list_response(
             "approvals": approvals,
         },
         diagnostics=diagnostics,
-        next_tools=["wf_review_evidence", "wf_review_wave"],
-        usage="wf_review_evidence(wave_id=..., event='finding'|'run'|'approval', mode='dry_run', ...)",
+        next_tools=["wf_review_event", "wf_review_wave"],
+        usage="wf_review_event(wave_id=..., event='finding'|'run'|'approval', mode='dry_run', ...)",
     )
 
 
-def wf_review_evidence_response(
+def wf_review_event_response(
     root: Path,
     wave_id: str,
     event: str,
@@ -12916,8 +12933,8 @@ def wf_review_evidence_response(
             {"wave_id": wave_id, "mode": mode_s, "event": event},
             diagnostics=[_diagnostic(
                 "invalid_review_event", str(exc),
-                recovery_tools=["wf_review_evidence"],
-                recovery_usage=f"wf_review_evidence(wave_id={wave_id!r}, event='list', actor={actor!r}, context_id={context_id!r})  # inspect chain state",
+                recovery_tools=["wf_review_event"],
+                recovery_usage=f"wf_review_event(wave_id={wave_id!r}, event='list', actor={actor!r}, context_id={context_id!r})  # inspect chain state",
             )],
         )
 
@@ -12965,8 +12982,8 @@ def wf_review_evidence_response(
                     diagnostics=[
                         _diagnostic(
                             "invalid_review_event", error,
-                            recovery_tools=["wf_review_evidence"],
-                            recovery_usage=f"wf_review_evidence(wave_id={wave_id!r}, event='list', actor={actor!r}, context_id={context_id!r})  # inspect chain state (lanes, cycles, heads) before retrying",
+                            recovery_tools=["wf_review_event"],
+                            recovery_usage=f"wf_review_event(wave_id={wave_id!r}, event='list', actor={actor!r}, context_id={context_id!r})  # inspect chain state (lanes, cycles, heads) before retrying",
                         )
                         for error in build_errors
                     ],
@@ -12997,7 +13014,7 @@ def wf_review_evidence_response(
             "replayed": replayed,
         }
         if mode_s == "dry_run":
-            return _response("dry_run", payload, next_tools=["wf_review_evidence"])
+            return _response("dry_run", payload, next_tools=["wf_review_event"])
         event_committed = replayed
         if not replayed:
             try:
@@ -13018,7 +13035,7 @@ def wf_review_evidence_response(
             return _response(
                 "partial", payload,
                 diagnostics=[_diagnostic("review_evidence_adoption_pending", adoption_error)],
-                next_tools=["wf_review_evidence"],
+                next_tools=["wf_review_event"],
             )
         try:
             _atomic_replace_text(wave_md, projected, "review-projection")
@@ -13027,7 +13044,7 @@ def wf_review_evidence_response(
             return _response(
                 "partial", payload,
                 diagnostics=[_diagnostic("review_evidence_projection_stale", str(exc))],
-                next_tools=["wf_review_evidence", "wf_review_wave"],
+                next_tools=["wf_review_event", "wf_review_wave"],
             )
         payload.update(event_committed=True, adoption_pending=False, projection_stale=False)
         return _response("ok", payload, next_tools=["wf_review_wave", "wf_current_wave"])
@@ -13352,7 +13369,7 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
                 diagnostics=[
                     _diagnostic("review_projection_failed", str(exc))
                 ],
-                next_tools=["wf_review_evidence", "wf_validate_docs"],
+                next_tools=["wf_review_event", "wf_validate_docs"],
             )
         if projected_text != wave_md.read_text(encoding="utf-8"):
             wave_md.write_text(projected_text, encoding="utf-8", newline="")
@@ -14385,7 +14402,7 @@ def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
                         _diagnostic("review_projection_failed", str(exc)),
                         *gate_diagnostics,
                     ],
-                    next_tools=["wf_review_evidence", "wf_validate_docs"],
+                    next_tools=["wf_review_event", "wf_validate_docs"],
                 )
             wave_md.write_text(text, encoding="utf-8")
             updated = True
@@ -22426,6 +22443,43 @@ def _implementation_review_complete(response: dict[str, Any]) -> bool:
     )
 
 
+def wf_memory_eval_response(root: Path) -> dict[str, Any]:
+    """Curated memory-retrieval measurement for the configured repository.
+
+    Wave 1tgws: the curated pass is a cross-project capability, so it is
+    reachable through the tool surface rather than only a checked-out script.
+    It measures the CONFIGURED root — like every other tool, and per the
+    allowed-roots safety rule, the caller does not name a target directory.
+    Aggregate-only by construction: the engine's report carries metrics,
+    kind/status counts, a fingerprint, and the adoption gate, never record
+    bodies or ids.
+    """
+    target = root
+    evaluator = _load_script("memory_eval")
+    report = evaluator.run_curated(target)
+    available = bool(report.get("available"))
+    diagnostics: list[dict[str, Any]] = []
+    if not available:
+        diagnostics.append({
+            "code": "curated_pass_unavailable",
+            "message": (
+                "the curated corpus pass could not run: "
+                f"{report.get('unavailable_reason') or 'semantic backend or corpus unavailable'}. "
+                "Build the index (index_build) and ensure the repository has "
+                "memory records, then retry."
+            ),
+            "recovery_tools": ["index_build", "index_health", "memory_search"],
+            "recovery_usage": "index_health()",
+        })
+    return {
+        "status": "ok",
+        "data": {"root": str(target), **report},
+        "diagnostics": diagnostics,
+        "next_tools": ["memory_search", "memory_brief"],
+        "usage": "memory_search(query='...')",
+    }
+
+
 def wf_context_efficiency_eval_response(
     root: Path,
     wave_id: str,
@@ -23249,7 +23303,7 @@ def _wrap_lifecycle_mutation_lock(mcp: Any, get_handler: Any) -> None:
 # enumerate, never closed history (see _state_sources_live_waves); memory
 # views credit the capped set of record files they surface.
 _STATE_SOURCE_EXTRACTORS: dict[str, Any] = {
-    "wf_review_evidence": _state_sources_review_evidence,
+    "wf_review_event": _state_sources_review_evidence,
     "memory_validate": _state_sources_memory_validate,
     "memory_propose": _state_sources_memory_propose,
     "wf_get_change": _state_sources_get_change,
@@ -23263,7 +23317,7 @@ _STATE_SOURCE_EXTRACTORS: dict[str, Any] = {
 
 
 _ARTIFACT_EXTRACTORS: dict[str, Any] = {
-    "wf_review_evidence": _artifact_from_review_evidence,
+    "wf_review_event": _artifact_from_review_evidence,
     "memory_propose": _artifact_from_written_paths("written"),
     "memory_add": _artifact_from_written_paths("record"),
     "memory_validate": _artifact_from_written_paths("rewrite_record"),
@@ -23285,7 +23339,7 @@ _ARTIFACT_EXTRACTORS: dict[str, Any] = {
 _COST_FOCUS_EXTRACTORS: dict[str, Any] = {
     # Explicitly scoped: a parameter named wave_id is not enough to prove that
     # another tool's response belongs to that wave.
-    "wf_review_evidence": _review_evidence_cost_focus,
+    "wf_review_event": _review_evidence_cost_focus,
 }
 
 
@@ -24642,8 +24696,28 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             applicability=applicability,
         )
 
+    @mcp.tool(annotations=_READONLY_TOOL)
+    def wf_memory_eval(**kwargs: Any) -> dict[str, Any]:
+        """Measure this repository's memory-retrieval quality (aggregate only).
+
+        Runs the curated live-corpus pass over the configured repository's
+        memory records: it freezes a bounded sample before scoring, then
+        reports aggregate metrics, kind/status counts, a content fingerprint,
+        and the fusion adoption-gate verdict. Read-only — no records are
+        written and no index is built.
+
+        Privacy boundary: the report NEVER contains record bodies, summaries,
+        or memory ids. When the semantic backend or corpus is unavailable the
+        report returns ``available: false`` with a reason instead of failing.
+        """
+
+        bad = _ensure_no_extra_args("wf_memory_eval", kwargs)
+        if bad is not None:
+            return bad
+        return wf_memory_eval_response(get_handler().root)
+
     @mcp.tool(annotations=_MUTATING_TOOL)
-    def wf_review_evidence(
+    def wf_review_event(
         wave_id: str,
         event: str,
         actor: str,
@@ -24694,16 +24768,37 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         field explicitly in ``judgment``; the tool derives only IDs, actionability, blocking,
         review depth, supersession, cycle linkage, and record ordering. ``evidence`` carries the
         falsifiable proposition and executed observation fields. An executed claim also requires
-        ``integrity_confirmed=true``. ``approval_recheck_lanes`` names only the approvals affected
+        ``integrity_confirmed=true``.
+        Field placement at a glance — ``judgment`` holds the CLASSIFICATION
+        (``validation_status``, ``scope_relation``, ``contract_relevance``,
+        ``observable_impact``, ``authority_delta``, ``authority_domain``,
+        ``containment``, ``attacker_reachability``, ``supported_reachability``,
+        ``introduced_or_worsened_by_wave``, ``disposition``, and the repair
+        fields); ``evidence`` holds the OBSERVATION (``proposition``,
+        ``failure_condition``, ``public_path``, ``command_or_fixture``,
+        ``expected``, ``observed``, ``artifact_or_test_id``,
+        ``known_bad_detection_method``, ``limitations``,
+        ``safety_and_authorization``, ``disposition_rationale``). Lane lists
+        (``source_lanes``, ``blocking_required_lanes``,
+        ``approval_recheck_lanes``) are top-level parameters. ``approval_recheck_lanes`` names only the approvals affected
         by that finding; unrelated lane approvals remain current. Approval events require the exact
         signoff actor, and non-operator approvals require fresh independent context.
         A repair cycle may contain several findings and ordered same-finding reverification
         progress as fresh independent actors clear their own required lanes.
         Lane-clearing recipe (state-derived): first call ``event="list"`` for the
-        finding and read its ``chain_summary`` unresolved required lanes. Then
-        submit ONE reverification per lane: the acting lane is ``actor``,
+        finding and read its ``chain_summary`` unresolved required lanes. If the
+        repair cycle is not open yet (no ``repair_start`` for the current
+        cycle), the IMPLEMENTER records one BEFORE mutating anything:
+        ``event="finding"``, ``run_kind="repair_start"``, ``cycle>=1``, same
+        ``finding_id``. Then the BLOCKING REVIEWER LANE submits
+        ONE reverification per lane: the acting lane is ``actor``,
         ``fresh_context=true`` and ``independent=true`` are required, and
         ``blocking_required_lanes`` is the CURRENT list minus that one actor.
+        Both ``repair_start`` and ``reverification`` are ``event="finding"``
+        calls carrying ``run_kind`` — they are NOT ``event="run"`` (that event
+        records only an empty readiness/initial_delivery run). The reverifying
+        actor must not be the actor that performed the repair: independence is
+        what the lane clearance asserts.
         The server auto-mints the linked ``lane_reassessment`` evidence for the
         cleared lane; lanes clear one per event, in any order, until the head's
         list is empty. A reverification that repeats the current list unchanged
@@ -24752,10 +24847,10 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
                 (``executable_evidence``, ``review_run``, ``finding_synthesis``).
             verbose: list only — return full records instead of the compact index.
         """
-        bad = _ensure_no_extra_args("wf_review_evidence", kwargs)
+        bad = _ensure_no_extra_args("wf_review_event", kwargs)
         if bad is not None:
             return bad
-        return wf_review_evidence_response(
+        return wf_review_event_response(
             get_handler().root,
             wave_id,
             event,

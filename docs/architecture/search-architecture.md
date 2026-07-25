@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-23
+Last verified: 2026-07-25
 
 ## The Problem
 
@@ -396,10 +396,19 @@ Env toggles: `WAVEFOUNDRY_ENABLE_DRIFT_PARTITION` (census/eval opt-in), `WAVEFOU
 stable consumer contract for the future verify-docs review loop; `wf_garden_docs` points at it and gardener stamps
 never clear drift.
 
-**Agent memory retrieval** (same wave): typed memory records under `docs/agents/memory/` are indexed through the
-docs path with a `memory` tag and served by `memory_search`/`memory_brief` — record files are the
-source of truth, the semantic index is an optional assist, and ranking is kind-aware-decayed confidence (via the
-per-path freshness primitive) with persisted-betweenness tie-breaks.
+**Agent memory retrieval** (waves 1ro44 / 1tbt5): typed memory records under
+`docs/agents/memory/` are indexed through the docs path with a `memory` tag and
+served by `memory_search`/`memory_brief` — record files are the source of truth
+and the semantic index is an optional assist. One batched per-target commit
+history read drives adaptive half-lives: median target cadence, named
+multiplier/clamps, conservative multi-target selection, and fixed fallback for
+sparse/unreadable history. Policy partitions (exact-target class, base
+confidence, status, kind family) precede adaptive freshness, semantic rank,
+persisted-betweenness, and id. Decisions/preferences do not age-decay;
+fragile-file churn requests re-verification. The queryless brief shares the
+policy/freshness order but has no relevance stream. A measured BM25+semantic
+RRF candidate was rejected by the 1tbt5 adoption gate, so search retains the
+shipped semantic tie-break and no dormant fusion branch or flag.
 Physical archive bodies under `docs/agents/memory/archive/` are a historical
 storage class and are excluded by both repository walking and explicit-file
 index seams; graph extraction applies the same boundary. Compact pointers under

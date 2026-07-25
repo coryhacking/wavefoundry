@@ -1294,13 +1294,32 @@ def check_memory_docs(root: Path, only: set[Path] | None = None, skip: set[Path]
                 "reject": "rejected",
                 "rewrite": "superseded",
             }[verdict]
+            allowed_statuses = {expected_status}
+            # A promoted record can later be explicitly superseded by the
+            # ordinary memory lifecycle. ``Validation: promote`` is historical
+            # judgment provenance; supersession must not rewrite it into the
+            # evidence-derived ``rewrite`` verdict. The required successor link
+            # keeps this exception unambiguous.
+            promoted_then_superseded = (
+                verdict == "promote"
+                and status
+                and status.group(1) == "superseded"
+                and MEMORY_SUPERSEDED_BY_PATTERN.search(text)
+            )
+            if promoted_then_superseded:
+                allowed_statuses.add("superseded")
             if (
                 status
                 and status.group(1) != "archived"
-                and status.group(1) != expected_status
+                and status.group(1) not in allowed_statuses
             ):
+                expected_label = (
+                    "active` or lifecycle-superseded with `Superseded by:"
+                    if verdict == "promote"
+                    else expected_status
+                )
                 failures.append(
-                    f"{rel}: `Validation: {verdict}` requires `Status: {expected_status}`"
+                    f"{rel}: `Validation: {verdict}` requires `Status: {expected_label}`"
                 )
             if verdict != "pending":
                 required_validation_lines = (

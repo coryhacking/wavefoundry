@@ -1,14 +1,15 @@
 # Decision: memory-supply targets exclude the verification command field
 
 Owner: Engineering
-Status: active
-Last verified: 2026-07-20
+Status: superseded
+Last verified: 2026-07-25
 
 Memory ID: `1t21l-mem decision-memory-supply-targets-exclude-the-verification-comm`
+Superseded by: `1tdmn-mem decision-memory-supply-targets-exclude-verification-harness-`
 Kind: `decision`
 Confidence: 0.9
 Created: 2026-07-20
-Updated: 2026-07-20
+Updated: 2026-07-23
 Source event: `decision-log:1t728-bug memory-propose-target-misattribution:81659afd823c32ea`
 Validation: promote
 Validated by: agent

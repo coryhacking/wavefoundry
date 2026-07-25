@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-23
+Last verified: 2026-07-25
 
 Typed, evidence-backed memory records for the agent memory layer: prior failed
 attempts, operator preferences, fragile files, review findings, environment
@@ -32,6 +32,12 @@ Required lines (in the header block):
 | `Confidence:` | number in `[0.0, 1.0]` | advisory ranking input; decays kind-awarely, never deletes |
 | `Created:` / `Updated:` | `YYYY-MM-DD` | `Created` anchors churn-based decay |
 | `Supersedes:` / `Superseded by:` | `` `memory-id` `` (optional; `Superseded by:` REQUIRED when status is `superseded`) | history is preserved through supersession, never deletion |
+
+An evidence-derived record keeps its original finalized `Validation:` verdict
+as provenance when the ordinary lifecycle later supersedes it. A promoted
+record may therefore be `Status: superseded` only when it carries the required
+`Superseded by:` successor link; lifecycle supersession is not relabeled as an
+agent-validation rewrite.
 
 Required sections:
 
@@ -96,6 +102,24 @@ needed to finish the transaction.
 Decay affects advisory ranking and briefing inclusion only. Status and
 supersession are the ONLY lifecycle mechanisms — decay never deletes,
 auto-supersedes, or rewrites a record.
+
+Tactical and time-sensitive decay adapts to the target's observed change
+cadence. The read path fetches commit timestamps for every surfaced file target
+in one state-store query, derives each target's median commit interval, applies
+named multiplier/minimum/maximum clamps, and uses the most conservative
+half-life for a multi-target record. A target with fewer than two timestamps,
+or an unreadable freshness store, uses the established fixed half-life.
+Decisions and operator preferences remain immune to automatic age penalties;
+fragile-file churn continues to set `needs_reverification` without attenuation.
+
+Ordering keeps policy separate from relevance. Records compare first by exact
+target class, base-confidence band, surfaced status, and kind family
+(`protected`, `fragile`, `tactical`, `time_sensitive`); adaptive freshness,
+semantic query rank, centrality, and memory id order only within those policy
+boundaries. `memory_brief` remains queryless. Wave `1tbt5` evaluated an
+in-process BM25 + semantic RRF candidate, but did not wire it into
+`memory_search`: the curated semantic pass was unavailable in the implementation
+environment and the hermetic candidate did not improve the shipped baseline.
 
 ## Duplicate detection
 

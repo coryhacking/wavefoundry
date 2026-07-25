@@ -96,6 +96,18 @@ class PruneFrameworkTests(unittest.TestCase):
         prune_framework.prune(self.fw, old)
         self.assertFalse((self.fw / "scripts" / "tests").exists())
 
+    def test_removed_context_efficiency_schema_is_pruned_on_upgrade(self):
+        schema_rel = "evals/context-efficiency-pairs.schema.json"
+        schema = self._write(schema_rel, "{}")
+        old = self._old_manifest(schema_rel)
+        self._new_manifest("scripts/score_context_efficiency_pairs.py")
+
+        deleted = prune_framework.prune(self.fw, old)
+
+        self.assertFalse(schema.exists())
+        self.assertFalse((self.fw / "evals").exists())
+        self.assertIn(str(schema), deleted)
+
     def test_non_empty_dir_kept_after_partial_prune(self):
         self._write("scripts/tests/test_old.py")
         self._write("scripts/tests/test_kept.py")

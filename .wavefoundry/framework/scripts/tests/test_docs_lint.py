@@ -3117,6 +3117,15 @@ class MemoryRecordLintTests(DocsLintFixtureTests):
                 "Evidence verified: true\nCurrent target verified: true\n"
                 "Canonical overlap: supplements\n",
             ),
+            (
+                "mem-promoted-superseded", "superseded",
+                "Superseded by: `mem-replacement`\n"
+                "Source event: `finding:z`\nValidation: promote\n"
+                "Validated by: agent\nAction delta: Run the regression.\n"
+                "Validation rationale: Evidence and target agree.\n"
+                "Evidence verified: true\nCurrent target verified: true\n"
+                "Canonical overlap: supplements\n",
+            ),
         )
         for memory_id, status, extra in valid_cases:
             root = self.copy_fixture()

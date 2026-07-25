@@ -628,6 +628,91 @@ class DecayTests(_MemoryCase):
         decay = self.mem.apply_decay(record, index_dir=self.index_dir)  # no store built
         self.assertEqual(decay["effective_confidence"], 0.8)
 
+    def test_adaptive_cadence_clamps_and_sparse_fallback(self):
+        day = 86400
+        target = ["src/a.py"]
+        self.assertEqual(
+            self.mem.adaptive_churn_halving_commits(
+                target, {"src/a.py": [0 + day, day * 2, day * 3]}
+            ),
+            self.mem.ADAPTIVE_CHURN_MAX_HALVING_COMMITS,
+        )
+        self.assertEqual(
+            self.mem.adaptive_churn_halving_commits(
+                target, {"src/a.py": [day, day * 8, day * 15]}
+            ),
+            self.mem.CHURN_DECAY_HALVING_COMMITS,
+        )
+        self.assertEqual(
+            self.mem.adaptive_churn_halving_commits(
+                target, {"src/a.py": [day, day * 31, day * 61]}
+            ),
+            self.mem.ADAPTIVE_CHURN_MIN_HALVING_COMMITS,
+        )
+        self.assertEqual(
+            self.mem.adaptive_churn_halving_commits(
+                target, {"src/a.py": [day]}
+            ),
+            self.mem.CHURN_DECAY_HALVING_COMMITS,
+        )
+
+    def test_multi_target_uses_conservative_half_life(self):
+        day = 86400
+        histories = {
+            "src/fast.py": [day, day * 2, day * 3],
+            "src/slow.py": [day, day * 31, day * 61],
+        }
+        self.assertEqual(
+            self.mem.adaptive_churn_halving_commits(
+                ["src/fast.py", "src/slow.py"], histories
+            ),
+            self.mem.ADAPTIVE_CHURN_MIN_HALVING_COMMITS,
+        )
+        self.assertEqual(
+            self.mem.adaptive_time_halving_days(
+                ["src/fast.py", "src/slow.py"], histories
+            ),
+            self.mem.ADAPTIVE_TIME_MIN_HALVING_DAYS,
+        )
+
+    def test_apply_decay_uses_adaptive_history_without_extra_store_reads(self):
+        record = self.mem.parse_memory_record(
+            self._add("mem-adaptive", "failed_attempt", created="2020-01-01")
+        )
+        day = 86400
+        decay = self.mem.apply_decay(
+            record,
+            index_dir=None,
+            churn_provider=lambda _path, _since: 10,
+            commit_times_by_path={"src/a.py": [day, day * 2, day * 3]},
+        )
+        self.assertEqual(
+            decay["halving_commits"],
+            self.mem.ADAPTIVE_CHURN_MAX_HALVING_COMMITS,
+        )
+        self.assertAlmostEqual(decay["effective_confidence"], 0.8 / 1.25)
+
+    def test_policy_key_keeps_freshness_inside_comparability_partition(self):
+        decision = {
+            "memory_id": "decision", "kind": "decision", "status": "active",
+            "confidence": 0.8,
+        }
+        tactical = {
+            "memory_id": "tactical", "kind": "failed_attempt", "status": "active",
+            "confidence": 0.8,
+        }
+        decision_key = self.mem.memory_policy_sort_key(
+            decision, {"effective_confidence": 0.8}
+        )
+        tactical_key = self.mem.memory_policy_sort_key(
+            tactical, {"effective_confidence": 0.9}
+        )
+        self.assertLess(
+            decision_key,
+            tactical_key,
+            "freshness cannot cross the protected-authority family boundary",
+        )
+
 
 class MemoryToolTests(_MemoryCase):
     def setUp(self):
@@ -2144,6 +2229,69 @@ class MemoryProposeTests(_MemoryCase):
         (d / "events.jsonl").write_bytes(b"")
         return change_id
 
+    def _write_completed_findings(self, wave_id, slug, findings):
+        """Write real producer-shaped completed finding chains."""
+        review = _load("review_evidence")
+        records = ()
+        for finding_id, artifact_or_test_id, public_path in findings:
+            base = {
+                "event": "finding", "actor": "qa-reviewer",
+                "context_id": f"{finding_id}-initial",
+                "finding_id": finding_id, "run_kind": "initial_delivery",
+                "cycle": 0,
+                "judgment": {
+                    "validation_status": "real", "scope_relation": "admitted",
+                    "introduced_or_worsened_by_wave": True,
+                    "contract_relevance": "required_ac",
+                    "supported_reachability": True,
+                    "attacker_reachability": False,
+                    "authority_domain": "integrity", "authority_delta": "low",
+                    "observable_impact": "material", "containment": "none",
+                },
+                "proposition": "the repaired behavior holds",
+                "failure_condition": "the repaired behavior regresses",
+                "public_path": public_path,
+                "command_or_fixture": "python3 run_tests.py",
+                "expected": "the repair remains effective",
+                "observed": "the defect reproduced and was repaired",
+                "artifact_or_test_id": artifact_or_test_id,
+                "known_bad_detection_method": "pre-repair behavior probe",
+                "limitations": "producer-derived local fixture",
+                "safety_and_authorization": "local fixture only",
+                "disposition_rationale": "a reproduced required-contract defect",
+                "integrity_confirmed": True,
+                "review_boundaries_changed": [],
+                "source_lanes": ["qa-reviewer"],
+                "blocking_required_lanes": ["qa-reviewer"],
+                "approval_recheck_lanes": ["qa-reviewer"],
+            }
+            for run_kind, cycle in (
+                ("initial_delivery", 0),
+                ("repair_start", 1),
+                ("reverification", 1),
+            ):
+                event = dict(
+                    base,
+                    run_kind=run_kind,
+                    cycle=cycle,
+                    context_id=f"{finding_id}-{run_kind}",
+                )
+                if run_kind == "reverification":
+                    event["blocking_required_lanes"] = []
+                    event["fresh_context"] = True
+                    event["independent"] = True
+                rows, errors = review.build_compact_review_event(records, event)
+                self.assertEqual(errors, ())
+                records = (*records, *rows)
+        events = self.root / "docs" / "waves" / f"{wave_id} {slug}" / "events.jsonl"
+        events.write_text(
+            "".join(
+                json.dumps(row, sort_keys=True, separators=(",", ":")) + "\n"
+                for row in records
+            ),
+            encoding="utf-8",
+        )
+
     def test_drafts_only_code_anchored_decisions(self):
         self._wave("1aaaa", "demo",
                    decision_rows=[("Use `src/foo.py` for X", "because Y"),
@@ -2562,6 +2710,87 @@ class MemoryProposeTests(_MemoryCase):
             self.supply.read_review_event_ledger = orig
         self.assertEqual(drafts, [],
                          "no repaired-surface anchor: draft nothing, not run_tests.py")
+
+    def test_artifact_harness_tokens_never_become_targets(self):
+        """Wave 1tgkx: replay the two-finding 1tg55 producer shape."""
+        self._wave("1aaac", "harness-artifacts", decision_rows=[])
+        self._write_completed_findings(
+            "1aaac",
+            "harness-artifacts",
+            [
+                (
+                    "zero-cost-key-omission-breaks-draft-consumers",
+                    "run_tests.py quiet 6,181 OK; test_zero_measured_cost_omits_the_stamp",
+                    "memory minting seam",
+                ),
+                (
+                    "rewrite-inheritance-not-visible-at-mint-seam",
+                    "run_tests.py quiet 6,181 OK; test_validate_rewrite_inherits_cost",
+                    "memory minting seam",
+                ),
+            ],
+        )
+        self.assertEqual(
+            self.supply.draft_candidates(self.root, "1aaac"),
+            [],
+            "verification entry tokens in artifact_or_test_id are not targets",
+        )
+
+    def test_configured_runner_is_filtered_but_product_signal_survives(self):
+        self._wave("1aaad", "configured-runner", decision_rows=[])
+        (self.root / "docs" / "workflow-config.json").write_text(
+            json.dumps({"test_runner": "python tools/verify_suite.py"}),
+            encoding="utf-8",
+        )
+        self._write_completed_findings(
+            "1aaad",
+            "configured-runner",
+            [
+                ("runner-a", "tools/verify_suite.py; test_a", "verification"),
+                ("runner-b", "verify_suite.py; test_b", "verification"),
+                ("product-a", "src/memory_records.py; test_c", "memory retrieval"),
+                ("product-b", "src/memory_records.py; test_d", "memory retrieval"),
+            ],
+        )
+        drafts = self.supply.draft_candidates(self.root, "1aaad")
+        self.assertEqual(len(drafts), 1)
+        self.assertEqual(drafts[0]["kind"], "fragile_file")
+        self.assertEqual(drafts[0]["targets"], ["src/memory_records.py"])
+
+    def test_decision_prose_harness_and_placeholder_never_become_targets(self):
+        """Wave 1tis7: replay the 1tgkx decision-log row that mis-drafted live.
+
+        The decision is ABOUT the runner, so its prose names `run_tests.py`
+        and an illustrative `test_<module>.py`. Neither is a target, and with
+        no governed module named the conservative outcome is to draft nothing.
+        """
+        self._wave(
+            "1aaae", "decision-prose-harness",
+            decision_rows=[(
+                "Filter the canonical `run_tests.py` entry token plus "
+                "implementation-file tokens named by workflow-config",
+                "Do not infer product targets from `test_<module>.py` names",
+            )],
+        )
+        self.assertEqual(
+            self.supply.draft_candidates(self.root, "1aaae"),
+            [],
+            "runner entries and angle-bracket placeholders are not targets",
+        )
+
+    def test_decision_prose_keeps_the_governed_module(self):
+        """The module a decision governs survives alongside a runner mention."""
+        self._wave(
+            "1aaaf", "decision-prose-governed",
+            decision_rows=[(
+                "Exclude runner entries in `memory_supply.py` target extraction",
+                "Verified with `run_tests.py`",
+            )],
+        )
+        drafts = self.supply.draft_candidates(self.root, "1aaaf")
+        self.assertEqual(len(drafts), 1)
+        self.assertEqual(drafts[0]["kind"], "decision")
+        self.assertEqual(drafts[0]["targets"], ["memory_supply.py"])
 
     def test_conservative_skips_unrepaired_findings(self):
         self._wave("1aaaa", "demo", decision_rows=[])
@@ -2987,7 +3216,7 @@ class ExplorationAvoidedTests(_MemoryCase):
 
 
 class MemorySearchOrderingTests(_MemoryCase):
-    """Wave 1svuj: semantic rank tie-breaks within the trust policy, never overrides it."""
+    """Semantic relevance and adaptive freshness stay inside trust policy."""
 
     def setUp(self):
         super().setUp()
@@ -3028,6 +3257,46 @@ class MemorySearchOrderingTests(_MemoryCase):
         ids = [r["memory_id"] for r in resp["data"]["records"]]
         self.assertEqual(ids, ["mem-a", "mem-b"],
                          "no-index path stays in policy order (confidence desc)")
+
+    def test_semantic_rank_cannot_cross_kind_policy_family(self):
+        self._add(
+            "mem-authority", "decision", confidence=0.8,
+            targets=("src/policy.py",)
+        )
+        self._add(
+            "mem-tactical", "failed_attempt", confidence=0.8,
+            targets=("src/policy.py",)
+        )
+        idx = self._semantic_index("mem-tactical", "mem-authority")
+        response = self.srv.memory_search_response(
+            self.root, query="lesson", index=idx
+        )
+        self.assertEqual(
+            [record["memory_id"] for record in response["data"]["records"]],
+            ["mem-authority", "mem-tactical"],
+        )
+
+    def test_brief_remains_queryless_and_exact_target_promoted(self):
+        import inspect
+
+        self.assertNotIn(
+            "query", inspect.signature(self.srv.memory_brief_response).parameters
+        )
+        self._add(
+            "mem-unmatched", "decision", confidence=0.9,
+            targets=("src/other.py",)
+        )
+        self._add(
+            "mem-target", "review_finding", confidence=0.4,
+            targets=("src/hot.py",)
+        )
+        response = self.srv.memory_brief_response(
+            self.root, targets=["src/hot.py"], limit=2
+        )
+        self.assertEqual(
+            [record["memory_id"] for record in response["data"]["advisories"]],
+            ["mem-target", "mem-unmatched"],
+        )
 
 
 class MemoryAutoPopulateTests(_MemoryCase):

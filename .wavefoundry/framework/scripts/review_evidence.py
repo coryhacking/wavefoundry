@@ -533,7 +533,7 @@ def normalize_review_event_request(event: Mapping[str, Any]) -> dict[str, Any]:
             "failure_condition",
             "the approval predates an affected repair or is not independently grounded",
         )
-        normalized.setdefault("public_path", "wf_review_evidence")
+        normalized.setdefault("public_path", "wf_review_event")
         normalized.setdefault("command_or_fixture", artifact)
         normalized.setdefault(
             "expected", "the approving actor independently verifies the current affected scope"
@@ -1610,7 +1610,21 @@ def build_compact_review_event(
         run_kind = event.get("run_kind")
         cycle = event.get("cycle")
         if run_kind not in {"readiness", "initial_delivery"} or cycle != 0:
-            errors.append("empty lightweight run requires run_kind readiness/initial_delivery and cycle 0")
+            # Self-correcting (wave 1tis9): the natural guess for a "run kind"
+            # is event="run", but repair_start/reverification carry evidence
+            # and a judgment, so they are recorded as FINDING events. Name the
+            # corrective call instead of only restating the constraint.
+            hint = ""
+            if run_kind in {"repair_start", "reverification", "convergence_checkpoint"}:
+                hint = (
+                    f"; `{run_kind}` is recorded as a finding event, not a run "
+                    f'event — call event="finding" with run_kind="{run_kind}" '
+                    "(plus finding_id, judgment and evidence)"
+                )
+            errors.append(
+                "empty lightweight run requires run_kind "
+                f"readiness/initial_delivery and cycle 0{hint}"
+            )
         if errors:
             return (), tuple(errors)
         run_id = _unique_record_id(prior, "run", str(run_kind))
@@ -1675,7 +1689,7 @@ def build_compact_review_event(
                 "proposition": str(event.get("proposition") or f"{signoff_key} approves the current affected scope"),
                 "counterexample_or_failure_condition": str(event.get("failure_condition") or "the approval predates an affected repair or is not independently grounded"),
                 "execution_status": "executed",
-                "public_path": str(event.get("public_path") or "wf_review_evidence"),
+                "public_path": str(event.get("public_path") or "wf_review_event"),
                 "command_or_fixture": str(event.get("command_or_fixture") or event["artifact_or_test_id"]),
                 "expected": str(event.get("expected") or "the approving actor independently verifies the current affected scope"),
                 "observed": observed,
@@ -2527,8 +2541,16 @@ def _repair_cycle_progress(
                     continue
                 start_position = cycle_starts.get(finding_id)
                 if start_position is None or start_position >= position:
+                    # Self-correcting (wave 1tis9): name the corrective call.
+                    # A repair cycle opens with a repair_start recorded BEFORE
+                    # the mutation; the reverification then clears the lane.
                     errors.append(
-                        f"reverification cycle {cycle} for `{finding_id}` has no preceding repair_start"
+                        f"reverification cycle {cycle} for `{finding_id}` has no "
+                        "preceding repair_start — record one first: "
+                        'event="finding", run_kind="repair_start", '
+                        f'cycle={cycle}, finding_id="{finding_id}" (the '
+                        "implementer records it before repairing; the blocking "
+                        "reviewer lane then submits this reverification)"
                     )
                     continue
                 if finding_id in cycle_terminal and kind == "reverification":

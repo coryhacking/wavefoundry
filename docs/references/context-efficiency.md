@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-23
+Last verified: 2026-07-25
 
 Wavefoundry reports one conservative estimate of tokens saved while its tools
 support a wave. The estimate is an accounting signal, not a billing record and
@@ -152,7 +152,7 @@ project-local lifecycle prompt. Dry runs, refused operations, retries that do
 not advance state, and incomplete reviews receive no prompt credit, but their
 debits remain in the ledger.
 
-`wf_review_evidence` is explicitly target-scoped even though it is not a
+`wf_review_event` is explicitly target-scoped even though it is not a
 lifecycle transition: when its resolved target differs from the process focus,
 the call's debit and any ledger-source or derived-artifact credit use that
 target wave. Planned/readied and paused targets use `plan`; OPEN targets use

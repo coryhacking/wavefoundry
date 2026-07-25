@@ -1,5 +1,10 @@
 {
-  "_comment": "Hermetic memory-retrieval golden set (wave 1sufo / change 1sufm). The runner builds this synthetic corpus in a temp repo; it never depends on the live corpus. Measurement-only: it exercises the current wave_memory_search / brief paths and asserts the policy invariants.",
+  "_comment": "Hermetic memory-retrieval golden set (waves 1sufo and 1tbt5). The runner builds this synthetic corpus in a temp repo; it never depends on the live corpus. Measurement-only: it exercises the current memory_search / brief paths and asserts policy, archive, adaptive-freshness, and degradation invariants.",
+  "commit_times": {
+    "src/volatile.py": [1735689600, 1735776000, 1735862400, 1735948800, 1736035200],
+    "src/slow.py": [1735689600, 1738281600, 1740873600, 1743465600, 1746057600],
+    "src/fragile.py": [1735689600, 1735776000]
+  },
   "records": [
     {"memory_id": "mem-auth-fragile", "kind": "fragile_file", "confidence": 0.9, "status": "active",
      "summary": "Auth session handling is fragile; re-run the full suite after editing it.",
@@ -20,7 +25,31 @@
     {"memory_id": "mem-api-new", "kind": "decision", "confidence": 0.7, "status": "active",
      "supersedes": "mem-api-old",
      "summary": "New API direction: return typed envelopes from the endpoint.",
-     "evidence": ["1abch-decision api-v2"], "targets": ["src/api.py"], "created": "2026-07-12"}
+     "evidence": ["1abch-decision api-v2"], "targets": ["src/api.py"], "created": "2026-07-12"},
+    {"memory_id": "mem-lock-archive", "kind": "review_finding", "confidence": 0.7, "status": "stale", "archive": true,
+     "summary": "Legacy row lock timeout workaround for the retired transaction path.",
+     "evidence": ["1abci-review lock-legacy"], "targets": ["src/locks.py"], "created": "2024-01-01"},
+    {"memory_id": "mem-policy-decision", "kind": "decision", "confidence": 0.8, "status": "active",
+     "summary": "The durable cache recovery policy requires an explicit operator checkpoint.",
+     "evidence": ["1abcj-decision cache-policy"], "targets": ["src/policy.py"], "created": "2020-01-01"},
+    {"memory_id": "mem-policy-tactical", "kind": "failed_attempt", "confidence": 0.8, "status": "active",
+     "summary": "A recent cache recovery attempt skipped the explicit operator checkpoint.",
+     "evidence": ["1abck-bug cache-attempt"], "targets": ["src/policy.py"], "created": "2026-07-20"},
+    {"memory_id": "mem-strategy-trusted", "kind": "successful_pattern", "confidence": 0.9, "status": "active",
+     "summary": "The established retry strategy preserves the transaction boundary.",
+     "evidence": ["1abcl-pattern retry"], "targets": ["src/strategy.py"], "created": "2024-01-01"},
+    {"memory_id": "mem-strategy-new-low", "kind": "successful_pattern", "confidence": 0.3, "status": "active",
+     "summary": "A new but weakly evidenced retry strategy changes the transaction boundary.",
+     "evidence": ["1abcm-pattern retry-new"], "targets": ["src/strategy.py"], "created": "2026-07-20"},
+    {"memory_id": "mem-cadence-fast", "kind": "failed_attempt", "confidence": 0.8, "status": "active",
+     "summary": "Cache repair cadence lesson for the shared refresh path.",
+     "evidence": ["1abcn-bug cadence-fast"], "targets": ["src/volatile.py"], "created": "2020-01-01"},
+    {"memory_id": "mem-cadence-slow", "kind": "failed_attempt", "confidence": 0.8, "status": "active",
+     "summary": "Cache repair cadence lesson for the shared refresh path.",
+     "evidence": ["1abco-bug cadence-slow"], "targets": ["src/slow.py"], "created": "2020-01-01"},
+    {"memory_id": "mem-fragile-churn", "kind": "fragile_file", "confidence": 0.8, "status": "active",
+     "summary": "The fragile refresh coordinator needs re-verification after target churn.",
+     "evidence": ["1abcp-bug fragile-refresh"], "targets": ["src/fragile.py"], "created": "2020-01-01"}
   ],
   "cases": [
     {"category": "exact_target", "target": "src/auth.py",
@@ -41,6 +70,24 @@
     {"category": "supersession", "target": "src/api.py",
      "expected": ["mem-api-new"],
      "invariant": "excludes", "invariant_id": "mem-api-old",
-     "invariant_note": "the superseded record is excluded from default surfacing"}
+     "invariant_note": "the superseded record is excluded from default surfacing"},
+    {"category": "archive_pointer", "query": "legacy row lock timeout", "semantic_order": ["mem-lock-archive"],
+     "expected": ["mem-lock-archive"], "invariant": "data_equals", "invariant_field": "archive_pointer_count", "invariant_value": 1,
+     "invariant_note": "default search surfaces the compact pointer, not the archived body"},
+    {"category": "archive_history", "query": "legacy row lock timeout", "semantic_order": ["mem-lock-archive"], "include_history": true,
+     "expected": ["mem-lock-archive"], "invariant": "data_equals", "invariant_field": "archived_body_count", "invariant_value": 1,
+     "invariant_note": "include_history resolves the archived body"},
+    {"category": "old_authoritative", "target": "src/policy.py",
+     "expected": ["mem-policy-decision"], "invariant": "top_is", "invariant_id": "mem-policy-decision",
+     "invariant_note": "recency does not cross the protected-authority family boundary"},
+    {"category": "new_low_confidence", "target": "src/strategy.py",
+     "expected": ["mem-strategy-trusted"], "invariant": "top_is", "invariant_id": "mem-strategy-trusted",
+     "invariant_note": "new low-confidence evidence does not cross the base-confidence band"},
+    {"category": "adaptive_cadence", "query": "cache repair cadence lesson", "no_index": true,
+     "expected": ["mem-cadence-fast"], "invariant": "ranked_above", "invariant_a": "mem-cadence-fast", "invariant_b": "mem-cadence-slow",
+     "invariant_note": "cadence-derived half-lives reorder only comparable tactical records"},
+    {"category": "fragile_reverification", "target": "src/fragile.py",
+     "expected": ["mem-fragile-churn"], "invariant": "record_truthy", "invariant_id": "mem-fragile-churn", "invariant_field": "needs_reverification",
+     "invariant_note": "fragile records remain visible and gain re-verification pressure"}
   ]
 }

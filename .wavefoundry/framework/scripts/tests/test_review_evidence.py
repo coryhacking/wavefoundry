@@ -341,7 +341,7 @@ class ReviewEvidenceStateMachineTests(unittest.TestCase):
             },
             "proposition": "the public path must reject the invalid state",
             "failure_condition": "the public path returns success",
-            "public_path": "wf_review_evidence",
+            "public_path": "wf_review_event",
             "command_or_fixture": "compact public-path fixture",
             "expected": "error",
             "observed": "success reproduced before repair",
@@ -389,7 +389,7 @@ class ReviewEvidenceStateMachineTests(unittest.TestCase):
             },
             "proposition": "the changed behavior satisfies its required contract",
             "failure_condition": "the public path reproduces the defect",
-            "public_path": "wf_review_evidence",
+            "public_path": "wf_review_event",
             "command_or_fixture": "looping review public-path fixture",
             "expected": "each later review finding remains recordable and repairable",
             "observed": "the controlled finding was reproduced",
@@ -1306,6 +1306,37 @@ class ReviewEvidenceConvergenceTests(unittest.TestCase):
         rows.append(synthesis("verify-s", run_id="verify", cycle=1, supersedes_record_id="synthesis-0"))
         result = subject.validate_review_evidence(wave_text(rows))
         self.assertIn("no preceding repair_start", "\n".join(result.errors))
+
+    def test_missing_repair_start_error_names_the_corrective_call(self) -> None:
+        """Wave 1tis9: the error must lead the caller to the fix, semantically.
+
+        Asserts the corrective CONCEPTS are present (record a repair_start, as
+        a finding event, with a cycle) rather than a brittle exact string.
+        """
+        rows = [review_run(), synthesis(), review_run("verify", kind="reverification", cycle=1)]
+        rows.append(synthesis("verify-s", run_id="verify", cycle=1, supersedes_record_id="synthesis-0"))
+        text = "\n".join(subject.validate_review_evidence(wave_text(rows)).errors)
+        self.assertIn("repair_start", text)
+        self.assertIn('event="finding"', text)
+        self.assertIn("cycle", text)
+
+    def test_run_event_with_finding_run_kind_points_at_the_finding_form(self) -> None:
+        """Wave 1tis9: event="run" with a repair run_kind self-corrects."""
+        for run_kind in ("repair_start", "reverification"):
+            _records, errors = subject.build_compact_review_event(
+                (),
+                {
+                    "event": "run",
+                    "actor": "implementer",
+                    "context_id": f"ctx-{run_kind}",
+                    "run_kind": run_kind,
+                    "cycle": 1,
+                },
+            )
+            text = "\n".join(errors)
+            self.assertIn("finding event", text, run_kind)
+            self.assertIn(run_kind, text)
+            self.assertIn('event="finding"', text)
 
     def test_terminal_reverification_requires_fresh_independent_evidence(self) -> None:
         evidence = executable_evidence(

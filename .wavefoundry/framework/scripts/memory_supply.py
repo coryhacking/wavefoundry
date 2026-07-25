@@ -39,6 +39,7 @@ from chunker import _EXT_TO_LANGUAGE
 from review_evidence import read_review_event_ledger, current_synthesis_heads
 
 DEFAULT_DRAFT_LIMIT = 20
+_CANONICAL_TEST_RUNNER_ENTRIES = frozenset({"run_tests.py"})
 
 _BACKTICK_RE = re.compile(r"`([^`]+)`")
 # The durable, committed 1stwj telemetry projection embedded in wave.md.
@@ -125,14 +126,20 @@ def _contained_source_file(wave_dir: Path, path: Path) -> bool:
 def _code_targets(refs: list[str]) -> list[str]:
     """Keep only refs that name a concrete code anchor (path or ``symbol:``).
 
-    Drops wave/change ids (which carry a space), bare event ids, and version
-    strings. A ``foo.py:8`` line anchor is normalized to ``foo.py`` so it
-    matches ``match_targets``. Order-preserving and de-duplicated.
+    Drops wave/change ids (which carry a space), bare event ids, version
+    strings, and angle-bracket placeholders. A ``foo.py:8`` line anchor is
+    normalized to ``foo.py`` so it matches ``match_targets``. Order-preserving
+    and de-duplicated.
     """
     out: list[str] = []
     for ref in refs:
         ref = ref.strip()
         if not ref:
+            continue
+        # Illustrative placeholders (`test_<module>.py`, `<path>/x.py`) read as
+        # code anchors by extension but name no file. Prose refs in Decision Log
+        # rows carry them routinely, so reject them for every caller.
+        if "<" in ref or ">" in ref:
             continue
         if ref.startswith("symbol:") or ref.startswith("community:"):
             out.append(ref)
@@ -160,6 +167,57 @@ def _text_refs(*values: Any) -> list[str]:
         refs.extend(_backtick_refs(text))
         refs.extend(match.group(1) for match in _PATH_TOKEN_RE.finditer(text))
     return refs
+
+
+def _test_runner_entry_names(root: Path) -> set[str]:
+    """Test-runner entry basenames that can never be repaired-surface targets.
+
+    ``run_tests.py`` is the framework's canonical verification entry. Target
+    repositories may name another entry through the optional top-level
+    ``test_runner`` workflow-config key. Missing, unreadable, or malformed
+    configuration degrades to the canonical exclusion only.
+    """
+    names = set(_CANONICAL_TEST_RUNNER_ENTRIES)
+    config_path = root / "docs" / "workflow-config.json"
+    try:
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return names
+    configured = config.get("test_runner") if isinstance(config, dict) else None
+    values = configured if isinstance(configured, list) else [configured]
+    refs = _code_targets(_text_refs(*(value for value in values if isinstance(value, str))))
+    names.update(Path(ref).name for ref in refs)
+    return names
+
+
+def _prose_targets(refs: list[str], test_runner_names: set[str]) -> list[str]:
+    """Code targets from PROSE refs (Decision Log decision/reason text).
+
+    Prose is noisier than repaired-surface evidence: a decision's rationale
+    routinely names the verification runner the decision is *about* and spells
+    out illustrative paths. Beyond the shared `_code_targets` screening this
+    drops two prose-specific classes:
+
+    * angle-bracket placeholders, screened for every caller by
+      ``_code_targets``;
+    * verification-runner entries — a decision governs the module it changes,
+      never the harness that verified it (the same exclusion the repaired-
+      finding path applies).
+
+    Deliberately NOT screened: whether a ref resolves to a file on disk. A
+    decision doc legitimately names paths that do not exist at drafting time
+    (a module the decision introduces, or a path recorded before a rename), so
+    an existence check discards genuine targets.
+    """
+    out: list[str] = []
+    for ref in _code_targets(refs):
+        if ref.startswith(("symbol:", "community:")):
+            out.append(ref)
+            continue
+        if Path(ref).name in test_runner_names:
+            continue
+        out.append(ref)
+    return out
 
 
 def _admitted_change_ids(wave_dir: Path) -> list[str]:
@@ -334,6 +392,7 @@ def draft_candidates(
     # rather than writing `Source exploration cost: 0`.
     measured_cost = source_exploration_cost(wave_dir)
     cost = measured_cost if measured_cost > 0 else None
+    test_runner_names = _test_runner_entry_names(root)
     drafts: list[dict[str, Any]] = []
 
     # (A) Decision Log rows -> `decision` candidates (durable by definition).
@@ -344,7 +403,7 @@ def draft_candidates(
             continue
         change_id = change_doc.stem
         for row in _decision_log_rows(text):
-            targets = _code_targets(row["refs"])
+            targets = _prose_targets(row["refs"], test_runner_names)
             if not targets:  # conservative: a decision needs a code anchor to attach to
                 continue
             reason = f" Rationale: {row['reason']}." if row["reason"] else ""
@@ -377,6 +436,7 @@ def draft_candidates(
     }
     heads = current_synthesis_heads(records)
     repaired: list[dict[str, Any]] = []
+    test_runner_names = _test_runner_entry_names(root)
     for finding_id, head in heads.items():
         if head.get("disposition") != "do_now":
             continue  # only a real, actionable issue
@@ -393,6 +453,10 @@ def draft_candidates(
             evidence_record.get("artifact_or_test_id"),
             evidence_record.get("public_path"),
         ))
+        targets = [
+            target for target in targets
+            if Path(target.split(":", 1)[0]).name not in test_runner_names
+        ]
         if not targets:  # need a concrete code anchor to attach the advisory to
             continue
         repaired.append({

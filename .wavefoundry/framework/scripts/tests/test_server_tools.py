@@ -3389,7 +3389,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         )
         wave_id = created["data"]["wave_id"]
         wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
-        written = self.srv.wf_review_evidence_response(
+        written = self.srv.wf_review_event_response(
             self.root,
             wave_id,
             "run",
@@ -3431,7 +3431,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         wave_id = created["data"]["wave_id"]
         wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
         before = wave_md.read_text(encoding="utf-8")
-        preview = self.srv.wf_review_evidence_response(
+        preview = self.srv.wf_review_event_response(
             self.root,
             wave_id,
             "run",
@@ -3444,7 +3444,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         self.assertEqual(len(preview["data"]["appended_records"]), 1)
         self.assertEqual(wave_md.read_text(encoding="utf-8"), before)
         with patch.object(self.srv, "_trigger_background_index_refresh_for_paths") as refresh:
-            written = self.srv.wf_review_evidence_response(
+            written = self.srv.wf_review_event_response(
                 self.root,
                 wave_id,
                 "run",
@@ -3471,7 +3471,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         wave_id = created["data"]["wave_id"]
         wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
         before = wave_md.read_text(encoding="utf-8")
-        response = self.srv.wf_review_evidence_response(
+        response = self.srv.wf_review_event_response(
             self.root,
             wave_id,
             "finding",
@@ -3495,7 +3495,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
         before = wave_md.read_text(encoding="utf-8")
 
-        response = self.srv.wf_review_evidence_response(
+        response = self.srv.wf_review_event_response(
             self.root,
             wave_id,
             "approval",
@@ -3529,7 +3529,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             {"event_identity": {"actor": "attacker"}},
             {"request_digest": "0" * 64},
         ):
-            rejected = self.srv.wf_review_evidence_response(
+            rejected = self.srv.wf_review_event_response(
                 self.root,
                 wave_id,
                 "run",
@@ -3546,7 +3546,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             )
             self.assertEqual(events_path.read_bytes(), b"")
 
-        clean = self.srv.wf_review_evidence_response(
+        clean = self.srv.wf_review_event_response(
             self.root,
             wave_id,
             "run",
@@ -3573,7 +3573,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             except OSError as exc:
                 self.skipTest(f"directory symlinks unavailable: {exc}")
 
-            response = self.srv.wf_review_evidence_response(
+            response = self.srv.wf_review_event_response(
                 self.root,
                 wave_id,
                 "run",
@@ -3595,7 +3595,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             self.root, "typed-review-approval", mode="create"
         )
         wave_id = created["data"]["wave_id"]
-        self.srv.wf_review_evidence_response(
+        self.srv.wf_review_event_response(
             self.root,
             wave_id,
             "run",
@@ -3604,7 +3604,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             mode="create",
             run_kind="initial_delivery",
         )
-        response = self.srv.wf_review_evidence_response(
+        response = self.srv.wf_review_event_response(
             self.root,
             wave_id,
             "approval",
@@ -3643,7 +3643,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         before = wave_md.read_text(encoding="utf-8")
         events_path = sys.modules["review_evidence"].review_event_path(wave_md)
         with patch.object(self.srv, "record_protocol_state_locked", return_value="forced persist failure"):
-            response = self.srv.wf_review_evidence_response(
+            response = self.srv.wf_review_event_response(
                 self.root,
                 wave_id,
                 "run",
@@ -3659,7 +3659,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         self.assertEqual(wave_md.read_text(encoding="utf-8"), before)
         self.assertNotEqual(events_path.read_bytes(), b"")
         committed = events_path.read_bytes()
-        replay = self.srv.wf_review_evidence_response(
+        replay = self.srv.wf_review_event_response(
             self.root,
             wave_id,
             "run",
@@ -3679,7 +3679,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         )
         wave_id = created["data"]["wave_id"]
         def call(context, actor="qa-reviewer", signoff_key="qa-reviewer", observed="passed"):
-            return self.srv.wf_review_evidence_response(
+            return self.srv.wf_review_event_response(
             self.root,
             wave_id,
             "approval",
@@ -3741,7 +3741,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         evidence = {
             "proposition": "candidate behavior conforms",
             "failure_condition": "a counterexample reaches the path",
-            "public_path": "wf_review_evidence",
+            "public_path": "wf_review_event",
             "command_or_fixture": "multi-finding public fixture",
             "expected": "the behavior remains conforming",
             "observed": "the public fixture conformed",
@@ -3752,7 +3752,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             "disposition_rationale": "no issue was reproduced",
         }
         for finding_id in ("finding-a", "finding-b"):
-            result = self.srv.wf_review_evidence_response(
+            result = self.srv.wf_review_event_response(
                 self.root,
                 wave_id,
                 "finding",
@@ -3795,7 +3795,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         evidence = {
             "proposition": "the repair cycle closes",
             "failure_condition": "the public writer cannot append the required next state",
-            "public_path": "wf_review_evidence",
+            "public_path": "wf_review_event",
             "command_or_fixture": "typed convergence fixture",
             "expected": "the second reverification and checkpoint commit together",
             "observed": "the public writer committed the requested transition",
@@ -3807,7 +3807,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         }
 
         def record(kind, cycle, context, blocking):
-            return self.srv.wf_review_evidence_response(
+            return self.srv.wf_review_event_response(
                 self.root,
                 wave_id,
                 "finding",
@@ -3873,7 +3873,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         evidence = {
             "proposition": "the finding follows the shared repair cycle",
             "failure_condition": "the public writer fabricates cycles or strands a required lane",
-            "public_path": "wf_review_evidence",
+            "public_path": "wf_review_event",
             "command_or_fixture": "five-finding progressive-lane fixture",
             "expected": "all findings share cycle one and each lane clears independently",
             "observed": "the public transition reached the requested state",
@@ -3886,7 +3886,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         lanes = ["code-reviewer", "qa-reviewer"]
 
         def record(finding, kind, cycle, actor, context, blocking):
-            return self.srv.wf_review_evidence_response(
+            return self.srv.wf_review_event_response(
                 self.root,
                 wave_id,
                 "finding",
@@ -4014,7 +4014,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         evidence = {
             "proposition": "the lane-clearing diagnostics carry recovery guidance",
             "failure_condition": "a bare rule statement without a recovery route",
-            "public_path": "wf_review_evidence",
+            "public_path": "wf_review_event",
             "command_or_fixture": "two-lane fixture with an invalid clear-both attempt",
             "expected": "the error names the list-first per-lane recipe",
             "observed": "the public transition reached the requested state",
@@ -4027,7 +4027,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         lanes = ["code-reviewer", "qa-reviewer"]
 
         def record(kind, cycle, actor, context, blocking):
-            return self.srv.wf_review_evidence_response(
+            return self.srv.wf_review_event_response(
                 self.root,
                 wave_id,
                 "finding",
@@ -4100,7 +4100,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         evidence = {
             "proposition": "reverification may disprove an actionable finding",
             "failure_condition": "a truthful reclassification strands the repair cycle",
-            "public_path": "wf_review_evidence",
+            "public_path": "wf_review_event",
             "command_or_fixture": "typed reclassification fixture",
             "expected": "the not_issue head terminalizes cycle one",
             "observed": "the public transition reached the requested state",
@@ -4112,7 +4112,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         }
 
         def record(kind, cycle, context, judgment, blocking):
-            return self.srv.wf_review_evidence_response(
+            return self.srv.wf_review_event_response(
                 self.root,
                 wave_id,
                 "finding",
@@ -4168,7 +4168,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         evidence = {
             "proposition": "aggregate convergence waits for every finding",
             "failure_condition": "a checkpoint freezes a partial second cycle",
-            "public_path": "wf_review_evidence",
+            "public_path": "wf_review_event",
             "command_or_fixture": "aggregate convergence fixture",
             "expected": "the checkpoint appears only after the final finding",
             "observed": "the requested transition committed",
@@ -4180,7 +4180,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         }
 
         def record(finding, kind, cycle, context, blocking):
-            return self.srv.wf_review_evidence_response(
+            return self.srv.wf_review_event_response(
                 self.root,
                 wave_id,
                 "finding",
@@ -4261,7 +4261,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             return original_replace(path, payload, purpose)
 
         with patch.object(self.srv, "_atomic_replace_bytes", side_effect=fail_event):
-            failed = self.srv.wf_review_evidence_response(
+            failed = self.srv.wf_review_event_response(
                 self.root, wave_id, "run", "wave-council", "event-fail",
                 mode="create", run_kind="initial_delivery",
             )
@@ -4272,7 +4272,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         with patch.object(
             self.srv, "_atomic_replace_text", side_effect=OSError("forced projection failure")
         ):
-            partial = self.srv.wf_review_evidence_response(
+            partial = self.srv.wf_review_event_response(
                 self.root, wave_id, "run", "wave-council", "projection-fail",
                 mode="create", run_kind="initial_delivery",
             )
@@ -4281,7 +4281,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         self.assertTrue(partial["data"]["projection_stale"])
         committed = events_path.read_bytes()
         self.assertEqual(wave_md.read_text(encoding="utf-8"), original_projection)
-        repaired = self.srv.wf_review_evidence_response(
+        repaired = self.srv.wf_review_event_response(
             self.root, wave_id, "run", "wave-council", "projection-fail",
             mode="create", run_kind="initial_delivery",
         )
@@ -6537,7 +6537,7 @@ class WfAuditBoundedIndexSnapshotTests(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# wf_review_evidence list event (wave 1t59p / 1t6ow)
+# wf_review_event list event (wave 1t59p / 1t6ow)
 # ---------------------------------------------------------------------------
 
 class ReviewEvidenceListEventTests(unittest.TestCase):
@@ -6561,7 +6561,7 @@ class ReviewEvidenceListEventTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def _list(self, **kwargs):
-        return self.srv.wf_review_evidence_response(
+        return self.srv.wf_review_event_response(
             self.root, self.wave_id, "list", "probe", "list-test", **kwargs
         )
 
@@ -6593,12 +6593,12 @@ class ReviewEvidenceListEventTests(unittest.TestCase):
         return judgment, evidence
 
     def _seed_finding_chain(self, *, complete=True):
-        self.srv.wf_review_evidence_response(
+        self.srv.wf_review_event_response(
             self.root, self.wave_id, "run", "wave-council", "delivery-run",
             mode="create", run_kind="initial_delivery", cycle=0,
         )
         judgment, evidence = self._finding_payloads()
-        self.srv.wf_review_evidence_response(
+        self.srv.wf_review_event_response(
             self.root, self.wave_id, "finding", "qa-reviewer", "find-ctx",
             mode="create", finding_id="fixture-finding", run_kind="initial_delivery",
             cycle=0, judgment=judgment, evidence=evidence,
@@ -6607,14 +6607,14 @@ class ReviewEvidenceListEventTests(unittest.TestCase):
         if not complete:
             return
         judgment, evidence = self._finding_payloads()
-        self.srv.wf_review_evidence_response(
+        self.srv.wf_review_event_response(
             self.root, self.wave_id, "finding", "implementer", "repair-ctx",
             mode="create", finding_id="fixture-finding", run_kind="repair_start",
             cycle=1, judgment=judgment, evidence=evidence,
             source_lanes=["qa-reviewer"], integrity_confirmed=True,
         )
         judgment, evidence = self._finding_payloads(repair_state="completed")
-        self.srv.wf_review_evidence_response(
+        self.srv.wf_review_event_response(
             self.root, self.wave_id, "finding", "reverifier", "reverify-ctx",
             mode="create", finding_id="fixture-finding", run_kind="reverification",
             cycle=1, judgment=judgment, evidence=evidence,
@@ -6636,7 +6636,7 @@ class ReviewEvidenceListEventTests(unittest.TestCase):
     def test_list_compact_rows_summary_and_approvals(self):
         """AC-1: compact index rows, summary, and per-signoff approvals."""
         self._seed_finding_chain()
-        self.srv.wf_review_evidence_response(
+        self.srv.wf_review_event_response(
             self.root, self.wave_id, "approval", "qa-reviewer", "qa-approval",
             mode="create", signoff_key="qa-reviewer", fresh_context=True,
             independent=True, integrity_confirmed=True,
@@ -6671,7 +6671,7 @@ class ReviewEvidenceListEventTests(unittest.TestCase):
         self.assertEqual(done["head_record_id"], heads["fixture-finding"]["record_id"])
         source = (SCRIPTS_ROOT / "server_impl.py").read_text(encoding="utf-8")
         start = source.index("def _review_evidence_list_response")
-        end = source.index("def wf_review_evidence_response")
+        end = source.index("def wf_review_event_response")
         body = source[start:end]
         self.assertIn("current_synthesis_heads", body)
         self.assertIn("review_status_rows", body)
@@ -6679,14 +6679,14 @@ class ReviewEvidenceListEventTests(unittest.TestCase):
 
     def _seed_finding_chain_completion(self):
         judgment, evidence = self._finding_payloads()
-        self.srv.wf_review_evidence_response(
+        self.srv.wf_review_event_response(
             self.root, self.wave_id, "finding", "implementer", "repair-ctx",
             mode="create", finding_id="fixture-finding", run_kind="repair_start",
             cycle=1, judgment=judgment, evidence=evidence,
             source_lanes=["qa-reviewer"], integrity_confirmed=True,
         )
         judgment, evidence = self._finding_payloads(repair_state="completed")
-        self.srv.wf_review_evidence_response(
+        self.srv.wf_review_event_response(
             self.root, self.wave_id, "finding", "reverifier", "reverify-ctx",
             mode="create", finding_id="fixture-finding", run_kind="reverification",
             cycle=1, judgment=judgment, evidence=evidence,
@@ -6723,7 +6723,7 @@ class ReviewEvidenceListEventTests(unittest.TestCase):
 
     def test_list_ignores_mode_and_never_validates_write_fields(self):
         """AC-1: mode is ignored for list; no judgment/evidence demanded."""
-        result = self.srv.wf_review_evidence_response(
+        result = self.srv.wf_review_event_response(
             self.root, self.wave_id, "list", "probe", "list-test", mode="bogus"
         )
         self.assertEqual(result["status"], "ok", result)
@@ -6738,13 +6738,13 @@ class ReviewEvidenceListEventTests(unittest.TestCase):
         credited = self.srv._state_sources_review_evidence(self.root, listed)
         rel_events = str(self.events_path.resolve().relative_to(self.root.resolve())).replace("\\", "/")
         self.assertEqual(credited, [rel_events])
-        preview = self.srv.wf_review_evidence_response(
+        preview = self.srv.wf_review_event_response(
             self.root, self.wave_id, "run", "wave-council", "credit-preview",
             run_kind="initial_delivery", cycle=0,
         )
         self.assertEqual(preview["status"], "dry_run")
         self.assertEqual(self.srv._state_sources_review_evidence(self.root, preview), [])
-        written = self.srv.wf_review_evidence_response(
+        written = self.srv.wf_review_event_response(
             self.root, self.wave_id, "run", "wave-council", "credit-write",
             mode="create", run_kind="initial_delivery", cycle=0,
         )
@@ -6756,21 +6756,21 @@ class ReviewEvidenceListEventTests(unittest.TestCase):
         """1t6ow live-caught repair: the 1t3ek per-artifact wrapper iterates
         raw_artifacts, so every extractor return must be list-typed. The int
         `0` early returns made the observational recorder throw and silently
-        drop the whole debit row for every non-create wf_review_evidence
+        drop the whole debit row for every non-create wf_review_event
         response (dry runs, errors, and the new list event). Inputs here are
         REAL envelopes from the canonical builder, and the wrapper's exact
         consumption expression is exercised against each."""
         self._seed_finding_chain()
         listed = self._list()
-        dry = self.srv.wf_review_evidence_response(
+        dry = self.srv.wf_review_event_response(
             self.root, self.wave_id, "run", "wave-council", "extractor-preview",
             run_kind="initial_delivery", cycle=0,
         )
-        error = self.srv.wf_review_evidence_response(
+        error = self.srv.wf_review_event_response(
             self.root, self.wave_id, "finding", "qa-reviewer", "extractor-error",
             mode="create", finding_id="extractor-error", run_kind="initial_delivery",
         )
-        written = self.srv.wf_review_evidence_response(
+        written = self.srv.wf_review_event_response(
             self.root, self.wave_id, "run", "wave-council", "extractor-write",
             mode="create", run_kind="initial_delivery", cycle=0,
         )
@@ -6799,7 +6799,7 @@ class ReviewEvidenceListEventTests(unittest.TestCase):
         filtered = self._list(record_type="review_run")
         _, id_filtered = self.srv._artifact_from_review_evidence(self.root, filtered)
         self.assertNotEqual(id_first, id_filtered)
-        self.srv.wf_review_evidence_response(
+        self.srv.wf_review_event_response(
             self.root, self.wave_id, "run", "wave-council", "neutral-version-bump",
             mode="create", run_kind="initial_delivery", cycle=0,
         )
@@ -6809,7 +6809,7 @@ class ReviewEvidenceListEventTests(unittest.TestCase):
 
     def test_write_rejection_recovery_hint_names_list_event(self):
         """AC-4: chain-state-dependent write rejections point at event='list'."""
-        response = self.srv.wf_review_evidence_response(
+        response = self.srv.wf_review_event_response(
             self.root, self.wave_id, "finding", "qa-reviewer", "missing-facts",
             mode="create", finding_id="missing-facts", run_kind="initial_delivery",
         )
@@ -7392,7 +7392,7 @@ class ServerToolRegistrationTests(unittest.TestCase):
             "wf_prepare_wave",
             "wf_pause_wave",
             "wf_review_wave",
-            "wf_review_evidence",
+            "wf_review_event",
             "wf_reopen_wave",
             "wf_close_wave",
             "index_build_status",
@@ -20308,7 +20308,7 @@ class TestMcpWrapperParameterExposure(unittest.TestCase):
             self.assertIn(tool, names, f"{tool} not registered with MCP")
 
     def test_review_evidence_authoring_exposes_compact_public_schema(self):
-        props = self._properties("wf_review_evidence")
+        props = self._properties("wf_review_event")
         for required in (
             "wave_id",
             "event",
@@ -20322,7 +20322,7 @@ class TestMcpWrapperParameterExposure(unittest.TestCase):
             self.assertIn(
                 required,
                 props,
-                f"{required} missing from wf_review_evidence MCP schema; got {props}",
+                f"{required} missing from wf_review_event MCP schema; got {props}",
             )
 
     def _tool_description(self, tool_name: str) -> str:
@@ -20338,7 +20338,7 @@ class TestMcpWrapperParameterExposure(unittest.TestCase):
         """Wave 1tbw4: the registered description must keep the operational
         lane-clearing recipe discoverable. Semantic anchors, not a verbatim
         pin, so rewording survives while the contract cannot silently drop."""
-        description = self._tool_description("wf_review_evidence")
+        description = self._tool_description("wf_review_event")
         for anchor in (
             'event="list"',
             "ONE reverification per lane",
@@ -20352,7 +20352,7 @@ class TestMcpWrapperParameterExposure(unittest.TestCase):
                 anchor,
                 description,
                 f"lane-clearing anchor {anchor!r} missing from the registered "
-                "wf_review_evidence description",
+                "wf_review_event description",
             )
 
 

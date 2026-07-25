@@ -1107,20 +1107,6 @@ class PairedEvaluationTests(TempRootTest):
                 applicability=mismatched,
             )
 
-    def test_pair_schema_matches_runtime_nonempty_contract(self) -> None:
-        schema = json.loads(
-            (
-                SCRIPTS_DIR.parent
-                / "evals"
-                / "context-efficiency-pairs.schema.json"
-            ).read_text(encoding="utf-8")
-        )
-        self.assertEqual(schema["properties"]["pairs"]["minItems"], 1)
-        self.assertEqual(
-            schema["properties"]["supersedes_evaluation_id"]["minLength"],
-            1,
-        )
-
     def test_register_attach_replay_replace_and_revoke(self) -> None:
         registered = ce.attach_evaluation(
             self.root,
@@ -1441,7 +1427,7 @@ class OpenWaveAttributionTests(TempRootTest):
         ambient = telemetry.focus
         telemetry.record_retrieval(
             _metric(source_id="targeted"),
-            tool_name="wf_review_evidence",
+            tool_name="wf_review_event",
             focus_override=ce.Focus("1aaaa target-wave", "plan", "plan"),
             event_id="targeted-1",
         )

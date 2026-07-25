@@ -40,6 +40,11 @@ PERF_BUDGETS: dict[str, dict[str, float]] = {
         # isolated 0.240s / worst contended 3.215s (six-worker suite, 2026-07-20)
         "isolated_reference_s": 0.240,
     },
+    "1000-record memory lexical evaluation": {
+        "budget_s": 0.05,
+        # isolated 0.005s; 10x headroom for six-worker suite contention
+        "isolated_reference_s": 0.005,
+    },
 }
 
 # Permissiveness invariant: every budget stays within [3x, 50x] of its

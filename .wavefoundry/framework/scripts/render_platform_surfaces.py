@@ -1356,7 +1356,11 @@ _RENAMED_MCP_TOOLS: dict[str, str] = {
     "wave_prepare": "wf_prepare_wave",
     "wave_pause": "wf_pause_wave",
     "wave_review": "wf_review_wave",
-    "wave_record_review_evidence": "wf_review_evidence",
+    "wave_record_review_evidence": "wf_review_event",
+    # Wave 1tis9: `wf_review_evidence` mislabelled a tool that inspects and
+    # appends typed review EVENTS. Projects upgraded to the 1.14.0 name
+    # reconcile to the current one; there is no runtime alias.
+    "wf_review_evidence": "wf_review_event",
     "wave_context_efficiency_attach_evaluation": "wf_context_efficiency_eval",
     "wave_implement": "wf_implement_wave",
     "wave_reopen": "wf_reopen_wave",

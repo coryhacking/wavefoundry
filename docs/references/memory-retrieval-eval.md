@@ -1,60 +1,101 @@
-# Memory-retrieval evaluation baseline
+# Memory-retrieval evaluation and fusion gate
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-20
+Last verified: 2026-07-25
 
 ## Purpose
 
-Any change to how the agent-memory layer ranks records must be measured, not
-assumed. This is the memory-specific analog of the code/docs golden-query recall
-eval: a hermetic golden set + runner that scores the current `memory_search`
-/ `memory_brief` paths and asserts the policy invariants, so a future
-ranking change (the deferred lexical+semantic fusion) has a recorded baseline to
-beat and a guard against regressing the invariants.
+Any memory-ranking change must be measured, not assumed. The harness combines a
+repeatable hermetic gate with an optional bounded live-corpus observation. It
+scores the shipped search path, an evaluation-only in-process BM25 + semantic
+RRF candidate, and lexical-only/semantic-only controls. The candidate is wired
+into product code only after the explicit adoption gate passes.
 
 ## Where it lives
 
+The eval is two distinct things, and they live in two places on purpose:
+
+| | Hermetic invariant pass | Curated corpus measurement |
+| --- | --- | --- |
+| What | Fixture corpus, recall@k / MRR, 11 policy invariants | This repository's real memory records, aggregate metrics |
+| Kind | A **test** | A shipped **capability** |
+| Entry | `tests/test_memory_eval.py` (or the CLI `--json`) | **`wf_memory_eval`** MCP tool, or the CLI `--curated-root` |
+| Ships? | No — fixture is test scaffolding | Yes — the engine packages with the framework |
+
+- Engine: `.wavefoundry/framework/scripts/memory_eval.py` — shippable framework
+  source (wave 1tgws). Builds the corpus in a throwaway repo, runs the shipped
+  path and evaluation candidate, and reports recall@k / MRR, per-case invariant
+  results, controls, fixture fingerprint, and adoption decision. Run it with
+  `python3 -B .wavefoundry/framework/scripts/memory_eval.py --json`.
 - Fixtures: `.wavefoundry/framework/scripts/tests/eval/memory_golden.json` — a
-  synthetic memory corpus plus `(query | target) -> expected record id(s)` cases.
-- Runner: `.wavefoundry/framework/scripts/tests/eval/run_memory_eval.py` — builds
-  the corpus in a throwaway repo, runs the shipped search/brief paths, reports
-  recall@k / MRR and per-case invariant pass/fail. Run it standalone with
-  `python run_memory_eval.py` (add `--json` for the machine report).
-- Test gate: `.wavefoundry/framework/scripts/tests/test_memory_eval.py` runs the
-  harness in the suite and asserts every invariant holds and the recorded
-  baseline is intact.
+  synthetic memory corpus, deterministic per-target histories, and
+  `(query | target) -> expected record id(s)` cases. Test scaffolding: it is
+  **not** packaged, so `run()` raises a clear `FileNotFoundError` in a target
+  repository. The shipped measurement (`run_curated`) does not need it.
+- Test gate: `.wavefoundry/framework/scripts/tests/test_memory_eval.py` pins
+  every invariant, deterministic RRF, aggregate privacy, reproducibility, and
+  the registered 1,000-record lexical budget.
+- Curated observation (agents): call **`wf_memory_eval`**. It runs the curated
+  pass over the configured repository and returns the aggregate report in a
+  structured envelope; when the semantic backend or corpus is unavailable it
+  returns `available: false` with a `curated_pass_unavailable` diagnostic
+  rather than failing. CLI fallback: add `--curated-root <repo>`. The sample is selected and
+  fingerprinted before any candidate is scored. Output contains sample size,
+  aggregate kind/status counts, metrics, and fingerprint only — never memory
+  bodies, summaries, or record ids.
 
 ## Categories and invariants
 
-The golden set covers five categories, each with an explicit policy invariant:
+The golden set covers 11 categories:
 
 | Category | Invariant |
 | --- | --- |
-| `exact_target` | a target lookup returns the matching records, higher-trust first |
-| `paraphrase` | a semantic hit never demotes a higher-trust record below a lower-trust one (the 1svuj fix) |
-| `no_index` | with no semantic index, the text-containment fallback + policy order still returns the right records |
-| `decay` | of two records of equal base confidence, the time-decayed one ranks below the fresh one |
-| `supersession` | a superseded record is excluded from default surfacing |
+| `exact_target` | target lookup returns matching records, higher-trust first |
+| `paraphrase` | a semantic hit cannot demote a higher-trust record |
+| `no_index` | text containment plus policy order remains deterministic |
+| `decay` | an old time-sensitive record ranks below a fresh comparable one |
+| `supersession` | superseded history is absent from default surfacing |
+| `archive_pointer` | normal targeted search returns the compact pointer |
+| `archive_history` | history opt-in resolves the archived body |
+| `old_authoritative` | tactical recency cannot cross the protected family boundary |
+| `new_low_confidence` | recency cannot cross a base-confidence band |
+| `adaptive_cadence` | comparable tactical records use cadence-derived half-lives |
+| `fragile_reverification` | churn keeps fragile records visible and requests re-verification |
 
-## Recorded baseline
+The fixture histories are injected into the same batched `file_commit_times`
+seam used by the product path. Adaptive results are therefore hermetic without
+adding per-record store work.
 
-Over the paraphrase case, the runner records three configurations at recall@1:
+## Adoption gate and recorded result
 
-| Configuration | recall@1 | Meaning |
-| --- | ---: | --- |
-| `baseline` (shipped: policy-primary + semantic tie-break) | 1.00 | the high-trust record stays on top |
-| `semantic_only` (pure semantic order, the pre-1svuj behavior) | 0.00 | text relevance demotes the high-trust record |
-| `lexical_only` (no index, strict text containment) | 0.00 | strict containment misses the paraphrase |
+Default-on fusion requires all of the following against the same frozen
+fixtures/sample: every candidate policy invariant passes; hermetic recall@3
+does not regress; curated MRR strictly improves; curated recall@3 does not
+regress; lexical-only and semantic-only controls are present. A tie, unavailable
+curated pass, or any regression leaves product search unchanged.
 
-This is the baseline the deferred fusion change must beat. A fusion that improves
-paraphrase recall must do so **without** dropping any policy invariant below
-`baseline`.
+The 2026-07-24 implementation run recorded:
 
-## Measurement-only
+- Hermetic fingerprint:
+  `72ead29288cabe762afd9f4e91b96e5aba9f2e66a22e42f25c5f2e8c4d23f4a4`.
+- Shipped baseline: recall@3 `1.0000`, MRR `1.0000`; candidate: recall@3
+  `1.0000`, MRR `0.8485`; lexical-only: `1.0000` / `0.8485`;
+  semantic-only: `0.8636` / `0.9242`.
+- All 11 shipped and candidate policy invariants passed.
+- Frozen curated sample: cap/size `12/12`, fingerprint
+  `9355a41fc118506a2e5d84eea2539e99a840cc87a2f9388fa408ebc9c23fe395`;
+  surfaced corpus counts were 37 total (36 active, 1 candidate), with kind
+  counts `{decision: 3, dependency_gotcha: 2, environment_gotcha: 7,
+  failed_attempt: 13, fragile_file: 3, review_finding: 1,
+  successful_pattern: 8}`.
+- The curated semantic pass was unavailable to the standalone interpreter
+  (`lancedb` unavailable), which is itself a gate failure. Fusion was not
+  adopted; the shipped semantic tie-break remains and no dormant product flag
+  or branch was added.
 
-The harness never changes ranking: it calls the shipped `memory_search` /
-`memory_brief` paths and `_memory_ranked` unchanged. It is deterministic and
-hermetic — it builds its own corpus and uses a fixed stub for the semantic index,
-so it never depends on the live (empty) corpus. See the code/docs golden-query
-eval for the sibling policy that gates code/docs retrieval changes.
+The selected adaptive constants are documented beside
+`memory_records.ADAPTIVE_*`: 7-day tactical reference cadence; 5–40 commit
+clamps; 6× time-sensitive cadence with 30–365 day clamps. Candidate reference
+intervals 3.5 and 14 days were rejected as respectively too eager and too
+permissive. See the code/docs golden-query eval for the sibling ranking gate.

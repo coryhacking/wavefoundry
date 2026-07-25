@@ -6,6 +6,22 @@ the individual wave records under [`docs/waves/`](docs/waves/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.15.0] - unreleased
+
+### Added
+
+- **Memory-retrieval quality is measurable in any project.** The eval engine now ships with the framework instead of living in the test tree, and a new read-only `wf_memory_eval` tool runs the curated live-corpus pass over the repository's own memory records. It reports aggregate metrics, kind/status counts, a content fingerprint, and the fusion adoption verdict — never record bodies, summaries, or ids — and returns an explicit unavailable report rather than failing when the semantic backend or corpus is missing. The hermetic invariant pass remains a test, with its golden fixture as test-only scaffolding.
+
+### Changed
+
+- **`wf_review_evidence` is now `wf_review_event`.** The tool inspects and appends typed review events (`list`, `finding`, `run`, `approval`); an Evidence Record is only one of the record types it writes, so the old name mislabelled the abstraction. This is a clean rename with **no alias**: upgrades reconcile stale references in rendered surfaces automatically, but host permission allowlists that pin exact tool names need a one-time update, and the MCP host must be fully restarted after upgrading so the client picks up the renamed surface.
+
+### Fixed
+
+- **Repair-chain guidance leads to the right call.** The lane-clearing recipe — in both the agent-harness prompt and the tool's own description — now names the `repair_start` prerequisite, states that `repair_start` and `reverification` are finding events rather than run events, and distinguishes the implementer who records the repair from the blocking reviewer lane that independently reverifies it. The two sequence errors are self-correcting: submitting a repair run kind as a run event, or a reverification with no preceding repair start, now names the corrective call instead of only restating the constraint.
+
+- **Memory candidates no longer target the test runner.** Decision-log drafting applied no verification-harness filter, so a decision whose rationale mentioned the test runner could be recorded against it instead of the module it governs. Runner entries are now excluded on both drafting paths, and illustrative placeholder tokens are rejected everywhere.
+
 ## [1.14.0] - 2026-07-21
 
 ### Added

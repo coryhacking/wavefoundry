@@ -255,7 +255,7 @@ class BuildPackTests(unittest.TestCase):
             ".wavefoundry/framework/scripts/score_context_efficiency_pairs.py",
             names,
         )
-        self.assertIn(
+        self.assertNotIn(
             ".wavefoundry/framework/evals/context-efficiency-pairs.schema.json",
             names,
         )
@@ -275,7 +275,7 @@ class BuildPackTests(unittest.TestCase):
             ).decode("utf-8")
         self.assertIn("def build_compact_review_event", writer)
         self.assertIn("def review_evidence_human_table", writer)
-        self.assertIn("def wf_review_evidence(", server)
+        self.assertIn("def wf_review_event(", server)
 
     def test_install_pack_carries_dashboard_document_renderer_and_memory_backfill(self):
         path = self._build()
