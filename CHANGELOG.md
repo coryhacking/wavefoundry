@@ -15,8 +15,11 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Changed
 
 - **`wf_review_evidence` is now `wf_review_event`.** The tool inspects and appends typed review events (`list`, `finding`, `run`, `approval`); an Evidence Record is only one of the record types it writes, so the old name mislabelled the abstraction. This is a clean rename with **no alias**: upgrades reconcile stale references in rendered surfaces automatically, but host permission allowlists that pin exact tool names need a one-time update, and the MCP host must be fully restarted after upgrading so the client picks up the renamed surface.
+- **`wf_reopen_wave` now requires an explicit `purpose`.** Pass `"review"` or `"implement"` to select the context-efficiency stage the following work is attributed to. Omitting it previously defaulted to `implement`, which silently recorded pre-close reviews as implementation work; there is **no fallback and no alias**, so callers written against the 1.14.0 signature must pass the argument. An empty or unrecognized value returns a typed `invalid_purpose` error with recovery hints, and an omitted argument is rejected by the published schema before the tool body runs — both leave the wave status, the telemetry seal, and the focus stage untouched.
 
 ### Fixed
+
+- **`wf_reopen_wave` no longer reports a focus stage it did not apply.** A failed context-efficiency focus write was swallowed while the response still claimed the requested stage had been set. Reopening still succeeds, because telemetry is observational, but the response now returns `data.focus_stage: null` alongside `data.focus_error` and a `focus_stage_not_applied` diagnostic naming how to recover.
 
 - **Repair-chain guidance leads to the right call.** The lane-clearing recipe — in both the agent-harness prompt and the tool's own description — now names the `repair_start` prerequisite, states that `repair_start` and `reverification` are finding events rather than run events, and distinguishes the implementer who records the repair from the blocking reviewer lane that independently reverifies it. The two sequence errors are self-correcting: submitting a repair run kind as a run event, or a reverification with no preceding repair start, now names the corrective call instead of only restating the constraint.
 
