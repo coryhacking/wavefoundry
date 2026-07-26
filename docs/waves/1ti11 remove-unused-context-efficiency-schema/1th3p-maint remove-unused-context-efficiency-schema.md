@@ -63,8 +63,11 @@ it.
   previously installed copies.
 - [x] AC-4: An exact live-source census finds no runtime reference to the schema
   filename; closed historical records may retain it.
-- [~] AC-5: No CHANGELOG entry. Operator direction: this cleanup is not a
-  release-note item.
+- [~] AC-5: No CHANGELOG entry. Operator direction, confirmed 2026-07-25 on a
+  verified basis: the schema DID ship (it landed in `4f0c8d4e`, an ancestor of
+  the 1.14.0 release and contained in tag `v1.14.0`), but the operator is the
+  sole deployer of 1.14.0, so there is no third-party installed base to notify
+  and the silent prune has no field impact.
 
 ## Tasks
 
@@ -75,7 +78,8 @@ it.
 - [x] Remove or replace schema-specific parity coverage with direct scorer
   contract coverage where it is not already present.
 - [~] Add the removal and supported replacement path to the unreleased
-  CHANGELOG section. Operator direction: do not document this cleanup there.
+  CHANGELOG section. Operator direction: not a release-note item, because the
+  only 1.14.0 deployment is the operator's own.
 - [x] Run targeted build-pack, upgrade, and Context Efficiency tests.
 - [x] Run docs validation and record implementation evidence.
 
@@ -124,6 +128,8 @@ boundaries, data flow, or the paired-evaluation protocol.
 | 2026-07-25 | Withdrew the release-note item by operator direction. | AC-5 and its task are `[~]`; no CHANGELOG entry remains. |
 | 2026-07-25 | Removed the schema and replaced its positive distribution expectations with absence and upgrade-pruning coverage. | `test_build_pack.py` 101/101; `test_prune_framework.py` 17/17; `test_upgrade_wavefoundry.py` 350/350. |
 | 2026-07-25 | Confirmed the executable paired-evaluation contract remains scorer-backed. | `test_context_efficiency.py` 53/53; `test_server_context_efficiency.py` 67/67. |
+| 2026-07-25 | Independent delivery review re-tested the premise instead of accepting it: 19 mutation probes confirm `score_pairs` still rejects every constraint the deleted schema encoded (and is stricter on three), `mode="scaffold"` preserves the producer-facing shape from the same constants, and the prune test genuinely removes an installed copy plus the emptied directory. The emptied local `evals/` directory was removed; it was untracked, so it never reached the repository. | Mutation-probe harness; `test_prune_framework` 17/17; `test_build_pack` 101/101 |
+| 2026-07-25 | Review disproved the stated basis for the CHANGELOG exclusion (the file was believed uncommitted; it shipped in v1.14.0). Referred back to the operator, who re-confirmed the exclusion on the verified basis that they are the sole 1.14.0 deployer. AC-5, its task, the Decision Log, and the external-harness risk row now record that reason. | `git merge-base --is-ancestor 4f0c8d4e d3722719`; `git tag --contains 4f0c8d4e` -> v1.14.0 |
 | 2026-07-25 | Completed live filename census and docs validation. | No runtime filename reference; closed history retained; `wf_validate_docs` passed. |
 
 
@@ -134,7 +140,7 @@ boundaries, data flow, or the paired-evaluation protocol.
 | --- | --- | --- | --- |
 | 2026-07-25 | Remove rather than retain the schema as a source-only artifact. | The scorer and scorer-derived scaffold are already the canonical executable contract; a second manual contract adds drift risk. | Keep shipping it as a third-party integration contract, or generate it from scorer constants. Neither surface is currently exposed or required. |
 | 2026-07-25 | Preserve closed-wave references. | They accurately describe what shipped historically and are not live product guidance. | Rewrite history, rejected. |
-| 2026-07-25 | Do not add a 1.15.0 CHANGELOG entry for this cleanup. | Operator direction; keep the change confined to the artifact and its verification coverage. | Retain the readiness-council compatibility note, rejected. |
+| 2026-07-25 | Do not add a 1.15.0 CHANGELOG entry for this cleanup. | Operator direction, re-confirmed after review disproved the original premise. The schema was NOT uncommitted intermediate work: it shipped in v1.14.0. The direction stands on a different and verified basis — the operator is the sole deployer of 1.14.0, so no third party holds an installed copy. | Retain the readiness-council compatibility note, rejected. Add the note anyway as cheap insurance, rejected once the installed base was established as empty. |
 
 
 ## Risks
@@ -142,7 +148,7 @@ boundaries, data flow, or the paired-evaluation protocol.
 
 | Risk | Mitigation |
 | --- | --- |
-| An undocumented external harness may have discovered and consumed the schema. | Treat the scorer-backed tool and scaffold as the supported contract; no release note is required per operator direction. |
+| An undocumented external harness may have discovered and consumed the schema. | RESOLVED, not merely accepted: the schema shipped only in v1.14.0 and the operator is that release's sole deployer, so no external installed base exists. The scorer-backed tool and `mode="scaffold"` remain the supported contract. |
 | Previously installed copies linger in target repositories. | Rely on the existing old-vs-new MANIFEST pruning path and retain regression coverage for framework pruning. |
 | Tests lose semantic validation that existed only in the schema. | Preserve or add direct scorer assertions for any runtime rule not already covered. |
 

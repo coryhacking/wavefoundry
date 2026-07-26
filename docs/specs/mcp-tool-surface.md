@@ -553,10 +553,21 @@ during `ready`/`create` (readiness mutations); `dry_run` is read-only.
 - Opens an `active` wave (legacy prepare-and-open) or a readied `planned` wave (wave 1p45l) for implementation; re-validates the prepare-phase council verdict and required lane reviews.
 - Runs the single-OPEN guard at activation: blocks with `another_wave_active` when another wave is already `active`/`implementing`; otherwise transitions the wave to `implementing`.
 
-`wf_reopen_wave(wave_id: str)`
+`wf_reopen_wave(wave_id: str, purpose: str)`
 
 - Reopens a `closed` or `paused` wave back to `active`.
 - Runs the single-OPEN guard (wave 1p45l): blocks with `another_wave_active` when another wave is already OPEN.
+- `purpose` is **required** and selects the context-efficiency stage subsequent work is attributed to (wave 1tj0k). The tool cannot infer it: reopening a fully-implemented wave to fix a late defect is implement work, while reopening it to review before closing is not. There is no default, because a silent default necessarily picks one and is wrong for the other.
+  - `purpose="review"` focuses the `review` stage — pass this for a pre-close second look, so the review's retrieval is credited to review.
+  - `purpose="implement"` focuses `implement`.
+- A rejected `purpose` mutates nothing in either case: the wave status, the telemetry seal, and the focus stage are all untouched. The two rejection paths differ, and error handling must not assume the first:
+  - **Empty or unrecognized** value (for example `""` or `"reviewing"`) — returns the typed `invalid_purpose` error with `recovery_tools` and `recovery_usage`.
+  - **Omitted argument** — rejected by the published MCP schema before the tool body runs, producing a `Field required` validation error (a `TypeError` on the raw callable). There is no `invalid_purpose` diagnostic and no recovery hints on this path, so do not branch on that code to recover from an omitted argument.
+- `purpose` is marked required in the published MCP schema.
+- Response shape. Both fields are nested under `data`, per this surface's standard envelope; they are **not** top level:
+  - Focus applied: `{"status": "ok", "data": {"focus_stage": "review"}}` (or `"implement"`).
+  - Focus **not** applied: the reopen still succeeds, because telemetry is observational, but the response reports `{"status": "ok", "data": {"focus_stage": null, "focus_error": "<exception>"}}` plus a `focus_stage_not_applied` diagnostic. The response never names a stage it did not apply.
+  - Read `data["focus_stage"]` to distinguish the two paths. A top-level read finds nothing on **either** path and therefore cannot tell an applied stage from an unapplied one.
 
 `wf_pause_wave(wave_id: str, mode: str = "dry_run")`
 

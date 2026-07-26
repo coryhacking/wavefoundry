@@ -9,6 +9,7 @@ import math
 import os
 import re
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -23312,6 +23313,273 @@ class SignoffLatestStateTests(unittest.TestCase):
                           expect_delivery, wave_dir)
             self.assertIs(self.srv._lane_has_signoff_in_evidence(ev, "operator"),
                           expect_operator, wave_dir)
+
+
+class ReopenWavePurposeStageTests(unittest.TestCase):
+    """Wave 1tj0k: `wf_reopen_wave` must not force implement-stage CE
+    attribution when a wave is reopened in order to REVIEW it."""
+
+    def setUp(self):
+        self.srv = load_server()
+        self.runner = load_thin_runner()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = _make_repo(Path(self.tmp.name))
+        self.wave_id = "1200a test-wave"
+        wave_dir = self.root / "docs" / "waves" / self.wave_id
+        wave_dir.mkdir(parents=True, exist_ok=True)
+        self.wave_md = wave_dir / "wave.md"
+        self.wave_md.write_text(
+            "# Wave Record\n"
+            f"wave-id: `{self.wave_id}`\n"
+            "Status: closed\n\n"
+            "## Changes\n\n"
+            "Change ID: `1200a-feat sample`\n"
+            "Change Status: `implemented`\n\n"
+            "## Wave Summary\n\nSome summary.\n",
+            encoding="utf-8",
+        )
+        try:
+            self.mcp = self.runner.build_server(self.root)
+        except ImportError:
+            self.skipTest("mcp package not installed")
+
+    def _tool(self, name):
+        return self.mcp._tool_manager._tools[name].fn
+
+    def _stage_calls(self, stage):
+        """Durable per-stage call count, read back from the store."""
+        snapshot = self.srv.context_efficiency.read_wave_snapshot(
+            self.root, self.wave_id
+        )
+        return int(
+            (snapshot.get("stages") or {}).get(stage, {}).get("calls") or 0
+        )
+
+    def _focus(self):
+        """The EXACT focus the tool mutates.
+
+        Wave 1ti11 repair: per-stage call counts only observe `review` and
+        `implement`, so a forbidden move to any other canonical stage (e.g.
+        `plan`) is invisible to them. `Focus` is a frozen dataclass, so the
+        returned value is a stable by-value snapshot.
+        """
+        return self.runner._get_handler().telemetry.focus
+
+    def _sealed(self):
+        """Durable telemetry seal flag, read straight from the store.
+
+        Wave 1ti11 repair: the seal is not exposed by `read_wave_snapshot`, and
+        an unseal leaves per-stage counters unchanged, so it needs its own
+        observation or `unseal_wave` on a rejected argument goes undetected.
+        """
+        path = self.srv.context_efficiency.store_path(self.root)
+        if not path.exists():
+            return None
+        conn = sqlite3.connect(str(path))
+        try:
+            row = conn.execute(
+                "SELECT sealed FROM wave_state WHERE wave_id=?", (self.wave_id,)
+            ).fetchone()
+        except sqlite3.Error:
+            return None
+        finally:
+            conn.close()
+        return None if row is None else bool(row[0])
+
+    def test_reopen_for_review_stores_later_calls_under_review_stage(self):
+        """AC-1 (RED before the fix): reopening for review must put durable
+        telemetry under `review`, proven through the registered public tool
+        and the durable store — not an in-memory focus field."""
+        reopen = self._tool("wf_reopen_wave")
+        result = reopen(wave_id=self.wave_id, purpose="review")
+        self.assertEqual(result.get("status"), "ok", result)
+        data = result.get("data") or {}
+        self.assertEqual(data.get("focus_stage"), "review", data)
+
+        before = self._stage_calls("review")
+        self._tool("wf_list_waves")()          # a recorded first-party call
+        after = self._stage_calls("review")
+        self.assertGreater(
+            after, before,
+            "a call after reopen(purpose='review') must be stored under the "
+            "review stage; durable snapshot showed no review-stage growth",
+        )
+
+    def test_reopen_for_implement_stores_later_calls_under_implement_stage(self):
+        """The implement path must durably record under `implement`."""
+        result = self._tool("wf_reopen_wave")(
+            wave_id=self.wave_id, purpose="implement"
+        )
+        self.assertEqual(result.get("status"), "ok", result)
+        self.assertEqual(
+            (result.get("data") or {}).get("focus_stage"), "implement", result
+        )
+        before = self._stage_calls("implement")
+        self._tool("wf_list_waves")()
+        self.assertGreater(
+            self._stage_calls("implement"), before,
+            "a call after reopen(purpose='implement') must be stored under "
+            "the implement stage",
+        )
+
+    def test_public_schema_marks_purpose_required(self):
+        """`purpose` must be REQUIRED in the registered MCP schema, so a caller
+        cannot omit it and silently inherit a stage."""
+        tool = self.mcp._tool_manager._tools["wf_reopen_wave"]
+        schema = getattr(tool, "parameters", None)
+        if not isinstance(schema, dict):
+            self.skipTest("registered tool exposes no parameter schema")
+        required = schema.get("required") or []
+        self.assertIn("purpose", required, schema)
+
+    def test_focus_failure_reports_the_exact_failure_envelope(self):
+        """Wave 1ti11: when the focus write fails, the reopen still succeeds but
+        the response must report NO applied stage, carry `focus_error`, and
+        raise the `focus_stage_not_applied` diagnostic.
+
+        This pins the envelope permanently. Against the original false-success
+        implementation it fails, because that returned focus_stage='review'.
+        """
+        handler = self.runner._get_handler()
+        with patch.object(
+            handler.telemetry,
+            "set_focus",
+            side_effect=RuntimeError("injected focus failure"),
+        ):
+            result = self._tool("wf_reopen_wave")(
+                wave_id=self.wave_id, purpose="review"
+            )
+        data = result.get("data") or {}
+        codes = [d.get("code") for d in (result.get("diagnostics") or [])]
+        self.assertEqual(result.get("status"), "ok", result)
+        self.assertIsNone(data.get("focus_stage"), data)
+        self.assertIn("injected focus failure", str(data.get("focus_error")), data)
+        self.assertIn("focus_stage_not_applied", codes, result)
+
+    def test_focus_failure_never_reports_an_applied_stage(self):
+        """Regression guard for the original false success: with the focus write
+        failing, no response field may name a stage and the real telemetry focus
+        must be unchanged. Also pins that the retired `focus_stage_source` field
+        does not resurface."""
+        handler = self.runner._get_handler()
+        before_focus = self._focus()
+        with patch.object(
+            handler.telemetry,
+            "set_focus",
+            side_effect=RuntimeError("injected focus failure"),
+        ):
+            result = self._tool("wf_reopen_wave")(
+                wave_id=self.wave_id, purpose="review"
+            )
+        data = result.get("data") or {}
+        self.assertNotEqual(data.get("focus_stage"), "review", data)
+        self.assertNotIn(
+            "focus_stage_source", data,
+            "focus_stage_source was retired when purpose became required",
+        )
+        self.assertEqual(
+            self._focus(), before_focus,
+            "a failed focus write must leave the actual focus unchanged",
+        )
+
+    def _assert_purpose_rejected_before_any_mutation(self, **call_kwargs):
+        """Shared fail-closed assertion for a rejected `purpose`.
+
+        Wave 1ti11 repair: `purpose` is required, so the MISSING and the
+        UNRECOGNIZED cases must both fail closed on this same path.
+        """
+        before_text = self.wave_md.read_text(encoding="utf-8")
+        before_review = self._stage_calls("review")
+        before_implement = self._stage_calls("implement")
+        before_focus = self._focus()
+        before_sealed = self._sealed()
+
+        # Spy on the unseal seam itself. Comparing stored seal state alone is
+        # vacuous whenever the fixture wave has no wave_state row (both reads
+        # return None), so observe the CALL as well as the state.
+        with patch.object(
+            self.srv.context_efficiency,
+            "unseal_wave",
+            wraps=self.srv.context_efficiency.unseal_wave,
+        ) as unseal_spy:
+            result = self._tool("wf_reopen_wave")(
+                wave_id=self.wave_id, **call_kwargs
+            )
+        self.assertEqual(result.get("status"), "error", result)
+        codes = [d.get("code") for d in (result.get("diagnostics") or [])]
+        self.assertIn("invalid_purpose", codes)
+
+        self.assertEqual(
+            self.wave_md.read_text(encoding="utf-8"), before_text,
+            "a rejected purpose must not mutate wave status",
+        )
+        # Wave 1ti11 repair: assert the EXACT focus and the seal, not just the
+        # review/implement counters. A move to any other canonical stage, or an
+        # unseal, leaves those counters identical and used to pass here.
+        self.assertEqual(
+            self._focus(), before_focus,
+            "a rejected purpose must not move the focus stage",
+        )
+        unseal_spy.assert_not_called()
+        self.assertEqual(
+            self._sealed(), before_sealed,
+            "a rejected purpose must not unseal wave telemetry",
+        )
+        self._tool("wf_list_waves")()
+        self.assertEqual(self._stage_calls("review"), before_review)
+        self.assertEqual(self._stage_calls("implement"), before_implement)
+
+    def test_invalid_purpose_fails_closed_before_any_mutation(self):
+        """AC-3: an UNRECOGNIZED value leaves wave and telemetry untouched."""
+        self._assert_purpose_rejected_before_any_mutation(purpose="REVIEWING")
+
+    def test_empty_purpose_fails_closed_before_any_mutation(self):
+        """Wave 1ti11: `purpose` is required, so an EMPTY value is rejected on
+        the same fail-closed path as an unrecognized one. There is no omitted-
+        purpose fallback that could silently select implement."""
+        self._assert_purpose_rejected_before_any_mutation(purpose="")
+
+    def test_omitted_purpose_is_rejected_before_the_tool_body_runs(self):
+        """Wave 1ti11: the path a STALE pre-1.15.0 caller actually takes.
+
+        Omitting the argument entirely is a different path from passing an
+        empty string: it is rejected by the required-parameter signature before
+        the tool body executes, so it never reaches the `invalid_purpose`
+        branch and carries no recovery hints. What matters is that it still
+        mutates nothing. Named separately from the empty-value case so the
+        distinction is not lost, since the guided envelope covers only one.
+        """
+        before_text = self.wave_md.read_text(encoding="utf-8")
+        before_focus = self._focus()
+
+        with patch.object(
+            self.srv.context_efficiency,
+            "unseal_wave",
+            wraps=self.srv.context_efficiency.unseal_wave,
+        ) as unseal_spy:
+            with self.assertRaises(TypeError) as caught:
+                self._tool("wf_reopen_wave")(wave_id=self.wave_id)
+
+        self.assertIn("purpose", str(caught.exception))
+        self.assertEqual(
+            self.wave_md.read_text(encoding="utf-8"), before_text,
+            "an omitted purpose must not mutate wave status",
+        )
+        self.assertEqual(
+            self._focus(), before_focus,
+            "an omitted purpose must not move the focus stage",
+        )
+        unseal_spy.assert_not_called()
+
+    def test_docstring_matches_the_implementation_status_guard(self):
+        """AC-6: the docstring claimed closed-only; the guard accepts paused."""
+        description = str(
+            getattr(self.mcp._tool_manager._tools["wf_reopen_wave"], "description", "")
+            or ""
+        )
+        self.assertIn("paused", description.lower())
+        self.assertIn("purpose", description.lower())
 
 
 class EpochSeqlockConcurrencyTests(unittest.TestCase):

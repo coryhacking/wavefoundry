@@ -2580,7 +2580,7 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
                 ),
             ):
                 paused = mcp.tools["wf_pause_wave"](wave_id, mode="create")
-                reopened = mcp.tools["wf_reopen_wave"](wave_id)
+                reopened = mcp.tools["wf_reopen_wave"](wave_id, purpose="implement")
             self.assertIs(paused, pause_core)
             self.assertIs(reopened, reopen_core)
             self.assertEqual(

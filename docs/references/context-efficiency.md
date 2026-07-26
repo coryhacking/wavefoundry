@@ -124,6 +124,17 @@ prepare stamp `plan`; implement stamps `implement`; review and close stamp
 legacy vocabulary (pre-rename records were cleaned up once, by hand, when
 this model landed).
 
+Reopening is the one transition where the stage cannot be derived from the
+tool alone, so the caller states it: `wf_reopen_wave(wave_id, purpose=...)`
+focuses `review` or `implement` (wave 1tj0k). Reopening a fully-implemented
+wave to fix a late defect is implement work, while reopening it for a
+pre-close review is not, so inference would guess. `purpose` is therefore
+**required** and has no default: a missing or unrecognized value is rejected
+before the wave status, the telemetry seal, or the focus stage changes. If the
+focus write itself fails, the reopen still succeeds but the response reports
+`focus_stage: null` with a `focus_error` and a `focus_stage_not_applied`
+diagnostic, so a stage is never claimed unless it was actually applied.
+
 Checkpoint publication is symmetric with the stages: activation publishes the
 `plan` totals, the implementation-phase review publishes the `implement`
 totals (a review that ran publishes even when signoffs are still pending —

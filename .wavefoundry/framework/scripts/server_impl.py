@@ -200,6 +200,12 @@ TRUSTED_PROJECT_METADATA = "trusted_project_metadata"
 UNTRUSTED_PROJECT_CONTENT = "untrusted_project_content"
 VALID_CHANGE_KINDS = {"bug", "feat", "enh", "change", "doc", "debt", "ref", "task", "maint", "ops"}
 MCP_TOOL_PREFIXES = ("wf_", "memory_", "index_", "docs_", "code_", "seed_")
+# Wave 1tj0k: `wf_reopen_wave` cannot infer why a wave is being reopened, so the
+# caller states it. `purpose` is REQUIRED and has no fallback: a caller census
+# found no runtime caller and no persisted migration depending on an omitted
+# value, and a silent default would reinstate the very misattribution the
+# parameter exists to remove.
+REOPEN_PURPOSE_STAGES = {"review": "review", "implement": "implement"}
 DOCS_SEARCH_KINDS = frozenset({"doc", "seed", "architecture", "prompt", "doc-summary"})
 VECTOR_TOP_K = 30  # candidates fetched per index before reranking (navigational/instructional/default)
 VECTOR_TOP_K_EXPLANATORY = 50  # candidates per index for explanatory/flow questions (dynamic-vector-top-k)
@@ -24913,32 +24919,114 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             )
 
     @mcp.tool(annotations=_MUTATING_TOOL)
-    def wf_reopen_wave(wave_id: str, **kwargs: Any) -> dict[str, Any]:
-        """Reopen a closed wave, restoring it to active status.
+    def wf_reopen_wave(
+        wave_id: str, purpose: str, **kwargs: Any
+    ) -> dict[str, Any]:
+        """Reopen a closed OR PAUSED wave, restoring it to active status.
 
-        Only works on waves with status 'closed'. Removes any Completed At stamp
-        and sets Status back to active.
+        Works on waves with status 'closed' or 'paused'. Removes any Completed
+        At stamp and sets Status back to active.
+
+        ``purpose`` is REQUIRED and selects the context-efficiency stage that
+        subsequent work is attributed to, because the tool cannot infer intent:
+        reopening a fully-implemented wave to fix a late defect is implement
+        work, while reopening it to review before closing is not. There is no
+        default. A silent default necessarily picks one of them and is wrong
+        for the other, which is precisely the misattribution defect this
+        parameter exists to remove.
+
+        * ``purpose="review"`` — reopening to REVIEW (for example a pre-close
+          second look). Subsequent retrieval is credited to the review stage.
+        * ``purpose="implement"`` — reopening to continue implementing.
+
+        A missing or unrecognized ``purpose`` is rejected before the wave
+        status is changed, before telemetry is unsealed, and before focus
+        moves.
+
+        Response shape — both fields are nested under ``data``, per this
+        surface's standard envelope; they are NOT top level:
+
+        * focus applied — ``{"status": "ok", "data": {"focus_stage": "review"}}``
+          (or ``"implement"``).
+        * focus NOT applied — the reopen still succeeds, because telemetry is
+          observational, but the response reports ``{"status": "ok", "data":
+          {"focus_stage": None, "focus_error": "<exception>"}}`` together with a
+          ``focus_stage_not_applied`` diagnostic. The response never reports a
+          stage it did not actually apply, so read ``data["focus_stage"]`` to
+          distinguish the two: reading a top-level key finds nothing on either
+          path and cannot tell them apart.
 
         Args:
             wave_id: Wave ID or unique prefix.
+            purpose: ``"review"`` or ``"implement"``. Required.
         """
         bad = _ensure_no_extra_args("wf_reopen_wave", kwargs)
         if bad is not None:
             return bad
+        # Wave 1tj0k: validate BEFORE any mutation. A rejected argument must
+        # never leave the wave reopened, the telemetry unsealed, or the focus
+        # moved — the caller retries with a valid value against clean state.
+        # Wave 1ti11 repair: `purpose` is required, so an EMPTY value is
+        # rejected on the same path as an unrecognized one. There is no
+        # omitted-purpose fallback to inherit.
+        requested = str(purpose or "").strip().lower()
+        if requested not in REOPEN_PURPOSE_STAGES:
+            allowed = ", ".join(sorted(REOPEN_PURPOSE_STAGES))
+            return _response(
+                "error",
+                {"wave_id": wave_id, "purpose": purpose},
+                diagnostics=[_diagnostic(
+                    "invalid_purpose",
+                    "wf_reopen_wave requires an explicit purpose, one of: "
+                    f"{allowed}. Nothing was changed: the wave status, "
+                    "telemetry seal, and focus stage are untouched.",
+                    recovery_tools=["wf_reopen_wave"],
+                    recovery_usage='wf_reopen_wave(wave_id=..., purpose="review")',
+                )],
+                next_tools=["wf_reopen_wave"],
+                usage='wf_reopen_wave(wave_id=..., purpose="review")',
+            )
+        focus_stage = REOPEN_PURPOSE_STAGES[requested]
         handler = get_handler()
         with review_event_write_lock(handler.root):
             result = wf_reopen_wave_response(handler.root, wave_id)
             if result.get("status") == "ok":
+                # Wave 1ti11 repair (reopen-reports-unapplied-focus): telemetry is
+                # observational, so a focus failure must NOT fail the reopen — but the
+                # response must never claim a stage that was not actually applied.
+                # Reporting focus_stage outside this guard made a swallowed failure
+                # indistinguishable from success, which is the exact mis-attribution
+                # this tool exists to prevent. Surface it instead of swallowing it.
+                focus_error = ""
                 try:
                     canonical = str(
                         _context_data(result).get("wave_id") or wave_id
                     )
                     context_efficiency.unseal_wave(handler.root, canonical)
                     handler.telemetry.set_focus(
-                        canonical, "implement", new_phase=True
+                        canonical, focus_stage, new_phase=True
                     )
-                except Exception:
-                    pass
+                except Exception as exc:
+                    focus_error = f"{type(exc).__name__}: {exc}"
+                if focus_error:
+                    _context_data(result)["focus_stage"] = None
+                    _context_data(result)["focus_error"] = focus_error
+                    diagnostics = result.get("diagnostics")
+                    if not isinstance(diagnostics, list):
+                        diagnostics = []
+                        result["diagnostics"] = diagnostics
+                    diagnostics.append(_diagnostic(
+                        "focus_stage_not_applied",
+                        f"The wave was reopened, but context-efficiency focus was NOT "
+                        f"moved to '{focus_stage}': {focus_error}. Retrieval done now "
+                        "will be attributed to the previous stage. Re-run "
+                        "wf_reopen_wave, or advance the boundary with wf_review_wave, "
+                        "before doing review retrieval.",
+                        recovery_tools=["wf_reopen_wave", "wf_review_wave"],
+                        recovery_usage='wf_reopen_wave(wave_id=..., purpose="review")',
+                    ))
+                else:
+                    _context_data(result)["focus_stage"] = focus_stage
                 projection, _ = _flush_context_efficiency(handler, wave_id)
                 _context_data(result)["context_efficiency_persistence"] = projection
             return result
