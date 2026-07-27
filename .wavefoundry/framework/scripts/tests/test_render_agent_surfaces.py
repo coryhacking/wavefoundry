@@ -18,6 +18,7 @@ GURU_STUB = "# Guru\n\nRole: guru\n"
 
 sys.path.insert(0, str(SCRIPTS_ROOT))
 import render_agent_surfaces as ras  # noqa: E402
+import render_platform_surfaces as rps  # noqa: E402
 
 
 class ReviewProtocolCarrierRegistryTests(unittest.TestCase):
@@ -484,8 +485,10 @@ class RenderAgentSurfacesTests(unittest.TestCase):
             self.assertIn(ras.REVIEW_PROTOCOL_MARKER_BEGIN, codex_skill.read_text(encoding="utf-8"))
 
             codex_mcp_config = repo_root / ".codex" / "config.toml"
-            self.assertTrue(codex_mcp_config.is_file())
-            self.assertIn("[mcp_servers.wavefoundry]", codex_mcp_config.read_text(encoding="utf-8"))
+            self.assertFalse(
+                codex_mcp_config.exists(),
+                "agent renderer must not own Codex MCP configuration",
+            )
 
             junie = (repo_root / ".junie" / "guidelines.md").read_text(encoding="utf-8")
             self.assertIn("wave:auto-guru begin", junie)
@@ -584,12 +587,11 @@ class AgentSurfaceNewlineTests(unittest.TestCase):
     are byte-identical LF on every host, matching render_platform_surfaces.write_text.
     """
 
-    # The four freshly generated agent surfaces write_text produces.
+    # The three freshly generated agent surfaces this renderer owns.
     _GENERATED_SURFACES = (
         (".cursor", "rules", "auto-guru.mdc"),
         (".claude", "agents", "guru.md"),
         (".codex", "skills", "auto-guru", "SKILL.md"),
-        (".codex", "config.toml"),
     )
 
     def _make_repo(self, repo_root: Path) -> None:
@@ -672,6 +674,10 @@ class CodexConfigOverwriteSafetyTests(unittest.TestCase):
     def _config_path(self, repo_root: Path) -> Path:
         return repo_root / ".codex" / "config.toml"
 
+    def _render(self, repo_root: Path) -> None:
+        ras.render_agent_surfaces(repo_root)
+        rps.render_codex_mcp_config(repo_root)
+
     def _parse(self, text: str) -> dict:
         import tomllib
 
@@ -683,7 +689,7 @@ class CodexConfigOverwriteSafetyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             repo_root = Path(temp_dir)
             self._make_repo(repo_root)
-            ras.render_agent_surfaces(repo_root)
+            self._render(repo_root)
             text = self._config_path(repo_root).read_text(encoding="utf-8")
             self.assertIn(ras.CODEX_CONFIG_MARKER_BEGIN, text)
             self.assertIn(ras.CODEX_CONFIG_MARKER_END, text)
@@ -700,12 +706,12 @@ class CodexConfigOverwriteSafetyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             repo_root = Path(temp_dir)
             self._make_repo(repo_root)
-            ras.render_agent_surfaces(repo_root)
+            self._render(repo_root)
             config = self._config_path(repo_root)
             seeded = config.read_text(encoding="utf-8") + "\n" + self.OPERATOR_BLOCK
             config.write_text(seeded, encoding="utf-8")
 
-            ras.render_agent_surfaces(repo_root)
+            self._render(repo_root)
 
             text = config.read_text(encoding="utf-8")
             self.assertIn(self.OPERATOR_BLOCK, text, "operator block must survive re-render")
@@ -725,18 +731,18 @@ class CodexConfigOverwriteSafetyTests(unittest.TestCase):
             self._make_repo(repo_root)
             config = self._config_path(repo_root)
 
-            ras.render_agent_surfaces(repo_root)
+            self._render(repo_root)
             first = config.read_bytes()
-            ras.render_agent_surfaces(repo_root)
+            self._render(repo_root)
             self.assertEqual(first, config.read_bytes(), "fresh double-render must be byte-identical")
 
             config.write_text(
                 config.read_text(encoding="utf-8") + "\n" + self.OPERATOR_BLOCK,
                 encoding="utf-8",
             )
-            ras.render_agent_surfaces(repo_root)
+            self._render(repo_root)
             second = config.read_bytes()
-            ras.render_agent_surfaces(repo_root)
+            self._render(repo_root)
             self.assertEqual(second, config.read_bytes(), "double-render with operator content must be byte-identical")
 
     def test_stale_framework_region_is_refreshed(self) -> None:
@@ -785,7 +791,7 @@ class CodexConfigOverwriteSafetyTests(unittest.TestCase):
             config.parent.mkdir(parents=True)
             config.write_text(self.THIS_REPO_PREMIGRATION_SHAPE, encoding="utf-8")
 
-            ras.render_agent_surfaces(repo_root)
+            self._render(repo_root)
 
             text = config.read_text(encoding="utf-8")
             header_lines = [
@@ -1011,7 +1017,10 @@ class CodexConfigUpsertHardeningTests(unittest.TestCase):
 
             stderr = io.StringIO()
             with contextlib.redirect_stderr(stderr):
-                written = ras.render_agent_surfaces(repo_root)
+                ras.render_agent_surfaces(repo_root)
+                rps._manifest_start()
+                rps.render_codex_mcp_config(repo_root)
+                written = list(rps._MANIFEST_WRITTEN or [])
 
             self.assertNotIn(
                 ".codex/config.toml", written,
@@ -1031,8 +1040,14 @@ class CodexConfigUpsertHardeningTests(unittest.TestCase):
             repo_root = Path(temp_dir)
             (repo_root / "docs" / "agents").mkdir(parents=True)
             (repo_root / "docs" / "agents" / "guru.md").write_text(GURU_STUB, encoding="utf-8")
-            written = ras.render_agent_surfaces(repo_root)
-            self.assertIn(".codex/config.toml", written)
+            ras.render_agent_surfaces(repo_root)
+            rps._manifest_start()
+            rps.render_codex_mcp_config(repo_root)
+            config = repo_root / ".codex" / "config.toml"
+            self.assertIn(
+                config.resolve(),
+                [Path(path).resolve() for path in (rps._MANIFEST_WRITTEN or [])],
+            )
 
 
 class CodexConfigCouncilFixNowTests(unittest.TestCase):

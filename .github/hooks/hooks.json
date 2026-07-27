@@ -4,13 +4,17 @@
     "preToolUse": [
       {
         "type": "command",
-        "bash": "python3 \".github/hooks/pre-tool-use.py\""
+        "bash": "python3 \".github/hooks/pre-tool-use.py\"",
+        "powershell": "python3 \".github/hooks/pre-tool-use.py\"",
+        "cwd": "."
       }
     ],
     "postToolUse": [
       {
         "type": "command",
-        "bash": "python3 \".github/hooks/post-tool-use.py\""
+        "bash": "python3 \".github/hooks/post-tool-use.py\"",
+        "powershell": "python3 \".github/hooks/post-tool-use.py\"",
+        "cwd": "."
       }
     ]
   }

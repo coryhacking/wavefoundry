@@ -1589,11 +1589,12 @@ def phase_review_status_projection(root: Path) -> dict[str, int]:
                     )
                 records = validation.records
             projected = render_review_evidence_projection(text, records)
-            projected = render_review_status_projection(
-                projected,
-                records,
-                required_review_status_keys(root, projected, records),
-            )
+            if not re.search(r"(?mi)^Status:\s*closed\s*$", text):
+                projected = render_review_status_projection(
+                    projected,
+                    records,
+                    required_review_status_keys(root, projected, records),
+                )
             # Compare in canonical form (wave 1tb4z): a projection that differs
             # only by legacy presentation (marker namespace, retired bodyless
             # details block) is byte-preserved — the upgrade never rewrites

@@ -379,6 +379,23 @@ class DashboardSnapshotTests(unittest.TestCase):
         self.assertIn("| — | — | — | — | — |", wave["review_evidence_projection"])
         self.assertNotIn("```jsonl", wave["review_evidence_projection"])
 
+    def test_closed_wave_review_status_is_historical_not_stale(self):
+        """1tmb0: dashboard derivation must not reinterpret archived approvals."""
+        wave_md = self.root / "docs" / "waves" / "12x test-wave" / "wave.md"
+        text = wave_md.read_text(encoding="utf-8")
+        text = text.replace("Status: active", "Status: closed", 1).replace(
+            "| wave-council-readiness | pending |",
+            "| wave-council-readiness | historical |",
+            1,
+        )
+        wave_md.write_text(text, encoding="utf-8")
+
+        wave = self.lib.collect_waves(self.root)[0]
+
+        self.assertEqual(wave["review_evidence_status"]["integrity"], "ok")
+        self.assertEqual(wave["review_evidence_status"]["projection"], "current")
+        self.assertEqual(wave["review_evidence_status"]["diagnostics"], [])
+
     def test_dashboard_approval_state_comes_from_validated_external_records(self):
         from review_evidence import build_compact_review_event, canonical_review_events_bytes
 

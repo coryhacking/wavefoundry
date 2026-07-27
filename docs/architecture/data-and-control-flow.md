@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-25
+Last verified: 2026-07-26
 
 ## Primary Control Paths
 
@@ -170,6 +170,7 @@ The `scheme_version: "v2"` policy is provisioned by code, not agents: fresh inst
 | `.wavefoundry/framework/VERSION` | build_pack.py | docs_lint.py | build_pack.py |
 | `.claude/settings.json` | Engineering | Claude Code | render_platform_surfaces.py (merge) |
 | `.mcp.json` | Engineering | Claude Code and compatible clients | render_platform_surfaces.py |
+| `.codex/config.toml` framework marker region | Engineering | Codex | render_platform_surfaces.py (merge; operator TOML outside the region is preserved) |
 | `.junie/mcp/mcp.json` | Engineering | JetBrains Junie / AI Assistant MCP | render_platform_surfaces.py |
 | `.wavefoundry/index/` | indexer.py | server.py | indexer.py (incremental) |
 | `.wavefoundry/index/index-state.sqlite` | index_state_store.py (wave 1rsh9) | server.py (read-only per-operation connections: FTS fusion, freshness primitive, health probe), scan_secrets.py / run_secrets_scan.py (scan cache) | indexer.py build passes, secrets-scan record, `index_optimize` maintenance |

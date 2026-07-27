@@ -442,6 +442,10 @@ def build_server(root: Path):
             )
         return perform_mcp_reload()
 
+    # ``wf_reload_mcp`` is registered by this runner after server_impl's main
+    # surface normalization. Normalize once more so the runner-owned survivor
+    # publishes the same exact argument contract as every reloaded tool.
+    server_impl._normalize_first_party_tool_argument_models(mcp)
     tool_names = server_impl._registered_mcp_tool_names(mcp)
     violations = server_impl.first_party_tool_names_violating_prefix(tool_names)
     if violations:

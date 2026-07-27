@@ -267,7 +267,7 @@ class ReviewEvidenceStateMachineTests(unittest.TestCase):
             "`waiver_risk`",
             "`approval:<signoff-key>`",
             "earlier Executable Evidence Record with `claim_kind: finding`",
-            "Lane reassessment evidence must be executed in delivery",
+            "Lane reassessment evidence must name the original finding phase",
             "Mandatory project orientation may disclose status or review history",
             "formed its own current-tree/test assessment before relying on prior findings",
             "One physical batch run may start several findings",
@@ -1396,6 +1396,235 @@ class ReviewEvidenceConvergenceTests(unittest.TestCase):
         self.assertIn("preceding initial_delivery", joined)
         self.assertIn("requires an actionable synthesis", joined)
 
+    def test_readiness_finding_may_start_repair_without_initial_delivery(self) -> None:
+        initial = synthesis(
+            contract_relevance="required_ac",
+            supported_reachability=True,
+            blocking_required_lanes=["code-reviewer"],
+            approval_recheck_lanes=["wave-council-readiness"],
+            optional_value="none",
+        )
+        derive(initial)
+        start = review_run("readiness-start", kind="repair_start", cycle=1)
+        start_row = synthesis(
+            "readiness-start-row",
+            run_id="readiness-start",
+            cycle=1,
+            supersedes_record_id="synthesis-0",
+            contract_relevance="required_ac",
+            supported_reachability=True,
+            blocking_required_lanes=["code-reviewer"],
+            approval_recheck_lanes=["wave-council-readiness"],
+            optional_value="none",
+        )
+        derive(start_row)
+        result = subject.validate_review_evidence(
+            wave_text([review_run(kind="readiness"), initial, start, start_row])
+        )
+        self.assertTrue(result.ok, "\n".join(result.errors))
+
+    def _readiness_repair_records(
+        self, *, origin_run_kind: str = "readiness"
+    ) -> tuple[dict[str, object], ...]:
+        approval_lane = (
+            "wave-council-readiness"
+            if origin_run_kind == "readiness"
+            else "wave-council-delivery"
+        )
+        base_event: dict[str, object] = {
+            "event": "finding",
+            "actor": "code-reviewer",
+            "context_id": "readiness-origin",
+            "finding_id": "readiness-finding",
+            "run_kind": origin_run_kind,
+            "cycle": 0,
+            "judgment": {
+                "validation_status": "real",
+                "scope_relation": "admitted",
+                "introduced_or_worsened_by_wave": True,
+                "contract_relevance": "required_ac",
+                "supported_reachability": True,
+                "attacker_reachability": False,
+                "authority_domain": "integrity",
+                "authority_delta": "low",
+                "observable_impact": "material",
+                "containment": "none",
+            },
+            "proposition": "readiness findings clear in their origin phase",
+            "failure_condition": "the terminal reassessment is forced into delivery",
+            "public_path": "wf_review_event",
+            "command_or_fixture": "readiness repair compact-event sequence",
+            "expected": "the readiness lane clears after independent reverification",
+            "observed": "the controlled readiness finding is repairable",
+            "artifact_or_test_id": "test:readiness-origin-repair",
+            "known_bad_detection_method": "the pre-repair validator rejects the readiness reassessment phase",
+            "limitations": "local deterministic event sequence",
+            "safety_and_authorization": "local fixture only",
+            "disposition_rationale": "a required readiness-contract defect must be repaired now",
+            "integrity_confirmed": True,
+            "fresh_context": True,
+            "independent": True,
+            "review_boundaries_changed": [],
+            "source_lanes": ["code-reviewer"],
+            "blocking_required_lanes": ["code-reviewer"],
+            "approval_recheck_lanes": [approval_lane],
+        }
+        records: tuple[dict[str, object], ...] = ()
+
+        def append(**updates: object) -> None:
+            nonlocal records
+            event = copy.deepcopy(base_event)
+            event.update(updates)
+            rows, errors = subject.build_compact_review_event(records, event)
+            self.assertEqual(errors, ())
+            records = (*records, *rows)
+
+        append()
+        append(
+            actor="implementer",
+            context_id="readiness-repair",
+            run_kind="repair_start",
+            cycle=1,
+            fresh_context=False,
+            independent=False,
+        )
+        append(
+            actor="code-reviewer",
+            context_id="readiness-reverification",
+            run_kind="reverification",
+            cycle=1,
+            blocking_required_lanes=[],
+        )
+        return records
+
+    def test_readiness_finding_clears_lane_through_same_phase_reverification(self) -> None:
+        """1tmb0 AC-2: execute the full readiness repair sequence."""
+        records = self._readiness_repair_records()
+        reassessments = [
+            row
+            for row in records
+            if row.get("record_type") == "executable_evidence"
+            and row.get("claim_kind") == "lane_reassessment"
+        ]
+        self.assertEqual(len(reassessments), 1)
+        self.assertEqual(reassessments[0]["phase"], "readiness")
+        result = subject.validate_review_evidence(wave_text(list(records)))
+        self.assertTrue(result.ok, "\n".join(result.errors))
+
+    def test_readiness_finding_accepts_legacy_delivery_reassessment(self) -> None:
+        """Closed historical waves may promote readiness repairs at delivery."""
+        records = [copy.deepcopy(row) for row in self._readiness_repair_records()]
+        for row in records:
+            if (
+                row.get("record_type") == "executable_evidence"
+                and row.get("claim_kind") == "lane_reassessment"
+            ):
+                row["phase"] = "delivery"
+        result = subject.validate_review_evidence(wave_text(records))
+        self.assertTrue(result.ok, "\n".join(result.errors))
+
+    def test_delivery_finding_rejects_readiness_reassessment(self) -> None:
+        """Negative control: a delivery finding cannot clear in an earlier phase."""
+        records = [
+            copy.deepcopy(row)
+            for row in self._readiness_repair_records(origin_run_kind="initial_delivery")
+        ]
+        for row in records:
+            if (
+                row.get("record_type") == "executable_evidence"
+                and row.get("claim_kind") == "lane_reassessment"
+            ):
+                row["phase"] = "readiness"
+        result = subject.validate_review_evidence(wave_text(records))
+        self.assertFalse(result.ok)
+        self.assertIn(
+            "cannot clear a required-lane block without lane reassessment evidence",
+            "\n".join(result.errors),
+        )
+
+    def test_orphan_evidence_cannot_spoof_finding_origin_phase(self) -> None:
+        """An unlinked row cannot relabel a delivery finding as readiness-origin."""
+        records = [
+            copy.deepcopy(row)
+            for row in self._readiness_repair_records(origin_run_kind="initial_delivery")
+        ]
+        finding_evidence = next(
+            row
+            for row in records
+            if row.get("record_type") == "executable_evidence"
+            and row.get("claim_kind") == "finding"
+        )
+        orphan = copy.deepcopy(finding_evidence)
+        orphan["evidence_record_id"] = "ev-orphan-readiness-phase-spoof"
+        orphan["phase"] = "readiness"
+        for row in records:
+            if (
+                row.get("record_type") == "executable_evidence"
+                and row.get("claim_kind") == "lane_reassessment"
+            ):
+                row["phase"] = "readiness"
+        result = subject.validate_review_evidence(wave_text([orphan, *records]))
+        self.assertFalse(result.ok)
+        self.assertIn(
+            "cannot clear a required-lane block without lane reassessment evidence",
+            "\n".join(result.errors),
+        )
+
+    def test_reordered_repair_synthesis_cannot_spoof_origin_phase(self) -> None:
+        """Physical synthesis order cannot override the linked chain root."""
+        records = [
+            copy.deepcopy(row)
+            for row in self._readiness_repair_records(origin_run_kind="initial_delivery")
+        ]
+        syntheses = [row for row in records if row.get("record_type") == "finding_synthesis"]
+        root = next(row for row in syntheses if row.get("supersedes_record_id") is None)
+        repair = next(row for row in syntheses if row.get("supersedes_record_id") == root["record_id"])
+        repair_evidence_id = repair["evidence_record_id"]
+        for row in records:
+            if row.get("evidence_record_id") == repair_evidence_id:
+                row["phase"] = "readiness"
+            if (
+                row.get("record_type") == "executable_evidence"
+                and row.get("claim_kind") == "lane_reassessment"
+            ):
+                row["phase"] = "readiness"
+        records.remove(root)
+        records.insert(records.index(repair) + 1, root)
+        result = subject.validate_review_evidence(wave_text(records))
+        self.assertFalse(result.ok)
+        self.assertIn(
+            "cannot clear a required-lane block without lane reassessment evidence",
+            "\n".join(result.errors),
+        )
+
+    def test_root_evidence_phase_cannot_override_sealing_run(self) -> None:
+        """The root run, not a mutable evidence field, owns finding phase."""
+        records = [
+            copy.deepcopy(row)
+            for row in self._readiness_repair_records(origin_run_kind="initial_delivery")
+        ]
+        root = next(
+            row
+            for row in records
+            if row.get("record_type") == "finding_synthesis"
+            and row.get("supersedes_record_id") is None
+        )
+        root_evidence_id = root["evidence_record_id"]
+        for row in records:
+            if row.get("evidence_record_id") == root_evidence_id:
+                row["phase"] = "readiness"
+            if (
+                row.get("record_type") == "executable_evidence"
+                and row.get("claim_kind") == "lane_reassessment"
+            ):
+                row["phase"] = "readiness"
+        result = subject.validate_review_evidence(wave_text(records))
+        self.assertFalse(result.ok)
+        self.assertIn(
+            "cannot clear a required-lane block without lane reassessment evidence",
+            "\n".join(result.errors),
+        )
+
     def test_convergence_checkpoint_requires_two_completed_cycles(self) -> None:
         rows = [
             review_run(),
@@ -2262,6 +2491,77 @@ class ReviewStatusProjectionTests(unittest.TestCase):
                 "wave-council-delivery": "approved",
             },
         )
+
+    def test_pending_readiness_finding_withholds_readiness_approval(self) -> None:
+        pending = synthesis(
+            finding_id="plan-defect",
+            contract_relevance="required_ac",
+            supported_reachability=True,
+            blocking_required_lanes=["code-reviewer"],
+            approval_recheck_lanes=["wave-council-readiness"],
+            optional_value="none",
+        )
+        derive(pending)
+        rows = [self.approval("wave-council-readiness"), pending]
+        [state] = subject.review_status_rows(rows, ["wave-council-readiness"])
+        self.assertEqual(state["state"], "withheld")
+        self.assertIn("plan-defect", state["why"])
+
+    def test_readiness_approval_waits_for_every_current_finding_head(self) -> None:
+        first = synthesis(
+            "plan-first-0",
+            finding_id="plan-first",
+            contract_relevance="required_ac",
+            supported_reachability=True,
+            blocking_required_lanes=["code-reviewer"],
+            approval_recheck_lanes=["wave-council-readiness"],
+            optional_value="none",
+        )
+        second = synthesis(
+            "plan-second-0",
+            finding_id="plan-second",
+            contract_relevance="required_ac",
+            supported_reachability=True,
+            blocking_required_lanes=["qa-reviewer"],
+            approval_recheck_lanes=["wave-council-readiness"],
+            optional_value="none",
+        )
+        derive(first)
+        derive(second)
+        first_done = synthesis(
+            "plan-first-1",
+            finding_id="plan-first",
+            cycle=1,
+            supersedes_record_id="plan-first-0",
+            blocking_required_lanes=[],
+            approval_recheck_lanes=["wave-council-readiness"],
+            disposition="do_now",
+            blocking=False,
+            repair_execution_state="completed",
+        )
+        [still_withheld] = subject.review_status_rows(
+            [first, second, first_done, self.approval("wave-council-readiness")],
+            ["wave-council-readiness"],
+        )
+        self.assertEqual(still_withheld["state"], "withheld")
+        self.assertIn("plan-second", still_withheld["why"])
+
+        second_done = synthesis(
+            "plan-second-1",
+            finding_id="plan-second",
+            cycle=1,
+            supersedes_record_id="plan-second-0",
+            blocking_required_lanes=[],
+            approval_recheck_lanes=["wave-council-readiness"],
+            disposition="do_now",
+            blocking=False,
+            repair_execution_state="completed",
+        )
+        [approved] = subject.review_status_rows(
+            [first, second, first_done, second_done, self.approval("wave-council-readiness")],
+            ["wave-council-readiness"],
+        )
+        self.assertEqual(approved["state"], "approved")
 
     def test_affected_repair_withholds_only_its_lane_and_names_recovery(self) -> None:
         rows = [

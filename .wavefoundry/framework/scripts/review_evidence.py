@@ -1173,7 +1173,12 @@ def _approval_rows(
     }
 
 
-def _finding_affects_signoff(head: Mapping[str, Any], signoff_key: str) -> bool:
+def _finding_affects_signoff(
+    head: Mapping[str, Any],
+    signoff_key: str,
+    *,
+    origin_phase: str | None = None,
+) -> bool:
     explicit = head.get("approval_recheck_lanes")
     affected = (
         {str(lane) for lane in explicit}
@@ -1188,7 +1193,10 @@ def _finding_affects_signoff(head: Mapping[str, Any], signoff_key: str) -> bool:
     )
     if signoff_key == "operator-signoff":
         return True
-    if signoff_key == "wave-council-readiness":
+    # Delivery-born findings cannot reopen the crossed readiness gate. An
+    # unknown phase retains the explicit lane relation for old/synthetic rows;
+    # canonical ledgers always provide the executable finding phase.
+    if signoff_key == "wave-council-readiness" and origin_phase == "delivery":
         return False
     if signoff_key.startswith("wave-council-"):
         return (
@@ -1199,6 +1207,47 @@ def _finding_affects_signoff(head: Mapping[str, Any], signoff_key: str) -> bool:
     return signoff_key in affected
 
 
+def _finding_origin_phases(records: Iterable[Mapping[str, Any]]) -> dict[str, str]:
+    """Return each finding's phase from its linked root synthesis and run.
+
+    The sealing run is the phase authority. Raw finding evidence is not
+    authoritative until a synthesis seals it, and its mutable ``phase`` field
+    cannot relabel a delivery finding as readiness-origin.
+    """
+
+    rows = tuple(records)
+    runs_by_id = {
+        str(record.get("review_run_id")): record
+        for record in rows
+        if record.get("record_type") == "review_run"
+        and isinstance(record.get("review_run_id"), str)
+    }
+    result: dict[str, str] = {}
+    for record in rows:
+        if record.get("record_type") != "finding_synthesis":
+            continue
+        if record.get("supersedes_record_id") is not None:
+            continue
+        finding_id = record.get("finding_id")
+        if not isinstance(finding_id, str) or finding_id in result:
+            continue
+        run = runs_by_id.get(str(record.get("review_run_id")))
+        run_kind = run.get("run_kind") if run else None
+        if run_kind == "readiness":
+            result[finding_id] = "readiness"
+        elif run_kind in {
+            "initial_delivery",
+            # Historical ledgers could introduce a delivery finding directly
+            # in a repair/checkpoint run. The current builder requires an
+            # existing head, but those closed chains remain delivery-origin.
+            "repair_start",
+            "reverification",
+            "convergence_checkpoint",
+        }:
+            result[finding_id] = "delivery"
+    return result
+
+
 def review_status_rows(
     records: Iterable[Mapping[str, Any]],
     required_signoff_keys: Iterable[str],
@@ -1206,14 +1255,15 @@ def review_status_rows(
     """Derive one causal current-state row per canonical signoff key.
 
     ``events.jsonl`` remains the only history.  These rows are a bounded view:
-    current finding heads plus the latest applicable approval.  Readiness is a
-    crossed historical gate and is deliberately not invalidated by delivery
-    repairs.
+    current finding heads plus the latest applicable approval. Readiness
+    findings may stale readiness approval until their same-phase repair chain
+    is terminal; later delivery-only repairs affect only their declared lanes.
     """
 
     rows = tuple(dict(record) for record in records)
     approvals = _approval_rows(rows)
     heads = current_synthesis_heads(rows)
+    finding_origin_phases = _finding_origin_phases(rows)
     positions = {id(record): position for position, record in enumerate(rows)}
     result: list[dict[str, Any]] = []
     for key in dict.fromkeys(str(item) for item in required_signoff_keys if str(item)):
@@ -1246,10 +1296,21 @@ def review_status_rows(
         for finding_id, head in heads.items():
             if head.get("blocking") is not True:
                 continue
-            if not _finding_affects_signoff(head, key):
+            if not _finding_affects_signoff(
+                head,
+                key,
+                origin_phase=finding_origin_phases.get(str(finding_id)),
+            ):
                 continue
             head_position = positions.get(id(head), -1)
-            if approval_position < head_position:
+            repair_state = head.get("repair_execution_state")
+            unresolved_head = bool(head.get("blocking_required_lanes")) or (
+                repair_state not in {"completed", "operator_waived"}
+            )
+            # An approval cannot paper over a still-open current head merely
+            # by appearing later in the ledger. A terminal repair, however,
+            # only stales approvals that predate that repair.
+            if unresolved_head or approval_position < head_position:
                 blocking.append((str(finding_id), head))
         if blocking:
             finding_ids = [finding_id for finding_id, _head in blocking]
@@ -1792,6 +1853,16 @@ def build_compact_review_event(
         return (), (
             f"{run_kind} requires an earlier finding synthesis for `{finding_id}`",
         )
+    origin_phase = _finding_origin_phases(prior).get(str(finding_id))
+    evidence_phase = (
+        "readiness"
+        if run_kind == "readiness"
+        or (
+            run_kind in {"repair_start", "reverification"}
+            and origin_phase == "readiness"
+        )
+        else "delivery"
+    )
     evidence_id = _unique_record_id(prior, "ev", str(finding_id))
     run_id = _unique_record_id(prior, "run", f"{run_kind}-{cycle}-{finding_id}")
     synthesis_id = _unique_record_id(prior, "syn", f"{finding_id}-{cycle}")
@@ -1803,7 +1874,7 @@ def build_compact_review_event(
         "claim_id": finding_id,
         "claim_kind": "finding",
         "required_for_approval": False,
-        "phase": "readiness" if run_kind == "readiness" else "delivery",
+        "phase": evidence_phase,
         "proposition": event["proposition"],
         "counterexample_or_failure_condition": event["failure_condition"],
         "execution_status": execution_status,
@@ -2271,8 +2342,8 @@ def _validate_evidence_shape(record: Mapping[str, Any], index: int) -> list[str]
             f"{label}: executed evidence requires all five evidence-integrity checks"
         )
     if record.get("claim_kind") == "lane_reassessment":
-        if record.get("phase") != "delivery" or record.get("execution_status") != "executed":
-            errors.append(f"{label}: lane reassessment evidence must be executed in delivery")
+        if record.get("execution_status") != "executed":
+            errors.append(f"{label}: lane reassessment evidence must be executed")
         if not isinstance(context, dict) or context.get("fresh_context") is not True or context.get("independent") is not True:
             errors.append(f"{label}: lane reassessment evidence must be fresh and independent")
     if record.get("probe_class") == "external_or_destructive":
@@ -2472,6 +2543,13 @@ def _repair_cycle_progress(
             by_run.setdefault(str(record.get("review_run_id")), []).append(record)
 
     initial_delivery_positions: list[int] = []
+    origin_kind_by_finding: dict[str, str] = {}
+    for run in runs:
+        kind = run.get("run_kind")
+        for row in by_run.get(str(run.get("review_run_id")), []):
+            finding_id = row.get("finding_id")
+            if isinstance(finding_id, str) and isinstance(kind, str):
+                origin_kind_by_finding.setdefault(finding_id, kind)
     starts: dict[int, dict[str, int]] = {}
     terminal: dict[int, set[str]] = {}
     completed: set[int] = set()
@@ -2496,7 +2574,13 @@ def _repair_cycle_progress(
                 errors.append(
                     f"review run `{run.get('review_run_id')}` repair_start requires cycle >= 1"
                 )
-            if not initial_delivery_positions or initial_delivery_positions[0] >= position:
+            requires_initial_delivery = not actionable or any(
+                origin_kind_by_finding.get(str(row.get("finding_id"))) != "readiness"
+                for row in actionable
+            )
+            if requires_initial_delivery and (
+                not initial_delivery_positions or initial_delivery_positions[0] >= position
+            ):
                 errors.append(
                     f"review run `{run.get('review_run_id')}` repair_start requires preceding initial_delivery synthesis"
                 )
@@ -2617,6 +2701,7 @@ def _validate_relationships(records: list[dict[str, Any]], *, closure: bool) -> 
     run_ids: dict[str, dict[str, Any]] = {}
     record_ids: dict[str, dict[str, Any]] = {}
     evidence_ids: dict[str, dict[str, Any]] = {}
+    finding_origin_phases = _finding_origin_phases(records)
     run_positions: dict[str, int] = {}
     for position, run in enumerate(runs):
         run_id = run.get("review_run_id")
@@ -2761,12 +2846,22 @@ def _validate_relationships(records: list[dict[str, Any]], *, closure: bool) -> 
                     waived = row.get("repair_execution_state") == "operator_waived"
                     reassessment = evidence_ids.get(str(row.get("lane_reassessment_evidence_id")))
                     context = reassessment.get("verification_context") if reassessment else None
+                    origin_phase = finding_origin_phases.get(finding_id)
+                    reassessment_phase = reassessment.get("phase") if reassessment else None
+                    # Readiness findings historically completed during delivery review.
+                    # Keep those valid while allowing the new same-phase readiness path;
+                    # delivery findings must never be cleared by an earlier phase.
+                    phase_is_valid = (
+                        reassessment_phase in {"readiness", "delivery"}
+                        if origin_phase == "readiness"
+                        else reassessment_phase == origin_phase
+                    )
                     reassessed = bool(
                         reassessment
                         and reassessment.get("claim_kind") == "lane_reassessment"
                         and reassessment.get("claim_id") == finding_id
                         and reassessment.get("execution_status") == "executed"
-                        and reassessment.get("phase") == "delivery"
+                        and phase_is_valid
                         and isinstance(context, dict)
                         and cleared == {context.get("actor")}
                         and context.get("fresh_context") is True

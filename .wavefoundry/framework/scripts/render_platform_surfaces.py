@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render generic Python hook/config surfaces from the wave framework."""
+"""Render host hook/config surfaces, including the sole Codex MCP writer."""
 
 from __future__ import annotations
 
@@ -14,9 +14,9 @@ from textwrap import dedent
 FRAMEWORK_RENDERER_REL = ".wavefoundry/framework/scripts/render_platform_surfaces.py"
 GUARD_OVERRIDES_REL = ".wavefoundry/guard-overrides.json"
 
-# Wave 1p88t: no tracked surface embeds a machine-specific venv path. MCP configs and hook commands
-# name the byte-identical `python3` command on repo-relative `.py` entrypoints. The bin shims are thin
-# `exec python3 <script>` forwarders.
+# No tracked surface embeds a machine-specific venv path. Host configs use their verified owner-root,
+# workspace-root, or config-relative contract; root-only hosts remain explicitly root-only. The bin
+# shims are thin `exec python3 <script>` forwarders.
 # Each rendered `.py` body self-bootstraps
 # into the tool venv first-line via the single `venv_bootstrap` resolver (goal B).
 
@@ -48,7 +48,9 @@ def discover_repo_root() -> Path:
 
 
 def detect_platforms(repo_root: Path) -> set[str]:
-    platforms: set[str] = {"claude"}
+    # Claude and Codex are framework baseline surfaces.  Codex config ownership
+    # lives here even when the target does not yet have a `.codex/` directory.
+    platforms: set[str] = {"claude", "codex"}
     if (repo_root / ".cursor").exists():
         platforms.add("cursor")
     if (repo_root / ".github" / "copilot-instructions.md").exists():
@@ -149,6 +151,7 @@ def _preflight_platform_render_paths(
 
     root = repo_root.resolve()
     destinations = {
+        ".codex",
         ".wavefoundry/bin",
         ".wavefoundry/git-hooks",
         ".gitignore",
@@ -175,12 +178,23 @@ def _preflight_platform_render_paths(
 def launcher_command(rel_base: str, project_dir_var: str | None = None) -> str:
     """Launcher command for a hook config — ``python3`` invoking the ``.py`` hook body directly.
 
-    Wave 1p88t: hooks use the same command token as the MCP config. Keep the command repo-relative
-    and byte-identical across OSes; native-Windows field testing showed ``$CLAUDE_PROJECT_DIR`` can
-    be passed literally by Claude Code, so ``project_dir_var`` is accepted only for compatibility with
-    older call sites and intentionally ignored.
+    When a host supplies an owner-root environment variable, resolve the body
+    inside Python rather than relying on shell-specific ``$VAR``/``%VAR%``
+    expansion.  Hosts without such an anchor retain their documented root-cwd
+    contract; this function never searches upward from an arbitrary cwd.
     """
-    _ = project_dir_var
+    if project_dir_var:
+        parts = ", ".join(repr(part) for part in f"{rel_base}.py".split("/"))
+        missing_message = repr(
+            f"wavefoundry hook {rel_base}.py: missing project root environment variable "
+            f"{project_dir_var}"
+        )
+        return (
+            'python3 -c "import os,runpy,sys; '
+            f"root=os.environ.get('{project_dir_var}'); root or sys.exit({missing_message}); "
+            f"runpy.run_path(os.path.join(root, {parts}), "
+            "run_name='__main__')\""
+        )
     return f'python3 "{rel_base}.py"'
 
 
@@ -1199,23 +1213,18 @@ def _merge_mcp_server(target: Path, stanza: dict) -> None:
 def render_mcp_json(repo_root: Path) -> None:
     """Merge the Wavefoundry stdio MCP entry into the Claude repo-root ``.mcp.json``.
 
-    Wave 1p88t: names the byte-identical ``python3`` command on the repo-relative
-    ``server.py`` — never a pathed bash launcher (unspawnable on native Windows; the old
-    ``bin/mcp-server`` wrapper was retired in 1p7tz). ``wf setup`` makes ``python3``
-    resolvable (macOS/Linux symlink, native on Windows); the server then self-bootstraps into the tool
-    venv first-line. No machine-specific absolute path is embedded, and the stanza is byte-identical
-    across every render host.
-
-    No ``--root .`` arg: ``server_impl._discover_root`` anchors on the server script's OWN install
-    location (``server.py`` always lives at ``<root>/.wavefoundry/framework/scripts/``), so the root
-    is resolved cwd-independently — more robust than a ``.``-relative ``--root`` and avoids a
-    host-specific ``${CLAUDE_PROJECT_DIR}`` that would re-fragment the byte-identical config.
+    The command remains the portable ``python3`` PATH token. Claude supplies
+    ``CLAUDE_PROJECT_DIR`` for the selected configuration owner, so the inline launcher resolves
+    that project's server without depending on the process cwd or embedding a machine path.
     """
     _merge_mcp_server(
         repo_root / ".mcp.json",
         {
             "command": "python3",
-            "args": [".wavefoundry/framework/scripts/server.py"],
+            "args": [
+                "-c",
+                "import os,runpy; runpy.run_path(os.path.join(os.environ['CLAUDE_PROJECT_DIR'], '.wavefoundry', 'framework', 'scripts', 'server.py'), run_name='__main__')",
+            ],
         },
     )
 
@@ -1223,15 +1232,16 @@ def render_mcp_json(repo_root: Path) -> None:
 def render_junie_mcp_json(repo_root: Path) -> None:
     """Merge the Wavefoundry stdio MCP entry into the Junie ``.junie/mcp/mcp.json``.
 
-    Wave 1p88t: names the byte-identical ``python3`` command on the repo-relative
-    ``server.py`` (parity with the root ``.mcp.json``) — never a pathed bash launcher (the old
-    ``bin/mcp-server`` wrapper was retired in 1p7tz). The server self-bootstraps into the tool venv
-    first-line; no absolute path is embedded."""
+    The command remains the portable ``python3`` PATH token. Junie resolves argument paths from
+    this config's containing directory, so the server path is config-relative rather than cwd-
+    relative. No absolute path is embedded."""
     _merge_mcp_server(
         repo_root / ".junie" / "mcp" / "mcp.json",
         {
             "command": "python3",
-            "args": [".wavefoundry/framework/scripts/server.py"],
+            # Junie resolves relative command arguments from this config's
+            # containing `.junie/mcp/` directory, not from an arbitrary agent cwd.
+            "args": ["../../.wavefoundry/framework/scripts/server.py"],
         },
     )
 
@@ -1239,11 +1249,9 @@ def render_junie_mcp_json(repo_root: Path) -> None:
 def render_cursor_mcp_json(repo_root: Path) -> None:
     """Merge the Wavefoundry stdio MCP entry into the Cursor ``.cursor/mcp.json``.
 
-    Wave 1p88t: names the byte-identical ``python3`` command on the repo-relative
-    ``server.py`` (parity with the root ``.mcp.json``) — never a pathed bash launcher (the old
-    ``bin/mcp-server`` wrapper was retired in 1p7tz). ``cwd: ${workspaceFolder}`` lets Cursor resolve
-    the relative script arg against the workspace; ``type: stdio`` is Cursor-specific. The server
-    self-bootstraps into the tool venv.
+    The command remains the portable ``python3`` PATH token. ``cwd: ${workspaceFolder}`` binds the
+    repo-relative server path to Cursor's selected workspace; ``type: stdio`` is Cursor-specific.
+    The server self-bootstraps into the tool venv.
     """
     _merge_mcp_server(
         repo_root / ".cursor" / "mcp.json",
@@ -1259,9 +1267,9 @@ def render_cursor_mcp_json(repo_root: Path) -> None:
 def render_antigravity_mcp_json(repo_root: Path) -> None:
     """Merge the Wavefoundry stdio MCP entry into the Antigravity workspace-local config.
 
-    Wave 1p88t: names the byte-identical ``python3`` command on the repo-relative
-    ``server.py`` (parity with Claude/Junie) — never a pathed bash launcher (the old
-    ``bin/mcp-server`` wrapper was retired in 1p7tz).
+    The command remains the portable ``python3`` PATH token and the argument remains repository-
+    relative. Antigravity's project config is root-owned; no machine path or pathed shell launcher
+    is embedded.
     """
     _merge_mcp_server(
         repo_root / ".agents" / "mcp_config.json",
@@ -1270,6 +1278,34 @@ def render_antigravity_mcp_json(repo_root: Path) -> None:
             "args": [".wavefoundry/framework/scripts/server.py"],
         },
     )
+
+
+def render_codex_mcp_config(repo_root: Path) -> None:
+    """Upsert the framework-owned Codex MCP region without touching operator TOML.
+
+    The TOML merge primitive remains shared with the agent-surface module, but
+    this platform renderer is the sole writer of ``.codex/config.toml``.
+    """
+    from render_agent_surfaces import upsert_codex_mcp_config
+
+    target = repo_root / ".codex" / "config.toml"
+    existing: str | None = None
+    if target.is_file():
+        with target.open("r", encoding="utf-8", newline="") as handle:
+            existing = handle.read()
+    fail_safe_reasons: list[str] = []
+    merged = upsert_codex_mcp_config(
+        existing, on_fail_safe=fail_safe_reasons.append
+    )
+    if fail_safe_reasons:
+        print(
+            f"render_platform_surfaces: WARNING — left {target} unchanged "
+            f"(fail-safe: {fail_safe_reasons[0]}); resolve the conflict "
+            "manually so the framework MCP region can be upserted",
+            file=sys.stderr,
+        )
+        return
+    write_text(target, merged)
 
 
 def render_cursor_hooks(repo_root: Path) -> None:
@@ -1294,12 +1330,16 @@ def render_copilot_hooks(repo_root: Path) -> None:
                 {
                     "type": "command",
                     "bash": launcher_command(".github/hooks/pre-tool-use"),
+                    "powershell": launcher_command(".github/hooks/pre-tool-use"),
+                    "cwd": ".",
                 }
             ],
             "postToolUse": [
                 {
                     "type": "command",
                     "bash": launcher_command(".github/hooks/post-tool-use"),
+                    "powershell": launcher_command(".github/hooks/post-tool-use"),
+                    "cwd": ".",
                 }
             ],
         },
@@ -1534,10 +1574,10 @@ def render_windsurf_hooks(repo_root: Path) -> None:
     config = {
         "hooks": {
             "pre_write_code": [
-                {"command": launcher_command(".windsurf/hooks/seed-protect"), "show_output": True}
+                {"command": launcher_command(".windsurf/hooks/seed-protect"), "working_directory": ".", "show_output": True}
             ],
             "post_write_code": [
-                {"command": launcher_command(".windsurf/hooks/docs-lint"), "show_output": True}
+                {"command": launcher_command(".windsurf/hooks/docs-lint"), "working_directory": ".", "show_output": True}
             ],
         }
     }
@@ -1852,12 +1892,14 @@ def render_platform_entrypoints(repo_root: Path, platform: str) -> None:
         render_junie_mcp_json(repo_root)
     elif platform == "antigravity":
         render_antigravity_mcp_json(repo_root)
+    elif platform == "codex":
+        render_codex_mcp_config(repo_root)
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Render repo-local hook/config surfaces from the wave framework.")
     parser.add_argument("--repo-root", default="", help="Override the repository root.")
-    parser.add_argument("--platform", action="append", choices=("claude", "cursor", "copilot", "junie", "windsurf", "antigravity"))
+    parser.add_argument("--platform", action="append", choices=("claude", "codex", "cursor", "copilot", "junie", "windsurf", "antigravity"))
     parser.add_argument("--manifest", default="", help="Write a JSON manifest of changed files to this path.")
     return parser.parse_args(argv)
 
@@ -1905,7 +1947,11 @@ def main(argv: list[str] | None = None) -> int:
         remove_copilot_artifacts(repo_root)
     if args.manifest:
         _manifest_start()
-    for platform in sorted(platforms):
+    # Codex MCP wiring is a baseline connection surface. It must not depend on
+    # filesystem detection or an explicit platform selection; direct dispatch
+    # remains available for discoverability and focused tests.
+    render_codex_mcp_config(repo_root)
+    for platform in sorted(platforms - {"codex"}):
         render_platform_entrypoints(repo_root, platform)
     try:
         agent_written = render_agent_surfaces(repo_root)

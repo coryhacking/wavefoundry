@@ -3285,6 +3285,8 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             "cycle": 1,
             "approval_recheck_lanes": ["qa-reviewer"],
             "blocking": True,
+            "blocking_required_lanes": [],
+            "repair_execution_state": "completed",
         }
         diagnostics = self.srv._approval_evidence_diagnostics(
             "marked", ["qa-reviewer"], records=(approval, repair)
@@ -3330,6 +3332,8 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             "approval_recheck_lanes": [],
             "review_depth": "full",
             "blocking": True,
+            "blocking_required_lanes": [],
+            "repair_execution_state": "completed",
         }
         diagnostics = self.srv._approval_evidence_diagnostics(
             "marked",
@@ -3350,7 +3354,9 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         full_repair = {
             "record_type": "finding_synthesis",
             "record_id": "full-delivery-repair-head",
+            "review_run_id": "run-delivery-origin",
             "finding_id": "finding-1",
+            "evidence_record_id": "ev-delivery-finding",
             "cycle": 1,
             "approval_recheck_lanes": [
                 "wave-council-readiness",
@@ -3358,6 +3364,21 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             ],
             "review_depth": "full",
             "blocking": True,
+            "blocking_required_lanes": [],
+            "repair_execution_state": "completed",
+        }
+        delivery_finding = {
+            "record_type": "executable_evidence",
+            "evidence_record_id": "ev-delivery-finding",
+            "claim_kind": "finding",
+            "claim_id": "finding-1",
+            "phase": "delivery",
+        }
+        delivery_run = {
+            "record_type": "review_run",
+            "review_run_id": "run-delivery-origin",
+            "run_kind": "initial_delivery",
+            "cycle": 0,
         }
         delivery = self._approval_record(
             "wave-council-delivery",
@@ -3369,7 +3390,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             self.srv._approval_evidence_diagnostics(
                 "marked",
                 ["wave-council-readiness", "wave-council-delivery"],
-                records=(readiness, full_repair, delivery),
+                records=(readiness, delivery_finding, delivery_run, full_repair, delivery),
             ),
             [],
         )
@@ -3377,7 +3398,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             self.srv._approval_evidence_diagnostics(
                 "marked",
                 ["wave-council-readiness", "wave-council-delivery"],
-                records=(readiness, delivery, full_repair),
+                records=(readiness, delivery_finding, delivery_run, delivery, full_repair),
             )
         )
 
@@ -3424,6 +3445,27 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             broken, root=self.root, wave_key=wave_id
         )
         self.assertIn("stale", json.dumps(diagnostics), diagnostics)
+
+    def test_closed_wave_review_status_is_not_reinterpreted_by_lifecycle(self):
+        """1tmb0: closed approval history is not governed by newer staleness rules."""
+        created = self.srv.wf_create_wave_response(
+            self.root, "closed-review-status", mode="create"
+        )
+        wave_id = created["data"]["wave_id"]
+        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        text = wave_md.read_text(encoding="utf-8")
+        text = text.replace("Status: planned", "Status: closed", 1).replace(
+            "| wave-council-readiness | pending |",
+            "| wave-council-readiness | historical |",
+            1,
+        )
+        wave_md.write_text(text, encoding="utf-8")
+
+        diagnostics = self.srv._review_evidence_diagnostics(
+            text, root=self.root, wave_key=wave_id
+        )
+
+        self.assertNotIn("Review Status projection is stale", json.dumps(diagnostics))
 
     def test_typed_review_evidence_tool_previews_then_writes_lightweight_run(self):
         created = self.srv.wf_create_wave_response(
@@ -20356,6 +20398,75 @@ class TestMcpWrapperParameterExposure(unittest.TestCase):
                 "wf_review_event description",
             )
 
+    def test_kwargs_is_not_published_or_required_on_first_party_tools(self):
+        """1tmaz: implementation-only ``**kwargs`` must not become public API."""
+        mcp = self._build_thin_runner.build_server(self.root)
+        tools = mcp._tool_manager._tools
+        self.assertGreater(len(tools), 50, "registry census must not be vacuous")
+        for tool_name, tool in tools.items():
+            schema = tool.parameters
+            self.assertNotIn("kwargs", schema.get("properties", {}), tool_name)
+            self.assertNotIn("kwargs", schema.get("required", []), tool_name)
+            self.assertFalse(schema.get("additionalProperties", True), tool_name)
+
+    def test_hot_reload_reapplies_exact_argument_schema_to_whole_registry(self):
+        """1tmaz: re-registration must not restore FastMCP's raw kwargs field."""
+        mcp = self._build_thin_runner.build_server(self.root)
+        with patch.object(
+            self._build_thin_runner.server_impl,
+            "_normalize_first_party_tool_argument_models",
+            return_value=None,
+        ):
+            self._build_thin_runner._refresh_mcp_tool_surface(mcp)
+        self.assertIn(
+            "kwargs",
+            mcp._tool_manager._tools["wf_help"].parameters.get("properties", {}),
+            "negative control: raw re-registration must reproduce the defect",
+        )
+
+        # A second real refresh exercises the production repair seam rather
+        # than manually invoking the helper against an already-built registry.
+        self._build_thin_runner._refresh_mcp_tool_surface(mcp)
+        for tool_name, tool in mcp._tool_manager._tools.items():
+            schema = tool.parameters
+            self.assertNotIn("kwargs", schema.get("properties", {}), tool_name)
+            self.assertNotIn("kwargs", schema.get("required", []), tool_name)
+            self.assertFalse(schema.get("additionalProperties", True), tool_name)
+
+    def test_unknown_fastmcp_registry_shape_is_a_safe_noop(self):
+        """1tmaz: private SDK-shape drift must not prevent server startup."""
+        odd_registry = types.SimpleNamespace(_tool_manager=types.SimpleNamespace(_tools=[]))
+        self.srv._normalize_first_party_tool_argument_models(odd_registry)
+        broken_entry = types.SimpleNamespace(
+            fn_metadata=types.SimpleNamespace(arg_model=types.SimpleNamespace(model_fields={"kwargs": object()}))
+        )
+        mixed_registry = types.SimpleNamespace(
+            _tool_manager=types.SimpleNamespace(_tools={"unknown": broken_entry})
+        )
+        self.srv._normalize_first_party_tool_argument_models(mixed_registry)
+        self.assertIs(mixed_registry._tool_manager._tools["unknown"], broken_entry)
+
+    def test_real_dispatch_accepts_only_empty_legacy_kwargs(self):
+        """1tmaz: bypassing the advertised schema still gets typed diagnostics."""
+        import asyncio
+
+        mcp = self._build_thin_runner.build_server(self.root)
+        tool = mcp._tool_manager._tools["wf_help"]
+        self.assertEqual(asyncio.run(tool.run({}))["status"], "ok")
+        self.assertEqual(asyncio.run(tool.run({"kwargs": {}}))["status"], "ok")
+        for payload in (
+            {"unsupported": 1},
+            {"kwargs": {"unsupported": 1}},
+            {"kwargs": None},
+        ):
+            result = asyncio.run(tool.run(payload))
+            self.assertEqual(result["status"], "error", payload)
+            self.assertEqual(
+                result["diagnostics"][0]["code"], "unknown_arguments", payload
+            )
+            expected = ["kwargs"] if payload == {"kwargs": None} else ["unsupported"]
+            self.assertEqual(result["data"]["rejected_arguments"], expected, payload)
+
 
 class TestSuggestNearSymbolsTokenization(unittest.TestCase):
     """Improvement: _suggest_near_symbols handles multi-token queries (whitespace/underscore)."""
@@ -21732,6 +21843,25 @@ class PrepareCouncilVerdictTemplateTests(unittest.TestCase):
         self.assertIn("file:line sites and symbols must resolve", instructions)
         self.assertIn("censuses must be complete", instructions)
         self.assertIn("seats actually run", instructions)
+
+    def test_brief_code_grounded_sentence_is_pinned_exactly(self):
+        """1tmb4 AC-6 (server site): exact-value pin over the full contract sentence.
+
+        The substring test above passes a reworded sentence that keeps the
+        substrings (e.g. "each plan's" -> "each artifact's"); this pin does
+        not.  Wording here intentionally differs from seed 237's rule ("each
+        plan's" vs "the artifact's"); one pin cannot cover both sites.
+        """
+        brief = self.srv._build_prepare_council_brief("w1", "wave text", ["c1"])
+        pinned = (
+            "Verification must be code-grounded: verify each plan's load-bearing "
+            "claims against the actual tree, not against the plan's own prose — "
+            "cited file:line sites and symbols must resolve, 'X already does Y' "
+            "claims must hold in the code, and 'no other caller/site' censuses "
+            "must be complete. Do not approve a plan whose claims were checked "
+            "only against its own text."
+        )
+        self.assertIn(pinned, brief["instructions"])
 
 
 class WaveImplementTests(unittest.TestCase):

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-03
+Last verified: 2026-07-26
 
 ## Role Routing
 
@@ -103,7 +103,7 @@ Carries the **Retrieval Rules** from the framework run contract (seed-020) for e
 - **Claim-backing rule:** any "how many callers / how many implementations / what's the blast radius" claim must be backed by `code_references`/`code_callhierarchy`, not a sampled grep. Only enumeration is evidence for a completeness claim.
 - Static orientation surfaces complement the tools: `docs/repo-index.md`, the codebase map, and per-area `AGENTS.md` are one targeted read with no setup — the fallback spearhead when MCP is absent, cold-start orientation only when it's attached.
 - Reserve `grep`/raw reads for literal-byte checks, git inspection, and the MCP-absent/insufficient fallback; record a `Gapfill:` note when falling back.
-- The canonical exploration order lives in `docs/prompts/implement-feature.prompt.md` (MCP-first code exploration) and `docs/agents/guru.md` (retrieval loop) — point to them; do not restate.
+- The canonical exploration order lives in seed `180-implement-feature.prompt.md` (MCP-first code exploration) and `docs/agents/guru.md` (retrieval loop) — point to them; do not restate. (The previously named `docs/prompts/implement-feature.prompt.md` is a thin shortcut file and carries no exploration order.)
 
 ## Concurrency
 

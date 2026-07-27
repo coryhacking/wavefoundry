@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -214,6 +215,26 @@ class DocsLintFixtureTests(unittest.TestCase):
             shutil.rmtree(root)
         self.assertEqual(result.returncode, 1)
         self.assertIn("review evidence projection is stale", result.stderr)
+
+    def test_closed_external_wave_keeps_historical_review_status_projection(self) -> None:
+        """1tmb0: new approval rules apply prospectively, not to closed archives."""
+        root = self.copy_fixture()
+        wave_md = root / self.WAVE_DOC_PATH
+        text = wave_md.read_text(encoding="utf-8")
+        text = text.replace("Status: active", "Status: closed", 1).replace(
+            "| wave-council-readiness | pending |",
+            "| wave-council-readiness | historical |",
+            1,
+        )
+        wave_md.write_text(text, encoding="utf-8")
+        try:
+            failures = check_wave_docs(root, only={wave_md})
+        finally:
+            shutil.rmtree(root)
+        self.assertFalse(
+            [item for item in failures if "review evidence projection is stale" in item],
+            failures,
+        )
 
     def test_legacy_review_projection_markers_are_validation_equivalent(self) -> None:
         root = self.copy_fixture()
@@ -2265,6 +2286,147 @@ class CouncilSeedVerificationContractTests(unittest.TestCase):
         self.assertIn("Verify code-grounded", text)
         self.assertIn("sites and symbols must resolve", text)
         self.assertIn("censuses must be complete", text)
+
+    def test_seed_237_code_grounded_rule_is_pinned_exactly(self) -> None:
+        """1tmb4 AC-6 (seed site): exact-value pin over the full rule line.
+
+        The 1p9pk test above asserts substring presence only; a reworded rule
+        that keeps the substrings would pass it.  This pin fails on ANY change
+        to the rule text, so 1tmb4's additions provably cannot weaken the
+        review-side rule.  Wording here intentionally differs from the server
+        brief ('the artifact's' vs 'each plan's'); one pin cannot cover both.
+        """
+        text = (self.SEEDS_DIR / "237-council-review.prompt.md").read_text(encoding="utf-8")
+        pinned = (
+            "- **Verify code-grounded:** check the artifact's load-bearing claims "
+            "against the actual tree, not against the artifact's own prose — cited "
+            '`file:line` sites and symbols must resolve, "X already does Y" claims '
+            'must hold in the code, and "no other caller/site" censuses must be '
+            "complete. Do not approve an artifact whose claims were checked only "
+            "against its own text. (A readiness review answerable purely from plan "
+            "prose is how nonexistent symbols, wrong caller censuses, and no-op "
+            "mechanisms pass review.)"
+        )
+        self.assertIn(pinned, text)
+        # Finding 1tmb4-ac8-live-copy-sweep-claim-unexecuted: the live
+        # self-hosted copy of this rule sits OUTSIDE any renderer-owned
+        # marker region, so no re-render reaches it.  Pin it here so a seed
+        # 237 edit cannot silently strand the operative copy.
+        live_copy = (
+            SCRIPTS_ROOT.parent.parent.parent
+            / "docs" / "prompts" / "council-review.prompt.md"
+        )
+        if live_copy.exists():  # absent in target repos
+            self.assertIn(pinned, live_copy.read_text(encoding="utf-8"), "live council-review copy")
+
+    def test_code_grounded_tenet_stated_once_in_seed_209(self) -> None:
+        """1tmb4 AC-1: one canonical definition sentence, in seed 209 only.
+
+        Forbids duplicating the DEFINITION sentence; phase seeds carry their
+        own phase obligations (AC-2), which this test must not forbid.
+        """
+        canonical = (
+            "Code-grounded verification is a tenet of creating, reviewing, and "
+            "implementing: a load-bearing claim about existing code is verified "
+            "against the actual tree, executed where executable, before it is "
+            "asserted, approved, or built upon."
+        )
+        seed_209 = (self.SEEDS_DIR / "209-agent-harness-core.prompt.md").read_text(encoding="utf-8")
+        self.assertEqual(seed_209.count(canonical), 1, "canonical statement missing or duplicated in 209")
+        for name in (
+            "170-plan-feature.prompt.md",
+            "180-implement-feature.prompt.md",
+            "211-guru.prompt.md",
+            "237-council-review.prompt.md",
+            "215-wave-council.prompt.md",
+        ):
+            text = (self.SEEDS_DIR / name).read_text(encoding="utf-8")
+            self.assertNotIn(canonical, text, f"{name} duplicates the canonical definition sentence")
+
+    def test_authoring_seed_carries_code_grounded_obligation(self) -> None:
+        """1tmb4 AC-2/AC-3: seed 170 states the authoring obligation, names the
+        three high-risk claim shapes, and carries the fix-absent AC rule."""
+        text = (self.SEEDS_DIR / "170-plan-feature.prompt.md").read_text(encoding="utf-8")
+        self.assertIn("Code-grounded authoring", text)
+        self.assertIn("X already does Y", text)
+        self.assertIn("no other caller/site", text)
+        self.assertIn("an implementation with the fix absent cannot satisfy it", text)
+        # 1tmb4 AC-3 (delivery finding 1tmb4-ac3-consistency-pin-one-sided):
+        # the pairing pin covers BOTH sides of the fix-absent rule.  The
+        # authoring side is asserted above; the review side lives in seed
+        # 209's canonical tenet section and is pinned here so drift on
+        # either side breaks the suite.
+        seed_209 = (self.SEEDS_DIR / "209-agent-harness-core.prompt.md").read_text(encoding="utf-8")
+        self.assertIn(
+            "- **Reviewing** (seed-237, seed-215): the per-seat contract already "
+            "requires this; do not approve an artifact whose claims were checked "
+            "only against its own text.",
+            seed_209,
+        )
+        # The review side AC-3 actually anchors on is the reviewer KNOWN-BAD
+        # rule (209:126-region), which 170's new sentence names as its
+        # counterpart.  Pin its load-bearing sentence so a material weakening
+        # (e.g. "would fail" -> "should plausibly fail") breaks the suite.
+        self.assertIn(
+            "Before accepting a claimed test, confirm that it runs with zero "
+            "unintended skips, reaches the claimed production/public path, uses "
+            "realistic boundary return shapes, contains non-vacuous assertions, "
+            "and would fail against the known-bad behavior.",
+            seed_209,
+        )
+
+    def test_implement_seed_carries_premise_exercise_obligation(self) -> None:
+        """1tmb4 AC-4: seed 180 requires exercising a plan premise before
+        building on it, with the stop-and-report path."""
+        text = (self.SEEDS_DIR / "180-implement-feature.prompt.md").read_text(encoding="utf-8")
+        self.assertIn("A plan is evidence, not proof.", text)
+        self.assertIn("stop and report", text)
+
+    def test_exploration_order_sites_carry_reading_vs_executing(self) -> None:
+        """1tmb4 AC-5 (delivery finding 1tmb4-ac5-test-not-signature-keyed):
+        every surface carrying the exploration order also carries the
+        reading-versus-executing distinction.
+
+        Detection is keyed on the ORDER'S STRUCTURAL SIGNATURE, not a file
+        list, so a copied or paraphrased exploration order in any seed (or
+        the live guru.md) is caught even though this test never names it.
+        Signature forms, each verified to discriminate exactly on the real
+        tree (matches 180, 211, guru.md; matches none of the ~26 role seeds
+        whose tool-posture leads mention tools without restating the order):
+        a numbered `code_*` list, the Tool Selection Quick Rules heading, or
+        a run of `- Use `code_...`` bullets.  Mention-counting (e.g. four of
+        five tool names present) was measured and rejected: it trips 26
+        point-do-not-restate posture leads."""
+        distinction = "Reading code is not executing it"
+
+        def carries_exploration_order(text: str) -> bool:
+            # Marker classes cover Markdown-equivalent forms (finding
+            # 1tmb4-ac5-signature-misses-markdown-equivalent-markers): '*'
+            # and '+' bullets render like '-', and 'N)' numbering like 'N.'.
+            numbered = len(re.findall(r"(?m)^\s*\d+[.)]\s+`code_", text)) >= 3
+            heading = "Tool Selection Quick Rules" in text
+            use_bullets = len(re.findall(r"(?m)^[-*+] Use `code_", text)) >= 3
+            return numbered or heading or use_bullets
+
+        targets = sorted(self.SEEDS_DIR.glob("*.prompt.md"))
+        live_guru = SCRIPTS_ROOT.parent.parent.parent / "docs" / "agents" / "guru.md"
+        if live_guru.exists():  # absent in target repos without the Guru surface
+            targets.append(live_guru)
+        carriers = []
+        for path in targets:
+            text = path.read_text(encoding="utf-8")
+            if carries_exploration_order(text):
+                carriers.append(path.name)
+                self.assertIn(
+                    distinction,
+                    text,
+                    f"{path} carries the exploration order without the "
+                    "reading-versus-executing distinction",
+                )
+        # Non-vacuity guard: the known carriers must trip the signature, so
+        # a signature regression cannot silently empty the scan domain.
+        for known in ("180-implement-feature.prompt.md", "211-guru.prompt.md"):
+            self.assertIn(known, carriers)
 
     def test_seed_237_carries_roster_honesty_contract(self) -> None:
         text = (self.SEEDS_DIR / "237-council-review.prompt.md").read_text(encoding="utf-8")

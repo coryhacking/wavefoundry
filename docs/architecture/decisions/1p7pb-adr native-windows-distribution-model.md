@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: amended
-Last verified: 2026-06-27
+Last verified: 2026-07-26
 
 ## Context
 
@@ -22,9 +22,11 @@ This ADR was produced via `Evaluate decision` (red-team, three-stance comparison
 
 Distribute launchers as a **single committed, byte-identical `python3` command**, backed by the shared Windows-safe bootstrap. Setup **verifies** `python3` resolves and **guides** the operator when it does not — it does not heal the environment.
 
-> **Amendment (wave 1p88t):** the original decision had `wf setup` *create* a `python3` shim/symlink when only `python` existed. A full implementation review found that approach invasive and fragile (a Windows `.cmd` is not raw-spawnable by the host; a sibling `python3.exe` copy mutates the user's Python install; a POSIX symlink still needs PATH cooperation and a fresh shell). **Setup no longer creates a shim, symlink, copy, or PATH edit.** It is now **detect + guide only**: verify `python3` resolves to ≥3.11 and, if not, fail closed (setup) / warn (render, upgrade) with platform-aware guidance. Making `python3` resolvable is the operator's step. The committed-`python3` + byte-identical-config core of this decision is unchanged.
+> **Amendment (wave 1p88t):** the original decision had `wf setup` *create* a `python3` shim/symlink when only `python` existed. A full implementation review found that approach invasive and fragile (a Windows `.cmd` is not raw-spawnable by the host; a sibling `python3.exe` copy mutates the user's Python install; a POSIX symlink still needs PATH cooperation and a fresh shell). **Setup no longer creates a shim, symlink, copy, or PATH edit.** It is now **detect + guide only**: verify `python3` resolves to ≥3.11 and, if not, fail closed (setup) / warn (render, upgrade) with platform-aware guidance. Making `python3` resolvable is the operator's step. The committed-`python3` + byte-identical-config core remained unchanged at that point; the byte-identical-config clause is superseded by wave 1tj0l below.
 
-- Config-referenced launchers (`.mcp.json` + per-host MCP configs, `.claude/settings.json` hooks) name `command: "python3"` with the entry script as a project-root-relative arg — `python3 .wavefoundry/framework/scripts/server.py`. **Byte-identical on every OS** and committed (preserving zero-config attach + Codex auto-trust). (Git hooks were dropped in wave 1p88t — see the native-Windows reference M-3.)
+> **Amendment (wave 1tj0l):** only the portable `python3` command token is universal. The server argument and working-directory fields are host-specific because project identity must come from the configuration owner, not the process cwd: Claude uses `CLAUDE_PROJECT_DIR`, Cursor/Copilot/Windsurf use their native owner-working-directory fields, and Junie uses a path relative to its config directory. Root-owned hosts may retain a repository-root-relative argument. The committed configs therefore remain cross-OS and machine-path-free, but are not byte-identical across unlike hosts.
+
+- Config-referenced launchers (`.mcp.json` + per-host MCP configs, `.claude/settings.json` hooks) name the same `command: "python3"` token and bind the entry script to the host's verified configuration owner. They are committed and contain no machine-absolute path (preserving zero-config attach + Codex auto-trust). (Git hooks were dropped in wave 1p88t — see the native-Windows reference M-3.)
 - **`wf setup` verifies `python3` resolves to a ≥3.11 interpreter (detect + guide, amended wave 1p88t):** if `python3` already resolves, setup proceeds; if it does not, setup **fails closed** with concrete, platform-aware guidance (install via Scoop/Microsoft Store on Windows, your package manager or a symlink on POSIX) and does **not** modify the Python install or PATH. It never creates a `python3` or plain-`python` launcher.
 - **Scope: CLI hosts.** Terminal-launched CLI hosts inherit the shell PATH, so a `python3` the operator has made resolvable is visible to them. **GUI-launched hosts are a documented residual** — they inherit a minimal PATH; for those (and for any host where `python3` is not on PATH), setup prints a **gitignored, per-machine absolute-venv-path config** as the fallback (`~/.wavefoundry/venv/bin/python` | `…\Scripts\python.exe`), which needs nothing on PATH.
 - All OS-specific venv logic (`bin/python` vs `Scripts\python.exe`, activation into `~/.wavefoundry/venv`) collapses into **one stdlib-only bootstrap helper, first-line in every entry script**. `python3` may resolve to a system interpreter; the bootstrap activates the tool venv underneath.
@@ -34,13 +36,13 @@ Distribute launchers as a **single committed, byte-identical `python3` command**
 - **(A) native cross-OS spawnability** — one committed checkout is correct on macOS, Linux, and native Windows (for CLI hosts);
 - **(B) a single runtime execution surface** — *exactly one* venv-resolution implementation (`activate_tool_venv`; wave 1p802 replaced the original `reexec_into_tool_venv` with in-process activation), with **no config, launcher, hook body, or spawner re-deriving the venv path**. Goal B's success test is a **standing scan that fails if any file other than the shared helper contains a `Scripts`-vs-`bin` / `WAVEFOUNDRY_TOOL_VENV` branch**.
 
-Every runtime-entry surface converges on the one helper + the `python3` command — the `render_platform_surfaces` MCP/hook configs, the Codex config in **`render_agent_surfaces.py`** (`CODEX_MCP_CONFIG_TOML`, a *separate* file), the hand-committed `.air/mcp.json`, the `wf` shim pair, and the dev-facing `run_tests.py` + `wave-dashboard`. (Git hooks were dropped in wave 1p88t.)
+Every runtime-entry surface converges on the one helper + the `python3` command — the MCP/hook configs and Codex config owned by **`render_platform_surfaces.py`**, the hand-committed `.air/mcp.json`, the `wf` shim pair, and the dev-facing `run_tests.py` + `wave-dashboard`. (Git hooks were dropped in wave 1p88t.)
 
 ## Consequences
 
 **Positive:**
 
-- One **committed, byte-identical** config (`command: "python3"`) — zero-config attach + Codex auto-trust preserved; nothing to re-render per OS.
+- One committed cross-OS config per host with the same `command: "python3"` token and a host-appropriate owner anchor — zero-config attach + Codex auto-trust preserved; nothing to re-render per OS.
 - `python3` is standard on macOS/Linux and the chosen native-Windows standard for Wavefoundry installs. Setup verifies it resolves and guides the operator if not; it does not create a shim or modify the Python install (amended wave 1p88t).
 - The bootstrap activation is PATH-independent and authoritative, so even if `python3` resolves to a system interpreter, the tool venv packages are used.
 - The scattered venv resolvers + the `launcher_command` `os.name` branch consolidate into one bootstrap; the dead `_bat_venv_block` is removed. Net maintenance burden goes **down**.

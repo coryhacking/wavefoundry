@@ -48,6 +48,8 @@ Run each fixed seat in isolation. Each seat receives the standard briefing plus 
 - Contribute lane-specific findings independent of the primer
 - **Verify code-grounded:** check the artifact's load-bearing claims against the actual tree, not against the artifact's own prose — cited `file:line` sites and symbols must resolve, "X already does Y" claims must hold in the code, and "no other caller/site" censuses must be complete. Do not approve an artifact whose claims were checked only against its own text. (A readiness review answerable purely from plan prose is how nonexistent symbols, wrong caller censuses, and no-op mechanisms pass review.)
 
+The Verify code-grounded contract above is the review-phase application of the all-phase tenet defined in seed-209 ("Code-Grounded Verification"); authoring (seed-170) and implementing (seed-180) carry the same obligation in their own phases.
+
 Default fixed seats: `architecture-reviewer`, `security-reviewer`, `qa-reviewer`, `reality-checker`.
 
 ### Rotating Fifth Seat

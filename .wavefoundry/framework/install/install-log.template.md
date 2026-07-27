@@ -28,7 +28,7 @@ For full schema (row format, trustworthy-invariant rule, parser semantics), see 
 
 After Phase 1 completes, you must restart your AI agent so the MCP server becomes available.
 
-- [ ] 1.1 — Bootstrap harness: lifecycle-ID policy auto-provision + venv + framework deps + semantic indexes + `wf` dispatcher shim + host configs + MCP dry-run smoke test (setup_wavefoundry.py) — artifact: the committed `.mcp.json` names `command: "python"` + `args: [".wavefoundry/framework/scripts/server.py"]` AND `python3 .wavefoundry/framework/scripts/server.py --dry-run` exits 0
+- [ ] 1.1 — Bootstrap harness: lifecycle-ID policy auto-provision + venv + framework deps + semantic indexes + `wf` dispatcher shim + host configs + MCP dry-run smoke test (setup_wavefoundry.py) — artifact: the platform renderer emits each enabled host's canonical MCP config and `python3 .wavefoundry/framework/scripts/server.py --dry-run` exits 0 from the repository root
 - [ ] 1.2 — Verify lifecycle-ID policy provisioned by setup (verify) — expects: `docs/workflow-config.json` carries `lifecycle_id_policy.scheme_version` `"v2"`; if absent run `wf upgrade --materialize-lifecycle-policy` (never hand-edit epoch/offset/scheme_version)
 - [ ] 1.3 — STOP: instruct operator to restart agent for MCP availability (instruction)
 

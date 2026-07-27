@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: guru
 Category: specialist
-Last verified: 2026-07-22
+Last verified: 2026-07-26
 
 Shortcut: **`Guru`** | MCP tool: **`code_ask`**
 
@@ -98,6 +98,8 @@ A search for a prevalent token (`"tree_sitter"`, `"server_impl"`, `"_response"`)
 - When a `code_pattern` call returns 0 hits but you're confident matches exist, retest with a simpler literal pattern before concluding "no matches"
 
 ### Tool Selection Quick Rules
+
+Reading code is not executing it: these rules locate and explain code, but a load-bearing claim about behavior (a mechanism repairs its defect, a dispatch path validates an object, a census is complete) is verified by executing it (a test, a probe, a real invocation), and following this order perfectly is not, by itself, verification (seed-209, "Code-Grounded Verification").
 
 - Use `code_ask` to **orient** when synthesis across unknown files and layers is required — find likely files, symbols, and citation paths. It is not the final answer. `code_ask` now has one agent-mode ranking path: a cross-encoder reranks the retrieved docs+code pool when available (FP16 on GPU, INT8 on CPU), then the agent coverage floor and text budget select citations; `rerank="local"` is only a deprecated alias for the same path. Its response also carries a **`graph_related`** section — structural matches grouped by relationship (`callers`, `callees`, `readers`, `reads`, `importers`, `imports`, `related`), separate from `citations`; read it for structural "what calls/reads/imports X" questions. **For an ALREADY-KNOWN symbol still go direct** — `code_definition` + `code_callhierarchy`/`code_references` answer "where is X defined?" / "what calls X?" more precisely (exact line numbers and call sites vs synthesized prose). The latency reason to avoid `code_ask` is gone; the precision reason for direct tools on known symbols stands. `vector_ms`/`rerank_ms` are diagnostic fields, not a runtime routing signal.
 - After every `code_ask` for an explanatory or instructional question: treat `answer` as a navigation pointer only; run Pass 3 (`code_outline`, targeted `code_read`, `code_keyword` as needed) and synthesize from validated reads.

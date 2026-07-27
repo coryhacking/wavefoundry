@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-25
+Last verified: 2026-07-26
 
 ## Domains
 
@@ -35,7 +35,7 @@ Last verified: 2026-07-25
 | `build_pack.py` → `.wavefoundry/framework/VERSION` | file write | stable | Engineering (packaging) |
 | `lifecycle_id.py` → `docs/workflow-config.json` | file read | stable | Engineering |
 | `docs_lint.py` / `docs_gardener.py` → `docs/` | file read/write | stable | Engineering |
-| `render_platform_surfaces.py` → `.claude/`, `.cursor/`, `.github/hooks/`, `.mcp.json` | file write | stable | Engineering |
+| `render_platform_surfaces.py` → `.claude/`, `.cursor/`, `.github/hooks/`, `.mcp.json`, and the framework-owned `.codex/config.toml` region | file write | stable | Engineering |
 | `render_agent_surfaces.py` → framework-marked regions in registered `docs/agents/`, `docs/prompts/`, `docs/contributing/`, and explicitly enabled native `.claude/agents/` / `.codex/skills/` carriers | bounded file write | stable | Engineering (framework renderer) |
 | `review_evidence.py` → `docs/waves/review-evidence-adoptions.json` | bounded canonical-prefix count/hash proof write | stable | MCP lifecycle validator |
 | `wf_review_event` → `docs/waves/<wave>/events.jsonl` + `wave.md` | locked canonical event append plus generated Markdown current-head projection | stable | MCP lifecycle authoring tool |

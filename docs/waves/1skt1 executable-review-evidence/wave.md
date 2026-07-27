@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: closed
-Last verified: 2026-07-20
+Last verified: 2026-07-26
 review-evidence-source: events.jsonl
 wave-id: `1skt1 executable-review-evidence`
 Title: Executable Review Evidence
@@ -157,3 +157,20 @@ Wave `1skt1` (Executable Review Evidence) delivered one change: Executable Revie
 ## Dependencies
 
 - No external sequencing blocker: `1ro44` is closed. Activation remains separate from readiness and operator-owned.
+
+<!-- wave:context-efficiency begin -->
+## Context Efficiency
+
+Estimated token savings use phase-unique returned source versions and mapped workflow prompts, minus recorded request and response tokens. Saved model output or avoided tool loops count only through quality-equivalent paired evidence.
+
+| Stage | Tool calls | Estimated token savings |
+| --- | ---: | ---: |
+| review | 1 | 66,999 |
+| **Total** | **1** | **66,999** |
+
+<!-- wave:context-efficiency-state {"generation":1,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"review":{"calls":1,"content_source_credit":71122,"derived_artifact_credit":0,"direct_net":66999,"estimated_tokens_saved":66999,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":115,"response_debit":4008,"source_credit_count":1,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":0}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":1,"content_source_credit":71122,"derived_artifact_credit":0,"direct_net":66999,"estimated_tokens_saved":66999,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":115,"response_debit":4008,"source_credit_count":1,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":0},"wave_id":"1skt1 executable-review-evidence"} -->
+<!-- wave:context-efficiency end -->
+
+<!-- wave:exploration-avoided begin -->
+<!-- wave:exploration-avoided-state {"cited_events":0,"credited_records":0,"estimated_exploration_avoided":0,"surfaced_events":0} -->
+<!-- wave:exploration-avoided end -->

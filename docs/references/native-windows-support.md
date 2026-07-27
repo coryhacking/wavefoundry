@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: supported
-Last verified: 2026-07-20
+Last verified: 2026-07-26
 
 ## Context
 
@@ -23,7 +23,7 @@ Windows was considered — and handled correctly — in several places:
 - File locking branches between `msvcrt.locking` (Windows) and `fcntl.flock` (POSIX) (`indexer.py:1906`, `dashboard_lib.py:171`).
 - Most background spawns set `creationflags=DETACHED_PROCESS|CREATE_NEW_PROCESS_GROUP` on Windows (`server_impl.py:3440`, `setup_index.py:771`, dashboard spawn `server_impl.py:6594`).
 - Path strings are normalized through `replace("\\", "/")` before posix-path operations (`chunker.py:375` `_normalize_path`; `dashboard_lib.py` multiple sites).
-- The platform renderer already emits `cmd.exe /c …` launcher commands and **`.cmd` companions already exist for every `.claude/hooks/` file** (`render_platform_surfaces.py:101` `launcher_command`).
+- Hook bodies are Python on every OS. Claude launch commands resolve the body from `CLAUDE_PROJECT_DIR` inside Python, avoiding shell-specific environment-variable syntax; hosts without a verified owner anchor retain an explicit repository-root contract.
 - `DmlExecutionProvider` (DirectML) is auto-detected and selected when available — it is in `PROVIDER_PRIORITY` (`provider_policy.py:26`) so no manual `WAVEFOUNDRY_EMBED_PROVIDER=dml` override is needed.
 - macOS-only shell-outs (`sysctl`, `.DS_Store` cleanup) are correctly guarded with `sys.platform != "darwin"` (`graph_indexer.py:7766`, `render_platform_surfaces.py:1382`).
 
@@ -43,9 +43,9 @@ On native Windows a Python process spawned without a no-window flag can flash a 
 
 | ID | Gap | Evidence | What breaks |
 | --- | --- | --- | --- |
-| ~~C-1~~ | ~~`.mcp.json` sets `command` to a bash MCP-server wrapper with no `.cmd` sibling~~ — **RESOLVED:** every committed MCP config now names `command: "python3"` + `args: [".wavefoundry/framework/scripts/server.py"]` (byte-identical cross-OS; `setup` makes `python3` resolvable). The bash `bin/mcp-server` wrapper was retired (1p7tz). | `.mcp.json`; `render_platform_surfaces.render_mcp_json` | No action — MCP spawns natively on Windows. |
+| ~~C-1~~ | ~~`.mcp.json` sets `command` to a bash MCP-server wrapper with no `.cmd` sibling~~ — **RESOLVED:** MCP configs use `python3`; Claude resolves the script from `CLAUDE_PROJECT_DIR`, Cursor pins workspace cwd, Junie uses its documented config-relative path, and hosts without a verified anchor retain an explicit repository-root contract. The bash wrapper was retired (1p7tz). | MCP configs; platform renderer | No action — no shell wrapper is required. |
 | ~~C-2~~ | ~~All 9 `.wavefoundry/bin/` launchers are bash-only~~ — **RESOLVED (wave 1p7tz):** the nine POSIX-only wrappers were replaced by one cross-OS `wf` dispatcher (`wf_cli.py`) behind a `wf` (bash) + `wf.cmd` (Windows) shim pair; `wf docs-lint`, `wf docs-gardener`, `wf gate`, `wf setup`, `wf upgrade`, `wf update-indexes`, `wf dashboard`, `wf lifecycle-id` run on every OS. | `render_platform_surfaces.render_bin_launchers`; `wf_cli.py` | No action — operator CLI is cross-OS. |
-| ~~C-3~~ | ~~One committed `.mcp.json` / `.claude/settings.json` reflects **whichever OS last ran the renderer**; a Windows clone of a Mac-rendered repo gets POSIX hook forms~~ — **RESOLVED (wave 1p88t):** `launcher_command` returns one unconditional `python3 "<script>.py"` form (no OS branch), so the committed MCP/hook command surfaces are **byte-identical regardless of the rendering OS**. A Windows clone of a Mac-rendered repo gets the same working `python3` forms; the host spawns them via raw process spawn (no shell), so they run in any session. | `render_platform_surfaces.launcher_command` (unconditional `python3`); `.claude/settings.json` | No action — committed command surfaces are cross-OS identical. |
+| ~~C-3~~ | ~~Committed hook config reflects whichever OS last rendered it~~ — **RESOLVED:** committed commands are platform-independent; Claude performs owner-root resolution inside Python and Copilot carries its native `bash` and `powershell` fields. | platform renderer; host hook configs | Native-Windows runtime smoke remains an operator validation item. |
 
 Native Windows MCP configs should use `command: "python3"` with `args: [".wavefoundry/framework/scripts/server.py"]` for generated repo-local configs, or `args: ["<repo>/.wavefoundry/framework/scripts/server.py", "--root", "<repo>"]` for manual host entries. Before proceeding, `python3 --version` must work from the command line and report Python 3.11 or newer; if Windows has `python` but not `python3`, stop and fix PATH or install a Python distribution that provides `python3`. Do not configure MCP to run `.wavefoundry\venv\Scripts\python.exe` directly as a workaround; `server.py` owns shared tool-venv activation. After fixing Python on PATH or changing MCP config, start a fresh host session because an already-open conversation may keep the toolset from the earlier failed startup.
 
@@ -72,15 +72,14 @@ Native Windows MCP configs should use `command: "python3"` with `args: [".wavefo
 
 The MCP launcher (C-1) and bin launchers (C-2) need a Windows-runnable form. The recommended approach is **not** `.cmd` twins of every bash script (two parallel script families to maintain), but to **bypass the shell wrapper**: point `.mcp.json` at `python3` running `server.py`, and have the entry scripts self-bootstrap into the tool venv (`~/.wavefoundry/venv/bin/python` on POSIX, `Scripts\python.exe` on Windows). One portable mechanism instead of two. This is the gate — until the server starts and `docs-lint`/`wave-gate` run, nothing else is reachable.
 
-### Bucket 2 — The per-OS distribution model (the gating decision)
+### Bucket 2 — The selected cross-OS distribution model
 
-A single committed `.mcp.json` / `.claude/settings.json` **cannot simultaneously serve** a mixed macOS/Linux + Windows team from one repo (C-3): the committed file reflects whichever OS last rendered it. The options:
-
-- **(a) Re-render on first checkout per OS** — documented step; the renderer already supports per-OS hook forms, it only needs MCP + bin coverage added (Bucket 1). Simple, but a manual step and a source of "works on my machine" drift.
-- **(b) Commit OS-suffixed surfaces** — e.g. ship both forms; the host picks. More files; depends on what Claude Code will read.
-- **(c) Make the launchers identical cross-OS** — so the one committed file works everywhere. The bypass-the-wrapper approach in Bucket 1 (interpreter-direct command + self-bootstrapping scripts) is what makes (c) viable, and it is the most robust for mixed teams.
-
-This is an ADR-shaped choice and should be run through **Evaluate decision** / recorded as an ADR before a wave is opened — it drives the shape of everything else.
+**Resolved by C-3.** Each host has one committed, deterministic configuration artifact. Portable
+commands remain identical across operating systems; where a host schema requires an OS-specific
+override, the POSIX and Windows fields coexist in that same artifact. A mixed macOS/Linux/Windows
+team therefore does not re-render tracked configuration per checkout and does not maintain
+OS-suffixed sibling files. Native-platform runtime smoke remains an evidence obligation, not a
+different distribution model.
 
 ### Bucket 3 — Process / dashboard lifecycle parity
 

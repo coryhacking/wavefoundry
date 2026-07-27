@@ -3039,11 +3039,17 @@ def _registered_mcp_tool_descriptions(mcp: Any) -> dict[str, str]:
 def _ensure_no_extra_args(tool_name: str, kwargs: dict[str, Any]) -> Optional[dict[str, Any]]:
     """If MCP passed unsupported keyword arguments, return a structured error envelope.
 
-    FastMCP generates a schema entry named ``kwargs`` from ``**kwargs`` in the function
-    signature and may forward it back to the handler as a named argument.  Strip that
-    self-referential key before checking for genuine extras.
+    ``kwargs={}`` is accepted only as an empty compatibility payload for clients that
+    cached the former generated schema.  Populated nested payloads and unknown sibling
+    arguments are both rejected through the same typed tool envelope.
     """
     real_extras = {k: v for k, v in kwargs.items() if k != "kwargs"}
+    if "kwargs" in kwargs:
+        nested = kwargs["kwargs"]
+        if isinstance(nested, dict):
+            real_extras.update(nested)
+        else:
+            real_extras["kwargs"] = nested
     if not real_extras:
         return None
     kwargs = real_extras
@@ -3062,6 +3068,66 @@ def _ensure_no_extra_args(tool_name: str, kwargs: dict[str, Any]) -> Optional[di
         usage=f"wf_help()  # see supported parameters for {tool_name}",
     )
     return _attach_retrieval_failure_context(tool_name, response)
+
+
+def _normalize_first_party_tool_argument_models(mcp: Any) -> None:
+    """Keep implementation ``**kwargs`` out of the public MCP contract.
+
+    FastMCP turns every handler's ``**kwargs`` into a required schema property.  The
+    handlers retain that Python escape hatch solely so stale clients can send the old
+    empty ``kwargs`` object and so unsupported parameters can receive Wavefoundry's
+    typed ``unknown_arguments`` envelope.  Runtime models therefore collect unknown
+    sibling keys, while the advertised schema stays exact and closed.
+    """
+    try:
+        from pydantic import ConfigDict, Field
+    except Exception:
+        return
+    tm = getattr(mcp, "_tool_manager", None)
+    tools = getattr(tm, "_tools", None) if tm is not None else None
+    if tools is None:
+        tools = getattr(mcp, "_tools", None) or {}
+    if not isinstance(tools, Mapping):
+        return
+    for tool in tools.values():
+        # FastMCP's private registry has changed shape across releases.  Treat
+        # an unfamiliar entry as "not ours to rewrite" rather than making the
+        # whole server (or a hot reload) unavailable.
+        try:
+            metadata = getattr(tool, "fn_metadata", None)
+            base_model = getattr(metadata, "arg_model", None)
+            fields = getattr(base_model, "model_fields", {}) if base_model else {}
+            if "kwargs" not in fields or getattr(base_model, "_wf_exact_args", False):
+                continue
+            base_dump = base_model.model_dump_one_level
+
+            def model_dump_one_level(self: Any, _base_dump: Any = base_dump) -> dict[str, Any]:
+                dumped = _base_dump(self)
+                dumped.update(getattr(self, "__pydantic_extra__", {}) or {})
+                return dumped
+
+            exact_model = type(
+                f"{base_model.__name__}Exact",
+                (base_model,),
+                {
+                    "__annotations__": {"kwargs": Any},
+                    "kwargs": Field(default_factory=dict),
+                    "model_config": ConfigDict(extra="allow"),
+                    "model_dump_one_level": model_dump_one_level,
+                    "_wf_exact_args": True,
+                },
+            )
+            exact_model.model_rebuild(force=True)
+            metadata.arg_model = exact_model
+            schema = exact_model.model_json_schema()
+            schema.get("properties", {}).pop("kwargs", None)
+            schema["required"] = [
+                name for name in schema.get("required", []) if name != "kwargs"
+            ]
+            schema["additionalProperties"] = False
+            tool.parameters = schema
+        except Exception:
+            continue
 
 
 def _slug_fragment(text: str) -> str:
@@ -12529,7 +12595,10 @@ def _review_evidence_diagnostics(
                         REVIEW_STATUS_MARKER_BEGIN in canonical_projection
                         or REVIEW_STATUS_MARKER_END in canonical_projection
                     )
-                    if marker_present and render_review_status_projection(
+                    closed_archive = bool(
+                        re.search(r"(?mi)^Status:\s*closed\s*$", raw_projection)
+                    )
+                    if marker_present and not closed_archive and render_review_status_projection(
                         canonical_projection,
                         result.records,
                         _review_status_signoff_keys(
@@ -24791,6 +24860,9 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         signoff actor, and non-operator approvals require fresh independent context.
         A repair cycle may contain several findings and ordered same-finding reverification
         progress as fresh independent actors clear their own required lanes.
+        A readiness-born finding opens ``repair_start`` directly from its cycle-0
+        readiness synthesis and must be terminal before readiness approval is
+        restored. A delivery-born finding still requires ``initial_delivery``.
         Lane-clearing recipe (state-derived): first call ``event="list"`` for the
         finding and read its ``chain_summary`` unresolved required lanes. If the
         repair cycle is not open yet (no ``repair_start`` for the current
@@ -24805,6 +24877,8 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         records only an empty readiness/initial_delivery run). The reverifying
         actor must not be the actor that performed the repair: independence is
         what the lane clearance asserts.
+        Do not carry a repaired readiness finding into delivery merely to mint
+        an ``initial_delivery`` predecessor; use the same-phase repair path.
         The server auto-mints the linked ``lane_reassessment`` evidence for the
         cleared lane; lanes clear one per event, in any order, until the head's
         list is empty. A reverification that repeats the current list unchanged
@@ -27242,6 +27316,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             lines.append("\n")
         return "".join(lines)
 
+    _normalize_first_party_tool_argument_models(mcp)
     tool_names = _registered_mcp_tool_names(mcp)
     violations = first_party_tool_names_violating_prefix(tool_names)
     if violations:

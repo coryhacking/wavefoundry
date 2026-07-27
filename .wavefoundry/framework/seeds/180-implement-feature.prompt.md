@@ -115,6 +115,8 @@ When `wave_review.enabled` is true: the existing `wave-council-readiness` verdic
 
 MCP-first code exploration:
 
+Reading code is not executing it: this exploration order locates and explains code, but a load-bearing claim about behavior (a mechanism repairs its defect, a dispatch path validates an object, a census is complete) is verified by executing it (a test, a probe, a real invocation), and following this order perfectly is not, by itself, verification (seed-209, "Code-Grounded Verification").
+
 When MCP is attached, any code investigation at any lifecycle stage follows this order: exploration before a code edit, review-claim verification against the tree, and repair/reverification work inside review cycles (censuses, region reads, claim checks) alike; the run contract's Retrieval Rules (`seed-020`) carry this scope for every lane and briefed subagent. Agents must not default to shell search or broad file reads for questions these tools are designed to answer:
 
 1. `code_ask` — cross-cutting "what does this currently do?" questions
@@ -217,6 +219,8 @@ Participant responsibilities inside an active wave:
 Required tasks:
 
 1. Load the active execution plan, spec refs, and wave artifacts. Consult `docs/references/project-context-memory.md` for active cautions and known pitfalls that apply to the current wave's scope. When the MCP memory tools are attached, also call `memory_brief(context='pre_implementation', targets=[...])` for the files in scope — typed agent memory records (fragile files, prior failed attempts, operator preferences) surface as capped, cited advisories, and a `needs_reverification` flag means re-check the concern against current code before editing. If memory records a past mistake in this area, treat it as a constraint on implementation — not a suggestion.
+
+   **Exercise the plan's premises (seed-209, "Code-Grounded Verification").** A plan is evidence, not proof. Before building code on a premise the plan states about the existing tree ("X already does Y", "no other caller", "the renderer reaches this surface"), execute that premise: run the failing shape, call the path, re-run the census. Confirm a red test fails for the plan's stated reason before treating it as reproducing the defect. When a premise proves false, stop and report: record the discrepancy and return the design question to the operator rather than adapting the implementation to preserve the plan's conclusion.
 
    **MCP resource orientation** — before reaching for tool calls to load stable reference content, prefer attaching it directly as context via MCP resources. Stable resources available without parameters: `wavefoundry://overview` (project orientation), `wavefoundry://wave/current` (active wave record), `wavefoundry://agents` (AGENTS.md operating guide), `wavefoundry://graph/status` (graph index health), `wavefoundry://graph/communities` (catalog of code-graph communities for blast-radius and refactor planning). Use `wavefoundry://change/{change_id}`, `wavefoundry://seed/{slug}`, and `wavefoundry://architecture/{slug}` for parameterized reads. Resources return raw markdown with no tool-call overhead; fall back to tools (`wf_get_change`, `seed_get`, etc.) when you need structured envelopes with `diagnostics` and `next_tools`.
 2. Determine whether the next `planned` wave is ready to become `active`.

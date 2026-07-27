@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-17
+Last verified: 2026-07-26
 
 Maps Wave Framework agent docs, personas, specialists, and factor agents to native agent platform files.
 
@@ -37,6 +37,24 @@ Maps Wave Framework agent docs, personas, specialists, and factor agents to nati
 | Cursor | `.cursor/rules/auto-guru.mdc` | `alwaysApply` rule |
 | Claude Code | `.claude/agents/guru.md` | `PROACTIVELY` subagent |
 | Codex | `.codex/skills/auto-guru/SKILL.md` | `.codex/config.toml` (project-local, committed) |
+
+## Host launcher contracts
+
+| Host | Hook path contract | MCP path contract | Evidence level |
+|------|--------------------|-------------------|----------------|
+| Claude Code | Owner-bound through `CLAUDE_PROJECT_DIR`; no cwd search | Owner-bound through `CLAUDE_PROJECT_DIR` | Executed on macOS from nested cwd; Windows runtime pending |
+| Cursor | Host launches project hooks from the workspace root | `${workspaceFolder}` `cwd` pin | Renderer/fixture verified |
+| GitHub Copilot | Repository-root contract; native `bash` and `powershell` fields | Provider/UI registration | Schema rendered; host runtime not claimed |
+| Windsurf | `working_directory: "."` project-root contract | Provider/UI registration | Renderer/fixture verified |
+| Junie | No native hooks are emitted without a verified contract | Config-relative from `.junie/mcp/` | Config-relative execution contract verified |
+| Codex | No native hooks are emitted without a verified project-owner signal | Project-local config; host opens the project root | Root-only; non-Git projects are supported when opened at their root |
+| Air / Warp | Delegated to the underlying agent host; no invented native hook files | Provider/UI registration | Explicitly unsupported as native hook surfaces |
+| Antigravity | No native hook file is emitted | Workspace-local `.agents/mcp_config.json`, root-only | Config shape verified; no native hook claim |
+
+Root-only means exactly that: the host must launch from the configured project root. Wavefoundry does
+not search upward from an arbitrary cwd, because a descendant containing another installation could
+silently change project identity. Missing host authority is surfaced as a support limitation, not
+papered over with a generic locator.
 
 ## Executable Review-Evidence Propagation
 

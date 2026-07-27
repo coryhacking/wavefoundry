@@ -1004,13 +1004,14 @@ def check_wave_docs(root: Path, only: set[Path] | None = None, skip: set[Path] |
                         expected_projection = render_review_evidence_projection(
                             text, review_evidence.records
                         )
-                        expected_projection = render_review_status_projection(
-                            expected_projection,
-                            review_evidence.records,
-                            required_review_status_keys(
-                                root, expected_projection, review_evidence.records
-                            ),
-                        )
+                        if not re.search(r"(?mi)^Status:\s*closed\s*$", text):
+                            expected_projection = render_review_status_projection(
+                                expected_projection,
+                                review_evidence.records,
+                                required_review_status_keys(
+                                    root, expected_projection, review_evidence.records
+                                ),
+                            )
                     except ValueError as exc:
                         failures.append(f"{rel}: review evidence projection: {exc}")
                     else:

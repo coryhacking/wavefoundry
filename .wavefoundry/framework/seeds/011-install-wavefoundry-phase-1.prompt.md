@@ -30,7 +30,7 @@ Before executing row 1.1, check whether `.wavefoundry/install-log.md` exists:
 0. **Step 0/4 — lifecycle-ID policy** (fresh repos only): provisions the scheme-v2 `lifecycle_id_policy` described above when `docs/workflow-config.json` has no policy block; prints `lifecycle policy: …` and aborts setup loudly if the existing config is unparseable. Recovery fallback if this step was somehow skipped: `wf upgrade --materialize-lifecycle-policy`.
 1. **Step 1/4 — `wf` dispatcher shim + platform host configs** (via `render_platform_surfaces.py`):
    - The cross-OS `wf` entry point and generated `wf.cmd` shim that dispatch to `wf_cli.py`, which routes subcommands `wf docs-lint`, `wf docs-gardener`, `wf gate`, `wf dashboard`, `wf update-indexes`, `wf lifecycle-id`, `wf upgrade`, and `wf setup` to their backing scripts.
-   - `.claude/settings.json` (if Claude Code is detected) and equivalents for other hosts; registers the MCP server (the committed `.mcp.json` runs `python3 .wavefoundry/framework/scripts/server.py`).
+   - `.claude/settings.json` (if Claude Code is detected) and equivalents for other hosts; registers the MCP server with the host's verified owner-root/config-relative contract.
    - MCP configs must launch the PATH `python3` command on Wavefoundry's `server.py`; do not point them at `.wavefoundry/venv/Scripts/python.exe`, `.wavefoundry/venv/bin/python`, or another project-local venv interpreter as a workaround for a missing or too-old `python3`. `server.py` activates the shared tool environment itself.
    - **Do NOT create these files by hand.** The renderer is the source of truth; pre-created files will be overwritten on next render and cause spurious diffs.
    - Setup/render installs prospective lifecycle carriers only. It must not create, migrate, repair, or rewrite `docs/waves/*/{wave.md,events.jsonl}`; historical target-project wave bytes remain untouched. New external-ledger state begins only when the operator later invokes the public Create-wave path.
@@ -49,7 +49,7 @@ Before executing row 1.1, check whether `.wavefoundry/install-log.md` exists:
    - Otherwise—or after an ordinary repeated `wf setup` recomputes an empty pending set—builds `.wavefoundry/index/` (docs/seeds, semantic code embeddings, code embeddings, and graph). The framework seeds and top-level README fold into the project docs index; there is no separate framework index.
    - Use `--background-code` or `--background-docs` only when the operator intentionally accepts one semantic layer finishing after setup returns. A candidate-bearing historical-memory publication intentionally ignores either flag and converges both semantic layers synchronously under its publication receipt.
 
-**Expected artifact:** the committed `.mcp.json` names `command: "python3"` + `args: [".wavefoundry/framework/scripts/server.py"]` AND `python3 .wavefoundry/framework/scripts/server.py --dry-run` exits 0.
+**Expected artifact:** the committed `.mcp.json` names `command: "python3"` and resolves `server.py` from Claude's `CLAUDE_PROJECT_DIR` rather than the caller cwd; `python3 .wavefoundry/framework/scripts/server.py --dry-run` exits 0 from the repository root.
 
 If any step fails, the orchestrator stops and reports which step. Re-run after fixing — the orchestrator is idempotent (each sub-step detects existing state).
 

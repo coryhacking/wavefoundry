@@ -253,7 +253,7 @@ Wave `1p5xc` (wave `1p5x8 large-codebase-map`). Vendor-neutral per-area context,
 
 ## Hook Contract
 
-Use `wf render-surfaces` to materialize tracked hook entrypoints and merged settings files for every enabled platform. For each entrypoint the renderer writes a **single** self-contained Python body, `<name>.py` (`chmod +x`), which self-bootstraps into the tool venv; the `.sh`/`.cmd`/extensionless trampolines were retired (wave 1p7pm/1p88t) and a re-render removes any left by an older install. Every hook config invokes it with the byte-identical, cross-OS command `python3 "<name>.py"` — the same command token the MCP config uses — so the committed launcher is identical on every render host. The JSON snippets below therefore show `python3 "…​.py"` command values (not a bare launcher path or a Windows `cmd.exe /c` form). Prefer `wf render-surfaces` over hand-editing each hook file independently (see task 13).
+Use `wf render-surfaces` to materialize tracked hook entrypoints and merged settings files for every enabled platform. For each entrypoint the renderer writes a **single** self-contained Python body, `<name>.py` (`chmod +x`), which self-bootstraps into the tool venv; the `.sh`/`.cmd`/extensionless trampolines were retired (wave 1p7pm/1p88t) and a re-render removes any left by an older install. Serialize each host's verified schema and root contract: use a host-provided owner-root or config-relative anchor where one exists, otherwise retain and document that host's repository-root launch requirement. Never recover identity by searching upward from the caller cwd; a nested Wavefoundry install must not be allowed to replace the configuration owner's project. Prefer `wf render-surfaces` over hand-editing each hook file independently (see task 13).
 
 ### Shared hook policy (all platforms)
 
@@ -376,8 +376,8 @@ Windsurf has `pre_write_code` which fires **before** the write — true blocking
 ```json
 {
  "hooks": {
- "pre_write_code": [ { "command": "python3 \".windsurf/hooks/seed-protect.py\"", "show_output": true } ],
- "post_write_code": [ { "command": "python3 \".windsurf/hooks/docs-lint.py\"", "show_output": true } ]
+ "pre_write_code": [ { "command": "python3 \".windsurf/hooks/seed-protect.py\"", "working_directory": ".", "show_output": true } ],
+ "post_write_code": [ { "command": "python3 \".windsurf/hooks/docs-lint.py\"", "working_directory": ".", "show_output": true } ]
  }
 }
 ```
@@ -401,8 +401,8 @@ Scope boundary:
 {
  "version": 1,
  "hooks": {
- "preToolUse": [ { "type": "command", "bash": "python3 \".github/hooks/pre-tool-use.py\"" } ],
- "postToolUse": [ { "type": "command", "bash": "python3 \".github/hooks/post-tool-use.py\"" } ]
+ "preToolUse": [ { "type": "command", "bash": "python3 \".github/hooks/pre-tool-use.py\"", "powershell": "python3 \".github/hooks/pre-tool-use.py\"", "cwd": "." } ],
+ "postToolUse": [ { "type": "command", "bash": "python3 \".github/hooks/post-tool-use.py\"", "powershell": "python3 \".github/hooks/post-tool-use.py\"", "cwd": "." } ]
  }
 }
 ```

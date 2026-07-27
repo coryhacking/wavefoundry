@@ -200,8 +200,26 @@
       "version": 1
     },
     "1tj0l cwd-independent-host-surface-launchers": {
-      "prefix_sha256": "1986bccc47ad054dc22c670cbe1e77d6437446b68057910114efc76bab75ab46",
-      "record_count": 15,
+      "prefix_sha256": "4fcdd49a9c8fd9db4356cf8e47952d10550d845e2774102ea0549c58d7f09eb5",
+      "record_count": 155,
+      "source": "events.jsonl",
+      "version": 1
+    },
+    "1tmb1 review-loop-readiness-clearing-path": {
+      "prefix_sha256": "a6ccd850cd674af6b1770567e7e37c43e3720f32dbba221409167c65ca75e710",
+      "record_count": 109,
+      "source": "events.jsonl",
+      "version": 1
+    },
+    "1tmtx test-suite-performance": {
+      "prefix_sha256": "e73f57c60637a8feb6976f35ae3cfbcd6f4ff67faf0ab976b4e983e8d51f15df",
+      "record_count": 3,
+      "source": "events.jsonl",
+      "version": 1
+    },
+    "1to7k lifecycle-evidence-and-focus-integrity": {
+      "prefix_sha256": "bddcbac91a0d46f9f65943eaf089e6e98ab268a21cb968bd1e7936c06308912b",
+      "record_count": 2,
       "source": "events.jsonl",
       "version": 1
     }

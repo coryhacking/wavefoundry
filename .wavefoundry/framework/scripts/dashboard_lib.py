@@ -986,11 +986,12 @@ def _review_evidence_dashboard_state(
     )
     try:
         expected_wave = render_review_evidence_projection(text, records)
-        expected_wave = render_review_status_projection(
-            expected_wave,
-            records,
-            status_keys,
-        )
+        if not re.search(r"(?mi)^Status:\s*closed\s*$", text):
+            expected_wave = render_review_status_projection(
+                expected_wave,
+                records,
+                status_keys,
+            )
     except ValueError:
         projection_status = "missing"
     else:
