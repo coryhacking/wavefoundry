@@ -1,10 +1,10 @@
 # A Failed Lifecycle Call Leaves Context-Efficiency Focus Stale And Says Nothing
 
 Change ID: `1tmb3-bug failed-lifecycle-call-leaves-focus-stale-and-silent`
-Change Status: `planned`
+Change Status: `implemented`
 Owner: Engineering
-Status: planned
-Last verified: 2026-07-26
+Status: implemented
+Last verified: 2026-07-27
 Wave: `1to7k lifecycle-evidence-and-focus-integrity`
 
 ## Rationale
@@ -165,24 +165,24 @@ two opposite ways.
 
 ## Acceptance Criteria
 
-- [ ] AC-1: A committed desired-behavior test calls a lifecycle tool that fails against wave B while
+- [x] AC-1: A committed desired-behavior test calls a lifecycle tool that fails against wave B while
   focus is on wave A and expects the response diagnostic to name wave A and its recovery. It is
   observed RED against current code and GREEN after the fix.
-- [ ] AC-2: The diagnostic is produced through the real tool response envelope, reproducing the
+- [x] AC-2: The diagnostic is produced through the real tool response envelope, reproducing the
   observed case: a prepare blocked on a missing council signoff while focus sits on another wave.
-- [ ] AC-3: An AST/source census pins every current focus consumer—calls through
+- [x] AC-3: An AST/source census pins every current focus consumer—calls through
   `_lifecycle_context_result` plus direct reopen/pause focus paths—to the shared classifier/reporting
   primitive. A new consumer that bypasses the primitive fails the census; the plan does not claim to
   prove arbitrary future statuses correct without updating the canonical classifier.
-- [ ] AC-4: `core_not_engaged` suppression is proven for exact desired state and true
+- [x] AC-4: `core_not_engaged` suppression is proven for exact desired state and true
   general/unattributed fallback; stage-mismatch is not suppressed. No explicit focus plus one unrelated
   OPEN wave reports that fallback rather than suppressing. `focus_write_failed` is reported for set and
   clear failures even from empty focus unless the desired state was already current.
-- [ ] AC-5: `wf_reopen_wave` uses the shared primitive while preserving the existing
+- [x] AC-5: `wf_reopen_wave` uses the shared primitive while preserving the existing
   `focus_stage_not_applied` code and successful-reopen semantics; tests pin the distinct recovery text
   and codes for `focus_target_not_engaged`, `focus_stage_not_applied`, and
   `unknown_lifecycle_outcome`.
-- [ ] AC-6: Existing focus tests remain green, and direct known-bad probes cover council-ready,
+- [x] AC-6: Existing focus tests remain green, and direct known-bad probes cover council-ready,
   unknown status, genuine error, focus-write exception, different focus, same focus, and no focus.
   Each probe asserts the expected focus, publication, diagnostic code/recovery, and that diagnostics
   never overturn a successful lifecycle mutation.
@@ -190,40 +190,40 @@ two opposite ways.
   sealed wave will receive credits. Mutating-pause success, `clear_focus` failure, and dry-run pause prove the shared clear-operation
   contract without changing the successful lifecycle result; dry-run asserts no focus attempt and no
   not-applied diagnostic.
-- [ ] AC-8: A test executes `wf_prepare_wave(mode="ready")` on a wave whose prepare-council verdict is
+- [x] AC-8: A test executes `wf_prepare_wave(mode="ready")` on a wave whose prepare-council verdict is
   absent, asserts `ready_for_council_review`, and proves projection still publishes while focus moves
   to the canonical target at stage `plan`. It fails against current code, where projection publishes
   but focus stays elsewhere.
-- [ ] AC-9: The canonical classifier maps `ok`, `dry_run`, `ready_for_council_review`, reached-review,
+- [x] AC-9: The canonical classifier maps `ok`, `dry_run`, `ready_for_council_review`, reached-review,
   and genuine error/rejection explicitly. An unknown status fails closed for focus and returns a named
   diagnostic rather than silently falling through; a structural census rejects bypass consumers.
-- [ ] AC-7: Docs gate and full framework suite green.
-- [ ] AC-10: Relevant lifecycle tool docstrings and `docs/specs/mcp-tool-surface.md` pin all three
+- [x] AC-7: Docs gate and full framework suite green.
+- [x] AC-10: Relevant lifecycle tool docstrings and `docs/specs/mcp-tool-surface.md` pin all three
   diagnostic envelopes and recovery fields; disposable install/upgrade fixtures use the updated
   packaged server code and reproduce council-ready focus plus failed-call reporting without fallback.
 
 ## Tasks
 
-- [ ] Write the AC-1 desired-behavior test for the observed prepare case and record it failing against
+- [x] Write the AC-1 desired-behavior test for the observed prepare case and record it failing against
   current code before the fix; keep it as the permanent green regression.
-- [ ] Write the AC-8 red test proving the flush/focus asymmetry on `ready_for_council_review`, and
+- [x] Write the AC-8 red test proving the flush/focus asymmetry on `ready_for_council_review`, and
   confirm it fails against current code for that reason and not another.
-- [ ] Implement the canonical target-engagement classifier and explicitly map the current outcomes.
-- [ ] Use one effective-attribution resolver for telemetry commit and lifecycle reporting, including
+- [x] Implement the canonical target-engagement classifier and explicitly map the current outcomes.
+- [x] Use one effective-attribution resolver for telemetry commit and lifecycle reporting, including
   sealed focus and the no-focus/unique-OPEN fallback.
-- [ ] Add the shared focus-attempt/reporting primitive and separate `core_not_engaged` from
+- [x] Add the shared focus-attempt/reporting primitive and separate `core_not_engaged` from
   `focus_write_failed` recovery.
-- [ ] Pin canonical processing order and unknown-outcome fail-closed behavior.
-- [ ] Add the structural census for all current helper and direct focus consumers.
-- [ ] Reconcile the `wf_reopen_wave` diagnostic with the shared path.
-- [ ] Route mutating pause clear through the shared primitive and add success, clear-failure, and
+- [x] Pin canonical processing order and unknown-outcome fail-closed behavior.
+- [x] Add the structural census for all current helper and direct focus consumers.
+- [x] Reconcile the `wf_reopen_wave` diagnostic with the shared path.
+- [x] Route mutating pause clear through the shared primitive and add success, clear-failure, and
   dry-run/no-clear probes.
-- [ ] Add the suppression tests for AC-4.
-- [ ] Record the reporting contract in `docs/references/context-efficiency.md`.
-- [ ] Update the MCP tool-surface spec and relevant prepare/reopen/pause/lifecycle docstrings; extend
+- [x] Add the suppression tests for AC-4.
+- [x] Record the reporting contract in `docs/references/context-efficiency.md`.
+- [x] Update the MCP tool-surface spec and relevant prepare/reopen/pause/lifecycle docstrings; extend
   disposable install/upgrade response probes for the packaged server code, including replacement plus
   reload and explicit absence of migration/fallback behavior.
-- [ ] Full suite and docs gate.
+- [x] Full suite and docs gate.
 
 ## Agent Execution Graph
 
@@ -272,6 +272,10 @@ should already have covered.
 | ---- | ------ | -------- |
 | 2026-07-26 | Filed after observing the case live: `wf_prepare_wave(1tj0l, dry_run)` returned `status: "error"` on a missing council signoff, leaving focus on the unrelated wave `1tmb1` with nothing in the response to say so. | `server_impl.py` `_lifecycle_context_result`; observed tool response with sole diagnostic `missing_wave_council_signoff`; `wf_current_wave` reporting `focus.wave_id = 1tmb1` |
 | 2026-07-26 | Scope widened after observing a stronger case: `wf_prepare_wave(1tj0l, mode="ready")` returned `ready_for_council_review`, an outcome class the focus condition does not model. The same call published `1tj0l`'s checkpoint (1 call / 981 to 46 calls / 661,367) while leaving focus on `1tmb1`, which then climbed 58 to 72 calls during the council review of `1tj0l`. This is a design inconsistency, not only a missing diagnostic, so AC-8 and AC-9 were added. | Observed `wf_prepare_wave` response with `context_efficiency_persistence.projection: "published"`; `wave.md` checkpoint before and after; `wf_current_wave` focus and durable totals for both waves |
+| 2026-07-27 | Red tests written and observed RED for the stated reasons before any fix: AC-1 (no diagnostic on a failed call with stale focus), AC-2 (same silence through the real registered tool envelope with the real prepare core emitting `missing_wave_council_signoff`), AC-8 (council-ready published — projection `published` — while focus stayed on the other wave). | `LifecycleFocusReportingTests` red run: 3 failures, each on the named assertion |
+| 2026-07-27 | Implemented: canonical classifier (`_classify_lifecycle_outcome`, fail-closed unknown), shared focus primitive (`_attempt_focus_state`, single write path for set and clear, census-pinned), telemetry-owned effective-attribution resolver (`resolve_attribution` shared by `_commit_event` and `resolve_effective_attribution`), council-ready target-engaged at stage plan, reopen/pause/sealed-close rewired through the primitive, `pause_focus`/`reopen_focus` retired. Seven guard mutations all killed: council-ready-not-engaged, unknown-fails-open, suppress-any-empty-focus, not-engaged-diagnostic-removed, pause-clear-reverted, bypass-consumer-added (census kills even a dead-code direct call), write-failed-diagnostic-removed. Existing focus tests unmodified and green. | `test_server_context_efficiency.py` 84 tests OK; mutation transcript in session; packaged-code probe `test_extracted_install_pack_reproduces_lifecycle_focus_contract` |
+| 2026-07-27 | Repair (cycle 2) of finding `open-wave-fallback-stage-mismatch-suppressed`: the not-engaged suppression in `_apply_lifecycle_focus_reporting` accepted `source == "open_wave"` on wave equality alone, so the restarted-server shape (empty focus, target the sole ACTIVE wave at derived stage implement, failed prepare requesting plan) reported nothing. Red test `test_open_wave_fallback_stage_mismatch_is_not_suppressed` observed RED, then suppression on the open_wave path now requires wave AND effective-stage match; a stage-match control stays suppressed. Reported test edit (not papering): the final block of `test_true_general_fallback_suppresses_but_unrelated_open_wave_reports` pinned the defect quadrant (requested plan vs fallback implement, asserted suppression) and was updated to request the matching stage, with the mismatch quadrant covered by the new regression. Mutation kill: dropping the stage comparison made the red test FAIL; byte-identical revert verified by sha256 (`a84fed53…a393e` before and after). | `test_server_context_efficiency.py` 87 tests OK; full suite 6291 tests OK; repair_start recorded at cycle 2 (`run-repair-start-2-open-wave-fallback-stage-mismatch`) |
+| 2026-07-27 | Repair (cycle 2) of finding `sealed-close-focus-clear-failure-is-silent`: `_flush_context_efficiency` discarded the sealed-close `_attempt_focus_state(action="clear")` result, so an injected clear failure produced a sealed/compacted ok close with retained focus and zero focus diagnostics. Red fault-injection test `test_sealed_close_clear_failure_reports_focus_stage_not_applied` (raising `clear_focus`) observed RED, then the clear result propagates as `focus_clear_error` on the projection and `_lifecycle_context_result` surfaces `focus_stage_not_applied` plus `focus_error` through the shared write-failure contract without changing close success semantics; the clear now runs behind `_focus_clear_write_needed`, mirroring the pause path, and a clear-success control asserts no diagnostic with focus cleared. Mutation kill: restoring the discarded call made the test FAIL; byte-identical revert verified by sha256 (`97891bb3…0c629` before and after). | `test_server_context_efficiency.py` 87 tests OK; full suite 6291 tests OK; repair_start recorded at cycle 2 (`run-repair-start-2-sealed-close-focus-clear-failure-`) |
 
 ## Decision Log
 
@@ -280,7 +284,7 @@ should already have covered.
 | 2026-07-26 | For genuinely failed calls, report the stale focus rather than moving it. | A failed call moving focus would let a rejected operation or a typo re-point accounting, which is the hazard the existing wave-resolution guard was hardened against. For that class the gap is in reporting, so the fix belongs in reporting. | Set focus on failed calls (rejected: lets rejected operations move accounting); do nothing (rejected: the operator caught this, not the tool). |
 | 2026-07-26 | Treat `ready_for_council_review` as target-engaged: preserve its existing durable publication and move focus to that wave. Keep publication and future-focus policies distinct for other outcomes. **This narrows the preceding row**, which predates the observed council-ready case. | The status is a successful technical pass awaiting work on that exact wave, not a rejected operation. The current code already publishes its accounting; failing to focus it misattributes the ensuing council retrieval. | Suppress publication to force symmetry (rejected: discards legitimate already-attributed state); focus every non-error status (rejected: broader than observed evidence); diagnostic only (rejected: knowingly preserves council-review misattribution). |
 | 2026-07-26 | Use one explicit target-engagement classifier and one shared best-effort focus/reporting primitive; unknown outcomes fail closed for focus with a diagnostic. | A source census can pin current consumers but cannot prove arbitrary future status semantics. One chokepoint makes additions visible and distinguishes core rejection from focus-write failure. | Hand-maintained per-tool wording and claims of future-proof enumeration were rejected as the same drift class. |
-| 2026-07-26 | Report effective attribution rather than equating raw focus with future credit, and clear mutating-pause focus with `clear_focus`. | Telemetry redirects sealed focus to `general` and uses a unique OPEN-wave fallback when explicit focus is empty; `pause_focus` deliberately retains the wave at stage `paused`. The lifecycle contract must match those real semantics. | Report raw focus as attribution (rejected: false for sealed focus); suppress whenever focus is empty (rejected: hides unrelated OPEN fallback); redefine `pause_focus` (rejected: broader and unnecessary). |
+| 2026-07-26 | Report effective attribution rather than equating raw focus with future credit, and clear mutating-pause focus with `clear_focus`. | Telemetry redirects sealed focus to `general` and uses a unique OPEN-wave fallback when explicit focus is empty; the lifecycle contract must match those real semantics. The legacy `pause_focus` operation, which retained the wave at a non-canonical `paused` stage, is deliberately retired: it and `reopen_focus` had zero production consumers, and a mutating pause's desired end state is no focus, which is exactly what `clear_focus` records. | Report raw focus as attribution (rejected: false for sealed focus); suppress whenever focus is empty (rejected: hides unrelated OPEN fallback); redefine `pause_focus` (rejected: broader and unnecessary). |
 | 2026-07-26 | Do not add a re-attribution tool for credits already recorded. | Durable history that can be reassigned after the fact is history that can be made to say anything, which defeats the purpose of measuring at all. Already-misattributed credits stay where they are. | Re-attribute on demand (rejected: makes every number negotiable); silently correct at close (rejected: the same defect, less visible). |
 | 2026-07-26 | Defer an explicit set-focus call rather than adding one here. | It is a plausible answer to the underlying awkwardness that focus can only be moved by passing a gate, but it is a new capability with its own abuse surface: focus becomes freely assertable, and with it attribution. It deserves its own change and its own argument rather than riding in on a reporting fix. | Add it here (rejected: scope creep into a capability needing separate justification); rule it out entirely (rejected: the underlying awkwardness is real and worth revisiting). |
 

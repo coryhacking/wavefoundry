@@ -1650,6 +1650,196 @@ _COMPACT_OPTIONAL_REPAIR_FIELDS = frozenset(
     {"fix_risk", "optional_value", "repair_scope_bounded", "repair_safety", "benefit_vs_fix_risk", "rejection_basis"}
 )
 
+# Wave 1tmb2: chain-aware repair/reverification independence.  These names are
+# both the leading token of the validator error string and the public
+# diagnostic code emitted by the append boundary.
+REVERIFICATION_CONTEXT_NOT_FRESH = "reverification_context_not_fresh"
+REVERIFICATION_ACTOR_NOT_DISTINCT = "reverification_actor_not_distinct"
+REVIEW_EVIDENCE_INDEPENDENCE_INVALID = "review_evidence_independence_invalid"
+INDEPENDENCE_DIAGNOSTIC_CODES = frozenset(
+    {REVERIFICATION_CONTEXT_NOT_FRESH, REVERIFICATION_ACTOR_NOT_DISTINCT}
+)
+
+
+def _resolving_repair_start_context(
+    records: Iterable[Mapping[str, Any]],
+    finding_id: str,
+    cycle: int,
+) -> Mapping[str, Any] | None:
+    """Return the verification context of the repair_start a reverification resolves.
+
+    Matching is by exact ``finding_id`` and ``cycle`` — another finding or an
+    earlier cycle sharing a context never controls the current chain.  The
+    latest matching repair_start in append order wins.  The context lives on
+    the synthesis row's executable evidence, which covers both the compact
+    single-finding path and batch repair_start runs.
+    """
+
+    rows = [record for record in records]
+    repair_run_ids = {
+        str(record.get("review_run_id"))
+        for record in rows
+        if record.get("record_type") == "review_run"
+        and record.get("run_kind") == "repair_start"
+        and record.get("cycle") == cycle
+    }
+    evidence_by_id = {
+        str(record.get("evidence_record_id")): record
+        for record in rows
+        if record.get("record_type") == "executable_evidence"
+    }
+    context: Mapping[str, Any] | None = None
+    for record in rows:
+        if (
+            record.get("record_type") != "finding_synthesis"
+            or record.get("finding_id") != finding_id
+            or record.get("cycle") != cycle
+            or str(record.get("review_run_id")) not in repair_run_ids
+        ):
+            continue
+        evidence = evidence_by_id.get(str(record.get("evidence_record_id")))
+        if isinstance(evidence, Mapping):
+            candidate = evidence.get("verification_context")
+            if isinstance(candidate, Mapping):
+                context = candidate
+    return context
+
+
+def _reverification_independence_defect(
+    records: Iterable[Mapping[str, Any]],
+    finding_id: str,
+    cycle: int,
+    actor: Any,
+    context_id: Any,
+    fresh_context: Any,
+) -> str | None:
+    """Classify a reverification against the repair_start it resolves.
+
+    Two decidable-from-the-ledger policies, in fixed precedence order:
+
+    1. Same context declaring ``fresh_context=true`` is self-contradictory —
+       two records sharing a ``context_id`` are by definition the same
+       context.  This carries no trust assumption.
+    2. Same actor is rejected as forward protocol policy, regardless of the
+       context declaration.  Actor equality is NOT proof of shared caller
+       identity (the validator sees strings, not callers); the policy exists
+       because the repairer-reverifies-itself shape is the observed accidental
+       failure.
+
+    When both fire, only the decidable contradiction is returned; actor
+    policy is evaluated whenever the higher-precedence fresh-context
+    contradiction did not fire (1to7k finding
+    same-actor-same-context-nonfresh-reverification-accepted: the
+    same-context/non-fresh path must not bypass the actor policy).  A
+    DISTINCT-actor same-context reverification that honestly declares
+    ``fresh_context=false`` passes here but can never clear a lane or
+    terminalize a chain — those paths already require a fresh independent
+    declaration.
+
+    Returns the diagnostic code, or ``None`` when the chain is clean.
+    """
+
+    start_context = _resolving_repair_start_context(records, finding_id, cycle)
+    if start_context is None:
+        return None
+    if start_context.get("context_id") == context_id and fresh_context is True:
+        return REVERIFICATION_CONTEXT_NOT_FRESH
+    if start_context.get("actor") == actor:
+        return REVERIFICATION_ACTOR_NOT_DISTINCT
+    return None
+
+
+def _independence_defect_description(
+    code: str, finding_id: str, cycle: int, actor: Any, context_id: Any
+) -> str:
+    if code == REVERIFICATION_CONTEXT_NOT_FRESH:
+        return (
+            f"reverification for `{finding_id}` cycle {cycle} shares its "
+            f"repair_start context `{context_id}` while declaring "
+            "fresh_context=true; a context cannot be fresh with respect to "
+            "work it performed itself"
+        )
+    return (
+        f"reverification for `{finding_id}` cycle {cycle} carries the same "
+        f"actor `{actor}` as the repair_start it resolves; this is protocol "
+        "policy — actor equality is not proof of shared caller identity, and "
+        "independence remains a declaration — but the repairing role must "
+        "not be the reverifying role"
+    )
+
+
+def repair_independence_violations(
+    records: Iterable[Mapping[str, Any]],
+) -> tuple[str, ...]:
+    """Audit each finding's current/latest repair chain for independence.
+
+    Close-gate companion to the append-time rejection: ledgers appended by
+    older code may already contain chains whose reverification shares its
+    repair_start's actor or context.  Only the LATEST chain per finding is
+    audited — a new legal repair cycle (``repair_start`` at the next cycle
+    followed by a distinct-role/context reverification) supersedes an invalid
+    terminal chain and clears the audit.  Callers decide when to run this;
+    generic validation never does, so sealed/closed archives stay passing.
+    """
+
+    rows = [dict(record) for record in records]
+    runs_by_id = {
+        str(record.get("review_run_id")): record
+        for record in rows
+        if record.get("record_type") == "review_run"
+    }
+    evidence_by_id = {
+        str(record.get("evidence_record_id")): record
+        for record in rows
+        if record.get("record_type") == "executable_evidence"
+    }
+    latest_reverification: dict[str, dict[str, Any]] = {}
+    for record in rows:
+        if record.get("record_type") != "finding_synthesis":
+            continue
+        finding_id = record.get("finding_id")
+        if not isinstance(finding_id, str):
+            continue
+        run = runs_by_id.get(str(record.get("review_run_id")))
+        if not isinstance(run, Mapping) or run.get("run_kind") != "reverification":
+            continue
+        latest_reverification[finding_id] = record
+    violations: list[str] = []
+    for finding_id in sorted(latest_reverification):
+        row = latest_reverification[finding_id]
+        cycle = row.get("cycle")
+        if not isinstance(cycle, int) or isinstance(cycle, bool):
+            continue
+        evidence = evidence_by_id.get(str(row.get("evidence_record_id")))
+        context = (
+            evidence.get("verification_context")
+            if isinstance(evidence, Mapping)
+            else None
+        )
+        if not isinstance(context, Mapping):
+            continue
+        code = _reverification_independence_defect(
+            rows,
+            finding_id,
+            cycle,
+            context.get("actor"),
+            context.get("context_id"),
+            context.get("fresh_context"),
+        )
+        if code is None:
+            continue
+        description = _independence_defect_description(
+            code, finding_id, cycle, context.get("actor"), context.get("context_id")
+        )
+        violations.append(
+            f"current chain for `{finding_id}` fails the repair/"
+            f"reverification independence audit: {description}. Recovery: "
+            f"record repair_start at cycle {cycle + 1}, then a distinct-role "
+            "and distinct-context reverification; that new legal chain "
+            "supersedes this one and makes the close audit eligible to clear."
+        )
+    return tuple(violations)
+
 
 def build_compact_review_event(
     records: Iterable[Mapping[str, Any]],
@@ -1853,6 +2043,26 @@ def build_compact_review_event(
         return (), (
             f"{run_kind} requires an earlier finding synthesis for `{finding_id}`",
         )
+    if run_kind == "reverification":
+        # Wave 1tmb2: evaluate the exact finding/cycle chain BEFORE building
+        # any terminal synthesis.  A rejected attempt appends nothing, so the
+        # prior synthesis remains the single current-state authority.
+        defect = _reverification_independence_defect(
+            prior, str(finding_id), int(cycle), actor, context_id,
+            event.get("fresh_context"),
+        )
+        if defect is not None:
+            description = _independence_defect_description(
+                defect, str(finding_id), int(cycle), actor, context_id
+            )
+            return (), (
+                f"{defect}: {description}. Nothing was appended; the prior "
+                "synthesis remains current. Recovery: submit the "
+                "reverification from a distinct acting role and a distinct "
+                "context (the implementer records repair_start; the blocking "
+                "reviewer lane reverifies). The repair waiver has different "
+                "semantics and is not an independence bypass.",
+            )
     origin_phase = _finding_origin_phases(prior).get(str(finding_id))
     evidence_phase = (
         "readiness"

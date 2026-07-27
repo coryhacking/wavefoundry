@@ -71,6 +71,27 @@ def _assert_review_protocol_contract(test: unittest.TestCase, root: Path) -> Non
         "assertion that would falsify",
         (root / "docs" / "agents" / "qa-reviewer.md").read_text(encoding="utf-8"),
     )
+    # Wave 1tmb2: staged seeds and rendered carriers carry the chain-aware
+    # independence contract (enforced-versus-declared split); the pre-1tmb2
+    # carrier revision without it must not survive.
+    test.assertIn("Enforced versus declared independence", canonical_text)
+    test.assertIn("`reverification_context_not_fresh`", canonical_text)
+    test.assertIn("`reverification_actor_not_distinct`", canonical_text)
+    test.assertIn("`review_evidence_independence_invalid`", canonical_text)
+    qa_seed_text = target_seeds.joinpath("239-qa-reviewer.prompt.md").read_text(
+        encoding="utf-8"
+    )
+    test.assertIn("`reverification_actor_not_distinct`", qa_seed_text)
+    test.assertIn("without claiming caller identity", qa_seed_text)
+    for rel in ("docs/agents/qa-reviewer.md", "docs/contributing/review-and-evals.md"):
+        carrier_text = (root / rel).read_text(encoding="utf-8")
+        test.assertIn("`reverification_context_not_fresh`", carrier_text)
+        test.assertIn("`reverification_actor_not_distinct`", carrier_text)
+        test.assertIn("not caller", carrier_text)
+    test.assertIn(
+        "must not reverify its own",
+        (root / "docs" / "agents" / "qa-reviewer.md").read_text(encoding="utf-8"),
+    )
     for name in ("review-wave.prompt.md", "close-wave.prompt.md"):
         test.assertIn(
             "memory_validate",

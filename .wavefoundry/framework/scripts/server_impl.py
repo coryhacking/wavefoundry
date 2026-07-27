@@ -47,8 +47,10 @@ import repo_root  # shared cwd-independent root discovery (wave 1t3gt)
 import context_efficiency
 from review_evidence import (
     EVENT_IDENTITY_FIELD,
+    INDEPENDENCE_DIAGNOSTIC_CODES,
     PROTOCOL_VERSION,
     REQUEST_DIGEST_FIELD,
+    REVIEW_EVIDENCE_INDEPENDENCE_INVALID,
     REVIEW_EVIDENCE_SOURCE_DECLARATION,
     REVIEW_STATUS_MARKER_BEGIN,
     REVIEW_STATUS_MARKER_END,
@@ -66,6 +68,7 @@ from review_evidence import (
     record_protocol_state_locked,
     render_review_evidence_projection,
     render_review_status_projection,
+    repair_independence_violations,
     required_review_status_keys,
     review_event_path,
     review_event_request_digest,
@@ -12631,7 +12634,7 @@ def _review_evidence_diagnostics(
         adoption_error = record_protocol_state(root, wave_key, wave_md)
         if adoption_error:
             errors.append(adoption_error)
-    return [
+    diagnostics = [
         _diagnostic(
             "review_evidence_invalid",
             error,
@@ -12640,6 +12643,31 @@ def _review_evidence_diagnostics(
         )
         for error in errors
     ]
+    # Wave 1tmb2: close-time repair/reverification independence audit.  Runs
+    # ONLY at the close gate (closure=True) and only while the target wave's
+    # lifecycle status is non-closed: sealed/closed archives are never
+    # retroactively invalidated by validation or upgrade — an archive becomes
+    # forward-audited only if an operator explicitly reopens it.  Generic
+    # ledger validation never runs this audit.
+    if (
+        closure
+        and result is not None
+        and not re.search(r"(?mi)^Status:\s*closed\s*$", text)
+    ):
+        for violation in repair_independence_violations(result.records):
+            diagnostics.append(
+                _diagnostic(
+                    REVIEW_EVIDENCE_INDEPENDENCE_INVALID,
+                    violation,
+                    recovery_tools=["wf_review_event"],
+                    recovery_usage=(
+                        f"wf_review_event(wave_id={wave_key!r}, event='finding', "
+                        "run_kind='repair_start', cycle=<next cycle>, ...)  # then a "
+                        "distinct-role/context reverification"
+                    ),
+                )
+            )
+    return diagnostics
 
 
 def _approval_evidence_diagnostics(
@@ -12891,6 +12919,32 @@ def _review_evidence_list_response(
     )
 
 
+def _review_event_build_error_diagnostic(
+    error: str, *, wave_id: str, actor: str, context_id: str
+) -> dict[str, Any]:
+    """Wrap one compact-builder rejection as a response diagnostic.
+
+    Wave 1tmb2: the chain-aware independence rejections carry their own
+    diagnostic codes (`reverification_context_not_fresh`,
+    `reverification_actor_not_distinct`) as the leading token of the
+    validator error string; everything else stays `invalid_review_event`.
+    """
+
+    code = "invalid_review_event"
+    message = error
+    for known in INDEPENDENCE_DIAGNOSTIC_CODES:
+        prefix = f"{known}: "
+        if error.startswith(prefix):
+            code = known
+            message = error[len(prefix):]
+            break
+    return _diagnostic(
+        code, message,
+        recovery_tools=["wf_review_event"],
+        recovery_usage=f"wf_review_event(wave_id={wave_id!r}, event='list', actor={actor!r}, context_id={context_id!r})  # inspect chain state (lanes, cycles, heads) before retrying",
+    )
+
+
 def wf_review_event_response(
     root: Path,
     wave_id: str,
@@ -13055,10 +13109,8 @@ def wf_review_event_response(
                     "error",
                     {"wave_id": wave_id, "mode": mode_s, "event": event},
                     diagnostics=[
-                        _diagnostic(
-                            "invalid_review_event", error,
-                            recovery_tools=["wf_review_event"],
-                            recovery_usage=f"wf_review_event(wave_id={wave_id!r}, event='list', actor={actor!r}, context_id={context_id!r})  # inspect chain state (lanes, cycles, heads) before retrying",
+                        _review_event_build_error_diagnostic(
+                            error, wave_id=wave_id, actor=actor, context_id=context_id
                         )
                         for error in build_errors
                     ],
@@ -22350,14 +22402,33 @@ def _flush_context_efficiency(
                 if marked and sealed
                 else not sealed
             )
+            focus_clear_error = ""
             if marked and sealed and compacted:
-                handler.telemetry.clear_focus()
+                # Wave 1tmb3 + 1to7k finding
+                # sealed-close-focus-clear-failure-is-silent: the sealed-close
+                # focus clear goes through the shared primitive and its result
+                # is PROPAGATED — the lifecycle reporting seam surfaces a
+                # failed clear as focus_stage_not_applied without changing
+                # close success semantics. Mirroring the pause path, the clear
+                # is attempted (and a failure reported) only when a write is
+                # needed.
+                if _focus_clear_write_needed(handler):
+                    applied, clear_error = _attempt_focus_state(
+                        handler, action="clear"
+                    )
+                    if not applied:
+                        focus_clear_error = clear_error
         return (
             {
                 "persistence": "durable",
                 "projection": "published" if marked and compacted else "pending",
                 "sealed": sealed,
                 "compacted": bool(marked and sealed and compacted),
+                **(
+                    {"focus_clear_error": focus_clear_error}
+                    if focus_clear_error
+                    else {}
+                ),
                 "credited_invocations": sorted(
                     f"{wave}:{invocation_id}"
                     for wave, invocation_id in flushed.credited_keys
@@ -22732,6 +22803,239 @@ def _lifecycle_milestone_completed(
     return False
 
 
+LIFECYCLE_ENGAGED_STATUSES = frozenset({"ok", "dry_run", "ready_for_council_review"})
+LIFECYCLE_NOT_ENGAGED_STATUSES = frozenset({"error", "partial"})
+
+
+def _review_reached_lane_evaluation(tool_name: str, response: dict[str, Any]) -> bool:
+    """A review that RAN (structured lane summary) despite an error status."""
+
+    response_data = response.get("data")
+    return (
+        tool_name == "wf_review_wave"
+        and isinstance(response_data, dict)
+        and isinstance(response_data.get("wave_id"), str)
+        and isinstance(response_data.get("lane_results"), list)
+        and (response_data.get("phase") in {"prepare", "implementation"})
+    )
+
+
+def _classify_lifecycle_outcome(tool_name: str, response: dict[str, Any]) -> str:
+    """Canonical target-engagement classifier (wave 1tmb3).
+
+    ``engaged``: the call engaged its target wave — ``ok``, ``dry_run``,
+    ``ready_for_council_review`` (a successful technical pass awaiting council
+    work on exactly that wave), or a review that reached prepare/implementation
+    lane evaluation. ``not_engaged``: genuine errors/rejections and partial
+    writes. Anything else is ``unknown`` and FAILS CLOSED for focus with an
+    ``unknown_lifecycle_outcome`` diagnostic — a new status cannot engage
+    until this classifier is deliberately updated.
+    """
+
+    status = response.get("status")
+    if status in LIFECYCLE_ENGAGED_STATUSES:
+        return "engaged"
+    if _review_reached_lane_evaluation(tool_name, response):
+        return "engaged"
+    if status in LIFECYCLE_NOT_ENGAGED_STATUSES:
+        return "not_engaged"
+    return "unknown"
+
+
+def _attempt_focus_state(
+    handler: "ImplHandler",
+    *,
+    action: str,
+    wave_id: str | None = None,
+    stage: str | None = None,
+    new_phase: bool = False,
+) -> tuple[bool, str]:
+    """The SINGLE focus write path (wave 1tmb3): set and clear.
+
+    Every focus mutation in this module goes through here — a structural
+    census pins that, so a new consumer bypassing the shared primitive fails
+    the suite. Returns ``(applied, error)``; it never raises.
+    """
+
+    try:
+        if action == "clear":
+            handler.telemetry.clear_focus()
+        else:
+            handler.telemetry.set_focus(
+                str(wave_id), str(stage), new_phase=bool(new_phase)
+            )
+        return True, ""
+    except Exception as exc:
+        return False, f"{type(exc).__name__}: {exc}"
+
+
+def _focus_set_write_needed(
+    handler: "ImplHandler", wave_id: str, stage: str, new_phase: bool
+) -> bool:
+    """A set is a no-op only when the exact requested state is already current."""
+
+    try:
+        current = handler.telemetry.focus
+    except Exception:
+        return True
+    return bool(
+        new_phase or current.wave_id != wave_id or current.stage != stage
+    )
+
+
+def _focus_clear_write_needed(handler: "ImplHandler") -> bool:
+    try:
+        current = handler.telemetry.focus
+    except Exception:
+        return True
+    return bool(current.wave_id or current.stage)
+
+
+def _append_response_diagnostic(response: dict[str, Any], diagnostic: dict[str, Any]) -> None:
+    diagnostics = response.get("diagnostics")
+    if not isinstance(diagnostics, list):
+        diagnostics = []
+        response["diagnostics"] = diagnostics
+    diagnostics.append(diagnostic)
+
+
+def _focus_write_failed_diagnostic(response: dict[str, Any], detail: str, error: str) -> None:
+    """Report a needed focus write that failed, without overturning the result."""
+
+    data = _context_data(response)
+    data["focus_stage"] = None
+    data["focus_error"] = error
+    _append_response_diagnostic(response, _diagnostic(
+        "focus_stage_not_applied",
+        f"{detail}: {error}. The lifecycle result stands; retrieval done now "
+        "will be attributed to the previous focus state. Retry the focus by "
+        "re-running this call, or advance the next lifecycle boundary (e.g. "
+        "wf_review_wave) before further retrieval.",
+        recovery_tools=["wf_current_wave", "wf_review_wave"],
+        recovery_usage="wf_current_wave()  # inspect focus, then retry or advance the boundary",
+    ))
+
+
+def _apply_lifecycle_focus_reporting(
+    handler: "ImplHandler",
+    tool_name: str,
+    response: dict[str, Any],
+    *,
+    outcome: str,
+    target_wave_id: str,
+    target_resolved: bool,
+    desired_stage: str,
+    new_phase: bool,
+) -> None:
+    """Focus attempt plus best-effort reporting for one lifecycle response.
+
+    Observational by contract: nothing here may overturn the core lifecycle
+    result. ``unknown`` outcomes fail closed for focus; ``engaged`` outcomes
+    attempt the set through the shared primitive (an engaged call whose
+    target could not be resolved keeps the 1t59p hardening — focus is left
+    untouched rather than pointed at an unresolved raw argument);
+    ``not_engaged`` outcomes report the effective attribution destination and
+    emit ``focus_target_not_engaged`` when that destination is an unrelated
+    wave.
+    """
+
+    if outcome == "unknown":
+        _append_response_diagnostic(response, _diagnostic(
+            "unknown_lifecycle_outcome",
+            f"Status {response.get('status')!r} from {tool_name} is not "
+            "modeled by the canonical lifecycle-outcome classifier; "
+            "context-efficiency focus was left unchanged (fail-closed). A new "
+            "outcome class cannot engage focus until the classifier is "
+            "deliberately updated.",
+            recovery_tools=["wf_current_wave"],
+            recovery_usage="wf_current_wave()  # inspect focus and wave state",
+        ))
+        return
+    if outcome == "engaged":
+        if not target_resolved:
+            # Hardening (1t59p, operator-approved): NEVER set focus from an
+            # unresolved wave argument — a stale-code session once focused the
+            # raw string "1t6ow" (a change ID) and the resulting phantom wave
+            # key made every reload/upgrade projection refuse. Focus is left
+            # untouched (not nulled: a typo must not clobber a valid focus)
+            # and the call's cost attributes through the normal fallbacks.
+            return
+        if not _focus_set_write_needed(
+            handler, target_wave_id, desired_stage, new_phase
+        ):
+            return
+        applied, error = _attempt_focus_state(
+            handler,
+            action="set",
+            wave_id=target_wave_id,
+            stage=desired_stage,
+            new_phase=new_phase,
+        )
+        if not applied:
+            _focus_write_failed_diagnostic(
+                response,
+                "The lifecycle call engaged its target, but context-efficiency "
+                f"focus was NOT moved to stage '{desired_stage}' on wave "
+                f"'{target_wave_id}'",
+                error,
+            )
+        return
+    # not_engaged: report where work will actually land instead of moving focus.
+    focus = handler.telemetry.focus
+    effective = context_efficiency.resolve_effective_attribution(
+        handler.root, focus
+    )
+    data = _context_data(response)
+    data["focus_attribution"] = {
+        "effective": effective,
+        "observed_focus": {"wave_id": focus.wave_id, "stage": focus.stage},
+    }
+    destination = effective.get("destination")
+    source = effective.get("source")
+    # Suppression requires wave AND stage match (1to7k finding
+    # open-wave-fallback-stage-mismatch-suppressed): a restarted server with
+    # no explicit focus resolves the sole OPEN wave at its derived stage, and
+    # wave equality alone would silently bucket failed close/prepare work in
+    # the wrong stage.
+    suppress = (
+        destination == "general"
+        or (
+            target_resolved
+            and destination == target_wave_id
+            and (
+                (source == "open_wave" and effective.get("stage") == desired_stage)
+                or (source == "focus" and focus.stage == desired_stage)
+            )
+        )
+    )
+    if suppress:
+        return
+    if target_resolved:
+        target_label = f"wave '{target_wave_id}'"
+    else:
+        target_label = (
+            "the requested wave (which did not resolve to a canonical wave "
+            "record)"
+        )
+    if focus.wave_id:
+        observed = (
+            f"Observed focus (state only, not a promise of attribution): "
+            f"wave '{focus.wave_id}' stage '{focus.stage}'. "
+        )
+    else:
+        observed = "No explicit focus is set. "
+    _append_response_diagnostic(response, _diagnostic(
+        "focus_target_not_engaged",
+        f"This call did not engage {target_label}, so context-efficiency "
+        f"focus did not move. {observed}Work done now will be attributed to "
+        f"'{destination}' (stage {effective.get('stage')!r}, source: "
+        f"{source}). Recovery: repair the blocking condition and retry this "
+        "lifecycle call so focus moves to the intended wave.",
+        recovery_tools=[tool_name, "wf_current_wave"],
+        recovery_usage=f"{tool_name}(wave_id=...)  # repair the blocking condition, then retry",
+    ))
+
+
 def _lifecycle_context_result(
     handler: "ImplHandler",
     tool_name: str,
@@ -22744,44 +23048,47 @@ def _lifecycle_context_result(
     transfer_general: bool = False,
     request_arguments: Any = None,
 ) -> dict[str, Any]:
-    """Apply focus, proxy, flush, and projection after a successful core call."""
+    """Apply outcome classification, focus, reporting, proxy, flush, projection.
 
-    core_succeeded = response.get("status") in {"ok", "dry_run"}
+    Canonical processing order (wave 1tmb3): canonical-target resolution,
+    engagement classification, effective-attribution classification, focus
+    set/clear attempt with best-effort reporting, workflow-call recording,
+    then the existing publication policy. Focus and publication remain
+    DISTINCT policies: publication flushes what is already attributed, focus
+    governs what happens next; the one deliberately target-engaged overlap is
+    ``ready_for_council_review``, which both publishes and focuses its target.
+    """
+
+    # 1. Canonical-target resolution.
     try:
         wave_md = _find_wave_md(handler.root, wave_id)
     except ValueError:
         wave_md = None
+    target_resolved = wave_md is not None
     if wave_md is not None:
         wave_id = wave_md.parent.name
     if credit is None:
         credit = flush
-    response_data = response.get("data")
-    reached_review = (
-        tool_name == "wf_review_wave"
-        and isinstance(response_data, dict)
-        and isinstance(response_data.get("wave_id"), str)
-        and isinstance(response_data.get("lane_results"), list)
-        and (response_data.get("phase") in {"prepare", "implementation"})
-    )
-    # Hardening (1t59p, operator-approved): NEVER set focus from an
-    # unresolved wave argument — a stale-code session once focused the raw
-    # string "1t6ow" (a change ID) and the resulting phantom wave key made
-    # every reload/upgrade projection refuse. When resolution fails, focus is
-    # left untouched (not nulled: a typo must not clobber a valid focus) and
-    # the call's cost attributes through the normal fallbacks.
-    if (
-        (core_succeeded or reached_review)
-        and focus_stage is not None
-        and wave_md is not None
-    ):
+    # 2. Engagement classification (fail-closed for unknown statuses).
+    outcome = _classify_lifecycle_outcome(tool_name, response)
+    # 3-4. Effective attribution + focus attempt + best-effort reporting.
+    if focus_stage is not None:
         try:
-            handler.telemetry.set_focus(
-                wave_id, focus_stage, new_phase=bool(credit)
+            _apply_lifecycle_focus_reporting(
+                handler,
+                tool_name,
+                response,
+                outcome=outcome,
+                target_wave_id=wave_id,
+                target_resolved=target_resolved,
+                desired_stage=focus_stage,
+                new_phase=bool(credit),
             )
         except Exception:
-            # Telemetry is observational. A wedged in-process buffer must
-            # never change the already-successful lifecycle result.
+            # Reporting is observational. A wedged in-process buffer must
+            # never change the already-computed lifecycle result.
             pass
+    # 5. Workflow-call recording.
     response = _record_workflow_context(
         handler,
         tool_name,
@@ -22790,6 +23097,7 @@ def _lifecycle_context_result(
         request_arguments=request_arguments,
         milestone_completed=bool(credit),
     )
+    reached_review = _review_reached_lane_evaluation(tool_name, response)
     if response.get("status") == "error" and not (flush and reached_review):
         # Wave 1t3ek (1t22z): a review that RAN but reports pending signoffs
         # (the normal pre-close state) still publishes the checkpoint so the
@@ -22809,6 +23117,17 @@ def _lifecycle_context_result(
     )
     data = _context_data(response)
     data["context_efficiency_persistence"] = projection
+    # 1to7k finding sealed-close-focus-clear-failure-is-silent: a needed
+    # sealed-close focus clear that failed is reported through the shared
+    # write-failure contract; the successful close result stands.
+    focus_clear_error = projection.get("focus_clear_error")
+    if focus_clear_error:
+        _focus_write_failed_diagnostic(
+            response,
+            "The wave was closed and sealed, but context-efficiency focus "
+            "was NOT cleared",
+            str(focus_clear_error),
+        )
     if flushed is not None and isinstance(
         data.get("workflow_instruction_proxy"), dict
     ):
@@ -24634,6 +24953,19 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         Only one wave may be OPEN (active/implementing) at a time; that guard is enforced at the
         activation step (wf_implement_wave / wf_reopen_wave / prepare create), not at readiness.
 
+        Focus and outcome classes (wave 1tmb3): ``ready_for_council_review``
+        (technical checks passed; run the prepare council next) is explicitly
+        target-engaged — it publishes the target wave's durable accounting AND
+        moves context-efficiency focus to that wave at stage ``plan``, because
+        council review is concentrated retrieval about exactly that wave. A
+        genuinely failed prepare does not move focus; the response reports the
+        effective attribution destination in ``data.focus_attribution`` and
+        emits ``focus_target_not_engaged`` when that destination is an
+        unrelated wave (recovery: repair the blocking condition and retry). An
+        engaged call whose focus write fails keeps its result and reports
+        ``focus_stage_not_applied``; an unmodeled status leaves focus
+        unchanged with ``unknown_lifecycle_outcome``.
+
         Args:
             wave_id: Wave ID or unique prefix.
             mode: "dry_run", "ready", or "create" (alias "apply").
@@ -24678,6 +25010,14 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         Call at session end when work is incomplete and must resume in a later session.
         Captures current state so the next session can pick up without re-discovering context.
 
+        Focus clear (wave 1tmb3): a mutating pause's desired end state is NO
+        focus, so a successful ``create`` runs ``clear_focus`` through the
+        shared focus primitive. If the clear fails, the pause stays successful
+        and prior focus remains; the response reports ``focus_error`` plus a
+        ``focus_stage_not_applied`` diagnostic with retry guidance. A dry-run
+        pause has focus_action=none: no focus write, no not-applied
+        diagnostic.
+
         Args:
             wave_id: Wave ID or unique prefix.
             mode: Either "dry_run" (preview only) or "create" (write handoff entry).
@@ -24692,11 +25032,23 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             result = wf_pause_wave_response(
                 handler.root, wave_id, mode=mode, cache=handler.cache
             )
+            # Wave 1tmb3: a mutating pause's desired end state is NO focus, so
+            # a successful pause routes the existing `clear_focus` operation
+            # through the shared primitive. A clear failure is reported without
+            # changing the successful pause result; prior focus remains. A
+            # dry-run pause has focus_action=none: its desired state is the
+            # unchanged current focus, so it performs no focus write and emits
+            # no not-applied diagnostic.
             if mutating and result.get("status") == "ok":
-                try:
-                    handler.telemetry.pause_focus()
-                except Exception:
-                    pass
+                if _focus_clear_write_needed(handler):
+                    applied, error = _attempt_focus_state(handler, action="clear")
+                    if not applied:
+                        _focus_write_failed_diagnostic(
+                            result,
+                            "The wave was paused, but context-efficiency focus "
+                            "was NOT cleared",
+                            error,
+                        )
                 projection, _ = _flush_context_efficiency(handler, wave_id)
                 _context_data(result)["context_efficiency_persistence"] = projection
             return result
@@ -24876,7 +25228,20 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         calls carrying ``run_kind`` — they are NOT ``event="run"`` (that event
         records only an empty readiness/initial_delivery run). The reverifying
         actor must not be the actor that performed the repair: independence is
-        what the lane clearance asserts.
+        what the lane clearance asserts. This chain rule is enforced against
+        the exact finding/cycle chain on BOTH preview and create: a
+        reverification sharing its resolving ``repair_start``'s ``context_id``
+        while declaring ``fresh_context=true`` is rejected with diagnostic
+        ``reverification_context_not_fresh`` (a decidable self-contradiction),
+        and one carrying the same ``actor`` from a different context is
+        rejected with ``reverification_actor_not_distinct`` (protocol policy —
+        actor equality is not proof of shared caller identity). When both
+        match, only the same-context contradiction is returned. Rejected
+        attempts append nothing; recovery is a new reverification from a
+        distinct acting role and context (implementer repairs, the blocking
+        reviewer lane reverifies). The repair waiver is not an independence
+        bypass, and the truth of ``fresh_context``/``independent`` remains a
+        declaration the validator cannot authenticate.
         Do not carry a repaired readiness finding into delivery merely to mint
         an ``initial_delivery`` predecessor; use the same-phase repair path.
         The server auto-mints the linked ``lane_reassessment`` evidence for the
@@ -25077,11 +25442,19 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
                         _context_data(result).get("wave_id") or wave_id
                     )
                     context_efficiency.unseal_wave(handler.root, canonical)
-                    handler.telemetry.set_focus(
-                        canonical, focus_stage, new_phase=True
-                    )
                 except Exception as exc:
                     focus_error = f"{type(exc).__name__}: {exc}"
+                if not focus_error:
+                    # Wave 1tmb3: the write goes through the shared focus
+                    # primitive; the reopen-specific diagnostic below keeps
+                    # its established code and wording.
+                    _applied, focus_error = _attempt_focus_state(
+                        handler,
+                        action="set",
+                        wave_id=canonical,
+                        stage=focus_stage,
+                        new_phase=True,
+                    )
                 if focus_error:
                     _context_data(result)["focus_stage"] = None
                     _context_data(result)["focus_error"] = focus_error
@@ -25122,6 +25495,17 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             operator so known secrets stay visible. Remediate (rotate/remove) before
             distribution. The pre-1p5pz per-wave acknowledged_for_wave / override_reason
             soft-block was dropped; those fields are tolerated on legacy findings but unused.
+
+        Repair-independence audit (wave 1tmb2): while the target wave's status
+        is non-closed (including explicitly reopened archives), close audits
+        each finding's current/latest repair chain and surfaces
+        ``review_evidence_independence_invalid`` when the terminal
+        reverification shares its ``repair_start``'s context while declaring
+        ``fresh_context=true``, or shares its actor — including chains appended
+        by older code. Sealed/closed archives are never retroactively
+        invalidated. Recovery: record ``repair_start`` at the next cycle, then
+        a distinct-role, distinct-context reverification; that new legal chain
+        supersedes the invalid one and clears the audit.
 
         Args:
             wave_id: Wave ID or unique prefix.

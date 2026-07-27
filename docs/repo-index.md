@@ -35,25 +35,25 @@ between the markers is machine-maintained; the surrounding narrative is not.
 
 | Area | Path | Kind | Size (nodes) |
 | ---- | ---- | ---- | ------------ |
-| tests | `.wavefoundry/framework/scripts/tests` | code | 9205 |
-| server_impl | `.wavefoundry/framework/scripts` | code | 804 |
+| tests | `.wavefoundry/framework/scripts/tests` | code | 9288 |
+| server_impl | `.wavefoundry/framework/scripts` | code | 830 |
 | graph | `.wavefoundry/framework/scripts` | code | 353 |
 | dashboard | `.wavefoundry/framework/dashboard` | code | 214 |
 | wave_lint_lib | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 197 |
-| dashboard_lib | `.wavefoundry/framework/scripts` | code | 184 |
 | chunker | `.wavefoundry/framework/scripts` | code | 179 |
-| scripts/accel_embedder | `.wavefoundry/framework/scripts` | code | 175 |
-| upgrade_wavefoundry | `.wavefoundry/framework/scripts` | code | 142 |
-| indexer | `.wavefoundry/framework/scripts` | code | 125 |
+| scripts/accel_embedder | `.wavefoundry/framework/scripts` | code | 173 |
+| dashboard_lib | `.wavefoundry/framework/scripts` | code | 160 |
+| upgrade_wavefoundry | `.wavefoundry/framework/scripts` | code | 144 |
+| indexer | `.wavefoundry/framework/scripts` | code | 126 |
+| context_efficiency | `.wavefoundry/framework/scripts` | code | 122 |
 | dashboard/dashboard | `.wavefoundry/framework/scripts` | code | 117 |
-| context_efficiency | `.wavefoundry/framework/scripts` | code | 111 |
-| review_evidence | `.wavefoundry/framework/scripts` | code | 100 |
+| review_evidence | `.wavefoundry/framework/scripts` | code | 105 |
 | render_agent_surfaces | `.wavefoundry/framework/scripts` | code | 91 |
-| gen_codebase_map | `.wavefoundry/framework/scripts` | code | 55 |
+| gen_codebase_map | `.wavefoundry/framework/scripts` | code | 57 |
 | graph_di_signals | `.wavefoundry/framework/scripts` | code | 44 |
-| graph_query | `.wavefoundry/framework/scripts` | code | 42 |
 | scripts/graph_query | `.wavefoundry/framework/scripts` | code | 38 |
 | upgrade_extensions | `.wavefoundry/framework/scripts` | code | 38 |
+| graph_query | `.wavefoundry/framework/scripts` | code | 33 |
 | build_pack | `.wavefoundry/framework/scripts` | code | 26 |
 | design_token_build | `.wavefoundry/framework/scripts` | code | 25 |
 | run_tests | `.wavefoundry/framework/scripts` | code | 18 |

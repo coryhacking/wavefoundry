@@ -23,7 +23,7 @@ import hashlib
 import uuid
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Iterable, Mapping, Optional
+from typing import Any, Callable, Iterable, Mapping, Optional
 from runtime_lock import RuntimeFileLock, RuntimeLockBusy, RuntimeLockError
 
 
@@ -405,6 +405,102 @@ def resolve_open_wave(root: Path) -> Optional[tuple[str, str]]:
     with _open_wave_cache_lock:
         _open_wave_cache[key] = (now, resolved)
     return resolved
+
+
+# --- Effective attribution (wave 1tmb3) --------------------------------------
+# ONE resolver, owned by this telemetry authority layer, answers "where would
+# instrumented work land right now": usable explicit focus first; a sealed
+# destination redirects to the general bucket; with no explicit focus the
+# unique OPEN-wave fallback applies; otherwise general/unattributed.
+# ``_commit_event`` and lifecycle reporting both go through
+# ``resolve_attribution`` so the two can never drift.
+
+
+@dataclass(frozen=True)
+class AttributionResolution:
+    """Resolved destination for instrumented work.
+
+    ``wave_id`` is ``None`` for the general bucket. ``attribution`` keeps the
+    commit-column vocabulary (``focus`` / ``open_wave``) exactly as before the
+    resolver was extracted; ``sealed_redirect`` records that a sealed
+    destination was redirected to general.
+    """
+
+    wave_id: Optional[str]
+    stage: str
+    attribution: str
+    sealed_redirect: bool = False
+
+
+def resolve_attribution(
+    focus_wave: Optional[str],
+    focus_stage: Optional[str],
+    open_wave: Optional[tuple[str, str]],
+    is_sealed: Callable[[str], bool],
+) -> AttributionResolution:
+    """Pure attribution policy shared by commit and lifecycle reporting."""
+
+    wave_id = focus_wave or None
+    stage = focus_stage or "general"
+    attribution = "focus"
+    if not wave_id and open_wave is not None:
+        wave_id, stage = open_wave
+        attribution = "open_wave"
+    if wave_id and is_sealed(wave_id):
+        return AttributionResolution(None, "general", attribution, True)
+    return AttributionResolution(wave_id, stage, attribution)
+
+
+def _wave_sealed_readonly(root: Optional[Path], wave_id: str) -> bool:
+    """Best-effort sealed check outside a write transaction."""
+
+    if root is None:
+        return False
+    conn = _open_read_store(root)
+    if conn is None:
+        return False
+    try:
+        row = conn.execute(
+            "SELECT sealed FROM wave_state WHERE wave_id=?", (wave_id,)
+        ).fetchone()
+        return row is not None and bool(row[0])
+    except sqlite3.Error:
+        return False
+    finally:
+        conn.close()
+
+
+def resolve_effective_attribution(
+    root: Optional[Path], focus: "Focus"
+) -> dict[str, Any]:
+    """Report where instrumented work would be attributed right now.
+
+    Returns ``{"destination": <wave_id>|"general", "stage": str|None,
+    "source": "focus"|"focus_sealed_general"|"open_wave"|
+    "open_wave_sealed_general"|"general"}``. Best-effort and read-only —
+    reporting must never mutate telemetry state.
+    """
+
+    open_wave = None
+    if not focus.wave_id and root is not None:
+        open_wave = resolve_open_wave(root)
+    resolution = resolve_attribution(
+        focus.wave_id,
+        focus.stage,
+        open_wave,
+        lambda wave_id: _wave_sealed_readonly(root, wave_id),
+    )
+    if resolution.wave_id is None:
+        if resolution.sealed_redirect:
+            source = f"{resolution.attribution}_sealed_general"
+        else:
+            source = "general"
+        return {"destination": "general", "stage": None, "source": source}
+    return {
+        "destination": resolution.wave_id,
+        "stage": resolution.stage,
+        "source": resolution.attribution,
+    }
 
 
 def producer_lease_path(root: Path, producer_id: str) -> Path:
@@ -1191,31 +1287,38 @@ def _commit_event(
         if _accounting_gap(conn):
             conn.rollback()
             return "poisoned", 0, 0, 0
-        wave_id = focus.wave_id
-        stage = focus.stage or "general"
-        phase_id = focus.phase_id or f"general:{producer_id}"
-        attribution = "focus"
-        if not wave_id:
-            # Wave 1t3ek (1t3el): a focus-less producer attributes to the
-            # single OPEN wave; none/ambiguity/failure keeps the general bucket.
-            resolved_open = resolve_open_wave(root)
-            if resolved_open is not None:
-                wave_id, stage = resolved_open
-                phase_id = stage
-                attribution = "open_wave"
+        # Wave 1tmb3: attribution policy lives in the shared resolver so
+        # commit and lifecycle reporting can never drift. Wave 1t3ek (1t3el):
+        # a focus-less producer attributes to the single OPEN wave;
+        # none/ambiguity/failure keeps the general bucket.
+        def _conn_sealed(candidate: str) -> bool:
+            sealed = conn.execute(
+                "SELECT sealed FROM wave_state WHERE wave_id=?", (candidate,)
+            ).fetchone()
+            return sealed is not None and bool(sealed[0])
+
         if conn.execute(
             "SELECT 1 FROM event_tombstone WHERE event_id=?", (event_id,)
         ).fetchone():
             conn.commit()
             return "duplicate", 0, 0, 0
-        if wave_id:
-            sealed = conn.execute(
-                "SELECT sealed FROM wave_state WHERE wave_id=?", (wave_id,)
-            ).fetchone()
-            if sealed is not None and bool(sealed[0]):
-                wave_id = None
-                stage = "general"
-                phase_id = f"general:{producer_id}"
+        resolution = resolve_attribution(
+            focus.wave_id,
+            focus.stage,
+            None if focus.wave_id else resolve_open_wave(root),
+            _conn_sealed,
+        )
+        wave_id = resolution.wave_id
+        stage = resolution.stage
+        attribution = resolution.attribution
+        if wave_id is None:
+            phase_id = f"general:{producer_id}" if resolution.sealed_redirect else (
+                focus.phase_id or f"general:{producer_id}"
+            )
+        elif attribution == "open_wave":
+            phase_id = stage
+        else:
+            phase_id = focus.phase_id or f"general:{producer_id}"
         conn.execute(
             "INSERT INTO producer_state("
             "producer_id,reclaimable,updated_at"
@@ -1414,25 +1517,11 @@ class ProcessTelemetry:
                 phase_id = f"{stage}-1"
             self._focus = Focus(str(wave_id), str(stage), phase_id)
 
-    def pause_focus(self) -> None:
-        with self._lock:
-            if self._focus.wave_id and self._focus.stage != "paused":
-                self._focus = Focus(
-                    self._focus.wave_id,
-                    "paused",
-                    self._focus.phase_id,
-                    self._focus.stage,
-                    self._focus.phase_id,
-                )
-
-    def reopen_focus(self) -> None:
-        with self._lock:
-            if self._focus.wave_id and self._focus.paused_stage:
-                self._focus = Focus(
-                    self._focus.wave_id,
-                    self._focus.paused_stage,
-                    self._focus.paused_phase_id,
-                )
+    # Wave 1tmb3: ``pause_focus``/``reopen_focus`` (the retained "paused"
+    # stage) were retired — a mutating pause's desired end state is NO focus,
+    # so it uses ``clear_focus``; reopen mints fresh focus via ``set_focus``
+    # with an explicit purpose-derived stage. Neither had another production
+    # consumer.
 
     def clear_focus(self) -> None:
         with self._lock:

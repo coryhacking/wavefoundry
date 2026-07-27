@@ -423,7 +423,9 @@ class ReviewEvidenceStateMachineTests(unittest.TestCase):
             return rows
 
         append_event()
-        append_event(run_kind="repair_start", cycle=1, context_id="repair-a")
+        # Canonical roles (wave 1tmb2): the implementer records repair_start;
+        # the blocking reviewer lane reverifies from its own context.
+        append_event(actor="implementer", run_kind="repair_start", cycle=1, context_id="repair-a")
 
         later = append_event(
             finding_id="finding-b",
@@ -434,6 +436,7 @@ class ReviewEvidenceStateMachineTests(unittest.TestCase):
         self.assertNotIn("deviation_ids", later[1])
         append_event(
             finding_id="finding-b",
+            actor="implementer",
             run_kind="repair_start",
             cycle=1,
             context_id="repair-b",
@@ -469,6 +472,7 @@ class ReviewEvidenceStateMachineTests(unittest.TestCase):
         self.assertNotIn("deviation_ids", after_completed_cycle[1])
         repair_c = append_event(
             finding_id="finding-c",
+            actor="implementer",
             run_kind="repair_start",
             cycle=2,
             context_id="repair-c",
@@ -2748,6 +2752,560 @@ class ReviewEvidenceLintIntegrationTests(unittest.TestCase):
             (wave.parent / "events.jsonl").write_text("{not-json}\n", encoding="utf-8")
             errors = check_wave_docs(root)
             self.assertTrue(any("review evidence" in error and "invalid JSON" in error for error in errors), errors)
+
+class RepairReverificationIndependenceTests(unittest.TestCase):
+    """1tmb2: chain-aware repair/reverification independence at the append seam.
+
+    Records are produced through the canonical compact producer
+    (``build_compact_review_event``) rather than hand-written fixtures, so the
+    chains match exactly what the tool appends.
+    """
+
+    @staticmethod
+    def _judgment() -> dict[str, object]:
+        return {
+            "validation_status": "real",
+            "scope_relation": "admitted",
+            "introduced_or_worsened_by_wave": True,
+            "contract_relevance": "required_ac",
+            "supported_reachability": True,
+            "attacker_reachability": False,
+            "authority_domain": "none",
+            "authority_delta": "none",
+            "observable_impact": "material",
+            "containment": "preventive",
+        }
+
+    @classmethod
+    def _finding_event(cls, **overrides: object) -> dict[str, object]:
+        event: dict[str, object] = {
+            "event": "finding",
+            "actor": "qa-reviewer",
+            "context_id": "ctx-review",
+            "finding_id": "finding-1",
+            "run_kind": "initial_delivery",
+            "cycle": 0,
+            "judgment": cls._judgment(),
+            "proposition": "finding-1 reproduces through the named path",
+            "failure_condition": "public result differs from the contract",
+            "public_path": "test public path",
+            "command_or_fixture": "RepairReverificationIndependenceTests",
+            "expected": "contract result",
+            "observed": "contract violation observed",
+            "artifact_or_test_id": "test:finding-1",
+            "known_bad_detection_method": "focused injected old behavior",
+            "limitations": "temporary local fixture only",
+            "safety_and_authorization": "local disposable fixture; no external effects",
+            "disposition_rationale": "real defect on a required AC; repair now",
+            "source_lanes": ["qa-reviewer"],
+            "blocking_required_lanes": ["qa-reviewer"],
+            "approval_recheck_lanes": ["qa-reviewer"],
+            "review_boundaries_changed": [],
+            "fresh_context": True,
+            "independent": True,
+            "integrity_confirmed": True,
+        }
+        event.update(overrides)
+        return event
+
+    def _append(
+        self, records: list[dict[str, object]], event: dict[str, object]
+    ) -> list[dict[str, object]]:
+        rows, errors = subject.build_compact_review_event(records, event)
+        self.assertEqual(errors, (), "expected acceptance: " + "\n".join(errors))
+        combined = [*records, *rows]
+        record_errors = subject.validate_review_evidence_records(tuple(combined))
+        self.assertEqual(record_errors, (), "\n".join(record_errors))
+        return combined
+
+    def _chain_through_repair_start(
+        self,
+        *,
+        repair_actor: str = "implementer",
+        repair_context: str = "ctx-repair",
+    ) -> list[dict[str, object]]:
+        records = self._append([], self._finding_event())
+        return self._append(
+            records,
+            self._finding_event(
+                actor=repair_actor,
+                context_id=repair_context,
+                run_kind="repair_start",
+                cycle=1,
+                observed="repair_start recorded before the mutation",
+            ),
+        )
+
+    def _clearing_reverification(
+        self, *, actor: str, context_id: str, fresh_context: bool = True
+    ) -> dict[str, object]:
+        return self._finding_event(
+            actor=actor,
+            context_id=context_id,
+            run_kind="reverification",
+            cycle=1,
+            blocking_required_lanes=[],
+            fresh_context=fresh_context,
+            independent=True,
+            observed="repair independently reverified through the original reproduction",
+        )
+
+    # ---- AC-1: same-context contradiction ----------------------------------
+
+    def test_reverification_sharing_repair_context_with_fresh_claim_is_rejected(self) -> None:
+        """AC-1 red test: a reverification that shares its chain's repair_start
+        context while declaring fresh_context=true is self-contradictory and
+        must append nothing."""
+        records = self._chain_through_repair_start(
+            repair_actor="implementer", repair_context="ctx-shared"
+        )
+        rows, errors = subject.build_compact_review_event(
+            records,
+            self._clearing_reverification(actor="qa-reviewer", context_id="ctx-shared"),
+        )
+        self.assertEqual(rows, (), "same-context fresh reverification must append nothing")
+        joined = "\n".join(errors)
+        self.assertIn("reverification_context_not_fresh", joined)
+        # The prior synthesis head remains the current-state authority.
+        head = subject.current_synthesis_heads(records)["finding-1"]
+        self.assertEqual(head.get("repair_execution_state"), "pending")
+
+    def test_same_context_on_another_finding_does_not_block(self) -> None:
+        """AC-1 control: context matching is by exact finding and cycle.
+
+        finding-2's repair_start (sharing the context the reverification will
+        use) is appended AFTER finding-1's own repair_start, so an
+        implementation that matches by cycle alone — ignoring the finding —
+        would resolve finding-2's chain and falsely reject."""
+        records = self._append([], self._finding_event())
+        records = self._append(records, self._finding_event(finding_id="finding-2"))
+        records = self._append(
+            records,
+            self._finding_event(
+                actor="implementer",
+                context_id="ctx-finding-1",
+                run_kind="repair_start",
+                cycle=1,
+                observed="repair_start recorded before the mutation",
+            ),
+        )
+        records = self._append(
+            records,
+            self._finding_event(
+                finding_id="finding-2",
+                actor="implementer",
+                context_id="ctx-shared",
+                run_kind="repair_start",
+                cycle=1,
+                observed="repair_start recorded before the mutation",
+            ),
+        )
+        # finding-1's reverification reuses finding-2's repair context; only
+        # finding-1's own chain controls, so this is accepted.
+        records = self._append(
+            records,
+            self._clearing_reverification(actor="qa-reviewer", context_id="ctx-shared"),
+        )
+        head = subject.current_synthesis_heads(records)["finding-1"]
+        self.assertEqual(head.get("repair_execution_state"), "completed")
+
+    def test_same_context_on_earlier_cycle_does_not_block(self) -> None:
+        """AC-1 control: an earlier cycle sharing the context does not control
+        the current reverification."""
+        records = self._chain_through_repair_start(repair_context="ctx-cycle1")
+        records = self._append(
+            records,
+            self._clearing_reverification(actor="qa-reviewer", context_id="ctx-verify-1"),
+        )
+        records = self._append(
+            records,
+            self._finding_event(
+                actor="implementer",
+                context_id="ctx-cycle2",
+                run_kind="repair_start",
+                cycle=2,
+                observed="repair_start recorded before the mutation",
+            ),
+        )
+        event = self._finding_event(
+            actor="qa-reviewer",
+            context_id="ctx-cycle1",  # equals cycle 1's repair context only
+            run_kind="reverification",
+            cycle=2,
+            blocking_required_lanes=[],
+            observed="cycle 2 repair independently reverified",
+        )
+        records = self._append(records, event)
+        head = subject.current_synthesis_heads(records)["finding-1"]
+        self.assertEqual(head.get("cycle"), 2)
+        self.assertEqual(head.get("repair_execution_state"), "completed")
+
+    # ---- AC-2: same-actor protocol policy ----------------------------------
+
+    def test_same_actor_reverification_is_rejected_as_protocol_policy(self) -> None:
+        """AC-2 red test: actor equality with the resolving repair_start is
+        rejected as protocol policy without claiming caller identity."""
+        records = self._chain_through_repair_start(
+            repair_actor="qa-reviewer", repair_context="ctx-repair"
+        )
+        rows, errors = subject.build_compact_review_event(
+            records,
+            self._clearing_reverification(actor="qa-reviewer", context_id="ctx-verify"),
+        )
+        self.assertEqual(rows, (), "same-actor reverification must append nothing")
+        joined = "\n".join(errors)
+        self.assertIn("reverification_actor_not_distinct", joined)
+        self.assertIn("protocol policy", joined)
+        self.assertIn("not proof", joined)
+        self.assertIn("distinct acting role", joined)
+
+    def test_same_actor_nonfresh_nonclearing_reverification_is_rejected(self) -> None:
+        """AC-2 coverage (1to7k finding same-actor-nonfresh-rejection-untested):
+        the actor policy does not depend on the freshness declaration.  A
+        same-actor reverification from a distinct context is rejected with
+        ``reverification_actor_not_distinct`` even when it honestly declares
+        fresh_context=false and clears nothing (blocking_required_lanes
+        unchanged) — the shape a mutation narrowing the actor check to
+        fresh_context=true would wrongly accept."""
+        records = self._chain_through_repair_start(
+            repair_actor="qa-reviewer", repair_context="ctx-repair"
+        )
+        event = self._finding_event(
+            actor="qa-reviewer",
+            context_id="ctx-verify",
+            run_kind="reverification",
+            cycle=1,
+            fresh_context=False,
+            observed="same-actor non-fresh reverification attempt",
+        )
+        rows, errors = subject.build_compact_review_event(records, event)
+        self.assertEqual(
+            rows, (), "same-actor non-fresh non-clearing reverification must append nothing"
+        )
+        self.assertIn("reverification_actor_not_distinct", "\n".join(errors))
+        # The prior chain stays the untouched current-state authority.
+        record_errors = subject.validate_review_evidence_records(tuple(records))
+        self.assertEqual(record_errors, (), "\n".join(record_errors))
+        head = subject.current_synthesis_heads(records)["finding-1"]
+        self.assertEqual(head.get("repair_execution_state"), "pending")
+
+    def test_same_actor_same_context_nonfresh_reverification_is_rejected(self) -> None:
+        """AC-2 coverage (1to7k finding
+        same-actor-same-context-nonfresh-reverification-accepted): the actor
+        policy fires whenever the higher-precedence fresh-context contradiction
+        did not fire.  A same-actor reverification sharing its repair_start
+        context and honestly declaring fresh_context=false must be rejected
+        with ``reverification_actor_not_distinct`` and append nothing — not
+        slip through the same-context/non-fresh early return."""
+        records = self._chain_through_repair_start(
+            repair_actor="qa-reviewer", repair_context="ctx-shared"
+        )
+        event = self._finding_event(
+            actor="qa-reviewer",
+            context_id="ctx-shared",
+            run_kind="reverification",
+            cycle=1,
+            fresh_context=False,
+            observed="same-actor same-context non-fresh reverification attempt",
+        )
+        rows, errors = subject.build_compact_review_event(records, event)
+        self.assertEqual(
+            rows,
+            (),
+            "same-actor same-context non-fresh reverification must append nothing",
+        )
+        self.assertIn("reverification_actor_not_distinct", "\n".join(errors))
+        # The prior chain stays the untouched current-state authority.
+        record_errors = subject.validate_review_evidence_records(tuple(records))
+        self.assertEqual(record_errors, (), "\n".join(record_errors))
+        head = subject.current_synthesis_heads(records)["finding-1"]
+        self.assertEqual(head.get("repair_execution_state"), "pending")
+
+    def test_same_actor_same_context_fresh_claim_returns_only_contradiction(self) -> None:
+        """AC-2/AC-1 precedence control: when actor AND context both match and
+        fresh_context=true, only the decidable same-context contradiction is
+        returned — actor policy is evaluated only when the contradiction did
+        not fire."""
+        records = self._chain_through_repair_start(
+            repair_actor="qa-reviewer", repair_context="ctx-shared"
+        )
+        rows, errors = subject.build_compact_review_event(
+            records,
+            self._clearing_reverification(actor="qa-reviewer", context_id="ctx-shared"),
+        )
+        self.assertEqual(rows, (), "contradictory reverification must append nothing")
+        joined = "\n".join(errors)
+        self.assertIn("reverification_context_not_fresh", joined)
+        self.assertNotIn("reverification_actor_not_distinct", joined)
+
+    def test_distinct_actor_same_context_nonfresh_reverification_passes_policy(self) -> None:
+        """AC-2 quadrant control: a DISTINCT-actor reverification sharing the
+        repair context while honestly declaring fresh_context=false passes the
+        independence policies (it can never clear a lane — freshness gating
+        lives elsewhere)."""
+        records = self._chain_through_repair_start(
+            repair_actor="implementer", repair_context="ctx-shared"
+        )
+        event = self._finding_event(
+            actor="qa-reviewer",
+            context_id="ctx-shared",
+            run_kind="reverification",
+            cycle=1,
+            fresh_context=False,
+            observed="distinct-actor same-context non-fresh reverification",
+        )
+        records = self._append(records, event)
+        head = subject.current_synthesis_heads(records)["finding-1"]
+        # Non-clearing: the blocking lane remains; the chain is not terminal.
+        self.assertEqual(head.get("blocking_required_lanes"), ["qa-reviewer"])
+
+    def test_distinct_role_and_context_reverification_succeeds(self) -> None:
+        """AC-2 control, composing with the clearing-lane constraint: the
+        implementer records repair_start and the blocking reviewer lane clears
+        its own lane from a distinct context."""
+        records = self._chain_through_repair_start(
+            repair_actor="implementer", repair_context="ctx-repair"
+        )
+        records = self._append(
+            records,
+            self._clearing_reverification(actor="qa-reviewer", context_id="ctx-verify"),
+        )
+        head = subject.current_synthesis_heads(records)["finding-1"]
+        self.assertEqual(head.get("repair_execution_state"), "completed")
+        self.assertEqual(head.get("blocking_required_lanes"), [])
+
+    def test_waiver_fields_do_not_bypass_independence_policies(self) -> None:
+        """AC-2: the broad repair waiver has different semantics and must not
+        become an independence bypass."""
+        records = self._chain_through_repair_start(
+            repair_actor="qa-reviewer", repair_context="ctx-repair"
+        )
+        event = self._clearing_reverification(actor="qa-reviewer", context_id="ctx-verify")
+        event.update(
+            {
+                "waiver_id": "waiver-1",
+                "waiver_scope": "finding-1",
+                "waiver_reason": "attempted bypass",
+                "waiver_risk": "low",
+            }
+        )
+        rows, errors = subject.build_compact_review_event(records, event)
+        self.assertEqual(rows, ())
+        self.assertIn("reverification_actor_not_distinct", "\n".join(errors))
+
+    def test_context_contradiction_takes_precedence_over_actor_policy(self) -> None:
+        """Requirement 3: when both match, only the decidable same-context
+        contradiction is returned."""
+        records = self._chain_through_repair_start(
+            repair_actor="qa-reviewer", repair_context="ctx-shared"
+        )
+        rows, errors = subject.build_compact_review_event(
+            records,
+            self._clearing_reverification(actor="qa-reviewer", context_id="ctx-shared"),
+        )
+        self.assertEqual(rows, ())
+        joined = "\n".join(errors)
+        self.assertIn("reverification_context_not_fresh", joined)
+        self.assertNotIn("reverification_actor_not_distinct", joined)
+
+    # ---- AC-4: close-time audit over older-code chains ---------------------
+
+    def _older_code_chain(self, *, same_context: bool) -> list[dict[str, object]]:
+        """Simulate a chain appended by older code (no append-time check).
+
+        Built through the canonical producer with distinct roles, then the
+        repair_start evidence's verification context is edited to collide the
+        actor (or context) — the shape old code accepted.  Generic validation
+        must remain green over these records (Requirement 4).
+        """
+        records = self._chain_through_repair_start(
+            repair_actor="implementer", repair_context="ctx-repair"
+        )
+        records = self._append(
+            records,
+            self._clearing_reverification(actor="qa-reviewer", context_id="ctx-verify"),
+        )
+        for record in records:
+            context = record.get("verification_context")
+            if (
+                isinstance(context, dict)
+                and context.get("actor") == "implementer"
+                and context.get("context_id") == "ctx-repair"
+            ):
+                if same_context:
+                    context["context_id"] = "ctx-verify"
+                else:
+                    context["actor"] = "qa-reviewer"
+        record_errors = subject.validate_review_evidence_records(tuple(records))
+        self.assertEqual(record_errors, (), "\n".join(record_errors))
+        return records
+
+    def test_close_audit_flags_latest_same_actor_chain(self) -> None:
+        records = self._older_code_chain(same_context=False)
+        violations = subject.repair_independence_violations(records)
+        self.assertEqual(len(violations), 1, violations)
+        self.assertIn("finding-1", violations[0])
+        self.assertIn("repair_start", violations[0])
+
+    def test_close_audit_flags_latest_same_context_chain(self) -> None:
+        records = self._older_code_chain(same_context=True)
+        violations = subject.repair_independence_violations(records)
+        self.assertEqual(len(violations), 1, violations)
+        self.assertIn("finding-1", violations[0])
+        self.assertIn("context", violations[0])
+
+    def test_close_audit_clears_after_next_cycle_recovery(self) -> None:
+        """AC-4 recovery: repair_start at the next cycle plus a distinct-role
+        and distinct-context reverification supersedes the invalid terminal
+        chain and clears the audit."""
+        records = self._older_code_chain(same_context=False)
+        self.assertTrue(subject.repair_independence_violations(records))
+        records = self._append(
+            records,
+            self._finding_event(
+                actor="implementer",
+                context_id="ctx-recovery-repair",
+                run_kind="repair_start",
+                cycle=2,
+                observed="recovery repair_start recorded before the mutation",
+            ),
+        )
+        records = self._append(
+            records,
+            self._finding_event(
+                actor="qa-reviewer",
+                context_id="ctx-recovery-verify",
+                run_kind="reverification",
+                cycle=2,
+                blocking_required_lanes=[],
+                observed="recovery reverification by a distinct role and context",
+            ),
+        )
+        self.assertEqual(subject.repair_independence_violations(records), ())
+
+    def test_close_audit_accepts_clean_chain(self) -> None:
+        records = self._chain_through_repair_start()
+        records = self._append(
+            records,
+            self._clearing_reverification(actor="qa-reviewer", context_id="ctx-verify"),
+        )
+        self.assertEqual(subject.repair_independence_violations(records), ())
+
+    # ---- AC-6: seed prose pinned against validator behavior ----------------
+
+    def test_seed_enforced_versus_declared_split_is_pinned_to_validator_behavior(self) -> None:
+        """AC-6: the seed states which independence properties are enforced
+        and which stay declared, using the validator's exact diagnostic
+        codes, and this test proves the validator actually emits them — so a
+        change to either side breaks the pin."""
+        seed = (SCRIPTS_ROOT.parent / "seeds" / "209-agent-harness-core.prompt.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("Enforced versus declared independence", seed)
+        for code in (
+            subject.REVERIFICATION_CONTEXT_NOT_FRESH,
+            subject.REVERIFICATION_ACTOR_NOT_DISTINCT,
+            subject.REVIEW_EVIDENCE_INDEPENDENCE_INVALID,
+        ):
+            self.assertIn(f"`{code}`", seed)
+        # The declared-limit claims a reader must not over-read.
+        self.assertIn("sees strings, not callers", seed)
+        self.assertIn("never proof of shared caller identity", seed)
+        self.assertIn("cannot be authenticated in-process", seed)
+        # Behavioral half of the pin: the codes the seed names are exactly
+        # the leading tokens of the validator's rejections.
+        records = self._chain_through_repair_start(
+            repair_actor="qa-reviewer", repair_context="ctx-shared"
+        )
+        _rows, context_errors = subject.build_compact_review_event(
+            records,
+            self._clearing_reverification(actor="qa-reviewer", context_id="ctx-shared"),
+        )
+        self.assertTrue(
+            context_errors
+            and context_errors[0].startswith(
+                f"{subject.REVERIFICATION_CONTEXT_NOT_FRESH}: "
+            ),
+            context_errors,
+        )
+        _rows, actor_errors = subject.build_compact_review_event(
+            records,
+            self._clearing_reverification(actor="qa-reviewer", context_id="ctx-distinct"),
+        )
+        self.assertTrue(
+            actor_errors
+            and actor_errors[0].startswith(
+                f"{subject.REVERIFICATION_ACTOR_NOT_DISTINCT}: "
+            ),
+            actor_errors,
+        )
+        # QA seed carries the obligation with the same vocabulary.
+        qa_seed = (SCRIPTS_ROOT.parent / "seeds" / "239-qa-reviewer.prompt.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(f"`{subject.REVERIFICATION_ACTOR_NOT_DISTINCT}`", qa_seed)
+        self.assertIn("without claiming caller identity", qa_seed)
+
+
+class RealCorpusRegressionTests(unittest.TestCase):
+    """1tmb2 AC-5: executed over the real corpus, not a fixture.
+
+    The fixtures elsewhere in this file were written by the same model that
+    wrote the validator; the repository's own closed ledgers are the only
+    oracle they cannot substitute for.  On installed targets without a wave
+    corpus the test skips.
+    """
+
+    REPO_ROOT = SCRIPTS_ROOT.parents[2]
+
+    def _corpus(self) -> list[Path]:
+        waves_dir = self.REPO_ROOT / "docs" / "waves"
+        if not waves_dir.is_dir():
+            return []
+        return sorted(
+            wave_md.parent
+            for wave_md in waves_dir.glob("*/wave.md")
+            if (wave_md.parent / "events.jsonl").is_file()
+        )
+
+    def test_every_real_ledger_still_validates_and_no_sealed_wave_changes_state(self) -> None:
+        corpus = self._corpus()
+        if not corpus:
+            self.skipTest("no real wave corpus in this checkout")
+        for wave_dir in corpus:
+            wave_md = wave_dir / "wave.md"
+            events = wave_dir / "events.jsonl"
+            before = (wave_md.read_bytes(), events.read_bytes())
+            result = subject.validate_external_review_evidence(wave_md)
+            self.assertTrue(
+                result.ok, f"{wave_dir.name}: " + "\n".join(result.errors)
+            )
+            self.assertEqual(
+                (wave_md.read_bytes(), events.read_bytes()),
+                before,
+                f"{wave_dir.name}: validation must not change sealed state",
+            )
+
+    def test_known_closed_archives_with_historical_chains_stay_passing(self) -> None:
+        """The two known archive classes (same-actor chains, same-context
+        contradictions) remain readable and passing while closed; the audit
+        function would flag their latest chains only if explicitly reopened."""
+        corpus = {wave_dir.name: wave_dir for wave_dir in self._corpus()}
+        known = [name for name in corpus if name.split()[0] in {"1skt1", "1slep"}]
+        if not known:
+            self.skipTest("known historical archives not present in this checkout")
+        for name in known:
+            wave_md = corpus[name] / "wave.md"
+            text = wave_md.read_text(encoding="utf-8")
+            self.assertRegex(text, r"(?mi)^Status:\s*closed\s*$")
+            result = subject.validate_external_review_evidence(wave_md)
+            self.assertTrue(result.ok, f"{name}: " + "\n".join(result.errors))
+            self.assertTrue(
+                subject.repair_independence_violations(result.records),
+                f"{name}: expected the latest chains to carry the historical "
+                "independence defect the forward audit would flag on reopen",
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

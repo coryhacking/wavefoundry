@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: closed
-Last verified: 2026-07-26
+Last verified: 2026-07-27
 review-evidence-source: events.jsonl
 wave-id: `1skt1 executable-review-evidence`
 Title: Executable Review Evidence
@@ -115,7 +115,7 @@ Wave `1skt1` (Executable Review Evidence) delivered one change: Executable Revie
 | typed-evidence-semantic-key-collision | do_now | no | completed | code-reviewer, qa-reviewer, architecture-reviewer, security-reviewer, docs-contract-reviewer, wave-council-delivery |
 | upgrade-order-fixture | do_now | no | completed | qa-reviewer |
 
-<details class="wavefoundry-review-evidence">
+<details class="wave-review-evidence">
 <summary>Machine review evidence — 186 records; 19 runs; 27 findings; current: do_now 26, maybe_later 0, dont_do_later 1, not_issue 0</summary>
 </details>
 <!-- wave:finding-synthesis end -->

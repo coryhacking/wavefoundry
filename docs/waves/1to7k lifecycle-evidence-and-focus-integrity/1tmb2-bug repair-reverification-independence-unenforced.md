@@ -1,10 +1,10 @@
 # Repair And Reverification Independence Is Documented But Unenforced
 
 Change ID: `1tmb2-bug repair-reverification-independence-unenforced`
-Change Status: `planned`
+Change Status: `implemented`
 Owner: Engineering
-Status: planned
-Last verified: 2026-07-26
+Status: implemented
+Last verified: 2026-07-27
 Wave: `1to7k lifecycle-evidence-and-focus-integrity`
 
 ## Rationale
@@ -122,45 +122,45 @@ self-declaring independence, and the ledger records it as verified.
 
 ## Acceptance Criteria
 
-- [ ] AC-1: A committed test expects a same-finding/current-cycle reverification sharing its
+- [x] AC-1: A committed test expects a same-finding/current-cycle reverification sharing its
   `repair_start` context and declaring `fresh_context=true` to be rejected with a named
   contradiction. It is observed RED against current code and GREEN after the fix. Controls prove a
   same context on another finding or earlier cycle does not block the current chain.
-- [ ] AC-2: Same-actor reverification is rejected with `reverification_actor_not_distinct` without
+- [x] AC-2: Same-actor reverification is rejected with `reverification_actor_not_distinct` without
   claiming caller identity; a distinct-role/context reverification succeeds. Same-context evidence is
   rejected separately, and the existing repair waiver cannot clear either policy.
-- [ ] AC-3: Executed `wf_review_event` preview/create calls prove both rejection codes, append nothing,
+- [x] AC-3: Executed `wf_review_event` preview/create calls prove both rejection codes, append nothing,
   and leave the prior synthesis head byte-identical; neither attempt can silently clear the finding.
-- [ ] AC-4: The close gate surfaces an affected current/latest chain in an open/reopened wave even
+- [x] AC-4: The close gate surfaces an affected current/latest chain in an open/reopened wave even
   when records were appended by older code, while identical seeded closed archives containing both
   same-actor and same-context contradictions remain valid until reopened. An executed reopened-wave
   control proves detect → `repair_start` at the next cycle → distinct-role/context reverification →
   close-eligible, rather than stranding an already-terminal finding.
-- [ ] AC-5: Every existing wave ledger in `docs/waves/` still validates. Executed over the real
+- [x] AC-5: Every existing wave ledger in `docs/waves/` still validates. Executed over the real
   corpus, not a fixture, because the fixtures were written by the same model that wrote the
   validator. No sealed wave changes state.
-- [ ] AC-6: Seed prose states which independence properties are enforced and which are declared, and
+- [x] AC-6: Seed prose states which independence properties are enforced and which are declared, and
   a test pins that claim against the validator's actual behavior so the two cannot drift.
-- [ ] AC-7: Docs gate and full framework suite green.
-- [ ] AC-8: Renderer, fresh-install, and upgrade fixtures stage both canonical seeds and produce the
+- [x] AC-7: Docs gate and full framework suite green.
+- [x] AC-8: Renderer, fresh-install, and upgrade fixtures stage both canonical seeds and produce the
   updated review-and-evals and QA carriers in a disposable target; no deprecated wording survives.
 
 ## Tasks
 
-- [ ] Write the AC-1 desired-behavior test and record it failing against current code before the fix;
+- [x] Write the AC-1 desired-behavior test and record it failing against current code before the fix;
   keep it as the permanent green regression after repair.
 - [x] Census the real corpus before implementation: 35 same-actor chains—nine in closed wave
   `1slep` and 26 in closed wave `1skt1`—plus two same-context contradictions in closed `1skt1`.
   Record the forward-only blocking decision and preserve both archive classes in regressions.
-- [ ] Implement the chain-aware comparison in `review_evidence.py`.
-- [ ] Wire detection into the `wf_review_event` append path and the close gate.
-- [ ] Run AC-5 over every ledger in `docs/waves/` and confirm no regression.
-- [ ] Update the seed and `docs/contributing/review-and-evals.md` with the enforced/declared split.
-- [ ] Regenerate both rendered carriers and extend renderer/install/upgrade contract tests.
-- [ ] Update public review-event/close tool docstrings and the MCP tool-surface spec; prove upgrade
+- [x] Implement the chain-aware comparison in `review_evidence.py`.
+- [x] Wire detection into the `wf_review_event` append path and the close gate.
+- [x] Run AC-5 over every ledger in `docs/waves/` and confirm no regression.
+- [x] Update the seed and `docs/contributing/review-and-evals.md` with the enforced/declared split.
+- [x] Regenerate both rendered carriers and extend renderer/install/upgrade contract tests.
+- [x] Update public review-event/close tool docstrings and the MCP tool-surface spec; prove upgrade
   replaces the packaged implementation and the new contract becomes live after reload without ledger
   migration or fallback.
-- [ ] Full suite and docs gate.
+- [x] Full suite and docs gate.
 
 ## Agent Execution Graph
 
@@ -204,7 +204,12 @@ rather than choosing a new one.
 | Date | Update | Evidence |
 | ---- | ------ | -------- |
 | 2026-07-26 | Filed. Gap established by an independent readiness council during wave `1tj0l`, then confirmed by a filesystem-wide `rg` census over every framework `*.py`: only two queried actor-comparison hits, both approval actor/boolean checks; no repair/reverification chain identity comparison. | `review_evidence.py` `build_compact_review_event`; `rg` over `.wavefoundry/framework --glob '*.py'`, 2/2 hits accounted for. |
+| 2026-07-27 | Premise re-exercised before implementation: a same-actor, same-context repair_start + clearing reverification declaring fresh/independent was ACCEPTED end-to-end by `build_compact_review_event` + `validate_review_evidence_records` (head reached `completed` with cleared lanes). AC-1/AC-2 red tests then written and observed RED for exactly that reason (rows appended where `()` expected) before any fix. | scratchpad `probe_premise_1tmb2.py`; `RepairReverificationIndependenceTests` red run: 4 rejection tests FAILED on acceptance, 4 audit tests ERRORED on missing `repair_independence_violations`, 3 controls green |
+| 2026-07-27 | Implemented: chain-aware `_reverification_independence_defect` + `_resolving_repair_start_context` + `repair_independence_violations` in `review_evidence.py`; append boundary emits `reverification_context_not_fresh` / `reverification_actor_not_distinct` as diagnostic codes; close gate emits `review_evidence_independence_invalid` only for non-closed status. Guard mutations killed: precedence swap, audit first-not-latest, append-guard removal, close-audit removal, closed-status-gate removal, code-mapping drop (6/6); finding-filter drop killed after control reorder; cycle-filter removal measured as an equivalent mutant (cycle monotonicity enforced elsewhere makes latest-wins resolution equivalent on valid ledgers) — filter retained as explicit intent. | `test_review_evidence.py` `RepairReverificationIndependenceTests`; `test_server_tools.py` `RepairIndependenceBoundaryTests`; mutation transcript in session |
+| 2026-07-27 | AC-5 executed over the real corpus with the enforcement join (synthesis → evidence → verification_context): 37 ledgers, 0 invalid, no sealed wave changed state. Enforcement-visible affected chains: 34 same-actor (25 in closed `1skt1`, 9 in closed `1slep`) and 6 fresh-declared same-context contradictions (all cycle-1 `1skt1`); latest-chain audit would flag 24 (`1skt1`) + 9 (`1slep`) only if reopened. Delta vs the prepare census (35/2) explained: the prepare join used run-level identity with dedup-evidence fallback — it counted `reverification-freshness-misattribution` cycle 3 (not same-actor at the per-finding evidence the validator reads) and tagged the two cycle-4 chains same-context via the shared batch dedup context (per-finding reverification contexts are distinct and are what enforcement compares). Both joins agree: every affected chain lives in the two closed waves; zero open/reopened waves affected. | scratchpad `census_1tmb2_impl.py` + `census_1tmb2.py` cross-check; `RealCorpusRegressionTests` committed |
+| 2026-07-26 | Repair (cycle 1) of finding `same-actor-nonfresh-rejection-untested`: added `RepairReverificationIndependenceTests.test_same_actor_nonfresh_nonclearing_reverification_is_rejected` pinning the council's P8 probe shape — a same-actor, fresh_context=false, non-clearing reverification (blocking_required_lanes unchanged) is rejected with `reverification_actor_not_distinct` and appends nothing. Passed on current code unmodified; M5 mutation kill proven: narrowing the actor rejection in `_reverification_independence_defect` to fire only when fresh_context is true made the test FAIL (rows appended), byte-identical revert verified by sha256 (`8bf5e380…d1157` before and after; mutated `94dad70c…4cf07`), test and full module green after revert. No production code changed. | `tests.test_review_evidence` 118 tests OK; docs-lint ok |
 | 2026-07-26 | Prepare-time corpus census found 35 same-actor chains: nine in closed wave `1slep`, 26 in closed wave `1skt1`, and two of the `1skt1` chains also carry same-context contradictions (`architecture-state-contract-drift` cycle 4 and `carrier-symlink-root-escape` cycle 4). | Independent reality-check parse of every `docs/waves/*/events.jsonl`; both affected waves are closed, so frozen history remains exempt under Requirement 5 and becomes forward-audited only if reopened. |
+| 2026-07-27 | Repair (cycle 2) of finding `same-actor-same-context-nonfresh-reverification-accepted`: the same-context/non-fresh early return in `_reverification_independence_defect` (review_evidence.py:1740-1743) bypassed the actor policy, so a same-actor, same-context, fresh_context=false reverification appended 3 rows. Red test `test_same_actor_same_context_nonfresh_reverification_is_rejected` observed RED on exactly that probe shape, then the precedence was fixed: actor equality is evaluated whenever the fresh-context contradiction did not fire. Quadrant controls added (same-actor/same-context/fresh=true returns only `reverification_context_not_fresh`; distinct-actor/same-context/non-fresh still passes policy and cannot clear). Mutation kill: restoring the early return made the red test FAIL (rows appended); byte-identical revert verified by sha256 (`83e2cd94…d69b4` before and after). No existing test modified. | `tests.test_review_evidence` 121 tests OK; `RepairIndependenceBoundaryTests` OK; full suite 6291 tests OK; repair_start recorded at cycle 2 (`run-repair-start-2-same-actor-same-context-nonfresh-`) |
 
 ## Decision Log
 
@@ -213,6 +218,7 @@ rather than choosing a new one.
 | 2026-07-26 | Scope the change to contradiction detection and same-actor detection, explicitly NOT to caller authentication. | The validator sees strings and cannot know who is calling. A mechanism implying it could would create false confidence, which is worse than a documented honest gap. The achievable wins are real: the context_id contradiction is decidable with no trust assumption, and the same-actor case covers the convenience failure that actually occurs. | Attempt caller identity or signing (rejected: not available to an in-process validator, and false confidence is worse than a known gap); leave it to prose (rejected: prose is what failed here). |
 | 2026-07-26 | Reject same-context and same-actor attempts before append; audit only older non-closed/reopened ledgers at close; preserve closed history until reopened. | Context equality is a contradiction. Actor equality is a forward protocol policy rather than identity proof. Rejecting before synthesis preserves one current-state authority and follows the implementer-then-reviewer role model. | Retain-but-block was rejected because it would create a completed synthesis plus a separate nonterminal audit; warning-only and new waiver machinery were rejected as ineffective or needlessly complex. |
 | 2026-07-26 | Evaluate close-time independence against the current/latest chain and clear an inherited violation only through a new legal repair cycle. | Existing grammar does not allow another reverification on an already-terminal cycle. A next-cycle `repair_start` plus independent reverification provides a real recovery path and leaves append-only history intact. | Reverify the terminal cycle in place (rejected: illegal grammar); permanently block reopened archives (rejected: no recovery path). |
+| 2026-07-27 | Requirement 2 settled on measured corpus data: same-actor reverification is REJECTED at append (not a blocking diagnostic). | The census shows zero same-actor chains in any open or reopened wave — every affected chain lives in closed `1skt1`/`1slep`, which the status gate exempts — so forward rejection blocks no in-flight work while preventing the observed convenience failure from recurring. A blocking diagnostic would leave a completed synthesis plus a separate nonterminal audit, the dual-authority state the prior decision row already rejected. | Blocking diagnostic after append (rejected: creates a second current-state authority and still requires the same recovery); warn-only (rejected: the observed 34-chain corpus shows warnings without enforcement do not change behavior). |
 
 ## Risks
 

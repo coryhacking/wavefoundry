@@ -49,6 +49,31 @@ class ReviewProtocolCarrierRegistryTests(unittest.TestCase):
         self.assertNotIn("oracle_id", core + code + qa)
         self.assertNotIn("oracle_property", core + code + qa)
 
+    def test_carrier_blocks_carry_chain_aware_independence_contract(self) -> None:
+        """1tmb2 AC-8: the shared carrier block and the QA extension name the
+        enforced rejection codes and the honest declaration limit, so every
+        rendered carrier propagates the enforced-versus-declared split."""
+        block = ras.REVIEW_PROTOCOL_CARRIER_BLOCK
+        self.assertIn("`reverification_context_not_fresh`", block)
+        self.assertIn("`reverification_actor_not_distinct`", block)
+        self.assertIn("`review_evidence_independence_invalid`", block)
+        self.assertIn("not caller", block)
+        qa_block = ras._carrier_protocol_block(
+            ras.ReviewProtocolCarrier(
+                "239-qa-reviewer.prompt.md", "docs/agents/qa-reviewer.md"
+            )
+        )
+        self.assertIn("must not reverify its own", qa_block)
+        # The codes pinned here are the validator's actual constants, so a
+        # rename on either side breaks this test.
+        import review_evidence
+
+        self.assertIn(f"`{review_evidence.REVERIFICATION_CONTEXT_NOT_FRESH}`", block)
+        self.assertIn(f"`{review_evidence.REVERIFICATION_ACTOR_NOT_DISTINCT}`", block)
+        self.assertIn(
+            f"`{review_evidence.REVIEW_EVIDENCE_INDEPENDENCE_INVALID}`", block
+        )
+
     def test_independent_reference_carrier_is_role_scoped_and_carries_the_proof_ceiling(self) -> None:
         code = ras._carrier_protocol_block(
             ras.ReviewProtocolCarrier(

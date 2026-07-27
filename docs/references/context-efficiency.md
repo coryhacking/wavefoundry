@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-25
+Last verified: 2026-07-27
 
 Wavefoundry reports one conservative estimate of tokens saved while its tools
 support a wave. The estimate is an accounting signal, not a billing record and
@@ -134,6 +134,55 @@ before the wave status, the telemetry seal, or the focus stage changes. If the
 focus write itself fails, the reopen still succeeds but the response reports
 `focus_stage: null` with a `focus_error` and a `focus_stage_not_applied`
 diagnostic, so a stage is never claimed unless it was actually applied.
+
+### Lifecycle focus reporting (wave 1tmb3)
+
+Every lifecycle response is processed in one canonical order: canonical-target
+resolution, engagement classification, effective-attribution classification,
+focus set/clear attempt with best-effort reporting, workflow-call recording,
+then the existing publication policy. The classifier maps the current outcome
+classes explicitly — `ok`, `dry_run`, and `ready_for_council_review` are
+target-engaged, as is a review that reached prepare/implementation lane
+evaluation; `error` and `partial` are not engaged; any other status fails
+closed for focus and returns an `unknown_lifecycle_outcome` diagnostic until
+the classifier is deliberately updated. `ready_for_council_review` is the one
+deliberately target-engaged overlap between publication and focus: the call
+both publishes the target wave's durable accounting and moves focus to that
+wave at stage `plan`, because council review is concentrated retrieval about
+exactly that wave. Genuinely failed calls still never move focus.
+
+When a call does not move focus, the response reports a best-effort
+**effective attribution destination** in `data.focus_attribution`
+(`effective.destination`/`stage`/`source` plus `observed_focus`), computed by
+the same telemetry-owned resolver the commit path uses: usable explicit focus
+first; a sealed focused wave routes to `general`
+(`source: focus_sealed_general`); with no explicit focus, the unique OPEN-wave
+fallback applies (`source: open_wave`); otherwise `general`. The raw focused
+wave is named only as observed state, never as a promise of where future
+credits land, and an unresolved target is never echoed as canonical state.
+
+Three diagnostic codes carry distinct meanings and recoveries:
+
+- `focus_target_not_engaged` — the core operation did not engage its target;
+  the effective destination is an unrelated wave. Recovery: repair the
+  blocking condition and retry that lifecycle call. Suppressed only when the
+  exact desired focus state is already current, the effective attribution
+  resolves to the target, or attribution is true `general`/unattributed —
+  empty explicit focus with an unrelated unique-OPEN fallback still reports.
+- `focus_stage_not_applied` — the core operation succeeded but a needed focus
+  write (set or clear) failed. The lifecycle result stands; recovery is a
+  focus retry or the next lifecycle boundary. Suppressed only when no write
+  was needed because the exact requested state was already current.
+- `unknown_lifecycle_outcome` — an unmodeled status; focus is left unchanged.
+
+A mutating pause's desired end state is no focus, so a successful pause runs
+the `clear_focus` operation through the same shared primitive; if the clear
+fails, the pause stays successful, prior focus remains, and the response
+carries the write-failure diagnostic. A dry-run pause has `focus_action=none`:
+its desired state is the unchanged current focus, so it performs no focus
+write and emits no not-applied diagnostic. Diagnostic construction is
+observational and best-effort throughout: it can never overturn a successful
+lifecycle mutation, and credits already recorded are never re-attributed.
 
 Checkpoint publication is symmetric with the stages: activation publishes the
 `plan` totals, the implementation-phase review publishes the `implement`

@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: qa-reviewer
 Category: review
-Last verified: 2026-07-22
+Last verified: 2026-07-27
 
 ## Operating Identity
 
@@ -129,6 +129,17 @@ After validation, apply the ordered four-way actionability gate:
 states, and use focused repair replay unless a load-bearing boundary change
 objectively requires a full council.
 
+Repair/reverification independence is enforced chain-aware at the typed
+authoring surface: a reverification sharing its `repair_start`'s context
+while declaring `fresh_context=true` is rejected as a contradiction
+(`reverification_context_not_fresh`), and a same-actor reverification is
+rejected as protocol policy (`reverification_actor_not_distinct`); both
+append nothing. The close gate audits open and reopened waves' current
+chains (`review_evidence_independence_invalid`); closed archives are never
+retroactively invalidated. Actor equality is protocol policy, not caller
+authentication — the truth of `fresh_context`, `independent`, and actor
+identity itself remains a declaration the validator cannot verify.
+
 ### Independent-reference verification
 
 For any changed implementation — feature, API or tool-surface change,
@@ -154,5 +165,8 @@ Required QA evidence must run with zero unintended skips, reach the
 named public path, use realistic boundary values, make non-vacuous
 assertions, and demonstrate detection of the known-bad behavior. A
 skipped, vacuous, impossible-shape, or wrong-reason failure is not
-approval evidence.
+approval evidence. The repairing actor must not reverify its own
+repair: the tool rejects the decidable contradictions, and QA verifies
+the part no validator can — that the independence and freshness
+declarations are truthful.
 <!-- wave:executable-review-evidence end -->

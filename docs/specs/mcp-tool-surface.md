@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-25
+Last verified: 2026-07-27
 
 Behavioral contract for the Wavefoundry local MCP server. This spec covers the
 tool names, response conventions, safety rules, and compatibility expectations that
@@ -547,6 +547,7 @@ during `ready`/`create` (readiness mutations); `dry_run` is read-only.
 - **Readiness vs activation (wave 1p45l):** `ready` records full readiness WITHOUT activating — the wave stays `planned` ("readied"), with no single-OPEN guard, so any number of waves can be readied while one is OPEN. `create` additionally runs the single-OPEN guard and flips `planned`→`active` (prepare-and-open). `dry_run` never takes the slot.
 - The single-OPEN invariant (at most one wave `active`/`implementing`) is enforced only at activation transitions — `wf_implement_wave`, `wf_reopen_wave`, and `wf_prepare_wave(create)` — not at readiness.
 - On `ready`/`create`, requests a background docs-index refresh for the wave record and admitted change docs after repair/status updates complete.
+- **Focus and outcome classes (wave 1tmb3):** `ready_for_council_review` (technical checks passed, prepare-council verdict still needed) is explicitly target-engaged — the call both publishes the target wave's durable accounting and moves context-efficiency focus to that wave at stage `plan`, because council review is concentrated retrieval about exactly that wave. Genuinely failed prepares do not move focus; the response instead reports the effective attribution destination in `data.focus_attribution` and emits `focus_target_not_engaged` when that destination is an unrelated wave (see the lifecycle focus-reporting contract below).
 
 `wf_implement_wave(wave_id: str, mode: str = "dry_run")`
 
@@ -568,11 +569,21 @@ during `ready`/`create` (readiness mutations); `dry_run` is read-only.
   - Focus applied: `{"status": "ok", "data": {"focus_stage": "review"}}` (or `"implement"`).
   - Focus **not** applied: the reopen still succeeds, because telemetry is observational, but the response reports `{"status": "ok", "data": {"focus_stage": null, "focus_error": "<exception>"}}` plus a `focus_stage_not_applied` diagnostic. The response never names a stage it did not apply.
   - Read `data["focus_stage"]` to distinguish the two paths. A top-level read finds nothing on **either** path and therefore cannot tell an applied stage from an unapplied one.
+- The reopen focus write goes through the same shared focus primitive and vocabulary as every other lifecycle tool (wave 1tmb3); the `focus_stage_not_applied` code and reopen-specific wording are preserved.
+
+**Lifecycle focus reporting (wave 1tmb3) — shared contract for `wf_create_wave`, `wf_prepare_wave`, `wf_implement_wave`, `wf_review_wave`, `wf_close_wave`, `wf_reopen_wave`, and `wf_pause_wave`:**
+
+- Processing order is canonical: canonical-target resolution, engagement classification, effective-attribution classification, focus set/clear attempt with best-effort reporting, workflow-call recording, then the existing publication policy. Publication and focus remain distinct policies; `ready_for_council_review` is the one deliberately target-engaged overlap.
+- The canonical classifier maps `ok`, `dry_run`, `ready_for_council_review`, and a review that reached prepare/implementation lane evaluation to target-engaged; `error`/`partial` to not-engaged; any other status fails closed for focus with `unknown_lifecycle_outcome`.
+- When focus is not moved, `data.focus_attribution` reports the best-effort effective attribution destination (`effective.destination`/`stage`/`source` plus `observed_focus`), computed by the telemetry-owned resolver the commit path uses: usable explicit focus first; a sealed focused wave routes to `general` (`source: focus_sealed_general`); with no explicit focus the unique OPEN-wave fallback applies (`source: open_wave`); otherwise `general`. The raw focused wave is named only as observed state, and an unresolved target is never echoed as canonical state.
+- Diagnostic envelopes carry `code`, a message naming only resolved canonical focus/target state plus the effective destination and its source, `recovery_tools`, and `recovery_usage`. The three codes are distinct: `focus_target_not_engaged` (core not engaged; repair and retry that lifecycle call; suppressed only for the exact desired current state, an effective destination equal to the target, or true `general`/unattributed — an unrelated unique-OPEN fallback still reports), `focus_stage_not_applied` (core succeeded, needed focus write failed; retry the focus or advance the next boundary; suppressed only when no write was needed), and `unknown_lifecycle_outcome` (unmodeled status; focus unchanged).
+- Diagnostics are observational and can never overturn a successful lifecycle mutation; recorded credits are never re-attributed. Upgrade replaces the packaged server surface and requires the normal MCP reload before this response contract is active; no data migration, compatibility alias, or fallback is added.
 
 `wf_pause_wave(wave_id: str, mode: str = "dry_run")`
 
 - Writes or previews a session handoff entry at `docs/agents/session-handoff.md`.
 - On apply/create writes, requests a background docs-index refresh for the handoff doc.
+- **Focus clear (wave 1tmb3):** a mutating pause's desired end state is no focus, so a successful pause runs `clear_focus` through the shared focus primitive. A clear failure keeps the pause successful and prior focus intact, reporting `focus_error` plus a `focus_stage_not_applied` diagnostic with retry guidance. A dry-run pause has `focus_action=none`: no focus write is attempted and no not-applied diagnostic is emitted.
 
 `wf_review_wave(wave_id: str)`
 
@@ -593,6 +604,7 @@ mapped prompt credit.
 - A one-candidate run reuses its finding evidence as the sealed-universe proof. An empty lightweight readiness/initial-delivery run emits one run row with reviewer `verification_context` and no separate dedup evidence row.
 - A repair cycle may contain several findings and several ordered same-finding reverification events as fresh independent actors clear their own required lanes. **Lane-clearing recipe (state-derived):** call `event="list"` for the finding and read its `chain_summary` unresolved required lanes; then submit ONE reverification per lane where the acting lane is `actor`, `fresh_context=true` and `independent=true` are set, and `blocking_required_lanes` is the CURRENT list minus that one actor. The server auto-mints the linked `lane_reassessment` evidence for the cleared lane; lanes clear one per event, in any order, until the head's list is empty. A reverification that repeats the current list unchanged verifies without clearing anything. A separately recorded protocol-valid operator waiver is another terminal state; it is not a lane-reverification shortcut. The cycle is aggregate-complete only when every actionable finding started in the cycle has a terminal current head with no unresolved required lanes: completed reverification, truthful `not_issue` / `dont_do_later` reclassification with `not_required` repair state, or a valid distinct operator waiver. Historical multi-candidate batch runs and compact per-finding runs remain valid.
 - When the final outstanding `reverification` makes repair cycle 2 aggregate-complete after cycle 1, the same typed operation automatically includes the mandatory `convergence_checkpoint` in its identified bundle and atomic authority replacement. The caller does not submit a separate lightweight checkpoint; the server derives `frozen_boundary` from the wave-current synthesis heads after applying that final transition and carries its verification context.
+- **Repair/reverification independence (wave 1tmb2), enforced chain-aware on both preview and create against the exact finding/cycle chain:** a `reverification` sharing its resolving `repair_start`'s `context_id` while declaring `fresh_context=true` is rejected with diagnostic `reverification_context_not_fresh` (a decidable self-contradiction, no trust assumption); a `reverification` carrying the same `actor` as that `repair_start` from a different context is rejected with `reverification_actor_not_distinct` (forward protocol policy — actor equality is not proof of shared caller identity, and the truth of `fresh_context`/`independent` remains a declaration the validator cannot authenticate). Precedence is deterministic: when both match, only `reverification_context_not_fresh` is returned; actor policy is evaluated only after the context differs. Rejected attempts append nothing, so the prior synthesis head remains the single current-state authority. Recovery: retry from a distinct acting role and context (the implementer records `repair_start`; the blocking reviewer lane reverifies). The repair waiver has different semantics and is not an independence bypass. Upgrade replaces the packaged server implementation; the new enforcement and diagnostic codes become live after the normal MCP reload, with no ledger migration, compatibility alias, or fallback.
 - The sibling JSONL ledger remains canonical. Each typed write regenerates the compact Finding Synthesis and `wave:review-status` projections in `wave.md`; the latter has one `Signoff | State | Why | Next action` row per canonical signoff key. Both are presentation only and raw event fields are not semantically indexed.
 - `create` derives stable structured event identity from the existing compact inputs, rejects same-identity/different-request conflicts, and replays same-identity/same-request retries without appending. Under one project-global lock it validates the complete prospective ledger, atomically replaces `events.jsonl` as the authority commit point, advances bounded adoption proof, then refreshes both Markdown projections. Post-commit adoption/projection failures return structured pending/stale diagnostics and converge on replay; only `wave.md` receives a background docs-index refresh.
 
@@ -602,6 +614,16 @@ mapped prompt credit.
 - Drafts are structurally eligible, not semantically approved. Close blocks when
   an eligible source has no persisted candidate or its candidate still has
   `Validation: pending`; zero-memory waves pass.
+- **Repair-independence audit (wave 1tmb2):** while the target wave's status is
+  non-closed (including an explicitly reopened archive), close audits each
+  finding's current/latest repair chain and surfaces
+  `review_evidence_independence_invalid` for a terminal reverification that
+  shares its `repair_start`'s context while declaring `fresh_context=true` or
+  shares its actor — including chains appended by older code. Sealed/closed
+  archives are never retroactively invalidated by validation or upgrade.
+  Recovery: `repair_start` at the next cycle, then a distinct-role and
+  distinct-context reverification; the new legal chain supersedes the invalid
+  terminal chain and makes the audit eligible to clear.
 - On apply/create writes, requests a background docs-index refresh for the closed wave record, archive summary, and handoff doc when present.
 
 **Memory record identity (wave 1t9w7):** generated records mint the repository-wide lifecycle naming `<lifecycleId>-mem <slug>` (the prefix comes from the repo's own lifecycle policy; the filename stem is the memory id, so resolution is unchanged). Legacy bare-slug ids (`mem-...`) remain valid indefinitely — field stores reference them — but nothing mints one again; upgrades from pre-1.15 rename existing generated `mem-*` records deterministically, backdating each prefix from the record's `Created` date (explicit bare-slug ids stay frozen-valid and are never auto-renamed) so filesystem order shows true chronology (append-only history keeps the old ids).

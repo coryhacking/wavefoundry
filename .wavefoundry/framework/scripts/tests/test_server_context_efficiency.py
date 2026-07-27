@@ -3014,5 +3014,719 @@ if flushed is None or not flushed.success:
             handler.telemetry.close()
 
 
+class LifecycleFocusReportingTests(unittest.TestCase):
+    """1tmb3: stale-focus reporting, outcome classification, and the
+    flush/focus asymmetry on ``ready_for_council_review``."""
+
+    class _FakeMcp:
+        def __init__(self):
+            self.tools = {}
+
+        def tool(self, **_kwargs):
+            def register(fn):
+                self.tools[fn.__name__] = fn
+                return fn
+
+            return register
+
+        def resource(self, *_args, **_kwargs):
+            def register(fn):
+                return fn
+
+            return register
+
+    @staticmethod
+    def _wave(root: Path, wave_id: str, status: str = "planned") -> Path:
+        wave_md = root / "docs" / "waves" / wave_id / "wave.md"
+        wave_md.parent.mkdir(parents=True, exist_ok=True)
+        wave_md.write_text(
+            f"# Wave Record\n\nStatus: {status}\n\nwave-id: `{wave_id}`\n",
+            encoding="utf-8",
+        )
+        return wave_md
+
+    def _handler(self, root: Path) -> SimpleNamespace:
+        return SimpleNamespace(
+            root=root, cache={}, telemetry=ce.ProcessTelemetry(root)
+        )
+
+    @staticmethod
+    def _codes(response: dict) -> list[str]:
+        return [d.get("code") for d in response.get("diagnostics", [])]
+
+    @staticmethod
+    def _reset_open_wave_caches() -> None:
+        # ``srv`` may bind its own context_efficiency module instance with a
+        # separate open-wave TTL cache; reset both so fixture status changes
+        # resolve immediately.
+        ce._reset_open_wave_cache()
+        srv.context_efficiency._reset_open_wave_cache()
+
+    def test_failed_call_reports_stale_focus_destination(self) -> None:
+        """AC-1 red test: a lifecycle call that fails against wave B while
+        focus sits on wave A must report wave A (as observed state), the
+        effective attribution destination, and a recovery path."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            self._wave(root, "1aaaa other-wave")
+            self._wave(root, "1bbbb target-wave")
+            handler = self._handler(root)
+            handler.telemetry.set_focus("1aaaa other-wave", "implement", new_phase=True)
+            core = {
+                "status": "error",
+                "data": {"wave_id": "1bbbb target-wave", "mode": "dry_run"},
+                "diagnostics": [
+                    {"code": "missing_wave_council_signoff", "message": "missing"}
+                ],
+            }
+            result = srv._lifecycle_context_result(
+                handler,
+                "wf_prepare_wave",
+                "1bbbb target-wave",
+                core,
+                focus_stage="plan",
+                credit=False,
+                flush=False,
+            )
+            self.assertEqual(result["status"], "error")
+            codes = self._codes(result)
+            self.assertIn("focus_target_not_engaged", codes)
+            diag = next(
+                d for d in result["diagnostics"]
+                if d.get("code") == "focus_target_not_engaged"
+            )
+            self.assertIn("1aaaa other-wave", diag["message"])
+            self.assertTrue(diag.get("recovery_tools"))
+            self.assertTrue(diag.get("recovery_usage"))
+            # Focus behavior on failed calls is unchanged (AC does not move it).
+            self.assertEqual(handler.telemetry.focus.wave_id, "1aaaa other-wave")
+            handler.telemetry.close()
+
+    def test_observed_prepare_case_through_real_envelope(self) -> None:
+        """AC-2 red test: the real tool envelope with the real prepare core —
+        blocked on a missing council signoff while focus sits on another wave."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            config_path = root / "docs" / "workflow-config.json"
+            config = json.loads(config_path.read_text(encoding="utf-8"))
+            config["wave_review"] = {"enabled": True}
+            config_path.write_text(json.dumps(config), encoding="utf-8")
+            self._wave(root, "1aaaa other-wave")
+            self._wave(root, "1bbbb blocked-wave")
+            handler = self._handler(root)
+            handler.telemetry.set_focus("1aaaa other-wave", "implement", new_phase=True)
+            mcp = self._FakeMcp()
+            srv.register_mcp_surface(mcp, lambda: handler)
+            result = mcp.tools["wf_prepare_wave"]("1bbbb blocked-wave", mode="dry_run")
+            self.assertEqual(result["status"], "error", result)
+            codes = self._codes(result)
+            self.assertIn("missing_wave_council_signoff", codes)
+            self.assertIn("focus_target_not_engaged", codes)
+            self.assertEqual(handler.telemetry.focus.wave_id, "1aaaa other-wave")
+            handler.telemetry.close()
+
+    def test_council_ready_outcome_publishes_and_moves_focus(self) -> None:
+        """AC-8 red test: ``ready_for_council_review`` is target-engaged — the
+        call keeps publishing the wave's durable accounting AND moves focus to
+        the canonical target at the wrapper-supplied stage (plan). Fails
+        against current code, where projection publishes but focus stays
+        elsewhere."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            self._wave(root, "1aaaa other-wave")
+            self._wave(root, "1bbbb council-wave")
+            handler = self._handler(root)
+            handler.telemetry.set_focus("1aaaa other-wave", "implement", new_phase=True)
+            core = {
+                "status": "ready_for_council_review",
+                "data": {
+                    "wave_id": "1bbbb council-wave",
+                    "mode": "ready",
+                    "council_brief": {},
+                },
+                "diagnostics": [
+                    {"code": "prepare_council_verdict_missing", "message": "run council"}
+                ],
+            }
+            result = srv._lifecycle_context_result(
+                handler,
+                "wf_prepare_wave",
+                "1bbbb council-wave",
+                core,
+                focus_stage="plan",
+                credit=False,
+                flush=True,
+            )
+            # Publication of already-attributed work is preserved.
+            projection = result["data"]["context_efficiency_persistence"]
+            self.assertEqual(projection.get("projection"), "published", projection)
+            # And the same call now claims future work for its target.
+            self.assertEqual(handler.telemetry.focus.wave_id, "1bbbb council-wave")
+            self.assertEqual(handler.telemetry.focus.stage, "plan")
+            handler.telemetry.close()
+
+    # ---- AC-9: canonical classifier ----------------------------------------
+
+    def test_classifier_maps_every_current_outcome_class_explicitly(self) -> None:
+        review_ran = {
+            "status": "error",
+            "data": {"wave_id": "1aaaa x", "lane_results": [], "phase": "implementation"},
+        }
+        cases = [
+            ("wf_prepare_wave", {"status": "ok", "data": {}}, "engaged"),
+            ("wf_prepare_wave", {"status": "dry_run", "data": {}}, "engaged"),
+            ("wf_prepare_wave", {"status": "ready_for_council_review", "data": {}}, "engaged"),
+            ("wf_review_wave", review_ran, "engaged"),
+            ("wf_prepare_wave", {"status": "error", "data": {}}, "not_engaged"),
+            ("wf_prepare_wave", {"status": "partial", "data": {}}, "not_engaged"),
+            ("wf_prepare_wave", {"status": "queued", "data": {}}, "unknown"),
+            ("wf_prepare_wave", {"status": None, "data": {}}, "unknown"),
+        ]
+        for tool_name, response, expected in cases:
+            with self.subTest(tool=tool_name, status=response["status"]):
+                self.assertEqual(
+                    srv._classify_lifecycle_outcome(tool_name, response), expected
+                )
+
+    def test_unknown_status_fails_closed_with_named_diagnostic(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            self._wave(root, "1aaaa other-wave")
+            self._wave(root, "1bbbb target-wave")
+            handler = self._handler(root)
+            handler.telemetry.set_focus("1aaaa other-wave", "implement", new_phase=True)
+            core = {"status": "someday_maybe", "data": {"wave_id": "1bbbb target-wave"}}
+            result = srv._lifecycle_context_result(
+                handler, "wf_prepare_wave", "1bbbb target-wave", core,
+                focus_stage="plan", credit=False, flush=False,
+            )
+            self.assertIn("unknown_lifecycle_outcome", self._codes(result))
+            self.assertEqual(handler.telemetry.focus.wave_id, "1aaaa other-wave")
+            handler.telemetry.close()
+
+    # ---- AC-4: suppression matrix ------------------------------------------
+
+    def _not_engaged_result(self, handler, target="1bbbb target-wave", stage="plan"):
+        core = {
+            "status": "error",
+            "data": {"wave_id": target},
+            "diagnostics": [{"code": "some_blocking_condition", "message": "x"}],
+        }
+        return srv._lifecycle_context_result(
+            handler, "wf_prepare_wave", target, core,
+            focus_stage=stage, credit=False, flush=False,
+        )
+
+    def test_exact_desired_state_suppresses_not_engaged_diagnostic(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            self._wave(root, "1bbbb target-wave")
+            handler = self._handler(root)
+            handler.telemetry.set_focus("1bbbb target-wave", "plan", new_phase=True)
+            result = self._not_engaged_result(handler)
+            self.assertNotIn("focus_target_not_engaged", self._codes(result))
+            # The report itself is still present.
+            self.assertEqual(
+                result["data"]["focus_attribution"]["effective"]["destination"],
+                "1bbbb target-wave",
+            )
+            handler.telemetry.close()
+
+    def test_stage_mismatch_on_target_wave_is_not_suppressed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            self._wave(root, "1bbbb target-wave")
+            handler = self._handler(root)
+            handler.telemetry.set_focus("1bbbb target-wave", "implement", new_phase=True)
+            result = self._not_engaged_result(handler, stage="plan")
+            self.assertIn("focus_target_not_engaged", self._codes(result))
+            handler.telemetry.close()
+
+    def test_true_general_fallback_suppresses_but_unrelated_open_wave_reports(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            self._wave(root, "1bbbb target-wave")
+            handler = self._handler(root)
+            self._reset_open_wave_caches()
+            # No explicit focus, no OPEN wave: true general — suppressed.
+            result = self._not_engaged_result(handler)
+            self.assertNotIn("focus_target_not_engaged", self._codes(result))
+            self.assertEqual(
+                result["data"]["focus_attribution"]["effective"],
+                {"destination": "general", "stage": None, "source": "general"},
+            )
+            # One unrelated OPEN wave: empty focus is NOT sufficient for
+            # suppression — the fallback destination is reported.
+            self._wave(root, "1cccc unrelated-open", status="active")
+            self._reset_open_wave_caches()
+            result = self._not_engaged_result(handler)
+            self.assertIn("focus_target_not_engaged", self._codes(result))
+            diag = next(
+                d for d in result["diagnostics"]
+                if d["code"] == "focus_target_not_engaged"
+            )
+            self.assertIn("1cccc unrelated-open", diag["message"])
+            self.assertEqual(
+                result["data"]["focus_attribution"]["effective"]["source"],
+                "open_wave",
+            )
+            # OPEN-wave fallback resolving TO the target AT the requested
+            # stage suppresses. Updated by 1to7k finding
+            # open-wave-fallback-stage-mismatch-suppressed: the original
+            # assertion requested stage "plan" against the fallback's derived
+            # "implement" and pinned the defect (wave equality alone
+            # suppressed); suppression now requires wave AND stage match, and
+            # the mismatch quadrant is covered by
+            # test_open_wave_fallback_stage_mismatch_is_not_suppressed.
+            (root / "docs" / "waves" / "1cccc unrelated-open" / "wave.md").write_text(
+                "# Wave Record\n\nStatus: closed\n", encoding="utf-8"
+            )
+            self._wave(root, "1bbbb target-wave", status="active")
+            self._reset_open_wave_caches()
+            result = self._not_engaged_result(handler, stage="implement")
+            self.assertNotIn("focus_target_not_engaged", self._codes(result))
+            handler.telemetry.close()
+
+    def test_open_wave_fallback_stage_mismatch_is_not_suppressed(self) -> None:
+        """1to7k finding open-wave-fallback-stage-mismatch-suppressed red test:
+        the restarted-server shape — no explicit focus (fresh ProcessTelemetry),
+        the target as the sole ACTIVE wave, and a failed prepare requesting
+        stage plan. The open-wave fallback resolves the target at implement;
+        suppression requires wave AND stage match, so the mismatch must report
+        ``focus_target_not_engaged``."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            self._wave(root, "1bbbb target-wave", status="active")
+            handler = self._handler(root)  # restarted server: empty focus
+            self._reset_open_wave_caches()
+            result = self._not_engaged_result(handler, stage="plan")
+            effective = result["data"]["focus_attribution"]["effective"]
+            self.assertEqual(effective["destination"], "1bbbb target-wave")
+            self.assertEqual(effective["stage"], "implement")
+            self.assertEqual(effective["source"], "open_wave")
+            self.assertIn(
+                "focus_target_not_engaged",
+                self._codes(result),
+                "wave equality alone must not suppress when the requested "
+                "stage differs from the open-wave fallback stage",
+            )
+            # Control: when the requested stage MATCHES the fallback stage,
+            # effective attribution resolves to the exact target state and the
+            # diagnostic stays suppressed.
+            self._reset_open_wave_caches()
+            result = self._not_engaged_result(handler, stage="implement")
+            self.assertNotIn("focus_target_not_engaged", self._codes(result))
+            handler.telemetry.close()
+
+    def test_sealed_focus_reports_general_and_never_claims_the_sealed_wave(self) -> None:
+        """AC-6: a sealed focused wave proves effective attribution is
+        `general`; the response never claims the sealed wave receives credits."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            sealed_wave = "1aaaa sealed-wave"
+            self._wave(root, sealed_wave, status="closed")
+            self._wave(root, "1bbbb target-wave")
+            handler = self._handler(root)
+            handler.telemetry.set_focus(sealed_wave, "implement", new_phase=True)
+            checkpoint = dict(ce.read_wave_snapshot(root, sealed_wave))
+            checkpoint["store_instance_id"] = "historical-instance"
+            self.assertTrue(
+                ce.reconcile_checkpoint_authority(
+                    root, sealed_wave, checkpoint, sealed=True
+                )
+            )
+            self.assertTrue(ce._wave_sealed_readonly(root, sealed_wave))
+            result = self._not_engaged_result(handler)
+            report = result["data"]["focus_attribution"]
+            self.assertEqual(report["effective"]["destination"], "general")
+            self.assertEqual(report["effective"]["source"], "focus_sealed_general")
+            # Destination general: no unrelated-wave diagnostic, and nothing
+            # claims the sealed wave will receive credits.
+            self.assertNotIn("focus_target_not_engaged", self._codes(result))
+            self.assertEqual(report["observed_focus"]["wave_id"], sealed_wave)
+            handler.telemetry.close()
+
+    def test_sealed_close_clear_failure_reports_focus_stage_not_applied(self) -> None:
+        """1to7k finding sealed-close-focus-clear-failure-is-silent red test:
+        fault-inject a raising ``clear_focus`` under a successful mutating
+        close. The close must stay ok/sealed/compacted (success semantics
+        unchanged), but the response must carry ``focus_stage_not_applied``
+        and the clear error instead of silently retaining stale focus."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            self._wave(root, "1aaaa other-wave")
+            # As after a successful mutating close: status already written.
+            self._wave(root, "1bbbb closing-wave", status="closed")
+            handler = self._handler(root)
+            handler.telemetry.set_focus("1aaaa other-wave", "implement", new_phase=True)
+            self._reset_open_wave_caches()
+
+            def boom(*_a, **_k):
+                raise RuntimeError("forced clear failure")
+
+            core = {
+                "status": "ok",
+                "data": {
+                    "wave_id": "1bbbb closing-wave",
+                    "mode": "create",
+                    "transitioned_to_closed": True,
+                },
+            }
+            with patch.object(handler.telemetry, "clear_focus", boom):
+                result = srv._lifecycle_context_result(
+                    handler,
+                    "wf_close_wave",
+                    "1bbbb closing-wave",
+                    core,
+                    focus_stage="review",
+                    credit=True,
+                    flush=True,
+                    transfer_general=True,
+                )
+            # Close success semantics are unchanged.
+            self.assertEqual(result["status"], "ok")
+            projection = result["data"]["context_efficiency_persistence"]
+            self.assertEqual(projection.get("persistence"), "durable", projection)
+            self.assertEqual(projection.get("projection"), "published", projection)
+            self.assertTrue(projection.get("sealed"), projection)
+            self.assertTrue(projection.get("compacted"), projection)
+            # The failed clear retained focus on the sealed wave and must be
+            # reported, not silent.
+            self.assertEqual(handler.telemetry.focus.wave_id, "1bbbb closing-wave")
+            self.assertIn("focus_stage_not_applied", self._codes(result))
+            self.assertIn("forced clear failure", result["data"]["focus_error"])
+            handler.telemetry.close()
+
+    def test_sealed_close_clear_success_reports_no_focus_failure(self) -> None:
+        """Control for the sealed-close clear: when the clear succeeds, the
+        close reports no focus failure and focus is cleared."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            self._wave(root, "1bbbb closing-wave", status="closed")
+            handler = self._handler(root)
+            handler.telemetry.set_focus("1bbbb closing-wave", "review", new_phase=True)
+            self._reset_open_wave_caches()
+            core = {
+                "status": "ok",
+                "data": {
+                    "wave_id": "1bbbb closing-wave",
+                    "mode": "create",
+                    "transitioned_to_closed": True,
+                },
+            }
+            result = srv._lifecycle_context_result(
+                handler,
+                "wf_close_wave",
+                "1bbbb closing-wave",
+                core,
+                focus_stage="review",
+                credit=True,
+                flush=True,
+                transfer_general=True,
+            )
+            self.assertEqual(result["status"], "ok")
+            projection = result["data"]["context_efficiency_persistence"]
+            self.assertTrue(projection.get("sealed"), projection)
+            self.assertTrue(projection.get("compacted"), projection)
+            self.assertNotIn("focus_stage_not_applied", self._codes(result))
+            self.assertFalse(handler.telemetry.focus.wave_id)
+            handler.telemetry.close()
+
+    # ---- focus_write_failed (engaged) --------------------------------------
+
+    def test_focus_write_failure_is_reported_and_preserves_the_result(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            self._wave(root, "1bbbb target-wave")
+            handler = self._handler(root)
+
+            def boom(*_a, **_k):
+                raise RuntimeError("forced focus failure")
+
+            with patch.object(handler.telemetry, "set_focus", boom):
+                core = {"status": "ok", "data": {"wave_id": "1bbbb target-wave"}}
+                result = srv._lifecycle_context_result(
+                    handler, "wf_prepare_wave", "1bbbb target-wave", core,
+                    focus_stage="plan", credit=False, flush=False,
+                )
+            self.assertEqual(result["status"], "ok")
+            self.assertIn("focus_stage_not_applied", self._codes(result))
+            self.assertIsNone(result["data"]["focus_stage"])
+            self.assertIn("forced focus failure", result["data"]["focus_error"])
+            handler.telemetry.close()
+
+    def test_focus_write_failed_suppressed_only_when_state_already_current(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            self._wave(root, "1bbbb target-wave")
+            handler = self._handler(root)
+            handler.telemetry.set_focus("1bbbb target-wave", "plan", new_phase=True)
+
+            def boom(*_a, **_k):
+                raise RuntimeError("forced focus failure")
+
+            with patch.object(handler.telemetry, "set_focus", boom):
+                core = {"status": "dry_run", "data": {"wave_id": "1bbbb target-wave"}}
+                # Exact requested state already current, no phase mint needed:
+                # no write is attempted, so no diagnostic even though the
+                # writer would raise.
+                result = srv._lifecycle_context_result(
+                    handler, "wf_prepare_wave", "1bbbb target-wave", core,
+                    focus_stage="plan", credit=False, flush=False,
+                )
+            self.assertNotIn("focus_stage_not_applied", self._codes(result))
+            handler.telemetry.close()
+
+    # ---- pause clear-operation contract ------------------------------------
+
+    def _registered(self, handler):
+        mcp = self._FakeMcp()
+        srv.register_mcp_surface(mcp, lambda: handler)
+        return mcp
+
+    def test_mutating_pause_clears_focus_through_shared_primitive(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            self._wave(root, "1bbbb pause-wave", status="active")
+            handler = self._handler(root)
+            handler.telemetry.set_focus("1bbbb pause-wave", "implement", new_phase=True)
+            mcp = self._registered(handler)
+            pause_core = {
+                "status": "ok",
+                "data": {"wave_id": "1bbbb pause-wave", "paused": True},
+                "diagnostics": [],
+            }
+            with patch.object(srv, "wf_pause_wave_response", return_value=pause_core):
+                result = mcp.tools["wf_pause_wave"]("1bbbb pause-wave", mode="create")
+            self.assertEqual(result["status"], "ok")
+            self.assertNotIn("focus_stage_not_applied", self._codes(result))
+            self.assertIsNone(handler.telemetry.focus.wave_id)
+            handler.telemetry.close()
+
+    def test_pause_clear_failure_keeps_pause_ok_and_prior_focus(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            self._wave(root, "1bbbb pause-wave", status="active")
+            handler = self._handler(root)
+            handler.telemetry.set_focus("1bbbb pause-wave", "implement", new_phase=True)
+            mcp = self._registered(handler)
+            pause_core = {
+                "status": "ok",
+                "data": {"wave_id": "1bbbb pause-wave", "paused": True},
+                "diagnostics": [],
+            }
+
+            def boom(*_a, **_k):
+                raise RuntimeError("forced clear failure")
+
+            with (
+                patch.object(srv, "wf_pause_wave_response", return_value=pause_core),
+                patch.object(handler.telemetry, "clear_focus", boom),
+            ):
+                result = mcp.tools["wf_pause_wave"]("1bbbb pause-wave", mode="create")
+            self.assertEqual(result["status"], "ok")
+            self.assertIn("focus_stage_not_applied", self._codes(result))
+            self.assertIn("forced clear failure", result["data"]["focus_error"])
+            # Prior focus remains.
+            self.assertEqual(handler.telemetry.focus.wave_id, "1bbbb pause-wave")
+            handler.telemetry.close()
+
+    def test_dry_run_pause_makes_no_focus_attempt_and_no_diagnostic(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            self._wave(root, "1bbbb pause-wave", status="active")
+            handler = self._handler(root)
+            handler.telemetry.set_focus("1bbbb pause-wave", "implement", new_phase=True)
+            mcp = self._registered(handler)
+            pause_core = {
+                "status": "ok",
+                "data": {"wave_id": "1bbbb pause-wave", "paused": False},
+                "diagnostics": [],
+            }
+
+            def boom(*_a, **_k):
+                raise AssertionError("dry-run pause must not attempt a focus write")
+
+            with (
+                patch.object(srv, "wf_pause_wave_response", return_value=pause_core),
+                patch.object(handler.telemetry, "clear_focus", boom),
+            ):
+                result = mcp.tools["wf_pause_wave"]("1bbbb pause-wave", mode="dry_run")
+            self.assertNotIn("focus_stage_not_applied", self._codes(result))
+            self.assertEqual(handler.telemetry.focus.wave_id, "1bbbb pause-wave")
+            handler.telemetry.close()
+
+    # ---- AC-5: reopen reconciled through the shared primitive --------------
+
+    def test_reopen_focus_failure_keeps_its_established_code_and_wording(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            self._wave(root, "1bbbb reopen-wave", status="closed")
+            handler = self._handler(root)
+            mcp = self._registered(handler)
+            reopen_core = {
+                "status": "ok",
+                "data": {"wave_id": "1bbbb reopen-wave", "reopened": True},
+                "diagnostics": [],
+            }
+
+            def boom(*_a, **_k):
+                raise RuntimeError("forced focus failure")
+
+            with (
+                patch.object(srv, "wf_reopen_wave_response", return_value=reopen_core),
+                patch.object(handler.telemetry, "set_focus", boom),
+            ):
+                result = mcp.tools["wf_reopen_wave"](
+                    "1bbbb reopen-wave", purpose="review"
+                )
+            self.assertEqual(result["status"], "ok")
+            diag = next(
+                d for d in result["diagnostics"]
+                if d["code"] == "focus_stage_not_applied"
+            )
+            self.assertIn("The wave was reopened", diag["message"])
+            self.assertIn("attributed to the previous stage", diag["message"])
+            self.assertIsNone(result["data"]["focus_stage"])
+            handler.telemetry.close()
+
+    def test_three_diagnostic_codes_carry_distinct_recovery_paths(self) -> None:
+        """AC-5: `focus_target_not_engaged` directs a lifecycle repair/retry,
+        `focus_stage_not_applied` directs a focus retry/next boundary, and
+        `unknown_lifecycle_outcome` directs a deliberate classifier update."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            self._wave(root, "1aaaa other-wave")
+            self._wave(root, "1bbbb target-wave")
+            handler = self._handler(root)
+            handler.telemetry.set_focus("1aaaa other-wave", "implement", new_phase=True)
+            not_engaged = self._not_engaged_result(handler)
+            diag = next(
+                d for d in not_engaged["diagnostics"]
+                if d["code"] == "focus_target_not_engaged"
+            )
+            self.assertIn("retry this", diag["message"])
+            self.assertIn("wf_prepare_wave", diag["recovery_tools"])
+
+            def boom(*_a, **_k):
+                raise RuntimeError("forced focus failure")
+
+            with patch.object(handler.telemetry, "set_focus", boom):
+                engaged = srv._lifecycle_context_result(
+                    handler, "wf_prepare_wave", "1bbbb target-wave",
+                    {"status": "ok", "data": {"wave_id": "1bbbb target-wave"}},
+                    focus_stage="plan", credit=False, flush=False,
+                )
+            diag = next(
+                d for d in engaged["diagnostics"]
+                if d["code"] == "focus_stage_not_applied"
+            )
+            self.assertIn("lifecycle result stands", diag["message"])
+            self.assertIn("boundary", diag["message"])
+
+            unknown = srv._lifecycle_context_result(
+                handler, "wf_prepare_wave", "1bbbb target-wave",
+                {"status": "someday", "data": {"wave_id": "1bbbb target-wave"}},
+                focus_stage="plan", credit=False, flush=False,
+            )
+            diag = next(
+                d for d in unknown["diagnostics"]
+                if d["code"] == "unknown_lifecycle_outcome"
+            )
+            self.assertIn("classifier", diag["message"])
+            self.assertIn("fail-closed", diag["message"])
+            handler.telemetry.close()
+
+    # ---- AC-3: structural census -------------------------------------------
+
+    def test_focus_mutation_census_pins_every_consumer_to_the_primitive(self) -> None:
+        """Every focus mutation in server_impl.py goes through the single
+        shared primitive; a new consumer that bypasses it fails here."""
+        source = (SCRIPTS_ROOT / "server_impl.py").read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        mutators = {"set_focus", "clear_focus", "pause_focus", "reopen_focus"}
+        offenders: set[str] = set()
+
+        class Visitor(ast.NodeVisitor):
+            def __init__(self):
+                self.stack: list[str] = []
+
+            def visit_FunctionDef(self, node):
+                self.stack.append(node.name)
+                self.generic_visit(node)
+                self.stack.pop()
+
+            visit_AsyncFunctionDef = visit_FunctionDef
+
+            def visit_Call(self, node):
+                func = node.func
+                if isinstance(func, ast.Attribute) and func.attr in mutators:
+                    offenders.add(self.stack[-1] if self.stack else "<module>")
+                self.generic_visit(node)
+
+        Visitor().visit(tree)
+        self.assertEqual(
+            offenders,
+            {"_attempt_focus_state"},
+            "focus mutations must go through the shared primitive only",
+        )
+        # Consumer census: the shared primitive is reached from the lifecycle
+        # chokepoint, the reopen path, the pause path, and the sealed-close
+        # clear — and the chokepoint is the only caller of the classifier.
+        callers: set[str] = set()
+        classifier_callers: set[str] = set()
+
+        class Callers(ast.NodeVisitor):
+            def __init__(self):
+                self.stack: list[str] = []
+
+            def visit_FunctionDef(self, node):
+                self.stack.append(node.name)
+                self.generic_visit(node)
+                self.stack.pop()
+
+            visit_AsyncFunctionDef = visit_FunctionDef
+
+            def visit_Call(self, node):
+                func = node.func
+                if isinstance(func, ast.Name):
+                    name = self.stack[-1] if self.stack else "<module>"
+                    if func.id == "_attempt_focus_state":
+                        callers.add(name)
+                    if func.id == "_classify_lifecycle_outcome":
+                        classifier_callers.add(name)
+                self.generic_visit(node)
+
+        Callers().visit(tree)
+        self.assertEqual(
+            callers,
+            {
+                "_apply_lifecycle_focus_reporting",
+                "wf_reopen_wave",
+                "wf_pause_wave",
+                "_flush_context_efficiency",
+            },
+        )
+        self.assertEqual(classifier_callers, {"_lifecycle_context_result"})
+
+
 if __name__ == "__main__":
     unittest.main()

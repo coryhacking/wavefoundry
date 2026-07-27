@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: red-team
 Category: specialist
-Last verified: 2026-07-20
+Last verified: 2026-07-27
 
 ## Mission
 
@@ -185,4 +185,15 @@ After validation, apply the ordered four-way actionability gate:
 `do_now`/`maybe_later` work before closure, create no backlog for rejected
 states, and use focused repair replay unless a load-bearing boundary change
 objectively requires a full council.
+
+Repair/reverification independence is enforced chain-aware at the typed
+authoring surface: a reverification sharing its `repair_start`'s context
+while declaring `fresh_context=true` is rejected as a contradiction
+(`reverification_context_not_fresh`), and a same-actor reverification is
+rejected as protocol policy (`reverification_actor_not_distinct`); both
+append nothing. The close gate audits open and reopened waves' current
+chains (`review_evidence_independence_invalid`); closed archives are never
+retroactively invalidated. Actor equality is protocol policy, not caller
+authentication — the truth of `fresh_context`, `independent`, and actor
+identity itself remains a declaration the validator cannot verify.
 <!-- wave:executable-review-evidence end -->

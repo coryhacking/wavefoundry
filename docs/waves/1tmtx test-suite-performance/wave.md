@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: planned
-Last verified: 2026-07-26
+Last verified: 2026-07-27
 review-evidence-source: events.jsonl
 
 wave-id: `1tmtx test-suite-performance`
@@ -98,11 +98,11 @@ Estimated token savings use phase-unique returned source versions and mapped wor
 
 | Stage | Tool calls | Estimated token savings |
 | --- | ---: | ---: |
-| plan | 48 | 651,122 |
-| review | 2 | 0 |
-| **Total** | **50** | **651,122** |
+| plan | 53 | 661,585 |
+| review | 3 | 0 |
+| **Total** | **56** | **661,585** |
 
-<!-- wave:context-efficiency-state {"generation":18,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"plan":{"calls":48,"content_source_credit":822706,"derived_artifact_credit":133,"direct_net":651122,"estimated_tokens_saved":651122,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":3822,"response_debit":171086,"source_credit_count":34,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":3191},"review":{"calls":2,"content_source_credit":0,"derived_artifact_credit":0,"direct_net":-203,"estimated_tokens_saved":0,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":20,"response_debit":183,"source_credit_count":0,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":0}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":50,"content_source_credit":822706,"derived_artifact_credit":133,"direct_net":650919,"estimated_tokens_saved":651122,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":3842,"response_debit":171269,"source_credit_count":34,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":3191},"wave_id":"1tmtx test-suite-performance"} -->
+<!-- wave:context-efficiency-state {"generation":24,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"plan":{"calls":53,"content_source_credit":844790,"derived_artifact_credit":133,"direct_net":661585,"estimated_tokens_saved":661585,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":3860,"response_debit":182669,"source_credit_count":41,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":3191},"review":{"calls":3,"content_source_credit":0,"derived_artifact_credit":0,"direct_net":-496,"estimated_tokens_saved":0,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":31,"response_debit":465,"source_credit_count":0,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":0}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":56,"content_source_credit":844790,"derived_artifact_credit":133,"direct_net":661089,"estimated_tokens_saved":661585,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":3891,"response_debit":183134,"source_credit_count":41,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":3191},"wave_id":"1tmtx test-suite-performance"} -->
 <!-- wave:context-efficiency end -->
 
 <!-- wave:exploration-avoided begin -->

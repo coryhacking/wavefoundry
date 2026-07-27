@@ -276,6 +276,20 @@ class BuildPackTests(unittest.TestCase):
         self.assertIn("def build_compact_review_event", writer)
         self.assertIn("def review_evidence_human_table", writer)
         self.assertIn("def wf_review_event(", server)
+        # Wave 1tmb2: the packaged implementation carries the chain-aware
+        # independence enforcement — upgrade replaces these files wholesale, so
+        # the new contract is live after the normal MCP reload with no ledger
+        # migration or compatibility alias.
+        self.assertIn(
+            'REVERIFICATION_CONTEXT_NOT_FRESH = "reverification_context_not_fresh"',
+            writer,
+        )
+        self.assertIn(
+            'REVERIFICATION_ACTOR_NOT_DISTINCT = "reverification_actor_not_distinct"',
+            writer,
+        )
+        self.assertIn("def repair_independence_violations", writer)
+        self.assertIn("REVIEW_EVIDENCE_INDEPENDENCE_INVALID", server)
 
     def test_install_pack_carries_dashboard_document_renderer_and_memory_backfill(self):
         path = self._build()
@@ -307,6 +321,85 @@ class BuildPackTests(unittest.TestCase):
         self.assertIn("then rerun ordinary `wf setup`", setup)
         self.assertNotIn("wave_setup_resume_after_memory", server)
         self.assertNotIn("wf_resume_setup_after_memory", server)
+
+    def test_extracted_install_pack_reproduces_lifecycle_focus_contract(self):
+        """1tmb3 AC-10: the packaged server code reproduces council-ready
+        focus plus failed-call reporting after extraction. Upgrade replaces
+        these files wholesale, so the contract is live after the normal MCP
+        reload with no data migration, compatibility alias, or fallback."""
+        import subprocess
+        import tempfile
+
+        path = self._build()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            target = Path(temp_dir) / "installed"
+            target.mkdir()
+            with zipfile.ZipFile(path, "r") as archive:
+                archive.extractall(target)
+            scripts = target / ".wavefoundry" / "framework" / "scripts"
+            (target / "docs").mkdir(parents=True, exist_ok=True)
+            (target / "docs" / "workflow-config.json").write_text(
+                json.dumps({
+                    "lifecycle_id_policy": {
+                        "epoch_utc": "2020-01-01T00:00:00Z", "hour_offset": 0,
+                    }
+                }),
+                encoding="utf-8",
+            )
+            for wave_id in ("1aaaa other-wave", "1bbbb target-wave"):
+                wave_md = target / "docs" / "waves" / wave_id / "wave.md"
+                wave_md.parent.mkdir(parents=True)
+                wave_md.write_text(
+                    f"# Wave Record\n\nStatus: planned\n\nwave-id: `{wave_id}`\n",
+                    encoding="utf-8",
+                )
+            probe = r"""
+import json, sys
+from pathlib import Path
+from types import SimpleNamespace
+scripts = Path(sys.argv[1])
+root = Path(sys.argv[2])
+sys.path.insert(0, str(scripts))
+import context_efficiency
+import server_impl
+handler = SimpleNamespace(
+    root=root, cache={}, telemetry=context_efficiency.ProcessTelemetry(root)
+)
+handler.telemetry.set_focus("1aaaa other-wave", "implement", new_phase=True)
+failed = server_impl._lifecycle_context_result(
+    handler, "wf_prepare_wave", "1bbbb target-wave",
+    {"status": "error", "data": {"wave_id": "1bbbb target-wave"},
+     "diagnostics": [{"code": "missing_wave_council_signoff", "message": "m"}]},
+    focus_stage="plan", credit=False, flush=False,
+)
+ready = server_impl._lifecycle_context_result(
+    handler, "wf_prepare_wave", "1bbbb target-wave",
+    {"status": "ready_for_council_review",
+     "data": {"wave_id": "1bbbb target-wave", "mode": "ready", "council_brief": {}},
+     "diagnostics": []},
+    focus_stage="plan", credit=False, flush=True,
+)
+print(json.dumps({
+    "failed_codes": [d["code"] for d in failed["diagnostics"]],
+    "failed_destination": failed["data"]["focus_attribution"]["effective"]["destination"],
+    "ready_projection": ready["data"]["context_efficiency_persistence"].get("projection"),
+    "focus_wave": handler.telemetry.focus.wave_id,
+    "focus_stage": handler.telemetry.focus.stage,
+}))
+"""
+            result = subprocess.run(
+                [sys.executable, "-B", "-c", probe, str(scripts), str(target)],
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            out = json.loads(result.stdout)
+            self.assertIn("focus_target_not_engaged", out["failed_codes"])
+            self.assertEqual(out["failed_destination"], "1aaaa other-wave")
+            self.assertEqual(out["ready_projection"], "published")
+            self.assertEqual(out["focus_wave"], "1bbbb target-wave")
+            self.assertEqual(out["focus_stage"], "plan")
 
     def test_extracted_install_pack_executes_new_review_memory_and_dashboard_paths(self):
         import shutil

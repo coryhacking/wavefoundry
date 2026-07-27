@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-26
+Last verified: 2026-07-27
 
 ## Review Lane Summary
 
@@ -49,6 +49,8 @@ Seed `209-agent-harness-core.prompt.md` is the only full executable-review-evide
 Fresh setup, full upgrade, direct `wf render-surfaces`, and self-host refresh converge on that renderer operation. Missing required canonical carriers are materialized from their installed seeds (or a bounded bootstrap pointer for multi-output owners); Guru, conditional repo-local reviewers, and arbitrary native wrappers remain existing/enabled-only. Newly created canonical Guru wrappers are reconciled after materialization in the same render pass. Malformed markers fail safe rather than authorizing whole-file replacement.
 
 The machine contract is fail-closed. `wave.md` declares `review-evidence-source: events.jsonl`; the fixed sibling ledger—not the generated Markdown table—is the append-only authority. The typed `wf_review_event` tool serializes its event transaction under the project-global lock and refreshes the concise current-head projection on each write. A one-candidate run may reuse its finding evidence as universe proof, and an empty lightweight run needs only one run row, retaining reviewer `verification_context` without a separate dedup row. A synthesis links only to earlier `claim_kind: finding` evidence for the same finding. Approval records use `claim_id: approval:<signoff-key>` and bind the exact authority actor: `operator`, `wave-council`, or the named specialist lane; specialist and council approvals must be fresh and independent. Approval chronology is affected-lane scoped through `approval_recheck_lanes`; unrelated later synthesis does not stale another lane, while readiness findings stale readiness approval until terminal, delivery findings stale their declared delivery lanes, and operator approval remains final-wave scoped. Independence means the reviewer did not implement the repair and formed its own current-tree/test assessment before relying on prior findings or verdicts. Mandatory project orientation may disclose status or history, but it is context rather than evidence and does not by itself disqualify a fresh review. Lane reassessment is exact-lane, fresh, independent, and single-use. Universal census records include `residual_uncertainty_status` (`none | bounded | unresolved`) and `index_freshness` (`current | stale | unknown`). Operator waivers include scope, reason, and risk.
+
+Independence is split between what the validator enforces and what stays declared (seed 209, "Enforced versus declared independence"). Enforced, chain-aware and matched by exact finding and cycle: a `reverification` sharing its resolving `repair_start`'s `context_id` while declaring `fresh_context=true` is rejected at append with `reverification_context_not_fresh` (a self-contradiction, decidable with no trust assumption); a `reverification` carrying the same `actor` as that `repair_start` from a different context is rejected with `reverification_actor_not_distinct` (forward protocol policy — not proof of shared caller identity). When both match, only the same-context contradiction is returned. Rejected attempts append nothing, so the prior synthesis head stays authoritative. The close gate additionally audits an open or reopened wave's current/latest chains for the same defects appended by older code (`review_evidence_independence_invalid`); recovery is a next-cycle `repair_start` plus a distinct-role, distinct-context reverification, and sealed/closed archives are never retroactively invalidated. Declared, honor-system: the truth of `fresh_context` and `independent`, and actor identity itself — the validator sees strings, not callers, and no waiver bypasses the enforced checks.
 
 A repair cycle is an aggregate of actionable findings, not one physical run. Each finding has exactly one same-cycle repair start; a readiness-born finding may open it directly after cycle-0 readiness, while a delivery-born finding requires `initial_delivery`. Historical batch runs and compact per-finding runs are both valid. Fresh independent reviewers may append ordered same-cycle reverification progress as they clear their own required lanes. A finding becomes terminal only when its current same-cycle head has no required lanes and is either completed by reverification, truthfully reclassified to `not_issue` / `dont_do_later` with `not_required` repair state, or distinctly operator-waived with valid waiver metadata; waiver is never relabeled as completion or independent verification. Continue the fix/review loop in the phase where the finding was raised; do not carry a repaired readiness finding into delivery merely to obtain a predecessor record. Use repeated same-cycle reverifications for lane progress and a later aggregate cycle only for a later repair pass. The next cycle remains blocked until every started finding is terminal, and a completed cycle cannot be extended retroactively. When the final outstanding cycle-2 reverification makes both cycles aggregate-complete, the typed writer derives the mandatory convergence checkpoint in that same identified bundle and atomic authority replacement; callers do not append a separate checkpoint event. Its `frozen_boundary` is the set of wave-current synthesis heads after that final transition, and later runs declare deviations or reopened findings explicitly.
 
@@ -152,4 +154,15 @@ After validation, apply the ordered four-way actionability gate:
 `do_now`/`maybe_later` work before closure, create no backlog for rejected
 states, and use focused repair replay unless a load-bearing boundary change
 objectively requires a full council.
+
+Repair/reverification independence is enforced chain-aware at the typed
+authoring surface: a reverification sharing its `repair_start`'s context
+while declaring `fresh_context=true` is rejected as a contradiction
+(`reverification_context_not_fresh`), and a same-actor reverification is
+rejected as protocol policy (`reverification_actor_not_distinct`); both
+append nothing. The close gate audits open and reopened waves' current
+chains (`review_evidence_independence_invalid`); closed archives are never
+retroactively invalidated. Actor equality is protocol policy, not caller
+authentication — the truth of `fresh_context`, `independent`, and actor
+identity itself remains a declaration the validator cannot verify.
 <!-- wave:executable-review-evidence end -->

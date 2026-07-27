@@ -2276,6 +2276,9 @@ class MemoryProposeTests(_MemoryCase):
                     cycle=cycle,
                     context_id=f"{finding_id}-{run_kind}",
                 )
+                if run_kind == "repair_start":
+                    # Wave 1tmb2: the repairing role is not the reverifying role.
+                    event["actor"] = "implementer"
                 if run_kind == "reverification":
                     event["blocking_required_lanes"] = []
                     event["fresh_context"] = True
@@ -2604,6 +2607,9 @@ class MemoryProposeTests(_MemoryCase):
         ):
             event = dict(base, run_kind=run_kind, cycle=cycle,
                          context_id=f"memory-supply-{run_kind}")
+            if run_kind == "repair_start":
+                # Wave 1tmb2: the repairing role is not the reverifying role.
+                event["actor"] = "implementer"
             if run_kind == "reverification":
                 event["blocking_required_lanes"] = []
                 event["fresh_context"] = True
@@ -2668,6 +2674,9 @@ class MemoryProposeTests(_MemoryCase):
         ):
             event = dict(base, run_kind=run_kind, cycle=cycle,
                          context_id=f"misattribution-{run_kind}")
+            if run_kind == "repair_start":
+                # Wave 1tmb2: the repairing role is not the reverifying role.
+                event["actor"] = "implementer"
             if run_kind == "reverification":
                 event["blocking_required_lanes"] = []
                 event["fresh_context"] = True

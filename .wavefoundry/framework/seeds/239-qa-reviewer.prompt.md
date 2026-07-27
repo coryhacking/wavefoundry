@@ -84,6 +84,8 @@ After a blocking repair, keep the affected approval withdrawn until an eligible 
 
 Use seed 209's exact definitions of `fresh_context` and `independent`. The same reviewer in a new context may be fresh but is not independent. A scoped operator waiver records residual risk and remains distinct from completion, specialist approval, or independent confirmation.
 
+The authoring tool enforces the chain rule mechanically per seed 209's enforced-versus-declared split: a reverification sharing its `repair_start`'s context while declaring `fresh_context=true` is rejected (`reverification_context_not_fresh`), and a same-actor reverification is rejected as protocol policy (`reverification_actor_not_distinct`) without claiming caller identity. QA's obligation is the part no validator can check: verify the independence and freshness declarations are truthful, and treat a chain that required those rejections — or a close-gate `review_evidence_independence_invalid` audit hit — as a process finding, recoverable only through a next-cycle `repair_start` plus a distinct-role, distinct-context reverification.
+
 ## Finding synthesis and convergence
 
 Return findings to the coordinator for the seed-209 ordered state machine after deduplication and evidence collection:

@@ -3850,11 +3850,12 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         }
 
         def record(kind, cycle, context, blocking):
+            # Wave 1tmb2: the repairing role is not the reverifying role.
             return self.srv.wf_review_event_response(
                 self.root,
                 wave_id,
                 "finding",
-                "qa-reviewer",
+                "implementer" if kind == "repair_start" else "qa-reviewer",
                 context,
                 mode="create",
                 finding_id="convergence-finding",
@@ -4155,11 +4156,12 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         }
 
         def record(kind, cycle, context, judgment, blocking):
+            # Wave 1tmb2: the repairing role is not the reverifying role.
             return self.srv.wf_review_event_response(
                 self.root,
                 wave_id,
                 "finding",
-                "qa-reviewer",
+                "implementer" if kind == "repair_start" else "qa-reviewer",
                 context,
                 mode="create",
                 finding_id="reclassified-finding",
@@ -4223,11 +4225,12 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         }
 
         def record(finding, kind, cycle, context, blocking):
+            # Wave 1tmb2: the repairing role is not the reverifying role.
             return self.srv.wf_review_event_response(
                 self.root,
                 wave_id,
                 "finding",
-                "qa-reviewer",
+                "implementer" if kind == "repair_start" else "qa-reviewer",
                 context,
                 mode="create",
                 finding_id=finding,
@@ -6577,6 +6580,222 @@ class WfAuditBoundedIndexSnapshotTests(unittest.TestCase):
         source = (SCRIPTS_ROOT / "server_impl.py").read_text(encoding="utf-8")
         start = source.index("def index_health_response")
         self.assertIn("docs_health", source[start:start + 4000])
+
+
+# ---------------------------------------------------------------------------
+# repair/reverification independence (wave 1tmb2)
+# ---------------------------------------------------------------------------
+
+class RepairIndependenceBoundaryTests(unittest.TestCase):
+    """1tmb2 AC-3/AC-4: independence rejections through the real tool
+    envelope, and the close-gate audit over chains appended by older code.
+
+    Ledgers are produced through the canonical writer; the older-code shape is
+    simulated by rewriting only the verification context fields the old code
+    accepted, never by hand-authoring records."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        self.srv = type(self).srv
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+        created = self.srv.wf_create_wave_response(
+            self.root, "independence-fixture", mode="create"
+        )
+        self.wave_id = created["data"]["wave_id"]
+        self.wave_md = self.root / "docs" / "waves" / self.wave_id / "wave.md"
+        self.re_mod = sys.modules["review_evidence"]
+        self.events_path = self.re_mod.review_event_path(self.wave_md)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _finding(self, actor, context_id, run_kind, cycle, *, finding_id="finding-ind",
+                 blocking=None, fresh=True, mode="create"):
+        judgment = {
+            "validation_status": "real", "scope_relation": "admitted",
+            "introduced_or_worsened_by_wave": True,
+            "contract_relevance": "required_ac", "supported_reachability": True,
+            "attacker_reachability": False, "authority_domain": "none",
+            "authority_delta": "none", "observable_impact": "material",
+            "containment": "preventive",
+        }
+        evidence = {
+            "proposition": f"{finding_id} reproduces through the named path",
+            "failure_condition": "public result differs from the contract",
+            "public_path": "test public path",
+            "command_or_fixture": "RepairIndependenceBoundaryTests",
+            "expected": "contract result",
+            "observed": f"{run_kind} recorded for {finding_id}",
+            "artifact_or_test_id": f"test:{finding_id}-{run_kind}-{cycle}",
+            "known_bad_detection_method": "focused injected old behavior",
+            "limitations": "temporary local fixture only",
+            "safety_and_authorization": "local disposable fixture; no external effects",
+            "disposition_rationale": "real defect on a required AC; repair now",
+        }
+        return self.srv.wf_review_event_response(
+            self.root, self.wave_id, "finding", actor, context_id,
+            mode=mode, finding_id=finding_id, run_kind=run_kind, cycle=cycle,
+            judgment=judgment, evidence=evidence,
+            source_lanes=["qa-reviewer"],
+            blocking_required_lanes=["qa-reviewer"] if blocking is None else blocking,
+            approval_recheck_lanes=["qa-reviewer"],
+            fresh_context=fresh, independent=True, integrity_confirmed=True,
+        )
+
+    def _snapshot(self):
+        return self.events_path.read_bytes(), self.wave_md.read_bytes()
+
+    def _assert_rejected(self, response, code, snapshot):
+        self.assertEqual(response["status"], "error", response)
+        codes = [d["code"] for d in response["diagnostics"]]
+        self.assertIn(code, codes, codes)
+        self.assertEqual(self.events_path.read_bytes(), snapshot[0],
+                         "rejection must append nothing to the ledger")
+        self.assertEqual(self.wave_md.read_bytes(), snapshot[1],
+                         "rejection must leave the projection byte-identical")
+
+    # ---- AC-3: both rejection codes through preview and create -------------
+
+    def test_append_boundary_rejects_both_codes_and_appends_nothing(self):
+        self.assertEqual(
+            self._finding("qa-reviewer", "ctx-review", "initial_delivery", 0)["status"],
+            "ok",
+        )
+        self.assertEqual(
+            self._finding("implementer", "ctx-repair", "repair_start", 1)["status"],
+            "ok",
+        )
+        snapshot = self._snapshot()
+        for mode in ("dry_run", "create"):
+            rejected = self._finding(
+                "qa-reviewer", "ctx-repair", "reverification", 1,
+                blocking=[], mode=mode,
+            )
+            self._assert_rejected(rejected, "reverification_context_not_fresh", snapshot)
+
+        self.assertEqual(
+            self._finding("qa-reviewer", "ctx-review-2", "initial_delivery", 0,
+                          finding_id="finding-ind-2")["status"],
+            "ok",
+        )
+        self.assertEqual(
+            self._finding("qa-reviewer", "ctx-repair-2", "repair_start", 1,
+                          finding_id="finding-ind-2")["status"],
+            "ok",
+        )
+        snapshot = self._snapshot()
+        for mode in ("dry_run", "create"):
+            rejected = self._finding(
+                "qa-reviewer", "ctx-verify-2", "reverification", 1,
+                finding_id="finding-ind-2", blocking=[], mode=mode,
+            )
+            self._assert_rejected(rejected, "reverification_actor_not_distinct", snapshot)
+
+        # Neither attempt silently cleared a finding: both chains stay open.
+        listing = self.srv.wf_review_event_response(
+            self.root, self.wave_id, "list", "probe", "list-ind"
+        )
+        chains = listing["data"]["chain_summary"]
+        self.assertFalse(chains["finding-ind"]["terminal"])
+        self.assertFalse(chains["finding-ind-2"]["terminal"])
+        self.assertEqual(chains["finding-ind"]["unresolved_required_lanes"], ["qa-reviewer"])
+
+    # ---- AC-4: close-gate audit over older-code chains ---------------------
+
+    def _seed_older_code_chain(self, *, same_context=False):
+        """Valid distinct-role chain via the tool, then rewrite the repair
+        evidence's verification context into the shape old code accepted."""
+        self.assertEqual(
+            self._finding("qa-reviewer", "ctx-review", "initial_delivery", 0)["status"],
+            "ok",
+        )
+        self.assertEqual(
+            self._finding("implementer", "ctx-repair", "repair_start", 1)["status"],
+            "ok",
+        )
+        self.assertEqual(
+            self._finding("qa-reviewer", "ctx-verify", "reverification", 1,
+                          blocking=[])["status"],
+            "ok",
+        )
+        records, errors = self.re_mod.read_review_event_ledger(self.wave_md)
+        self.assertEqual(errors, ())
+        rows = [dict(row) for row in records]
+        for row in rows:
+            context = row.get("verification_context")
+            if not isinstance(context, dict) or context.get("context_id") != "ctx-repair":
+                continue
+            context = dict(context)
+            identity = dict(row.get("event_identity") or {})
+            if same_context:
+                context["context_id"] = "ctx-verify"
+                if identity:
+                    identity["context_id"] = "ctx-verify"
+            else:
+                context["actor"] = "qa-reviewer"
+                if identity:
+                    identity["actor"] = "qa-reviewer"
+            row["verification_context"] = context
+            if identity:
+                row["event_identity"] = identity
+        self.events_path.write_bytes(self.re_mod.canonical_review_events_bytes(rows))
+        # An older-code repository carries no adoption proof for this ledger.
+        ledger = self.root / self.re_mod.ADOPTION_LEDGER_REL
+        if ledger.exists():
+            data = json.loads(ledger.read_text(encoding="utf-8"))
+            data.get("waves", {}).pop(self.wave_id, None)
+            ledger.write_text(json.dumps(data), encoding="utf-8")
+        # The rewritten chain must remain valid to generic validation
+        # (Requirement 4: no retroactive invalidation by parsing).
+        result = self.srv.validate_external_review_evidence(self.wave_md)
+        self.assertTrue(result.ok, "\n".join(result.errors))
+
+    def _close_codes(self):
+        response = self.srv.wf_close_wave_response(self.root, self.wave_id, mode="dry_run")
+        return [d["code"] for d in response["diagnostics"]]
+
+    def test_close_gate_surfaces_older_code_chain_and_recovery_clears(self):
+        self._seed_older_code_chain()
+        self.assertIn("review_evidence_independence_invalid", self._close_codes())
+        # Recovery: a new legal repair cycle from distinct roles and contexts.
+        self.assertEqual(
+            self._finding("implementer", "ctx-recovery-repair", "repair_start", 2)["status"],
+            "ok",
+        )
+        self.assertEqual(
+            self._finding("qa-reviewer", "ctx-recovery-verify", "reverification", 2,
+                          blocking=[])["status"],
+            "ok",
+        )
+        self.assertNotIn("review_evidence_independence_invalid", self._close_codes())
+
+    def test_closed_archive_with_contradictions_stays_valid_until_reopened(self):
+        self._seed_older_code_chain(same_context=True)
+        text = self.wave_md.read_text(encoding="utf-8")
+        closed_text = text.replace("Status: planned", "Status: closed", 1)
+        self.wave_md.write_text(closed_text, encoding="utf-8")
+        closed_diags = self.srv._review_evidence_diagnostics(
+            closed_text, root=self.root, wave_key=self.wave_id, closure=True
+        )
+        self.assertNotIn(
+            "review_evidence_independence_invalid",
+            [d["code"] for d in closed_diags],
+            "sealed/closed archives are never retroactively invalidated",
+        )
+        # Explicit reopen makes the forward audit apply before it can close.
+        reopened_text = closed_text.replace("Status: closed", "Status: active", 1)
+        self.wave_md.write_text(reopened_text, encoding="utf-8")
+        reopened_diags = self.srv._review_evidence_diagnostics(
+            reopened_text, root=self.root, wave_key=self.wave_id, closure=True
+        )
+        self.assertIn(
+            "review_evidence_independence_invalid",
+            [d["code"] for d in reopened_diags],
+        )
 
 
 # ---------------------------------------------------------------------------

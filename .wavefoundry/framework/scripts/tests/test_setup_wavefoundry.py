@@ -547,6 +547,22 @@ class PublicSetupReviewProtocolIntegrationTests(unittest.TestCase):
                 "assertion that would falsify",
                 (root / "docs" / "agents" / "qa-reviewer.md").read_text(encoding="utf-8"),
             )
+            # Wave 1tmb2: fresh install stages the chain-aware independence
+            # contract in the canonical seed and both rendered carriers.
+            self.assertIn("Enforced versus declared independence", canonical_text)
+            self.assertIn("`reverification_context_not_fresh`", canonical_text)
+            self.assertIn("`reverification_actor_not_distinct`", canonical_text)
+            for rel in (
+                "docs/agents/qa-reviewer.md",
+                "docs/contributing/review-and-evals.md",
+            ):
+                carrier_text = (root / rel).read_text(encoding="utf-8")
+                self.assertIn("`reverification_context_not_fresh`", carrier_text)
+                self.assertIn("`reverification_actor_not_distinct`", carrier_text)
+            self.assertIn(
+                "must not reverify its own",
+                (root / "docs" / "agents" / "qa-reviewer.md").read_text(encoding="utf-8"),
+            )
             self.assertEqual(target.read_bytes(), first)
             self.assertEqual(historical.read_bytes(), historical_snapshot)
             self.assertEqual(historical_events.read_bytes(), historical_events_snapshot)
