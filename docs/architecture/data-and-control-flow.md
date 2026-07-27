@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-26
+Last verified: 2026-07-27
 
 ## Primary Control Paths
 
@@ -87,7 +87,7 @@ The `scheme_version: "v2"` policy is provisioned by code, not agents: fresh inst
 6c. **Cited-answer retrieval** (`code_ask`): default agent mode returns the semantic `docs`/`code` `citations` PLUS a dedicated **`graph_related` section** (wave 1p4hu): the query's resolved symbol(s) → 1-hop graph neighbors **grouped by relationship** (`callers`/`readers`/`importers`/`related`), with **seed + direction by intent** — "what calls/reads/uses X" expands the named symbol's edges INTO it (callers / readers via the 1p4ls `reads` edge / importers), while "how does X work" expands the named symbol + top semantic hits both directions (its mechanism). Citations stay purely semantic; a structural match that is also a citation is flagged `also_cited` (excerpt dropped, never sent twice). Generic-word seeds, test-file, and module nodes are suppressed. Bounded, relationship-labeled; absent when no graph/symbol resolves. Consumes the existing graph (no builder bump)
 7. **Creation tools** (`wf_new_*`): import `lifecycle_id.py` directly, generate change ID, scaffold docs in `docs/plans/`, and return repeat-safe diagnostics when the artifact already exists
 8. **Lifecycle mutation tools** (`wf_add_change`, `wf_remove_change`, `wf_prepare_wave`): update the wave record and keep admitted change docs in the wave folder; add-change relocates immediately and inserts the new `Change ID:` block inside the wave's `## Changes` section (tail-append, preserving admission order), remove-change moves active docs back to `docs/plans/`, and prepare validates or repairs placement drift; `wf_prepare_wave` decouples readiness from activation (wave 1p45l): `mode='ready'` records full readiness and leaves the wave `planned` (readied) with no guard, while `mode='create'` runs the single-OPEN guard and flips `planned→active`. The single-OPEN invariant (≤1 wave `active`/`implementing`) is enforced at the activation transitions — `wf_implement_wave`, `wf_reopen_wave`, and `wf_prepare_wave(create)` — via the `another_wave_active` diagnostic (recovery: pause the open wave, or ready the target with `mode='ready'`), not at readiness; successful write paths request a detached background docs-index refresh so non-hook clients do not depend on editor hooks for search freshness
-9. **Review and closure tools** (`wf_review_wave`, `wf_review_event`, `wf_close_wave`, `wf_pause_wave`): prepare/review/close resolve the fixed sibling `docs/waves/<wave>/events.jsonl`, parse its canonical bytes, validate record relationships through `review_evidence.py`, and compare the adopted prefix against the bounded count/hash proof in `docs/waves/review-evidence-adoptions.json`. The typed evidence tool accepts explicit reviewer judgments, derives only mechanical fields, serializes the complete transaction under the project-global review lock, atomically replaces the event ledger as the authority commit point, advances adoption proof, and regenerates the non-authoritative Markdown current-head projection. When cycle-2 reverification completes after cycle 1, that same identified transaction derives and appends the mandatory convergence checkpoint, including a frozen boundary from the post-reverification current synthesis heads; there is no separate caller-authored checkpoint operation. Failures after event commit report adoption-pending or projection-stale state and converge on identical replay without another append. Its lane-scoped chronology invalidates only approvals affected by a synthesis (with full/council and final-operator scopes preserved). `wf_review_wave` runs lint and validates adoption with `persist_adoption=False`; it requests no background index refresh and performs no adoption or project-file write, while its telemetry event follows the same write-through accounting contract as other eligible lifecycle handlers. Close runs its existing garden/lint gates first. With adoption state retained, a missing/downgraded source declaration, missing authority, proof-ahead state, changed prefix, or unadopted suffix fails closed without invoking Git. Write paths index only `wave.md`; an exact declared ledger or a retained-adoption ledger after declaration tamper is excluded from semantic retrieval, while unrelated/unadopted lifecycle-shaped files remain eligible. `wf_pause_wave` transitions the target wave from `active` to `paused` (idempotent on paused, advisory on other states), so the paused wave frees the single-OPEN slot; duplicate refreshes are throttled with repo-local runtime state
+9. **Review and closure tools** (`wf_review_wave`, `wf_review_event`, `wf_close_wave`, `wf_pause_wave`): prepare/review/close resolve the fixed sibling `docs/waves/<wave>/events.jsonl` — the sole machine authority for review evidence — parse its canonical bytes, and validate record relationships through `review_evidence.py`. There is deliberately no receipt ledger, count/hash proof, checkpoint record, or hash chain: a same-log checksum cannot prove its own tail was not deleted, so a restored complete older-but-valid ledger is not locally detectable, and removal of the source declaration itself is likewise not locally detected (with or without its sibling ledger surviving; an undeclared wave reads as prose-only legacy); Git or backups are the optional historical authority when rollback investigation matters. The typed evidence tool accepts explicit reviewer judgments, derives only mechanical fields, serializes the complete transaction under `project_state_publication_lock`, atomically replaces the event ledger as the authority commit point, and regenerates the non-authoritative Markdown current-head projection. When cycle-2 reverification completes after cycle 1, that same identified transaction derives and appends the mandatory convergence checkpoint, including a frozen boundary from the post-reverification current synthesis heads; there is no separate caller-authored checkpoint operation. Failures after event commit report projection-stale state and converge on identical replay without another append. Its lane-scoped chronology invalidates only approvals affected by a synthesis (with full/council and final-operator scopes preserved). `wf_review_wave` runs lint and validates the declared ledger read-only; it requests no background index refresh and performs no project-file write, while its telemetry event follows the same write-through accounting contract as other eligible lifecycle handlers. Close runs its existing garden/lint gates first. A wave carrying the source declaration fails closed, without invoking Git, when its ledger is missing, unreadable, noncanonical, schema-invalid, or relationship-invalid; removing or downgrading the declaration is prohibited as an agent obligation, with only the still-present downgraded form locally rejected. Write paths index only `wave.md`; every canonical wave-folder `events.jsonl` is excluded from semantic retrieval by that fixed role alone, while unrelated lifecycle-shaped files remain eligible. `wf_pause_wave` transitions the target wave from `active` to `paused` (idempotent on paused, advisory on other states), so the paused wave frees the single-OPEN slot; duplicate refreshes are throttled with repo-local runtime state
 10. **Explicit index maintenance tools** (`index_health`, `index_build`): `index_health` reports stale/missing layer status without touching the hot search path; `index_build` runs `setup_index.py` (project `content=all`, docs+code) or `indexer.py` (project `content=docs|code`) synchronously for deterministic index builds (`mode='update'` vs `mode='rebuild'`), returns structured statistics, and invalidates the in-process loaded index state afterward
 11. **Operations tools** (`wf_validate_docs`, `wf_garden_docs`, `wf_sync_surfaces`): invoke `docs_lint.py`, `docs_gardener.py`, `render_platform_surfaces.py` as subprocesses and return structured pass/fail
 
@@ -126,7 +126,7 @@ The `scheme_version: "v2"` policy is provisioned by code, not agents: fresh inst
 **Transport:** stdio (FastMCP MCP resources protocol)
 
 **State read (Path 6):** `.wavefoundry/index/`, `.wavefoundry/logs/context-efficiency.sqlite` when present, `docs/waves/`, `docs/plans/`, `docs/prompts/`, `docs/agents/session-handoff.md`
-**State written (Path 6):** process-local context-efficiency focus; write-through `.wavefoundry/logs/context-efficiency.sqlite` accounting and optional gap poison; `docs/plans/`, `docs/waves/` (including project-visible `review-evidence-adoptions.json` and marker-owned context-efficiency projection), `docs/agents/session-handoff.md` (handoff tools), `docs/` metadata (garden tool), and ignored host-local `.wavefoundry/locks/review-evidence-adoptions.lock`
+**State written (Path 6):** process-local context-efficiency focus; write-through `.wavefoundry/logs/context-efficiency.sqlite` accounting and optional gap poison; `docs/plans/`, `docs/waves/` (per-wave `events.jsonl` authority and marker-owned projections, including the context-efficiency projection), `docs/agents/session-handoff.md` (handoff tools), `docs/` metadata (garden tool), and the ignored host-local publication lock `.wavefoundry/locks/review-evidence-adoptions.lock` (`project_state_publication_lock`; adoption-shaped basename kept as a stable compatibility ABI)
 **Transport:** stdio (FastMCP)
 
 ### Path 7: Local Dashboard
@@ -179,9 +179,8 @@ The `scheme_version: "v2"` policy is provisioned by code, not agents: fresh inst
 | Context-efficiency focus | One MCP `ImplHandler` process | that process's lifecycle attribution | lifecycle transitions only; no event totals live solely in memory |
 | `.wavefoundry/logs/context-efficiency.sqlite` | MCP operational telemetry | eligible retrieval/lifecycle calls, exact-match memory-advisory estimates, paired-evaluation attachment, lifecycle/reload/upgrade projection, `wf_current_wave`, `wf_audit` | write-through opaque accounting plus separate origin-bounded exploration events; ignored and lazy |
 | Wave records `docs/waves/<id>/wave.md` | wave-coordinator | wave inspection tools | wave lifecycle commands |
-| Wave event ledger `docs/waves/<id>/events.jsonl` | wave-coordinator | prepare/review/close, dashboard/resources | `wf_create_wave` (empty) and locked `wf_review_event`; sole canonical review-event authority |
-| Review adoption ledger `docs/waves/review-evidence-adoptions.json` | lifecycle evidence validator | prepare/review/close validation | `review_evidence.py`; bounded `record_count` + canonical-prefix SHA-256 per adopted wave |
-| Review adoption lock `.wavefoundry/locks/review-evidence-adoptions.lock` | lifecycle evidence validator | `review_evidence.py` | `review_evidence.py`; host-local, ignored, crash-safe coordination only |
+| Wave event ledger `docs/waves/<id>/events.jsonl` | wave-coordinator | prepare/review/close, dashboard/resources | `wf_create_wave` (empty) and locked `wf_review_event`; sole machine authority for review evidence |
+| Publication lock `.wavefoundry/locks/review-evidence-adoptions.lock` | `project_state_publication_lock` (`review_evidence.py`) | every project-state publication writer | host-local, ignored, crash-safe coordination only; basename is a stable compatibility ABI |
 | Change docs `docs/plans/<id>.md` | Engineering | wf_get_change | wf_new_* tools, operator, wf_remove_change |
 | Change docs `docs/waves/<wave-id>/<id>.md` | Active wave | wf_get_change, wave lifecycle tools | wf_add_change, wf_prepare_wave |
 | Session handoff `docs/agents/session-handoff.md` | Active session | wf_get_handoff, MCP resource `wavefoundry://session-handoff` | wf_set_handoff |
@@ -189,8 +188,8 @@ The `scheme_version: "v2"` policy is provisioned by code, not agents: fresh inst
 ## Runtime Lock Convention
 
 Dedicated project-runtime OS-lock carriers live under `.wavefoundry/locks/`:
-the dashboard launch mutex and lifetime/metadata carrier, the review-evidence
-adoption lock, and context-efficiency producer leases under `locks/producers/`.
+the dashboard launch mutex and lifetime/metadata carrier, the project-state
+publication lock, and context-efficiency producer leases under `locks/producers/`.
 `runtime_lock.py` is the mechanical authority for lazy parent creation, binary
 open, POSIX/Windows acquire and release, byte ranges, typed busy versus I/O
 outcomes, held probing, handle closure, and in-place JSON metadata. Lock files
@@ -208,7 +207,7 @@ resource files and the framework test-run lock are outside this path convention.
 
 Upgrade performs a one-way cutover with no runtime fallback. Before extraction,
 the new pack's upgrade extension records dashboard restart intent, stops the
-installed dashboard, proves the old dashboard/adoption/producer carriers are
+installed dashboard, proves the old dashboard/publication/producer carriers are
 not held, and deletes those old paths. The extracted runtime recognizes only
 `.wavefoundry/locks/`. Cleanup restarts a previously running dashboard on its
 prior port before removing the upgrade marker; restart failure retains the
@@ -254,30 +253,32 @@ mirrors only the run id and gate; there is no JSON/Markdown fallback authority.
 Active-run lookup and
 creation are one SQLite immediate transaction with one non-indexed run allowed
 per entry path, so concurrent setup/upgrade processes share a census. A
-new-code `update-index`/`rebuild-index`/cleanup backstop first projects review
-state and establishes this run when the retained lock came from an older
-in-memory upgrade runner; action-required state is returned before any index
-publication. A candidate-bearing run remains `ready_for_index` for the newly
-installed runner to publish; the old loaded runner never forwards publication
-authority into its older index-child choreography. Before the old runner
-reaches its docs gate, the newly extracted
+new-code `update-index`/`rebuild-index`/cleanup backstop first runs the
+one-way retired-sidecar cleanup and establishes this run when the retained
+lock came from an older in-memory upgrade runner; action-required state is
+returned before any index publication. A candidate-bearing run remains
+`ready_for_index` for the newly installed runner to publish; the old loaded
+runner never forwards publication authority into its older index-child
+choreography. Before the old runner reaches its docs gate, the newly extracted
 `upgrade_extensions.pre_docs_gate` loads the newly installed upgrader by file
-path under a unique module name and repairs the review-status projection. The
-upgrade lock records that repair, so a resumed current runner does not repeat
-it. This bridge deliberately executes new validation code rather than falling
-back to the old in-memory implementation. If that projection or the following
-docs gate needs repair, `resume_after_gate` accepts either retained failure
-phase and always rebuilds/persists current projection before rerunning lint;
-the earlier lock marker is never treated as current authority.
-Every index-publication and cleanup entry point checks that retained phase
-before doing work: resume-after-memory, update/rebuild-index, and cleanup all
-refuse until `resume_after_gate` succeeds and clears the marker.
+path under a unique module name and runs the same retired-sidecar cleanup;
+upgrade never enumerates, reprojects, or rewrites historical waves. The
+upgrade lock records that cleanup, so a resumed current runner does not
+repeat it. This bridge deliberately executes new code rather than falling
+back to the old in-memory implementation. A refused cleanup retains
+`failed_phase=review_sidecar_cleanup` (stop every attached host, re-run the
+upgrade); a docs-gate failure is recovered by `resume_after_gate`, which
+reruns only the docs gate. Every index-publication and cleanup entry point
+checks that retained phase before doing work: resume-after-memory,
+update/rebuild-index, and cleanup all refuse until the matching recovery
+succeeds and clears the marker. This cutover requires a full restart of every
+attached MCP/agent host before lifecycle mutation resumes.
 
 ### Review history and current state
 
-For adopted waves, `events.jsonl` is the complete machine history. A serialized
-ledger-first write updates the adoption proof, then regenerates two bounded
-Markdown views: Finding Synthesis and `wave:review-status`. The latter contains
+For declared waves, `events.jsonl` is the complete machine history and sole
+authority. A serialized ledger-first write regenerates two bounded Markdown
+views: Finding Synthesis and `wave:review-status`. The latter contains
 one row per canonical signoff key with current state, causal reason, and next
 action. Lifecycle gates consume the same typed derivation; human prose outside
 the owned marker is not approval authority and is preserved.

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-26
+Last verified: 2026-07-27
 
 ## Repository Summary
 
@@ -35,26 +35,26 @@ between the markers is machine-maintained; the surrounding narrative is not.
 
 | Area | Path | Kind | Size (nodes) |
 | ---- | ---- | ---- | ------------ |
-| tests | `.wavefoundry/framework/scripts/tests` | code | 9288 |
-| server_impl | `.wavefoundry/framework/scripts` | code | 830 |
+| tests | `.wavefoundry/framework/scripts/tests` | code | 9309 |
+| server_impl | `.wavefoundry/framework/scripts` | code | 860 |
 | graph | `.wavefoundry/framework/scripts` | code | 353 |
 | dashboard | `.wavefoundry/framework/dashboard` | code | 214 |
+| scripts/dashboard_lib | `.wavefoundry/framework/scripts` | code | 209 |
 | wave_lint_lib | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 197 |
 | chunker | `.wavefoundry/framework/scripts` | code | 179 |
 | scripts/accel_embedder | `.wavefoundry/framework/scripts` | code | 173 |
-| dashboard_lib | `.wavefoundry/framework/scripts` | code | 160 |
-| upgrade_wavefoundry | `.wavefoundry/framework/scripts` | code | 144 |
-| indexer | `.wavefoundry/framework/scripts` | code | 126 |
-| context_efficiency | `.wavefoundry/framework/scripts` | code | 122 |
-| dashboard/dashboard | `.wavefoundry/framework/scripts` | code | 117 |
-| review_evidence | `.wavefoundry/framework/scripts` | code | 105 |
+| upgrade_wavefoundry | `.wavefoundry/framework/scripts` | code | 147 |
+| indexer | `.wavefoundry/framework/scripts` | code | 144 |
+| dashboard/dashboard | `.wavefoundry/framework/scripts` | code | 118 |
+| context_efficiency | `.wavefoundry/framework/scripts` | code | 114 |
 | render_agent_surfaces | `.wavefoundry/framework/scripts` | code | 91 |
+| review_evidence | `.wavefoundry/framework/scripts` | code | 83 |
+| docs/dashboard_lib | `.wavefoundry/framework/scripts` | code | 67 |
 | gen_codebase_map | `.wavefoundry/framework/scripts` | code | 57 |
 | graph_di_signals | `.wavefoundry/framework/scripts` | code | 44 |
-| scripts/graph_query | `.wavefoundry/framework/scripts` | code | 38 |
+| scripts/graph_query | `.wavefoundry/framework/scripts` | code | 40 |
 | upgrade_extensions | `.wavefoundry/framework/scripts` | code | 38 |
 | graph_query | `.wavefoundry/framework/scripts` | code | 33 |
-| build_pack | `.wavefoundry/framework/scripts` | code | 26 |
 | design_token_build | `.wavefoundry/framework/scripts` | code | 25 |
 | run_tests | `.wavefoundry/framework/scripts` | code | 18 |
 | docs_gardener | `.wavefoundry/framework/scripts` | code | 16 |

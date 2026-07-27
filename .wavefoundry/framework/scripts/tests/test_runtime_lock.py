@@ -134,7 +134,7 @@ class RuntimeFileLockTests(unittest.TestCase):
             pass
         with dashboard_lib.dashboard_server_lock(self.root):
             pass
-        with review_evidence._adoption_write_lock(self.root):
+        with review_evidence.project_state_publication_lock(self.root):
             pass
         producer = ce.producer_lease_path(self.root, "producer")
         handle, acquired = ce._try_lock_lease(producer, create=True)
@@ -152,7 +152,7 @@ class RuntimeFileLockTests(unittest.TestCase):
             locks / "dashboard-server.lock",
         )
         self.assertEqual(
-            self.root / review_evidence.ADOPTION_LOCK_REL,
+            self.root / review_evidence.PROJECT_STATE_PUBLICATION_LOCK_REL,
             locks / "review-evidence-adoptions.lock",
         )
         self.assertEqual(producer, locks / "producers" / "producer.lock")

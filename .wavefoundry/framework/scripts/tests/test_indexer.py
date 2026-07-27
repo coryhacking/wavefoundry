@@ -150,15 +150,14 @@ class FileWalkerTests(unittest.TestCase):
         )
 
     def test_excludes_only_canonical_wave_event_ledgers(self):
-        """1slep AC-8: raw wave authority is excluded without a basename-wide rule."""
+        """1slep AC-8 / 1tomw AC-6: the fixed wave-folder role alone excludes."""
         _make_repo(self.root, {
             "docs/waves/1slep external-ledger/events.jsonl": '{"canonical":true}\n',
             "docs/waves/1slep external-ledger/wave.md": "# Wave\nreview-evidence-source: events.jsonl\n\n# Searchable current-state projection\n",
             "events.jsonl": '{"root":"eligible"}\n',
             "audit/events.jsonl": '{"nested":"eligible"}\n',
             "docs/waves/events.jsonl": '{"no-wave-directory":"eligible"}\n',
-            "docs/waves/design-notes/events.jsonl": '{"unrelated-wave-note":"eligible"}\n',
-            "docs/waves/design-notes/wave.md": "# Design notes, not a Wavefoundry wave\n",
+            "docs/waves/notes/events.jsonl": '{"non-wave-shaped-dir":"eligible"}\n',
             "docs/waves/1slep external-ledger/archive/events.jsonl": '{"deeper":"eligible"}\n',
         })
 
@@ -172,8 +171,7 @@ class FileWalkerTests(unittest.TestCase):
         self.assertIn("events.jsonl", rels)
         self.assertIn("audit/events.jsonl", rels)
         self.assertIn("docs/waves/events.jsonl", rels)
-        self.assertIn("docs/waves/design-notes/events.jsonl", rels)
-        self.assertIn("docs/waves/design-notes/wave.md", rels)
+        self.assertIn("docs/waves/notes/events.jsonl", rels)
         self.assertIn("docs/waves/1slep external-ledger/archive/events.jsonl", rels)
         self.assertTrue(
             self.bi._is_canonical_wave_events_path(
@@ -183,30 +181,29 @@ class FileWalkerTests(unittest.TestCase):
         )
         self.assertFalse(
             self.bi._is_canonical_wave_events_path(
-                "docs/waves/design-notes/events.jsonl", self.root
+                "docs/waves/notes/events.jsonl", self.root
             )
         )
 
-    def test_retained_adoption_keeps_ledger_excluded_after_source_tamper(self):
-        """Lifecycle failure must not make adopted raw review history searchable."""
+    def test_ledger_stays_excluded_after_source_tamper_without_state_lookup(self):
+        """1tomw AC-6: declaration tampering cannot admit raw review history.
+
+        The fixed wave-folder role alone decides exclusion — no wave.md read
+        and no retained adoption state is consulted, so a removed or wrong
+        source declaration changes nothing.
+        """
         import review_evidence
 
-        wave_dir = self.root / "docs" / "waves" / "1test adopted-ledger"
+        wave_dir = self.root / "docs" / "waves" / "1test declared-ledger"
         _make_repo(self.root, {
-            "docs/waves/1test adopted-ledger/events.jsonl": "",
-            "docs/waves/1test adopted-ledger/wave.md": (
+            "docs/waves/1test declared-ledger/events.jsonl": "",
+            "docs/waves/1test declared-ledger/wave.md": (
                 "# Wave\nreview-evidence-source: events.jsonl\n\n"
                 + review_evidence.empty_external_finding_synthesis_section()
             ),
-            "docs/waves/1notes design-notes/events.jsonl": '{"note":"eligible"}\n',
-            "docs/waves/1notes design-notes/wave.md": "# Design notes, not an adopted wave\n",
+            "docs/waves/notes/events.jsonl": '{"note":"eligible"}\n',
         })
         wave_md = wave_dir / "wave.md"
-        self.assertIsNone(
-            review_evidence.record_protocol_state(
-                self.root, wave_dir.name, wave_md
-            )
-        )
 
         for tampered in (
             "# Wave\n\n" + review_evidence.empty_external_finding_synthesis_section(),
@@ -219,11 +216,9 @@ class FileWalkerTests(unittest.TestCase):
                 for path in self.bi.walk_repo(self.root)
             }
             self.assertNotIn(
-                "docs/waves/1test adopted-ledger/events.jsonl", rels
+                "docs/waves/1test declared-ledger/events.jsonl", rels
             )
-            self.assertIn(
-                "docs/waves/1notes design-notes/events.jsonl", rels
-            )
+            self.assertIn("docs/waves/notes/events.jsonl", rels)
 
     def test_excludes_git_directory(self):
         _make_repo(self.root, {"src/foo.py": "x = 1\n"})
@@ -1036,13 +1031,13 @@ class IncrementalBuildTests(unittest.TestCase):
         canonical = "docs/waves/1slep external-ledger/events.jsonl"
         projection = "docs/waves/1slep external-ledger/wave.md"
         unrelated = "audit/events.jsonl"
-        unrelated_wave_note = "docs/waves/design-notes/events.jsonl"
+        unrelated_wave_note = "docs/waves/notes/events.jsonl"
         _make_repo(self.root, {
             canonical: '{"finding":"superseded raw history"}\n',
             projection: "# Wave\nreview-evidence-source: events.jsonl\n\n# Current findings\n\nSearchable head.\n",
             unrelated: '{"audit":"searchable"}\n',
             unrelated_wave_note: '{"note":"searchable"}\n',
-            "docs/waves/design-notes/wave.md": "# Design notes, not a Wavefoundry wave\n",
+            "docs/waves/notes/wave.md": "# Design notes, not a Wavefoundry wave\n",
         })
 
         docs_mock = _make_embedder_mock(dim=4)
@@ -1075,13 +1070,13 @@ class IncrementalBuildTests(unittest.TestCase):
         canonical = "docs/waves/1slep external-ledger/events.jsonl"
         projection = "docs/waves/1slep external-ledger/wave.md"
         unrelated = "audit/events.jsonl"
-        unrelated_wave_note = "docs/waves/design-notes/events.jsonl"
+        unrelated_wave_note = "docs/waves/notes/events.jsonl"
         _make_repo(self.root, {
             canonical: '{"finding":"old indexed authority"}\n',
             projection: "# Wave\nreview-evidence-source: events.jsonl\n\n# Current findings\n\nSearchable head.\n",
             unrelated: '{"audit":"still searchable"}\n',
             unrelated_wave_note: '{"note":"still searchable"}\n',
-            "docs/waves/design-notes/wave.md": "# Design notes, not a Wavefoundry wave\n",
+            "docs/waves/notes/wave.md": "# Design notes, not a Wavefoundry wave\n",
         })
 
         # Simulate a prior build that admitted and emitted a docs row for the

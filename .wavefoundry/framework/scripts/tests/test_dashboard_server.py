@@ -489,25 +489,11 @@ class DashboardSnapshotTests(unittest.TestCase):
         self.assertIsNone(wave["review_evidence_projection"])
         self.assertTrue(wave["review_evidence_status"]["diagnostics"])
 
-    def test_adopted_missing_external_ledger_fails_closed(self):
+    def test_declared_missing_external_ledger_fails_closed(self):
+        # Wave 1tomw (AC-2): the declaration alone marks applicability; a
+        # declared wave whose sole-authority ledger is missing fails closed
+        # with no receipt state consulted.
         wave_dir = self.root / "docs" / "waves" / "12x test-wave"
-        empty_hash = hashlib.sha256(b"wavefoundry-review-events\0").hexdigest()
-        _write(
-            self.root / "docs" / "waves" / "review-evidence-adoptions.json",
-            json.dumps(
-                {
-                    "protocol_version": 1,
-                    "waves": {
-                        "12x test-wave": {
-                            "version": 1,
-                            "source": "events.jsonl",
-                            "record_count": 0,
-                            "prefix_sha256": empty_hash,
-                        }
-                    },
-                }
-            ),
-        )
         (wave_dir / "events.jsonl").unlink()
 
         wave = self.lib.collect_waves(self.root)[0]
@@ -515,7 +501,7 @@ class DashboardSnapshotTests(unittest.TestCase):
         self.assertEqual(wave["review_evidence_status"]["integrity"], "invalid")
         self.assertIsNone(wave["review_evidence_projection"])
         self.assertTrue(
-            any("ledger is missing" in item for item in wave["review_evidence_status"]["diagnostics"])
+            any("missing" in item for item in wave["review_evidence_status"]["diagnostics"])
         )
 
     def test_collect_dashboard_snapshot_uses_pending_scope_when_no_active_wave(self):

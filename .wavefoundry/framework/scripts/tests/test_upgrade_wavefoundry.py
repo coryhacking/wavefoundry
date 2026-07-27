@@ -1348,7 +1348,12 @@ class StampManifestRevisionTests(unittest.TestCase):
 
 
 class ResumeAfterGateTests(unittest.TestCase):
-    """Resume rebuilds review state before linting the retained-lock tree."""
+    """Resume reruns only the docs gate against the retained-lock tree.
+
+    Wave 1tomw: the upgrade projector is retired — resume neither enumerates
+    nor reprojects historical waves, and a `review_status_projection` failure
+    phase no longer exists.
+    """
 
     def setUp(self):
         self.mod = load_upgrade_module()
@@ -1368,10 +1373,6 @@ class ResumeAfterGateTests(unittest.TestCase):
         self.lib.write_upgrade_lock(self.root, "1.5.0", "1.6.0")
         self.lib.update_upgrade_lock(self.root, failed_phase="docs_gate", failed_at="t")
 
-    @staticmethod
-    def _projection_result():
-        return {"projected": 1, "unchanged": 0, "blocked": 0}
-
     # AC-2 / AC-6b — extract idempotence decision.
     def test_tree_already_at_target(self):
         (self.root / "framework").mkdir()
@@ -1385,62 +1386,29 @@ class ResumeAfterGateTests(unittest.TestCase):
     def test_tree_already_at_no_version_file(self):
         self.assertFalse(self.mod._tree_already_at(self.root, "1.6.0"))
 
-    # AC-6a / AC-5 — resume rebuilds projection, runs the gate, and exits 0.
-    def test_resume_reprojects_then_runs_gate_and_clears_marker_on_pass(self):
+    def test_resume_runs_only_the_docs_gate_and_clears_marker_on_pass(self):
         self._failed_gate_lock()
         called = []
         with patch.object(
-            self.mod,
-            "phase_review_status_projection",
-            lambda r: called.append(("projection", r)) or self._projection_result(),
-        ), patch.object(
             self.mod,
             "phase_docs_gate",
             lambda r: called.append(("docs", r)),
         ):
             rc = self._resume()
         self.assertEqual(rc, 0)
-        self.assertEqual([name for name, _root in called], ["projection", "docs"])
+        self.assertEqual([name for name, _root in called], ["docs"])
         self.assertTrue(all(path.resolve() == self.root.resolve() for _, path in called))
         lock = self.lib.read_upgrade_lock(self.root)
-        self.assertEqual(
-            lock.get("review_status_projection"), self._projection_result()
-        )
         self.assertIsNone(lock.get("failed_phase"))
 
-    def test_resume_accepts_current_runner_projection_failure(self):
-        self.lib.write_upgrade_lock(self.root, "1.5.0", "1.6.0")
-        self.lib.update_upgrade_lock(
-            self.root, failed_phase="review_status_projection", failed_at="t"
-        )
-        called = []
-        with patch.object(
-            self.mod,
-            "phase_review_status_projection",
-            lambda r: called.append("projection") or self._projection_result(),
-        ), patch.object(
-            self.mod,
-            "phase_docs_gate",
-            lambda r: called.append("docs"),
-        ):
-            self.assertEqual(self._resume(), 0)
-        self.assertEqual(called, ["projection", "docs"])
-
-    def test_resume_projection_failure_retains_projection_phase(self):
-        self._failed_gate_lock()
-
-        def _fail_projection(_root):
-            raise SystemExit(1)
-
-        with patch.object(
-            self.mod, "phase_review_status_projection", _fail_projection
-        ), patch.object(self.mod, "phase_docs_gate") as docs_gate:
-            with self.assertRaises(SystemExit) as raised:
-                self._resume()
-        self.assertEqual(raised.exception.code, 1)
-        docs_gate.assert_not_called()
-        lock = self.lib.read_upgrade_lock(self.root)
-        self.assertEqual(lock.get("failed_phase"), "review_status_projection")
+    def test_projector_is_retired_without_replacement(self):
+        # Wave 1tomw (AC-11): no projector symbol, recovery marker key, or
+        # resume branch for it survives in the upgrade module.
+        self.assertFalse(hasattr(self.mod, "phase_review_status_projection"))
+        source = UPGRADE_PATH.read_text(encoding="utf-8")
+        self.assertNotIn("phase_review_status_projection", source)
+        self.assertNotIn("review_status_projection_failure", source)
+        self.assertNotIn('"review_status_projection"', source)
 
     # AC-5 — non-zero exit on repeated gate failure; marker retained.
     def test_resume_nonzero_on_repeated_failure(self):
@@ -1449,19 +1417,12 @@ class ResumeAfterGateTests(unittest.TestCase):
         def _fail(_root):
             raise SystemExit(1)
 
-        with patch.object(
-            self.mod,
-            "phase_review_status_projection",
-            return_value=self._projection_result(),
-        ), patch.object(self.mod, "phase_docs_gate", _fail):
+        with patch.object(self.mod, "phase_docs_gate", _fail):
             with self.assertRaises(SystemExit) as cm:
                 self._resume()
         self.assertEqual(cm.exception.code, 1)
         lock = self.lib.read_upgrade_lock(self.root)
         self.assertEqual(lock.get("failed_phase"), "docs_gate")
-        self.assertEqual(
-            lock.get("review_status_projection"), self._projection_result()
-        )
 
     # AC-3 — refuse to resume when the prior failure was NOT the docs gate.
     def test_resume_refuses_non_gate_failure(self):
@@ -1469,14 +1430,26 @@ class ResumeAfterGateTests(unittest.TestCase):
         self.lib.update_upgrade_lock(self.root, failed_phase="extract", failed_at="t")
         called = []
         with patch.object(
-            self.mod, "phase_review_status_projection"
-        ) as projection, patch.object(
             self.mod, "phase_docs_gate", lambda r: called.append(r)
         ):
             rc = self._resume()
         self.assertEqual(rc, 1)
-        projection.assert_not_called()
         self.assertEqual(called, [])  # gate must NOT run
+
+    def test_resume_refuses_sidecar_cleanup_failure(self):
+        # A held-lock refusal is not resumable: the operator must stop every
+        # attached host and re-run the full upgrade.
+        self.lib.write_upgrade_lock(self.root, "1.5.0", "1.6.0")
+        self.lib.update_upgrade_lock(
+            self.root, failed_phase="review_sidecar_cleanup", failed_at="t"
+        )
+        called = []
+        with patch.object(
+            self.mod, "phase_docs_gate", lambda r: called.append(r)
+        ):
+            rc = self._resume()
+        self.assertEqual(rc, 1)
+        self.assertEqual(called, [])
 
     def test_resume_refuses_when_no_lock(self):
         self.assertEqual(self._resume(), 1)
@@ -4603,221 +4576,224 @@ class SandboxResilientPackDiscoveryTests(unittest.TestCase):
         self.assertEqual(summary["skipped_scan_locations"], [])
 
 
-class ReviewStatusUpgradeProjectionTests(unittest.TestCase):
+class ReviewEvidenceSidecarCleanupTests(unittest.TestCase):
+    """Wave 1tomw (AC-5/AC-11): one-way retired-sidecar cleanup.
+
+    Tag-derived shapes: v1.12 and earlier waves are prose-only; v1.13
+    introduced external ledgers while its publication lock lived at the
+    repository root; v1.14+ use `.wavefoundry/locks/`. The cleanup deletes
+    both retired sidecars without parsing either, byte-preserves every
+    `wave.md`/`events.jsonl`, refuses while either shipped lock path is
+    held, cleans the stale v1.13 root lock after that proof, and always
+    reports `restart_required`.
+    """
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
         (self.root / "docs" / "waves").mkdir(parents=True)
+        (self.root / ".wavefoundry").mkdir()
         self.mod = load_upgrade_module()
         if str(SCRIPTS_ROOT) not in sys.path:
             sys.path.insert(0, str(SCRIPTS_ROOT))
-        import review_evidence
-
-        self.review = review_evidence
 
     def tearDown(self):
         self.tmp.cleanup()
 
-    @staticmethod
-    def _run_record() -> dict:
-        return {
-            "record_type": "review_run",
-            "review_run_id": "run-readiness",
-            "run_kind": "readiness",
-            "cycle": 0,
-            "candidate_finding_ids": [],
-            "source_record_ids": [],
-            "dedup_evidence_id": None,
-        }
+    def _seed_history(self) -> dict[Path, bytes]:
+        # Fixture shapes are derived from the tagged release matrix recorded
+        # at readiness (v1.12 prose-only; v1.13+ declared external ledger),
+        # with the ledger and projection built through the CANONICAL
+        # producers so the preserved history is real, validator-accepted
+        # state rather than a hand-written approximation.
+        import review_evidence as re_
 
-    def _inline_wave(self, key: str) -> tuple[Path, list[dict]]:
-        wave_dir = self.root / "docs" / "waves" / key
-        wave_dir.mkdir()
-        records = [self._run_record()]
+        # v1.12 shape: prose-only wave, no ledger.
+        prose = self.root / "docs" / "waves" / "1v12a prose-only" / "wave.md"
+        prose.parent.mkdir(parents=True)
+        prose.write_bytes(
+            b"# Wave\n\nStatus: closed\n\n## Review Evidence\n\n"
+            b"- operator-signoff: approved\n"
+        )
+        # v1.13+ shape: declared wave with a canonical external ledger.
+        external_dir = self.root / "docs" / "waves" / "1v13a external"
+        external_dir.mkdir()
+        records = [
+            {
+                "record_type": "review_run",
+                "review_run_id": "run-historical",
+                "run_kind": "initial_delivery",
+                "cycle": 0,
+                "candidate_finding_ids": [],
+                "source_record_ids": [],
+                "dedup_evidence_id": None,
+            }
+        ]
         text = (
-            "# Wave Record\n\n"
-            "Status: implementing\n"
-            "review-evidence-protocol: 1\n\n"
-            "## Participants\n\n"
-            "- Required review lanes: security-reviewer\n\n"
-            "## Finding Synthesis\n\n"
-            "<!-- wave:finding-synthesis begin -->\n"
-            "<!-- wave:finding-synthesis end -->\n\n"
-            "## Review Evidence\n\n"
-            "Human chronology is preserved.\n"
+            "# Wave\nreview-evidence-source: events.jsonl\n\n"
+            + re_.empty_external_finding_synthesis_section()
+            + "\n## Review Evidence\n\n- operator-signoff: pending\n"
         )
-        (wave_dir / "wave.md").write_text(
-            self.review.render_review_evidence_records(text, records),
-            encoding="utf-8",
+        text = re_.render_review_evidence_projection(text, records)
+        text = re_.render_review_status_projection(
+            text, records, ["operator-signoff"]
         )
-        adoption = {
-            "protocol_version": 1,
-            "waves": {key: {"version": 1, "records": records}},
-        }
-        adoption_path = self.root / self.review.ADOPTION_LEDGER_REL
-        adoption_path.write_text(json.dumps(adoption) + "\n", encoding="utf-8")
-        return wave_dir / "wave.md", records
-
-    def test_active_typed_inline_wave_is_externalized_then_projected(self):
-        key = "1aaaa typed-inline"
-        wave_md, records = self._inline_wave(key)
-
-        counts = self.mod.phase_review_status_projection(self.root)
-
-        self.assertEqual(counts["adopted_inline"], 1)
-        text = wave_md.read_text(encoding="utf-8")
-        self.assertIn("review-evidence-source: events.jsonl", text)
-        self.assertIn("<!-- wave:review-status begin -->", text)
-        self.assertIn("| security-reviewer | pending |", text)
-        self.assertIn("Human chronology is preserved.", text)
-        self.assertEqual(
-            tuple(self.review.validate_external_review_evidence(wave_md).records),
-            tuple(records),
+        (external_dir / "wave.md").write_bytes(text.encode("utf-8"))
+        (external_dir / "events.jsonl").write_bytes(
+            re_.canonical_review_events_bytes(records)
         )
-        self.assertFalse(
-            self.review.validate_adopted_protocol_state(self.root, key, wave_md)
+        validation = re_.validate_external_review_evidence(external_dir / "wave.md")
+        assert validation.ok, validation.errors
+        # Both retired sidecars, deliberately unparseable: the cleanup must
+        # not read them as authority or migration input.
+        (self.root / "docs" / "waves" / "review-evidence-adoptions.json").write_bytes(
+            b"{not json"
         )
-
-        before = {
-            path.relative_to(self.root): path.read_bytes()
+        (self.root / "docs" / "waves" / "review-evidence-migration.json").write_bytes(
+            b"{also not json"
+        )
+        return {
+            path: path.read_bytes()
             for path in self.root.rglob("*")
-            if path.is_file()
+            if path.is_file() and path.suffix in {".md", ".jsonl"}
         }
-        rerun = self.mod.phase_review_status_projection(self.root)
-        after = {
-            path.relative_to(self.root): path.read_bytes()
-            for path in self.root.rglob("*")
-            if path.is_file()
-        }
-        self.assertEqual(rerun["projected"], 0)
-        self.assertEqual(after, before)
 
-    def test_legacy_form_external_archive_is_byte_preserved(self):
-        """Wave 1tb4z P1 repair: an external-ledger archive whose projection
-        carries the retired bodyless-details form differs only by
-        presentation — the upgrade must byte-preserve it (projected: 0),
-        never rewrite history."""
-        key = "1aaac legacy-form"
-        wave_md, _records = self._inline_wave(key)
-        self.mod.phase_review_status_projection(self.root)
+    def test_cleanup_removes_sidecars_without_parsing_and_preserves_history(self):
+        preserved = self._seed_history()
 
-        text = wave_md.read_text(encoding="utf-8")
-        match = re.search(r"^\*(Machine review evidence[^\n]*)\*$", text, re.MULTILINE)
-        self.assertIsNotNone(match, "current-form projection must carry the plain summary line")
-        legacy = (
-            text[: match.start()]
-            + '<details class="wavefoundry-review-evidence">\n'
-            + f"<summary>{match.group(1)}</summary>\n"
-            + "</details>"
-            + text[match.end():]
-        )
-        wave_md.write_text(legacy, encoding="utf-8")
+        counts = self.mod.phase_review_evidence_sidecar_cleanup(self.root)
 
-        before = {
-            path.relative_to(self.root): path.read_bytes()
-            for path in self.root.rglob("*")
-            if path.is_file()
-        }
-        counts = self.mod.phase_review_status_projection(self.root)
-        after = {
-            path.relative_to(self.root): path.read_bytes()
-            for path in self.root.rglob("*")
-            if path.is_file()
-        }
-        self.assertEqual(counts["projected"], 0)
-        self.assertEqual(after, before)
-        self.assertIn("wavefoundry-review-evidence", wave_md.read_text(encoding="utf-8"))
+        self.assertEqual(counts["removed_sidecars"], 2)
+        self.assertTrue(counts["restart_required"])
+        waves = self.root / "docs" / "waves"
+        self.assertFalse((waves / "review-evidence-adoptions.json").exists())
+        self.assertFalse((waves / "review-evidence-migration.json").exists())
+        for path, payload in preserved.items():
+            self.assertEqual(path.read_bytes(), payload, path)
 
-    def test_closed_external_wave_status_projection_is_byte_preserved(self):
-        """1tmb0: upgrade must not apply new readiness semantics retroactively."""
-        wave_md, _records = self._inline_wave("1aaad closed-external")
-        self.mod.phase_review_status_projection(self.root)
-        text = wave_md.read_text(encoding="utf-8")
-        text = text.replace("Status: implementing", "Status: closed", 1).replace(
-            "| wave-council-readiness | pending |",
-            "| wave-council-readiness | historical |",
-            1,
-        )
-        wave_md.write_text(text, encoding="utf-8")
-        before = wave_md.read_bytes()
+        rerun = self.mod.phase_review_evidence_sidecar_cleanup(self.root)
+        self.assertEqual(rerun["removed_sidecars"], 0)
+        self.assertTrue(rerun["restart_required"])
 
-        counts = self.mod.phase_review_status_projection(self.root)
+    def test_stale_v13_root_lock_is_cleaned_after_quiescence_proof(self):
+        self._seed_history()
+        legacy = self.root / ".wavefoundry" / "review-evidence-adoptions.lock"
+        legacy.write_bytes(b"")
 
-        self.assertEqual(counts["projected"], 0)
-        self.assertEqual(wave_md.read_bytes(), before)
+        counts = self.mod.phase_review_evidence_sidecar_cleanup(self.root)
 
-    def test_active_prose_only_wave_blocks_with_recovery_actions(self):
-        wave_dir = self.root / "docs" / "waves" / "1aaab prose-only"
-        wave_dir.mkdir()
-        (wave_dir / "wave.md").write_text(
-            "# Wave\n\nStatus: implementing\n\n"
-            "## Review Evidence\n\n- operator-signoff: pending\n",
-            encoding="utf-8",
-        )
+        self.assertEqual(counts["removed_stale_root_lock"], 1)
+        self.assertFalse(legacy.exists())
 
-        with self.assertRaises(SystemExit) as raised:
-            self.mod.phase_review_status_projection(self.root)
+    def test_held_current_lock_refuses_without_deleting_anything(self):
+        self._seed_history()
+        import review_evidence
+        from runtime_lock import RuntimeFileLock
 
-        message = str(raised.exception)
-        self.assertIn("wf_review_event", message)
-        self.assertIn("wf upgrade", message)
+        current = self.root / review_evidence.PROJECT_STATE_PUBLICATION_LOCK_REL
+        current.parent.mkdir(parents=True, exist_ok=True)
+        holder = RuntimeFileLock(current, blocking=False)
+        holder.acquire()
+        try:
+            with self.assertRaises(SystemExit) as raised:
+                self.mod.phase_review_evidence_sidecar_cleanup(self.root)
+        finally:
+            holder.release()
+        self.assertIn("held by a running process", str(raised.exception))
+        waves = self.root / "docs" / "waves"
+        self.assertTrue((waves / "review-evidence-adoptions.json").exists())
+        self.assertTrue((waves / "review-evidence-migration.json").exists())
 
-    def test_external_projection_converges_before_legacy_action_required(self):
-        external_md, _records = self._inline_wave("1aaaa external")
-        prose_dir = self.root / "docs" / "waves" / "1aaab prose-only"
-        prose_dir.mkdir()
-        prose_dir.joinpath("wave.md").write_text(
-            "# Wave\n\nStatus: implementing\n\n"
-            "## Review Evidence\n\n- operator-signoff: pending\n",
-            encoding="utf-8",
-        )
+    def test_held_v13_root_lock_refuses_and_is_not_deleted(self):
+        self._seed_history()
+        from runtime_lock import RuntimeFileLock
 
-        with self.assertRaises(SystemExit):
-            self.mod.phase_review_status_projection(self.root)
+        legacy = self.root / ".wavefoundry" / "review-evidence-adoptions.lock"
+        legacy.write_bytes(b"")
+        holder = RuntimeFileLock(legacy, blocking=False)
+        holder.acquire()
+        try:
+            with self.assertRaises(SystemExit) as raised:
+                self.mod.phase_review_evidence_sidecar_cleanup(self.root)
+        finally:
+            holder.release()
+        self.assertIn("v1.13 root", str(raised.exception))
+        self.assertTrue(legacy.exists())
 
-        rendered = external_md.read_text(encoding="utf-8")
-        self.assertIn("<!-- wave:review-status begin -->", rendered)
-        self.assertIn("| security-reviewer | pending |", rendered)
-
-    def test_closed_prose_only_wave_is_reported_without_mutation(self):
-        wave_dir = self.root / "docs" / "waves" / "1aaac closed"
-        wave_dir.mkdir()
-        wave_md = wave_dir / "wave.md"
-        original = (
-            "# Wave\n\nStatus: closed\n\n"
-            "## Review Evidence\n\n- operator-signoff: approved\n"
-        )
-        wave_md.write_text(original, encoding="utf-8")
-
-        counts = self.mod.phase_review_status_projection(self.root)
-
-        self.assertEqual(counts["reported_legacy"], 1)
-        self.assertEqual(wave_md.read_text(encoding="utf-8"), original)
-
-    def test_symlinked_wave_directory_is_rejected_without_external_write(self):
+    def test_symlinked_waves_parent_refuses_and_leaves_outside_sentinel(self):
         with tempfile.TemporaryDirectory() as outside_tmp:
-            outside = Path(outside_tmp) / "1evil outside"
+            outside = Path(outside_tmp) / "outside-waves"
             outside.mkdir()
-            wave_md = outside / "wave.md"
-            original = (
-                "# Wave\n\nStatus: implementing\n"
-                "review-evidence-source: events.jsonl\n\n"
-                "## Review Evidence\n\n"
-                "## Finding Synthesis\n\n"
-            )
-            wave_md.write_text(original, encoding="utf-8")
-            outside.joinpath("events.jsonl").write_bytes(b"")
-            link = self.root / "docs" / "waves" / "1evil outside"
+            sentinel = outside / "review-evidence-adoptions.json"
+            sentinel.write_bytes(b"outside sentinel")
+            waves = self.root / "docs" / "waves"
+            shutil.rmtree(waves)
             try:
-                link.symlink_to(outside, target_is_directory=True)
+                waves.symlink_to(outside, target_is_directory=True)
             except OSError as exc:
                 self.skipTest(f"directory symlinks unavailable: {exc}")
 
             with self.assertRaises(SystemExit) as raised:
-                self.mod.phase_review_status_projection(self.root)
+                self.mod.phase_review_evidence_sidecar_cleanup(self.root)
 
-            self.assertIn("escapes the repository root", str(raised.exception))
-            self.assertEqual(wave_md.read_text(encoding="utf-8"), original)
+            self.assertIn("symlink", str(raised.exception))
+            self.assertEqual(sentinel.read_bytes(), b"outside sentinel")
+
+    def test_symlinked_candidate_refuses_and_leaves_target_untouched(self):
+        with tempfile.TemporaryDirectory() as outside_tmp:
+            target = Path(outside_tmp) / "elsewhere.json"
+            target.write_bytes(b"outside sentinel")
+            candidate = (
+                self.root / "docs" / "waves" / "review-evidence-adoptions.json"
+            )
+            try:
+                candidate.symlink_to(target)
+            except OSError as exc:
+                self.skipTest(f"file symlinks unavailable: {exc}")
+
+            with self.assertRaises(SystemExit) as raised:
+                self.mod.phase_review_evidence_sidecar_cleanup(self.root)
+
+            self.assertIn("symlink", str(raised.exception))
+            self.assertEqual(target.read_bytes(), b"outside sentinel")
+            self.assertTrue(candidate.is_symlink())
+
+    def test_inline_upgrade_bridge_is_fully_removed(self):
+        # Wave 1tomw: the typed-inline authority never shipped in a tagged
+        # release, so no bridge survives anywhere in the upgrade module.
+        source = UPGRADE_PATH.read_text(encoding="utf-8")
+        self.assertNotIn("externalize_adopted_inline_wave_locked", source)
+
+    def test_post_cutover_public_mutation_succeeds_on_preserved_wave(self):
+        # Wave 1tomw (AC-5, DF4 repair): after the cutover, the events-only
+        # implementation (the code a restarted host runs) performs a public
+        # create-mode typed-event append against the byte-preserved external
+        # wave, and the grown ledger remains canonically valid.
+        import review_evidence as re_
+        import server_impl as srv
+
+        self._seed_history()
+        counts = self.mod.phase_review_evidence_sidecar_cleanup(self.root)
+        self.assertEqual(counts["removed_sidecars"], 2)
+
+        wave_md = self.root / "docs" / "waves" / "1v13a external" / "wave.md"
+        before = re_.validate_external_review_evidence(wave_md)
+        self.assertTrue(before.ok, before.errors)
+
+        response = srv.wf_review_event_response(
+            self.root,
+            "1v13a external",
+            "run",
+            "wave-council",
+            "post-cutover-mutation-context",
+            mode="create",
+            run_kind="initial_delivery",
+            cycle=0,
+        )
+        self.assertEqual(response["status"], "ok", response)
+        after = re_.validate_external_review_evidence(wave_md)
+        self.assertTrue(after.ok, after.errors)
+        self.assertEqual(len(after.records), len(before.records) + 1)
 
 
 class MaterializeLifecyclePolicyTests(unittest.TestCase):
@@ -5310,7 +5286,7 @@ class HistoricalMemoryUpgradeGateTests(unittest.TestCase):
             with self.subTest(option=option):
                 self.upgrade_lib.update_upgrade_lock(
                     self.root,
-                    failed_phase="review_status_projection",
+                    failed_phase="review_sidecar_cleanup",
                     failed_at="t",
                 )
                 stderr = io.StringIO()
@@ -5319,19 +5295,19 @@ class HistoricalMemoryUpgradeGateTests(unittest.TestCase):
                     result = self.mod.main(["--root", str(self.root), option])
                 self.assertEqual(result, 1)
                 phase.assert_not_called()
-                self.assertIn("--resume-after-gate", stderr.getvalue())
+                self.assertIn("re-run", stderr.getvalue())
 
-    def test_new_code_projection_failure_is_not_misreported_as_memory_action(self):
-        """A projection backstop failure is rc1 review recovery, never rc4 memory work."""
+    def test_new_code_sidecar_refusal_is_not_misreported_as_memory_action(self):
+        """A cleanup backstop refusal is rc1 recovery, never rc4 memory work."""
 
-        legacy_root = Path(self.tmp.name) / "projection-failure-target"
+        legacy_root = Path(self.tmp.name) / "sidecar-refusal-target"
         (legacy_root / ".wavefoundry").mkdir(parents=True)
         self.upgrade_lib.write_upgrade_lock(legacy_root, "1.0.0", "1.1.0")
         stderr = io.StringIO()
         with patch.object(
             self.mod,
-            "phase_review_status_projection",
-            side_effect=SystemExit("malformed typed evidence"),
+            "phase_review_evidence_sidecar_cleanup",
+            side_effect=SystemExit("publication lock is held by a running process"),
         ), patch.object(self.mod, "phase_index_update") as phase, \
              contextlib.redirect_stderr(stderr):
             result = self.mod.main(
@@ -5339,10 +5315,10 @@ class HistoricalMemoryUpgradeGateTests(unittest.TestCase):
             )
         self.assertEqual(result, 1)
         phase.assert_not_called()
-        self.assertIn("--resume-after-gate", stderr.getvalue())
+        self.assertIn("refused", stderr.getvalue())
         lock = self.upgrade_lib.read_upgrade_lock(legacy_root) or {}
         self.assertEqual(
-            lock.get("failed_phase"), "review_status_projection"
+            lock.get("failed_phase"), "review_sidecar_cleanup"
         )
 
     def test_cleanup_cannot_remove_lock_after_memory_indexed_but_docs_failed(self):
@@ -5390,7 +5366,7 @@ class HistoricalMemoryUpgradeGateTests(unittest.TestCase):
         lock = self.upgrade_lib.read_upgrade_lock(legacy_root) or {}
         self.assertTrue(lock.get("memory_backfill_run_id"))
         self.assertEqual(lock.get("memory_backfill_state"), "awaiting_validation")
-        self.assertIn("review_status_projection", lock)
+        self.assertIn("review_sidecar_cleanup", lock)
         self.assertTrue(
             (legacy_root / ".wavefoundry" / "index" / "memory-state.sqlite").is_file()
         )
@@ -5453,110 +5429,49 @@ class HistoricalMemoryUpgradeExtensionBootstrapTests(unittest.TestCase):
         self.assertEqual(lock["memory_backfill_state"], "awaiting_validation")
         self.assertEqual(lock["memory_backfill_pending"], 1)
 
-    def test_pre_docs_gate_loads_new_module_and_repairs_projection_for_old_runner(self):
-        """An old loaded runner reaches the new validator only through this hook."""
+    def test_pre_docs_gate_loads_new_module_and_runs_sidecar_cleanup_for_old_runner(self):
+        """An old loaded runner reaches the new cutover only through this hook."""
 
         scripts = self.root / ".wavefoundry" / "framework" / "scripts"
         scripts.mkdir(parents=True)
         shutil.copy2(UPGRADE_PATH, scripts / "upgrade_wavefoundry.py")
 
-        if str(SCRIPTS_ROOT) not in sys.path:
-            sys.path.insert(0, str(SCRIPTS_ROOT))
-        import review_evidence
-
-        wave_key = "1typed active"
-        wave_dir = self.root / "docs" / "waves" / wave_key
+        wave_dir = self.root / "docs" / "waves" / "1hist external"
         wave_dir.mkdir()
-        records = [ReviewStatusUpgradeProjectionTests._run_record()]
-        text = (
-            "# Wave Record\n\n"
-            "Status: implementing\n"
-            "review-evidence-protocol: 1\n\n"
-            "## Participants\n\n"
-            "- Required review lanes: security-reviewer\n\n"
-            "## Finding Synthesis\n\n"
-            "<!-- wave:finding-synthesis begin -->\n"
-            "<!-- wave:finding-synthesis end -->\n\n"
-            "## Review Evidence\n\n"
-            "Old-runner compatibility fixture.\n"
+        wave_bytes = (
+            b"# Wave\nreview-evidence-source: events.jsonl\n\n"
+            b"## Finding Synthesis\n\nHistorical narrative.\n"
         )
-        wave_md = wave_dir / "wave.md"
-        wave_md.write_text(
-            review_evidence.render_review_evidence_records(text, records),
-            encoding="utf-8",
-        )
-        adoption_path = self.root / review_evidence.ADOPTION_LEDGER_REL
-        adoption_path.parent.mkdir(parents=True, exist_ok=True)
-        adoption_path.write_text(
-            json.dumps(
-                {
-                    "protocol_version": 1,
-                    "waves": {
-                        wave_key: {"version": 1, "records": records}
-                    },
-                }
-            )
-            + "\n",
-            encoding="utf-8",
-        )
+        (wave_dir / "wave.md").write_bytes(wave_bytes)
+        (wave_dir / "events.jsonl").write_bytes(b"")
+        waves = self.root / "docs" / "waves"
+        (waves / "review-evidence-adoptions.json").write_bytes(b"{not json")
+        (waves / "review-evidence-migration.json").write_bytes(b"{also not json")
 
-        self.assertNotIn(
-            review_evidence.REVIEW_STATUS_MARKER_BEGIN,
-            wave_md.read_text(encoding="utf-8"),
-        )
         self.ext.pre_docs_gate(self.ctx)
 
-        projected = wave_md.read_text(encoding="utf-8")
-        self.assertIn(review_evidence.REVIEW_STATUS_MARKER_BEGIN, projected)
-        self.assertIn("| security-reviewer | pending |", projected)
+        self.assertFalse((waves / "review-evidence-adoptions.json").exists())
+        self.assertFalse((waves / "review-evidence-migration.json").exists())
+        self.assertEqual((wave_dir / "wave.md").read_bytes(), wave_bytes)
+        self.assertEqual((wave_dir / "events.jsonl").read_bytes(), b"")
         lock = json.loads(
             (
                 self.root / ".wavefoundry" / "upgrade-in-progress.json"
             ).read_text(encoding="utf-8")
         )
-        self.assertIn("review_status_projection", lock)
+        self.assertIn("review_sidecar_cleanup", lock)
+        self.assertTrue(lock["review_sidecar_cleanup"]["restart_required"])
 
         with patch.object(self.ext, "_installed_upgrade_module") as loader:
             self.ext.pre_docs_gate(self.ctx)
         loader.assert_not_called()
 
-        # Adjacent recovery path: evidence can change after a successful
-        # pre-docs projection or the old runner can retain docs_gate as the
-        # failed phase. Recreate the stale/missing projection, then drive the
-        # public resume command. It must execute the REAL current projector
-        # before docs lint rather than trusting the earlier lock marker.
-        stale = wave_md.read_text(encoding="utf-8")
-        status_start = stale.index(review_evidence.REVIEW_STATUS_MARKER_BEGIN)
-        status_end = stale.index(
-            review_evidence.REVIEW_STATUS_MARKER_END, status_start
-        ) + len(review_evidence.REVIEW_STATUS_MARKER_END)
-        wave_md.write_text(
-            stale[:status_start] + stale[status_end:],
-            encoding="utf-8",
-        )
-        upgrade_lib = _load_upgrade_lib()
-        upgrade_lib.update_upgrade_lock(
-            self.root, failed_phase="docs_gate", failed_at="old-runner-failure"
-        )
-        current = load_upgrade_module()
-        with patch.object(current, "phase_docs_gate"), contextlib.redirect_stdout(
-            io.StringIO()
-        ), contextlib.redirect_stderr(io.StringIO()):
-            rc = current.main(
-                ["--resume-after-gate", "--root", str(self.root)]
-            )
-        self.assertEqual(rc, 0)
-        resumed = wave_md.read_text(encoding="utf-8")
-        self.assertIn(review_evidence.REVIEW_STATUS_MARKER_BEGIN, resumed)
-        resumed_lock = upgrade_lib.read_upgrade_lock(self.root)
-        self.assertIsNone(resumed_lock.get("failed_phase"))
-        self.assertIn("review_status_projection", resumed_lock)
-
     def test_pre_docs_gate_reloads_stale_review_evidence_module_in_place(self):
         """1t49m field report: the installed upgrader resolves its function-local
         ``from review_evidence import ...`` through ``sys.modules``, so a
-        pre-extraction cache handed the new projection OLD code.  The hook must
-        re-execute the on-disk source in place before projecting."""
+        pre-extraction cache would hand the new cleanup OLD code. A pre-1.15
+        module has no ``PROJECT_STATE_PUBLICATION_LOCK_REL`` at all; the hook
+        must re-execute the on-disk source in place before the cutover."""
 
         scripts = self.root / ".wavefoundry" / "framework" / "scripts"
         scripts.mkdir(parents=True)
@@ -5566,67 +5481,29 @@ class HistoricalMemoryUpgradeExtensionBootstrapTests(unittest.TestCase):
             sys.path.insert(0, str(SCRIPTS_ROOT))
         import review_evidence
 
-        wave_key = "1typed active"
-        wave_dir = self.root / "docs" / "waves" / wave_key
-        wave_dir.mkdir()
-        records = [ReviewStatusUpgradeProjectionTests._run_record()]
-        text = (
-            "# Wave Record\n\n"
-            "Status: implementing\n"
-            "review-evidence-protocol: 1\n\n"
-            "## Participants\n\n"
-            "- Required review lanes: security-reviewer\n\n"
-            "## Finding Synthesis\n\n"
-            "<!-- wave:finding-synthesis begin -->\n"
-            "<!-- wave:finding-synthesis end -->\n\n"
-            "## Review Evidence\n\n"
-            "Stale-module reload fixture.\n"
-        )
-        wave_md = wave_dir / "wave.md"
-        wave_md.write_text(
-            review_evidence.render_review_evidence_records(text, records),
-            encoding="utf-8",
-        )
-        adoption_path = self.root / review_evidence.ADOPTION_LEDGER_REL
-        adoption_path.parent.mkdir(parents=True, exist_ok=True)
-        adoption_path.write_text(
-            json.dumps(
-                {
-                    "protocol_version": 1,
-                    "waves": {wave_key: {"version": 1, "records": records}},
-                }
-            )
-            + "\n",
-            encoding="utf-8",
-        )
+        waves = self.root / "docs" / "waves"
+        (waves / "review-evidence-adoptions.json").write_bytes(b"{not json")
 
-        # Poison the cached module the way a pre-upgrade runner leaves it:
-        # same module object, out-of-date behavior behind the same name.
-        original = review_evidence.parse_review_evidence_source
-
-        def stale(*_args, **_kwargs):
-            raise AssertionError(
-                "stale pre-extraction review_evidence was used for the projection"
-            )
-
-        review_evidence.parse_review_evidence_source = stale
+        original = review_evidence.PROJECT_STATE_PUBLICATION_LOCK_REL
+        del review_evidence.PROJECT_STATE_PUBLICATION_LOCK_REL
         try:
             self.ext.pre_docs_gate(self.ctx)
         finally:
-            if review_evidence.parse_review_evidence_source is stale:
-                review_evidence.parse_review_evidence_source = original
+            if not hasattr(review_evidence, "PROJECT_STATE_PUBLICATION_LOCK_REL"):
+                review_evidence.PROJECT_STATE_PUBLICATION_LOCK_REL = original
 
         # The reload repaired the cached module IN PLACE: same object, fresh code.
         self.assertIs(sys.modules["review_evidence"], review_evidence)
-        self.assertIsNot(review_evidence.parse_review_evidence_source, stale)
-        projected = wave_md.read_text(encoding="utf-8")
-        self.assertIn(review_evidence.REVIEW_STATUS_MARKER_BEGIN, projected)
+        self.assertEqual(
+            review_evidence.PROJECT_STATE_PUBLICATION_LOCK_REL, original
+        )
+        self.assertFalse((waves / "review-evidence-adoptions.json").exists())
         lock = json.loads(
             (self.root / ".wavefoundry" / "upgrade-in-progress.json").read_text(
                 encoding="utf-8"
             )
         )
-        self.assertIn("review_status_projection", lock)
+        self.assertIn("review_sidecar_cleanup", lock)
 
     def test_installed_memory_backfill_reloads_stale_cached_module_in_place(self):
         """Sibling of the review_evidence seam: a pre-upgrade runner's cached
@@ -5671,9 +5548,9 @@ class HistoricalMemoryUpgradeExtensionBootstrapTests(unittest.TestCase):
             "Live ref `mem-old-lesson`; unknown `mem-never-existed-here`.\n",
             encoding="utf-8",
         )
-        # Short-circuit the projection half: the migration runs before it.
+        # Short-circuit the sidecar-cleanup half: the migration runs before it.
         (self.root / ".wavefoundry" / "upgrade-in-progress.json").write_text(
-            '{"review_status_projection": {}}\n', encoding="utf-8"
+            '{"review_sidecar_cleanup": {}}\n', encoding="utf-8"
         )
         ctx = MagicMock(root=self.root, from_version="1.14.0")
         out = _io.StringIO()
@@ -5906,7 +5783,7 @@ class JournalMigrationTests(unittest.TestCase):
     def test_pre_docs_gate_version_gates_journal_migration(self):
         (self.root / ".wavefoundry").mkdir()
         (self.root / ".wavefoundry" / "upgrade-in-progress.json").write_text(
-            '{"review_status_projection": {}}\n', encoding="utf-8"
+            '{"review_sidecar_cleanup": {}}\n', encoding="utf-8"
         )
         with patch.object(self.ext, "_migrate_memory_naming"), patch.object(
             self.ext, "_migrate_journals"

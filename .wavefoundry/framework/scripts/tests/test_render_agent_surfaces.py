@@ -208,9 +208,10 @@ class ReviewProtocolCarrierRegistryTests(unittest.TestCase):
                 "review-evidence-source: events.jsonl",
                 "exactly empty file",
                 "No review findings recorded.",
-                "docs/waves/review-evidence-adoptions.json",
+                "sole",
             ):
                 self.assertIn(literal, create_wave)
+            self.assertNotIn("review-evidence-adoptions.json", create_wave)
             self.assertEqual(
                 create_wave.count(ras.CONTEXT_EFFICIENCY_CARRIER_MARKER_BEGIN), 1
             )

@@ -12,8 +12,8 @@ does not imply readiness, implementation approval, or delivery approval.
 1. Use `wf_create_wave` when the Wavefoundry MCP server is available.
 2. Admit only named change documents; do not silently add unrelated work.
 3. Create `docs/waves/<wave-id>/wave.md`; create sibling `events.jsonl` as an
-   exactly empty file, and record the zero-record adoption proof in
-   `docs/waves/review-evidence-adoptions.json`.
+   exactly empty file. That fixed sibling ledger is the sole machine authority
+   for review evidence.
 4. Declare the external evidence authority exactly:
 
    `review-evidence-source: events.jsonl`

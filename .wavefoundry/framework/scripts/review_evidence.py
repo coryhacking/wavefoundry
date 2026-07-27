@@ -1,20 +1,26 @@
-"""Executable-review event authority, validation, proof, and projection helpers.
+"""Executable-review event authority, validation, and projection helpers.
 
-Runtime state lives only in a wave's fixed sibling ``events.jsonl``. The validator is
-semantic-fact agnostic: it does not decide whether a finding is true or approve a wave;
-it validates canonical bytes and relationships, derives actionability from the
-moderator's finite facts, and renders the rebuildable Markdown current-state view.
+Runtime state lives only in a wave's fixed sibling ``events.jsonl``, the sole
+machine authority for review evidence. The validator is semantic-fact agnostic:
+it does not decide whether a finding is true or approve a wave; it validates
+canonical bytes and relationships, derives actionability from the moderator's
+finite facts, and renders the rebuildable Markdown current-state view.
 
-The inline protocol parser remains only for the one-time pre-release self-host
-migration. Runtime lifecycle callers never fall back to it. Unmarked pre-protocol
-consumer waves remain prose-only legacy records and are not rewritten by upgrade.
+There is deliberately no receipt ledger, checkpoint record, or hash chain: a
+checksum stored alongside (or inside) the same local log cannot prove that its
+own tail was not deleted, so restoring a complete older but internally valid
+ledger is not locally detectable. Git or backups are the appropriate optional
+historical authority when rollback investigation matters; ordinary corruption,
+interruption, and concurrency are covered by canonical parsing, schema and
+relationship validation, atomic replacement, cross-process locking, and
+idempotent exact replay. Unmarked pre-protocol consumer waves remain prose-only
+legacy records and are not rewritten by upgrade.
 """
 
 from __future__ import annotations
 
 import json
 import hashlib
-import os
 import re
 import threading
 from contextlib import contextmanager
@@ -52,12 +58,16 @@ _BODYLESS_DETAILS_RE = re.compile(
     r"<details class=\"wave(?:foundry)?-review-evidence\">\s*\n"
     r"<summary>(?P<summary>[^\n]*)</summary>\s*\n\s*</details>"
 )
-ADOPTION_LEDGER_REL = Path("docs/waves/review-evidence-adoptions.json")
-ADOPTION_LOCK_REL = Path(".wavefoundry/locks/review-evidence-adoptions.lock")
+# The adoption-shaped basename is an opaque compatibility ABI: 1.14+ processes
+# coordinate on this exact path, so renaming it would silently break same-path
+# cross-process serialization during upgrade. The symbol describes what the
+# lock actually guards: project-global lifecycle/state publication.
+PROJECT_STATE_PUBLICATION_LOCK_REL = Path(
+    ".wavefoundry/locks/review-evidence-adoptions.lock"
+)
 EVENTS_FILENAME = "events.jsonl"
 REVIEW_EVIDENCE_SOURCE = EVENTS_FILENAME
 REVIEW_EVIDENCE_SOURCE_DECLARATION = f"review-evidence-source: {REVIEW_EVIDENCE_SOURCE}"
-REVIEW_EVENT_HASH_DOMAIN = b"wavefoundry-review-events\0"
 EVENT_IDENTITY_FIELD = "event_identity"
 REQUEST_DIGEST_FIELD = "request_digest"
 
@@ -445,23 +455,6 @@ def parse_review_evidence_source(text: str) -> tuple[str | None, tuple[str, ...]
     return source, ()
 
 
-def review_event_prefix_proof(
-    records: Iterable[Mapping[str, Any]], count: int | None = None
-) -> dict[str, Any]:
-    """Return the bounded count/hash proof over an exact canonical prefix."""
-
-    rows = tuple(dict(record) for record in records)
-    if count is None:
-        count = len(rows)
-    if isinstance(count, bool) or not isinstance(count, int) or count < 0 or count > len(rows):
-        raise ValueError("prefix proof count must be between zero and the record count")
-    prefix = canonical_review_events_bytes(rows[:count])
-    return {
-        "record_count": count,
-        "prefix_sha256": hashlib.sha256(REVIEW_EVENT_HASH_DOMAIN + prefix).hexdigest(),
-    }
-
-
 def _lifecycle_prefix(wave_key: str) -> str:
     match = _LIFECYCLE_PREFIX_RE.match(wave_key)
     if match is None:
@@ -603,22 +596,18 @@ def build_identified_review_event(
 
 
 @contextmanager
-def _adoption_write_lock(repo_root: Path):
-    """Serialize cross-process adoption ledger read/validate/write cycles."""
+def project_state_publication_lock(repo_root: Path):
+    """Blocking, re-entrant, cross-process project-global publication lock.
 
-    path = repo_root / ADOPTION_LOCK_REL
-    with RuntimeFileLock(path, blocking=True):
-        yield
-
-
-@contextmanager
-def review_event_write_lock(repo_root: Path):
-    """Public re-entrant project-global lock for wave/event/projection writes.
-
-    Public lifecycle handlers may hold this lock across a wave.md mutation and
-    the telemetry projection that follows it. Existing event/adoption helpers
-    also acquire the same lock internally, so same-thread nesting must not
-    deadlock while other threads and processes remain serialized.
+    Serializes every project-state publication: wave lifecycle mutations,
+    review event/projection writes, context-efficiency publication, memory
+    add/propose/backfill/validate/reconcile, docs gardening, index
+    finalization/publication fencing, and upgrade. Public lifecycle handlers
+    may hold this lock across a wave.md mutation and the telemetry projection
+    that follows it; helpers also acquire it internally, so same-thread
+    nesting must not deadlock while other threads and processes remain
+    serialized. Lock order with the distinct outer advisory lifecycle lock is
+    fixed: ``lifecycle-mutation.lock`` → this lock; never invert it.
     """
 
     with _WRITE_THREAD_LOCK:
@@ -630,358 +619,14 @@ def review_event_write_lock(repo_root: Path):
             finally:
                 _WRITE_LOCK_STATE.depth = depth
             return
-        with _adoption_write_lock(repo_root):
+        with RuntimeFileLock(
+            repo_root / PROJECT_STATE_PUBLICATION_LOCK_REL, blocking=True
+        ):
             _WRITE_LOCK_STATE.depth = 1
             try:
                 yield
             finally:
                 _WRITE_LOCK_STATE.depth = 0
-
-
-def _read_adoption_ledger(repo_root: Path) -> tuple[dict[str, Any], str | None]:
-    path = repo_root / ADOPTION_LEDGER_REL
-    path_error = _adoption_ledger_path_error(repo_root, path)
-    if path_error:
-        return {}, path_error
-    if not path.exists():
-        return {"protocol_version": PROTOCOL_VERSION, "waves": {}}, None
-    try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        return {}, f"review evidence adoption ledger is unreadable: {exc}"
-    if (
-        not isinstance(value, dict)
-        or value.get("protocol_version") != PROTOCOL_VERSION
-        or not isinstance(value.get("waves"), dict)
-    ):
-        return {}, "review evidence adoption ledger has an unsupported shape/version"
-    return value, None
-
-
-def _write_adoption_ledger_atomic(repo_root: Path, ledger: Mapping[str, Any]) -> None:
-    path = repo_root / ADOPTION_LEDGER_REL
-    path_error = _adoption_ledger_path_error(repo_root, path)
-    if path_error:
-        raise OSError(path_error)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    try:
-        temp.write_text(json.dumps(ledger, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-        os.replace(temp, path)
-    finally:
-        try:
-            temp.unlink(missing_ok=True)
-        except OSError:
-            pass
-
-
-def _adoption_ledger_path_error(repo_root: Path, path: Path) -> str | None:
-    """Keep migration/adoption authority inside the configured repository."""
-
-    try:
-        root_real = repo_root.resolve(strict=True)
-        waves_dir = repo_root / "docs" / "waves"
-        if waves_dir.is_symlink():
-            return "review evidence adoption directory may not be a symlink"
-        if waves_dir.exists():
-            waves_real = waves_dir.resolve(strict=True)
-            if not waves_real.is_relative_to(root_real):
-                return "review evidence adoption directory escapes repository root"
-        else:
-            # Reads must not materialize the authority directory.  The writer
-            # creates it only after the configured repository boundary has
-            # been proven from its nearest existing ancestor.
-            ancestor = waves_dir
-            while not ancestor.exists() and ancestor != repo_root:
-                if ancestor.is_symlink():
-                    return "review evidence adoption directory may not traverse a symlink"
-                ancestor = ancestor.parent
-            ancestor_real = ancestor.resolve(strict=True)
-            if not ancestor_real.is_relative_to(root_real):
-                return "review evidence adoption directory escapes repository root"
-            waves_real = root_real / "docs" / "waves"
-        if path.is_symlink():
-            return "review evidence adoption ledger may not be a symlink"
-        if path.exists() and not path.resolve(strict=True).is_relative_to(waves_real):
-            return "review evidence adoption ledger escapes its canonical directory"
-    except (OSError, RuntimeError) as exc:
-        return f"review evidence adoption path is not safely resolvable: {exc}"
-    return None
-
-
-def _write_bytes_atomic(path: Path, payload: bytes, label: str) -> None:
-    """Replace one authority file without exposing a partially written body."""
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temp = path.with_name(f".{path.name}.{os.getpid()}.{label}.tmp")
-    try:
-        temp.write_bytes(payload)
-        os.replace(temp, path)
-    finally:
-        try:
-            temp.unlink(missing_ok=True)
-        except OSError:
-            pass
-
-
-def externalize_adopted_inline_wave_locked(
-    repo_root: Path,
-    wave_key: str,
-    wave_path: Path,
-) -> tuple[tuple[dict[str, Any], ...] | None, str | None]:
-    """One-way externalize a lossless adopted inline ledger.
-
-    The caller holds ``review_event_write_lock``.  Writes intentionally follow
-    the recoverable authority order ``events.jsonl`` → ``wave.md`` → adoption
-    proof.  A retry can therefore converge after interruption at either file
-    boundary without consulting prose as authority.
-    """
-
-    wave_md = Path(wave_path)
-    if wave_md.name != "wave.md":
-        wave_md = wave_md / "wave.md"
-    path_error = _review_authority_path_error(wave_md)
-    if path_error:
-        return None, path_error
-    ledger, error = _read_adoption_ledger(repo_root)
-    if error:
-        return None, error
-    state = ledger["waves"].get(wave_key)
-    if state is None:
-        return None, None
-    if not isinstance(state, dict):
-        return None, f"review evidence adoption state for `{wave_key}` is malformed"
-    if isinstance(state.get("records"), list):
-        expected = tuple(dict(record) for record in state["records"])
-    else:
-        adopted, adopted_error = adopted_protocol_state(repo_root, wave_key)
-        if adopted_error:
-            return None, adopted_error
-        if adopted is None:
-            return None, None
-        result = validate_external_review_evidence(wave_md)
-        if result.errors:
-            return None, "; ".join(result.errors)
-        return tuple(dict(record) for record in result.records), None
-
-    try:
-        text = wave_md.read_text(encoding="utf-8")
-    except (OSError, UnicodeError) as exc:
-        return None, f"legacy inline wave is unreadable: {exc}"
-    source, source_errors = parse_review_evidence_source(text)
-    if source_errors:
-        return None, "; ".join(source_errors)
-    if source is None:
-        legacy = validate_review_evidence(text)
-        if legacy.marker_version != PROTOCOL_VERSION or legacy.errors:
-            return None, (
-                "lossless typed-inline review evidence is invalid: "
-                + "; ".join(legacy.errors or ("protocol marker missing",))
-            )
-        records = tuple(dict(record) for record in legacy.records)
-        if records != expected:
-            return None, "typed-inline records do not equal the retained adoption history"
-        markers = list(_MARKER_RE.finditer(text))
-        if len(markers) != 1:
-            return None, "legacy wave must contain exactly one review-evidence protocol marker"
-        external = _MARKER_RE.sub(
-            REVIEW_EVIDENCE_SOURCE_DECLARATION,
-            text,
-            count=1,
-        )
-        external = render_review_evidence_projection(external, records)
-        try:
-            _write_bytes_atomic(
-                review_event_path(wave_md),
-                canonical_review_events_bytes(records),
-                "inline-adoption-events",
-            )
-            _write_bytes_atomic(
-                wave_md,
-                external.encode("utf-8"),
-                "inline-adoption-wave",
-            )
-        except OSError as exc:
-            return None, f"could not externalize typed-inline review evidence: {exc}"
-    elif source == REVIEW_EVIDENCE_SOURCE:
-        resumed = validate_external_review_evidence(wave_md)
-        if resumed.errors:
-            return None, "partially externalized review evidence is invalid: " + "; ".join(
-                resumed.errors
-            )
-        records = tuple(dict(record) for record in resumed.records)
-        if records != expected:
-            return None, "external records do not equal the retained inline adoption history"
-    else:
-        return None, f"unsupported review evidence source `{source}`"
-
-    proof = review_event_prefix_proof(records)
-    ledger["waves"][wave_key] = {
-        "version": PROTOCOL_VERSION,
-        "source": REVIEW_EVIDENCE_SOURCE,
-        **proof,
-    }
-    try:
-        _write_adoption_ledger_atomic(repo_root, ledger)
-    except OSError as exc:
-        return None, f"could not persist external review evidence adoption: {exc}"
-    final = validate_external_review_evidence(wave_md)
-    retained_errors = validate_adopted_protocol_state(repo_root, wave_key, wave_md)
-    if final.errors or retained_errors or tuple(final.records) != records:
-        return None, "external review evidence reread failed after adoption"
-    return records, None
-
-
-def adopted_protocol_state(repo_root: Path, wave_key: str) -> tuple[dict[str, Any] | None, str | None]:
-    """Return the bounded external-ledger proof for a wave, if adopted."""
-
-    ledger, error = _read_adoption_ledger(repo_root)
-    if error:
-        return None, error
-    state = ledger["waves"].get(wave_key)
-    if state is None:
-        return None, None
-    required = {"version", "source", "record_count", "prefix_sha256"}
-    if (
-        not isinstance(state, dict)
-        or set(state) != required
-        or state.get("version") != PROTOCOL_VERSION
-        or state.get("source") != REVIEW_EVIDENCE_SOURCE
-        or isinstance(state.get("record_count"), bool)
-        or not isinstance(state.get("record_count"), int)
-        or state.get("record_count", -1) < 0
-        or not isinstance(state.get("prefix_sha256"), str)
-        or re.fullmatch(r"[0-9a-f]{64}", state.get("prefix_sha256", "")) is None
-    ):
-        return None, f"review evidence adoption state for `{wave_key}` is malformed"
-    return state, None
-
-
-def record_protocol_state_locked(
-    repo_root: Path, wave_key: str, wave_path: Path
-) -> str | None:
-    """Advance one external proof while the caller holds ``review_event_write_lock``."""
-
-    result = validate_external_review_evidence(wave_path)
-    if not result.ok:
-        return "cannot record review evidence adoption from an invalid external ledger: " + "; ".join(result.errors)
-    try:
-        ledger, error = _read_adoption_ledger(repo_root)
-        if error:
-            return error
-        prior_raw = ledger["waves"].get(wave_key)
-        if prior_raw is not None:
-            prior, state_error = adopted_protocol_state(repo_root, wave_key)
-            if state_error:
-                return state_error
-            assert prior is not None
-            count = int(prior["record_count"])
-            if count > len(result.records):
-                return "review evidence adoption proof is ahead of the canonical ledger"
-            if review_event_prefix_proof(result.records, count)["prefix_sha256"] != prior["prefix_sha256"]:
-                return "review evidence adopted prefix hash does not match the canonical ledger"
-        proof = review_event_prefix_proof(result.records)
-        ledger["waves"][wave_key] = {
-            "version": PROTOCOL_VERSION,
-            "source": REVIEW_EVIDENCE_SOURCE,
-            **proof,
-        }
-        _write_adoption_ledger_atomic(repo_root, ledger)
-    except OSError as exc:
-        return f"could not persist review evidence adoption state: {exc}"
-    return None
-
-
-def record_protocol_state(repo_root: Path, wave_key: str, wave_path: Path) -> str | None:
-    """Lock and advance one external-ledger count/hash adoption proof."""
-
-    try:
-        with review_event_write_lock(repo_root):
-            return record_protocol_state_locked(repo_root, wave_key, wave_path)
-    except OSError as exc:
-        return f"could not persist review evidence adoption state: {exc}"
-
-
-def validate_adopted_protocol_state(
-    repo_root: Path, wave_key: str, wave_path: Path
-) -> tuple[str, ...]:
-    """Validate exact external authority against retained count/hash proof."""
-
-    state, error = adopted_protocol_state(repo_root, wave_key)
-    if error:
-        return (error,)
-    if state is None:
-        return ()
-    wave_md = Path(wave_path)
-    if wave_md.name != "wave.md":
-        wave_md = wave_md / "wave.md"
-    try:
-        text = wave_md.read_text(encoding="utf-8")
-    except (OSError, UnicodeError) as exc:
-        return (f"adopted wave record is unreadable: {exc}",)
-    source, source_errors = parse_review_evidence_source(text)
-    if source_errors:
-        return source_errors
-    if source != REVIEW_EVIDENCE_SOURCE:
-        return ("review evidence source declaration may not be removed after durable adoption",)
-    event_path = review_event_path(wave_md)
-    if not event_path.is_file():
-        return ("adopted canonical review event ledger is missing",)
-    records, parse_errors = read_review_event_ledger(wave_md)
-    if parse_errors:
-        return parse_errors
-    count = int(state["record_count"])
-    if count > len(records):
-        return ("review evidence adoption proof is ahead of the canonical ledger",)
-    proof = review_event_prefix_proof(records, count)
-    if proof["prefix_sha256"] != state["prefix_sha256"]:
-        return ("review evidence adopted prefix hash does not match the canonical ledger",)
-    if len(records) > count:
-        return ("canonical review event ledger has an unadopted suffix",)
-    return ()
-
-
-def adopted_legacy_inline_protocol_state_for_migration(
-    repo_root: Path, wave_key: str
-) -> tuple[dict[str, Any] | None, str | None]:
-    """Read the temporary inline full-record state solely for self-host migration."""
-
-    ledger, error = _read_adoption_ledger(repo_root)
-    if error:
-        return None, error
-    state = ledger["waves"].get(wave_key)
-    if state is None:
-        return None, None
-    if not isinstance(state, dict) or state.get("version") != PROTOCOL_VERSION or not isinstance(state.get("records"), list):
-        return None, f"legacy inline adoption state for `{wave_key}` is malformed"
-    return state, None
-
-
-def record_legacy_inline_protocol_state_for_migration(
-    repo_root: Path, wave_key: str, text: str
-) -> str | None:
-    """Migration-only writer retained until the pre-release self-host cutover."""
-
-    result = validate_review_evidence(text)
-    if result.marker_version != PROTOCOL_VERSION or not result.ok:
-        return "cannot record legacy inline adoption from an invalid or unmarked wave"
-    try:
-        with review_event_write_lock(repo_root):
-            ledger, error = _read_adoption_ledger(repo_root)
-            if error:
-                return error
-            prior = ledger["waves"].get(wave_key)
-            records = [dict(record) for record in result.records]
-            if prior is not None:
-                if not isinstance(prior, dict) or not isinstance(prior.get("records"), list):
-                    return f"legacy inline adoption state for `{wave_key}` is malformed"
-                if records[: len(prior["records"])] != prior["records"]:
-                    return "legacy inline review evidence records were removed or changed"
-            ledger["waves"][wave_key] = {"version": PROTOCOL_VERSION, "records": records}
-            _write_adoption_ledger_atomic(repo_root, ledger)
-    except OSError as exc:
-        return f"could not persist legacy inline adoption state: {exc}"
-    return None
 
 
 def empty_finding_synthesis_section() -> str:
@@ -3338,23 +2983,19 @@ def validate_review_evidence(
 
 
 __all__ = [
-    "ADOPTION_LEDGER_REL",
-    "ADOPTION_LOCK_REL",
     "EVENTS_FILENAME",
     "EVENT_IDENTITY_FIELD",
     "FINDING_SYNTHESIS_MARKER_BEGIN",
     "FINDING_SYNTHESIS_MARKER_END",
     "FULL_COUNCIL_TRIGGERS",
+    "PROJECT_STATE_PUBLICATION_LOCK_REL",
     "PROTOCOL_VERSION",
     "REQUEST_DIGEST_FIELD",
     "REVIEW_STATUS_MARKER_BEGIN",
     "REVIEW_STATUS_MARKER_END",
     "REVIEW_EVIDENCE_SOURCE",
     "REVIEW_EVIDENCE_SOURCE_DECLARATION",
-    "REVIEW_EVENT_HASH_DOMAIN",
     "ReviewEvidenceValidation",
-    "adopted_legacy_inline_protocol_state_for_migration",
-    "adopted_protocol_state",
     "build_compact_review_event",
     "build_identified_review_event",
     "canonicalize_finding_synthesis_markers",
@@ -3368,21 +3009,16 @@ __all__ = [
     "derive_review_depth",
     "empty_external_finding_synthesis_section",
     "empty_finding_synthesis_section",
-    "externalize_adopted_inline_wave_locked",
     "normalize_review_event_request",
     "parse_review_event_bytes",
     "parse_review_evidence_source",
+    "project_state_publication_lock",
     "read_review_event_ledger",
-    "record_legacy_inline_protocol_state_for_migration",
-    "record_protocol_state",
-    "record_protocol_state_locked",
     "render_review_evidence_projection",
     "render_review_evidence_records",
     "render_review_status_projection",
     "review_event_path",
-    "review_event_prefix_proof",
     "review_event_request_digest",
-    "review_event_write_lock",
     "review_evidence_human_table",
     "review_evidence_summary",
     "review_evidence_summary_line",
@@ -3390,7 +3026,6 @@ __all__ = [
     "required_review_status_keys",
     "review_status_rows",
     "review_status_signoff_keys",
-    "validate_adopted_protocol_state",
     "validate_external_review_evidence",
     "validate_review_evidence",
     "validate_review_evidence_records",

@@ -8,30 +8,40 @@ Last verified: 2026-07-27
 
 **Active wave:** *(none)*
 
-- All five admitted changes are implemented: readiness-phase repair/reverification,
-  Codex MCP renderer ownership, owner-bound hook and MCP launchers, and removal of
-  the phantom required `kwargs` argument.
-- Host behavior stays deliberately bounded: verified configuration-owner signals are
-  used where available; Codex MCP remains repository-root-only; unsupported Codex and
-  Junie native-hook surfaces were not invented; Air and Warp remain delegated.
-- Fresh-install, non-Git, nested-project, hot-reload, public-render, and one-pass
-  upgrade regressions are present. The final post-repair canonical run is green: 6,242 tests
-  across 59 files; docs lint and `git diff --check` are clean.
-- All fifteen findings are terminal in `events.jsonl`: eleven readiness findings plus four final-council
-  contract/diagnostic defects. Fresh `wave-council-readiness` and `wave-council-delivery` approvals
-  postdate their repairs.
-- Both edit gates are closed. The MCP server was reloaded after the final implementation
-  (`impl_matches_disk: true`, 83 tools re-registered).
+- Wave `1tomw events-only-review-evidence-authority` is CLOSED (2026-07-27),
+  NOT committed. Each wave's `events.jsonl` is now the sole review-evidence
+  authority: the adoption receipt and migration subsystems, the upgrade
+  projector, and the never-shipped inline bridge are deleted; the retained
+  lock is `project_state_publication_lock` on its stable physical pathname;
+  upgrade performs a confined one-way retired-sidecar cleanup behind a
+  full-host-restart maintenance window. Both retired sidecar JSON files and a
+  stale v1.13 root lock were removed from this repository through the real
+  cleanup path.
+- Delivery review: full council (red-team primer + four fresh seats), five
+  typed findings recorded/repaired/independently reverified (one
+  reverification round correctly failed and was re-cleared);
+  wave-council-delivery APPROVE, max unresolved severity none; operator
+  signoff recorded on explicit closure instruction. Ledger: 56 records.
+- Final evidence: full canonical suite 6,296 tests across 59 files all pass;
+  residue census 4/4; docs lint clean; `git diff --check` clean.
+- The working tree holds the complete uncommitted diff (46 modified/deleted
+  files plus the new census test). Commit is operator-owned.
 
 ## Next Action
 
-Run the close dry-run. If every mechanical gate passes, request the operator's explicit signoff; do
-not close or record that signoff without their current approval. Do not record native-platform runtime
-passes that were not executed.
+Operator: review and commit the working tree (suggested subject: "Land wave
+1tomw: events-only review-evidence authority"). Then fully restart this
+MCP/agent host per the cutover's maintenance-window contract before further
+lifecycle mutation (the in-process reload covered this session's own work).
 
 ## Follow-Up Plan
 
-Native Windows, WSL2, and Linux remain explicitly `not_executed`. Their owner is the release operator;
-the mechanism is the next **Package Wavefoundry** downstream verification pass, installing the built
-archive into each real environment and recording the host/platform matrix in the package/downstream
-report. They must not be inferred from parser tests or simulation.
+- Operator-decided follow-up surfaced by the delivery council: a stateless
+  orphan-ledger lint diagnostic (non-empty `events.jsonl` in a wave-shaped
+  folder whose `wave.md` lacks the declaration fails lint). If adopted, plan
+  it as its own small change and re-word the three boundary-clause carriers
+  (seed 209, `data-and-control-flow.md`, `review-and-evals.md`) in the same
+  change.
+- Next release folds this wave; the 1.15 cutover requires a full restart of
+  every attached host on target repositories, verified via the next
+  **Package Wavefoundry** downstream pass.

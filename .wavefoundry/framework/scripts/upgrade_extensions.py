@@ -501,12 +501,12 @@ def _migrate_journals(root: Path) -> None:
 
 
 def pre_docs_gate(ctx):
-    """Project review state before a newly extracted validator can enforce it.
+    """Run the retired-sidecar cutover before the docs gate validates the tree.
 
     A pre-upgrade runner has already loaded its old ``upgrade_wavefoundry``
     module, but it executes this extension from the new archive.  Loading the
-    installed module by file path avoids the old ``sys.modules`` entry and gives
-    that runner the new one-way projection migration before docs-lint runs.
+    installed module by file path avoids the old ``sys.modules`` entry and
+    gives that runner the new one-way sidecar cleanup before docs-lint runs.
     """
 
     # Wave 1t9w7 — runs before docs-lint so renamed memory records are what
@@ -521,12 +521,12 @@ def pre_docs_gate(ctx):
     lock = _read_json_object(
         ctx.root / ".wavefoundry" / "upgrade-in-progress.json"
     )
-    if "review_status_projection" in lock:
+    if "review_sidecar_cleanup" in lock:
         return
     _reload_cached_review_evidence()
     installed = _installed_upgrade_module(ctx.root)
-    counts = installed.phase_review_status_projection(ctx.root)
-    _update_upgrade_state(ctx.root, review_status_projection=counts)
+    counts = installed.phase_review_evidence_sidecar_cleanup(ctx.root)
+    _update_upgrade_state(ctx.root, review_sidecar_cleanup=counts)
 
 
 def post_docs_gate(ctx):

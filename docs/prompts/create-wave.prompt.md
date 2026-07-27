@@ -23,8 +23,9 @@ Create a wave record at `docs/waves/<wave-id>/wave.md`. The wave is the coordina
    - `Completion criteria`, `Handoff or next-wave notes`
    - `Wave Summary` placeholder: *(Populated at closure.)*
    - one generated, non-authoritative `## Finding Synthesis` current-state
-     projection; use `wf_create_wave` when available so the zero-record
-     count/hash adoption proof is updated atomically with the scaffold
+     projection; use `wf_create_wave` when available so the scaffold and its
+     empty sibling ledger are created atomically. The fixed sibling
+     `events.jsonl` is the sole machine authority for review evidence
 3. Only one wave may be **OPEN** (`active`/`implementing`) per `change-id` at a time — enforced at the activation step (wave 1p45l). Creating, admitting, and **readying** additional waves needs no pause; only opening one is single-gated.
 
 Do not put canonical JSONL inside `wave.md`. If MCP is unavailable, create an
@@ -39,9 +40,8 @@ review-evidence-source: events.jsonl
 No review findings recorded.
 ```
 
-Run the public lifecycle tool
-as soon as it is available so `docs/waves/review-evidence-adoptions.json`
-records the wave's bounded zero-record adoption proof.
+No receipt or proof sidecar exists to update: the empty sibling ledger plus
+the declaration above are the complete creation state.
 
 ## Wave Identity Rules
 

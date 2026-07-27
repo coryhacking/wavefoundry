@@ -275,12 +275,12 @@ import os, sys, time
 from pathlib import Path
 sys.path.insert(0, sys.argv[1])
 import memory_backfill
-from review_evidence import review_event_write_lock
+from review_evidence import project_state_publication_lock
 root = Path(sys.argv[2])
 barrier = Path(sys.argv[3])
 while not barrier.exists():
     time.sleep(0.01)
-with review_event_write_lock(root):
+with project_state_publication_lock(root):
     run_id = memory_backfill.ensure_run(root, "upgrade")
     memory_backfill.sync_inventory(root, run_id)
     claim = memory_backfill.claim_next(root, run_id)

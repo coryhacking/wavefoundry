@@ -927,16 +927,15 @@ def _initial_review_carrier_text(repo_root: Path, carrier: ReviewProtocolCarrier
             # Create Wave
 
             New waves must use `wf_create_wave` when MCP is available. The
-            scaffold creates an empty sibling `events.jsonl`, declares
-            `review-evidence-source: events.jsonl` in `wave.md`, renders the
-            non-authoritative `## Finding Synthesis` current-state projection,
-            and records the zero-record proof in
-            `docs/waves/review-evidence-adoptions.json`.
+            scaffold creates an exactly empty sibling `events.jsonl` (the sole
+            machine authority for review evidence), declares
+            `review-evidence-source: events.jsonl` in `wave.md`, and renders
+            the non-authoritative `## Finding Synthesis` current-state
+            projection.
 
             Never put canonical JSONL inside `wave.md`. Without MCP, create the
-            sibling as an exactly empty file, reproduce this minimal Markdown
-            declaration/projection, and run a public lifecycle tool as soon as
-            available to persist the zero-record adoption proof:
+            sibling as an exactly empty file and reproduce this minimal
+            Markdown declaration/projection:
 
             review-evidence-source: events.jsonl
 

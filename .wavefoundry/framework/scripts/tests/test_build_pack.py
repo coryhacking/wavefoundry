@@ -539,14 +539,14 @@ process.stdout.write(JSON.stringify(rendered.map(text)));
 
         self.assertEqual(legacy_wave.read_bytes(), sentinel)
         self.assertFalse((legacy_wave.parent / "events.jsonl").exists())
-        self.assertTrue(
+        self.assertFalse(
             (
                 target
                 / ".wavefoundry"
                 / "framework"
                 / "scripts"
                 / "migrate_self_host_review_events.py"
-            ).is_file()
+            ).exists()
         )
 
     def test_tests_excluded_from_pack(self):

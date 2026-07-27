@@ -2353,7 +2353,7 @@ def finalize_build_epoch(index_dir: Path, attempt_id: str) -> bool:
     # can create new pending work inside the publication boundary.
     import review_evidence
 
-    with review_evidence.review_event_write_lock(index_dir.parent.parent):
+    with review_evidence.project_state_publication_lock(index_dir.parent.parent):
         return _finalize()
 
 

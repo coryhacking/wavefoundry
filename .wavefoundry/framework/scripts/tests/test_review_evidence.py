@@ -6,6 +6,7 @@ import json
 import multiprocessing
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -200,21 +201,23 @@ def wave_text(records: list[dict[str, object]], *, marker: int | None = 1) -> st
     return raw_wave_text(expanded, marker=marker)
 
 
-def _record_adoptions_worker(
+def _publication_lock_worker(
     root: str,
-    prefix: str,
-    count: int,
     barrier: object,
-    errors: object,
+    outcomes: object,
 ) -> None:
-    text = raw_wave_text([])
-    for index in range(count):
-        barrier.wait()
-        error = subject.record_legacy_inline_protocol_state_for_migration(
-            Path(root), f"{prefix}-{index}", text
-        )
-        if error:
-            errors.put(error)
+    # Hold the publication lock briefly; overlapping holders would both be
+    # inside the critical section at once, which the shared counter detects.
+    barrier.wait()
+    marker = Path(root) / "critical-section.marker"
+    with subject.project_state_publication_lock(Path(root)):
+        if marker.exists():
+            outcomes.put("overlap")
+            return
+        marker.write_text("held", encoding="utf-8")
+        time.sleep(0.2)
+        marker.unlink()
+    outcomes.put("clean")
 
 
 class ReviewEvidenceStateMachineTests(unittest.TestCase):
@@ -893,46 +896,28 @@ class ReviewEvidenceStateMachineTests(unittest.TestCase):
             result = subject.validate_review_evidence(raw_wave_text([evidence]))
             self.assertIn("all five evidence-integrity checks", "\n".join(result.errors), field)
 
-    def test_migration_only_inline_adoption_rejects_history_replacement(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-            original = wave_text([review_run(), synthesis()])
-            self.assertIsNone(
-                subject.record_legacy_inline_protocol_state_for_migration(
-                    root, "1test wave", original
-                )
-            )
-            replacement = wave_text(
-                [review_run("other-run", candidates=[])]
-            )
-            replaced = subject.record_legacy_inline_protocol_state_for_migration(
-                root, "1test wave", replacement
-            )
-            self.assertIn("removed or changed", str(replaced))
-
-    def test_migration_only_inline_adoption_is_cross_process_serialized(self) -> None:
+    def test_publication_lock_is_cross_process_exclusive(self) -> None:
+        # Wave 1tomw: two spawned OS processes contend on the real physical
+        # lock carrier; a shared marker file detects any overlap inside the
+        # critical section.
         with tempfile.TemporaryDirectory() as temp_dir:
             ctx = multiprocessing.get_context("spawn")
             barrier = ctx.Barrier(2)
-            errors = ctx.Queue()
-            count = 12
+            outcomes = ctx.Queue()
             processes = [
                 ctx.Process(
-                    target=_record_adoptions_worker,
-                    args=(temp_dir, prefix, count, barrier, errors),
+                    target=_publication_lock_worker,
+                    args=(temp_dir, barrier, outcomes),
                 )
-                for prefix in ("wave-a", "wave-b")
+                for _ in range(2)
             ]
             for process in processes:
                 process.start()
             for process in processes:
                 process.join(20)
                 self.assertEqual(process.exitcode, 0)
-            self.assertTrue(errors.empty())
-            ledger = json.loads(
-                (Path(temp_dir) / subject.ADOPTION_LEDGER_REL).read_text(encoding="utf-8")
-            )
-            self.assertEqual(len(ledger["waves"]), count * 2)
+            results = [outcomes.get(timeout=5) for _ in range(2)]
+            self.assertEqual(results, ["clean", "clean"])
 
     def test_sealed_candidate_universe_requires_exactly_one_row(self) -> None:
         self.assert_error([review_run(candidates=["a", "b"]), synthesis(finding_id="a")], "missing synthesis rows")
@@ -2121,22 +2106,24 @@ class ExternalReviewEventLedgerTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             subject.canonical_review_event_bytes({"not_finite": float("nan")})
 
-    def test_prefix_proof_is_counted_domain_separated_and_pins_zero(self) -> None:
-        rows = ({"record_type": "one"}, {"record_type": "two"})
-        zero = subject.review_event_prefix_proof(rows, 0)
-        self.assertEqual(zero["record_count"], 0)
-        self.assertEqual(
-            zero["prefix_sha256"],
-            hashlib.sha256(b"wavefoundry-review-events\0").hexdigest(),
-        )
-        one_bytes = subject.canonical_review_event_bytes(rows[0])
-        one = subject.review_event_prefix_proof(rows, 1)
-        self.assertEqual(
-            one["prefix_sha256"],
-            hashlib.sha256(b"wavefoundry-review-events\0" + one_bytes).hexdigest(),
-        )
-        with self.assertRaises(ValueError):
-            subject.review_event_prefix_proof(rows, 3)
+    def test_no_prefix_proof_or_hash_authority_surface_remains(self) -> None:
+        # Wave 1tomw (AC-4/AC-7): the events-only contract deliberately ships
+        # no receipt, checkpoint, prefix hash, or hash-chain surface. Keep the
+        # module's public API free of any resurrected proof helper.
+        for name in (
+            "review_event_prefix_proof",
+            "adopted_protocol_state",
+            "record_protocol_state",
+            "record_protocol_state_locked",
+            "validate_adopted_protocol_state",
+            "externalize_adopted_inline_wave_locked",
+            "adopted_legacy_inline_protocol_state_for_migration",
+            "record_legacy_inline_protocol_state_for_migration",
+            "ADOPTION_LEDGER_REL",
+            "REVIEW_EVENT_HASH_DOMAIN",
+        ):
+            self.assertFalse(hasattr(subject, name), name)
+            self.assertNotIn(name, subject.__all__)
 
     def test_source_declaration_and_fixed_sibling_path_are_exact(self) -> None:
         text = "# Wave\nreview-evidence-source: events.jsonl\n\n## Objective\n"
@@ -2351,66 +2338,39 @@ class ExternalReviewEventLedgerTests(unittest.TestCase):
             "\n".join(subject.validate_review_evidence_records([broken])),
         )
 
-    def test_zero_record_adoption_is_bounded_external_proof(self) -> None:
+    def test_declared_wave_fails_closed_on_missing_or_damaged_authority(self) -> None:
+        # Wave 1tomw (AC-2): the declared fixed sibling ledger is the sole
+        # authority; missing, noncanonical, and declaration-tampered states
+        # reject without consulting any receipt state or Git.
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             wave = self.make_external_wave(root)
-            with subject.review_event_write_lock(root):
-                self.assertIsNone(
-                    subject.record_protocol_state_locked(root, "1test sample", wave)
-                )
-            state, error = subject.adopted_protocol_state(root, "1test sample")
-            self.assertIsNone(error)
-            self.assertEqual(
-                state,
-                {
-                    "version": 1,
-                    "source": "events.jsonl",
-                    "record_count": 0,
-                    "prefix_sha256": hashlib.sha256(
-                        b"wavefoundry-review-events\0"
-                    ).hexdigest(),
-                },
-            )
-            self.assertEqual(
-                subject.validate_adopted_protocol_state(root, "1test sample", wave), ()
-            )
-
-    def test_retained_adoption_rejects_declaration_and_authority_loss(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-            wave = self.make_external_wave(root)
-            self.assertIsNone(subject.record_protocol_state(root, "1test sample", wave))
             original = wave.read_text(encoding="utf-8")
-            wave.write_text(
-                original.replace("review-evidence-source: events.jsonl\n", ""),
-                encoding="utf-8",
-            )
+            self.assertTrue(subject.validate_external_review_evidence(wave).ok)
+
+            (wave.parent / "events.jsonl").unlink()
             self.assertIn(
-                "may not be removed",
-                "\n".join(
-                    subject.validate_adopted_protocol_state(root, "1test sample", wave)
-                ),
+                "missing",
+                "\n".join(subject.validate_external_review_evidence(wave).errors),
             )
+            (wave.parent / "events.jsonl").write_bytes(b'{"a":1}\r\n')
+            self.assertFalse(subject.validate_external_review_evidence(wave).ok)
+
+            (wave.parent / "events.jsonl").write_bytes(b"")
             wave.write_text(
                 original.replace("events.jsonl", "wrong.jsonl", 1), encoding="utf-8"
             )
             self.assertIn(
                 "must be exactly",
-                "\n".join(
-                    subject.validate_adopted_protocol_state(root, "1test sample", wave)
-                ),
-            )
-            wave.write_text(original, encoding="utf-8")
-            (wave.parent / "events.jsonl").unlink()
-            self.assertIn(
-                "is missing",
-                "\n".join(
-                    subject.validate_adopted_protocol_state(root, "1test sample", wave)
-                ),
+                "\n".join(subject.validate_external_review_evidence(wave).errors),
             )
 
-    def test_retained_adoption_rejects_proof_ahead_prefix_mutation_and_suffix(self) -> None:
+    def test_valid_older_ledger_rollback_is_not_locally_detectable(self) -> None:
+        # Wave 1tomw (AC-9) negative control: restoring a complete OLDER but
+        # internally valid ledger passes local structural validation — that is
+        # the documented boundary (Git/backups are the optional history
+        # authority), and this control prevents future overclaiming. The
+        # damaged states in the companion test above remain rejected.
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             event = {
@@ -2422,49 +2382,39 @@ class ExternalReviewEventLedgerTests(unittest.TestCase):
             }
             rows, errors = subject.build_identified_review_event([], "1test sample", event)
             self.assertEqual(errors, ())
-            wave = self.make_external_wave(root, rows)
-            self.assertIsNone(subject.record_protocol_state(root, "1test sample", wave))
+            wave = self.make_external_wave(root)
+            older_ledger = (wave.parent / "events.jsonl").read_bytes()
 
-            mutated = copy.deepcopy(rows[0])
-            mutated["review_run_id"] = "changed"
-            (wave.parent / "events.jsonl").write_bytes(
-                subject.canonical_review_events_bytes([mutated])
-            )
-            self.assertIn(
-                "prefix hash",
-                "\n".join(
-                    subject.validate_adopted_protocol_state(root, "1test sample", wave)
-                ),
-            )
+            newer = subject.canonical_review_events_bytes(rows)
+            (wave.parent / "events.jsonl").write_bytes(newer)
+            self.assertTrue(subject.validate_external_review_evidence(wave).ok)
 
-            (wave.parent / "events.jsonl").write_bytes(
-                subject.canonical_review_events_bytes(rows)
-                + subject.canonical_review_event_bytes(
-                    {
-                        "record_type": "review_run",
-                        "review_run_id": "run-second",
-                        "run_kind": "initial_delivery",
-                        "cycle": 0,
-                        "candidate_finding_ids": [],
-                        "source_record_ids": [],
-                        "dedup_evidence_id": None,
-                    }
-                )
-            )
-            self.assertIn(
-                "unadopted suffix",
-                "\n".join(
-                    subject.validate_adopted_protocol_state(root, "1test sample", wave)
-                ),
-            )
+            # Roll the whole ledger back to the older valid state: local
+            # validation accepts it — deliberately, with no receipt to notice.
+            (wave.parent / "events.jsonl").write_bytes(older_ledger)
+            result = subject.validate_external_review_evidence(wave)
+            self.assertTrue(result.ok, "\n".join(result.errors))
+            self.assertEqual(result.records, ())
 
-            (wave.parent / "events.jsonl").write_bytes(b"")
-            self.assertIn(
-                "proof is ahead",
-                "\n".join(
-                    subject.validate_adopted_protocol_state(root, "1test sample", wave)
-                ),
-            )
+    def test_publication_lock_is_reentrant_and_cross_process_exclusive(self) -> None:
+        # Wave 1tomw (AC-3): same-thread nesting must not deadlock, and the
+        # physical carrier keeps the stable 1.14+ pathname while another
+        # process is blocked out for the duration of the hold.
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            with subject.project_state_publication_lock(root):
+                with subject.project_state_publication_lock(root):
+                    carrier = root / subject.PROJECT_STATE_PUBLICATION_LOCK_REL
+                    self.assertTrue(carrier.exists())
+                    self.assertEqual(
+                        carrier.name, "review-evidence-adoptions.lock"
+                    )
+                    from runtime_lock import probe_runtime_lock
+
+                    probe = probe_runtime_lock(carrier)
+                    self.assertTrue(probe.held)
+            probe = probe_runtime_lock(root / subject.PROJECT_STATE_PUBLICATION_LOCK_REL)
+            self.assertFalse(probe.held)
 
 
 class ReviewStatusProjectionTests(unittest.TestCase):
@@ -2680,35 +2630,6 @@ class ReviewStatusProjectionTests(unittest.TestCase):
 
 
 class ReviewEvidenceLintIntegrationTests(unittest.TestCase):
-    def test_adoption_ledger_symlink_is_rejected_without_reading_target(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir) / "repo"
-            waves = root / "docs" / "waves"
-            waves.mkdir(parents=True)
-            outside = Path(temp_dir) / "outside-adoptions.json"
-            sentinel = '{"protocol_version": 1, "waves": {"outside": {}}}\n'
-            outside.write_text(sentinel, encoding="utf-8")
-            try:
-                waves.joinpath("review-evidence-adoptions.json").symlink_to(outside)
-            except OSError as exc:
-                self.skipTest(f"file symlinks unavailable: {exc}")
-
-            state, error = subject.adopted_protocol_state(root, "outside")
-
-            self.assertIsNone(state)
-            self.assertIn("may not be a symlink", error or "")
-            self.assertEqual(outside.read_text(encoding="utf-8"), sentinel)
-
-    def test_reading_missing_adoption_ledger_does_not_create_docs_tree(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-
-            state, error = subject.adopted_protocol_state(root, "missing")
-
-            self.assertIsNone(state)
-            self.assertIsNone(error)
-            self.assertFalse((root / "docs").exists())
-
     def test_external_ledger_symlink_is_rejected_as_authority(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

@@ -133,7 +133,7 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
             ):
                 milestone_gated.add(name)
             if any(
-                call.func.id == "review_event_write_lock" for call in calls
+                call.func.id == "project_state_publication_lock" for call in calls
             ):
                 serialized_writers.add(name)
             for decorator in node.decorator_list:
@@ -2727,7 +2727,7 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
                 completed.set()
 
             with patch.object(srv, "run_garden", side_effect=fake_garden):
-                with review_evidence.review_event_write_lock(root):
+                with review_evidence.project_state_publication_lock(root):
                     thread = threading.Thread(target=invoke)
                     thread.start()
                     self.assertFalse(entered.wait(0.1))
@@ -2827,14 +2827,17 @@ if flushed is None or not flushed.success:
         self.assertNotIn(
             "_trigger_background_index_refresh_for_paths", segment
         )
-        self.assertIn("persist_adoption=False", segment)
+        # Events-only contract (1tomw): no adoption persistence surface exists
+        # for the read-only review to opt out of.
+        self.assertNotIn("persist_adoption", segment)
+        self.assertNotIn("record_protocol_state", segment)
 
     def test_shared_wave_writer_lock_is_same_thread_reentrant(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             _repo(root)
-            with review_evidence.review_event_write_lock(root):
-                with review_evidence.review_event_write_lock(root):
+            with review_evidence.project_state_publication_lock(root):
+                with review_evidence.project_state_publication_lock(root):
                     marker = root / "inside-lock"
                     marker.write_text("ok", encoding="utf-8")
             self.assertEqual(marker.read_text(encoding="utf-8"), "ok")

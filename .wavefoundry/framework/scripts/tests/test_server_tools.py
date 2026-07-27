@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import hashlib
 import hashlib
 import importlib.util
@@ -933,7 +934,6 @@ def _append_review_run(root: Path, wave_id: str, *, kind: str = "readiness") -> 
         wave_md.read_text(encoding="utf-8"), records
     )
     wave_md.write_text(text, encoding="utf-8")
-    assert review.record_protocol_state(root, wave_id, wave_md) is None
 
 
 def _store_read_meta(index_dir: Path) -> dict:
@@ -2831,26 +2831,51 @@ class WaveCreateScaffoldAlignmentTests(unittest.TestCase):
         self.assertEqual(events.read_bytes(), b"")
         validation = self.srv.validate_external_review_evidence(wave_md)
         self.assertTrue(validation.ok, validation.errors)
-        ledger = self.root / "docs" / "waves" / "review-evidence-adoptions.json"
-        self.assertTrue(ledger.is_file())
-        self.assertIn(result["wave_id"], ledger.read_text(encoding="utf-8"))
+        # Wave 1tomw (AC-1): creation writes no receipt sidecar of any kind.
+        self.assertFalse(
+            (self.root / "docs" / "waves" / "review-evidence-adoptions.json").exists()
+        )
+        self.assertFalse(
+            (self.root / "docs" / "waves" / "review-evidence-migration.json").exists()
+        )
 
-    def test_public_lifecycle_rejects_source_removal_after_creation(self):
-        result = self._create_wave("durable-adoption-wave")
+    def test_source_removal_is_the_documented_undetectable_boundary(self):
+        # Wave 1tomw (AC-9 companion): with no receipt state, removing the
+        # declaration reclassifies the wave as prose-only legacy with no
+        # diagnostic — here the (empty) sibling ledger SURVIVES on disk, so
+        # this exercises the surviving-ledger form of the documented boundary
+        # (seed 209): declaration removal is not locally detected whether or
+        # not the ledger is deleted with it; Git/backups are the optional
+        # history authority. A DOWNGRADED declaration that is still present
+        # remains rejected.
+        result = self._create_wave("events-only-wave")
         wave_md = self.root / result["path"]
-        text = wave_md.read_text(encoding="utf-8")
-        text = re.sub(r"(?m)^review-evidence-source: events\.jsonl\n", "", text)
-        text = re.sub(
+        original = wave_md.read_text(encoding="utf-8")
+        removed = re.sub(r"(?m)^review-evidence-source: events\.jsonl\n", "", original)
+        removed = re.sub(
             r"(?ms)^## Finding Synthesis\n.*?^## Review Evidence\n",
             "## Review Evidence\n",
-            text,
+            removed,
         )
-        wave_md.write_text(text, encoding="utf-8")
+        wave_md.write_text(removed, encoding="utf-8")
+        response = self.srv.wf_prepare_wave_response(self.root, result["wave_id"], mode="dry_run")
+        self.assertFalse(
+            any(
+                diagnostic["code"] == "review_evidence_invalid"
+                for diagnostic in response.get("diagnostics", [])
+            ),
+            response,
+        )
+        downgraded = original.replace(
+            "review-evidence-source: events.jsonl",
+            "review-evidence-source: wrong.jsonl",
+        )
+        wave_md.write_text(downgraded, encoding="utf-8")
         response = self.srv.wf_prepare_wave_response(self.root, result["wave_id"], mode="dry_run")
         self.assertTrue(
             any(
                 diagnostic["code"] == "review_evidence_invalid"
-                and "may not be removed" in diagnostic["message"]
+                and "must be exactly" in diagnostic["message"]
                 for diagnostic in response.get("diagnostics", [])
             ),
             response,
@@ -3087,7 +3112,6 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             ),
             encoding="utf-8",
         )
-        self.assertIsNone(review.record_protocol_state(self.root, wave_id, wave_md))
         return wave_id
 
     def test_wf_create_wave_dry_run(self):
@@ -3172,20 +3196,21 @@ class WaveLifecycleMutationTests(unittest.TestCase):
                 result["diagnostics"],
             )
 
-    def test_malformed_adoption_state_cannot_fall_back_to_legacy_lifecycle(self):
+    def test_stray_adoption_sidecar_is_never_read_by_lifecycle(self):
+        # Wave 1tomw (AC-7): the retired sidecar is dead state. Even a
+        # syntactically broken copy neither blocks nor influences lifecycle
+        # validation, because no code path opens it.
         adoption = self.root / "docs" / "waves" / "review-evidence-adoptions.json"
         adoption.write_text("{broken", encoding="utf-8")
 
         result = self.srv.wf_review_wave_response(self.root, "1200a test-wave")
 
-        self.assertEqual(result["status"], "error")
-        self.assertTrue(
+        self.assertFalse(
             any(
-                diagnostic["code"] == "review_evidence_invalid"
-                and "adoption ledger is unreadable" in diagnostic["message"]
-                for diagnostic in result["diagnostics"]
+                "adoption" in diagnostic["message"]
+                for diagnostic in result.get("diagnostics", [])
             ),
-            result["diagnostics"],
+            result.get("diagnostics"),
         )
 
     def test_bullet_participants_are_enforced_by_public_review(self):
@@ -3677,7 +3702,11 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             ), []
         )
 
-    def test_typed_review_evidence_rolls_back_wave_when_adoption_persist_fails(self):
+    def test_typed_review_evidence_projection_failure_is_partial_and_replayable(self):
+        # Wave 1tomw (AC-3): after the ledger authority commit, an injected
+        # projection replacement failure reports partial success and leaves
+        # wave.md untouched; identical exact replay converges — repairing the
+        # projection WITHOUT appending a duplicate event.
         created = self.srv.wf_create_wave_response(
             self.root, "typed-review-rollback", mode="create"
         )
@@ -3685,7 +3714,14 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
         before = wave_md.read_text(encoding="utf-8")
         events_path = sys.modules["review_evidence"].review_event_path(wave_md)
-        with patch.object(self.srv, "record_protocol_state_locked", return_value="forced persist failure"):
+        real_replace = self.srv._atomic_replace_text
+
+        def fail_projection(path, text, label):
+            if Path(path).name == "wave.md":
+                raise OSError("forced projection failure")
+            return real_replace(path, text, label)
+
+        with patch.object(self.srv, "_atomic_replace_text", side_effect=fail_projection):
             response = self.srv.wf_review_event_response(
                 self.root,
                 wave_id,
@@ -3697,8 +3733,11 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             )
         self.assertEqual(response["status"], "partial")
         self.assertTrue(response["data"]["event_committed"])
-        self.assertTrue(response["data"]["adoption_pending"])
-        self.assertIn("review_evidence_adoption_pending", [item["code"] for item in response["diagnostics"]])
+        self.assertTrue(response["data"]["projection_stale"])
+        self.assertIn(
+            "review_evidence_projection_stale",
+            [item["code"] for item in response["diagnostics"]],
+        )
         self.assertEqual(wave_md.read_text(encoding="utf-8"), before)
         self.assertNotEqual(events_path.read_bytes(), b"")
         committed = events_path.read_bytes()
@@ -4397,7 +4436,6 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             ),
             encoding="utf-8",
         )
-        self.assertIsNone(review.record_protocol_state(self.root, wave_id, wave_md))
         response = self.srv.wf_close_wave_response(self.root, wave_id, mode="dry_run")
         self.assertTrue(
             any(
@@ -4537,7 +4575,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         self.assertTrue(result["data"]["lint_passed"])
         self.assertIn("required_lanes", result["data"])
         trigger.assert_not_called()
-        self.assertFalse(evidence_diagnostics.call_args.kwargs["persist_adoption"])
+        self.assertNotIn("persist_adoption", evidence_diagnostics.call_args.kwargs)
 
     def test_wf_review_wave_ok_when_signoffs_recorded(self):
         wave_md = self.root / "docs" / "waves" / "1200a test-wave" / "wave.md"
@@ -6743,12 +6781,6 @@ class RepairIndependenceBoundaryTests(unittest.TestCase):
             if identity:
                 row["event_identity"] = identity
         self.events_path.write_bytes(self.re_mod.canonical_review_events_bytes(rows))
-        # An older-code repository carries no adoption proof for this ledger.
-        ledger = self.root / self.re_mod.ADOPTION_LEDGER_REL
-        if ledger.exists():
-            data = json.loads(ledger.read_text(encoding="utf-8"))
-            data.get("waves", {}).pop(self.wave_id, None)
-            ledger.write_text(json.dumps(data), encoding="utf-8")
         # The rewritten chain must remain valid to generic validation
         # (Requirement 4: no retroactive invalidation by parsing).
         result = self.srv.validate_external_review_evidence(self.wave_md)
@@ -6960,7 +6992,7 @@ class ReviewEvidenceListEventTests(unittest.TestCase):
         """AC-3: byte-identical ledger, and the write lock is never entered."""
         self._seed_finding_chain()
         before = self.events_path.read_bytes()
-        with patch.object(self.srv, "review_event_write_lock",
+        with patch.object(self.srv, "project_state_publication_lock",
                           side_effect=AssertionError("write lock taken on list")):
             result = self._list()
         self.assertEqual(result["status"], "ok", result)
@@ -26368,3 +26400,298 @@ class DriftWorklistAuditSurfaceTests(unittest.TestCase):
         self.assertEqual(drift["entries"], [])
         codes = [d.get("code") for d in resp["diagnostics"]]
         self.assertNotIn("doc_code_drift_flagged", codes)
+
+
+def _typed_event_race_worker(
+    scripts_root, root, wave_id, actor, barrier, disable_lock, results
+):
+    """Spawn-process worker for the public create-mode typed-event race.
+
+    No lock is mocked on the real path: the transaction runs exactly as
+    shipped. ``disable_lock`` is the focused known-bad mutation — it bypasses
+    the cross-process publication lock so the fixture can prove it detects a
+    lost or interleaved append.
+    """
+    import contextlib as _contextlib
+    import sys as _sys
+    import time as _time
+    from pathlib import Path as _Path
+
+    _sys.path.insert(0, scripts_root)
+    import server_impl as srv
+
+    if disable_lock:
+        srv.project_state_publication_lock = (
+            lambda _root: _contextlib.nullcontext()
+        )
+
+    window = {}
+    real_validate = srv.validate_external_review_evidence
+
+    def instrumented_validate(path, **kwargs):
+        result = real_validate(path, **kwargs)
+        if "enter" not in window:
+            window["enter"] = _time.monotonic()
+            # Hold the transaction open so a lock bypass guarantees both
+            # processes read the ledger before either writes it.
+            _time.sleep(0.6)
+        return result
+
+    real_replace = srv._atomic_replace_bytes
+
+    def instrumented_replace(path, payload, label):
+        if label == "review-events":
+            window["write"] = _time.monotonic()
+        return real_replace(path, payload, label)
+
+    srv.validate_external_review_evidence = instrumented_validate
+    srv._atomic_replace_bytes = instrumented_replace
+
+    barrier.wait()
+    response = srv.wf_review_event_response(
+        _Path(root),
+        wave_id,
+        "approval",
+        actor,
+        f"race-context-{actor}",
+        mode="create",
+        signoff_key=actor,
+        fresh_context=True,
+        independent=True,
+        integrity_confirmed=True,
+        evidence={"observed": "passed", "artifact_or_test_id": f"test:{actor}"},
+    )
+    results.put(
+        {
+            "actor": actor,
+            "status": response.get("status"),
+            "enter": window.get("enter"),
+            "write": window.get("write"),
+        }
+    )
+
+
+class PublicTypedEventProcessRaceTests(unittest.TestCase):
+    """Wave 1tomw (AC-3): real two-process serialization of the public
+    create-mode typed-event transaction, with a known-bad no-lock control."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        self.srv = type(self).srv
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _race(self, slug, disable_lock):
+        import multiprocessing
+
+        created = self.srv.wf_create_wave_response(self.root, slug, mode="create")
+        self.assertEqual(created["status"], "ok", created)
+        wave_id = created["data"]["wave_id"]
+        wave_md = self.root / created["data"]["path"]
+        ctx = multiprocessing.get_context("spawn")
+        barrier = ctx.Barrier(2)
+        results = ctx.Queue()
+        processes = [
+            ctx.Process(
+                target=_typed_event_race_worker,
+                args=(
+                    str(SCRIPTS_ROOT),
+                    str(self.root),
+                    wave_id,
+                    actor,
+                    barrier,
+                    disable_lock,
+                    results,
+                ),
+            )
+            for actor in ("qa-reviewer", "security-reviewer")
+        ]
+        for process in processes:
+            process.start()
+        for process in processes:
+            process.join(30)
+            self.assertEqual(process.exitcode, 0)
+        outcomes = [results.get(timeout=5) for _ in range(2)]
+        records, errors = self.srv.read_review_event_ledger(wave_md)
+        return outcomes, records, errors
+
+    @staticmethod
+    def _intervals_overlap(outcomes):
+        (a, b) = outcomes
+        if None in (a["enter"], a["write"], b["enter"], b["write"]):
+            return False
+        return not (a["write"] <= b["enter"] or b["write"] <= a["enter"])
+
+    def test_two_process_append_serializes_and_keeps_both_bundles_exactly_once(self):
+        outcomes, records, errors = self._race("typed-race-real-lock", False)
+        self.assertEqual([o["status"] for o in outcomes], ["ok", "ok"])
+        self.assertFalse(errors)
+        # Both bundles landed exactly once, with distinct identities.
+        self.assertEqual(len(records), 2)
+        identities = {
+            json.dumps(record.get("event_identity"), sort_keys=True)
+            for record in records
+        }
+        self.assertEqual(len(identities), 2)
+        actors = sorted(
+            record.get("verification_context", {}).get("actor")
+            for record in records
+        )
+        self.assertEqual(actors, ["qa-reviewer", "security-reviewer"])
+        # DF4 repair: the overlap check is meaningful only when every window
+        # was actually captured — seam drift must fail loudly, not vacuously.
+        for outcome in outcomes:
+            self.assertIsNotNone(outcome["enter"], outcome)
+            self.assertIsNotNone(outcome["write"], outcome)
+        # The interprocess handshake proves BLOCKING inside the transaction:
+        # both workers left the same barrier together, each held the
+        # transaction open ~0.6s, and the second's transaction window began
+        # only after the first's authority commit.
+        self.assertFalse(self._intervals_overlap(outcomes), outcomes)
+
+    def test_known_bad_no_lock_mutation_is_detected_by_the_same_fixture(self):
+        outcomes, records, _errors = self._race("typed-race-no-lock", True)
+        # With the publication lock bypassed, both processes read the empty
+        # ledger inside their overlapping windows and the second replace
+        # discards the first bundle — exactly the corruption the real lock
+        # prevents. The fixture's detections must fire.
+        detected = self._intervals_overlap(outcomes) or len(records) != 2
+        self.assertTrue(detected, (outcomes, [r.get("event_identity") for r in records]))
+
+    def test_lock_order_is_lifecycle_then_publication_structurally(self):
+        # AC-3: the outer advisory lifecycle lock wraps whole tools at the
+        # registration layer; the inner blocking publication lock is only
+        # ever acquired inside. No code path may inject the lifecycle lock
+        # INSIDE a held publication lock.
+        source = (SCRIPTS_ROOT / "server_impl.py").read_text(encoding="utf-8")
+        self.assertIn("_wrap_lifecycle_mutation_lock(mcp, get_handler)", source)
+        tree = ast.parse(source)
+        publication_blocks = 0
+        violations = []
+
+        class _Visitor(ast.NodeVisitor):
+            def visit_With(self, node):
+                nonlocal publication_blocks
+                takes_publication = any(
+                    isinstance(item.context_expr, ast.Call)
+                    and isinstance(item.context_expr.func, ast.Name)
+                    and item.context_expr.func.id == "project_state_publication_lock"
+                    for item in node.items
+                )
+                if takes_publication:
+                    publication_blocks += 1
+                    for inner in ast.walk(node):
+                        if (
+                            isinstance(inner, ast.Call)
+                            and isinstance(inner.func, ast.Name)
+                            and inner.func.id == "_lifecycle_mutation_lock"
+                        ):
+                            violations.append(ast.unparse(inner))
+                self.generic_visit(node)
+
+        _Visitor().visit(tree)
+        self.assertGreaterEqual(publication_blocks, 8)
+        self.assertEqual(violations, [])
+        # The publication lock's own module never reaches back out to the
+        # advisory lifecycle lock.
+        review_source = (SCRIPTS_ROOT / "review_evidence.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertNotIn("_lifecycle_mutation_lock", review_source)
+
+
+class TypedEventNamedCrashCutTests(unittest.TestCase):
+    """Wave 1tomw (AC-3): named recovery cuts around the authority commit.
+
+    Each cut injects failure at the exact named boundary and asserts the
+    surviving on-disk state, that canonical parsing still succeeds, and that
+    identical exact replay converges. Atomic visibility and process-crash
+    replay are claimed; fsync/power-loss durability is not.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        self.srv = type(self).srv
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+        created = self.srv.wf_create_wave_response(
+            self.root, "crash-cut-wave", mode="create"
+        )
+        self.wave_id = created["data"]["wave_id"]
+        self.wave_md = self.root / created["data"]["path"]
+        self.events_path = sys.modules["review_evidence"].review_event_path(
+            self.wave_md
+        )
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _approve(self, context):
+        return self.srv.wf_review_event_response(
+            self.root,
+            self.wave_id,
+            "approval",
+            "qa-reviewer",
+            context,
+            mode="create",
+            signoff_key="qa-reviewer",
+            fresh_context=True,
+            independent=True,
+            integrity_confirmed=True,
+            evidence={"observed": "passed", "artifact_or_test_id": "test:qa"},
+        )
+
+    def _parse_ok(self):
+        records, errors = self.srv.read_review_event_ledger(self.wave_md)
+        self.assertFalse(errors)
+        return records
+
+    def test_cut_before_ledger_replace_keeps_old_ledger_and_retry_appends_once(self):
+        before_wave = self.wave_md.read_text(encoding="utf-8")
+        with patch.object(
+            self.srv,
+            "_atomic_replace_bytes",
+            side_effect=OSError("cut: termination before ledger os.replace"),
+        ):
+            response = self._approve("crash-cut-context")
+        self.assertEqual(response["status"], "error")
+        self.assertEqual(self.events_path.read_bytes(), b"")
+        self.assertEqual(self.wave_md.read_text(encoding="utf-8"), before_wave)
+        self.assertEqual(self._parse_ok(), ())
+
+        retry = self._approve("crash-cut-context")
+        self.assertEqual(retry["status"], "ok", retry)
+        self.assertFalse(retry["data"]["replayed"])
+        self.assertEqual(len(self._parse_ok()), 1)
+
+    def test_cut_after_ledger_replace_before_projection_replays_without_append(self):
+        before_wave = self.wave_md.read_text(encoding="utf-8")
+        with patch.object(
+            self.srv,
+            "_atomic_replace_text",
+            side_effect=OSError("cut: termination after ledger replace, before projection"),
+        ):
+            response = self._approve("crash-cut-context")
+        self.assertEqual(response["status"], "partial")
+        self.assertTrue(response["data"]["event_committed"])
+        self.assertTrue(response["data"]["projection_stale"])
+        committed = self.events_path.read_bytes()
+        self.assertNotEqual(committed, b"")
+        self.assertEqual(self.wave_md.read_text(encoding="utf-8"), before_wave)
+        self.assertEqual(len(self._parse_ok()), 1)
+
+        replay = self._approve("crash-cut-context")
+        self.assertEqual(replay["status"], "ok", replay)
+        self.assertTrue(replay["data"]["replayed"])
+        self.assertEqual(self.events_path.read_bytes(), committed)
+        self.assertNotEqual(self.wave_md.read_text(encoding="utf-8"), before_wave)
+        self.assertEqual(len(self._parse_ok()), 1)

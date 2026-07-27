@@ -43,6 +43,7 @@ import tempfile
 import types
 import zipfile
 from pathlib import Path
+from typing import Any
 
 # ── Resolve paths ─────────────────────────────────────────────────────────────
 
@@ -1464,155 +1465,106 @@ def _atomic_write_text(path: Path, text: str, label: str) -> None:
         temp.unlink(missing_ok=True)
 
 
-def phase_review_status_projection(root: Path) -> dict[str, int]:
-    """Compact adopted wave review state through the canonical projection.
+def _retired_sidecar_path_error(root: Path, candidate: Path) -> str | None:
+    """Prove a fixed-name retired sidecar resolves inside the repository.
 
-    Historical prose outside the owned block is byte-preserved.  A malformed
-    adopted ledger/marker fails the upgrade; non-adopted closed waves are
-    reported only.  Active/readied prose-only authority is not guessed.
+    Deletion is confined: a symlinked ``docs/waves`` parent or a symlinked
+    candidate refuses cleanup, and an outside-root sentinel is left untouched.
     """
 
-    import re
-
-    from review_evidence import (
-        canonicalize_finding_synthesis_markers,
-        externalize_adopted_inline_wave_locked,
-        parse_review_evidence_source,
-        render_review_evidence_projection,
-        render_review_status_projection,
-        required_review_status_keys,
-        review_event_write_lock,
-        validate_external_review_evidence,
-    )
-
-    counts = {
-        "projected": 0,
-        "adopted_inline": 0,
-        "reported_legacy": 0,
-        "blocked_legacy": 0,
-    }
-    blocked_legacy_waves: list[str] = []
-    waves_dir = root / "docs" / "waves"
-    if not waves_dir.is_dir():
-        return counts
     try:
         root_real = root.resolve(strict=True)
-    except OSError as exc:
-        raise SystemExit(f"cannot resolve upgrade root for review projection: {exc}")
-    with review_event_write_lock(root):
-        for wave_dir in sorted(path for path in waves_dir.iterdir() if path.is_dir()):
+        waves_dir = root / "docs" / "waves"
+        if waves_dir.is_symlink():
+            return "docs/waves may not be a symlink"
+        if not waves_dir.exists():
+            return None
+        waves_real = waves_dir.resolve(strict=True)
+        if not waves_real.is_relative_to(root_real):
+            return "docs/waves escapes the repository root"
+        if candidate.is_symlink():
+            return f"{candidate.name} may not be a symlink"
+        if candidate.exists() and not candidate.resolve(strict=True).is_relative_to(
+            waves_real
+        ):
+            return f"{candidate.name} escapes docs/waves"
+    except (OSError, RuntimeError) as exc:
+        return f"retired sidecar path is not safely resolvable: {exc}"
+    return None
+
+
+# v1.13 shipped the publication lock at the repository root; 1.14+ ship it
+# under .wavefoundry/locks/. Both paths must be provably quiescent before the
+# retired sidecars are removed: a held lock is a live pre-upgrade writer, and
+# mixed-version lifecycle mutation during upgrade is unsupported.
+_LEGACY_V1_13_ROOT_LOCK_REL = Path(".wavefoundry/review-evidence-adoptions.lock")
+
+
+def phase_review_evidence_sidecar_cleanup(root: Path) -> dict[str, Any]:
+    """One-way removal of the retired project-global review-evidence sidecars.
+
+    The events-only contract (1.15): each wave's fixed sibling ``events.jsonl``
+    is the sole review authority. Upgrade deletes the obsolete
+    ``docs/waves/review-evidence-adoptions.json`` and
+    ``docs/waves/review-evidence-migration.json`` without reading either as
+    authority or migration input, and leaves every ``wave.md`` and
+    ``events.jsonl`` byte-for-byte untouched. Cutover is a maintenance-window
+    boundary: while either shipped publication-lock path is held, the upgrade
+    refuses rather than racing a live pre-upgrade writer; after that proof the
+    stale v1.13 root-level lock file is removed. A full restart of every
+    attached MCP/agent host, including the invoking host, is required before
+    lifecycle mutation resumes; an in-process ``wf_reload_mcp`` alone is not
+    sufficient for this cutover.
+    """
+
+    from review_evidence import PROJECT_STATE_PUBLICATION_LOCK_REL
+    from runtime_lock import probe_runtime_lock
+
+    counts: dict[str, Any] = {
+        "removed_sidecars": 0,
+        "removed_stale_root_lock": 0,
+        "restart_required": True,
+    }
+    legacy_root_lock = root / _LEGACY_V1_13_ROOT_LOCK_REL
+    for label, lock_path in (
+        ("current", root / PROJECT_STATE_PUBLICATION_LOCK_REL),
+        ("v1.13 root", legacy_root_lock),
+    ):
+        probe = probe_runtime_lock(lock_path)
+        if probe.held:
+            raise SystemExit(
+                f"the {label} project-state publication lock at {lock_path} is "
+                "held by a running process. Stop the dashboard and every "
+                "attached MCP/agent host, then re-run the upgrade; "
+                "mixed-version lifecycle mutation during upgrade is unsupported."
+            )
+        if probe.held is None:
+            raise SystemExit(
+                f"cannot prove the {label} publication lock at {lock_path} is "
+                f"released: {probe.error}"
+            )
+    if legacy_root_lock.exists():
+        try:
+            legacy_root_lock.unlink()
+            counts["removed_stale_root_lock"] = 1
+        except OSError as exc:
+            raise SystemExit(f"cannot remove the stale v1.13 root lock: {exc}")
+
+    waves_dir = root / "docs" / "waves"
+    for name in (
+        "review-evidence-adoptions.json",
+        "review-evidence-migration.json",
+    ):
+        candidate = waves_dir / name
+        error = _retired_sidecar_path_error(root, candidate)
+        if error:
+            raise SystemExit(f"refusing retired-sidecar cleanup: {error}")
+        if candidate.exists():
             try:
-                wave_real = wave_dir.resolve(strict=True)
+                candidate.unlink()
+                counts["removed_sidecars"] += 1
             except OSError as exc:
-                raise SystemExit(
-                    f"{wave_dir.name}: cannot resolve wave directory safely: {exc}"
-                )
-            if wave_dir.is_symlink() or not wave_real.is_relative_to(root_real):
-                raise SystemExit(
-                    f"{wave_dir.name}: review projection wave directory escapes "
-                    "the repository root through a symlink"
-                )
-            wave_md = wave_dir / "wave.md"
-            if not wave_md.is_file():
-                continue
-            try:
-                wave_md_real = wave_md.resolve(strict=True)
-            except OSError as exc:
-                raise SystemExit(
-                    f"{wave_dir.name}: cannot resolve wave.md safely: {exc}"
-                )
-            if wave_md.is_symlink() or not wave_md_real.is_relative_to(wave_real):
-                raise SystemExit(
-                    f"{wave_dir.name}: review projection wave.md escapes its "
-                    "wave directory through a symlink"
-                )
-            ledger = wave_dir / "events.jsonl"
-            if ledger.is_symlink():
-                raise SystemExit(
-                    f"{wave_dir.name}: review projection events.jsonl may not "
-                    "be a symlink"
-                )
-            if ledger.exists():
-                try:
-                    ledger_real = ledger.resolve(strict=True)
-                except OSError as exc:
-                    raise SystemExit(
-                        f"{wave_dir.name}: cannot resolve events.jsonl safely: {exc}"
-                    )
-                if not ledger_real.is_relative_to(wave_real):
-                    raise SystemExit(
-                        f"{wave_dir.name}: review projection events.jsonl escapes "
-                        "its wave directory"
-                    )
-            text = wave_md.read_text(encoding="utf-8")
-            source, source_errors = parse_review_evidence_source(text)
-            status_match = re.search(r"(?mi)^Status:\s*(\S+)", text)
-            status = status_match.group(1).lower() if status_match else ""
-            active = status in {"planned", "readied", "ready", "active", "implementing"}
-            adopted_records = None
-            if source_errors:
-                raise SystemExit(
-                    f"{wave_dir.name}: malformed review-evidence source: "
-                    + "; ".join(source_errors)
-                )
-            if source is None:
-                adopted_records, adoption_error = externalize_adopted_inline_wave_locked(
-                    root,
-                    wave_dir.name,
-                    wave_md,
-                )
-                if adoption_error:
-                    raise SystemExit(
-                        f"{wave_dir.name}: typed-inline review evidence adoption failed: "
-                        f"{adoption_error}"
-                    )
-                if adopted_records is not None:
-                    counts["adopted_inline"] += 1
-                    text = wave_md.read_text(encoding="utf-8")
-                    source = "events.jsonl"
-                if active and "## Review Evidence" in text:
-                    if source is None:
-                        counts["blocked_legacy"] += 1
-                        blocked_legacy_waves.append(wave_dir.name)
-                        continue
-                if source is None:
-                    counts["reported_legacy"] += 1
-                    continue
-            if source == "events.jsonl" and adopted_records is not None:
-                records = adopted_records
-            else:
-                validation = validate_external_review_evidence(wave_md)
-                if validation.errors:
-                    raise SystemExit(
-                        f"{wave_dir.name}: invalid canonical events.jsonl: "
-                        + "; ".join(validation.errors)
-                    )
-                records = validation.records
-            projected = render_review_evidence_projection(text, records)
-            if not re.search(r"(?mi)^Status:\s*closed\s*$", text):
-                projected = render_review_status_projection(
-                    projected,
-                    records,
-                    required_review_status_keys(root, projected, records),
-                )
-            # Compare in canonical form (wave 1tb4z): a projection that differs
-            # only by legacy presentation (marker namespace, retired bodyless
-            # details block) is byte-preserved — the upgrade never rewrites
-            # history for a presentation-only equivalence. Only a substantive
-            # difference against the canonical events.jsonl reprojects.
-            if projected != canonicalize_finding_synthesis_markers(text):
-                _atomic_write_text(wave_md, projected, "review-status-projection")
-                counts["projected"] += 1
-    if blocked_legacy_waves:
-        raise SystemExit(
-            "active/readied prose-only review evidence cannot be adopted losslessly "
-            "for: "
-            + ", ".join(blocked_legacy_waves)
-            + ". Record canonical typed evidence with wf_review_event, "
-            "then rerun `wf upgrade`; arbitrary review prose is never parsed as "
-            "approval authority. External-ledger waves were still projected before "
-            "this action-required report."
-        )
+                raise SystemExit(f"cannot remove retired sidecar {name}: {exc}")
     return counts
 
 
@@ -1815,10 +1767,15 @@ def phase_cleanup(
                 "  Dashboard restart intent retained; it will run only after a "
                 "successful recovery cleanup."
             )
-        if failed_phase in {"review_status_projection", "docs_gate"}:
+        if failed_phase == "docs_gate":
             _log(
-                "  Resolve the typed review-state or docs findings, run "
-                "--resume-after-gate, then --update-index and --cleanup."
+                "  Resolve the docs findings, run --resume-after-gate, then "
+                "--update-index and --cleanup."
+            )
+        elif failed_phase == "review_sidecar_cleanup":
+            _log(
+                "  Stop the dashboard and every attached MCP/agent host, then "
+                "re-run the full upgrade."
             )
         else:
             _log("  Re-run the full upgrade to restore a clean state.")
@@ -2373,11 +2330,17 @@ def _finalize_failed_upgrade(root: Path, tree_mutated: bool, current_phase: str)
             failed_phase=current_phase,
             failed_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
         )
-        if current_phase in {"review_status_projection", "docs_gate"}:
+        if current_phase == "docs_gate":
             recovery = (
-                "Resolve the typed review-state or docs findings, then run "
-                "--resume-after-gate. Index publication and cleanup remain "
-                "blocked until that recovery succeeds."
+                "Resolve the docs findings, then run --resume-after-gate. "
+                "Index publication and cleanup remain blocked until that "
+                "recovery succeeds."
+            )
+        elif current_phase == "review_sidecar_cleanup":
+            recovery = (
+                "Stop the dashboard and every attached MCP/agent host, then "
+                "re-run the full upgrade; mixed-version lifecycle mutation "
+                "during upgrade is unsupported."
             )
         else:
             recovery = (
@@ -2631,10 +2594,9 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         dest="resume_after_gate",
         help=(
-            "Resume a review-projection/docs-gate-failed upgrade: rebuild current "
-            "review-status projection, then re-run docs-gardener + docs-lint against "
-            "the already-extracted tree (no extract/render/prune). Requires a retained "
-            "lock whose failed_phase is 'review_status_projection' or 'docs_gate'."
+            "Resume a docs-gate-failed upgrade: re-run docs-gardener + docs-lint "
+            "against the already-extracted tree (no extract/render/prune). "
+            "Requires a retained lock whose failed_phase is 'docs_gate'."
         ),
     )
     parser.add_argument(
@@ -2763,13 +2725,21 @@ def main(argv: list[str] | None = None) -> int:
         failed_phase = (
             lock.get("failed_phase") if isinstance(lock, dict) else None
         )
-        if failed_phase not in {"review_status_projection", "docs_gate"}:
+        if failed_phase not in {"review_sidecar_cleanup", "docs_gate"}:
             return False
+        if failed_phase == "review_sidecar_cleanup":
+            _err(
+                "Index publication and cleanup are refused while the retained "
+                "upgrade lock has failed_phase='review_sidecar_cleanup'. Stop "
+                "the dashboard and every attached MCP/agent host, then re-run "
+                "the full upgrade."
+            )
+            return True
         _err(
             "Index publication and cleanup are refused while the retained "
-            f"upgrade lock has failed_phase={failed_phase!r}. Resolve the typed "
-            "review-state or docs findings, run --resume-after-gate, then retry "
-            "the requested phase."
+            f"upgrade lock has failed_phase={failed_phase!r}. Resolve the "
+            "docs findings, run --resume-after-gate, then retry the requested "
+            "phase."
         )
         return True
 
@@ -2787,18 +2757,16 @@ def main(argv: list[str] | None = None) -> int:
         if not isinstance(lock, dict):
             return None, None, None, None
         try:
-            projection_counts = phase_review_status_projection(root)
+            sidecar_counts = phase_review_evidence_sidecar_cleanup(root)
         except SystemExit as exc:
             message = str(exc)
             upgrade_lib.update_upgrade_lock(
                 root,
-                failed_phase="review_status_projection",
-                review_status_projection_failure=message,
+                failed_phase="review_sidecar_cleanup",
             )
             _err(
-                "Review-state migration requires operator action before index "
-                f"publication: {message}. Resolve the typed review evidence, "
-                "then run --resume-after-gate."
+                "Retired review-evidence sidecar cleanup is refused before "
+                f"index publication: {message}"
             )
             return None, None, None, 1
         import memory_backfill
@@ -2822,7 +2790,7 @@ def main(argv: list[str] | None = None) -> int:
             return None, None, None, memory_backfill.ACTION_REQUIRED_EXIT
         upgrade_lib.update_upgrade_lock(
             root,
-            review_status_projection=projection_counts,
+            review_sidecar_cleanup=sidecar_counts,
             memory_backfill_run_id=run_id,
             memory_backfill_state=summary["state"],
             memory_backfill_pending=(
@@ -3017,44 +2985,20 @@ def main(argv: list[str] | None = None) -> int:
                 _err("No upgrade lock found — nothing to resume.")
                 return 1
             failed_phase = lock.get("failed_phase") if isinstance(lock, dict) else None
-            resumable_gate_phases = {"review_status_projection", "docs_gate"}
+            resumable_gate_phases = {"docs_gate"}
             if failed_phase not in resumable_gate_phases:
                 _err(
                     "Resume-after-gate requires a retained lock whose failed_phase is "
-                    "'review_status_projection' or 'docs_gate'; found "
-                    f"failed_phase={failed_phase!r}. Resolve the upgrade manually "
-                    "or re-run the full upgrade."
+                    f"'docs_gate'; found failed_phase={failed_phase!r}. Resolve the "
+                    "upgrade manually or re-run the full upgrade."
                 )
                 return 1
             _log(
-                "\n── Resume: rebuilding review state and re-running the docs "
-                "gate against the already-extracted tree ──"
+                "\n── Resume: re-running the docs gate against the "
+                "already-extracted tree ──"
             )
             try:
-                # The ledger or required-lane set may have changed while the
-                # upgrade was paused. Rebuild the projection on EVERY retry
-                # before docs lint; a prior lock marker is evidence only, not a
-                # substitute for this current-authority read.
-                projection_counts = phase_review_status_projection(root)
-            except SystemExit:
-                upgrade_lib.update_upgrade_lock(
-                    root,
-                    failed_phase="review_status_projection",
-                    failed_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                )
-                _err(
-                    "Review-state projection still requires action — lock retained "
-                    "(failed_phase=review_status_projection); resolve the typed "
-                    "review evidence and run --resume-after-gate again."
-                )
-                _close_log()
-                raise
-            upgrade_lib.update_upgrade_lock(
-                root, review_status_projection=projection_counts
-            )
-            try:
-                # Re-run only the current-authority projection plus
-                # docs-gardener/docs-lint; no extract/render/prune.
+                # Re-run only docs-gardener/docs-lint; no extract/render/prune.
                 phase_docs_gate(root)
             except SystemExit:
                 upgrade_lib.update_upgrade_lock(
@@ -3254,14 +3198,16 @@ def main(argv: list[str] | None = None) -> int:
             _err(f"  ERROR: {exc}")
             raise SystemExit(1)
 
-        current_phase = "review_status_projection"
-        projection_counts = phase_review_status_projection(root)
+        current_phase = "review_sidecar_cleanup"
+        sidecar_counts = phase_review_evidence_sidecar_cleanup(root)
         upgrade_lib.update_upgrade_lock(
-            root, review_status_projection=projection_counts
+            root, review_sidecar_cleanup=sidecar_counts
         )
         _log(
-            "\n── Phase 2d: Review-state projection ──\n  "
-            + json.dumps(projection_counts, sort_keys=True)
+            "\n── Phase 2d: Retired review-evidence sidecar cleanup ──\n  "
+            + json.dumps(sidecar_counts, sort_keys=True)
+            + "\n  Full restart of every attached MCP/agent host (including "
+            "this one) is required before lifecycle mutation resumes."
         )
 
         # Phase 3

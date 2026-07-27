@@ -25,7 +25,6 @@ from runtime_lock import (
 )
 from review_evidence import (
     REVIEW_EVIDENCE_SOURCE,
-    adopted_protocol_state,
     canonicalize_finding_synthesis_markers,
     empty_external_finding_synthesis_section,
     parse_review_evidence_source,
@@ -35,7 +34,6 @@ from review_evidence import (
     required_review_status_keys,
     review_status_human_table,
     review_status_rows,
-    validate_adopted_protocol_state,
     validate_review_evidence_records,
 )
 
@@ -932,20 +930,13 @@ def _review_evidence_dashboard_state(
     """Derive dashboard review state from the external authority, never Markdown.
 
     A valid ledger remains readable when the generated Markdown projection is
-    stale or missing.  Authority/source/adoption failures fail closed and do
-    not expose the on-disk projection as though it were current.
+    stale or missing.  Authority/source failures fail closed and do not expose
+    the on-disk projection as though it were current.
     """
 
     source, source_errors = parse_review_evidence_source(text)
-    adopted, adoption_state_error = adopted_protocol_state(root, wave_md.parent.name)
     inline_marker = re.search(r"(?mi)^review-evidence-protocol\s*:", text) is not None
-    if (
-        source is None
-        and not source_errors
-        and adopted is None
-        and adoption_state_error is None
-        and not inline_marker
-    ):
+    if source is None and not source_errors and not inline_marker:
         return {
             "integrity": "legacy",
             "projection_status": "unavailable",
@@ -963,9 +954,6 @@ def _review_evidence_dashboard_state(
     diagnostics.extend(ledger_errors)
     if not ledger_errors:
         diagnostics.extend(validate_review_evidence_records(records))
-    diagnostics.extend(
-        validate_adopted_protocol_state(root, wave_md.parent.name, wave_md)
-    )
 
     if diagnostics:
         return {

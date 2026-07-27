@@ -272,7 +272,10 @@ class DocsLintFixtureTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("must declare `review-evidence-source: events.jsonl`", result.stderr)
 
-    def test_external_review_adoption_prefix_mismatch_fails_closed(self) -> None:
+    def test_retired_adoption_sidecar_is_never_consulted(self) -> None:
+        # Wave 1tomw (AC-2/AC-7): events.jsonl is the sole authority. A stray
+        # adoption-shaped sidecar — even one whose receipt would contradict
+        # the ledger — changes nothing, because no lint path reads it.
         root = self.copy_fixture()
         adoption = root / "docs" / "waves" / "review-evidence-adoptions.json"
         adoption.write_text(
@@ -283,7 +286,7 @@ class DocsLintFixtureTests(unittest.TestCase):
                         self.WAVE_DOC_PATH.parent.name: {
                             "version": 1,
                             "source": "events.jsonl",
-                            "record_count": 0,
+                            "record_count": 7,
                             "prefix_sha256": "0" * 64,
                         }
                     },
@@ -295,8 +298,7 @@ class DocsLintFixtureTests(unittest.TestCase):
             result = self.run_docs_lint(root)
         finally:
             shutil.rmtree(root)
-        self.assertEqual(result.returncode, 1)
-        self.assertIn("adopted prefix hash does not match", result.stderr)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_verification_stamp_valid_forms_pass(self) -> None:
         # 1ro43 AC-11: the stamp is optional and accepted when well-formed

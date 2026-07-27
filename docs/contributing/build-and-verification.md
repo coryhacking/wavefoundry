@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-20
+Last verified: 2026-07-27
 
 ## Verification Commands
 
@@ -217,6 +217,8 @@ Agents running **Upgrade wave framework** must follow `docs/prompts/upgrade-wave
 6. Do not hand-edit `<!-- wave:auto-guru begin` … `end -->` regions — fix templates in `render_agent_surfaces.py` instead.
 
 **Upgrade index rule:** the pack ships framework **source only** — there is no framework semantic index in it. There is a single semantic index (the project index at `.wavefoundry/index/`), and framework seeds fold into that project docs index at setup/upgrade. On an ordinary target-repo upgrade, update the project index after restarting the MCP server; a `CHUNKER_VERSION` bump forces a full rebuild.
+
+**1.15 events-only cutover (maintenance window):** upgrading across the 1.15 boundary removes the retired review-evidence sidecars (`docs/waves/review-evidence-adoptions.json`, `docs/waves/review-evidence-migration.json`) one-way, without reading either, and leaves every historical `wave.md` and `events.jsonl` byte-for-byte untouched; upgrade no longer reprojects wave review state. The cleanup refuses while either shipped publication-lock path is held (retained `failed_phase=review_sidecar_cleanup`; stop the dashboard and every attached host, then re-run the upgrade) and cleans the stale v1.13 root-level lock only after that proof. This cutover requires a full restart of every attached MCP/agent host, including the invoking one, before lifecycle mutation resumes; an in-process `wf_reload_mcp` alone is not sufficient. Mixed-version concurrent lifecycle mutation during the upgrade window is unsupported.
 
 **For full upgrade procedure:** see `docs/prompts/upgrade-wavefoundry.prompt.md` and `.wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md`.
 

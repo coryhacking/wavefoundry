@@ -54,7 +54,6 @@ from review_evidence import (
     REVIEW_EVIDENCE_SOURCE_DECLARATION,
     REVIEW_STATUS_MARKER_BEGIN,
     REVIEW_STATUS_MARKER_END,
-    adopted_protocol_state,
     build_identified_review_event,
     canonical_review_events_bytes,
     canonicalize_finding_synthesis_markers,
@@ -63,20 +62,17 @@ from review_evidence import (
     derive_review_event_identity,
     empty_external_finding_synthesis_section,
     parse_review_evidence_source,
+    project_state_publication_lock,
     read_review_event_ledger,
-    record_protocol_state,
-    record_protocol_state_locked,
     render_review_evidence_projection,
     render_review_status_projection,
     repair_independence_violations,
     required_review_status_keys,
     review_event_path,
     review_event_request_digest,
-    review_event_write_lock,
     review_evidence_summary,
     review_status_rows,
     review_status_signoff_keys,
-    validate_adopted_protocol_state,
     validate_external_review_evidence,
     validate_review_evidence_records,
 )
@@ -6673,7 +6669,7 @@ def create_wave(root: Path, slug: str, mode: str = "dry_run") -> dict[str, Any]:
         (),
         _review_status_signoff_keys(root, new_wave_text, ()),
     )
-    with review_event_write_lock(root):
+    with project_state_publication_lock(root):
         if wave_md.exists():
             existing_text = wave_md.read_text(encoding="utf-8")
             source, source_errors = parse_review_evidence_source(existing_text)
@@ -6683,20 +6679,12 @@ def create_wave(root: Path, slug: str, mode: str = "dry_run") -> dict[str, Any]:
                     "runtime creation will not migrate inline history"
                 )
             if not events_path.exists():
-                state, state_error = adopted_protocol_state(root, wave_id)
-                if state_error or state is not None:
-                    raise RuntimeError(
-                        "Existing adopted wave is missing events.jsonl; refusing to invent authority"
-                    )
-                _atomic_replace_bytes(events_path, b"", "create-events")
+                raise RuntimeError(
+                    "Existing declared wave is missing events.jsonl; refusing to invent authority"
+                )
             validation = validate_external_review_evidence(wave_md)
             if validation.errors:
                 raise RuntimeError("Existing wave review evidence is invalid: " + "; ".join(validation.errors))
-            adoption_error = record_protocol_state_locked(root, wave_id, wave_md)
-            if adoption_error:
-                raise RuntimeError(
-                    f"Existing wave review-evidence adoption could not be reconciled: {adoption_error}"
-                )
             return {
                 "wave_id": wave_id, "path": rel_path, "mode": mode_s,
                 "created": False, "exists": True,
@@ -6705,11 +6693,6 @@ def create_wave(root: Path, slug: str, mode: str = "dry_run") -> dict[str, Any]:
         wave_dir.mkdir(parents=True, exist_ok=True)
         _atomic_replace_bytes(events_path, b"", "create-events")
         _atomic_replace_text(wave_md, new_wave_text, "create-wave")
-        adoption_error = record_protocol_state_locked(root, wave_id, wave_md)
-        if adoption_error:
-            raise RuntimeError(
-                f"Wave record and event ledger were created but durable adoption failed: {adoption_error}"
-            )
     return {
         "wave_id": wave_id, "path": rel_path, "mode": mode_s,
         "created": True, "exists": False,
@@ -8269,7 +8252,7 @@ def _memory_add_response_locked(
             usage="",
         )
     if not _lock_held:
-        with review_event_write_lock(root):
+        with project_state_publication_lock(root):
             return _memory_add_response_locked(
                 root, kind, summary, evidence, targets, title=title,
                 confidence=confidence, status=status, supersedes=supersedes,
@@ -8444,7 +8427,7 @@ def memory_propose_response(
 ) -> dict[str, Any]:
     """Serialize create-mode duplicate scan + batch write as one operation."""
     lock = (
-        review_event_write_lock(root)
+        project_state_publication_lock(root)
         if (mode or "").strip() == "create"
         else contextlib.nullcontext()
     )
@@ -8722,7 +8705,7 @@ def memory_backfill_response(
         )
 
     processed: list[dict[str, Any]] = []
-    with review_event_write_lock(root):
+    with project_state_publication_lock(root):
         run_id = backfill.ensure_run(root, entry_path_s)
         backfill.sync_inventory(root, run_id, inventory=inventory)
         for _ in range(backfill.MAX_WAVES_PER_CALL):
@@ -9016,7 +8999,7 @@ def memory_validate_response(
                 recovery_tools=["memory_validate"], recovery_usage="")],
             next_tools=["memory_validate"], usage="")
 
-    with review_event_write_lock(root):
+    with project_state_publication_lock(root):
         records = {record["memory_id"]: record for record in mem.load_memory_records(root)}
         record = records.get(memory_id)
         if record is None:
@@ -9337,7 +9320,7 @@ def memory_reconcile_response(
     eligibility_confirmed: bool = False,
 ) -> dict[str, Any]:
     """Serialize status/archive reconciliation across server processes."""
-    with review_event_write_lock(root):
+    with project_state_publication_lock(root):
         return _memory_reconcile_response_locked(
             root,
             memory_id,
@@ -9975,7 +9958,7 @@ def wf_garden_docs_response(root: Path, mode: str = "dry_run", cache: Optional[M
             next_tools=["wf_garden_docs"],
             usage="wf_garden_docs(mode='run')",
         )
-    with review_event_write_lock(root):
+    with project_state_publication_lock(root):
         result = run_garden(root)
     status = "ok" if result["passed"] else "error"
     diagnostics = [] if result["passed"] else [
@@ -12542,15 +12525,8 @@ def _wave_uses_external_review_evidence(root: Path, wave_md: Path) -> bool:
     except OSError:
         return False
     source, source_errors = parse_review_evidence_source(text)
-    state, adoption_error = adopted_protocol_state(root, wave_md.parent.name)
     legacy_inline_marker = re.search(r"(?mi)^review-evidence-protocol\s*:", text) is not None
-    return (
-        source is not None
-        or bool(source_errors)
-        or state is not None
-        or adoption_error is not None
-        or legacy_inline_marker
-    )
+    return source is not None or bool(source_errors) or legacy_inline_marker
 
 
 def _review_evidence_diagnostics(
@@ -12558,7 +12534,6 @@ def _review_evidence_diagnostics(
     *,
     root: Path | None = None,
     wave_key: str | None = None,
-    persist_adoption: bool = False,
     closure: bool = False,
     required_run_kind: str | None = None,
 ) -> list[dict[str, Any]]:
@@ -12578,7 +12553,6 @@ def _review_evidence_diagnostics(
         else:
             result = validate_external_review_evidence(wave_md, closure=closure)
             errors = list(result.errors)
-            errors.extend(validate_adopted_protocol_state(root, wave_md.parent.name, wave_md))
             if not result.errors:
                 try:
                     raw_projection = wave_md.read_text(encoding="utf-8")
@@ -12624,16 +12598,6 @@ def _review_evidence_diagnostics(
             errors.append(
                 f"marked wave requires a `{required_run_kind}` Review Run Record at this lifecycle phase"
             )
-    if (
-        not errors
-        and persist_adoption
-        and result is not None
-        and root is not None
-        and wave_key is not None
-    ):
-        adoption_error = record_protocol_state(root, wave_key, wave_md)
-        if adoption_error:
-            errors.append(adoption_error)
     diagnostics = [
         _diagnostic(
             "review_evidence_invalid",
@@ -13078,15 +13042,6 @@ def wf_review_event_response(
                 next_tools=["wf_review_wave", "wf_current_wave"],
             )
         existing_bundle = _identified_review_event_bundle(current.records, identity)
-        durable_errors = validate_adopted_protocol_state(root, wave_md.parent.name, wave_md)
-        recoverable_suffix = durable_errors == ("canonical review event ledger has an unadopted suffix",)
-        if durable_errors and not (recoverable_suffix and existing_bundle is not None):
-            return _response(
-                "error",
-                {"wave_id": wave_id, "mode": mode_s},
-                diagnostics=[_diagnostic("review_evidence_adoption_invalid", error) for error in durable_errors],
-                next_tools=["wf_review_wave"],
-            )
         replayed = existing_bundle is not None
         if existing_bundle is not None:
             if existing_bundle[0].get(REQUEST_DIGEST_FIELD) != request_digest:
@@ -13156,29 +13111,21 @@ def wf_review_event_response(
                     "error", payload,
                     diagnostics=[_diagnostic("review_event_commit_failed", str(exc))],
                 )
-        adoption_error = record_protocol_state_locked(root, wave_md.parent.name, wave_md)
-        if adoption_error:
-            payload.update(event_committed=event_committed, adoption_pending=True)
-            return _response(
-                "partial", payload,
-                diagnostics=[_diagnostic("review_evidence_adoption_pending", adoption_error)],
-                next_tools=["wf_review_event"],
-            )
         try:
             _atomic_replace_text(wave_md, projected, "review-projection")
         except OSError as exc:
-            payload.update(event_committed=True, projection_stale=True)
+            payload.update(event_committed=event_committed, projection_stale=True)
             return _response(
                 "partial", payload,
                 diagnostics=[_diagnostic("review_evidence_projection_stale", str(exc))],
                 next_tools=["wf_review_event", "wf_review_wave"],
             )
-        payload.update(event_committed=True, adoption_pending=False, projection_stale=False)
+        payload.update(event_committed=True, projection_stale=False)
         return _response("ok", payload, next_tools=["wf_review_wave", "wf_current_wave"])
 
     try:
         if mode_s == "create":
-            with review_event_write_lock(root):
+            with project_state_publication_lock(root):
                 response = transact()
         else:
             response = transact()
@@ -13216,7 +13163,6 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
             text,
             root=root,
             wave_key=wave_md.parent.name,
-            persist_adoption=_mutating,
         )
     )
     _ac_advisories: list[dict[str, Any]] = []
@@ -13634,7 +13580,6 @@ def wf_review_wave_response(root: Path, wave_id: str, phase: str = "implementati
         wave_text,
         root=root,
         wave_key=wave_md.parent.name,
-        persist_adoption=False,
         required_run_kind="readiness" if phase_s == "prepare" else "initial_delivery",
     )
     # Merge lanes from wave.md Participants table and project-declared required_review_lanes
@@ -14369,7 +14314,6 @@ def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
             text,
             root=root,
             wave_key=wave_md.parent.name,
-            persist_adoption=mode_s == "create",
             closure=True,
             required_run_kind="initial_delivery",
         )
@@ -22365,7 +22309,7 @@ def _flush_context_efficiency(
                 },
                 flushed,
             )
-        with review_event_write_lock(root):
+        with project_state_publication_lock(root):
             # Re-read both authorities under the shared writer lock. A second
             # process may have flushed a newer generation after this process's
             # transaction committed but before it reached projection.
@@ -24866,7 +24810,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             return bad
         handler = get_handler()
         mutating = (mode or "").strip().lower() in {"create", "apply"}
-        lock = review_event_write_lock(handler.root) if mutating else contextlib.nullcontext()
+        lock = project_state_publication_lock(handler.root) if mutating else contextlib.nullcontext()
         with lock:
             result = wf_create_wave_response(
                 handler.root, slug, mode=mode, cache=handler.cache
@@ -24902,7 +24846,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             return bad
         handler = get_handler()
         mutating = (mode or "").strip().lower() in {"create", "apply"}
-        lock = review_event_write_lock(handler.root) if mutating else contextlib.nullcontext()
+        lock = project_state_publication_lock(handler.root) if mutating else contextlib.nullcontext()
         with lock:
             return wf_add_change_response(
                 handler.root,
@@ -24926,7 +24870,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             return bad
         handler = get_handler()
         mutating = (mode or "").strip().lower() in {"create", "apply"}
-        lock = review_event_write_lock(handler.root) if mutating else contextlib.nullcontext()
+        lock = project_state_publication_lock(handler.root) if mutating else contextlib.nullcontext()
         with lock:
             return wf_remove_change_response(
                 handler.root,
@@ -24976,7 +24920,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         handler = get_handler()
         mode_s = (mode or "").strip().lower()
         mutating = mode_s in {"ready", "create", "apply"}
-        lock = review_event_write_lock(handler.root) if mutating else contextlib.nullcontext()
+        lock = project_state_publication_lock(handler.root) if mutating else contextlib.nullcontext()
         with lock:
             result = wf_prepare_wave_response(
                 handler.root, wave_id, mode=mode, cache=handler.cache
@@ -25027,7 +24971,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             return bad
         handler = get_handler()
         mutating = (mode or "").strip().lower() in {"create", "apply"}
-        lock = review_event_write_lock(handler.root) if mutating else contextlib.nullcontext()
+        lock = project_state_publication_lock(handler.root) if mutating else contextlib.nullcontext()
         with lock:
             result = wf_pause_wave_response(
                 handler.root, wave_id, mode=mode, cache=handler.cache
@@ -25185,11 +25129,11 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         ``events.jsonl``.
 
         For the write events: the default ``dry_run`` returns the
-        exact derived records without writing; ``create`` serializes under the project-global lock,
-        atomically replaces the fixed sibling ``events.jsonl`` authority, advances its bounded
-        adoption proof, and rebuilds the Markdown current-state projection. The server derives a
+        exact derived records without writing; ``create`` serializes under the project-global
+        publication lock, atomically replaces the fixed sibling ``events.jsonl`` authority, and
+        rebuilds the Markdown current-state projection. The server derives a
         structured operation identity from the existing semantic inputs: identical retries replay
-        without appending, while conflicting content fails closed. Post-commit adoption/projection
+        without appending, while conflicting content fails closed. Post-commit projection
         failures return explicit partial-success fields and converge on retry. ``finding`` callers
         must provide every load-bearing judgment
         field explicitly in ``judgment``; the tool derives only IDs, actionability, blocking,
@@ -25338,7 +25282,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             return bad
         handler = get_handler()
         mutating = (mode or "").strip().lower() in {"create", "apply"}
-        lock = review_event_write_lock(handler.root) if mutating else contextlib.nullcontext()
+        lock = project_state_publication_lock(handler.root) if mutating else contextlib.nullcontext()
         with lock:
             result = wf_implement_wave_response(
                 handler.root, wave_id, mode=mode, cache=handler.cache
@@ -25427,7 +25371,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             )
         focus_stage = REOPEN_PURPOSE_STAGES[requested]
         handler = get_handler()
-        with review_event_write_lock(handler.root):
+        with project_state_publication_lock(handler.root):
             result = wf_reopen_wave_response(handler.root, wave_id)
             if result.get("status") == "ok":
                 # Wave 1ti11 repair (reopen-reports-unapplied-focus): telemetry is
@@ -25519,7 +25463,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             return bad
         handler = get_handler()
         mutating = (mode or "").strip().lower() in {"create", "apply"}
-        lock = review_event_write_lock(handler.root) if mutating else contextlib.nullcontext()
+        lock = project_state_publication_lock(handler.root) if mutating else contextlib.nullcontext()
         with lock:
             result = wf_close_wave_response(
                 handler.root, wave_id, mode=mode, cache=handler.cache
@@ -26146,7 +26090,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         handler = get_handler()
         mutating = (mode or "").strip().lower() == "run"
         lock = (
-            review_event_write_lock(handler.root)
+            project_state_publication_lock(handler.root)
             if mutating
             else contextlib.nullcontext()
         )
@@ -27200,11 +27144,8 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         if not _wave_uses_external_review_evidence(get_handler().root, path):
             return path.read_text(encoding="utf-8")
         validation = validate_external_review_evidence(path)
-        adoption_errors = validate_adopted_protocol_state(
-            get_handler().root, path.parent.name, path
-        )
-        if validation.authority_errors or adoption_errors:
-            details = [*validation.authority_errors, *adoption_errors]
+        if validation.authority_errors:
+            details = [*validation.authority_errors]
             return (
                 "# Wave Review Evidence Unavailable\n\n"
                 "The canonical `events.jsonl` authority failed validation; the Markdown "

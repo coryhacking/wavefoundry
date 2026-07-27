@@ -7,13 +7,11 @@ from typing import Iterable
 
 from review_evidence import (
     REVIEW_STATUS_MARKER_BEGIN,
-    adopted_protocol_state,
     canonicalize_finding_synthesis_markers,
     parse_review_evidence_source,
     render_review_evidence_projection,
     render_review_status_projection,
     required_review_status_keys,
-    validate_adopted_protocol_state,
     validate_external_review_evidence,
 )
 from context_efficiency import checkpoint_validation_errors
@@ -988,16 +986,11 @@ def check_wave_docs(root: Path, only: set[Path] | None = None, skip: set[Path] |
                 for error in checkpoint_validation_errors(text)
             )
             source, _source_errors = parse_review_evidence_source(text)
-            adopted, _adoption_error = adopted_protocol_state(root, path.parent.name)
             inline_marker = re.search(r"(?mi)^review-evidence-protocol\s*:", text) is not None
-            if source is not None or adopted is not None or _source_errors or _adoption_error or inline_marker:
+            if source is not None or _source_errors or inline_marker:
                 review_evidence = validate_external_review_evidence(path)
                 failures.extend(
                     f"{rel}: review evidence: {error}" for error in review_evidence.errors
-                )
-                failures.extend(
-                    f"{rel}: review evidence: {error}"
-                    for error in validate_adopted_protocol_state(root, path.parent.name, path)
                 )
                 if review_evidence.ok:
                     try:

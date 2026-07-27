@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-20
+Last verified: 2026-07-27
 
 Shortcut: **`Upgrade Wavefoundry`** | Legacy: **`Upgrade wave framework`** / **`Upgrade wave context`**
 
@@ -184,25 +184,32 @@ exact `data.validation_worklist[].memory_id`, then call backfill again until
 the run is clear and call
 `wf_upgrade(phase="resume_after_memory")`. The resume recomputes the
 authoritative `memory-state.sqlite` pending set and alone publishes the index.
-Resume-after-memory, index, and cleanup verbs all refuse while review-state
-projection or docs lint has a retained failed phase; recover that typed gate
-through `resume_after_gate` first. Index and cleanup also refuse while memory
+Resume-after-memory, index, and cleanup verbs all refuse while the
+retired-sidecar cleanup or docs lint has a retained failed phase; recover a
+docs-gate failure through `resume_after_gate`, and recover a
+`review_sidecar_cleanup` refusal by stopping every attached host and
+re-running the full upgrade. Index and cleanup also refuse while memory
 work remains. Fresh/no-history projects continue directly. Upgrade/status responses expose the run id, outcome/pending
 counts, last failure, and next bounded worklist; do not scrape output or use a
 global candidate search. The no-MCP `wf memory-validate` fallback has full
 rewrite-field parity.
 
 When the upgrade was started by a pre-gate MCP process, the newly extracted
-pre-docs extension executes the new review-state projector before lint. A
-projection or lint repair leaves
-`failed_phase=review_status_projection` / `failed_phase=docs_gate`; after the
-repair, `wf upgrade --resume-after-gate` or
-`wf_upgrade(phase="resume_after_gate")` always rebuilds and persists current
-review state before rerunning lint. It does not trust an earlier projection
-marker. A later historical-memory exit 4 is action-required, not an index
-failure: reload/restart MCP, inspect the structured run worklist, then resume
-through `resume_after_memory`. New-code resume-after-memory, update, rebuild,
-and cleanup all refuse a retained review-projection/docs failure until
-`resume_after_gate` succeeds. Update, rebuild, and cleanup also run the
-publication backstop, so an old-shaped retained lock cannot publish or clean
-up around either migration.
+pre-docs extension executes the one-way retired-sidecar cleanup before lint;
+upgrade does not enumerate, reproject, or rewrite historical waves, and every
+existing `wave.md` and `events.jsonl` is left byte-for-byte untouched. A
+refused cleanup (a shipped publication-lock path is held) leaves
+`failed_phase=review_sidecar_cleanup`: stop the dashboard and every attached
+MCP/agent host, then re-run the full upgrade. A lint repair leaves
+`failed_phase=docs_gate`; after the repair, `wf upgrade --resume-after-gate`
+or `wf_upgrade(phase="resume_after_gate")` reruns only the docs gate against
+the already-extracted tree. This cutover requires a full restart of every
+attached host, including the invoking one, before lifecycle mutation resumes;
+an in-process `wf_reload_mcp` alone is not sufficient. A later
+historical-memory exit 4 is action-required, not an index failure:
+reload/restart MCP, inspect the structured run worklist, then resume through
+`resume_after_memory`. New-code resume-after-memory, update, rebuild, and
+cleanup all refuse a retained sidecar-cleanup/docs failure until the matching
+recovery succeeds. Update, rebuild, and cleanup also run the publication
+backstop, so an old-shaped retained lock cannot publish or clean up around
+the cutover.

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-26
+Last verified: 2026-07-27
 
 ## Domains
 
@@ -22,7 +22,7 @@ Last verified: 2026-07-26
 1. `.wavefoundry/framework/seeds/` is source of truth for generic framework behavior — no domain modifies it except Wavefoundry maintainers through an explicit wave (requires `seed_edit_allowed` guard).
 2. `.wavefoundry/framework/scripts/` does not own whole project docs. It owns only explicit lifecycle records and framework marker-bounded carrier regions; renderer updates preserve every project-authored byte outside those regions.
 3. `docs/` is tool-independent — it does not import or reference script internals. The MCP server reads `docs/` but `docs/` has no knowledge of the server.
-4. Executable-review lifecycle validation may write outside `docs/` only to its bounded ignored host-local coordination state (`.wavefoundry/locks/review-evidence-adoptions.lock`). Other MCP mutations—such as index state, edit-gate overrides, and platform rendering—remain limited to their explicitly documented tool scopes; this rule does not redefine those separate boundaries.
+4. Executable-review lifecycle validation may write outside `docs/` only to its bounded ignored host-local coordination state (the `project_state_publication_lock` carrier `.wavefoundry/locks/review-evidence-adoptions.lock`; the adoption-shaped basename is a stable compatibility ABI). Other MCP mutations—such as index state, edit-gate overrides, and platform rendering—remain limited to their explicitly documented tool scopes; this rule does not redefine those separate boundaries.
 5. The local dashboard server is loopback-only and read-mostly: it may write host-local endpoint metadata under `.wavefoundry/`, but it must not mutate project docs, wave state, or git-tracked product state.
 6. The semantic index (`.wavefoundry/index/`) is a derived artifact — it can always be deleted and rebuilt from source. Nothing outside `server.py` reads it directly.
 7. Context-efficiency telemetry writes eligible calls through to SQLite. It can affect the public result only when neither the event nor the durable accounting-gap poison can be persisted; ordinary measurement/projection failures undercount or suppress the headline.
@@ -37,9 +37,8 @@ Last verified: 2026-07-26
 | `docs_lint.py` / `docs_gardener.py` → `docs/` | file read/write | stable | Engineering |
 | `render_platform_surfaces.py` → `.claude/`, `.cursor/`, `.github/hooks/`, `.mcp.json`, and the framework-owned `.codex/config.toml` region | file write | stable | Engineering |
 | `render_agent_surfaces.py` → framework-marked regions in registered `docs/agents/`, `docs/prompts/`, `docs/contributing/`, and explicitly enabled native `.claude/agents/` / `.codex/skills/` carriers | bounded file write | stable | Engineering (framework renderer) |
-| `review_evidence.py` → `docs/waves/review-evidence-adoptions.json` | bounded canonical-prefix count/hash proof write | stable | MCP lifecycle validator |
 | `wf_review_event` → `docs/waves/<wave>/events.jsonl` + `wave.md` | locked canonical event append plus generated Markdown current-head projection | stable | MCP lifecycle authoring tool |
-| `review_evidence.py` → `.wavefoundry/locks/review-evidence-adoptions.lock` | host-local coordination write | stable | MCP lifecycle validator |
+| `review_evidence.py` → `.wavefoundry/locks/review-evidence-adoptions.lock` | host-local `project_state_publication_lock` coordination write | stable | MCP lifecycle validator |
 | `indexer.py` → `.wavefoundry/index/` | file write | stable | Engineering (setup/incremental) |
 | `server.py` → `.wavefoundry/index/` | file read | stable | MCP server (search tools) |
 | `server.py` → `.wavefoundry/logs/context-efficiency.sqlite` | bounded write-through event/source/evaluation transaction on eligible calls | stable | MCP server (context-efficiency telemetry) |

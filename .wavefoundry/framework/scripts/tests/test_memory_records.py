@@ -840,7 +840,7 @@ class MemoryToolTests(_MemoryCase):
                 entered.append("exit")
 
         with patch.object(
-            self.srv, "review_event_write_lock", return_value=_Lock()
+            self.srv, "project_state_publication_lock", return_value=_Lock()
         ):
             result = self.srv.memory_reconcile_response(
                 self.root,

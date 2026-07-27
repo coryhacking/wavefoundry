@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-26
+Last verified: 2026-07-27
 
 ## Configuration
 
@@ -46,9 +46,21 @@ lock):
 - **`lifecycle-mutation.lock`** (`.wavefoundry/`): advisory per-root
   serialization of the mutating lifecycle MCP tools (the census in the 1seat
   change doc), acquired non-blocking at the registration layer; a held lock
-  returns a structured `lifecycle_mutation_locked` busy response. Review
-  evidence writes (`review_event_write_lock`) and memory writes (the
-  memory-state fence) carry their own narrower serialization.
+  returns a structured `lifecycle_mutation_locked` busy response.
+- **`project_state_publication_lock`**
+  (`.wavefoundry/locks/review-evidence-adoptions.lock` — the adoption-shaped
+  basename is an opaque compatibility ABI kept stable for 1.14+ same-path
+  cross-process coordination): the blocking, cross-process, same-thread
+  re-entrant project-global publication boundary. Its writer census spans
+  wave lifecycle mutations, review event/projection writes,
+  context-efficiency publication, memory
+  add/propose/backfill/validate/reconcile, docs gardening, index
+  finalization/publication fencing, and upgrade. Same-thread nesting is
+  legal and required (public handlers hold it across a wave.md mutation plus
+  the telemetry projection that follows); other threads and processes remain
+  serialized. Lock order is fixed and never inverted: the outer advisory
+  `lifecycle-mutation.lock` is acquired first, this inner blocking lock
+  second. Memory writes additionally carry the memory-state fence.
 
 ## Error Handling
 
