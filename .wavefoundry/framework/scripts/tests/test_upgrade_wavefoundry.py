@@ -5,12 +5,14 @@ import contextlib
 import importlib.util
 import io
 import json
+import multiprocessing
 import os
 import re
 import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 import zipfile
 from pathlib import Path
@@ -108,6 +110,99 @@ def load_upgrade_module():
     sys.modules["upgrade_wavefoundry"] = mod
     spec.loader.exec_module(mod)
     return mod
+
+
+def _sidecar_cleanup_worker(
+    root: str,
+    rendezvous_dir: str,
+    from_version: str | None,
+    outcomes: object,
+) -> None:
+    """Run the REAL sidecar cleanup with a rendezvous pause inside the deletion window.
+
+    Wave 1to78 AC-2: the concurrency in this control is real — two spawned OS
+    processes contend on the real lock carriers, and every acquire, unlink, and
+    release is the production code path. The only instrumentation is a
+    rendezvous wrapper around ``_retired_sidecar_path_error`` (a pure path
+    guard) that pauses the cleanup inside its deletion window long enough for
+    the peer process to start a blocking acquire; it then delegates to the real
+    guard. Under the retired probe-then-release-then-unlink shape this pause
+    sits in the unprotected window and the peer observes partial deletion, so
+    the control fails (mutation-proven); under hold-through-deletion the peer
+    stays blocked until every deletion, including the last root-lock unlink,
+    is complete.
+    """
+    mod = load_upgrade_module()
+    inside = Path(rendezvous_dir) / "inside-deletion-window.marker"
+    acquirer_started = Path(rendezvous_dir) / "acquirer-started.marker"
+    real_guard = mod._retired_sidecar_path_error
+    state = {"paused": False}
+
+    def pausing_guard(guard_root, candidate):
+        if not state["paused"]:
+            state["paused"] = True
+            inside.write_text("inside", encoding="utf-8")
+            deadline = time.monotonic() + 15
+            while not acquirer_started.exists() and time.monotonic() < deadline:
+                time.sleep(0.01)
+            # Grace so the peer's blocking acquire is actually in flight.
+            time.sleep(0.5)
+        return real_guard(guard_root, candidate)
+
+    mod._retired_sidecar_path_error = pausing_guard
+    try:
+        counts = mod.phase_review_evidence_sidecar_cleanup(
+            Path(root), from_version=from_version
+        )
+        outcomes.put(("cleanup", counts))
+    except SystemExit as exc:
+        outcomes.put(("cleanup_refused", str(exc)))
+
+
+def _blocking_acquirer_worker(
+    root: str,
+    rendezvous_dir: str,
+    outcomes: object,
+) -> None:
+    """Blocking-acquire the current publication lock during the deletion window.
+
+    Records the sidecar/root-lock filesystem state observed at the moment the
+    blocking acquire returns. Hold-through-deletion guarantees that moment is
+    after every deletion has finished; any observed partial state is an
+    interleaving.
+    """
+    if str(SCRIPTS_ROOT) not in sys.path:
+        sys.path.insert(0, str(SCRIPTS_ROOT))
+    import review_evidence
+    from runtime_lock import RuntimeFileLock
+
+    root_path = Path(root)
+    inside = Path(rendezvous_dir) / "inside-deletion-window.marker"
+    acquirer_started = Path(rendezvous_dir) / "acquirer-started.marker"
+    deadline = time.monotonic() + 15
+    while not inside.exists() and time.monotonic() < deadline:
+        time.sleep(0.01)
+    if not inside.exists():
+        outcomes.put(("acquirer_timeout", None))
+        return
+    acquirer_started.write_text("started", encoding="utf-8")
+    lock = RuntimeFileLock(
+        root_path / review_evidence.PROJECT_STATE_PUBLICATION_LOCK_REL,
+        blocking=True,
+    )
+    lock.acquire()
+    try:
+        waves = root_path / "docs" / "waves"
+        observed = {
+            "adoptions": (waves / "review-evidence-adoptions.json").exists(),
+            "migration": (waves / "review-evidence-migration.json").exists(),
+            "root_lock": (
+                root_path / ".wavefoundry" / "review-evidence-adoptions.lock"
+            ).exists(),
+        }
+    finally:
+        lock.release()
+    outcomes.put(("acquirer", observed))
 
 
 def _make_zip(entries: dict[str, str], prefix: str = ".wavefoundry/framework/seeds/") -> bytes:
@@ -4577,15 +4672,17 @@ class SandboxResilientPackDiscoveryTests(unittest.TestCase):
 
 
 class ReviewEvidenceSidecarCleanupTests(unittest.TestCase):
-    """Wave 1tomw (AC-5/AC-11): one-way retired-sidecar cleanup.
+    """Wave 1tomw (AC-5/AC-11) + wave 1to78 (AC-2/AC-3): retired-sidecar cleanup.
 
     Tag-derived shapes: v1.12 and earlier waves are prose-only; v1.13
     introduced external ledgers while its publication lock lived at the
     repository root; v1.14+ use `.wavefoundry/locks/`. The cleanup deletes
     both retired sidecars without parsing either, byte-preserves every
     `wave.md`/`events.jsonl`, refuses while either shipped lock path is
-    held, cleans the stale v1.13 root lock after that proof, and always
-    reports `restart_required`.
+    held, and holds both lock paths through the deletions (root-lock file
+    released then unlinked last). `restart_required` is scoped to
+    cutover-active runs: something was removed, or `from_version` predates
+    1.15 (unknown fail-safe true).
     """
 
     def setUp(self):
@@ -4671,9 +4768,17 @@ class ReviewEvidenceSidecarCleanupTests(unittest.TestCase):
         for path, payload in preserved.items():
             self.assertEqual(path.read_bytes(), payload, path)
 
-        rerun = self.mod.phase_review_evidence_sidecar_cleanup(self.root)
+        # Wave 1to78 AC-3 — DELIBERATELY INVERTED from the 1tomw assertion.
+        # 1tomw reported restart_required unconditionally forever; the scoped
+        # restart boundary reports false on a converged rerun with a KNOWN
+        # post-1.15 from_version (nothing removed, no cutover crossed). The
+        # known version matters: an unknown from_version is fail-safe true and
+        # would vacuously satisfy the old assertion.
+        rerun = self.mod.phase_review_evidence_sidecar_cleanup(
+            self.root, from_version="1.15.0"
+        )
         self.assertEqual(rerun["removed_sidecars"], 0)
-        self.assertTrue(rerun["restart_required"])
+        self.assertFalse(rerun["restart_required"])
 
     def test_stale_v13_root_lock_is_cleaned_after_quiescence_proof(self):
         self._seed_history()
@@ -4684,6 +4789,112 @@ class ReviewEvidenceSidecarCleanupTests(unittest.TestCase):
 
         self.assertEqual(counts["removed_stale_root_lock"], 1)
         self.assertFalse(legacy.exists())
+
+    def test_restart_required_is_scoped_to_cutover_active_runs(self):
+        """Wave 1to78 AC-3: converged repo — restart tracks from_version only.
+
+        Unknown or unparseable from_version is fail-safe true (treated
+        pre-1.15); a known post-1.15 version on a converged tree is false.
+        """
+        cases = [
+            (None, True),
+            ("", True),
+            ("garbage", True),
+            ("2026-06-01a", True),
+            ("1.14.3", True),
+            ("1.15.0", False),
+            ("1.15.7", False),
+            ("2.0.0", False),
+        ]
+        for from_version, expected in cases:
+            with self.subTest(from_version=from_version):
+                counts = self.mod.phase_review_evidence_sidecar_cleanup(
+                    self.root, from_version=from_version
+                )
+                self.assertEqual(counts["removed_sidecars"], 0)
+                self.assertEqual(counts["removed_stale_root_lock"], 0)
+                self.assertEqual(counts["restart_required"], expected)
+
+    def test_restart_required_true_when_cutover_acted_despite_new_version(self):
+        """Wave 1to78 AC-3: the run acting (removals) forces restart even on
+        a known post-1.15 from_version."""
+        self._seed_history()
+        counts = self.mod.phase_review_evidence_sidecar_cleanup(
+            self.root, from_version="1.15.0"
+        )
+        self.assertEqual(counts["removed_sidecars"], 2)
+        self.assertTrue(counts["restart_required"])
+
+        legacy = self.root / ".wavefoundry" / "review-evidence-adoptions.lock"
+        legacy.write_bytes(b"")
+        counts = self.mod.phase_review_evidence_sidecar_cleanup(
+            self.root, from_version="1.15.0"
+        )
+        self.assertEqual(counts["removed_sidecars"], 0)
+        self.assertEqual(counts["removed_stale_root_lock"], 1)
+        self.assertTrue(counts["restart_required"])
+
+    def test_pipeline_phase_threads_preflight_from_version(self):
+        """Wave 1to78 AC-3 (call path 1): the Phase 2d pipeline call passes the
+        preflight from_version. Source pin — the full pipeline (extract,
+        render, prune) is impractical to execute in a unit test."""
+        source = UPGRADE_PATH.read_text(encoding="utf-8")
+        idx = source.index('current_phase = "review_sidecar_cleanup"')
+        window = source[idx : idx + 300]
+        self.assertIn("phase_review_evidence_sidecar_cleanup(", window)
+        self.assertIn("from_version=from_version", window)
+
+    def _run_cross_process_interleaving_control(
+        self, *, preexisting_root_lock: bool
+    ) -> None:
+        self._seed_history()
+        legacy = self.root / ".wavefoundry" / "review-evidence-adoptions.lock"
+        if preexisting_root_lock:
+            legacy.write_bytes(b"")
+
+        with tempfile.TemporaryDirectory() as rendezvous:
+            ctx = multiprocessing.get_context("spawn")
+            outcomes = ctx.Queue()
+            cleaner = ctx.Process(
+                target=_sidecar_cleanup_worker,
+                args=(str(self.root), rendezvous, "1.15.0", outcomes),
+            )
+            acquirer = ctx.Process(
+                target=_blocking_acquirer_worker,
+                args=(str(self.root), rendezvous, outcomes),
+            )
+            cleaner.start()
+            acquirer.start()
+            for process in (cleaner, acquirer):
+                process.join(30)
+                self.assertEqual(process.exitcode, 0)
+            results = dict(outcomes.get(timeout=5) for _ in range(2))
+
+        self.assertIn("cleanup", results, results)
+        self.assertIn("acquirer", results, results)
+        counts = results["cleanup"]
+        self.assertEqual(counts["removed_sidecars"], 2)
+        self.assertEqual(
+            counts["removed_stale_root_lock"], 1 if preexisting_root_lock else 0
+        )
+        self.assertTrue(counts["restart_required"])
+        # The blocking acquirer could not interleave with the deletions: at
+        # the moment its acquire returned, every deletion — including the
+        # root-lock unlink, which happens last after release — was complete.
+        self.assertEqual(
+            results["acquirer"],
+            {"adoptions": False, "migration": False, "root_lock": False},
+        )
+
+    def test_concurrent_blocking_acquirer_cannot_interleave_with_deletions(self):
+        """Wave 1to78 AC-2: real cross-process hold-through-deletion proof,
+        pre-existing v1.13 root-lock fixture."""
+        self._run_cross_process_interleaving_control(preexisting_root_lock=True)
+
+    def test_concurrent_acquirer_cannot_interleave_when_root_lock_absent(self):
+        """Wave 1to78 AC-2: absent root-lock fixture — acquiring mints the
+        carrier, which is still held through deletion and unlinked last."""
+        self._run_cross_process_interleaving_control(preexisting_root_lock=False)
 
     def test_held_current_lock_refuses_without_deleting_anything(self):
         self._seed_history()
@@ -4757,6 +4968,13 @@ class ReviewEvidenceSidecarCleanupTests(unittest.TestCase):
             self.assertIn("symlink", str(raised.exception))
             self.assertEqual(target.read_bytes(), b"outside sentinel")
             self.assertTrue(candidate.is_symlink())
+            # Wave 1to78 AC-2: a refusal must not leave behind the v1.13
+            # root-lock carrier this run minted while taking its hold.
+            self.assertFalse(
+                (
+                    self.root / ".wavefoundry" / "review-evidence-adoptions.lock"
+                ).exists()
+            )
 
     def test_inline_upgrade_bridge_is_fully_removed(self):
         # Wave 1tomw: the typed-inline authority never shipped in a tagged
@@ -5297,6 +5515,35 @@ class HistoricalMemoryUpgradeGateTests(unittest.TestCase):
                 phase.assert_not_called()
                 self.assertIn("re-run", stderr.getvalue())
 
+    def test_backstop_scopes_restart_from_lock_carried_from_version(self):
+        """Wave 1to78 AC-3 (call path 3): the deferred backstop cannot
+        recompute from_version from disk post-extract; the upgrade lock state
+        written at preflight is its carrier. A converged tree with a known
+        post-1.15 lock from_version records restart_required false; a lock
+        without a usable from_version is fail-safe true."""
+
+        for lock_from, expected in (("1.15.0", False), (None, True)):
+            with self.subTest(lock_from=lock_from):
+                self.upgrade_lib.remove_upgrade_lock(self.root)
+                self.upgrade_lib.write_upgrade_lock(
+                    self.root, lock_from, "1.15.1"
+                )
+                self.upgrade_lib.update_upgrade_lock(
+                    self.root,
+                    memory_backfill_run_id=self.run_id,
+                    memory_backfill_state="ready_for_index",
+                )
+                with patch.object(self.mod, "phase_index_update"):
+                    self.mod.main(["--root", str(self.root), "--update-index"])
+                lock = self.upgrade_lib.read_upgrade_lock(self.root) or {}
+                self.assertIn("review_sidecar_cleanup", lock)
+                self.assertEqual(
+                    lock["review_sidecar_cleanup"]["restart_required"], expected
+                )
+                self.assertEqual(
+                    lock["review_sidecar_cleanup"]["removed_sidecars"], 0
+                )
+
     def test_new_code_sidecar_refusal_is_not_misreported_as_memory_action(self):
         """A cleanup backstop refusal is rc1 recovery, never rc4 memory work."""
 
@@ -5465,6 +5712,27 @@ class HistoricalMemoryUpgradeExtensionBootstrapTests(unittest.TestCase):
         with patch.object(self.ext, "_installed_upgrade_module") as loader:
             self.ext.pre_docs_gate(self.ctx)
         loader.assert_not_called()
+
+    def test_pre_docs_gate_threads_known_from_version_into_restart_scope(self):
+        """Wave 1to78 AC-3 (call path 2): the extension seam passes
+        ctx.from_version; a converged tree upgraded from a known post-1.15
+        version records restart_required false."""
+
+        scripts = self.root / ".wavefoundry" / "framework" / "scripts"
+        scripts.mkdir(parents=True)
+        shutil.copy2(UPGRADE_PATH, scripts / "upgrade_wavefoundry.py")
+
+        ctx = MagicMock(root=self.root, from_version="1.15.1")
+        self.ext.pre_docs_gate(ctx)
+
+        lock = json.loads(
+            (
+                self.root / ".wavefoundry" / "upgrade-in-progress.json"
+            ).read_text(encoding="utf-8")
+        )
+        self.assertIn("review_sidecar_cleanup", lock)
+        self.assertEqual(lock["review_sidecar_cleanup"]["removed_sidecars"], 0)
+        self.assertFalse(lock["review_sidecar_cleanup"]["restart_required"])
 
     def test_pre_docs_gate_reloads_stale_review_evidence_module_in_place(self):
         """1t49m field report: the installed upgrader resolves its function-local

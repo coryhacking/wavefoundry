@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-23
+Last verified: 2026-07-27
 
 Shortcut: **`Close wave`**
 
@@ -42,7 +42,7 @@ All closure-time code and docs investigation follows the run contract's Retrieva
 - If framework scripts changed: confirm `python3 .wavefoundry/framework/scripts/run_tests.py` passes
 - If `docs/prompts/` or manifest changed: confirm docs gate passes (**`wf_validate_docs`** over MCP, or **`wf docs-lint`** if MCP is unavailable)
 - If seed prompts changed: confirm guard-overrides reset to `false`
-- If Wave Council is enabled: confirm `wave-council` recorded both council signoffs in `## Review Evidence`
+- If Wave Council is enabled: confirm `wave-council` recorded both council signoffs (typed approval events in the wave's `events.jsonl` on declared waves, projected into `## Review Evidence`; prose lines count only on legacy waves)
 
 ## Agent Memory Validation Checkpoint
 

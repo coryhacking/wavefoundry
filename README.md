@@ -356,7 +356,7 @@ Credential scanning is built in: the framework checks every project file against
 Upgrade wave framework
 ```
 
-The agent detects framework drift, reconciles prompts and hook surfaces, runs the docs gate, restarts the MCP server, and updates the semantic index. The upgrader searches the project root, `~/.wavefoundry/`, and `~/.wavefoundry/dist/` for the highest semver zip available.
+The agent detects framework drift, reconciles prompts and hook surfaces, runs the docs gate, reloads the MCP server in-process (release cutovers that require it instruct a full host restart instead), and updates the semantic index. The upgrader searches the project root, `~/.wavefoundry/`, and `~/.wavefoundry/dist/` for the highest semver zip available.
 
 ---
 

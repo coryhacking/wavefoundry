@@ -41,14 +41,15 @@ _LEGACY_FINDING_SYNTHESIS_MARKER_BEGIN = (
 _LEGACY_FINDING_SYNTHESIS_MARKER_END = (
     "<!-- waveframework:finding-synthesis end -->"
 )
-# Wave 1tb4z: the `<details>` wrapper survives ONLY on the legacy
-# inline-authority projection, where it collapses an embedded ```jsonl fence
-# of machine records in rendered views. External-ledger projections (records
-# in events.jsonl) emit a plain italic summary line instead — no HTML in a
-# human-first document. The class matches the `wave:` marker vocabulary; the
-# legacy `wavefoundry-` spelling is normalized by the canonicalizer.
+# Wave 1tb4z: the `<details>` wrapper survives ONLY on legacy inline-authority
+# projections in ARCHIVES, where it collapses an embedded ```jsonl fence of
+# machine records in rendered views. External-ledger projections (records in
+# events.jsonl) emit a plain italic summary line instead — no HTML in a
+# human-first document. Nothing renders the inline form anymore (wave 1to78
+# deleted that machinery); the begin constant survives solely so the
+# canonicalizer can normalize the legacy `wavefoundry-` class spelling on
+# archived bodied blocks without rewriting them.
 REVIEW_EVIDENCE_DETAILS_BEGIN = '<details class="wave-review-evidence">'
-REVIEW_EVIDENCE_DETAILS_END = "</details>"
 _LEGACY_REVIEW_EVIDENCE_DETAILS_BEGIN = '<details class="wavefoundry-review-evidence">'
 # A BODYLESS details block (summary-close immediately followed by
 # details-close, whitespace only) is the retired external-projection form;
@@ -408,6 +409,67 @@ def review_event_path(wave_path: Path) -> Path:
     return path / EVENTS_FILENAME
 
 
+_ID_SHAPED_WAVE_DIR_RE = re.compile(r"^[0-9a-z]{5,6}[- ].+")
+
+
+def is_id_shaped_wave_dir_name(name: str) -> bool:
+    """Return whether a wave-folder NAME follows the minted-id spelling.
+
+    MESSAGE HINT ONLY.  This is deliberately not a role test: nothing about
+    authority, exclusion, or lint scope may be derived from it.  Its single
+    job is letting the orphan-ledger failure text add "the folder name is not
+    id-shaped, so this may also be a renamed wave directory" when that is
+    worth telling the operator.
+
+    It exists as a separate symbol precisely so the name shape cannot be
+    re-borrowed as a role predicate.  That conflation is what let a directory
+    rename evade the orphan guard, and then kept a renamed wave's raw ledger
+    index-eligible until ``is_canonical_wave_events_path`` below became
+    content-driven.
+    """
+    return _ID_SHAPED_WAVE_DIR_RE.match(name) is not None
+
+
+def is_canonical_wave_events_path(rel_path: str, root: Path | None = None) -> bool:
+    """Return whether *rel_path* is a canonical per-wave event ledger.
+
+    The exclusion is structural: the fixed sibling
+    ``docs/waves/<one wave directory>/events.jsonl`` occupies the machine
+    authority role, and that fixed wave-folder role alone decides exclusion.
+    No wave.md declaration or retained state is consulted, so a tampered or
+    removed declaration never admits a raw ledger into semantic retrieval.  A
+    root-level file, a deeper nested file, or any unrelated file with the same
+    basename remains eligible for indexing.  Callers pass normalized
+    repo-relative paths in production; accepting backslashes keeps the
+    predicate platform-neutral.
+
+    The role is decided by POSITION, not by how the folder is spelled: any
+    direct child directory of ``docs/waves/`` holding the fixed sibling
+    basename qualifies.  The earlier id-shape clause meant renaming a wave
+    directory (underscore separator, non-id prefix, uppercase) admitted that
+    wave's raw ledger into semantic retrieval while the wave stayed fully
+    live and resolvable, since both lifecycle lookup and the docs-lint
+    orphan guard resolve waves by content rather than folder spelling.  The
+    surviving name-shape test is ``is_id_shaped_wave_dir_name``, a lint
+    message hint that decides nothing.
+
+    Wave 1to78 relocated this predicate here from the indexer so the docs-lint
+    orphan-ledger guard and the indexer's retrieval exclusion share ONE
+    definition of the fixed wave-folder role (lint must never import the
+    indexer, which activates the venv at import time). ``root`` is accepted
+    for caller-signature stability and is not consulted.
+    """
+    normalized = rel_path.replace("\\", "/")
+    parts = normalized.split("/")
+    return (
+        len(parts) == 4
+        and parts[0] == "docs"
+        and parts[1] == "waves"
+        and bool(parts[2])
+        and parts[3] == "events.jsonl"
+    )
+
+
 def _review_authority_path_error(wave_path: Path) -> str | None:
     """Reject symlinked/out-of-wave review authority before any read or write."""
 
@@ -627,21 +689,6 @@ def project_state_publication_lock(repo_root: Path):
                 yield
             finally:
                 _WRITE_LOCK_STATE.depth = 0
-
-
-def empty_finding_synthesis_section() -> str:
-    """Canonical marker-owned empty section for a newly-created wave."""
-
-    return (
-        "## Finding Synthesis\n\n"
-        f"{FINDING_SYNTHESIS_MARKER_BEGIN}\n"
-        f"{review_evidence_human_table(())}\n\n"
-        f"{REVIEW_EVIDENCE_DETAILS_BEGIN}\n"
-        f"<summary>{review_evidence_summary_line(())}</summary>\n\n"
-        "```jsonl\n```\n"
-        f"{REVIEW_EVIDENCE_DETAILS_END}\n"
-        f"{FINDING_SYNTHESIS_MARKER_END}\n"
-    )
 
 
 def _is_true(value: object) -> bool:
@@ -1117,6 +1164,356 @@ def required_review_status_keys(
     )
 
 
+# ---------------------------------------------------------------------------
+# Single authority-resolution facade for lifecycle gate reads (wave 1to78).
+#
+# Every lifecycle gate read of review-evidence CONTENT — operator-signoff
+# presence, per-lane signoff currency, council-signoff currency, and max
+# severity — resolves through ``resolve_review_authority``. On a wave whose
+# header carries the exact ``review-evidence-source: events.jsonl``
+# declaration (or a malformed attempt at it, which fails closed) the facade
+# derives exclusively from typed ``events.jsonl`` records and their
+# chronology; prose signoff lines are narrative in both directions: removing
+# them changes nothing and adding them satisfies nothing. On legacy
+# (undeclared) waves the facade preserves the historical prose parsing
+# unchanged, because prose is those waves' only signoff mechanism and their
+# records are never rewritten.
+#
+# Required-lane ROSTER parsing (the ``## Participants`` section plus
+# workflow-config) is configuration, not evidence, and deliberately stays at
+# the call sites.
+# ---------------------------------------------------------------------------
+
+REVIEW_EVIDENCE_PROSE_MARKERS = ("## Review Evidence", "## Review Signoff Evidence")
+PREPARE_REVIEW_EVIDENCE_MARKER = "## Prepare Review Evidence"
+SIGNOFF_TOKENS = ("sign-off", "signoff", "approved", "passed", "acceptance", "complete")
+SIGNOFF_POSITIVE_STATES = ("approved", "passed", "complete")
+
+
+def combined_review_evidence(wave_text: str) -> str:
+    """Return raw text (preserves case) of all Review Evidence / Signoff sections."""
+    parts: list[str] = []
+    for marker in REVIEW_EVIDENCE_PROSE_MARKERS:
+        idx = wave_text.find(marker)
+        if idx == -1:
+            continue
+        start = idx + len(marker)
+        nl = wave_text.find("\n", start)
+        if nl != -1:
+            start = nl + 1
+        tail = wave_text[start:]
+        m_end = re.search(r"\n(?=## )", tail)
+        body = tail[: m_end.start()] if m_end else tail
+        parts.append(body)
+    return "\n".join(parts)
+
+
+def prepare_review_evidence(wave_text: str) -> str:
+    """Return raw text of the ## Prepare Review Evidence section (prepare-phase signoffs)."""
+    marker = PREPARE_REVIEW_EVIDENCE_MARKER
+    idx = wave_text.find(marker)
+    if idx == -1:
+        return ""
+    start = idx + len(marker)
+    nl = wave_text.find("\n", start)
+    if nl != -1:
+        start = nl + 1
+    tail = wave_text[start:]
+    m_end = re.search(r"\n(?=## )", tail)
+    return tail[: m_end.start()] if m_end else tail
+
+
+def _normalize_signoff_line(raw: str) -> str:
+    line = raw.strip()
+    line = line.lstrip("-*+ ")
+    for emphasis in ("**", "__", "`"):
+        line = line.replace(emphasis, "")
+    return line.strip()
+
+
+def _signoff_key_matches_lane(key: str, lane_l: str) -> bool:
+    """Exact-key matching (release-review round 4 P0): the normalized key must
+    BE the lane, or the lane's ``-signoff`` form. Never a prefix match —
+    ``qa`` must not match ``qa-reviewer``; ``operator-signoff`` must not
+    match ``operator-signoff-notes``."""
+    return key == lane_l or key == f"{lane_l}-signoff" or f"{key}-signoff" == lane_l
+
+
+def lane_has_signoff_in_evidence(evidence_text: str, lane: str, *, authorization: "bool | None" = None) -> bool:
+    """True when the lane's signoff is recorded, current, and explicitly positive.
+
+    Release-review round 4 P0 — FAIL-CLOSED structured parsing:
+
+    - A STATE LINE is one whose text (markdown bullets/emphasis stripped)
+      begins with the lane's exact key before the first ``:`` (the lane
+      itself or its ``-signoff`` form; never a prefix collision).
+    - Parenthesized historical keys (``lane(superseded):``) are bookkeeping
+      and never contribute — neither to state nor to prose evidence.
+    - Among state lines, ONLY THE LAST governs. Its value must BEGIN with an
+      explicit canonical positive state (``approved``/``passed``/``complete``).
+      Everything else — ``not approved``, ``pending``, ``blocked``,
+      ``rejected``, ``denied``, ``failed``, ``withdrawn``, ``revoked``,
+      ``rescinded``, placeholders, unknown wording — is unapproved, and a
+      positive word appearing ELSEWHERE in the value never authorizes
+      ("blocked because previous checks passed" is blocked).
+    - AUTHORIZATION lanes (operator and wave-council signoffs — auto-detected
+      unless ``authorization`` is passed explicitly) require a state line:
+      prose evidence never authorizes lifecycle closure. Reviewer-seat lanes
+      keep prose-line compatibility for their per-seat evidence.
+
+    This is the LEGACY prose branch of the review authority facade (wave
+    1to78): on declared waves, gate reads never consult it.
+    """
+    lane_l = lane.strip().lower()
+    if not lane_l or not evidence_text.strip():
+        return False
+    if authorization is None:
+        authorization = (
+            lane_l in ("operator", "operator-signoff")
+            or lane_l.startswith("wave-council")
+        )
+    # The bounded current-state projection is authoritative for keys it
+    # contains.  It deliberately appears before prose/history parsing so an
+    # older approval line cannot override a current withheld/pending row.
+    for raw in evidence_text.splitlines():
+        stripped = raw.strip()
+        if not (stripped.startswith("|") and stripped.endswith("|")):
+            continue
+        cells = [cell.strip().lower() for cell in stripped.strip("|").split("|")]
+        if len(cells) >= 2 and cells[0] == lane_l:
+            return cells[1] == "approved"
+    state_values: list[str] = []
+    any_prose_signoff = False
+    for raw in evidence_text.splitlines():
+        low = raw.strip().lower()
+        if not low or low.startswith("#"):
+            continue
+        norm = _normalize_signoff_line(low)
+        key, sep, value = norm.partition(":")
+        if sep:
+            key_clean = key.strip()
+            # Historical parenthesized variant — the parenthesis abuts the
+            # lane key directly ("lane(superseded):"). A SPACED parenthesis
+            # ("red-team (delivery):") is a seat descriptor, not bookkeeping.
+            paren = key_clean.find("(")
+            if paren > 0 and key_clean[paren - 1] != " " and _signoff_key_matches_lane(
+                key_clean[:paren].strip(), lane_l
+            ):
+                continue  # historical variant: never counts
+            if _signoff_key_matches_lane(key_clean, lane_l):
+                state_values.append(value.strip())
+                continue
+        # Prose evidence (reviewer seats only): the lane must appear as a
+        # WHOLE word — "qa" never matches inside "qa-reviewer" — and
+        # placeholders never count.
+        if ("<" not in low
+                and re.search(rf"(?<![a-z0-9-]){re.escape(lane_l)}(?![a-z0-9-])", low)
+                and any(tok in low for tok in SIGNOFF_TOKENS)):
+            any_prose_signoff = True
+    if state_values:
+        current = state_values[-1]
+        if not current or current.startswith("<"):
+            return False
+        first_word = re.match(r"[a-z][a-z-]*", current)
+        return bool(first_word and first_word.group(0) in SIGNOFF_POSITIVE_STATES)
+    if authorization:
+        return False  # fail closed: no state line = not authorized
+    return any_prose_signoff
+
+
+def review_evidence_has_any_signoff_line(wave_text: str) -> bool:
+    """When there are no participant review lanes, still require some recorded signoff in evidence."""
+    evidence = combined_review_evidence(wave_text)
+    if not evidence.strip():
+        return False
+    el = evidence.lower()
+    for raw in el.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "<" in line:
+            continue
+        if any(tok in line for tok in SIGNOFF_TOKENS):
+            return True
+    return False
+
+
+SEVERITY_ORDER = ["none", "low", "medium", "high", "critical"]
+# Wave 1p45s: match severity levels as whole words, not substrings. A bare ``sev in line``
+# test fires on ordinary prose ("highest-salience" -> high, "below"/"allow"/"flow" -> low,
+# "criticality" -> critical), producing phantom close-time findings. ``\b`` word boundaries
+# match genuine standalone severity words while ignoring severity strings embedded inside
+# larger words. ("none" is the rank-0 default and is intentionally not matched.)
+_SEVERITY_WORD_RE = re.compile(r"\b(" + "|".join(s for s in SEVERITY_ORDER if s != "none") + r")\b")
+
+
+def prose_max_severity(wave_text: str) -> str:
+    """Scan Review Evidence signoff lines for severity annotations; return the highest found.
+
+    Severity words are matched as whole tokens (wave 1p45s) so substrings inside larger
+    words (e.g. "high" in "highest") do not register. Position-independent: a standalone
+    severity word ranks the same wherever it appears in the line.
+
+    LEGACY prose branch only (wave 1to78): declared waves derive max severity
+    from typed finding heads, so a standalone severity word in prose trips
+    nothing there.
+    """
+    evidence = combined_review_evidence(wave_text)
+    max_rank = 0
+    for raw in evidence.splitlines():
+        line = raw.strip().lower()
+        if not line or line.startswith("#") or "<" in line:
+            continue
+        for word in _SEVERITY_WORD_RE.findall(line):
+            rank = SEVERITY_ORDER.index(word)
+            if rank > max_rank:
+                max_rank = rank
+    return SEVERITY_ORDER[max_rank]
+
+
+# Typed severity projection: the ledger schema has no severity words; the two
+# graded impact facts on a current finding head are the honest source. A
+# ``material`` impact is the "prioritise operator review" tier (high) and
+# ``critical`` maps to critical; ``low`` stays low. ``none``/``unverified``
+# contribute nothing — an unverified impact must not synthesize a phantom
+# finding tier. Superseded heads never contribute (only current heads are
+# read), matching the causal current-state model of ``review_status_rows``.
+_TYPED_SEVERITY_BY_IMPACT = {"low": "low", "material": "high", "critical": "critical"}
+
+
+def _typed_max_severity(records: Iterable[Mapping[str, Any]]) -> str:
+    max_rank = 0
+    for head in current_synthesis_heads(tuple(records)).values():
+        if head.get("validation_status") == "invalid":
+            continue
+        if head.get("disposition") == "not_issue":
+            continue
+        for field in ("authority_delta", "observable_impact"):
+            severity = _TYPED_SEVERITY_BY_IMPACT.get(str(head.get(field)))
+            if severity is not None:
+                max_rank = max(max_rank, SEVERITY_ORDER.index(severity))
+    return SEVERITY_ORDER[max_rank]
+
+
+@dataclass(frozen=True)
+class ReviewAuthority:
+    """Resolved review-evidence authority for one wave (wave 1to78).
+
+    ``typed`` selects the branch every read dispatches on:
+
+    - typed (declared wave): reads derive from validated ``events.jsonl``
+      records via the same chronology rules the approval-evidence gate uses
+      (``review_status_rows``: executed delivery approvals, exact actor
+      binding, freshness/independence for non-operator keys, staleness
+      against affected repairs). An unreadable or invalid ledger yields zero
+      records, so every read fails closed.
+    - prose (legacy wave): reads preserve the historical prose parsing
+      unchanged.
+    """
+
+    typed: bool
+    wave_text: str
+    records: tuple[Mapping[str, Any], ...] = ()
+    ledger_errors: tuple[str, ...] = ()
+
+    def _typed_state(self, key: str) -> str:
+        rows = review_status_rows(self.records, (key,))
+        return rows[0]["state"] if rows else "pending"
+
+    def signoff_current(self, key: str, *, section: str = "review") -> bool:
+        """Current positive signoff/approval state for one canonical key.
+
+        ``section`` names the prose section the LEGACY branch reads
+        (``"review"`` = combined Review Evidence, ``"prepare"`` = Prepare
+        Review Evidence). The typed branch has one approval currency per key
+        — the executed ``approval:<key>`` claim and its chronology — so the
+        section distinction does not exist there.
+        """
+        if self.typed:
+            return self._typed_state(key) == "approved"
+        if section == "prepare":
+            evidence = prepare_review_evidence(self.wave_text)
+        else:
+            evidence = combined_review_evidence(self.wave_text)
+        return lane_has_signoff_in_evidence(evidence, key)
+
+    def operator_signoff_present(self) -> bool:
+        """True if the operator's closure approval is currently recorded."""
+        return self.signoff_current("operator-signoff")
+
+    def evidence_present(self) -> bool:
+        """Whether any review evidence exists at all (typed: any validated records)."""
+        if self.typed:
+            return bool(self.records)
+        return bool(combined_review_evidence(self.wave_text).strip())
+
+    def any_signoff_evidence(self) -> bool:
+        """No-roster fallback: is at least one signoff recorded anywhere?
+
+        Typed branch: at least one executed delivery approval claim exists
+        (approved or not — presence mirrors the prose "some signoff line"
+        check, which never validated positivity either).
+        """
+        if self.typed:
+            return bool(_approval_rows(self.records))
+        return review_evidence_has_any_signoff_line(self.wave_text)
+
+    def max_severity(self) -> str:
+        """Highest current finding severity: typed heads or legacy prose scan."""
+        if self.typed:
+            return _typed_max_severity(self.records)
+        return prose_max_severity(self.wave_text)
+
+
+def resolve_review_authority(
+    root: Path | None,
+    wave_path: Path | None,
+    *,
+    wave_text: str | None = None,
+) -> ReviewAuthority:
+    """Resolve the single review-evidence authority for one wave identity.
+
+    Args:
+        root: Repository root the wave belongs to. Part of the wave identity
+            contract; derivation itself is wave-local (the ledger is the
+            fixed sibling of ``wave.md``) and roster/config parsing stays at
+            the call sites.
+        wave_path: The wave directory or its ``wave.md`` path. ``None`` is
+            tolerated only for text-only legacy probes; a declared wave
+            without a path fails closed (no records).
+        wave_text: Optional already-read ``wave.md`` text; when omitted it is
+            read from ``wave_path``.
+    """
+
+    del root  # identity anchor only; derivation is wave-local (see docstring)
+    wave_md: Path | None = None
+    if wave_path is not None:
+        wave_md = Path(wave_path)
+        if wave_md.name != "wave.md":
+            wave_md = wave_md / "wave.md"
+    if wave_text is None:
+        wave_text = ""
+        if wave_md is not None:
+            try:
+                wave_text = wave_md.read_text(encoding="utf-8")
+            except OSError:
+                wave_text = ""
+    source, source_errors = parse_review_evidence_source(wave_text)
+    typed = source is not None or bool(source_errors)
+    if not typed:
+        return ReviewAuthority(typed=False, wave_text=wave_text)
+    records: tuple[Mapping[str, Any], ...] = ()
+    errors: tuple[str, ...] = tuple(source_errors)
+    if wave_md is not None:
+        result = validate_external_review_evidence(wave_md)
+        errors = (*errors, *result.errors)
+        if not result.errors:
+            records = result.records
+    return ReviewAuthority(
+        typed=True, wave_text=wave_text, records=records, ledger_errors=errors
+    )
+
+
 _REVIEW_EVIDENCE_SECTION_RE = re.compile(
     r"(?ms)^## Review Evidence[ \t]*$\n(?P<body>.*?)(?=^##\s|\Z)"
 )
@@ -1184,37 +1581,6 @@ def render_review_status_projection(
         new_body += "\n\n" + body
     new_body += "\n\n"
     return text[: matches[0].start("body")] + new_body + text[matches[0].end("body") :]
-
-
-def render_review_evidence_records(text: str, records: Iterable[Mapping[str, Any]]) -> str:
-    """Render records under a collapsed summary without changing surrounding wave prose."""
-
-    text = _canonicalize_finding_synthesis_markers(text)
-    rows = tuple(dict(record) for record in records)
-    section_matches = list(_SECTION_RE.finditer(text))
-    if len(section_matches) != 1:
-        raise ValueError("marked wave must contain exactly one Finding Synthesis section")
-    body = section_matches[0].group("body")
-    marker_begin = body.find(FINDING_SYNTHESIS_MARKER_BEGIN)
-    marker_end = body.find(FINDING_SYNTHESIS_MARKER_END)
-    if marker_begin < 0 or marker_end < marker_begin:
-        raise ValueError("Finding Synthesis owned markers are missing or out of order")
-    rendered_rows = "\n".join(json.dumps(row, sort_keys=True) for row in rows)
-    if rendered_rows:
-        rendered_rows += "\n"
-    owned = (
-        f"{FINDING_SYNTHESIS_MARKER_BEGIN}\n"
-        f"{review_evidence_human_table(rows)}\n\n"
-        f"{REVIEW_EVIDENCE_DETAILS_BEGIN}\n"
-        f"<summary>{review_evidence_summary_line(rows)}</summary>\n\n"
-        f"```jsonl\n{rendered_rows}```\n"
-        f"{REVIEW_EVIDENCE_DETAILS_END}\n"
-        f"{FINDING_SYNTHESIS_MARKER_END}"
-    )
-    body_start = section_matches[0].start("body")
-    absolute_begin = body_start + marker_begin
-    absolute_end = body_start + marker_end + len(FINDING_SYNTHESIS_MARKER_END)
-    return text[:absolute_begin] + owned + text[absolute_end:]
 
 
 def empty_external_finding_synthesis_section() -> str:
@@ -1911,46 +2277,6 @@ def _marker_version(text: str) -> tuple[int | None, list[str]]:
     return int(matches[0].group("version")), []
 
 
-def _parse_records(text: str) -> tuple[list[dict[str, Any]], list[str]]:
-    text = _canonicalize_finding_synthesis_markers(text)
-    errors: list[str] = []
-    section_matches = list(_SECTION_RE.finditer(text))
-    if len(section_matches) != 1:
-        return [], ["marked wave must contain exactly one `## Finding Synthesis` section"]
-    body = section_matches[0].group("body")
-    marker_begin = body.find(FINDING_SYNTHESIS_MARKER_BEGIN)
-    marker_end = body.find(FINDING_SYNTHESIS_MARKER_END)
-    if body.count(FINDING_SYNTHESIS_MARKER_BEGIN) != 1 or body.count(FINDING_SYNTHESIS_MARKER_END) != 1:
-        errors.append("Finding Synthesis must contain exactly one canonical owned marker pair")
-    elif marker_begin > marker_end:
-        errors.append("Finding Synthesis owned markers are out of order")
-    fences = list(_JSONL_FENCE_RE.finditer(body))
-    if len(fences) != 1:
-        return [], ["Finding Synthesis must contain exactly one fenced `jsonl` block"]
-    if (
-        marker_begin >= 0
-        and marker_end >= 0
-        and not (
-            marker_begin + len(FINDING_SYNTHESIS_MARKER_BEGIN) <= fences[0].start()
-            and fences[0].end() <= marker_end
-        )
-    ):
-        errors.append("Finding Synthesis `jsonl` block must be enclosed by the canonical owned marker pair")
-    records: list[dict[str, Any]] = []
-    for line_number, raw in enumerate(fences[0].group("body").splitlines(), 1):
-        line = raw.strip()
-        if not line:
-            continue
-        try:
-            value = json.loads(line)
-        except json.JSONDecodeError as exc:
-            errors.append(f"Finding Synthesis JSONL line {line_number}: invalid JSON ({exc.msg})")
-            continue
-        if not isinstance(value, dict):
-            errors.append(f"Finding Synthesis JSONL line {line_number}: record must be an object")
-            continue
-        records.append(value)
-    return records, errors
 
 
 def _require_fields(record: Mapping[str, Any], required: frozenset[str], optional: frozenset[str], label: str) -> list[str]:
@@ -2903,6 +3229,21 @@ def validate_external_review_evidence(
             errors.append(
                 f"wave header must declare `{REVIEW_EVIDENCE_SOURCE_DECLARATION}`"
             )
+        legacy_marker, legacy_marker_errors = _marker_version(text)
+        if legacy_marker is not None or legacy_marker_errors:
+            # Retired 1.13-era inline-authority wave: fail closed with the
+            # manual migration path. The inline reader was deleted (wave
+            # 1to78); this wave never silently reclassifies as legacy prose.
+            errors.append(
+                "legacy inline review-evidence wave is no longer readable; "
+                "migrate manually: move each record line from the fenced "
+                "`jsonl` block into a sibling `events.jsonl` ledger (one JSON "
+                "object per line, LF-terminated), replace the "
+                "`review-evidence-protocol:` header line with "
+                f"`{REVIEW_EVIDENCE_SOURCE_DECLARATION}`, and regenerate the "
+                "Finding Synthesis projection by replaying the last typed "
+                "review event"
+            )
         authority_errors = tuple(errors)
         return ReviewEvidenceValidation(
             None, (), authority_errors, authority_errors=authority_errors
@@ -2944,44 +3285,6 @@ def validate_external_review_evidence(
     )
 
 
-def validate_review_evidence(
-    text: str,
-    *,
-    previous_text: str | None = None,
-    closure: bool = False,
-) -> ReviewEvidenceValidation:
-    """Parse and validate a wave record's prospective review evidence.
-
-    ``previous_text`` enables monotonic marker checks.  ``closure`` adds the
-    completed-or-operator-waived requirement for actionable current state.
-    """
-    marker, errors = _marker_version(text)
-    previous_marker: int | None = None
-    if previous_text is not None:
-        previous_marker, previous_errors = _marker_version(previous_text)
-        errors.extend(f"previous record: {error}" for error in previous_errors)
-        if previous_marker is not None and marker is None:
-            errors.append("review evidence protocol marker may not be removed")
-        if previous_marker is not None and marker is not None and marker < previous_marker:
-            errors.append("review evidence protocol marker may not be downgraded")
-    if marker is None:
-        return ReviewEvidenceValidation(None, (), tuple(errors))
-    if marker != PROTOCOL_VERSION:
-        errors.append(f"unsupported review evidence protocol version {marker}; expected {PROTOCOL_VERSION}")
-
-    records, parse_errors = _parse_records(text)
-    errors.extend(parse_errors)
-    if previous_text is not None and previous_marker is not None and marker is not None:
-        previous_records, previous_parse_errors = _parse_records(previous_text)
-        errors.extend(f"previous record: {error}" for error in previous_parse_errors)
-        if not previous_parse_errors and records[: len(previous_records)] != previous_records:
-            errors.append(
-                "review evidence records are append-only; previous records may not be removed or changed"
-            )
-    errors.extend(validate_review_evidence_records(records, closure=closure))
-    return ReviewEvidenceValidation(marker, tuple(records), tuple(errors))
-
-
 __all__ = [
     "EVENTS_FILENAME",
     "EVENT_IDENTITY_FIELD",
@@ -2993,10 +3296,13 @@ __all__ = [
     "REQUEST_DIGEST_FIELD",
     "REVIEW_STATUS_MARKER_BEGIN",
     "REVIEW_STATUS_MARKER_END",
+    "SEVERITY_ORDER",
     "REVIEW_EVIDENCE_SOURCE",
     "REVIEW_EVIDENCE_SOURCE_DECLARATION",
+    "ReviewAuthority",
     "ReviewEvidenceValidation",
     "build_compact_review_event",
+    "combined_review_evidence",
     "build_identified_review_event",
     "canonicalize_finding_synthesis_markers",
     "canonical_review_event_bytes",
@@ -3008,14 +3314,19 @@ __all__ = [
     "derive_disposition",
     "derive_review_depth",
     "empty_external_finding_synthesis_section",
-    "empty_finding_synthesis_section",
+    "is_canonical_wave_events_path",
+    "is_id_shaped_wave_dir_name",
+    "lane_has_signoff_in_evidence",
     "normalize_review_event_request",
     "parse_review_event_bytes",
     "parse_review_evidence_source",
+    "prepare_review_evidence",
     "project_state_publication_lock",
+    "prose_max_severity",
     "read_review_event_ledger",
+    "resolve_review_authority",
+    "review_evidence_has_any_signoff_line",
     "render_review_evidence_projection",
-    "render_review_evidence_records",
     "render_review_status_projection",
     "review_event_path",
     "review_event_request_digest",
@@ -3027,6 +3338,5 @@ __all__ = [
     "review_status_rows",
     "review_status_signoff_keys",
     "validate_external_review_evidence",
-    "validate_review_evidence",
     "validate_review_evidence_records",
 ]

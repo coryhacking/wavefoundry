@@ -170,7 +170,7 @@ Projects that enable Wave Council should also declare an explicit council policy
 
 ### Recording signoff
 
-After running an inferential sensor, record its verdict in the `## Review Evidence` section of `wave.md` using this format:
+After running an inferential sensor, record its verdict (on a declared wave, a typed approval event via `wf_review_event`, projected into `## Review Evidence`; only legacy prose waves write the line into the `## Review Evidence` section of `wave.md` directly) using this format:
 
 ```
 - security-review: approved
@@ -180,7 +180,7 @@ After running an inferential sensor, record its verdict in the `## Review Eviden
 
 The format is: `- <lane-name>: <verdict> [(<severity> — <one-line summary>)]`. The severity annotation is required when severity is `medium` or above.
 
-When Wave Council is enabled, record the machine-readable council signoffs in the **same** `## Review Evidence` section:
+When Wave Council is enabled, record the machine-readable council signoffs the same way (on a declared wave, typed approval events via `wf_review_event`, projected into `## Review Evidence`; only legacy prose waves write the lines into the **same** `## Review Evidence` section directly):
 
 ```
 - wave-council-readiness: approved (moderator: wave-council — seats aligned on scope, lane selection, and protected surfaces; prepare-council verdict recorded with structured fields)
@@ -220,7 +220,7 @@ The operator review lane is required for every wave. It gives the operator an op
 
 When the agent is about to call `wf_close_wave(mode="create")` and the operator has not already issued a close request in the current session, the agent **must** pause and ask for operator approval before proceeding.
 
-The machine-readable marker for this lane is the line `operator-signoff: approved` in the `## Review Evidence` section of `wave.md`. `wf_review_wave` returns a lint error if this line is absent, and `wf_close_wave` blocks until it is present.
+The machine-readable marker for this lane is the line `operator-signoff: approved` in the `## Review Evidence` section of `wave.md` (on a declared wave, a typed operator approval event via `wf_review_event`, projected into `## Review Evidence`; only legacy prose waves write the line directly). `wf_review_wave` returns a lint error if this marker is absent, and `wf_close_wave` blocks until it is present.
 
 ## Security Reachability Labels
 

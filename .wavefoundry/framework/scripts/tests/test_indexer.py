@@ -157,7 +157,7 @@ class FileWalkerTests(unittest.TestCase):
             "events.jsonl": '{"root":"eligible"}\n',
             "audit/events.jsonl": '{"nested":"eligible"}\n',
             "docs/waves/events.jsonl": '{"no-wave-directory":"eligible"}\n',
-            "docs/waves/notes/events.jsonl": '{"non-wave-shaped-dir":"eligible"}\n',
+            "docs/waves/notes/events.jsonl": '{"wave-folder-role":"excluded"}\n',
             "docs/waves/1slep external-ledger/archive/events.jsonl": '{"deeper":"eligible"}\n',
         })
 
@@ -171,7 +171,11 @@ class FileWalkerTests(unittest.TestCase):
         self.assertIn("events.jsonl", rels)
         self.assertIn("audit/events.jsonl", rels)
         self.assertIn("docs/waves/events.jsonl", rels)
-        self.assertIn("docs/waves/notes/events.jsonl", rels)
+        # FU4: position decides the role, not folder spelling. A ledger in ANY
+        # direct child directory of docs/waves/ is excluded, so a renamed wave
+        # folder cannot leak its raw ledger into retrieval. (Before FU4 this
+        # asserted the opposite: the id-shape clause made "notes" eligible.)
+        self.assertNotIn("docs/waves/notes/events.jsonl", rels)
         self.assertIn("docs/waves/1slep external-ledger/archive/events.jsonl", rels)
         self.assertTrue(
             self.bi._is_canonical_wave_events_path(
@@ -179,10 +183,110 @@ class FileWalkerTests(unittest.TestCase):
             ),
             "Windows separators must normalize to the same exact path shape",
         )
-        self.assertFalse(
+        self.assertTrue(
             self.bi._is_canonical_wave_events_path(
                 "docs/waves/notes/events.jsonl", self.root
             )
+        )
+
+    def test_renamed_wave_directory_ledger_stays_excluded(self):
+        """FU4 (1to78 follow-up): exclusion is content-role, not name-shape.
+
+        1to78 moved the docs-lint orphan guard to the content role but left
+        this retrieval exclusion name-driven, so renaming a wave directory
+        (underscore separator, non-id prefix, uppercase, 7-char prefix) made
+        the wave's raw ledger index-ELIGIBLE while the wave stayed fully
+        live and resolvable. Every direct child directory of docs/waves/
+        holding an events.jsonl occupies the wave-folder role regardless of
+        how the folder is spelled.
+        """
+        import review_evidence
+
+        renamed = [
+            "1slep_external-ledger",       # underscore separator
+            "RENAMED-external-ledger",     # non-id prefix
+            "1SLEPX external-ledger",      # uppercase + 7-char prefix
+            "notes",                       # bare non-id name
+        ]
+        _make_repo(self.root, {
+            f"docs/waves/{name}/events.jsonl": '{"renamed":true}\n'
+            for name in renamed
+        })
+
+        rels = {
+            str(path.relative_to(self.root)).replace("\\", "/")
+            for path in self.bi.walk_repo(self.root)
+        }
+        for name in renamed:
+            rel = f"docs/waves/{name}/events.jsonl"
+            self.assertTrue(
+                review_evidence.is_canonical_wave_events_path(rel, self.root),
+                f"renamed wave folder {name!r} must still occupy the wave-folder role",
+            )
+            self.assertNotIn(rel, rels, f"{name!r} ledger must not reach the index")
+
+        # The depth and basename bounds are unchanged: only the name-shape
+        # clause is dropped, so these stay eligible.
+        for still_eligible in (
+            "events.jsonl",
+            "docs/waves/events.jsonl",
+            "docs/waves/1slep external-ledger/archive/events.jsonl",
+        ):
+            self.assertFalse(
+                review_evidence.is_canonical_wave_events_path(
+                    still_eligible, self.root
+                ),
+                f"{still_eligible!r} is not a fixed wave-folder sibling",
+            )
+
+    def test_id_shape_hint_is_a_separate_message_only_predicate(self):
+        """FU4: the id-shape test survives as a lint MESSAGE hint only.
+
+        The orphan-ledger failure text tells the operator when a folder name
+        is not id-shaped ("this may also be a renamed wave directory"). That
+        hint must not be re-derived from the role predicate, or making the
+        role content-driven would silently delete the hint.
+        """
+        import review_evidence
+
+        self.assertTrue(
+            review_evidence.is_id_shaped_wave_dir_name("1slep external-ledger")
+        )
+        self.assertTrue(
+            review_evidence.is_id_shaped_wave_dir_name("1to78-preship")
+        )
+        for renamed in ("1slep_external-ledger", "RENAMED-x", "notes", "1SLEPX x"):
+            self.assertFalse(
+                review_evidence.is_id_shaped_wave_dir_name(renamed), renamed
+            )
+
+    def test_wave_ledger_predicate_is_the_single_review_evidence_definition(self):
+        """Wave 1to78 (AC-7): predicate sharing is by relocation, not
+        duplication: the indexer's exclusion symbol IS review_evidence's
+        public predicate (one definition of the fixed wave-folder role for
+        both the retrieval exclusion and the docs-lint orphan-ledger guard),
+        and the lint consumer binds to that same object.
+
+        FU4 split the id-shape MESSAGE hint into its own symbol. Each
+        consumer now binds exactly the predicate it needs, still by
+        relocation rather than duplication: the indexer binds the role
+        predicate, and lint binds only the hint (it enumerates the role
+        itself by content, so it must NOT hold a second role predicate that
+        could drift from the indexer's)."""
+        import review_evidence
+        from wave_lint_lib import wave_validators
+
+        self.assertIs(
+            self.bi._is_canonical_wave_events_path,
+            review_evidence.is_canonical_wave_events_path,
+        )
+        self.assertIs(
+            wave_validators.is_id_shaped_wave_dir_name,
+            review_evidence.is_id_shaped_wave_dir_name,
+        )
+        self.assertFalse(
+            hasattr(wave_validators, "is_canonical_wave_events_path"),
+            "lint must not carry a role predicate it does not consume",
         )
 
     def test_ledger_stays_excluded_after_source_tamper_without_state_lookup(self):
@@ -201,7 +305,12 @@ class FileWalkerTests(unittest.TestCase):
                 "# Wave\nreview-evidence-source: events.jsonl\n\n"
                 + review_evidence.empty_external_finding_synthesis_section()
             ),
-            "docs/waves/notes/events.jsonl": '{"note":"eligible"}\n',
+            # Eligible control. FU4 made folder spelling irrelevant to the
+            # role, so the contrast is now DEPTH: a ledger nested below the
+            # wave folder is not the fixed sibling and stays indexable.
+            "docs/waves/1test declared-ledger/archive/events.jsonl": (
+                '{"deeper":"eligible"}\n'
+            ),
         })
         wave_md = wave_dir / "wave.md"
 
@@ -218,7 +327,9 @@ class FileWalkerTests(unittest.TestCase):
             self.assertNotIn(
                 "docs/waves/1test declared-ledger/events.jsonl", rels
             )
-            self.assertIn("docs/waves/notes/events.jsonl", rels)
+            self.assertIn(
+                "docs/waves/1test declared-ledger/archive/events.jsonl", rels
+            )
 
     def test_excludes_git_directory(self):
         _make_repo(self.root, {"src/foo.py": "x = 1\n"})
@@ -1031,7 +1142,10 @@ class IncrementalBuildTests(unittest.TestCase):
         canonical = "docs/waves/1slep external-ledger/events.jsonl"
         projection = "docs/waves/1slep external-ledger/wave.md"
         unrelated = "audit/events.jsonl"
-        unrelated_wave_note = "docs/waves/notes/events.jsonl"
+        # FU4: folder spelling no longer decides the wave-folder role, so a
+        # ledger directly under ANY docs/waves child is excluded. The control
+        # for "not the canonical authority, still searchable" is now DEPTH.
+        unrelated_wave_note = "docs/waves/notes/attachments/events.jsonl"
         _make_repo(self.root, {
             canonical: '{"finding":"superseded raw history"}\n',
             projection: "# Wave\nreview-evidence-source: events.jsonl\n\n# Current findings\n\nSearchable head.\n",
@@ -1070,7 +1184,10 @@ class IncrementalBuildTests(unittest.TestCase):
         canonical = "docs/waves/1slep external-ledger/events.jsonl"
         projection = "docs/waves/1slep external-ledger/wave.md"
         unrelated = "audit/events.jsonl"
-        unrelated_wave_note = "docs/waves/notes/events.jsonl"
+        # FU4: folder spelling no longer decides the wave-folder role, so a
+        # ledger directly under ANY docs/waves child is excluded. The control
+        # for "not the canonical authority, still searchable" is now DEPTH.
+        unrelated_wave_note = "docs/waves/notes/attachments/events.jsonl"
         _make_repo(self.root, {
             canonical: '{"finding":"old indexed authority"}\n',
             projection: "# Wave\nreview-evidence-source: events.jsonl\n\n# Current findings\n\nSearchable head.\n",

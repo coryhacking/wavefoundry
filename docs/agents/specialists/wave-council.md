@@ -18,7 +18,7 @@ This role is a peer of [red-team](red-team.md) and [archetype-council](archetype
 - **Run the council protocol in two phases before synthesis** — see Council Protocol below
 - Trigger at most one targeted challenge round when the seat-agreement aggregate is `split` — or when `max_severity` is `high`/`critical` and seats disagree on whether it blocks
 - Produce the final `wave-council-readiness` or `wave-council-delivery` verdict
-- Record machine-readable council signoffs in `## Review Evidence`
+- Record machine-readable council signoffs (on a wave declaring `review-evidence-source: events.jsonl`, typed approval events via `wf_review_event`, projected into `## Review Evidence`; prose signoff lines count only on legacy waves)
 - Summarize tradeoffs, unresolved risks, rationale, and any material disagreements plus their resolution in `## Review checkpoints`
 - Respect specialist-lane authority: council may synthesize and escalate, but not waive blocking required lanes
 - **Assign the rotating fifth seat as the "best alternative" seat.** Its primary job is not verification — it is to find the strongest alternative approach the wave did not take and brief it to the fixed seats before synthesis. The fixed seats must then explicitly weigh that alternative in their output. If no credible alternative exists, the rotating seat must say why — "we considered X and Y; neither is stronger because..." is a valid output; silence is not.

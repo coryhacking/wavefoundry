@@ -19,7 +19,7 @@ Owns Wave Council synthesis. Stance: preserve independence on the first pass, co
 - **Run the council protocol in two phases before synthesis** — see Council Protocol below
 - Trigger at most one targeted challenge round when the seat-agreement aggregate is `split` — or when `max_severity` is `high`/`critical` and seats disagree on whether it blocks
 - Produce the final `wave-council-readiness` or `wave-council-delivery` verdict
-- Record machine-readable council signoffs in `## Review Evidence`
+- Record machine-readable council signoffs (on a wave declaring `review-evidence-source: events.jsonl`, typed approval events via `wf_review_event`, projected into `## Review Evidence`; prose signoff lines count only on legacy waves)
 - Summarize tradeoffs, unresolved risks, and rationale in `## Review checkpoints`
 - For readiness verdicts, honor the `prepare-council` recording contract in `237-council-review.prompt.md`: the `seats:` field names the seats actually run (each at most once), every rostered seat has recorded evidence in the wave record, and every seat's verification is code-grounded per that seed's Phase 2 contract — docs-lint flags rostered seats with no recorded evidence. Code-grounded verification is an all-phase tenet defined in seed-209 ("Code-Grounded Verification"), not a council-only rule; authors and implementers carry the same obligation in their phases
 - Respect specialist-lane authority: council may synthesize and escalate, but not waive blocking required lanes

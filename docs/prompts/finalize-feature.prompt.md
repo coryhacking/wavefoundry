@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-22
+Last verified: 2026-07-27
 
 Shortcut: **`Finalize feature`**
 
@@ -13,7 +13,7 @@ Single-change closure path. Use after **Implement feature** to close the wave co
 ## Steps
 
 1. Confirm all required review lanes are complete with findings in `## Review checkpoints`.
-2. When `wave_review.enabled` is true, confirm both `wave-council-readiness` and `wave-council-delivery` are present in `## Review Evidence`.
+2. When `wave_review.enabled` is true, confirm both `wave-council-readiness` and `wave-council-delivery` are recorded (typed approval events on declared waves, projected into `## Review Evidence`; prose lines count only on legacy waves).
 3. Mark the change as `complete` in the wave record.
 4. Record docs-contract review disposition (performed or N/A with rationale) if `docs/specs/*.md` changed.
 5. Validate any memory candidates recorded during the work.

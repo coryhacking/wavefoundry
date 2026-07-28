@@ -8,6 +8,7 @@ from typing import Iterable
 from review_evidence import (
     REVIEW_STATUS_MARKER_BEGIN,
     canonicalize_finding_synthesis_markers,
+    is_id_shaped_wave_dir_name,
     parse_review_evidence_source,
     render_review_evidence_projection,
     render_review_status_projection,
@@ -957,13 +958,92 @@ def check_wave_roots(root: Path) -> list[str]:
     return failures
 
 
+_INLINE_MARKER_LINE_RE = re.compile(r"(?mi)^review-evidence-protocol\s*:")
+
+
+def check_orphan_wave_ledgers(root: Path) -> list[str]:
+    """Wave 1to78 (Requirement 6): content-driven orphan-ledger guard.
+
+    Any direct child DIRECTORY of ``docs/waves/`` holding a NON-EMPTY
+    ``events.jsonl`` is an orphan candidate regardless of its name shape
+    (delivery repair: enumeration is content-driven, not id-shape-driven, so
+    the renamed-directory tamper variant, a wave folder moved to a
+    non-id-shaped name while its non-empty ledger survives, is detected
+    too). The orphan state is a candidate whose sibling ``wave.md`` is
+    missing, unreadable, or carries neither the source declaration nor the
+    legacy inline marker; enumeration is a cheap listdir, NOT
+    wave.md-file-driven, precisely so the cheaper tamper variants (deleting
+    or renaming ``wave.md``, or renaming the folder, while the non-empty
+    ledger survives) are detected instead of walked around by the
+    ``rglob("*.md")`` walk. Stateless (tree-only; no receipt or hash).
+    Skips: absent or empty ledgers (fresh scaffolds), and the root-level
+    ``docs/waves/events.jsonl`` file (a file, never a child directory). The
+    folder name is consulted only through ``is_id_shaped_wave_dir_name``, a
+    message hint that decides nothing; this module deliberately holds no
+    role predicate, since it enumerates the wave-folder role directly and a
+    second copy could drift from the indexer's retrieval exclusion (which
+    is content-driven on this same role). A wave.md that carries a
+    declaration (even a downgraded one, which fails elsewhere) or
+    declaration errors or the legacy inline marker is routed to full
+    review-evidence validation, not flagged here.
+    """
+    failures: list[str] = []
+    waves_root = root / "docs" / "waves"
+    if not waves_root.is_dir():
+        return failures
+    for wave_dir in sorted(path for path in waves_root.iterdir() if path.is_dir()):
+        ledger = wave_dir / "events.jsonl"
+        try:
+            if not ledger.is_file() or ledger.stat().st_size == 0:
+                continue  # absent or empty ledger: fresh scaffold, not orphan
+        except OSError:
+            continue
+        wave_md = wave_dir / "wave.md"
+        declared_or_marked = False
+        if wave_md.is_file():
+            try:
+                text = wave_md.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                text = None
+            if text is not None:
+                source, source_errors = parse_review_evidence_source(text)
+                declared_or_marked = (
+                    source is not None
+                    or bool(source_errors)
+                    or _INLINE_MARKER_LINE_RE.search(text) is not None
+                )
+        if not declared_or_marked:
+            shape_note = (
+                ""
+                if is_id_shaped_wave_dir_name(wave_dir.name)
+                else (
+                    "; the folder name is not id-shaped, so this may also be a "
+                    "renamed wave directory"
+                )
+            )
+            failures.append(
+                f"docs/waves/{wave_dir.name}: orphaned review ledger: this "
+                "folder holds a non-empty `events.jsonl` but no readable sibling `wave.md` "
+                "carrying `review-evidence-source: events.jsonl` (or the legacy inline "
+                "marker); a non-empty ledger requires a declared wave record, so restore "
+                "`wave.md` or its declaration line from history (Git or backups)"
+                f"{shape_note}"
+            )
+    return failures
+
+
 def check_wave_docs(root: Path, only: set[Path] | None = None, skip: set[Path] | None = None) -> list[str]:
     """``only`` (wave 1p9c1): when provided, restrict the per-file section/status checks to those
     paths for the incremental lint path. Note the cross-doc duplicate wave-id/item-id detection is
     inherently corpus-wide and only meaningful in the unscoped (full) run — the incremental path
     relies on the full gate at wf_validate_docs/close for that. When None, behavior is unchanged.
-    ``skip`` (wave 1p9cj): exclude these paths (oversized docs skipped by the file-size guard)."""
+    ``skip`` (wave 1p9cj): exclude these paths (oversized docs skipped by the file-size guard).
+
+    The orphan-ledger guard (wave 1to78) runs corpus-wide even on scoped runs:
+    its tamper state has no ``wave.md`` path that could appear in ``only``, and
+    the directory enumeration is a cheap listdir."""
     failures: list[str] = []
+    failures.extend(check_orphan_wave_ledgers(root))
     wave_root = root / "docs/waves"
     seen_wave_ids: dict[str, str] = {}
     seen_item_ids: set[str] = set()

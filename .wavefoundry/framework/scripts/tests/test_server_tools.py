@@ -2840,14 +2840,18 @@ class WaveCreateScaffoldAlignmentTests(unittest.TestCase):
         )
 
     def test_source_removal_is_the_documented_undetectable_boundary(self):
-        # Wave 1tomw (AC-9 companion): with no receipt state, removing the
-        # declaration reclassifies the wave as prose-only legacy with no
-        # diagnostic — here the (empty) sibling ledger SURVIVES on disk, so
-        # this exercises the surviving-ledger form of the documented boundary
-        # (seed 209): declaration removal is not locally detected whether or
-        # not the ledger is deleted with it; Git/backups are the optional
-        # history authority. A DOWNGRADED declaration that is still present
-        # remains rejected.
+        # Wave 1tomw (AC-9 companion), boundary narrowed by wave 1to78: with
+        # no receipt state, removing the declaration reclassifies the wave as
+        # prose-only legacy with no lifecycle diagnostic. The sibling ledger
+        # here is EMPTY, so this exercises the NARROWED undetected boundary
+        # (seed 209): whole-ledger rollback, empty-ledger declaration
+        # removal, and co-deletion of ledger plus declaration. A surviving
+        # NON-EMPTY ledger without a readable declared (or legacy-marked)
+        # wave.md is now a DETECTED state: the docs-lint orphan-ledger
+        # check fails it (see test_docs_lint.py's control matrix), covering
+        # both declaration-line removal and wave.md deletion or rename.
+        # Git/backups remain the optional history authority. A DOWNGRADED
+        # declaration that is still present remains rejected.
         result = self._create_wave("events-only-wave")
         wave_md = self.root / result["path"]
         original = wave_md.read_text(encoding="utf-8")
@@ -13275,11 +13279,17 @@ class SeverityTriageTests(unittest.TestCase):
 
     def test_max_severity_matches_whole_words_only(self):
         """Wave 1p45s (AC-1/AC-3): unit-level — substring noise yields none; a standalone
-        severity word is detected regardless of position in the line."""
+        severity word is detected regardless of position in the line.
+
+        Wave 1to78: the prose severity scan moved into review_evidence.py as the
+        LEGACY branch of the review-authority facade (declared waves derive
+        severity from typed finding heads instead); the prose semantics under
+        test here are unchanged."""
+        review = sys.modules["review_evidence"]
         noise = "## Review Evidence\n\n- note: highest-salience, flow below, allow, lower, criticality"
-        self.assertEqual(self.srv._max_severity_from_evidence(noise), "none")
+        self.assertEqual(review.prose_max_severity(noise), "none")
         genuine = "## Review Evidence\n\n- security: high severity confirmed"
-        self.assertEqual(self.srv._max_severity_from_evidence(genuine), "high")
+        self.assertEqual(review.prose_max_severity(genuine), "high")
 
 
 class WaveCouncilPolicyTests(unittest.TestCase):
@@ -21711,6 +21721,115 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
         self.assertIn("mcp_reload", result["data"])
         self.assertTrue(result["data"]["mcp_reload"]["ok"])
 
+    # ── Wave 1to78 — cutover-scoped reload suppression (AC-3) ─────────────────
+
+    def _cutover_summary_output(self, restart_required):
+        return self._summary_output(
+            review_sidecar_cleanup={
+                "removed_sidecars": 2,
+                "removed_stale_root_lock": 1,
+                "restart_required": restart_required,
+            }
+        )
+
+    def test_cutover_active_preflight_apply_performs_no_reload(self):
+        """AC-3 executed control: a cutover-active preflight_to_docs_gate apply
+        run performs NO in-process reload and instructs a full host restart."""
+        import server as _server_mod
+        mock_proc = MagicMock(
+            returncode=0, stdout=self._cutover_summary_output(True), stderr=""
+        )
+        with patch("subprocess.run", return_value=mock_proc), \
+             patch.object(_server_mod, "perform_mcp_reload") as mock_reload:
+            result = self.srv.wf_upgrade_response(
+                self.root, phase="preflight_to_docs_gate", mode="apply"
+            )
+        self.assertEqual(result["status"], "ok")
+        mock_reload.assert_not_called()
+        self.assertNotIn("mcp_reload", result["data"])
+        self.assertNotIn("wf_reload_mcp", result["next_tools"])
+        self.assertIn("fully restart", result["next_step"])
+        self.assertIn(
+            "mcp_reload_suppressed",
+            [d["code"] for d in result.get("diagnostics", [])],
+        )
+
+    def test_cutover_active_cleanup_apply_performs_no_reload(self):
+        """AC-3: the cleanup phase (the second automatic-reload site) is also
+        suppressed on cutover-active runs; next_step drops the wf_reload_mcp
+        suggestion for the full-restart instruction."""
+        import server as _server_mod
+        mock_proc = MagicMock(
+            returncode=0, stdout=self._cutover_summary_output(True), stderr=""
+        )
+        with patch("subprocess.run", return_value=mock_proc), \
+             patch.object(_server_mod, "perform_mcp_reload") as mock_reload:
+            result = self.srv.wf_upgrade_response(
+                self.root, phase="cleanup", mode="apply"
+            )
+        self.assertEqual(result["status"], "ok")
+        mock_reload.assert_not_called()
+        self.assertNotIn("mcp_reload", result["data"])
+        self.assertNotIn("wf_reload_mcp", result["next_tools"])
+        self.assertNotIn("Call wf_reload_mcp()", result["next_step"])
+        self.assertIn("fully restart", result["next_step"])
+
+    def test_non_cutover_preflight_apply_keeps_reload_flow(self):
+        """AC-3: a non-cutover run (restart_required false in the summary)
+        keeps the established reload behavior and guidance untouched."""
+        import server as _server_mod
+        mock_proc = MagicMock(
+            returncode=0, stdout=self._cutover_summary_output(False), stderr=""
+        )
+        reload_payload = {
+            "status": "ok",
+            "data": {"ok": True, "framework_version": "v1",
+                     "server_runner_version": "1", "server_impl_version": "v1",
+                     "impl_matches_disk": True},
+        }
+        with patch("subprocess.run", return_value=mock_proc), \
+             patch.object(_server_mod, "perform_mcp_reload",
+                          return_value=reload_payload) as mock_reload:
+            result = self.srv.wf_upgrade_response(
+                self.root, phase="preflight_to_docs_gate", mode="apply"
+            )
+        self.assertEqual(result["status"], "ok")
+        mock_reload.assert_called_once()
+        self.assertIn("mcp_reload", result["data"])
+        self.assertIn("wf_reload_mcp", result["next_tools"])
+        self.assertNotIn("fully restart", result["next_step"])
+
+    def test_cutover_detection_falls_back_to_upgrade_lock_state(self):
+        """AC-3: when the summary sentinel is absent, the retained upgrade
+        lock's review_sidecar_cleanup counts still gate the reload."""
+        import json as _json
+        import server as _server_mod
+        lock_path = self.root / ".wavefoundry" / "upgrade-in-progress.json"
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        lock_path.write_text(
+            _json.dumps(
+                {
+                    "review_sidecar_cleanup": {
+                        "removed_sidecars": 1,
+                        "removed_stale_root_lock": 0,
+                        "restart_required": True,
+                    }
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        mock_proc = MagicMock(returncode=0, stdout="Upgrade complete\n", stderr="")
+        with patch("subprocess.run", return_value=mock_proc), \
+             patch.object(_server_mod, "perform_mcp_reload") as mock_reload:
+            result = self.srv.wf_upgrade_response(
+                self.root, phase="preflight_to_docs_gate", mode="apply"
+            )
+        self.assertEqual(result["status"], "ok")
+        mock_reload.assert_not_called()
+        self.assertNotIn("mcp_reload", result["data"])
+        self.assertNotIn("wf_reload_mcp", result["next_tools"])
+
     # ── Wave 1p8eu — structured summary parse + next_step/next_tools ──────────
 
     def _summary_output(self, **overrides):
@@ -22154,12 +22273,35 @@ class WaveImplementTests(unittest.TestCase):
         )
 
     def _add_prepare_review_signoffs(self, wave_id: str, lanes: list) -> None:
+        """Record prepare-phase lane signoffs for a DECLARED (scaffolded) wave.
+
+        Wave 1to78: scaffolded waves carry `review-evidence-source:
+        events.jsonl`, so lane signoff currency derives exclusively from typed
+        approval records; a `## Prepare Review Evidence` prose section is
+        narrative there (LegacyProseGateParityTests keeps the undeclared-wave
+        prose behavior pinned). This helper therefore appends the typed
+        approvals through the canonical serializer and re-renders the
+        projections.
+        """
         _append_review_run(self.root, wave_id, kind="readiness")
         wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
-        signoffs = "\n".join(f"- {lane}: approved 2026-05-21" for lane in lanes)
+        review = sys.modules["review_evidence"]
+        records, errors = review.read_review_event_ledger(wave_md)
+        assert not errors, errors
+        records = (
+            *records,
+            *(
+                WaveLifecycleMutationTests._approval_record(lane, actor=lane)
+                for lane in lanes
+            ),
+        )
+        review.review_event_path(wave_md).write_bytes(
+            review.canonical_review_events_bytes(records)
+        )
         wave_md.write_text(
-            wave_md.read_text(encoding="utf-8")
-            + f"\n## Prepare Review Evidence\n\n{signoffs}\n",
+            review.render_review_evidence_projection(
+                wave_md.read_text(encoding="utf-8"), records
+            ),
             encoding="utf-8",
         )
         self._reproject(wave_id)
@@ -22186,7 +22328,12 @@ class WaveImplementTests(unittest.TestCase):
     # --- AC-1/AC-2: wf_review_wave phase parameter ---
 
     def test_wf_review_wave_prepare_phase_checks_prepare_evidence_section(self):
-        """AC-1: wf_review_wave(phase='prepare') checks ## Prepare Review Evidence."""
+        """AC-1: wf_review_wave(phase='prepare') gates on prepare-phase lane signoffs.
+
+        Wave 1to78 update: this fixture wave is DECLARED (scaffolded), so the
+        signoffs that satisfy the gate are typed approval records; the legacy
+        `## Prepare Review Evidence` prose behavior for undeclared waves is
+        pinned by LegacyProseGateParityTests instead."""
         wave_id = self._make_wave("review-prepare")
         self._add_participants(wave_id, ["code-reviewer"])
         # No signoffs yet
@@ -23623,13 +23770,18 @@ class GuruCitationContractRenderTests(unittest.TestCase):
 class SignoffLatestStateTests(unittest.TestCase):
     """Release review rounds 3-4 P0: fail-closed structured signoff parsing —
     exact keys, last-state-wins, explicit positive states only, prose never
-    authorizes lifecycle closure."""
+    authorizes lifecycle closure.
+
+    Wave 1to78: the prose parser moved into review_evidence.py as the LEGACY
+    branch of the review-authority facade; its semantics under test here are
+    unchanged (declared waves bypass it entirely)."""
 
     def setUp(self):
         self.srv = load_server()
+        self.review = sys.modules["review_evidence"]
 
     def _check(self, evidence, lane):
-        return self.srv._lane_has_signoff_in_evidence(evidence, lane)
+        return self.review.lane_has_signoff_in_evidence(evidence, lane)
 
     def test_full_attack_matrix(self):
         cases = [
@@ -23689,11 +23841,563 @@ class SignoffLatestStateTests(unittest.TestCase):
             if not path.exists():
                 self.skipTest(f"wave record not found: {wave_dir}")
             text = path.read_text(encoding="utf-8")
-            ev = self.srv._combined_review_evidence(text)
-            self.assertIs(self.srv._lane_has_signoff_in_evidence(ev, "wave-council-delivery"),
+            ev = self.review.combined_review_evidence(text)
+            self.assertIs(self.review.lane_has_signoff_in_evidence(ev, "wave-council-delivery"),
                           expect_delivery, wave_dir)
-            self.assertIs(self.srv._lane_has_signoff_in_evidence(ev, "operator"),
+            self.assertIs(self.review.lane_has_signoff_in_evidence(ev, "operator"),
                           expect_operator, wave_dir)
+
+
+class TypedExclusiveGateDerivationTests(unittest.TestCase):
+    """Wave 1to78 AC-1(a): on a declared wave, all six gate surfaces derive
+    review evidence solely from typed events.jsonl records.
+
+    The fixture is built through canonical producers (wf_create_wave scaffold,
+    wf_add_change admission, the canonical ledger serializer and both
+    projection renderers) with a parseable ``- Required review lanes:`` bullet
+    and ZERO operator-authored prose signoff lines, then exercised through
+    wf_prepare_wave readiness, wf_review_wave(phase='prepare'),
+    wf_implement_wave Gate 2, wf_review_wave(phase='implementation'), and the
+    close gate.
+
+    Old-code discrimination (executed against the pre-change tree at commit
+    9ddc9b93 via a scratch worktree): the typed-only green path was RED at
+    wf_review_wave(prepare) and Gate 2 (both demanded prose in `## Prepare
+    Review Evidence`), the prose-only control turned Gate 2 GREEN (forgeable),
+    and the planted prose severity words read back "critical". Under the
+    facade the same fixtures produce the inverted, typed-exclusive outcomes
+    asserted here, so every control in this class is proven able to fail.
+    """
+
+    LINT_OK = {"passed": True, "errors": [], "warnings": [], "output": ""}
+    GARDEN_OK = {"passed": True, "files_updated": 0, "updated": [], "output": ""}
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        self.srv = type(self).srv
+        self.review = sys.modules["review_evidence"]
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        (self.root / "docs").mkdir(parents=True)
+        (self.root / "docs" / "workflow-config.json").write_text(
+            json.dumps({
+                "lifecycle_id_policy": {"epoch_utc": "2020-02-02T02:02:00Z", "hour_offset": 0},
+                "wave_review": {
+                    "enabled": True,
+                    "phases": {
+                        "prepare": {"signoff_key": "wave-council-readiness", "moderator_role": "wave-council"},
+                        "review": {"signoff_key": "wave-council-delivery", "moderator_role": "wave-council"},
+                    },
+                },
+            }),
+            encoding="utf-8",
+        )
+        created = self.srv.wf_create_wave_response(self.root, "typed-gates", mode="create")
+        self.wave_id = created["data"]["wave_id"]
+        self.wave_md = self.root / "docs" / "waves" / self.wave_id / "wave.md"
+        # Operator-authored configuration sections: lane roster + council verdict.
+        self.wave_md.write_text(
+            self.wave_md.read_text(encoding="utf-8")
+            + "\n## Participants\n\n- Required review lanes: `qa-reviewer`\n"
+            + f"\n## Review Checkpoints\n\n{_prepare_council_verdict_line()}\n",
+            encoding="utf-8",
+        )
+        # Admit one completed change through the canonical producer.
+        (self.root / "docs" / "plans").mkdir(exist_ok=True)
+        (self.root / "docs" / "plans" / "1200a-feat sample.md").write_text(
+            "# Sample\n\n"
+            "Change ID: `1200a-feat sample`\n"
+            "Change Status: `planned`\n\n"
+            "## Rationale\n\nWhy.\n\n"
+            "## Requirements\n\n1. One.\n\n"
+            "## Scope\n\nIn scope.\n\n"
+            "## Acceptance Criteria\n\n- [x] AC-1: Criterion met.\n\n"
+            "## Tasks\n\n- [x] Implement.\n\n"
+            "## AC Priority\n\n| AC | Priority | Rationale |\n| --- | --- | --- |\n| AC-1 | required | Core. |\n",
+            encoding="utf-8",
+        )
+        add = self.srv.wf_add_change_response(self.root, self.wave_id, "1200a-feat sample", mode="create")
+        assert add["status"] == "ok", add
+        # Typed readiness evidence: readiness run + council + lane approvals.
+        _append_review_run(self.root, self.wave_id, kind="readiness")
+        self._append_records(
+            WaveLifecycleMutationTests._approval_record("wave-council-readiness", actor="wave-council"),
+            WaveLifecycleMutationTests._approval_record("qa-reviewer", actor="qa-reviewer"),
+        )
+
+    # -- canonical ledger/projection helpers --------------------------------
+
+    def _records(self):
+        records, errors = self.review.read_review_event_ledger(self.wave_md)
+        self.assertFalse(errors, errors)
+        return records
+
+    def _set_records(self, records):
+        self.review.review_event_path(self.wave_md).write_bytes(
+            self.review.canonical_review_events_bytes(records)
+        )
+        text = self.wave_md.read_text(encoding="utf-8")
+        projected = self.review.render_review_evidence_projection(text, records)
+        projected = self.review.render_review_status_projection(
+            projected,
+            records,
+            self.review.required_review_status_keys(self.root, projected, records),
+        )
+        self.wave_md.write_text(projected, encoding="utf-8")
+
+    def _append_records(self, *records):
+        self._set_records((*self._records(), *records))
+
+    def _drop_approval(self, signoff_key):
+        self._set_records(tuple(
+            record for record in self._records()
+            if record.get("claim_id") != f"approval:{signoff_key}"
+        ))
+
+    def _add_delivery_evidence(self):
+        _append_review_run(self.root, self.wave_id, kind="initial_delivery")
+        self._append_records(
+            WaveLifecycleMutationTests._approval_record("operator-signoff", actor="operator"),
+            WaveLifecycleMutationTests._approval_record("wave-council-delivery", actor="wave-council"),
+        )
+
+    def _mark_change_complete(self):
+        for path in (self.wave_md, self.wave_md.parent / "1200a-feat sample.md"):
+            path.write_text(
+                path.read_text(encoding="utf-8").replace(
+                    "Change Status: `planned`", "Change Status: `complete`"
+                ),
+                encoding="utf-8",
+            )
+
+    def _patched(self):
+        return (
+            patch.object(self.srv, "run_validate", return_value=self.LINT_OK),
+            patch.object(self.srv, "run_garden", return_value=self.GARDEN_OK),
+            patch.object(self.srv, "_trigger_background_index_refresh_for_paths"),
+        )
+
+    def _run(self, fn, *args, **kwargs):
+        p1, p2, p3 = self._patched()
+        with p1, p2, p3:
+            return fn(*args, **kwargs)
+
+    @staticmethod
+    def _codes(response):
+        return {d["code"] for d in response.get("diagnostics", [])}
+
+    def _assert_no_prose_signoff_lines(self):
+        for line in self.wave_md.read_text(encoding="utf-8").splitlines():
+            self.assertIsNone(
+                re.match(r"^-\s*[a-z][a-z-]*(-signoff)?:\s*approved", line.strip()),
+                f"fixture must carry zero prose signoff lines, found: {line!r}",
+            )
+
+    # -- AC-1(a) green path --------------------------------------------------
+
+    def test_typed_only_evidence_is_green_across_all_gate_surfaces(self):
+        self._assert_no_prose_signoff_lines()
+
+        prepare = self._run(self.srv.wf_prepare_wave_response, self.root, self.wave_id, mode="dry_run")
+        self.assertEqual(prepare["status"], "dry_run", prepare)
+        self.assertNotIn("missing_wave_council_signoff", self._codes(prepare))
+
+        review_prepare = self._run(self.srv.wf_review_wave_response, self.root, self.wave_id, phase="prepare")
+        self.assertEqual(review_prepare["status"], "ok", review_prepare)
+        self.assertEqual(
+            review_prepare["data"]["lane_results"],
+            [{"lane": "qa-reviewer", "recorded_signoff": True}],
+        )
+
+        gate2 = self._run(self.srv.wf_implement_wave_response, self.root, self.wave_id, mode="dry_run")
+        self.assertEqual(gate2["status"], "dry_run", gate2)
+
+        self._add_delivery_evidence()
+        # AC-1 severity control: a standalone severity word in prose trips
+        # nothing on a declared wave (the placeholder line is replaced by pure
+        # narrative carrying severity words).
+        self.wave_md.write_text(
+            self.wave_md.read_text(encoding="utf-8").replace(
+                "- operator-signoff: <approved when operator confirms closure>",
+                "- narrative: reviewers discussed a high severity hypothetical; critical wording stays narrative",
+            ),
+            encoding="utf-8",
+        )
+        self._assert_no_prose_signoff_lines()
+
+        review_impl = self._run(self.srv.wf_review_wave_response, self.root, self.wave_id)
+        self.assertEqual(review_impl["status"], "ok", review_impl)
+        self.assertEqual(review_impl["data"]["max_severity"], "none")
+        self.assertNotIn("high_severity_finding", self._codes(review_impl))
+
+        self._mark_change_complete()
+        close = self._run(self.srv.wf_close_wave_response, self.root, self.wave_id, mode="dry_run")
+        self.assertEqual(close["status"], "dry_run", close)
+        self.assertEqual(close.get("diagnostics", []), [])
+
+    # -- AC-1(a) executed known-bad: one typed lane approval dropped ---------
+
+    def test_dropping_one_typed_lane_approval_blocks_every_surface(self):
+        self._add_delivery_evidence()
+        self._mark_change_complete()
+        self._drop_approval("qa-reviewer")
+
+        review_prepare = self._run(self.srv.wf_review_wave_response, self.root, self.wave_id, phase="prepare")
+        self.assertEqual(review_prepare["status"], "error")
+        self.assertIn("missing_required_lane", self._codes(review_prepare))
+
+        gate2 = self._run(self.srv.wf_implement_wave_response, self.root, self.wave_id, mode="dry_run")
+        self.assertEqual(gate2["status"], "error")
+        self.assertIn("prepare_review_incomplete", self._codes(gate2))
+
+        review_impl = self._run(self.srv.wf_review_wave_response, self.root, self.wave_id)
+        self.assertEqual(review_impl["status"], "error")
+        self.assertIn("missing_required_lane", self._codes(review_impl))
+
+        close = self._run(self.srv.wf_close_wave_response, self.root, self.wave_id, mode="dry_run")
+        self.assertEqual(close["status"], "error")
+        self.assertIn("missing_required_lane", self._codes(close))
+
+    # -- AC-1(a): prose-only signoff without the typed record satisfies nothing
+
+    def test_prose_only_signoff_lines_satisfy_no_surface(self):
+        self._add_delivery_evidence()
+        self._mark_change_complete()
+        self._drop_approval("qa-reviewer")
+        # Prose forgeries in BOTH prose evidence sections. The prepare-section
+        # line is the decisive one: the pre-facade Gate 2 accepted it.
+        self.wave_md.write_text(
+            self.wave_md.read_text(encoding="utf-8")
+            + "\n## Prepare Review Evidence\n\n- qa-reviewer: approved\n",
+            encoding="utf-8",
+        )
+        self.wave_md.write_text(
+            self.wave_md.read_text(encoding="utf-8").replace(
+                "- operator-signoff: <approved when operator confirms closure>",
+                "- qa-reviewer: approved\n- operator-signoff: approved",
+            ),
+            encoding="utf-8",
+        )
+
+        review_prepare = self._run(self.srv.wf_review_wave_response, self.root, self.wave_id, phase="prepare")
+        self.assertEqual(review_prepare["status"], "error")
+        self.assertIn("missing_required_lane", self._codes(review_prepare))
+
+        gate2 = self._run(self.srv.wf_implement_wave_response, self.root, self.wave_id, mode="dry_run")
+        self.assertEqual(gate2["status"], "error")
+        self.assertIn("prepare_review_incomplete", self._codes(gate2))
+
+        review_impl = self._run(self.srv.wf_review_wave_response, self.root, self.wave_id)
+        self.assertEqual(review_impl["status"], "error")
+        self.assertIn("missing_required_lane", self._codes(review_impl))
+
+        close = self._run(self.srv.wf_close_wave_response, self.root, self.wave_id, mode="dry_run")
+        self.assertEqual(close["status"], "error")
+        self.assertIn("missing_required_lane", self._codes(close))
+
+    # -- Wave 1to78 delivery repair (DF2): typed remediation wording ---------
+
+    def test_declared_wave_gate_messages_instruct_typed_events(self):
+        """DF2 (message-only): on a declared wave, the prepare-phase review
+        surface and Gate 2 (the two blocking diagnostics with no typed
+        companion diagnostic) instruct recording a typed approval via
+        wf_review_event and name the signoff key, instead of telling the
+        caller to write prose into `## Prepare Review Evidence` (which is
+        inert on declared waves). Legacy prose fixtures keep the historical
+        wording, pinned in LegacyProseGateParityTests."""
+        self._drop_approval("qa-reviewer")
+
+        review_prepare = self._run(self.srv.wf_review_wave_response, self.root, self.wave_id, phase="prepare")
+        self.assertEqual(review_prepare["status"], "error")
+        [message] = [
+            d["message"] for d in review_prepare["diagnostics"]
+            if d["code"] == "missing_required_lane"
+        ]
+        self.assertIn("wf_review_event", message)
+        self.assertIn("signoff_key", message)
+        self.assertIn("qa-reviewer", message)
+        self.assertNotIn("`## Prepare Review Evidence` section", message)
+
+        gate2 = self._run(self.srv.wf_implement_wave_response, self.root, self.wave_id, mode="dry_run")
+        self.assertEqual(gate2["status"], "error")
+        [gate2_message] = [
+            d["message"] for d in gate2["diagnostics"]
+            if d["code"] == "prepare_review_incomplete"
+        ]
+        self.assertIn("wf_review_event", gate2_message)
+        self.assertIn("signoff_key", gate2_message)
+        self.assertIn("qa-reviewer", gate2_message)
+        self.assertNotIn("missing signoffs in `## Prepare Review Evidence`", gate2_message)
+
+    # -- AC-1(a): readiness council surface (f) ------------------------------
+
+    def test_prose_only_readiness_council_signoff_satisfies_nothing(self):
+        self._drop_approval("wave-council-readiness")
+        self.wave_md.write_text(
+            self.wave_md.read_text(encoding="utf-8").replace(
+                "- operator-signoff: <approved when operator confirms closure>",
+                "- wave-council-readiness: approved",
+            ),
+            encoding="utf-8",
+        )
+        prepare = self._run(self.srv.wf_prepare_wave_response, self.root, self.wave_id, mode="dry_run")
+        self.assertEqual(prepare["status"], "error")
+        self.assertIn("missing_wave_council_signoff", self._codes(prepare))
+
+    def test_typed_readiness_approval_without_any_prose_passes_prepare_gate(self):
+        prepare = self._run(self.srv.wf_prepare_wave_response, self.root, self.wave_id, mode="dry_run")
+        self.assertNotIn("missing_wave_council_signoff", self._codes(prepare))
+        self._drop_approval("wave-council-readiness")
+        blocked = self._run(self.srv.wf_prepare_wave_response, self.root, self.wave_id, mode="dry_run")
+        self.assertIn("missing_wave_council_signoff", self._codes(blocked))
+
+
+class LegacyProseGateParityTests(unittest.TestCase):
+    """Wave 1to78 AC-1(b): the legacy-wave golden fixture — on an undeclared
+    wave the facade's prose branch preserves the pre-facade behavior in BOTH
+    directions (prose present satisfies; prose absent blocks). The fixture
+    matches the long-standing raw-write legacy wave shape used across this
+    module; no events.jsonl exists."""
+
+    LINT_OK = {"passed": True, "errors": [], "warnings": [], "output": ""}
+    GARDEN_OK = {"passed": True, "files_updated": 0, "updated": [], "output": ""}
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        self.srv = type(self).srv
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = _make_repo(Path(self.tmp.name))
+
+    def _write_wave(self, *, evidence_lines, prepare_lines=()):
+        wave_dir = self.root / "docs" / "waves" / "1200a legacy-wave"
+        wave_dir.mkdir(parents=True, exist_ok=True)
+        prepare_section = (
+            "## Prepare Review Evidence\n\n" + "\n".join(prepare_lines) + "\n\n"
+            if prepare_lines else ""
+        )
+        (wave_dir / "wave.md").write_text(
+            "# Wave Record\n"
+            "wave-id: `1200a legacy-wave`\n"
+            "Status: active\n\n"
+            "## Changes\n\n"
+            "Change ID: `1200a-feat sample`\n"
+            "Change Status: `complete`\n\n"
+            "## Participants\n\n"
+            "| Role | Lane | Owns |\n"
+            "|------|------|------|\n"
+            "| code-reviewer | review | x |\n\n"
+            + prepare_section +
+            "## Review Evidence\n\n"
+            + "\n".join(evidence_lines) + "\n",
+            encoding="utf-8",
+        )
+        return wave_dir / "wave.md"
+
+    def _run(self, fn, *args, **kwargs):
+        with patch.object(self.srv, "run_validate", return_value=self.LINT_OK), \
+             patch.object(self.srv, "run_garden", return_value=self.GARDEN_OK), \
+             patch.object(self.srv, "_trigger_background_index_refresh_for_paths"):
+            return fn(*args, **kwargs)
+
+    @staticmethod
+    def _codes(response):
+        return {d["code"] for d in response.get("diagnostics", [])}
+
+    def test_prose_present_satisfies_legacy_gates(self):
+        self._write_wave(
+            evidence_lines=[
+                "- operator-signoff: approved",
+                "- code-reviewer: approved",
+            ],
+            prepare_lines=["- code-reviewer: approved"],
+        )
+        review_impl = self._run(self.srv.wf_review_wave_response, self.root, "1200a legacy-wave")
+        self.assertEqual(review_impl["status"], "ok", review_impl)
+        review_prepare = self._run(self.srv.wf_review_wave_response, self.root, "1200a legacy-wave", phase="prepare")
+        self.assertEqual(review_prepare["status"], "ok", review_prepare)
+        close = self._run(self.srv.wf_close_wave_response, self.root, "1200a legacy-wave", mode="dry_run")
+        self.assertEqual(close["status"], "dry_run", close)
+        self.assertEqual(self._codes(close), set())
+
+    def test_prose_absent_blocks_legacy_gates(self):
+        self._write_wave(evidence_lines=["- note: review still pending"])
+        review_impl = self._run(self.srv.wf_review_wave_response, self.root, "1200a legacy-wave")
+        self.assertEqual(review_impl["status"], "error")
+        self.assertIn("missing_operator_signoff", self._codes(review_impl))
+        self.assertIn("missing_required_lane", self._codes(review_impl))
+        review_prepare = self._run(self.srv.wf_review_wave_response, self.root, "1200a legacy-wave", phase="prepare")
+        self.assertEqual(review_prepare["status"], "error")
+        self.assertIn("missing_required_lane", self._codes(review_prepare))
+        close = self._run(self.srv.wf_close_wave_response, self.root, "1200a legacy-wave", mode="dry_run")
+        self.assertEqual(close["status"], "error")
+        codes = self._codes(close)
+        self.assertIn("missing_operator_signoff", codes)
+        self.assertIn("missing_required_lane", codes)
+
+    def test_prose_absent_legacy_messages_keep_prose_wording(self):
+        """Wave 1to78 delivery repair (DF2): legacy (undeclared) waves keep
+        the EXACT historical prose remediation wording; the typed
+        wf_review_event instruction appears only on declared waves."""
+        self._write_wave(evidence_lines=["- note: review still pending"])
+
+        review_prepare = self._run(self.srv.wf_review_wave_response, self.root, "1200a legacy-wave", phase="prepare")
+        [prepare_message] = [
+            d["message"] for d in review_prepare["diagnostics"]
+            if d["code"] == "missing_required_lane"
+        ]
+        self.assertIn(
+            "Record each lane signoff in the `## Prepare Review Evidence` section of wave.md before running wf_implement_wave.",
+            prepare_message,
+        )
+        self.assertNotIn("wf_review_event", prepare_message)
+
+        gate2 = self._run(self.srv.wf_implement_wave_response, self.root, "1200a legacy-wave", mode="dry_run")
+        [gate2_message] = [
+            d["message"] for d in gate2["diagnostics"]
+            if d["code"] == "prepare_review_incomplete"
+        ]
+        self.assertIn("missing signoffs in `## Prepare Review Evidence`", gate2_message)
+        self.assertNotIn("wf_review_event", gate2_message)
+
+        close = self._run(self.srv.wf_close_wave_response, self.root, "1200a legacy-wave", mode="dry_run")
+        [operator_message] = [
+            d["message"] for d in close["diagnostics"]
+            if d["code"] == "missing_operator_signoff"
+        ]
+        self.assertIn(
+            "Add `operator-signoff: approved` to `## Review Evidence` in wave.md.",
+            operator_message,
+        )
+        self.assertNotIn("wf_review_event", operator_message)
+
+    def test_legacy_prose_severity_word_still_registers(self):
+        self._write_wave(
+            evidence_lines=[
+                "- operator-signoff: approved",
+                "- code-reviewer: approved — one high severity finding repaired",
+            ],
+        )
+        review_impl = self._run(self.srv.wf_review_wave_response, self.root, "1200a legacy-wave")
+        self.assertEqual(review_impl["data"]["max_severity"], "high")
+
+
+class DeclaredWaveTreeSweepTests(unittest.TestCase):
+    """Wave 1to78 AC-1(c): tree sweep over every CLOSED wave in this
+    repository whose parsed header (canonical declaration parser, never grep)
+    declares events.jsonl.
+
+    The sweep proves TOPOLOGY PRESERVATION AND LEGACY PARITY, not lane
+    derivation: most declared waves parse to empty lane rosters, so the
+    committed snapshot pins each wave's derived required-lane topology and
+    whether the typed review-evidence gate derivation is green.
+
+    Two pre-chronology archives (1stwm, 1sufq) derive `withheld` operator/
+    delivery states under today's chronology rules; this predates the facade
+    (the same derivation already blocked them via
+    _approval_evidence_diagnostics before this change, verified against
+    commit 9ddc9b93) and closed archives are never rewritten, so the snapshot
+    records them honestly as non-green. Open/non-closed waves are excluded:
+    their ledgers are still moving.
+    """
+
+    # wave dir name -> (sorted required lane roster, typed gate derivation green)
+    TOPOLOGY_SNAPSHOT = {
+        "1seax lifecycle-ops-hardening": ((), True),
+        "1skt1 executable-review-evidence": (
+            ("architecture-reviewer", "code-reviewer", "docs-contract-reviewer",
+             "qa-reviewer", "security-reviewer"), True),
+        "1slep external-wave-event-ledger": ((), True),
+        "1snq3 credible-threat-gate": ((), True),
+        "1so5p specialist-carrier-frontmatter": ((), True),
+        "1sq4a review-verification-generalization": ((), True),
+        "1sq9i freshness-false-stale-fix": ((), True),
+        "1stwj context-efficiency-telemetry": ((), True),
+        "1stwm memory-supply": ((), False),
+        "1sufo memory-retrieval-eval-and-fusion": ((), True),
+        "1sufq commit-reasoning-provenance": ((), False),
+        "1sxj7 self-populating-memory-and-telemetry-reconciliation": ((), True),
+        "1t1uo dashboard-multiline-ac-tasks": ((), True),
+        "1t3dm memory-backfill-and-review-evidence-clarity": (
+            ("architecture-reviewer", "code-reviewer", "docs-contract-reviewer",
+             "performance-reviewer", "qa-reviewer", "reality-checker",
+             "release-reviewer", "security-reviewer"), True),
+        "1t3ek context-efficiency-feedback-loop": ((), True),
+        "1t3gt mcp-tool-hygiene": ((), True),
+        "1t550 upgrade-field-fixes": ((), True),
+        "1t59p wf-audit-bounded-index-health": ((), True),
+        "1t69a retrieval-posture-coverage": ((), True),
+        "1t72b ce-hardening-and-paired-eval": ((), True),
+        "1t87f relocated-journal-naming": ((), True),
+        "1t8la memory-archival-and-retention": ((), True),
+        "1t9ti memory-publication-receipt": ((), True),
+        "1t9tk changelog-first-packaging": ((), True),
+        "1t9w8 memory-lifecycle-naming": ((), True),
+        "1t9wa retire-wave-journals": ((), True),
+        "1tamx review-evidence-lane-clearing-recipe": ((), True),
+        "1tbt5 memory-retrieval-quality-adaptive-freshness": ((), True),
+        "1tbt7 review-evidence-telemetry-attribution": ((), True),
+        "1tbvp retire-reindex-reports": ((), True),
+        "1tg55 exploration-avoided-signal-quality": ((), True),
+        "1ti11 remove-unused-context-efficiency-schema": ((), True),
+        "1tis8 memory-eval-mcp-tool-and-decision-log-target": ((), True),
+        "1tj0l cwd-independent-host-surface-launchers": ((), True),
+        "1tmb1 review-loop-readiness-clearing-path": ((), True),
+        "1to7k lifecycle-evidence-and-focus-integrity": ((), True),
+        "1tomw events-only-review-evidence-authority": ((), True),
+    }
+
+    def setUp(self):
+        self.srv = load_server()
+        self.review = sys.modules["review_evidence"]
+        self.repo = Path(self.srv.__file__).resolve().parents[3]
+        if not (self.repo / "docs" / "waves").is_dir():
+            self.skipTest("repository wave tree not present")
+
+    def test_closed_declared_waves_match_committed_topology_snapshot(self):
+        seen = {}
+        for wave_md in sorted((self.repo / "docs" / "waves").glob("*/wave.md")):
+            text = wave_md.read_text(encoding="utf-8")
+            source, source_errors = self.review.parse_review_evidence_source(text)
+            if source is None and not source_errors:
+                continue  # legacy wave: prose-only, out of sweep scope
+            if not re.search(r"(?mi)^Status:\s*closed\s*$", text):
+                continue  # open/readied waves are still moving
+            authority = self.review.resolve_review_authority(self.repo, wave_md, wave_text=text)
+            self.assertTrue(authority.typed, wave_md)
+            lanes = tuple(sorted(self.srv._extract_required_review_lanes(text)))
+            council = self.srv._required_wave_council_signoffs(
+                self.repo, "close", wave_text=text, wave_md=wave_md
+            )
+            required_keys = ["operator-signoff", *lanes, *council]
+            green = (
+                not authority.ledger_errors
+                and all(authority.signoff_current(key) for key in required_keys)
+                and authority.evidence_present()
+            )
+            seen[wave_md.parent.name] = (lanes, green)
+        self.assertTrue(seen, "no closed declared waves found — sweep is vacuous")
+        for wave_key, derived in sorted(seen.items()):
+            expected = self.TOPOLOGY_SNAPSHOT.get(wave_key)
+            if expected is None:
+                # Waves closed after this snapshot must be typed-green: the
+                # facade is the only close-gate derivation they could satisfy.
+                self.assertTrue(
+                    derived[1],
+                    f"newly closed declared wave {wave_key!r} does not derive "
+                    f"a green typed review-evidence gate: {derived}",
+                )
+                continue
+            self.assertEqual(derived, expected, wave_key)
+        missing = set(self.TOPOLOGY_SNAPSHOT) - set(seen)
+        self.assertFalse(missing, f"snapshot waves missing from tree: {sorted(missing)}")
 
 
 class ReopenWavePurposeStageTests(unittest.TestCase):
@@ -26695,3 +27399,183 @@ class TypedEventNamedCrashCutTests(unittest.TestCase):
         self.assertEqual(self.events_path.read_bytes(), committed)
         self.assertNotEqual(self.wave_md.read_text(encoding="utf-8"), before_wave)
         self.assertEqual(len(self._parse_ok()), 1)
+
+
+def _true_termination_crash_cut_worker(scripts_root, root, wave_id, cut):
+    """Wave 1to78 (AC-6): child process for the true-termination crash cuts.
+
+    Runs the REAL public create-mode typed append (``wf_review_event_response``)
+    with the atomic-replace seam wrapped so the process dies via ``os._exit(1)``
+    at the named boundary: no raised exception, no ``finally`` unwinding, no
+    interpreter shutdown hooks; genuine termination mid-transaction, holding
+    the publication lock (the OS releases it with the process).
+
+    ``cut`` values:
+
+    - ``before_ledger_replace``: die before the ledger's atomic os.replace.
+    - ``after_ledger_before_projection``: die after the ledger authority
+      commit, before the projection rebuild.
+    - ``torn_write_control``: executed known-bad; instead of the atomic
+      replace, tear half a JSON line directly into the ledger path and die,
+      proving the parent's canonical-parseability oracle detects a corrupted
+      survivor (the oracle can fail; it is not vacuous).
+
+    Exit code 1 signals the cut fired; reaching the end (no cut taken) exits
+    0, so seam drift (a renamed purpose label or replaced seam) fails the
+    parent's exit-code assertion loudly instead of silently testing nothing.
+    """
+    import os as _os
+    import sys as _sys
+    from pathlib import Path as _Path
+
+    _sys.path.insert(0, scripts_root)
+    import server_impl as srv
+
+    real_replace = srv._atomic_replace_bytes
+
+    def cut_replace(path, payload, purpose):
+        if purpose != "review-events":
+            return real_replace(path, payload, purpose)
+        if cut == "torn_write_control":
+            with open(path, "ab") as handle:
+                handle.write(b'{"record_type": "review_run", "review_')
+                handle.flush()
+                _os.fsync(handle.fileno())
+            _os._exit(1)
+        if cut == "before_ledger_replace":
+            _os._exit(1)
+        real_replace(path, payload, purpose)
+        if cut == "after_ledger_before_projection":
+            _os._exit(1)
+        return None
+
+    srv._atomic_replace_bytes = cut_replace
+    srv.wf_review_event_response(
+        _Path(root),
+        wave_id,
+        "run",
+        "wave-council",
+        "true-kill-context",
+        mode="create",
+        run_kind="initial_delivery",
+    )
+    _os._exit(0)
+
+
+class TrueTerminationCrashCutTests(unittest.TestCase):
+    """Wave 1to78 (AC-6): the named crash cuts as REAL process terminations.
+
+    The exception-injection cuts above stay as fast equivalents; these
+    variants kill a spawned child (wavefoundry venv python via the spawn
+    context, the 1tomw race-worker pattern) with ``os._exit`` at each named
+    boundary and assert from the parent: the surviving on-disk state matches
+    the cut contract, the surviving ledger parses canonically, and identical
+    exact replay converges (clean append before commit; replayed-no-append
+    after commit), the same oracle as the injection cuts.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        self.srv = type(self).srv
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+        created = self.srv.wf_create_wave_response(
+            self.root, "true-kill-wave", mode="create"
+        )
+        self.wave_id = created["data"]["wave_id"]
+        self.wave_md = self.root / created["data"]["path"]
+        self.events_path = self.wave_md.parent / "events.jsonl"
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _spawn_cut(self, cut):
+        import multiprocessing
+
+        ctx = multiprocessing.get_context("spawn")
+        process = ctx.Process(
+            target=_true_termination_crash_cut_worker,
+            args=(str(SCRIPTS_ROOT), str(self.root), self.wave_id, cut),
+        )
+        process.start()
+        process.join(60)
+        self.assertIsNotNone(process.exitcode, "child did not terminate")
+        self.assertEqual(process.exitcode, 1, "named cut did not fire in the child")
+
+    def _replay_event(self):
+        # Byte-identical semantic event to the one the child was killed
+        # running (exact replay per the established convergence semantics).
+        return self.srv.wf_review_event_response(
+            self.root,
+            self.wave_id,
+            "run",
+            "wave-council",
+            "true-kill-context",
+            mode="create",
+            run_kind="initial_delivery",
+        )
+
+    def _no_temp_residue(self):
+        leftovers = [
+            path.name
+            for path in self.wave_md.parent.iterdir()
+            if path.name.endswith(".tmp")
+        ]
+        self.assertEqual(leftovers, [])
+
+    def test_child_killed_before_ledger_replace_leaves_state_untouched(self):
+        before_wave = self.wave_md.read_text(encoding="utf-8")
+        self._spawn_cut("before_ledger_replace")
+        # Cut contract: ledger unchanged, no partial write, projection intact.
+        self.assertEqual(self.events_path.read_bytes(), b"")
+        self.assertEqual(self.wave_md.read_text(encoding="utf-8"), before_wave)
+        self._no_temp_residue()
+        # Canonical parseability of the surviving (empty) ledger.
+        records, errors = self.srv.read_review_event_ledger(self.wave_md)
+        self.assertFalse(errors)
+        self.assertEqual(records, ())
+        # Exact replay converges as a CLEAN APPEND: nothing was committed.
+        retry = self._replay_event()
+        self.assertEqual(retry["status"], "ok", retry)
+        self.assertFalse(retry["data"]["replayed"])
+        records, errors = self.srv.read_review_event_ledger(self.wave_md)
+        self.assertFalse(errors)
+        self.assertEqual(len(records), 1)
+
+    def test_child_killed_after_ledger_replace_before_projection(self):
+        before_wave = self.wave_md.read_text(encoding="utf-8")
+        self._spawn_cut("after_ledger_before_projection")
+        # Cut contract: ledger updated canonically, projection stale.
+        committed = self.events_path.read_bytes()
+        self.assertNotEqual(committed, b"")
+        self.assertEqual(self.wave_md.read_text(encoding="utf-8"), before_wave)
+        self._no_temp_residue()
+        records, errors = self.srv.read_review_event_ledger(self.wave_md)
+        self.assertFalse(errors)
+        self.assertEqual(len(records), 1)
+        self.assertEqual(
+            committed, self.srv.canonical_review_events_bytes(records)
+        )
+        # Exact replay converges WITHOUT another append: it repairs only the
+        # projection (same oracle as the injection cut above).
+        replay = self._replay_event()
+        self.assertEqual(replay["status"], "ok", replay)
+        self.assertTrue(replay["data"]["replayed"])
+        self.assertEqual(self.events_path.read_bytes(), committed)
+        self.assertNotEqual(self.wave_md.read_text(encoding="utf-8"), before_wave)
+        records, errors = self.srv.read_review_event_ledger(self.wave_md)
+        self.assertFalse(errors)
+        self.assertEqual(len(records), 1)
+
+    def test_torn_write_control_is_detected_by_the_parseability_oracle(self):
+        # Executed known-bad (AC-6): a child that dies after tearing half a
+        # JSON line into the ledger (the corruption the atomic-replace
+        # pattern exists to prevent) is caught by the SAME canonical-parse
+        # oracle the real cuts assert with. This proves the oracle is
+        # sensitive: were the seam not atomic, the cut tests would go red.
+        self._spawn_cut("torn_write_control")
+        records, errors = self.srv.read_review_event_ledger(self.wave_md)
+        self.assertTrue(errors)

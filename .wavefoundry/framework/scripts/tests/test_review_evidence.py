@@ -168,18 +168,19 @@ def closed_census(**overrides: object) -> dict[str, object]:
     return row
 
 
-def raw_wave_text(records: list[dict[str, object]], *, marker: int | None = 1) -> str:
-    marker_line = "" if marker is None else f"review-evidence-protocol: {marker}\n"
-    lines = "\n".join(json.dumps(record, sort_keys=True) for record in records)
-    return (
-        f"# Wave\n\n{marker_line}\n## Finding Synthesis\n\n"
-        f"{subject.FINDING_SYNTHESIS_MARKER_BEGIN}\n"
-        f"```jsonl\n{lines}\n```\n"
-        f"{subject.FINDING_SYNTHESIS_MARKER_END}\n"
+def validate_records(
+    records: list[dict[str, object]], *, closure: bool = False
+) -> subject.ReviewEvidenceValidation:
+    """Validate canonical records directly (the inline wave.md container was
+    deleted in wave 1to78; events.jsonl is the only physical container)."""
+    errors = subject.validate_review_evidence_records(records, closure=closure)
+    return subject.ReviewEvidenceValidation(
+        subject.PROTOCOL_VERSION, tuple(records), tuple(errors)
     )
 
 
-def wave_text(records: list[dict[str, object]], *, marker: int | None = 1) -> str:
+def wave_records(records: list[dict[str, object]]) -> list[dict[str, object]]:
+    """Expand shorthand rows with the implied dedup/finding evidence rows."""
     existing_evidence = {
         str(record.get("evidence_record_id"))
         for record in records
@@ -198,7 +199,7 @@ def wave_text(records: list[dict[str, object]], *, marker: int | None = 1) -> st
                 expanded.append(executable_evidence(evidence_id, str(record.get("finding_id"))))
                 existing_evidence.add(evidence_id)
         expanded.append(record)
-    return raw_wave_text(expanded, marker=marker)
+    return expanded
 
 
 def _publication_lock_worker(
@@ -237,7 +238,7 @@ class ReviewEvidenceStateMachineTests(unittest.TestCase):
                 ),
                 *records,
             ]
-        return subject.validate_review_evidence(wave_text(records), **kwargs)
+        return validate_records(wave_records(records), **kwargs)
 
     def assert_valid(self, records: list[dict[str, object]], **kwargs: object) -> None:
         result = self.validate(records, **kwargs)
@@ -248,14 +249,9 @@ class ReviewEvidenceStateMachineTests(unittest.TestCase):
         self.assertFalse(result.ok)
         self.assertIn(fragment, "\n".join(result.errors))
 
-    def test_unmarked_historical_wave_is_legacy_valid(self) -> None:
-        result = subject.validate_review_evidence("# Closed historical wave\n")
-        self.assertTrue(result.ok)
-        self.assertIsNone(result.marker_version)
-
     def test_actionable_completion_requires_reverification_during_normal_validation(self) -> None:
         impossible = synthesis(repair_execution_state="completed")
-        result = subject.validate_review_evidence(wave_text([review_run(), impossible]))
+        result = validate_records(wave_records([review_run(), impossible]))
         self.assertIn("may be completed only by reverification", "\n".join(result.errors))
 
     def test_canonical_seed_states_load_bearing_validator_contract(self) -> None:
@@ -282,22 +278,7 @@ class ReviewEvidenceStateMachineTests(unittest.TestCase):
         ):
             self.assertIn(phrase, seed)
 
-    def test_marker_is_monotonic_and_version_is_finite(self) -> None:
-        previous = wave_text([review_run(), synthesis()])
-        removed = subject.validate_review_evidence("# Wave\n", previous_text=previous)
-        self.assertIn("may not be removed", "\n".join(removed.errors))
-        downgraded = subject.validate_review_evidence(wave_text([], marker=0), previous_text=previous)
-        self.assertIn("may not be downgraded", "\n".join(downgraded.errors))
-        self.assertIn("unsupported", "\n".join(downgraded.errors))
-        replaced = subject.validate_review_evidence(
-            wave_text([review_run("replacement", candidates=[])]),
-            previous_text=previous,
-        )
-        self.assertIn("append-only", "\n".join(replaced.errors))
-
-    def test_marked_wave_allows_empty_creation_block_but_closure_requires_run(self) -> None:
-        missing_section = subject.validate_review_evidence("# Wave\nreview-evidence-protocol: 1\n")
-        self.assertIn("Finding Synthesis", "\n".join(missing_section.errors))
+    def test_empty_ledger_is_valid_but_closure_requires_run(self) -> None:
         self.assert_valid([])
         self.assert_error([], "at least one Review Run Record", closure=True)
 
@@ -319,7 +300,7 @@ class ReviewEvidenceStateMachineTests(unittest.TestCase):
         self.assertEqual(
             rows[0]["verification_context"]["context_id"], "lightweight-review"
         )
-        result = subject.validate_review_evidence(subject.render_review_evidence_records(raw_wave_text([]), rows))
+        result = validate_records(list(rows))
         self.assertTrue(result.ok, "\n".join(result.errors))
 
     def test_compact_single_finding_reuses_its_evidence_as_universe_proof(self) -> None:
@@ -365,10 +346,10 @@ class ReviewEvidenceStateMachineTests(unittest.TestCase):
         evidence, run, synthesis_row = rows
         self.assertEqual(run["dedup_evidence_id"], evidence["evidence_record_id"])
         self.assertEqual(synthesis_row["disposition"], "do_now")
-        rendered = subject.render_review_evidence_records(raw_wave_text([]), rows)
-        result = subject.validate_review_evidence(rendered)
+        result = validate_records(list(rows))
         self.assertTrue(result.ok, "\n".join(result.errors))
-        self.assertIn("| public-path-regression | do_now | yes | pending | qa-reviewer |", rendered)
+        table = subject.review_evidence_human_table(rows)
+        self.assertIn("| public-path-regression | do_now | yes | pending | qa-reviewer |", table)
 
     def test_later_review_pass_can_discover_and_repair_new_findings(self) -> None:
         base_event = {
@@ -419,9 +400,7 @@ class ReviewEvidenceStateMachineTests(unittest.TestCase):
             rows, errors = subject.build_compact_review_event(records, event)
             self.assertEqual(errors, ())
             records = (*records, *rows)
-            result = subject.validate_review_evidence(
-                subject.render_review_evidence_records(raw_wave_text([]), records)
-            )
+            result = validate_records(list(records))
             self.assertTrue(result.ok, "\n".join(result.errors))
             return rows
 
@@ -714,16 +693,6 @@ class ReviewEvidenceStateMachineTests(unittest.TestCase):
         self.assertEqual(rows, ())
         self.assertIn("fresh_context=true", "\n".join(errors))
 
-    def test_compact_summary_and_table_are_generated_views_not_authority(self) -> None:
-        text = subject.empty_finding_synthesis_section()
-        marked = "# Wave\nreview-evidence-protocol: 1\n\n" + text
-        self.assertTrue(subject.validate_review_evidence(marked).ok)
-        self.assertIn("Machine review evidence — 0 records", marked)
-        self.assertIn("| Current finding | Disposition | Open block |", marked)
-        # The JSONL remains canonical, so stale presentation never changes validation truth.
-        stale = marked.replace("0 records", "9 records", 1)
-        self.assertTrue(subject.validate_review_evidence(stale).ok)
-
     def test_human_table_reports_resolved_actionable_head_as_not_open(self) -> None:
         row = synthesis(
             finding_id="resolved-finding",
@@ -735,41 +704,14 @@ class ReviewEvidenceStateMachineTests(unittest.TestCase):
         table = subject.review_evidence_human_table([row])
         self.assertIn("| resolved-finding | do_now | no | completed |", table)
 
-    def test_marker_is_header_only_and_owned_region_is_required(self) -> None:
-        prose = subject.validate_review_evidence(
-            "# Legacy wave\n\n## Notes\n\nreview-evidence-protocol: 1\n"
-        )
-        self.assertTrue(prose.ok)
-        self.assertIsNone(prose.marker_version)
-
-        missing_owned = subject.validate_review_evidence(
-            "# Wave\nreview-evidence-protocol: 1\n\n## Finding Synthesis\n\n```jsonl\n```\n"
-        )
-        self.assertIn("owned marker pair", "\n".join(missing_owned.errors))
-
-        outside_owned = subject.validate_review_evidence(
-            "# Wave\nreview-evidence-protocol: 1\n\n## Finding Synthesis\n\n"
-            "```jsonl\n```\n"
-            f"{subject.FINDING_SYNTHESIS_MARKER_BEGIN}\n"
-            f"{subject.FINDING_SYNTHESIS_MARKER_END}\n"
-        )
-        self.assertIn("must be enclosed", "\n".join(outside_owned.errors))
-
-    def test_parser_rejects_malformed_json_non_object_and_unknown_record(self) -> None:
-        text = (
-            "# Wave\nreview-evidence-protocol: 1\n\n## Finding Synthesis\n\n```jsonl\n"
-            "not-json\n[]\n{\"record_type\":\"mystery\"}\n```\n"
-        )
-        result = subject.validate_review_evidence(text)
-        joined = "\n".join(result.errors)
-        self.assertIn("invalid JSON", joined)
-        self.assertIn("record must be an object", joined)
-        self.assertIn("unknown record_type", joined)
+    def test_unknown_record_type_is_rejected(self) -> None:
+        result = validate_records([{"record_type": "mystery"}])
+        self.assertIn("unknown record_type", "\n".join(result.errors))
 
     def test_executable_evidence_is_linked_and_required_approval_must_execute(self) -> None:
         run = review_run()
         row = synthesis()
-        missing = subject.validate_review_evidence(raw_wave_text([run, row]))
+        missing = validate_records([run, row])
         self.assertIn("missing executable evidence", "\n".join(missing.errors))
         approval = executable_evidence(
             "approval-1",
@@ -778,7 +720,7 @@ class ReviewEvidenceStateMachineTests(unittest.TestCase):
             required_for_approval=True,
             execution_status="inferred",
         )
-        result = subject.validate_review_evidence(raw_wave_text([approval]))
+        result = validate_records([approval])
         self.assertIn("must be executed in delivery", "\n".join(result.errors))
         self.assertIn("approval:<signoff-key>", "\n".join(result.errors))
 
@@ -789,14 +731,14 @@ class ReviewEvidenceStateMachineTests(unittest.TestCase):
         wrong_kind = executable_evidence(
             "evidence-synthesis-0", "finding-1", claim_kind="dedup"
         )
-        result = subject.validate_review_evidence(
-            raw_wave_text([dedup, run, wrong_kind, row])
+        result = validate_records(
+            [dedup, run, wrong_kind, row]
         )
         self.assertIn("claim_kind `finding`", "\n".join(result.errors))
 
         finding = executable_evidence("evidence-synthesis-0", "finding-1")
-        result = subject.validate_review_evidence(
-            raw_wave_text([dedup, run, row, finding])
+        result = validate_records(
+            [dedup, run, row, finding]
         )
         self.assertIn("cannot precede its executable finding evidence", "\n".join(result.errors))
 
@@ -807,7 +749,7 @@ class ReviewEvidenceStateMachineTests(unittest.TestCase):
             claim_kind="census",
             universal_claim=True,
         )
-        result = subject.validate_review_evidence(raw_wave_text([universal]))
+        result = validate_records([universal])
         self.assertIn("requires a census object", "\n".join(result.errors))
 
         unsafe = executable_evidence(
@@ -817,7 +759,7 @@ class ReviewEvidenceStateMachineTests(unittest.TestCase):
             authorization_status="not_authorized",
             execution_status="executed",
         )
-        result = subject.validate_review_evidence(raw_wave_text([unsafe]))
+        result = validate_records([unsafe])
         joined = "\n".join(result.errors)
         self.assertIn("requires explicit authorization", joined)
         self.assertIn("must remain inferred or unverified", joined)
@@ -835,7 +777,7 @@ class ReviewEvidenceStateMachineTests(unittest.TestCase):
                 universal_claim=True,
                 census=census,
             )
-            result = subject.validate_review_evidence(raw_wave_text([evidence]))
+            result = validate_records([evidence])
             self.assertIn(fragment, "\n".join(result.errors))
 
         valid = executable_evidence(
@@ -845,7 +787,7 @@ class ReviewEvidenceStateMachineTests(unittest.TestCase):
             universal_claim=True,
             census=closed_census(),
         )
-        self.assertTrue(subject.validate_review_evidence(raw_wave_text([valid])).ok)
+        self.assertTrue(validate_records([valid]).ok)
 
     def test_same_context_lane_reassessment_is_rejected(self) -> None:
         evidence = executable_evidence(
@@ -855,7 +797,7 @@ class ReviewEvidenceStateMachineTests(unittest.TestCase):
             fresh_context=False,
             independent=False,
         )
-        result = subject.validate_review_evidence(raw_wave_text([evidence]))
+        result = validate_records([evidence])
         self.assertIn("must be fresh and independent", "\n".join(result.errors))
 
     def test_implementer_reference_probe_cannot_restore_withdrawn_lane_approval(self) -> None:
@@ -871,7 +813,7 @@ class ReviewEvidenceStateMachineTests(unittest.TestCase):
             proposition="fallback and grammar-backed parser agree on exact owner identity",
             command_or_fixture="bounded differential Java owner fixture",
         )
-        result = subject.validate_review_evidence(raw_wave_text([evidence]))
+        result = validate_records([evidence])
         self.assertIn("must be fresh and independent", "\n".join(result.errors))
 
     def test_required_approval_is_mandatory_at_closure(self) -> None:
@@ -880,7 +822,7 @@ class ReviewEvidenceStateMachineTests(unittest.TestCase):
             review_run("initial-empty", candidates=[]),
         ]
         rows[-1]["dedup_evidence_id"] = "dedup-empty"
-        result = subject.validate_review_evidence(raw_wave_text(rows), closure=True)
+        result = validate_records(rows, closure=True)
         self.assertIn("required approval", "\n".join(result.errors))
 
     def test_skipped_vacuous_impossible_or_wrong_reason_evidence_is_not_executed(self) -> None:
@@ -893,7 +835,7 @@ class ReviewEvidenceStateMachineTests(unittest.TestCase):
         )
         for field in integrity_fields:
             evidence = executable_evidence("integrity-1", field, **{field: False})
-            result = subject.validate_review_evidence(raw_wave_text([evidence]))
+            result = validate_records([evidence])
             self.assertIn("all five evidence-integrity checks", "\n".join(result.errors), field)
 
     def test_publication_lock_is_cross_process_exclusive(self) -> None:
@@ -1235,7 +1177,7 @@ class ReviewEvidenceStateMachineTests(unittest.TestCase):
 
     def test_synthesis_cannot_precede_its_sealing_run(self) -> None:
         row = synthesis()
-        result = subject.validate_review_evidence(wave_text([row, review_run()]))
+        result = validate_records(wave_records([row, review_run()]))
         self.assertIn("cannot precede its sealing review run", "\n".join(result.errors))
 
 
@@ -1293,7 +1235,7 @@ class ReviewEvidenceConvergenceTests(unittest.TestCase):
     def test_reverification_requires_repair_start_and_monotonic_cycle(self) -> None:
         rows = [review_run(), synthesis(), review_run("verify", kind="reverification", cycle=1)]
         rows.append(synthesis("verify-s", run_id="verify", cycle=1, supersedes_record_id="synthesis-0"))
-        result = subject.validate_review_evidence(wave_text(rows))
+        result = validate_records(wave_records(rows))
         self.assertIn("no preceding repair_start", "\n".join(result.errors))
 
     def test_missing_repair_start_error_names_the_corrective_call(self) -> None:
@@ -1304,7 +1246,7 @@ class ReviewEvidenceConvergenceTests(unittest.TestCase):
         """
         rows = [review_run(), synthesis(), review_run("verify", kind="reverification", cycle=1)]
         rows.append(synthesis("verify-s", run_id="verify", cycle=1, supersedes_record_id="synthesis-0"))
-        text = "\n".join(subject.validate_review_evidence(wave_text(rows)).errors)
+        text = "\n".join(validate_records(wave_records(rows)).errors)
         self.assertIn("repair_start", text)
         self.assertIn('event="finding"', text)
         self.assertIn("cycle", text)
@@ -1363,7 +1305,7 @@ class ReviewEvidenceConvergenceTests(unittest.TestCase):
                 evidence_record_id="terminal-self-check",
             ),
         ]
-        result = subject.validate_review_evidence(wave_text(rows))
+        result = validate_records(wave_records(rows))
         self.assertIn(
             "requires fresh independent evidence", "\n".join(result.errors)
         )
@@ -1380,7 +1322,7 @@ class ReviewEvidenceConvergenceTests(unittest.TestCase):
             disposition="dont_do_later",
             review_depth="none",
         )
-        result = subject.validate_review_evidence(wave_text([start, rejected]))
+        result = validate_records(wave_records([start, rejected]))
         joined = "\n".join(result.errors)
         self.assertIn("preceding initial_delivery", joined)
         self.assertIn("requires an actionable synthesis", joined)
@@ -1407,8 +1349,8 @@ class ReviewEvidenceConvergenceTests(unittest.TestCase):
             optional_value="none",
         )
         derive(start_row)
-        result = subject.validate_review_evidence(
-            wave_text([review_run(kind="readiness"), initial, start, start_row])
+        result = validate_records(
+            wave_records([review_run(kind="readiness"), initial, start, start_row])
         )
         self.assertTrue(result.ok, "\n".join(result.errors))
 
@@ -1497,7 +1439,7 @@ class ReviewEvidenceConvergenceTests(unittest.TestCase):
         ]
         self.assertEqual(len(reassessments), 1)
         self.assertEqual(reassessments[0]["phase"], "readiness")
-        result = subject.validate_review_evidence(wave_text(list(records)))
+        result = validate_records(wave_records(list(records)))
         self.assertTrue(result.ok, "\n".join(result.errors))
 
     def test_readiness_finding_accepts_legacy_delivery_reassessment(self) -> None:
@@ -1509,7 +1451,7 @@ class ReviewEvidenceConvergenceTests(unittest.TestCase):
                 and row.get("claim_kind") == "lane_reassessment"
             ):
                 row["phase"] = "delivery"
-        result = subject.validate_review_evidence(wave_text(records))
+        result = validate_records(wave_records(records))
         self.assertTrue(result.ok, "\n".join(result.errors))
 
     def test_delivery_finding_rejects_readiness_reassessment(self) -> None:
@@ -1524,7 +1466,7 @@ class ReviewEvidenceConvergenceTests(unittest.TestCase):
                 and row.get("claim_kind") == "lane_reassessment"
             ):
                 row["phase"] = "readiness"
-        result = subject.validate_review_evidence(wave_text(records))
+        result = validate_records(wave_records(records))
         self.assertFalse(result.ok)
         self.assertIn(
             "cannot clear a required-lane block without lane reassessment evidence",
@@ -1552,7 +1494,7 @@ class ReviewEvidenceConvergenceTests(unittest.TestCase):
                 and row.get("claim_kind") == "lane_reassessment"
             ):
                 row["phase"] = "readiness"
-        result = subject.validate_review_evidence(wave_text([orphan, *records]))
+        result = validate_records(wave_records([orphan, *records]))
         self.assertFalse(result.ok)
         self.assertIn(
             "cannot clear a required-lane block without lane reassessment evidence",
@@ -1579,7 +1521,7 @@ class ReviewEvidenceConvergenceTests(unittest.TestCase):
                 row["phase"] = "readiness"
         records.remove(root)
         records.insert(records.index(repair) + 1, root)
-        result = subject.validate_review_evidence(wave_text(records))
+        result = validate_records(wave_records(records))
         self.assertFalse(result.ok)
         self.assertIn(
             "cannot clear a required-lane block without lane reassessment evidence",
@@ -1607,7 +1549,7 @@ class ReviewEvidenceConvergenceTests(unittest.TestCase):
                 and row.get("claim_kind") == "lane_reassessment"
             ):
                 row["phase"] = "readiness"
-        result = subject.validate_review_evidence(wave_text(records))
+        result = validate_records(wave_records(records))
         self.assertFalse(result.ok)
         self.assertIn(
             "cannot clear a required-lane block without lane reassessment evidence",
@@ -1621,7 +1563,7 @@ class ReviewEvidenceConvergenceTests(unittest.TestCase):
             review_run("checkpoint", kind="convergence_checkpoint", cycle=2, frozen_boundary=["finding-1"]),
             synthesis("checkpoint-s", run_id="checkpoint", cycle=2, supersedes_record_id="synthesis-0"),
         ]
-        result = subject.validate_review_evidence(wave_text(rows))
+        result = validate_records(wave_records(rows))
         self.assertIn("two completed repair cycles", "\n".join(result.errors))
 
     def test_pending_reverification_does_not_complete_a_cycle(self) -> None:
@@ -1633,7 +1575,7 @@ class ReviewEvidenceConvergenceTests(unittest.TestCase):
                 "checkpoint-2",
             }:
                 row["repair_execution_state"] = "pending"
-        result = subject.validate_review_evidence(wave_text(rows))
+        result = validate_records(wave_records(rows))
         joined = "\n".join(result.errors)
         self.assertIn("repair cycle 2 starts before cycle 1 completes", joined)
         self.assertIn("two completed repair cycles", joined)
@@ -1705,7 +1647,7 @@ class ReviewEvidenceConvergenceTests(unittest.TestCase):
             premature_cycle_2,
             premature_cycle_2_row,
         ]
-        result = subject.validate_review_evidence(wave_text(partial))
+        result = validate_records(wave_records(partial))
         self.assertIn(
             "repair cycle 2 starts before cycle 1 completes",
             "\n".join(result.errors),
@@ -1723,7 +1665,7 @@ class ReviewEvidenceConvergenceTests(unittest.TestCase):
             repair_execution_state="completed",
         )
         complete = partial[:-2] + [verify_b, verify_b_row]
-        result = subject.validate_review_evidence(wave_text(complete))
+        result = validate_records(wave_records(complete))
         self.assertTrue(result.ok, "\n".join(result.errors))
 
     def test_reverification_can_terminally_reclassify_started_finding(self) -> None:
@@ -1760,7 +1702,7 @@ class ReviewEvidenceConvergenceTests(unittest.TestCase):
                 supersedes_record_id="verify-row",
             ),
         ]
-        result = subject.validate_review_evidence(wave_text(rows))
+        result = validate_records(wave_records(rows))
         self.assertTrue(result.ok, "\n".join(result.errors))
 
     def test_duplicate_start_for_same_finding_in_cycle_fails(self) -> None:
@@ -1782,7 +1724,7 @@ class ReviewEvidenceConvergenceTests(unittest.TestCase):
                 supersedes_record_id="start-a-row",
             ),
         ]
-        result = subject.validate_review_evidence(wave_text(rows))
+        result = validate_records(wave_records(rows))
         self.assertIn(
             "more than one repair_start for `finding-1`",
             "\n".join(result.errors),
@@ -1832,8 +1774,8 @@ class ReviewEvidenceConvergenceTests(unittest.TestCase):
             cycle=1,
             supersedes_record_id="initial-b",
         )
-        result = subject.validate_review_evidence(
-            wave_text(
+        result = validate_records(
+            wave_records(
                 [
                     initial,
                     initial_a,
@@ -1866,8 +1808,8 @@ class ReviewEvidenceConvergenceTests(unittest.TestCase):
             supersedes_record_id="verify-a-row",
             repair_execution_state="completed",
         )
-        result = subject.validate_review_evidence(
-            wave_text(
+        result = validate_records(
+            wave_records(
                 [
                     initial,
                     initial_a,
@@ -1921,7 +1863,7 @@ class ReviewEvidenceConvergenceTests(unittest.TestCase):
             review_run("waive-1", kind="reverification", cycle=1),
             waived,
         ]
-        result = subject.validate_review_evidence(wave_text(rows), closure=True)
+        result = validate_records(wave_records(rows), closure=True)
         self.assertTrue(result.ok, "\n".join(result.errors))
         self.assertEqual(waived["repair_execution_state"], "operator_waived")
         self.assertTrue(waived["blocking"])
@@ -1979,8 +1921,8 @@ class ReviewEvidenceConvergenceTests(unittest.TestCase):
             )
             for finding in findings[:2]
         ]
-        result = subject.validate_review_evidence(
-            wave_text(
+        result = validate_records(
+            wave_records(
                 [
                     initial,
                     *initial_rows,
@@ -1995,7 +1937,7 @@ class ReviewEvidenceConvergenceTests(unittest.TestCase):
         self.assertTrue(result.ok, "\n".join(result.errors))
 
     def test_two_cycles_and_checkpoint_are_valid(self) -> None:
-        result = subject.validate_review_evidence(wave_text(self._cycle_records()), closure=True)
+        result = validate_records(wave_records(self._cycle_records()), closure=True)
         self.assertTrue(result.ok, "\n".join(result.errors))
 
     def test_legacy_checkpoint_synthesis_can_terminalize_cycle_two(self) -> None:
@@ -2026,22 +1968,22 @@ class ReviewEvidenceConvergenceTests(unittest.TestCase):
             repair_execution_state="completed",
         )
         rows[start_two_index + 1 :] = [legacy_checkpoint, legacy_row]
-        result = subject.validate_review_evidence(wave_text(rows))
+        result = validate_records(wave_records(rows))
         self.assertTrue(result.ok, "\n".join(result.errors))
 
     def test_two_completed_cycles_require_convergence_checkpoint(self) -> None:
         rows = self._cycle_records()[:-2]
-        result = subject.validate_review_evidence(wave_text(rows), closure=True)
+        result = validate_records(wave_records(rows), closure=True)
         self.assertIn("require a convergence_checkpoint", "\n".join(result.errors))
 
     def test_frozen_boundary_requires_deviation_for_non_material_adjacency(self) -> None:
         rows = self._cycle_records()
         run3 = review_run("start-3", kind="repair_start", cycle=3, candidates=["finding-2"])
         new = synthesis("new-2", run_id="start-3", finding_id="finding-2", cycle=3)
-        result = subject.validate_review_evidence(wave_text([*rows, run3, new]))
+        result = validate_records(wave_records([*rows, run3, new]))
         self.assertIn("exceeds frozen boundary", "\n".join(result.errors))
         run3["deviation_ids"] = ["finding-2"]
-        result = subject.validate_review_evidence(wave_text([*rows, run3, new]))
+        result = validate_records(wave_records([*rows, run3, new]))
         self.assertTrue(result.ok, "\n".join(result.errors))
 
     def test_frozen_boundary_admits_safely_evidenced_material_blocker(self) -> None:
@@ -2058,7 +2000,7 @@ class ReviewEvidenceConvergenceTests(unittest.TestCase):
             optional_value="none",
         )
         derive(new)
-        result = subject.validate_review_evidence(wave_text([*rows, run3, new]))
+        result = validate_records(wave_records([*rows, run3, new]))
         self.assertTrue(result.ok, "\n".join(result.errors))
 
 
@@ -2177,6 +2119,76 @@ class ExternalReviewEventLedgerTests(unittest.TestCase):
                 "final LF", "\n".join(subject.validate_external_review_evidence(wave).errors)
             )
 
+    def test_declared_wave_must_not_retain_inline_marker_or_fence(self) -> None:
+        """Negative guards (wave 1to78 census keeps): the retained-marker and
+        retained-fence rejections are the live consumers of the module's
+        marker and jsonl-fence patterns after the inline reader's deletion."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            wave_dir = Path(temp_dir) / "docs" / "waves" / "1test sample"
+            wave_dir.mkdir(parents=True)
+            (wave_dir / "events.jsonl").write_bytes(b"")
+            wave = wave_dir / "wave.md"
+            projection = subject.empty_external_finding_synthesis_section()
+            wave.write_text(
+                "# Wave\nreview-evidence-source: events.jsonl\n"
+                "review-evidence-protocol: 1\n\n" + projection,
+                encoding="utf-8",
+            )
+            retained = subject.validate_external_review_evidence(wave)
+            self.assertIn(
+                "must not retain review-evidence-protocol",
+                "\n".join(retained.errors),
+            )
+            # Header-only: a prose mention in a body section is not a marker.
+            wave.write_text(
+                "# Wave\nreview-evidence-source: events.jsonl\n\n"
+                + projection
+                + "\n## Notes\n\nreview-evidence-protocol: 1\n",
+                encoding="utf-8",
+            )
+            prose = subject.validate_external_review_evidence(wave)
+            self.assertTrue(prose.ok, prose.errors)
+            # Retained-fence rejection: an embedded jsonl fence inside the
+            # projection is inline authority and fails closed.
+            fenced = projection.replace(
+                subject.FINDING_SYNTHESIS_MARKER_END,
+                "```jsonl\n```\n" + subject.FINDING_SYNTHESIS_MARKER_END,
+            )
+            wave.write_text(
+                "# Wave\nreview-evidence-source: events.jsonl\n\n" + fenced,
+                encoding="utf-8",
+            )
+            embedded = subject.validate_external_review_evidence(wave)
+            self.assertIn(
+                "must not embed a jsonl authority",
+                "\n".join(embedded.errors),
+            )
+
+    def test_undeclared_inline_marker_wave_fails_with_migration_path(self) -> None:
+        """A 1.13-shaped wave (inline marker, inline fence, no declaration,
+        no sibling ledger) fails closed with the actionable manual migration
+        message and never silently reclassifies as legacy prose."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            wave_dir = Path(temp_dir) / "docs" / "waves" / "1test sample"
+            wave_dir.mkdir(parents=True)
+            wave = wave_dir / "wave.md"
+            wave.write_text(
+                "# Wave\nreview-evidence-protocol: 1\n\n"
+                "## Finding Synthesis\n\n"
+                f"{subject.FINDING_SYNTHESIS_MARKER_BEGIN}\n"
+                "```jsonl\n```\n"
+                f"{subject.FINDING_SYNTHESIS_MARKER_END}\n",
+                encoding="utf-8",
+            )
+            result = subject.validate_external_review_evidence(wave)
+            self.assertFalse(result.ok)
+            joined = "\n".join(result.errors)
+            self.assertIn(
+                "must declare `review-evidence-source: events.jsonl`", joined
+            )
+            self.assertIn("migrate manually", joined)
+            self.assertIn("`events.jsonl` ledger", joined)
+
     def test_external_projection_contains_no_inline_jsonl_authority(self) -> None:
         base = (
             "# Wave\nreview-evidence-source: events.jsonl\n\n"
@@ -2243,10 +2255,19 @@ class ExternalReviewEventLedgerTests(unittest.TestCase):
         self.assertEqual(expected, canonical)
 
     def test_canonicalizer_never_collapses_bodied_inline_details(self) -> None:
-        """The inline-authority form keeps its details wrapper (it collapses a
-        real JSONL body); only the class spelling normalizes."""
-        inline = subject.empty_finding_synthesis_section().replace(
-            'class="wave-review-evidence"', 'class="wavefoundry-review-evidence"'
+        """An ARCHIVED inline-authority form keeps its details wrapper (it
+        collapses a real JSONL body); only the class spelling normalizes.
+        The literal fixture mirrors the 1.13-era on-disk shape — nothing in
+        shipped code renders this form anymore (wave 1to78)."""
+        inline = (
+            "## Finding Synthesis\n\n"
+            f"{subject.FINDING_SYNTHESIS_MARKER_BEGIN}\n"
+            f"{subject.review_evidence_human_table(())}\n\n"
+            '<details class="wavefoundry-review-evidence">\n'
+            f"<summary>{subject.review_evidence_summary_line(())}</summary>\n\n"
+            "```jsonl\n```\n"
+            "</details>\n"
+            f"{subject.FINDING_SYNTHESIS_MARKER_END}\n"
         )
         canonical = subject.canonicalize_finding_synthesis_markers(inline)
         self.assertIn('<details class="wave-review-evidence">', canonical)
@@ -3226,6 +3247,164 @@ class RealCorpusRegressionTests(unittest.TestCase):
                 f"{name}: expected the latest chains to carry the historical "
                 "independence defect the forward audit would flag on reopen",
             )
+
+
+class ReviewAuthorityFacadeTests(unittest.TestCase):
+    """Wave 1to78: the single authority-resolution facade for gate reads.
+
+    Typed branch (declared waves) derives exclusively from events.jsonl via the
+    ``review_status_rows`` chronology; the legacy prose branch preserves the
+    historical parsing that used to live in server_impl.py.
+    """
+
+    @staticmethod
+    def _approval(signoff_key: str, actor: str, *, fresh: bool = True, independent: bool = True) -> dict:
+        return {
+            "record_type": "executable_evidence",
+            "evidence_record_id": f"approval-{signoff_key}",
+            "claim_id": f"approval:{signoff_key}",
+            "claim_kind": "approval",
+            "required_for_approval": True,
+            "phase": "delivery",
+            "execution_status": "executed",
+            "verification_context": {
+                "actor": actor,
+                "context_id": f"ctx-{signoff_key}",
+                "fresh_context": fresh,
+                "independent": independent,
+            },
+        }
+
+    @staticmethod
+    def _head(finding_id: str, **overrides: object) -> dict:
+        head: dict = {
+            "record_type": "finding_synthesis",
+            "finding_id": finding_id,
+            "validation_status": "real",
+            "disposition": "do_now",
+            "authority_delta": "none",
+            "observable_impact": "none",
+        }
+        head.update(overrides)
+        return head
+
+    def test_dispatch_on_declaration(self):
+        legacy = subject.resolve_review_authority(None, None, wave_text="# Wave Record\n")
+        self.assertFalse(legacy.typed)
+        declared = subject.resolve_review_authority(
+            None, None, wave_text="# Wave Record\n\nreview-evidence-source: events.jsonl\n"
+        )
+        self.assertTrue(declared.typed)
+        self.assertEqual(declared.records, ())
+
+    def test_malformed_declaration_fails_closed_as_typed(self):
+        malformed = subject.resolve_review_authority(
+            None, None, wave_text="# Wave Record\n\nreview-evidence-source: wrong.jsonl\n"
+        )
+        self.assertTrue(malformed.typed)
+        self.assertFalse(malformed.signoff_current("operator-signoff"))
+        self.assertFalse(malformed.evidence_present())
+
+    def test_typed_signoff_requires_exact_actor_and_ignores_prose(self):
+        wave_text = (
+            "# Wave Record\n\nreview-evidence-source: events.jsonl\n\n"
+            "## Review Evidence\n\n- qa-reviewer: approved\n- operator-signoff: approved\n"
+        )
+        authority = subject.ReviewAuthority(
+            typed=True,
+            wave_text=wave_text,
+            records=(self._approval("qa-reviewer", "qa-reviewer"),),
+        )
+        self.assertTrue(authority.signoff_current("qa-reviewer"))
+        # prose operator-signoff line is narrative: no typed record, no approval
+        self.assertFalse(authority.operator_signoff_present())
+        forged = subject.ReviewAuthority(
+            typed=True,
+            wave_text=wave_text,
+            records=(self._approval("qa-reviewer", "code-reviewer"),),
+        )
+        self.assertFalse(forged.signoff_current("qa-reviewer"))
+
+    def test_prose_branch_matches_legacy_parsers(self):
+        wave_text = (
+            "# Wave Record\n\n"
+            "## Prepare Review Evidence\n\n- qa-reviewer: approved\n\n"
+            "## Review Evidence\n\n- operator-signoff: approved\n- code-reviewer: approved\n"
+        )
+        authority = subject.resolve_review_authority(None, None, wave_text=wave_text)
+        self.assertFalse(authority.typed)
+        self.assertTrue(authority.operator_signoff_present())
+        self.assertTrue(authority.signoff_current("code-reviewer"))
+        self.assertTrue(authority.signoff_current("qa-reviewer", section="prepare"))
+        # section separation: qa-reviewer signed only in the prepare section
+        self.assertFalse(authority.signoff_current("qa-reviewer", section="review"))
+        self.assertTrue(authority.evidence_present())
+        self.assertTrue(authority.any_signoff_evidence())
+
+    def test_typed_max_severity_maps_impact_facts_not_words(self):
+        base = "# Wave Record\n\nreview-evidence-source: events.jsonl\n"
+        cases = [
+            ((), "none"),
+            ((self._head("f1", observable_impact="low"),), "low"),
+            ((self._head("f1", observable_impact="material"),), "high"),
+            ((self._head("f1", authority_delta="critical"),), "critical"),
+            ((self._head("f1", observable_impact="unverified"),), "none"),
+            # invalid / not_issue heads never contribute
+            ((self._head("f1", observable_impact="critical", validation_status="invalid"),), "none"),
+            ((self._head("f1", observable_impact="critical", disposition="not_issue"),), "none"),
+            # only the CURRENT head per finding counts (append-order last wins)
+            (
+                (
+                    self._head("f1", observable_impact="critical"),
+                    self._head("f1", observable_impact="low"),
+                ),
+                "low",
+            ),
+        ]
+        for records, expected in cases:
+            authority = subject.ReviewAuthority(typed=True, wave_text=base, records=records)
+            self.assertEqual(authority.max_severity(), expected, records)
+
+    def test_typed_max_severity_ignores_prose_severity_words(self):
+        wave_text = (
+            "# Wave Record\n\nreview-evidence-source: events.jsonl\n\n"
+            "## Review Evidence\n\n- note: a high severity remark with critical wording\n"
+        )
+        authority = subject.ReviewAuthority(typed=True, wave_text=wave_text, records=())
+        self.assertEqual(authority.max_severity(), "none")
+        legacy = subject.ReviewAuthority(typed=False, wave_text=wave_text)
+        self.assertEqual(legacy.max_severity(), "critical")
+
+    def test_resolve_reads_ledger_for_declared_wave(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            wave_dir = Path(tmp) / "docs" / "waves" / "1test sample"
+            wave_dir.mkdir(parents=True)
+            wave_md = wave_dir / "wave.md"
+            records = (
+                executable_evidence("dedup-run-readiness", "dedup-run-readiness", claim_kind="dedup"),
+                review_run("run-readiness", kind="readiness", candidates=[]),
+            )
+            wave_md.write_text(
+                "# Wave\nreview-evidence-source: events.jsonl\n\n"
+                + subject.render_review_evidence_projection(
+                    subject.empty_external_finding_synthesis_section(), records
+                ),
+                encoding="utf-8",
+            )
+            (wave_dir / "events.jsonl").write_bytes(
+                subject.canonical_review_events_bytes(records)
+            )
+            authority = subject.resolve_review_authority(Path(tmp), wave_dir)
+            self.assertTrue(authority.typed)
+            self.assertEqual(authority.ledger_errors, (), authority.ledger_errors)
+            self.assertTrue(authority.evidence_present())
+            # a corrupted ledger fails every read closed
+            (wave_dir / "events.jsonl").write_bytes(b"{not-json}\n")
+            broken = subject.resolve_review_authority(Path(tmp), wave_dir)
+            self.assertTrue(broken.typed)
+            self.assertTrue(broken.ledger_errors)
+            self.assertEqual(broken.records, ())
+            self.assertFalse(broken.evidence_present())
 
 
 if __name__ == "__main__":

@@ -68,6 +68,7 @@ from review_evidence import (
     render_review_status_projection,
     repair_independence_violations,
     required_review_status_keys,
+    resolve_review_authority,
     review_event_path,
     review_event_request_digest,
     review_evidence_summary,
@@ -2484,7 +2485,21 @@ def _read_wave_council_policy(root: Path) -> dict[str, Any]:
     }
 
 
-def _required_wave_council_signoffs(root: Path, lifecycle_phase: str, wave_text: Optional[str] = None) -> list[str]:
+def _required_wave_council_signoffs(
+    root: Path,
+    lifecycle_phase: str,
+    wave_text: Optional[str] = None,
+    wave_md: Optional[Path] = None,
+) -> list[str]:
+    """Council signoff keys required at ``lifecycle_phase``.
+
+    Wave 1to78: the transition-policy branch probes signoff PRESENCE, which is
+    review-evidence content, so it resolves through the review authority
+    facade — typed records on declared waves, prose on legacy waves. Callers
+    pass ``wave_md`` (the wave identity) so the facade can reach the typed
+    ledger; text-only callers keep the legacy prose probe via the facade's
+    text-only resolution (a declared wave without a path fails closed).
+    """
     policy = _read_wave_council_policy(root)
     if not policy:
         return []
@@ -2502,13 +2517,14 @@ def _required_wave_council_signoffs(root: Path, lifecycle_phase: str, wave_text:
         return required
 
     transition_policy = str(policy.get("transition_policy", "")).strip().lower()
-    if transition_policy != "applies-from-next-prepare" or lifecycle_phase == "prepare" or not wave_text:
+    if transition_policy != "applies-from-next-prepare" or lifecycle_phase == "prepare" or not (wave_text or wave_md):
         return required
 
     prepare_key = policy.get("phases", {}).get("prepare", {}).get("signoff_key")
     review_key = policy.get("phases", {}).get("review", {}).get("signoff_key")
-    has_prepare_signoff = bool(prepare_key and _lane_has_signoff(wave_text, prepare_key))
-    has_review_signoff = bool(review_key and _lane_has_signoff(wave_text, review_key))
+    authority = resolve_review_authority(root, wave_md, wave_text=wave_text)
+    has_prepare_signoff = bool(prepare_key and authority.signoff_current(prepare_key))
+    has_review_signoff = bool(review_key and authority.signoff_current(review_key))
 
     if lifecycle_phase == "review":
         return required
@@ -5837,167 +5853,10 @@ def _resolve_change_doc_matches(root: Path, change_id_prefix: str) -> list[dict[
     return sorted(matches, key=lambda m: str(m.get("path") or ""))
 
 
-_REVIEW_EVIDENCE_MARKERS = ("## Review Evidence", "## Review Signoff Evidence")
-_PREPARE_REVIEW_EVIDENCE_MARKER = "## Prepare Review Evidence"
-_SIGNOFF_TOKENS = ("sign-off", "signoff", "approved", "passed", "acceptance", "complete")
-
-
-def _combined_review_evidence(wave_text: str) -> str:
-    """Return raw text (preserves case) of all Review Evidence / Signoff sections."""
-    parts: list[str] = []
-    for marker in _REVIEW_EVIDENCE_MARKERS:
-        idx = wave_text.find(marker)
-        if idx == -1:
-            continue
-        start = idx + len(marker)
-        nl = wave_text.find("\n", start)
-        if nl != -1:
-            start = nl + 1
-        tail = wave_text[start:]
-        m_end = re.search(r"\n(?=## )", tail)
-        body = tail[: m_end.start()] if m_end else tail
-        parts.append(body)
-    return "\n".join(parts)
-
-
-def _prepare_review_evidence(wave_text: str) -> str:
-    """Return raw text of the ## Prepare Review Evidence section (prepare-phase signoffs)."""
-    marker = _PREPARE_REVIEW_EVIDENCE_MARKER
-    idx = wave_text.find(marker)
-    if idx == -1:
-        return ""
-    start = idx + len(marker)
-    nl = wave_text.find("\n", start)
-    if nl != -1:
-        start = nl + 1
-    tail = wave_text[start:]
-    m_end = re.search(r"\n(?=## )", tail)
-    return tail[: m_end.start()] if m_end else tail
-
-
-_SIGNOFF_POSITIVE_STATES = ("approved", "passed", "complete")
-
-
-def _normalize_signoff_line(raw: str) -> str:
-    line = raw.strip()
-    line = line.lstrip("-*+ ")
-    for emphasis in ("**", "__", "`"):
-        line = line.replace(emphasis, "")
-    return line.strip()
-
-
-def _signoff_key_matches_lane(key: str, lane_l: str) -> bool:
-    """Exact-key matching (release-review round 4 P0): the normalized key must
-    BE the lane, or the lane's ``-signoff`` form. Never a prefix match —
-    ``qa`` must not match ``qa-reviewer``; ``operator-signoff`` must not
-    match ``operator-signoff-notes``."""
-    return key == lane_l or key == f"{lane_l}-signoff" or f"{key}-signoff" == lane_l
-
-
-def _lane_has_signoff_in_evidence(evidence_text: str, lane: str, *, authorization: "bool | None" = None) -> bool:
-    """True when the lane's signoff is recorded, current, and explicitly positive.
-
-    Release-review round 4 P0 — FAIL-CLOSED structured parsing:
-
-    - A STATE LINE is one whose text (markdown bullets/emphasis stripped)
-      begins with the lane's exact key before the first ``:`` (the lane
-      itself or its ``-signoff`` form; never a prefix collision).
-    - Parenthesized historical keys (``lane(superseded):``) are bookkeeping
-      and never contribute — neither to state nor to prose evidence.
-    - Among state lines, ONLY THE LAST governs. Its value must BEGIN with an
-      explicit canonical positive state (``approved``/``passed``/``complete``).
-      Everything else — ``not approved``, ``pending``, ``blocked``,
-      ``rejected``, ``denied``, ``failed``, ``withdrawn``, ``revoked``,
-      ``rescinded``, placeholders, unknown wording — is unapproved, and a
-      positive word appearing ELSEWHERE in the value never authorizes
-      ("blocked because previous checks passed" is blocked).
-    - AUTHORIZATION lanes (operator and wave-council signoffs — auto-detected
-      unless ``authorization`` is passed explicitly) require a state line:
-      prose evidence never authorizes lifecycle closure. Reviewer-seat lanes
-      keep prose-line compatibility for their per-seat evidence.
-    """
-    lane_l = lane.strip().lower()
-    if not lane_l or not evidence_text.strip():
-        return False
-    if authorization is None:
-        authorization = (
-            lane_l in ("operator", "operator-signoff")
-            or lane_l.startswith("wave-council")
-        )
-    # The bounded current-state projection is authoritative for keys it
-    # contains.  It deliberately appears before prose/history parsing so an
-    # older approval line cannot override a current withheld/pending row.
-    for raw in evidence_text.splitlines():
-        stripped = raw.strip()
-        if not (stripped.startswith("|") and stripped.endswith("|")):
-            continue
-        cells = [cell.strip().lower() for cell in stripped.strip("|").split("|")]
-        if len(cells) >= 2 and cells[0] == lane_l:
-            return cells[1] == "approved"
-    state_values: list[str] = []
-    any_prose_signoff = False
-    for raw in evidence_text.splitlines():
-        low = raw.strip().lower()
-        if not low or low.startswith("#"):
-            continue
-        norm = _normalize_signoff_line(low)
-        key, sep, value = norm.partition(":")
-        if sep:
-            key_clean = key.strip()
-            # Historical parenthesized variant — the parenthesis abuts the
-            # lane key directly ("lane(superseded):"). A SPACED parenthesis
-            # ("red-team (delivery):") is a seat descriptor, not bookkeeping.
-            paren = key_clean.find("(")
-            if paren > 0 and key_clean[paren - 1] != " " and _signoff_key_matches_lane(
-                key_clean[:paren].strip(), lane_l
-            ):
-                continue  # historical variant: never counts
-            if _signoff_key_matches_lane(key_clean, lane_l):
-                state_values.append(value.strip())
-                continue
-        # Prose evidence (reviewer seats only): the lane must appear as a
-        # WHOLE word — "qa" never matches inside "qa-reviewer" — and
-        # placeholders never count.
-        if ("<" not in low
-                and re.search(rf"(?<![a-z0-9-]){re.escape(lane_l)}(?![a-z0-9-])", low)
-                and any(tok in low for tok in _SIGNOFF_TOKENS)):
-            any_prose_signoff = True
-    if state_values:
-        current = state_values[-1]
-        if not current or current.startswith("<"):
-            return False
-        first_word = re.match(r"[a-z][a-z-]*", current)
-        return bool(first_word and first_word.group(0) in _SIGNOFF_POSITIVE_STATES)
-    if authorization:
-        return False  # fail closed: no state line = not authorized
-    return any_prose_signoff
-
-
-def _lanes_missing_signoff(wave_text: str) -> list[str]:
-    """Required review roles from Participants that lack a per-line signoff in Review Evidence."""
-    evidence = _combined_review_evidence(wave_text)
-    missing: list[str] = []
-    for lane in _extract_required_review_lanes(wave_text):
-        if not _lane_has_signoff_in_evidence(evidence, lane):
-            missing.append(lane)
-    return missing
-
-
-def _review_evidence_has_any_signoff_line(wave_text: str) -> bool:
-    """When there are no participant review lanes, still require some recorded signoff in evidence."""
-    evidence = _combined_review_evidence(wave_text)
-    if not evidence.strip():
-        return False
-    el = evidence.lower()
-    for raw in el.splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#"):
-            continue
-        if "<" in line:
-            continue
-        if any(tok in line for tok in _SIGNOFF_TOKENS):
-            return True
-    return False
+# Prose signoff/severity parsing moved to review_evidence.py (wave 1to78):
+# gate reads of review-evidence content resolve through the single
+# ``resolve_review_authority`` facade, which owns both the typed-exclusive
+# declared-wave branch and the legacy prose branch.
 
 
 def _update_handoff_wave_ref(existing: str, wave_id: Optional[str]) -> str:
@@ -6559,11 +6418,6 @@ def _extract_required_review_lanes(wave_text: str) -> list[str]:
         if lane not in out:
             out.append(lane)
     return out
-
-
-def _lane_has_signoff(wave_text: str, lane: str) -> bool:
-    """Whether ``lane`` has an explicit signoff on the same line in Review Evidence (not global heuristics)."""
-    return _lane_has_signoff_in_evidence(_combined_review_evidence(wave_text), lane)
 
 
 def _atomic_replace_bytes(path: Path, payload: bytes, purpose: str) -> None:
@@ -11291,6 +11145,43 @@ def _parse_upgrade_summary(output: str) -> dict[str, Any] | None:
     return found
 
 
+# 1.15 review-evidence cutover: full-restart instruction that replaces the
+# in-process reload suggestion on cutover-active runs. An in-process reload
+# leaves the host on mixed-version lifecycle code across the cutover boundary.
+_CUTOVER_RESTART_INSTRUCTION = (
+    "The 1.15 review-evidence cutover acted on this repository: fully restart "
+    "every attached MCP/agent host (including this one) before lifecycle "
+    "mutation resumes. An in-process wf_reload_mcp is not sufficient and was "
+    "not performed."
+)
+
+
+def _cutover_restart_required(root: Path, summary: dict[str, Any] | None) -> bool:
+    """True when this upgrade run was cutover-active (full restart required).
+
+    Detection reads the ``review_sidecar_cleanup`` counts recorded by the
+    upgrade in its machine-readable channels: the parsed summary sentinel
+    first (the only channel that survives cleanup's lock removal), then the
+    retained upgrade lock state. Absent counts mean the run never reached the
+    cutover phase — reload behavior stays untouched.
+    """
+    counts: Any = None
+    if isinstance(summary, dict):
+        counts = summary.get("review_sidecar_cleanup")
+    if not isinstance(counts, dict):
+        try:
+            _ulib = _load_upgrade_lib()
+            lock = _ulib.read_upgrade_lock(root) if _ulib is not None else None
+            counts = (
+                lock.get("review_sidecar_cleanup")
+                if isinstance(lock, dict)
+                else None
+            )
+        except Exception:
+            counts = None
+    return isinstance(counts, dict) and bool(counts.get("restart_required"))
+
+
 def _upgrade_next_step(phase: str) -> tuple[str, list[str]]:
     """Return a phase-aware ``(next_step, next_tools)`` for the wf_upgrade response (wave 1p8eu)."""
     if phase == "preflight_to_docs_gate":
@@ -11521,6 +11412,23 @@ def wf_upgrade_response(
         err["next_step"] = _next_step
         return err
 
+    # 1.15 cutover scoping: when this run's review-sidecar cleanup was
+    # cutover-active (counts carry restart_required), the in-process reload
+    # below must NOT fire and the wf_reload_mcp suggestion is replaced by the
+    # full-restart instruction. Non-cutover runs keep the established reload
+    # flow and guidance untouched.
+    cutover_restart = mode == "apply" and _cutover_restart_required(root, summary)
+    if cutover_restart:
+        _next_tools = [t for t in _next_tools if t != "wf_reload_mcp"]
+        if phase == "cleanup":
+            _next_step = (
+                "Upgrade complete. " + _CUTOVER_RESTART_INSTRUCTION + " After "
+                "restarting, review the summary's reconciliation findings and "
+                "resolve stale references."
+            )
+        else:
+            _next_step = _next_step + " " + _CUTOVER_RESTART_INSTRUCTION
+
     resp = _response("ok", data, usage=f"wf_upgrade(phase='{phase}')", next_tools=_next_tools)
     resp["next_step"] = _next_step
     # Wave 1p3dk / 1p3ho: reload the MCP server's in-process code after the
@@ -11531,17 +11439,26 @@ def wf_upgrade_response(
     # Phase 4 (index update) inside the subprocess too, so reload here is the
     # final step that brings the running server in sync with everything else.
     if mode == "apply" and phase in ("preflight_to_docs_gate", "cleanup"):
-        try:
-            import server as _srv
-            reload_resp = _srv.perform_mcp_reload()
-            if reload_resp.get("status") == "ok":
-                resp.setdefault("data", {})["mcp_reload"] = reload_resp.get("data", {})
-            else:
-                resp.setdefault("diagnostics", []).extend(reload_resp.get("diagnostics", []))
-        except Exception as exc:
+        if cutover_restart:
             resp.setdefault("diagnostics", []).append(
-                _diagnostic("mcp_reload_skipped", f"In-process MCP reload skipped: {exc}")
+                _diagnostic(
+                    "mcp_reload_suppressed",
+                    "In-process MCP reload suppressed: "
+                    + _CUTOVER_RESTART_INSTRUCTION,
+                )
             )
+        else:
+            try:
+                import server as _srv
+                reload_resp = _srv.perform_mcp_reload()
+                if reload_resp.get("status") == "ok":
+                    resp.setdefault("data", {})["mcp_reload"] = reload_resp.get("data", {})
+                else:
+                    resp.setdefault("diagnostics", []).extend(reload_resp.get("diagnostics", []))
+            except Exception as exc:
+                resp.setdefault("diagnostics", []).append(
+                    _diagnostic("mcp_reload_skipped", f"In-process MCP reload skipped: {exc}")
+                )
     return resp
 
 
@@ -12703,26 +12620,6 @@ def _project_current_review_status(root: Path, wave_md: Path, text: str) -> str:
     )
 
 
-def _append_review_evidence_state_line(text: str, key: str, state: str, note: str) -> str:
-    """Append one exact-key state line so the existing latest-state parser remains authoritative."""
-
-    marker = "## Review Evidence"
-    start = text.find(marker)
-    if start < 0:
-        suffix = "" if text.endswith("\n") else "\n"
-        return text + suffix + f"\n{marker}\n\n- {key}: {state} — {note}\n"
-    section_start = text.find("\n", start + len(marker))
-    if section_start < 0:
-        section_start = len(text)
-    else:
-        section_start += 1
-    next_heading = re.search(r"(?m)^## ", text[section_start:])
-    insert_at = section_start + next_heading.start() if next_heading else len(text)
-    prefix = text[:insert_at].rstrip() + "\n"
-    suffix = text[insert_at:]
-    return prefix + f"- {key}: {state} — {note}\n\n" + suffix.lstrip("\n")
-
-
 def _identified_review_event_bundle(
     records: Iterable[dict[str, Any]], identity: dict[str, Any]
 ) -> tuple[dict[str, Any], ...] | None:
@@ -13262,20 +13159,36 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
                     )
                 )
     # Garden + lint run on create/ready (readiness mutations); dry-run stays read-only.
-    required_council_signoffs = _required_wave_council_signoffs(root, "prepare")
+    required_council_signoffs = _required_wave_council_signoffs(root, "prepare", wave_text=text, wave_md=wave_md)
     if required_council_signoffs:
+        # Wave 1to78: council-signoff currency is review-evidence content —
+        # typed-exclusive on declared waves, prose on legacy waves.
+        _prepare_authority = resolve_review_authority(root, wave_md, wave_text=text)
         missing_council = [
             signoff_key
             for signoff_key in required_council_signoffs
-            if not _lane_has_signoff_in_evidence(_combined_review_evidence(text), signoff_key)
+            if not _prepare_authority.signoff_current(signoff_key)
         ]
         if missing_council:
+            # Wave 1to78 delivery repair (DF2, message-only): remediation text
+            # branches on the resolved authority; the gate predicate is
+            # unchanged. Declared waves need typed approval events; legacy
+            # waves keep the exact prose-line instruction.
+            if _prepare_authority.typed:
+                _council_remedy = (
+                    "Record a typed approval event per missing key via "
+                    "wf_review_event(event='approval', signoff_key=<missing key above>, "
+                    "mode='create'); the approval projects into `## Review Evidence`. "
+                    "Do this before the wave can become active."
+                )
+            else:
+                _council_remedy = "Record the signoff line(s) in `## Review Evidence` before the wave can become active."
             diagnostics.append(
                 _diagnostic(
                     "missing_wave_council_signoff",
                     (
                         "Required Wave Council signoff missing for prepare: "
-                        f"{', '.join(missing_council)}. Record the signoff line(s) in `## Review Evidence` before the wave can become active."
+                        f"{', '.join(missing_council)}. {_council_remedy}"
                     ),
                     recovery_tools=["wf_current_wave"],
                     recovery_usage="wf_current_wave()",
@@ -13533,40 +13446,6 @@ def wf_pause_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
     return _attach_lint_to_response(envelope, root, mode_s)
 
 
-def _operator_signoff_present(wave_text: str) -> bool:
-    """True if Review Evidence contains an operator-signoff line."""
-    return _lane_has_signoff_in_evidence(_combined_review_evidence(wave_text), "operator-signoff")
-
-
-_SEVERITY_ORDER = ["none", "low", "medium", "high", "critical"]
-# Wave 1p45s: match severity levels as whole words, not substrings. A bare ``sev in line``
-# test fires on ordinary prose ("highest-salience" -> high, "below"/"allow"/"flow" -> low,
-# "criticality" -> critical), producing phantom close-time findings. ``\b`` word boundaries
-# match genuine standalone severity words while ignoring severity strings embedded inside
-# larger words. ("none" is the rank-0 default and is intentionally not matched.)
-_SEVERITY_WORD_RE = re.compile(r"\b(" + "|".join(s for s in _SEVERITY_ORDER if s != "none") + r")\b")
-
-
-def _max_severity_from_evidence(wave_text: str) -> str:
-    """Scan Review Evidence signoff lines for severity annotations; return the highest found.
-
-    Severity words are matched as whole tokens (wave 1p45s) so substrings inside larger
-    words (e.g. "high" in "highest") do not register. Position-independent: a standalone
-    severity word ranks the same wherever it appears in the line.
-    """
-    evidence = _combined_review_evidence(wave_text)
-    max_rank = 0
-    for raw in evidence.splitlines():
-        line = raw.strip().lower()
-        if not line or line.startswith("#") or "<" in line:
-            continue
-        for word in _SEVERITY_WORD_RE.findall(line):
-            rank = _SEVERITY_ORDER.index(word)
-            if rank > max_rank:
-                max_rank = rank
-    return _SEVERITY_ORDER[max_rank]
-
-
 def wf_review_wave_response(root: Path, wave_id: str, phase: str = "implementation") -> dict[str, Any]:
     phase_s = (phase or "implementation").strip().lower()
     if phase_s not in ("prepare", "implementation"):
@@ -13576,6 +13455,10 @@ def wf_review_wave_response(root: Path, wave_id: str, phase: str = "implementati
         return _response("error", {"wave_id": wave_id}, diagnostics=[_diagnostic("wave_not_found", f"No wave found matching '{wave_id}'.", recovery_tools=["wf_list_waves"], recovery_usage="wf_list_waves()")], next_tools=["wf_list_waves"], usage="wf_list_waves()")
     lint_result = run_validate(root)
     wave_text = wave_md.read_text(encoding="utf-8")
+    # Wave 1to78: every review-evidence CONTENT read below (operator/lane/
+    # council signoff currency, max severity) goes through the single
+    # authority facade — typed-exclusive on declared waves, prose on legacy.
+    authority = resolve_review_authority(root, wave_md, wave_text=wave_text)
     review_evidence_diagnostics = _review_evidence_diagnostics(
         wave_text,
         root=root,
@@ -13589,18 +13472,35 @@ def wf_review_wave_response(root: Path, wave_id: str, phase: str = "implementati
     required_lanes = (["operator"] + wave_lanes + extra_lanes) if phase_s == "implementation" else wave_lanes + extra_lanes
 
     if phase_s == "prepare":
-        # Prepare-phase: check signoffs in ## Prepare Review Evidence (no operator signoff required)
-        evidence = _prepare_review_evidence(wave_text)
-        lane_results = [{"lane": lane, "recorded_signoff": _lane_has_signoff_in_evidence(evidence, lane)} for lane in required_lanes]
+        # Prepare-phase: signoff currency via the authority facade (legacy
+        # waves read ## Prepare Review Evidence; declared waves read typed
+        # approvals only). No operator signoff required at this phase.
+        lane_results = [{"lane": lane, "recorded_signoff": authority.signoff_current(lane, section="prepare")} for lane in required_lanes]
         diagnostics = list(review_evidence_diagnostics)
         if not lint_result["passed"]:
             diagnostics.extend(_diagnostic("docs_lint_error", err, recovery_tools=["wf_validate_docs"]) for err in lint_result["errors"])
         missing = [entry["lane"] for entry in lane_results if not entry["recorded_signoff"]]
         if missing:
+            # Wave 1to78 delivery repair (DF2, message-only): remediation
+            # text branches on the resolved authority (predicate unchanged).
+            # On a declared wave the fix is a typed approval event per lane;
+            # legacy waves keep the exact prose-section instruction. Tests
+            # assert the typed wording on a declared fixture and the legacy
+            # wording on prose fixtures.
+            if authority.typed:
+                _prepare_lane_message = (
+                    f"Prepare-phase review lanes without a current typed approval: {', '.join(missing)}. "
+                    "Record a typed approval event per lane via wf_review_event(event='approval', "
+                    "signoff_key=<lane name above>, mode='create') before running wf_implement_wave."
+                )
+            else:
+                _prepare_lane_message = (
+                    f"Prepare-phase review lanes without recorded signoff in `## Prepare Review Evidence`: {', '.join(missing)}. "
+                    "Record each lane signoff in the `## Prepare Review Evidence` section of wave.md before running wf_implement_wave."
+                )
             diagnostics.append(_diagnostic(
                 "missing_required_lane",
-                f"Prepare-phase review lanes without recorded signoff in `## Prepare Review Evidence`: {', '.join(missing)}. "
-                "Record each lane signoff in the `## Prepare Review Evidence` section of wave.md before running wf_implement_wave.",
+                _prepare_lane_message,
                 recovery_tools=["wf_current_wave"],
                 recovery_usage="wf_current_wave()",
             ))
@@ -13613,12 +13513,12 @@ def wf_review_wave_response(root: Path, wave_id: str, phase: str = "implementati
             usage=f"wf_implement_wave(wave_id={wave_id!r}, mode='dry_run')",
         )
 
-    # Implementation phase (default): current behavior — check ## Review Evidence
-    operator_signed = _operator_signoff_present(wave_text)
-    lane_results = [{"lane": "operator", "recorded_signoff": operator_signed}] + [{"lane": lane, "recorded_signoff": _lane_has_signoff(wave_text, lane)} for lane in required_lanes[1:]]
-    required_council_signoffs = _required_wave_council_signoffs(root, "review", wave_text=wave_text)
+    # Implementation phase (default): review-evidence content via the facade
+    operator_signed = authority.operator_signoff_present()
+    lane_results = [{"lane": "operator", "recorded_signoff": operator_signed}] + [{"lane": lane, "recorded_signoff": authority.signoff_current(lane)} for lane in required_lanes[1:]]
+    required_council_signoffs = _required_wave_council_signoffs(root, "review", wave_text=wave_text, wave_md=wave_md)
     council_results = [
-        {"signoff_key": signoff_key, "recorded_signoff": _lane_has_signoff(wave_text, signoff_key)}
+        {"signoff_key": signoff_key, "recorded_signoff": authority.signoff_current(signoff_key)}
         for signoff_key in required_council_signoffs
     ]
     diagnostics = list(review_evidence_diagnostics)
@@ -13633,11 +13533,21 @@ def wf_review_wave_response(root: Path, wave_id: str, phase: str = "implementati
         diagnostics.extend(_diagnostic("docs_lint_error", err, recovery_tools=["wf_validate_docs"]) for err in lint_result["errors"])
     missing = [entry["lane"] for entry in lane_results if not entry["recorded_signoff"]]
     if "operator" in missing:
+        # Wave 1to78 delivery repair (DF2, message-only): remediation text
+        # branches on the resolved authority; the approval semantics
+        # (operator asks to close, or agent asks for approval) are unchanged.
+        if authority.typed:
+            _operator_remedy = (
+                "Record a typed operator approval event via wf_review_event(event='approval', "
+                "signoff_key='operator-signoff', mode='create'); it projects into `## Review Evidence`. "
+            )
+        else:
+            _operator_remedy = "Add `operator-signoff: approved` to `## Review Evidence` in wave.md. "
         diagnostics.append(_diagnostic(
             "missing_operator_signoff",
             "Operator review approval is required before closing this wave. "
-            "Add `operator-signoff: approved` to `## Review Evidence` in wave.md. "
-            "Approval is given by the operator asking to close the wave, or by the agent explicitly asking for approval.",
+            + _operator_remedy
+            + "Approval is given by the operator asking to close the wave, or by the agent explicitly asking for approval.",
             recovery_tools=["wf_current_wave"],
             recovery_usage="wf_current_wave()",
         ))
@@ -13651,16 +13561,27 @@ def wf_review_wave_response(root: Path, wave_id: str, phase: str = "implementati
         ))
     missing_council = [entry["signoff_key"] for entry in council_results if not entry["recorded_signoff"]]
     if missing_council:
+        # Wave 1to78 delivery repair (DF2, message-only): authority-branched
+        # remediation text; gate predicate unchanged.
+        if authority.typed:
+            _council_review_remedy = (
+                "Record a typed approval event per missing key via "
+                "wf_review_event(event='approval', signoff_key=<missing key above>, "
+                "mode='create'); the approval projects into `## Review Evidence`. "
+                "Do this before closing the wave."
+            )
+        else:
+            _council_review_remedy = "Record the signoff line(s) in `## Review Evidence` before closing the wave."
         diagnostics.append(_diagnostic(
             "missing_wave_council_signoff",
             (
                 "Required Wave Council signoff missing for review: "
-                f"{', '.join(missing_council)}. Record the signoff line(s) in `## Review Evidence` before closing the wave."
+                f"{', '.join(missing_council)}. {_council_review_remedy}"
             ),
             recovery_tools=["wf_current_wave"],
             recovery_usage="wf_current_wave()",
         ))
-    max_severity = _max_severity_from_evidence(wave_text)
+    max_severity = authority.max_severity()
     if max_severity in ("critical", "high"):
         diagnostics.append(_diagnostic(
             "high_severity_finding",
@@ -13876,7 +13797,11 @@ def wf_implement_wave_response(root: Path, wave_id: str, mode: str = "dry_run", 
     if current_status == "implementing":
         return _response("ok", {"wave_id": wave_id, "mode": mode_s, "status": "implementing", "already_implementing": True, "transitioned_to_implementing": False}, next_tools=["wf_current_wave", "wf_review_wave"], usage="wf_current_wave()")
     # Wave 1p45l: implement opens an `active` wave (legacy prepare-and-open) OR a readied
-    # `planned` wave. A non-readied `planned` wave still fails the council/lane gates below.
+    # `planned` wave. Honestly stated (wave 1to78 delivery repair, DF7): the gates below are
+    # not a forgery backstop. Gate 1 is a structural prose check on the `## Review Checkpoints`
+    # verdict line (it does not read typed readiness evidence), and Gate 2 is vacuous when the
+    # Participants roster parses empty, which is the common shape on declared waves in this
+    # repository. A typed Gate 1 read is a recorded operator-decision follow-up.
     if current_status not in ("active", "planned"):
         return _response(
             "error",
@@ -13908,18 +13833,35 @@ def wf_implement_wave_response(root: Path, wave_id: str, mode: str = "dry_run", 
             recovery_usage=f"wf_prepare_wave(wave_id={wave_id!r}, mode='dry_run')",
         ))
 
-    # Gate 2: prepare-phase lane review
+    # Gate 2: prepare-phase lane review — signoff currency via the authority
+    # facade (wave 1to78): typed-exclusive on declared waves, `## Prepare
+    # Review Evidence` prose on legacy waves. The roster parse stays prose.
     wave_lanes = _extract_required_review_lanes(wave_text)
     project_lanes = _read_project_required_review_lanes(root)
     required_lanes = wave_lanes + [l for l in project_lanes if l not in wave_lanes]
     if required_lanes:
-        evidence = _prepare_review_evidence(wave_text)
-        missing_lanes = [lane for lane in required_lanes if not _lane_has_signoff_in_evidence(evidence, lane)]
+        _gate2_authority = resolve_review_authority(root, wave_md, wave_text=wave_text)
+        missing_lanes = [lane for lane in required_lanes if not _gate2_authority.signoff_current(lane, section="prepare")]
         if missing_lanes:
+            # Wave 1to78 delivery repair (DF2, message-only): remediation
+            # text branches on the resolved authority (predicate unchanged).
+            # Tests assert the typed wording on a declared fixture and the
+            # legacy wording on prose fixtures.
+            if _gate2_authority.typed:
+                _gate2_message = (
+                    f"Prepare-phase lane review incomplete; lanes without a current typed approval: {', '.join(missing_lanes)}. "
+                    "Run wf_review_wave(phase='prepare') and record a typed approval event per lane via "
+                    "wf_review_event(event='approval', signoff_key=<lane name above>, mode='create') "
+                    "before calling wf_implement_wave."
+                )
+            else:
+                _gate2_message = (
+                    f"Prepare-phase lane review incomplete — missing signoffs in `## Prepare Review Evidence`: {', '.join(missing_lanes)}. "
+                    "Run wf_review_wave(phase='prepare') and record each lane signoff before calling wf_implement_wave."
+                )
             diagnostics.append(_diagnostic(
                 "prepare_review_incomplete",
-                f"Prepare-phase lane review incomplete — missing signoffs in `## Prepare Review Evidence`: {', '.join(missing_lanes)}. "
-                "Run wf_review_wave(phase='prepare') and record each lane signoff before calling wf_implement_wave.",
+                _gate2_message,
                 recovery_tools=["wf_review_wave", "wf_current_wave"],
                 recovery_usage=f"wf_review_wave(wave_id={wave_id!r}, phase='prepare')",
             ))
@@ -14305,6 +14247,11 @@ def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
         garden_passed = garden_result["passed"]
     lint_result = run_validate(root)
     text = wave_md.read_text(encoding="utf-8")
+    # Wave 1to78: every review-evidence CONTENT read in this gate (operator
+    # presence, per-lane and council signoff currency) goes through the
+    # single authority facade — typed-exclusive on declared waves, prose on
+    # legacy waves. Roster parsing below stays configuration.
+    authority = resolve_review_authority(root, wave_md, wave_text=text)
     statuses = [status.lower() for status in _CHANGE_STATUS_PATTERN.findall(text)]
     open_statuses = {"stub", "planned", "ready", "active"}
     unresolved = [s for s in statuses if s in open_statuses]
@@ -14322,14 +14269,24 @@ def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
         diagnostics.append(_diagnostic("docs_gardener_failed", "docs_gardener failed during close.", recovery_tools=["wf_garden_docs", "wf_validate_docs"], recovery_usage="wf_garden_docs(mode='run')"))
     if unresolved:
         diagnostics.append(_diagnostic("open_changes_remaining", f"Wave has unresolved change statuses: {', '.join(sorted(set(unresolved)))}.", recovery_tools=["wf_current_wave"], recovery_usage="wf_current_wave()"))
-    if not _operator_signoff_present(text):
+    if not authority.operator_signoff_present():
+        # Wave 1to78 delivery repair (DF2, message-only): remediation text
+        # branches on the resolved authority; the approval semantics are
+        # unchanged.
+        if authority.typed:
+            _close_operator_remedy = (
+                "Record a typed operator approval event via wf_review_event(event='approval', "
+                "signoff_key='operator-signoff', mode='create'); it projects into `## Review Evidence`. "
+            )
+        else:
+            _close_operator_remedy = "Add `operator-signoff: approved` to `## Review Evidence` in wave.md. "
         diagnostics.append(
             _diagnostic(
                 "missing_operator_signoff",
                 (
                     "Operator review approval is required before closing this wave. "
-                    "Add `operator-signoff: approved` to `## Review Evidence` in wave.md. "
-                    "Approval is given by the operator asking to close the wave, or by the agent explicitly asking for approval."
+                    + _close_operator_remedy
+                    + "Approval is given by the operator asking to close the wave, or by the agent explicitly asking for approval."
                 ),
                 recovery_tools=["wf_review_wave"],
                 recovery_usage=f"wf_review_wave(wave_id={wave_id!r})",
@@ -14339,7 +14296,7 @@ def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
     wave_lanes = _extract_required_review_lanes(text)
     project_lanes = _read_project_required_review_lanes(root)
     required_lanes = list({*wave_lanes, *project_lanes})  # deduped, order doesn't matter here
-    required_council_signoffs = _required_wave_council_signoffs(root, "close", wave_text=text)
+    required_council_signoffs = _required_wave_council_signoffs(root, "close", wave_text=text, wave_md=wave_md)
     diagnostics.extend(
         _approval_evidence_diagnostics(
             text,
@@ -14348,7 +14305,7 @@ def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
             wave_key=wave_md.parent.name,
         )
     )
-    evidence_present = bool(_combined_review_evidence(text).strip())
+    evidence_present = authority.evidence_present()
     if required_lanes:
         if not evidence_present:
             diagnostics.append(
@@ -14360,18 +14317,28 @@ def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
                 )
             )
         else:
-            missing_lane = [l for l in required_lanes if not _lane_has_signoff_in_evidence(_combined_review_evidence(text), l)]
+            missing_lane = [l for l in required_lanes if not authority.signoff_current(l)]
             if missing_lane:
+                # Wave 1to78 delivery repair (DF2, message-only):
+                # authority-branched remediation text; predicate unchanged.
+                if authority.typed:
+                    _close_lane_message = (
+                        f"Required review lanes without a current typed approval: {', '.join(missing_lane)}. "
+                        "Record a typed approval event per lane via wf_review_event(event='approval', "
+                        "signoff_key=<lane name above>, mode='create')."
+                    )
+                else:
+                    _close_lane_message = f"Required review lanes without a signoff line in Review Evidence: {', '.join(missing_lane)}."
                 diagnostics.append(
                     _diagnostic(
                         "missing_required_lane",
-                        f"Required review lanes without a signoff line in Review Evidence: {', '.join(missing_lane)}.",
+                        _close_lane_message,
                         recovery_tools=["wf_review_wave"],
                         recovery_usage=f"wf_review_wave(wave_id={wave_id!r})",
                     )
                 )
     else:
-        if not _review_evidence_has_any_signoff_line(text):
+        if not authority.any_signoff_evidence():
             diagnostics.append(
                 _diagnostic(
                     "missing_signoff_evidence",
@@ -14384,15 +14351,26 @@ def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
         missing_council = [
             signoff_key
             for signoff_key in required_council_signoffs
-            if not _lane_has_signoff_in_evidence(_combined_review_evidence(text), signoff_key)
+            if not authority.signoff_current(signoff_key)
         ]
         if missing_council:
+            # Wave 1to78 delivery repair (DF2, message-only):
+            # authority-branched remediation text; predicate unchanged.
+            if authority.typed:
+                _close_council_remedy = (
+                    "Record a typed approval event per missing key via "
+                    "wf_review_event(event='approval', signoff_key=<missing key above>, "
+                    "mode='create'); the approval projects into `## Review Evidence`. "
+                    "Do this before attempting closure."
+                )
+            else:
+                _close_council_remedy = "Record the signoff line(s) in `## Review Evidence` before attempting closure."
             diagnostics.append(
                 _diagnostic(
                     "missing_wave_council_signoff",
                     (
                         "Required Wave Council signoff missing for close: "
-                        f"{', '.join(missing_council)}. Record the signoff line(s) in `## Review Evidence` before attempting closure."
+                        f"{', '.join(missing_council)}. {_close_council_remedy}"
                     ),
                     recovery_tools=["wf_review_wave"],
                     recovery_usage=f"wf_review_wave(wave_id={wave_id!r})",

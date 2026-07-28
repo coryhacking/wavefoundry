@@ -725,28 +725,11 @@ def _resolve_max_file_bytes(root: Path) -> int:
     return _resolve_index_size_limits(root)[0]
 
 
-def _is_canonical_wave_events_path(rel_path: str, root: Path) -> bool:
-    """Return whether *rel_path* is a canonical per-wave event ledger.
-
-    The exclusion is intentionally structural and exact: only the fixed sibling
-    ``docs/waves/<one wave directory>/events.jsonl`` occupies the machine
-    authority role, and that fixed wave-folder role alone decides exclusion.
-    No wave.md declaration or retained state is consulted, so a tampered or
-    removed declaration never admits a raw ledger into semantic retrieval.  A
-    root-level file, a deeper nested file, or any unrelated file with the same
-    basename remains eligible for indexing.  Callers pass normalized
-    repo-relative paths in production; accepting backslashes keeps the
-    predicate platform-neutral.
-    """
-    normalized = rel_path.replace("\\", "/")
-    parts = normalized.split("/")
-    return (
-        len(parts) == 4
-        and parts[0] == "docs"
-        and parts[1] == "waves"
-        and re.match(r"^[0-9a-z]{5,6}[- ].+", parts[2]) is not None
-        and parts[3] == "events.jsonl"
-    )
+# Wave 1to78: the structural wave-ledger predicate relocated to
+# review_evidence.py so the docs-lint orphan-ledger guard and this retrieval
+# exclusion share one definition of the fixed wave-folder role. The
+# underscore alias keeps internal callers and test seams stable.
+from review_evidence import is_canonical_wave_events_path as _is_canonical_wave_events_path
 
 
 def _filter_canonical_wave_event_ledgers(files: list[Path], root: Path) -> list[Path]:

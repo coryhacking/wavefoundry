@@ -1494,13 +1494,38 @@ def _retired_sidecar_path_error(root: Path, candidate: Path) -> str | None:
 
 
 # v1.13 shipped the publication lock at the repository root; 1.14+ ship it
-# under .wavefoundry/locks/. Both paths must be provably quiescent before the
-# retired sidecars are removed: a held lock is a live pre-upgrade writer, and
-# mixed-version lifecycle mutation during upgrade is unsupported.
+# under .wavefoundry/locks/. Both paths must be held — not merely probed —
+# while the retired sidecars are removed: a held lock is a live pre-upgrade
+# writer, and mixed-version lifecycle mutation during upgrade is unsupported.
 _LEGACY_V1_13_ROOT_LOCK_REL = Path(".wavefoundry/review-evidence-adoptions.lock")
 
+# The events-only review-evidence authority shipped in 1.15; upgrades from any
+# earlier (or unprovable) installed version cross that cutover boundary.
+_EVENTS_AUTHORITY_CUTOVER = (1, 15)
 
-def phase_review_evidence_sidecar_cleanup(root: Path) -> dict[str, Any]:
+
+def _from_version_predates_events_cutover(from_version: str | None) -> bool:
+    """True when ``from_version`` is older than 1.15 or cannot be proven newer.
+
+    Fail-safe by design: an unknown or unparseable installed version is treated
+    as pre-1.15 so the cutover's full-restart instruction is emitted. A wrongly
+    emitted instruction costs one restart; a wrongly suppressed one risks a
+    split-authority host. Stdlib-only string parsing — this function runs on
+    both sides of the upgrade extraction boundary and must not import
+    replaceable framework modules.
+    """
+
+    parts = (from_version or "").strip().split(".")
+    try:
+        parsed = (int(parts[0]), int(parts[1]))
+    except (IndexError, ValueError):
+        return True
+    return parsed < _EVENTS_AUTHORITY_CUTOVER
+
+
+def phase_review_evidence_sidecar_cleanup(
+    root: Path, *, from_version: str | None = None
+) -> dict[str, Any]:
     """One-way removal of the retired project-global review-evidence sidecars.
 
     The events-only contract (1.15): each wave's fixed sibling ``events.jsonl``
@@ -1508,17 +1533,38 @@ def phase_review_evidence_sidecar_cleanup(root: Path) -> dict[str, Any]:
     ``docs/waves/review-evidence-adoptions.json`` and
     ``docs/waves/review-evidence-migration.json`` without reading either as
     authority or migration input, and leaves every ``wave.md`` and
-    ``events.jsonl`` byte-for-byte untouched. Cutover is a maintenance-window
-    boundary: while either shipped publication-lock path is held, the upgrade
-    refuses rather than racing a live pre-upgrade writer; after that proof the
-    stale v1.13 root-level lock file is removed. A full restart of every
-    attached MCP/agent host, including the invoking host, is required before
-    lifecycle mutation resumes; an in-process ``wf_reload_mcp`` alone is not
-    sufficient for this cutover.
+    ``events.jsonl`` byte-for-byte untouched.
+
+    Locking: both shipped publication-lock paths (the current
+    ``.wavefoundry/locks/`` lock and the v1.13 root-level lock) are acquired
+    non-blocking and HELD for the whole sidecar-deletion window, so no
+    concurrent acquirer can interleave with the deletions. A lock held by
+    another process, or a lock whose state cannot be proven, refuses the
+    cleanup via ``SystemExit`` before anything is deleted. When the v1.13
+    root-lock file does not yet exist, acquiring it mints the file; the minted
+    (or pre-existing) carrier is released and then unlinked LAST, after every
+    sidecar deletion, because Windows cannot delete a file that is open and
+    locked. ``removed_stale_root_lock`` counts only a pre-existing carrier.
+
+    Residual sliver, stated honestly on both platforms: the root-lock file
+    itself cannot be deleted while held. On Windows an open locked file cannot
+    be unlinked at all, so release must precede unlink. On POSIX, unlinking the
+    path while a concurrent acquirer holds the open descriptor splits the lock
+    domain — a later v1.13-era writer would recreate the path on a fresh inode
+    and both processes would believe they hold the lock. Both slivers are
+    bounded in practice by the cutover's full-restart instruction: every
+    attached MCP/agent host (including the invoking one) must fully restart
+    before lifecycle mutation resumes; an in-process ``wf_reload_mcp`` alone is
+    not sufficient for this cutover.
+
+    ``restart_required`` is scoped to cutover-active runs: true when this run
+    removed a sidecar or the pre-existing stale root lock, or when
+    ``from_version`` predates 1.15 (unknown/unparseable is fail-safe true).
+    A converged rerun with a known post-1.15 ``from_version`` reports false.
     """
 
     from review_evidence import PROJECT_STATE_PUBLICATION_LOCK_REL
-    from runtime_lock import probe_runtime_lock
+    from runtime_lock import RuntimeFileLock, RuntimeLockBusy, RuntimeLockError
 
     counts: dict[str, Any] = {
         "removed_sidecars": 0,
@@ -1526,45 +1572,83 @@ def phase_review_evidence_sidecar_cleanup(root: Path) -> dict[str, Any]:
         "restart_required": True,
     }
     legacy_root_lock = root / _LEGACY_V1_13_ROOT_LOCK_REL
-    for label, lock_path in (
-        ("current", root / PROJECT_STATE_PUBLICATION_LOCK_REL),
-        ("v1.13 root", legacy_root_lock),
-    ):
-        probe = probe_runtime_lock(lock_path)
-        if probe.held:
+    legacy_preexisting = legacy_root_lock.exists()
+
+    def _acquire_held(label: str, lock: "RuntimeFileLock") -> None:
+        try:
+            lock.acquire()
+        except RuntimeLockBusy:
             raise SystemExit(
-                f"the {label} project-state publication lock at {lock_path} is "
+                f"the {label} project-state publication lock at {lock.path} is "
                 "held by a running process. Stop the dashboard and every "
                 "attached MCP/agent host, then re-run the upgrade; "
                 "mixed-version lifecycle mutation during upgrade is unsupported."
             )
-        if probe.held is None:
+        except RuntimeLockError as exc:
             raise SystemExit(
-                f"cannot prove the {label} publication lock at {lock_path} is "
-                f"released: {probe.error}"
+                f"cannot prove the {label} publication lock at {lock.path} is "
+                f"released: {exc}"
             )
-    if legacy_root_lock.exists():
-        try:
-            legacy_root_lock.unlink()
-            counts["removed_stale_root_lock"] = 1
-        except OSError as exc:
-            raise SystemExit(f"cannot remove the stale v1.13 root lock: {exc}")
 
-    waves_dir = root / "docs" / "waves"
-    for name in (
-        "review-evidence-adoptions.json",
-        "review-evidence-migration.json",
-    ):
-        candidate = waves_dir / name
-        error = _retired_sidecar_path_error(root, candidate)
-        if error:
-            raise SystemExit(f"refusing retired-sidecar cleanup: {error}")
-        if candidate.exists():
+    current_lock = RuntimeFileLock(
+        root / PROJECT_STATE_PUBLICATION_LOCK_REL, blocking=False
+    )
+    legacy_lock = RuntimeFileLock(legacy_root_lock, blocking=False)
+
+    _acquire_held("current", current_lock)
+    try:
+        _acquire_held("v1.13 root", legacy_lock)
+        try:
+            waves_dir = root / "docs" / "waves"
+            for name in (
+                "review-evidence-adoptions.json",
+                "review-evidence-migration.json",
+            ):
+                candidate = waves_dir / name
+                error = _retired_sidecar_path_error(root, candidate)
+                if error:
+                    raise SystemExit(f"refusing retired-sidecar cleanup: {error}")
+                if candidate.exists():
+                    try:
+                        candidate.unlink()
+                        counts["removed_sidecars"] += 1
+                    except OSError as exc:
+                        raise SystemExit(
+                            f"cannot remove retired sidecar {name}: {exc}"
+                        )
+            # The root-lock carrier is released and then unlinked LAST (see
+            # docstring: Windows cannot delete an open locked file).
             try:
-                candidate.unlink()
-                counts["removed_sidecars"] += 1
-            except OSError as exc:
-                raise SystemExit(f"cannot remove retired sidecar {name}: {exc}")
+                legacy_lock.release()
+                legacy_root_lock.unlink()
+            except (OSError, RuntimeLockError) as exc:
+                raise SystemExit(f"cannot remove the stale v1.13 root lock: {exc}")
+            if legacy_preexisting:
+                counts["removed_stale_root_lock"] = 1
+        except BaseException:
+            # Refusal path: release the legacy hold and never leave behind a
+            # carrier this run minted (a pre-existing carrier stays untouched).
+            try:
+                legacy_lock.release()
+            except RuntimeLockError:
+                pass
+            if not legacy_preexisting:
+                try:
+                    legacy_root_lock.unlink(missing_ok=True)
+                except OSError:
+                    pass
+            raise
+    finally:
+        try:
+            current_lock.release()
+        except RuntimeLockError:
+            pass
+
+    counts["restart_required"] = bool(
+        counts["removed_sidecars"]
+        or counts["removed_stale_root_lock"]
+        or _from_version_predates_events_cutover(from_version)
+    )
     return counts
 
 
@@ -1741,6 +1825,7 @@ def phase_cleanup(
     ran_index_rebuild: bool,
     failed_phase: str | None = None,
     lock_present: bool = True,
+    review_sidecar_cleanup: dict | None = None,
 ) -> None:
     import upgrade_lib
 
@@ -1787,6 +1872,7 @@ def phase_cleanup(
             ran_index_rebuild=ran_index_rebuild,
             failed_phase=failed_phase,
             root=root,
+            review_sidecar_cleanup=review_sidecar_cleanup,
         )
         raise SystemExit(1)
 
@@ -1853,6 +1939,7 @@ def phase_cleanup(
         ran_index_rebuild=ran_index_rebuild,
         failed_phase=failed_phase,
         root=root,
+        review_sidecar_cleanup=review_sidecar_cleanup,
     )
 
 
@@ -2144,6 +2231,7 @@ def _build_upgrade_summary(
     failed_phase: str | None,
     reconciliation: list[dict],
     host_permission_flags: list[dict] | None = None,
+    review_sidecar_cleanup: dict | None = None,
 ) -> dict:
     """Wave 1p8eu — assemble the operator summary ONCE as a dict.
 
@@ -2154,8 +2242,14 @@ def _build_upgrade_summary(
 
     Wave 1p8o5: ``host_permission_flags`` carries the DISTINCT host permission/allow-rule findings the
     agent cannot self-edit (operator must edit them). Additive — it never disturbs ``reconciliation``.
+
+    ``review_sidecar_cleanup`` carries this run's 1.15 cutover counts (including the scoped
+    ``restart_required`` boolean) into the machine-readable channel so ``wf_upgrade_response`` can
+    suppress the in-process reload on cutover-active runs. ``None`` when the run recorded no
+    cleanup counts (e.g. a pre-1.15 failure before Phase 2d).
     """
     return {
+        "review_sidecar_cleanup": review_sidecar_cleanup,
         "from_version": from_version,
         "to_version": to_version,
         "zip_applied": zip_path.name if zip_path else None,
@@ -2195,6 +2289,7 @@ def _emit_primary_phase_summary(
     zip_path: Path | None,
     pruned_count: int,
     root: Path | None,
+    review_sidecar_cleanup: dict | None = None,
 ) -> None:
     """Wave 1p8kz — emit the structured summary sentinel at the end of the primary upgrade phase
     (phases 0–4, the default ``wf_upgrade()`` call) so agents get ``data['summary']`` — including
@@ -2216,6 +2311,7 @@ def _emit_primary_phase_summary(
         failed_phase=None,
         reconciliation=reconciliation,
         host_permission_flags=host_permission_flags,
+        review_sidecar_cleanup=review_sidecar_cleanup,
     )
     _emit_summary_line(summary)
 
@@ -2228,6 +2324,7 @@ def _print_operator_summary(
     ran_index_rebuild: bool,
     failed_phase: str | None = None,
     root: Path | None = None,
+    review_sidecar_cleanup: dict | None = None,
 ) -> None:
     # Wave 1p8et/1p8kz: run the shipped retired-surface reconciliation scan on EVERY upgrade (operator
     # direction — a patch or same-version build-successor can change/retire a surface too), report-only
@@ -2246,6 +2343,7 @@ def _print_operator_summary(
         failed_phase=failed_phase,
         reconciliation=reconciliation,
         host_permission_flags=host_permission_flags,
+        review_sidecar_cleanup=review_sidecar_cleanup,
     )
 
     from_str = from_version or "(none)"
@@ -2274,7 +2372,17 @@ def _print_operator_summary(
         _log("   These were NOT searched for a newer pack. If a newer pack lives in one of them, grant")
         _log("   the host access to that folder and re-run; otherwise acknowledge and proceed.")
     _log("Dashboard:          lock removed; auto-reindex will trigger on lock removal")
-    _log("MCP reload: call wf_reload_mcp() (or wf_upgrade cleanup) to load upgraded server code in-process")
+    # Cutover-conditional reload guidance: on a run where the 1.15 review-evidence
+    # cutover acted, an in-process reload is NOT sufficient — instruct the full
+    # host restart instead. Non-cutover runs keep the established reload line.
+    if review_sidecar_cleanup and review_sidecar_cleanup.get("restart_required"):
+        _log(
+            "MCP reload: NOT sufficient for this run — the 1.15 review-evidence "
+            "cutover acted; fully restart every attached MCP/agent host "
+            "(including this one) before lifecycle mutation resumes"
+        )
+    else:
+        _log("MCP reload: call wf_reload_mcp() (or wf_upgrade cleanup) to load upgraded server code in-process")
     _log("")
     # Wave 1p5tk — on a major/minor upgrade, recommend (don't run) the Framework
     # Config Review for a senior/principal owner to evaluate. Stateless + fail-safe.
@@ -2756,8 +2864,20 @@ def main(argv: list[str] | None = None) -> int:
 
         if not isinstance(lock, dict):
             return None, None, None, None
+        # The cutover decision needs the pre-upgrade installed version, which
+        # cannot be recomputed from disk post-extract; the upgrade lock state
+        # (written at preflight) is its carrier. A lock without a usable
+        # from_version falls to the cleanup's fail-safe pre-1.15 default.
+        lock_from_version = lock.get("from_version")
         try:
-            sidecar_counts = phase_review_evidence_sidecar_cleanup(root)
+            sidecar_counts = phase_review_evidence_sidecar_cleanup(
+                root,
+                from_version=(
+                    lock_from_version
+                    if isinstance(lock_from_version, str)
+                    else None
+                ),
+            )
         except SystemExit as exc:
             message = str(exc)
             upgrade_lib.update_upgrade_lock(
@@ -2958,6 +3078,10 @@ def main(argv: list[str] | None = None) -> int:
             # True when --rebuild-index already ran and recorded its completion.
             _cl_rebuilt = bool(lock.get("index_rebuilt_at")) if lock else False
             _cl_failed = lock.get("failed_phase") if lock else None
+            # This run's cutover counts (recorded by the new-code backstop above)
+            # ride into the operator summary so the machine-readable channel can
+            # scope reload-vs-restart guidance after the lock is removed.
+            _cl_sidecar = lock.get("review_sidecar_cleanup") if lock else None
             _cl_ctx = UpgradeContext(root, _cl_from, _cl_to, _cl_zip, args.yes)
             _cl_ext = _load_extension_module(_cl_zip)
             _run_hook("pre_cleanup", _cl_ctx, _cl_ext)
@@ -2970,6 +3094,9 @@ def main(argv: list[str] | None = None) -> int:
                 ran_index_rebuild=_cl_rebuilt,
                 failed_phase=_cl_failed,
                 lock_present=_cl_present,
+                review_sidecar_cleanup=(
+                    _cl_sidecar if isinstance(_cl_sidecar, dict) else None
+                ),
             )
             _run_hook("post_cleanup", _cl_ctx, _cl_ext)
         finally:
@@ -3199,15 +3326,21 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit(1)
 
         current_phase = "review_sidecar_cleanup"
-        sidecar_counts = phase_review_evidence_sidecar_cleanup(root)
+        sidecar_counts = phase_review_evidence_sidecar_cleanup(
+            root, from_version=from_version
+        )
         upgrade_lib.update_upgrade_lock(
             root, review_sidecar_cleanup=sidecar_counts
         )
         _log(
             "\n── Phase 2d: Retired review-evidence sidecar cleanup ──\n  "
             + json.dumps(sidecar_counts, sort_keys=True)
-            + "\n  Full restart of every attached MCP/agent host (including "
-            "this one) is required before lifecycle mutation resumes."
+            + (
+                "\n  Full restart of every attached MCP/agent host (including "
+                "this one) is required before lifecycle mutation resumes."
+                if sidecar_counts.get("restart_required")
+                else ""
+            )
         )
 
         # Phase 3
@@ -3294,7 +3427,14 @@ def main(argv: list[str] | None = None) -> int:
     # wf_upgrade() call returns data['summary'] WITH the 1p8et reconciliation findings, instead of
     # only on the separate --cleanup phase (where the agent often isn't looking). Full operator prose
     # still prints at cleanup.
-    _emit_primary_phase_summary(from_version, to_version, zip_path, pruned_count, root)
+    _emit_primary_phase_summary(
+        from_version,
+        to_version,
+        zip_path,
+        pruned_count,
+        root,
+        review_sidecar_cleanup=sidecar_counts,
+    )
 
     _log(
         "\n✓ Phases 0–4 complete. Proceed with agent editing pass, then run:\n"

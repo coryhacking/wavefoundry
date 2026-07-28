@@ -525,7 +525,13 @@ def pre_docs_gate(ctx):
         return
     _reload_cached_review_evidence()
     installed = _installed_upgrade_module(ctx.root)
-    counts = installed.phase_review_evidence_sidecar_cleanup(ctx.root)
+    # Thread the pre-upgrade installed version into the cutover so the
+    # installed cleanup can scope restart_required; a non-string
+    # ctx.from_version falls to the cleanup's fail-safe pre-1.15 default.
+    counts = installed.phase_review_evidence_sidecar_cleanup(
+        ctx.root,
+        from_version=from_version or None,
+    )
     _update_upgrade_state(ctx.root, review_sidecar_cleanup=counts)
 
 

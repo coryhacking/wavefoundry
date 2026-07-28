@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-20
+Last verified: 2026-07-27
 
 ---
 
@@ -101,7 +101,7 @@ The reviewer produces a structured verdict: `approved`, `approved-with-notes`, o
 
 The security reviewer (seed 213) checks path confinement, untrusted content handling, privilege escalation, and write-path tool exposure. The performance reviewer (seed 212) checks algorithmic complexity, hot-path regressions, and unbounded in-memory accumulation.
 
-Both produce structured verdicts with severity. `wf_review_wave` aggregates severity across all recorded signoffs and emits a `high_severity_finding` advisory when `max_severity` is `critical` or `high` — so operators receive a triage signal before they begin reviewing the diff.
+Both produce structured verdicts with severity. `wf_review_wave` aggregates finding severity from the recorded review evidence (typed ledger records on waves that declare the events source; prose on legacy waves) and emits a `high_severity_finding` advisory when `max_severity` is `critical` or `high` — so operators receive a triage signal before they begin reviewing the diff.
 
 ### Declaring Required Lanes
 
@@ -156,7 +156,7 @@ Wavefoundry uses the Wave Framework to build Wavefoundry. The self-hosting bound
 
 Changes to the framework itself go through the full wave lifecycle. The architecture reviewer checks that changes don't violate Wavefoundry's own layering rules. The security reviewer checks that new MCP tools don't introduce path traversal or injection risks. Sensors verify that the test suite passes before reviewer lanes are invoked.
 
-When a wave closes, `build_pack.py` packages the framework into a dated zip. Downstream projects adopt the new pack by dropping the zip at their repository root and running `Upgrade Wavefoundry`. The upgrade flow detects drift, reconciles prompt and hook surfaces, restarts MCP, and updates both index layers.
+When a wave closes, `build_pack.py` packages the framework into a dated zip. Downstream projects adopt the new pack by dropping the zip at their repository root and running `Upgrade Wavefoundry`. The upgrade flow detects drift, reconciles prompt and hook surfaces, reloads MCP in-process (release cutovers that require it instruct a full host restart instead), and updates the project semantic index.
 
 This self-hosting model means every wave that improves Wavefoundry is also a demonstration that the framework works as designed.
 

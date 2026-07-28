@@ -20,6 +20,7 @@ if str(SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_ROOT))
 
 import context_efficiency as ce
+from wave_lint_lib.wave_validators import check_orphan_wave_ledgers
 from review_evidence import (
     read_review_event_ledger,
     render_review_status_projection,
@@ -271,6 +272,177 @@ class DocsLintFixtureTests(unittest.TestCase):
             shutil.rmtree(root)
         self.assertEqual(result.returncode, 1)
         self.assertIn("must declare `review-evidence-source: events.jsonl`", result.stderr)
+
+    def test_one_thirteen_shaped_inline_wave_fails_actionably_without_ledger(self) -> None:
+        # Wave 1to78 (AC-4): a 1.13-shaped inline-marker wave — inline jsonl
+        # fence inside the owned block, no source declaration, no sibling
+        # ledger — still fails closed with the actionable manual-migration
+        # message after the inline reader's deletion. It never silently
+        # reclassifies as legacy prose.
+        root = self.copy_fixture()
+        wave_md = root / self.WAVE_DOC_PATH
+        text = (
+            wave_md.read_text(encoding="utf-8")
+            .replace(
+                "review-evidence-source: events.jsonl",
+                "review-evidence-protocol: 1",
+            )
+            .replace(
+                "</summary>\n</details>",
+                "</summary>\n\n```jsonl\n```\n</details>",
+            )
+        )
+        self.assertIn("```jsonl", text)  # the inline fence is really present
+        wave_md.write_text(text, encoding="utf-8")
+        (wave_md.parent / "events.jsonl").unlink()
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn(
+            "must declare `review-evidence-source: events.jsonl`", result.stderr
+        )
+        self.assertIn("migrate manually", result.stderr)
+        self.assertIn("sibling `events.jsonl` ledger", result.stderr)
+
+    def test_orphan_ledger_control_matrix(self) -> None:
+        # Wave 1to78 (AC-7): the content-driven orphan-ledger guard, run
+        # against a synthetic docs/waves tree covering every named control.
+        # P1/P2 are the executed known-bad positives; N1-N5 must all pass.
+        # Delivery repair DF1 narrowed N3: enumeration is content-driven, so
+        # only a non-wave-shaped folder WITHOUT a non-empty ledger passes
+        # (the renamed-directory positive lives in
+        # test_orphan_ledger_renamed_directory_is_still_detected).
+        root = Path(tempfile.mkdtemp(prefix="wave-orphan-matrix-"))
+        try:
+            waves = root / "docs" / "waves"
+            declared = "review-evidence-source: events.jsonl\n"
+            record = '{"record_type": "review_run"}\n'
+            # P1: non-empty ledger + wave.md with neither declaration nor marker
+            p1 = waves / "1zzp1 orphan-undeclared"
+            p1.mkdir(parents=True)
+            (p1 / "events.jsonl").write_text(record, encoding="utf-8")
+            (p1 / "wave.md").write_text(
+                "# Wave Record\n\n## Review Evidence\n\n- operator-signoff: approved\n",
+                encoding="utf-8",
+            )
+            # P2: non-empty ledger in an id-shaped dir, wave.md missing (the
+            # tamper variant the rglob("*.md") walk cannot see)
+            p2 = waves / "1zzp2 orphan-missing-md"
+            p2.mkdir(parents=True)
+            (p2 / "events.jsonl").write_text(record, encoding="utf-8")
+            # N1: empty ledger passes (fresh scaffold)
+            n1 = waves / "1zzn1 empty-ledger"
+            n1.mkdir(parents=True)
+            (n1 / "events.jsonl").write_bytes(b"")
+            # N2: declared wave passes
+            n2 = waves / "1zzn2 declared-wave"
+            n2.mkdir(parents=True)
+            (n2 / "events.jsonl").write_text(record, encoding="utf-8")
+            (n2 / "wave.md").write_text(
+                f"# Wave Record\n\n{declared}\n## Review Evidence\n", encoding="utf-8"
+            )
+            # N3: non-wave-shaped folder WITHOUT a non-empty ledger passes
+            # (empty-ledger and no-ledger variants)
+            n3 = waves / "notes"
+            n3.mkdir(parents=True)
+            (n3 / "events.jsonl").write_bytes(b"")
+            n3b = waves / "assets"
+            n3b.mkdir(parents=True)
+            (n3b / "README.txt").write_text("not a ledger\n", encoding="utf-8")
+            # N4: root-level docs/waves/events.jsonl passes
+            (waves / "events.jsonl").write_text(record, encoding="utf-8")
+            # N5: legacy inline-marker wave does not ADDITIONALLY trip the
+            # orphan check (it fails full validation elsewhere)
+            n5 = waves / "1zzn5 inline-marker"
+            n5.mkdir(parents=True)
+            (n5 / "events.jsonl").write_text(record, encoding="utf-8")
+            (n5 / "wave.md").write_text(
+                "# Wave Record\n\nreview-evidence-protocol: 1\n\n## Review Evidence\n",
+                encoding="utf-8",
+            )
+
+            failures = check_orphan_wave_ledgers(root)
+            self.assertEqual(len(failures), 2, failures)
+            p1_failure = next(f for f in failures if "1zzp1" in f)
+            p2_failure = next(f for f in failures if "1zzp2" in f)
+            for failure in (p1_failure, p2_failure):
+                self.assertIn("orphaned review ledger", failure)
+                self.assertIn("non-empty `events.jsonl`", failure)
+                self.assertIn(
+                    "restore `wave.md` or its declaration line from history", failure
+                )
+            # P2 fails IDENTICALLY to P1 apart from the folder name.
+            self.assertEqual(
+                p1_failure.replace("1zzp1 orphan-undeclared", "X"),
+                p2_failure.replace("1zzp2 orphan-missing-md", "X"),
+            )
+        finally:
+            shutil.rmtree(root)
+
+    def test_orphan_ledger_detected_through_public_docs_lint(self) -> None:
+        # Wave 1to78 (AC-7): the P2 tamper variant end-to-end: an id-shaped
+        # wave folder whose wave.md was deleted while its non-empty ledger
+        # survives fails the real docs-lint subprocess; the empty-ledger
+        # sibling control (N1) does not.
+        root = self.copy_fixture()
+        try:
+            orphan = root / "docs" / "waves" / "1zzzz orphan-probe"
+            orphan.mkdir(parents=True)
+            (orphan / "events.jsonl").write_text(
+                '{"record_type": "review_run"}\n', encoding="utf-8"
+            )
+            scaffold = root / "docs" / "waves" / "1zzzy fresh-scaffold"
+            scaffold.mkdir(parents=True)
+            (scaffold / "events.jsonl").write_bytes(b"")
+            result = self.run_docs_lint(root)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("orphaned review ledger", result.stderr)
+            self.assertIn("1zzzz orphan-probe", result.stderr)
+            self.assertNotIn("1zzzy fresh-scaffold", result.stderr)
+        finally:
+            shutil.rmtree(root)
+
+    def test_orphan_ledger_renamed_directory_is_still_detected(self) -> None:
+        # Wave 1to78 delivery repair (DF1, P3 control): the guard is
+        # CONTENT-driven, not name-shape-driven. A direct child directory of
+        # docs/waves/ holding a non-empty events.jsonl is a candidate even
+        # when its name is not id-shaped (renamed-directory tamper variant:
+        # underscore/7-char-prefix/uppercase name), whether wave.md is absent
+        # or present-but-undeclared.
+        root = Path(tempfile.mkdtemp(prefix="wave-orphan-renamed-"))
+        try:
+            waves = root / "docs" / "waves"
+            record = '{"record_type": "review_run"}\n'
+            # P3a: renamed dir (uppercase + underscore + 7-char leading
+            # token), non-empty ledger, wave.md absent.
+            p3a = waves / "1ZZP3AX_renamed-orphan"
+            p3a.mkdir(parents=True)
+            (p3a / "events.jsonl").write_text(record, encoding="utf-8")
+            # P3b: renamed dir, non-empty ledger, wave.md present but
+            # carrying neither declaration nor legacy marker.
+            p3b = waves / "1ZZP3BX_renamed-undeclared"
+            p3b.mkdir(parents=True)
+            (p3b / "events.jsonl").write_text(record, encoding="utf-8")
+            (p3b / "wave.md").write_text(
+                "# Wave Record\n\n## Review Evidence\n\n- operator-signoff: approved\n",
+                encoding="utf-8",
+            )
+            failures = check_orphan_wave_ledgers(root)
+            self.assertEqual(len(failures), 2, failures)
+            p3a_failure = next(f for f in failures if "1ZZP3AX" in f)
+            p3b_failure = next(f for f in failures if "1ZZP3BX" in f)
+            for failure in (p3a_failure, p3b_failure):
+                self.assertIn("orphaned review ledger", failure)
+                self.assertIn("non-empty `events.jsonl`", failure)
+                self.assertIn(
+                    "restore `wave.md` or its declaration line from history", failure
+                )
+                # The message notes that the folder name is not id-shaped.
+                self.assertIn("not id-shaped", failure)
+        finally:
+            shutil.rmtree(root)
 
     def test_retired_adoption_sidecar_is_never_consulted(self) -> None:
         # Wave 1tomw (AC-2/AC-7): events.jsonl is the sole authority. A stray
