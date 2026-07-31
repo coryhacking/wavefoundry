@@ -119,10 +119,16 @@ EXCLUDED_DIRS: tuple[str, ...] = (
     "node_modules",
     ".wavefoundry/framework",  # the framework pack tree — its own source legitimately names them
     ".wavefoundry/index",      # generated/runtime semantic index artifacts
+    ".wavefoundry/upgrade-assets",  # retained protocol-bridge payload/recovery artifacts
     "docs/waves",              # wave history records
     "docs/reports",            # report history
     "docs/agents/memory",      # memory records quote history; the memory corpus has its own hygiene loop
 )
+# Protocol-bridge upgrades retain the previous framework tree under a generated sibling such as
+# ``.wavefoundry/framework.rollback-bridge-pfps-p2/``.  It is inactive recovery state, not a live
+# project carrier.  Keep this separate from ``EXCLUDED_DIRS`` because it is a component prefix, not
+# one fixed directory name.
+_FRAMEWORK_ROLLBACK_DIR_PREFIX = "framework.rollback-"
 # File-name exclusions matched on BASENAME anywhere in the tree (not root-only). A file named
 # `CHANGELOG.md` is release history wherever it lives (e.g. a nested `.wavefoundry/CHANGELOG.md`), and
 # `prompt-surface-manifest.json` is a renderer-managed generated manifest whose historical
@@ -204,6 +210,12 @@ def is_excluded(rel: str, *, name: str, suffix: str) -> bool:
     if suffix not in SCAN_SUFFIXES:
         return True
     parts = rel.split("/")
+    if (
+        len(parts) >= 3
+        and parts[0] == ".wavefoundry"
+        and parts[1].startswith(_FRAMEWORK_ROLLBACK_DIR_PREFIX)
+    ):
+        return True
     # Directory exclusions: exact path or path-prefix (mirror build_pack.should_exclude). The single-
     # component dirs (.git/__pycache__/node_modules) are also matched as a path component anywhere.
     for d in EXCLUDED_DIRS:

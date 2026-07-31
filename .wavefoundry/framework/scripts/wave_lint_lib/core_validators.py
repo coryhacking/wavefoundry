@@ -13,6 +13,14 @@ from .constants import (
     WORKFLOW_REQUIRED_KEYS,
 )
 from .helpers import load_json
+from review_policy import (
+    REVIEW_POLICY_OBLIGATION_ANCHORS,
+    REVIEW_POLICY_SURFACE_MARKER_BEGIN,
+    RETIRED_LIFECYCLE_TOKENS,
+    UPGRADE_POLICY_MARKER_BEGIN,
+    normalize_wave_review_policy,
+    review_policy_carriers,
+)
 
 
 def _check_lifecycle_id_policy(data: dict) -> list[str]:
@@ -221,6 +229,13 @@ def check_workflow_config(root: Path) -> list[str]:
         return [f"docs/workflow-config.json: unreadable or invalid JSON ({error})"]
     assert data is not None
     policy_failures = _check_lifecycle_id_policy(data)
+    if "wave_review" in data:
+        _normalized_review, review_errors = normalize_wave_review_policy(
+            data.get("wave_review")
+        )
+        policy_failures.extend(
+            f"docs/workflow-config.json: {error}" for error in review_errors
+        )
 
     # Wave 1p337 (1p336): `WORKFLOW_REQUIRED_KEYS` entries are either strings (single
     # canonical key) or tuples (alias groups where any one key satisfies the requirement).
@@ -261,6 +276,70 @@ def check_workflow_config(root: Path) -> list[str]:
         if not _requirement_satisfied(req):
             failures.append(f"docs/workflow-config.json: missing {_requirement_label(req)} section")
     return policy_failures + failures
+
+
+def check_review_policy_carriers(root: Path) -> list[str]:
+    """Validate the existing carrier family through its production registry."""
+
+    failures: list[str] = []
+    policy_surface_active = any(
+        REVIEW_POLICY_SURFACE_MARKER_BEGIN in path.read_text(encoding="utf-8")
+        for path in (
+            root / "docs/prompts/prepare-wave.prompt.md",
+            root / "docs/prompts/review-wave.prompt.md",
+            root / "docs/prompts/close-wave.prompt.md",
+        )
+        if path.is_file()
+    )
+    carriers = (
+        review_policy_carriers()
+        if policy_surface_active
+        else review_policy_carriers("lifecycle_reconciler")
+    )
+    for carrier in carriers:
+        path = root / carrier.destination
+        paths = (
+            sorted(item for item in path.rglob("*.md") if item.is_file())
+            if path.is_dir()
+            else [path] if path.is_file() else []
+        )
+        if not paths:
+            continue
+        try:
+            text = "\n".join(item.read_text(encoding="utf-8") for item in paths)
+        except (OSError, UnicodeError) as exc:
+            failures.append(f"{carrier.destination}: review-policy carrier unreadable ({exc})")
+            continue
+        lowered = text.lower()
+        if carrier.owner == "lifecycle_reconciler":
+            matches = [token for token in RETIRED_LIFECYCLE_TOKENS if token in lowered]
+            if matches:
+                failures.append(
+                    f"{carrier.destination}: retired review-lifecycle prose remains: {matches[0]}"
+                )
+        for obligation in carrier.obligations:
+            anchors = REVIEW_POLICY_OBLIGATION_ANCHORS.get(obligation, ())
+            if not anchors or not any(anchor in lowered for anchor in anchors):
+                failures.append(
+                    f"{carrier.destination}: registered review-policy obligation "
+                    f"is missing: {obligation}"
+                )
+        if (
+            carrier.destination == "docs/prompts/upgrade-wavefoundry.prompt.md"
+            and (root / "docs/workflow-config.json").is_file()
+        ):
+            data, error = load_json(root / "docs/workflow-config.json")
+            explicit_policy = bool(
+                error is None
+                and isinstance(data, dict)
+                and isinstance(data.get("wave_review"), dict)
+                and "delivery_mode" in data["wave_review"]
+            )
+            if explicit_policy and UPGRADE_POLICY_MARKER_BEGIN not in text:
+                failures.append(
+                    f"{carrier.destination}: missing registered review-policy/bridge recovery region"
+                )
+    return list(dict.fromkeys(failures))
 
 
 def check_prompt_surface_manifest(root: Path) -> list[str]:

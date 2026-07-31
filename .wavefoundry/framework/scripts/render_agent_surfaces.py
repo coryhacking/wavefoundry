@@ -11,6 +11,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from textwrap import dedent
 
+from review_policy import (
+    REVIEW_POLICY_CARRIER_REGISTRY,
+    REVIEW_POLICY_SURFACE_BLOCKS,
+    REVIEW_POLICY_SURFACE_MARKER_BEGIN,
+    REVIEW_POLICY_SURFACE_MARKER_END,
+)
+
 try:
     from context_efficiency import (
         CONTEXT_EFFICIENCY_CARRIER_BLOCK,
@@ -67,28 +74,15 @@ class ReviewProtocolCarrier:
 # Wave 1skt1: one typed source of truth for the finite canonical carrier set.
 # Tests and reconciliation both derive from this registry; do not maintain a
 # second hand-written destination list.
-REVIEW_PROTOCOL_CARRIER_REGISTRY: tuple[ReviewProtocolCarrier, ...] = (
-    # Guru is an optional capability: do not enable it merely by rendering
-    # protocol carriers.  When present, it is still reconciled normally.
-    ReviewProtocolCarrier("211-guru.prompt.md", "docs/agents/guru.md", create_if_missing=False),
-    ReviewProtocolCarrier("239-qa-reviewer.prompt.md", "docs/agents/qa-reviewer.md"),
-    ReviewProtocolCarrier("214-architecture-reviewer.prompt.md", "docs/agents/architecture-reviewer.md"),
-    ReviewProtocolCarrier("212-performance-reviewer.prompt.md", "docs/agents/performance-reviewer.md"),
-    ReviewProtocolCarrier("221-code-reviewer.prompt.md", "docs/agents/code-reviewer.md"),
-    ReviewProtocolCarrier("213-security-reviewer.prompt.md", "docs/agents/security-reviewer.md"),
-    ReviewProtocolCarrier("050-agent-entry-surface-bootstrap.prompt.md", "docs/agents/docs-contract-reviewer.md", True, False),
-    ReviewProtocolCarrier("050-agent-entry-surface-bootstrap.prompt.md", "docs/agents/release-reviewer.md", True, False),
-    ReviewProtocolCarrier("225-red-team.prompt.md", "docs/agents/specialists/red-team.md"),
-    ReviewProtocolCarrier("216-reality-checker.prompt.md", "docs/agents/specialists/reality-checker.md"),
-    ReviewProtocolCarrier("215-wave-council.prompt.md", "docs/agents/specialists/wave-council.md"),
-    ReviewProtocolCarrier("236-archetype-council.prompt.md", "docs/agents/specialists/archetype-council.md"),
-    ReviewProtocolCarrier("217-senior-engineering-challenger.prompt.md", "docs/agents/specialists/senior-engineering-challenger.md"),
-    ReviewProtocolCarrier("236-archetype-council.prompt.md", "docs/prompts/archetype-council.prompt.md"),
-    ReviewProtocolCarrier("237-council-review.prompt.md", "docs/prompts/council-review.prompt.md"),
-    ReviewProtocolCarrier("100-project-prompt-surface-bootstrap.prompt.md", "docs/prompts/review-wave.prompt.md"),
-    ReviewProtocolCarrier("100-project-prompt-surface-bootstrap.prompt.md", "docs/prompts/agents/review-wave.prompt.md"),
-    ReviewProtocolCarrier("100-project-prompt-surface-bootstrap.prompt.md", "docs/prompts/create-wave.prompt.md"),
-    ReviewProtocolCarrier("209-agent-harness-core.prompt.md", "docs/contributing/review-and-evals.md"),
+REVIEW_PROTOCOL_CARRIER_REGISTRY: tuple[ReviewProtocolCarrier, ...] = tuple(
+    ReviewProtocolCarrier(
+        carrier.source,
+        carrier.destination,
+        carrier.conditional_existing,
+        carrier.create_if_missing,
+    )
+    for carrier in REVIEW_POLICY_CARRIER_REGISTRY
+    if carrier.owner == "renderer" and "executable_review" in carrier.obligations
 )
 
 REVIEW_PROTOCOL_CARRIER_MANIFEST: tuple[str, ...] = tuple(
@@ -121,7 +115,8 @@ REVIEW_PROTOCOL_CARRIER_BLOCK = dedent(
     mutation authority returns those facts to its coordinator instead of
     writing wave state.
 
-    After validation, apply the ordered four-way actionability gate:
+    Under the current review policy, after validation apply the ordered
+    four-way actionability gate:
     `do_now`, `maybe_later`, `dont_do_later`, or `not_issue`. Complete bounded
     `do_now`/`maybe_later` work before closure, create no backlog for rejected
     states, and use focused repair replay unless a load-bearing boundary change
@@ -144,10 +139,12 @@ CONTEXT_EFFICIENCY_DESTINATION = "docs/prompts/create-wave.prompt.md"
 
 LIFECYCLE_PROMPT_BASELINES: tuple[tuple[str, str], ...] = (
     ("docs/prompts/create-wave.prompt.md", "create-wave.prompt.md"),
-    ("docs/prompts/prepare-wave.prompt.md", "prepare-wave.prompt.md"),
     ("docs/prompts/implement-wave.prompt.md", "implement-wave.prompt.md"),
-    ("docs/prompts/review-wave.prompt.md", "review-wave.prompt.md"),
-    ("docs/prompts/close-wave.prompt.md", "close-wave.prompt.md"),
+    *(
+        (carrier.destination, carrier.source.removeprefix("lifecycle:"))
+        for carrier in REVIEW_POLICY_CARRIER_REGISTRY
+        if carrier.owner == "renderer" and carrier.source.startswith("lifecycle:")
+    ),
 )
 
 INDEPENDENT_REFERENCE_CARRIER_BLOCK = dedent(
@@ -882,6 +879,39 @@ def _upsert_review_protocol_region(text: str, block: str) -> str | None:
     return text + separator + "\n" + marked + "\n"
 
 
+def _upsert_review_policy_region(text: str, block: str) -> str | None:
+    """Refresh the single registry-owned lifecycle policy block."""
+
+    begin_count = text.count(REVIEW_POLICY_SURFACE_MARKER_BEGIN)
+    end_count = text.count(REVIEW_POLICY_SURFACE_MARKER_END)
+    if begin_count != end_count or begin_count > 1:
+        return None
+    marked = (
+        f"{REVIEW_POLICY_SURFACE_MARKER_BEGIN}\n{block}\n"
+        f"{REVIEW_POLICY_SURFACE_MARKER_END}"
+    )
+    if begin_count == 1:
+        region = re.compile(
+            r"^" + re.escape(REVIEW_POLICY_SURFACE_MARKER_BEGIN) + r"[ \t\r]*\n.*?^"
+            + re.escape(REVIEW_POLICY_SURFACE_MARKER_END) + r"[ \t\r]*(?=\n|\Z)",
+            re.MULTILINE | re.DOTALL,
+        )
+        if not region.search(text):
+            return None
+        return region.sub(marked, text, count=1)
+    if REVIEW_PROTOCOL_MARKER_BEGIN in text:
+        # Keep project-authored suffix bytes at the end of an adopted review
+        # carrier. The policy block belongs beside the existing framework-owned
+        # review block, not after a project's trailing extension.
+        return text.replace(
+            REVIEW_PROTOCOL_MARKER_BEGIN,
+            marked + "\n\n" + REVIEW_PROTOCOL_MARKER_BEGIN,
+            1,
+        )
+    separator = "" if not text or text.endswith("\n") else "\n"
+    return text + separator + "\n" + marked + "\n"
+
+
 def _context_efficiency_carrier_block() -> str:
     """Load the canonical carrier without duplicating its prose in the renderer.
 
@@ -1163,6 +1193,37 @@ def reconcile_lifecycle_prompt_baselines(repo_root: Path) -> list[str]:
     return written
 
 
+def reconcile_review_policy_surfaces(repo_root: Path) -> list[str]:
+    """Render the policy registry's lifecycle obligations into owned regions."""
+
+    written: list[str] = []
+    for carrier in REVIEW_POLICY_CARRIER_REGISTRY:
+        block = REVIEW_POLICY_SURFACE_BLOCKS.get(carrier.destination)
+        if carrier.owner != "renderer" or block is None:
+            continue
+        path = _contained_review_carrier_path(repo_root, carrier.destination)
+        if not path.is_file():
+            if carrier.conditional_existing or not carrier.create_if_missing:
+                continue
+            raise RuntimeError(
+                f"missing review-policy lifecycle carrier: {carrier.destination}"
+            )
+        with path.open("r", encoding="utf-8", newline="") as handle:
+            original = handle.read()
+        updated = _upsert_review_policy_region(original, block)
+        if updated is None:
+            print(
+                "render_agent_surfaces: WARNING — left "
+                f"{path} unchanged (malformed review-policy markers)",
+                file=sys.stderr,
+            )
+            continue
+        if updated != original:
+            _write_review_carrier_text(path, updated)
+            written.append(carrier.destination)
+    return written
+
+
 def reconcile_context_efficiency_surface(repo_root: Path) -> list[str]:
     """Reconcile the Create-wave telemetry carrier without replacing project prose."""
 
@@ -1201,10 +1262,14 @@ def render_agent_surfaces(repo_root: Path) -> list[str]:
     preflight_agent_surface_paths(repo_root)
     lifecycle_written = reconcile_lifecycle_prompt_baselines(repo_root)
     review_written = reconcile_review_protocol_surfaces(repo_root)
+    # Policy companions include optional carriers materialized by the review
+    # protocol pass (for example the agent and council review prompts). Run
+    # policy second so one render converges from a sparse pre-adoption tree.
+    policy_written = reconcile_review_policy_surfaces(repo_root)
     context_written = reconcile_context_efficiency_surface(repo_root)
     framework_written = list(
         dict.fromkeys(
-            [*lifecycle_written, *review_written, *context_written]
+            [*lifecycle_written, *review_written, *policy_written, *context_written]
         )
     )
     if not guru_available(repo_root):

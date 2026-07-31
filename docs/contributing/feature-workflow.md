@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-26
+Last verified: 2026-07-31
 
 ## Single-Change Delivery Path (Implement feature)
 
@@ -12,8 +12,8 @@ Use **Implement feature** for a single docs-first change that doesn't require mu
 2. **Create wave** → create wave record
 3. **Add change to wave** → admit the single change
 4. **Prepare wave** → confirm readiness and repair placement drift if admission left any staged-only docs behind
-5. **Implement feature** → implement and review in one pass
-6. **Finalize feature** → close the wave
+5. **Implement feature** → implement and run computational verification
+6. **Finalize feature** → independently review delivery, then close the wave
 
 ## Multi-Change Delivery Path (Implement wave)
 
@@ -23,7 +23,7 @@ Use **Implement wave** for multiple admitted changes with dependencies or parall
 2. **Create wave** → one wave record for the bundle
 3. **Add change to wave** (repeated) → all changes admitted
 4. **Prepare wave** → coordinator confirms all changes ready, repairs any placement drift, and records AC priority
-5. **Implement wave** → coordinator manages execution; reviewers participate during implementation
+5. **Implement wave** → coordinator manages implementation and computational verification
 6. **Review wave** → all required lanes complete
 7. **Close wave** → closure reconciliation
 

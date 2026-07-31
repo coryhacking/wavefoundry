@@ -5,6 +5,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -734,6 +735,78 @@ class SessionCaptureHookTests(unittest.TestCase):
         self.assertNotIn("/memory/", src)
 
 
+class ContextEfficiencyStopHookTests(unittest.TestCase):
+    """The dedicated Claude Stop adapter is detached, fail-safe, and separate."""
+
+    def setUp(self) -> None:
+        self.mod = _load_render_module()
+
+    def test_stop_adapter_uses_owner_root_when_cwd_is_outside_repo(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            outer = Path(tmp).resolve()
+            root = outer / "project"
+            outside = outer / "outside"
+            outside.mkdir()
+            hook = root / ".claude" / "hooks" / "context-efficiency-project.py"
+            hook.parent.mkdir(parents=True)
+            hook.write_text(
+                self.mod.claude_context_efficiency_source(), encoding="utf-8"
+            )
+            scripts = root / ".wavefoundry" / "framework" / "scripts"
+            scripts.mkdir(parents=True)
+            marker = root / ".wavefoundry" / "projection-ran"
+            release = root / ".wavefoundry" / "release-projection"
+            completed = root / ".wavefoundry" / "projection-completed"
+            (scripts / "project_context_efficiency.py").write_text(
+                "from pathlib import Path\n"
+                "import sys\n"
+                "import time\n"
+                "root = Path(sys.argv[sys.argv.index('--root') + 1])\n"
+                "(root / '.wavefoundry' / 'projection-ran').write_text('ok')\n"
+                "while not (root / '.wavefoundry' / 'release-projection').exists():\n"
+                "    time.sleep(0.01)\n"
+                "(root / '.wavefoundry' / 'projection-completed').write_text('ok')\n",
+                encoding="utf-8",
+            )
+            env = dict(os.environ)
+            env["CLAUDE_PROJECT_DIR"] = str(root)
+            result = subprocess.run(
+                self.mod.launcher_command(
+                    ".claude/hooks/context-efficiency-project",
+                    "CLAUDE_PROJECT_DIR",
+                ),
+                cwd=str(outside),
+                env=env,
+                shell=True,
+                input="{}",
+                text=True,
+                capture_output=True,
+                timeout=3,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            deadline = time.monotonic() + 3
+            while not marker.exists() and time.monotonic() < deadline:
+                time.sleep(0.02)
+            self.assertEqual(marker.read_text(encoding="utf-8"), "ok")
+            self.assertFalse(
+                completed.exists(),
+                "the Stop adapter must return before the detached projector completes",
+            )
+            release.write_text("ok", encoding="utf-8")
+            deadline = time.monotonic() + 3
+            while not completed.exists() and time.monotonic() < deadline:
+                time.sleep(0.02)
+            self.assertEqual(completed.read_text(encoding="utf-8"), "ok")
+
+    def test_session_capture_remains_projection_free(self):
+        capture = self.mod.claude_stop_source()
+        adapter = self.mod.claude_context_efficiency_source()
+        self.assertNotIn("project_context_efficiency.py", capture)
+        self.assertIn("project_context_efficiency.py", adapter)
+        self.assertIn("start_new_session", adapter)
+        self.assertIn("CREATE_NO_WINDOW", adapter)
+
+
 class ClaudeHookSimulateParityTests(unittest.TestCase):
     """Wave 1p607: the simulate-hooks HOOKS map and the hooks rendered into
     .claude/settings.json must derive from one shared source so they cannot drift.
@@ -875,6 +948,51 @@ class LauncherCommandTests(unittest.TestCase):
         self.assertIn(".claude/hooks/pre-edit.py", result.stderr)
         self.assertNotIn("Traceback", result.stderr)
         self.assertNotIn("KeyError", result.stderr)
+
+    def test_claude_settings_preserve_operator_hooks_and_replace_only_owned_entries(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            settings = root / ".claude" / "settings.json"
+            settings.parent.mkdir(parents=True)
+            custom_stop = {
+                "hooks": [{"type": "command", "command": "python custom-stop.py"}]
+            }
+            custom_notification = {
+                "hooks": [{"type": "command", "command": "python notify.py"}]
+            }
+            old_owned = {
+                "hooks": [{
+                    "type": "command",
+                    "command": "python3 .claude/hooks/context-efficiency-project.py",
+                }]
+            }
+            settings.write_text(
+                json.dumps({
+                    "theme": "dark",
+                    "hooks": {
+                        "Stop": [custom_stop, old_owned],
+                        "Notification": [custom_notification],
+                    },
+                }),
+                encoding="utf-8",
+            )
+
+            self.mod.render_claude_settings(root)
+            first = settings.read_bytes()
+            rendered = json.loads(first)
+            self.assertEqual(rendered["theme"], "dark")
+            self.assertIn(custom_stop, rendered["hooks"]["Stop"])
+            self.assertEqual(rendered["hooks"]["Notification"], [custom_notification])
+            owned_commands = [
+                command["command"]
+                for entry in rendered["hooks"]["Stop"]
+                for command in entry.get("hooks", [])
+                if "context-efficiency-project.py" in command.get("command", "")
+            ]
+            self.assertEqual(len(owned_commands), 1)
+
+            self.mod.render_claude_settings(root)
+            self.assertEqual(settings.read_bytes(), first)
 
 
 class GpuDoctorLauncherTests(unittest.TestCase):
@@ -1176,6 +1294,8 @@ class RenderGitignoreBlockTests(unittest.TestCase):
         ".wavefoundry/dashboard-server.json",
         ".wavefoundry/upgrade-in-progress.json",
         ".wavefoundry/guard-overrides.json",
+        ".wavefoundry/upgrade-assets/",
+        ".wavefoundry/framework.rollback-*/",
         "/wavefoundry-*.zip",
     )
 

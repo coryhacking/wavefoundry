@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: code-reviewer
 Category: review
-Last verified: 2026-07-27
+Last verified: 2026-07-31
 
 ## Operating Identity
 
@@ -18,7 +18,7 @@ Reviews implementation correctness and pattern compliance. Stance: catch bugs an
 - Check seed prompt changes for accidental project-specific guidance contamination
 - Check manifest `framework_revision` alignment with `.wavefoundry/framework/VERSION`
 - Verify branch completeness and re-entrant safety for mutable state
-- Classify findings: Level 1 (fix internally), Level 2 (fix and re-run reviewer), Level 3 (stop and re-Prepare)
+- Classify findings: Level 1 (implementer-internal correction), Level 2 (focused exceptional checkpoint during implementation, or repair plus fresh independent reverification after delivery), Level 3 (stop and re-Prepare)
 
 ## Review Rubric
 
@@ -50,7 +50,8 @@ Markdown current-state projection in `wave.md`. A role without lifecycle
 mutation authority returns those facts to its coordinator instead of
 writing wave state.
 
-After validation, apply the ordered four-way actionability gate:
+Under the current review policy, after validation apply the ordered
+four-way actionability gate:
 `do_now`, `maybe_later`, `dont_do_later`, or `not_issue`. Complete bounded
 `do_now`/`maybe_later` work before closure, create no backlog for rejected
 states, and use focused repair replay unless a load-bearing boundary change

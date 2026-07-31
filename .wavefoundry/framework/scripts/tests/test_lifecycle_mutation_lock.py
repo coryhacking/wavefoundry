@@ -135,6 +135,33 @@ class MutationLockTests(unittest.TestCase):
             wrapped = self._wrapped(root, "code_read", tool)
             self.assertIs(wrapped, tool)
 
+    def test_handler_resolution_failure_refuses_without_running_mutation(self):
+        called = False
+
+        def tool(**kwargs):
+            nonlocal called
+            called = True
+            return {"status": "ok"}
+
+        class _Tool: ...
+        class _TM: ...
+        class _MCP: ...
+        wrapped_tool = _Tool(); wrapped_tool.fn = tool
+        tm = _TM(); tm._tools = {"wf_prepare_wave": wrapped_tool}
+        mcp = _MCP(); mcp._tool_manager = tm
+
+        def broken_handler():
+            raise RuntimeError("injected root failure")
+
+        srv._wrap_lifecycle_mutation_lock(mcp, broken_handler)
+        result = wrapped_tool.fn()
+        self.assertEqual(result["status"], "error")
+        self.assertFalse(called)
+        self.assertIn(
+            "lifecycle_lock_unavailable",
+            {item["code"] for item in result["diagnostics"]},
+        )
+
 
 class ForwardRecoverabilityTests(unittest.TestCase):
     """AC-2: a retry after any single-step interruption converges."""

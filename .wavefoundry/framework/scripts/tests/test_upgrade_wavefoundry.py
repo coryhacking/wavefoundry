@@ -1495,6 +1495,8 @@ class ResumeAfterGateTests(unittest.TestCase):
         self.assertTrue(all(path.resolve() == self.root.resolve() for _, path in called))
         lock = self.lib.read_upgrade_lock(self.root)
         self.assertIsNone(lock.get("failed_phase"))
+        self.assertEqual(lock.get("current_phase"), "awaiting_memory_validation")
+        self.assertTrue(str(lock.get("memory_backfill_run_id") or "").strip())
 
     def test_projector_is_retired_without_replacement(self):
         # Wave 1tomw (AC-11): no projector symbol, recovery marker key, or
@@ -1827,9 +1829,10 @@ class PublicUpgradeReviewProtocolIntegrationTests(unittest.TestCase):
             root = Path(temp_dir).resolve()
             _stage_review_protocol_seeds(root)
             stale = 'python3 ".wavefoundry/old-relative.py"'
+            claude_stale = 'python3 ".claude/hooks/pre-edit.py"'
             (root / ".claude").mkdir()
             (root / ".claude" / "settings.json").write_text(
-                json.dumps({"hooks": {"PreToolUse": [{"hooks": [{"type": "command", "command": stale}]}]}}),
+                json.dumps({"hooks": {"PreToolUse": [{"hooks": [{"type": "command", "command": claude_stale}]}]}}),
                 encoding="utf-8",
             )
             (root / ".mcp.json").write_text(
@@ -2005,6 +2008,11 @@ class PublicUpgradeReviewProtocolIntegrationTests(unittest.TestCase):
             with zipfile.ZipFile(zip_path, "w") as zf:
                 for name in (
                     "review_evidence.py",
+                    "review_policy.py",
+                    "gardener_metadata.py",
+                    "lifecycle_lock.py",
+                    "publication_control.py",
+                    "public_contract.py",
                     "server_impl.py",
                     "context_efficiency.py",
                     "score_context_efficiency_pairs.py",
@@ -2031,6 +2039,8 @@ class PublicUpgradeReviewProtocolIntegrationTests(unittest.TestCase):
                 mod,
                 "phase_preflight",
                 return_value=("1.12.0", "1.13.0", zip_path),
+            ), patch.object(
+                mod, "_stage_pack_for_consumption", return_value=zip_path
             ), patch.object(mod, "_load_extension_module", return_value=None), patch.object(
                 mod, "_run_hook"
             ), patch.object(
@@ -3782,14 +3792,16 @@ class RemoveRootBootstrapFileTests(unittest.TestCase):
         import inspect
         src = inspect.getsource(self.mod)
         self.assertIn("_remove_root_bootstrap_file(root)", src, "the cleanup call must be wired in")
-        extract_pos = src.index("zf.extractall")
+        # Wave 1u0cc: the extract phase now calls the allowlist helper instead of a bare
+        # zf.extractall — anchor on its unique call site (the def has annotated params).
+        extract_pos = src.index("_extract_feature_members(zf, root)")
         # Wave 1rych added a second call in the --update-index phase (which precedes the extract block in
-        # source order), so anchor on the FIRST call AT OR AFTER zf.extractall — that is the extract-phase
-        # call this test locks.
+        # source order), so anchor on the FIRST call AT OR AFTER the extract call — that is the
+        # extract-phase call this test locks.
         call_pos = src.index("_remove_root_bootstrap_file(root)", extract_pos)
         self.assertGreater(
             call_pos, extract_pos,
-            "the bootstrap cleanup must run AFTER zf.extractall in the extract phase",
+            "the bootstrap cleanup must run AFTER the filtered extraction in the extract phase",
         )
 
     def test_update_index_phase_wires_the_bootstrap_removal(self) -> None:
@@ -3816,6 +3828,142 @@ class RemoveRootBootstrapFileTests(unittest.TestCase):
             src.count("_remove_root_bootstrap_file(root)"), 2,
             "both the extract-phase and --update-index removal call sites must be present",
         )
+
+
+class ExtractFeatureMembersTests(unittest.TestCase):
+    """Wave 1u0cc: Phase 0b extraction allowlists feature members — the combined release zip's
+    zipapp runner members (payload/*, __main__.py, upgrade_bridge_bootstrap.py, subprocess_util.py)
+    are never written to the target project root, and same-named project files are never touched."""
+
+    RUNNER_MEMBERS = ("__main__.py", "upgrade_bridge_bootstrap.py", "subprocess_util.py")
+
+    def setUp(self) -> None:
+        self.mod = load_upgrade_module()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.proj = self.root / "proj"
+        self.proj.mkdir()
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def _payload_prefix(self) -> str:
+        import upgrade_bundle
+        return upgrade_bundle.PAYLOAD_PREFIX
+
+    def _combined_bundle_zip(self, extra_members: dict[str, str] | None = None) -> Path:
+        """Bundle-shaped zip mirroring the canonical builder's member layout (build_pack appends the
+        runner members and payload/* to the feature zip); the layout constants themselves are pinned
+        against upgrade_bundle in test_allowlist_pins_bundle_layout_constants."""
+        zp = self.root / "wavefoundry-9.9.9.test.zip"
+        payload = self._payload_prefix()
+        with zipfile.ZipFile(zp, "w") as zf:
+            zf.writestr(".wavefoundry/framework/VERSION", "9.9.9+test")
+            zf.writestr(".wavefoundry/framework/scripts/example.py", "print('hi')\n")
+            zf.writestr("install-wavefoundry.md", "bootstrap instructions")
+            for name in self.RUNNER_MEMBERS:
+                zf.writestr(name, "# runner code\n")
+            zf.writestr(payload + "selection.json", "{}")
+            zf.writestr(payload + "bridge.zip", "not-a-real-zip")
+            zf.writestr(payload + "feature.zip", "not-a-real-zip")
+            for name, body in (extra_members or {}).items():
+                zf.writestr(name, body)
+        return zp
+
+    def _extract(self, zp: Path) -> int:
+        with zipfile.ZipFile(zp, "r") as zf:
+            return self.mod._extract_feature_members(zf, self.proj)
+
+    def test_runner_members_and_payload_are_skipped(self) -> None:
+        # AC-1: no runner debris at the project root; skip count covers all six runner/payload members.
+        skipped = self._extract(self._combined_bundle_zip())
+        self.assertEqual(skipped, 6)
+        for name in self.RUNNER_MEMBERS:
+            self.assertFalse((self.proj / name).exists(), f"{name} must not be extracted")
+        self.assertFalse((self.proj / "payload").exists(), "payload/ must not be extracted")
+
+    def test_feature_members_and_bootstrap_extract_as_before(self) -> None:
+        # AC-2: .wavefoundry/** extracts with content parity; the bootstrap file still lands at the
+        # root (its removal stays the wired _remove_root_bootstrap_file cleanup, ordering-locked by
+        # test_extract_phase_wires_the_cleanup_after_extractall).
+        self._extract(self._combined_bundle_zip())
+        self.assertEqual(
+            (self.proj / ".wavefoundry" / "framework" / "VERSION").read_text(encoding="utf-8"),
+            "9.9.9+test",
+        )
+        self.assertEqual(
+            (self.proj / ".wavefoundry" / "framework" / "scripts" / "example.py").read_text(encoding="utf-8"),
+            "print('hi')\n",
+        )
+        self.assertEqual(
+            (self.proj / "install-wavefoundry.md").read_text(encoding="utf-8"),
+            "bootstrap instructions",
+        )
+        self.mod._remove_root_bootstrap_file(self.proj)
+        self.assertFalse((self.proj / "install-wavefoundry.md").exists())
+
+    def test_preexisting_collision_files_are_byte_identical(self) -> None:
+        # AC-3: a project's own root files named like runner members are never overwritten or deleted.
+        own_main = self.proj / "__main__.py"
+        own_main.write_bytes(b"project-owned entry point\n")
+        own_payload = self.proj / "payload"
+        own_payload.mkdir()
+        (own_payload / "keep.txt").write_bytes(b"project data\n")
+        self._extract(self._combined_bundle_zip())
+        self.assertEqual(own_main.read_bytes(), b"project-owned entry point\n")
+        self.assertEqual((own_payload / "keep.txt").read_bytes(), b"project data\n")
+        self.assertEqual(
+            sorted(p.name for p in own_payload.iterdir()), ["keep.txt"],
+            "no archive payload member may land in the project's own payload/ directory",
+        )
+
+    def test_backslash_separator_member_is_skipped(self) -> None:
+        # Memory 1tz9e: both POSIX and Windows separators are path syntax. CPython's extraction does
+        # not treat backslash as a separator on POSIX, so an unfiltered extract would write a literal
+        # root file named ".wavefoundry\\evil.py"; the allowlist skips it by structure.
+        skipped = self._extract(
+            self._combined_bundle_zip(extra_members={".wavefoundry\\evil.py": "evil"})
+        )
+        self.assertEqual(skipped, 7)
+        self.assertEqual(
+            [p.name for p in self.proj.iterdir() if "\\" in p.name], [],
+            "no backslash-named member may land at the project root",
+        )
+
+    def test_traversal_inside_allowed_prefix_stays_contained(self) -> None:
+        # zipfile's _extract_member drops '..' path parts, so an allowed-prefix member shaped like a
+        # traversal stays contained under the project root.
+        self._extract(
+            self._combined_bundle_zip(extra_members={".wavefoundry/../escape.txt": "out"})
+        )
+        self.assertFalse((self.root / "escape.txt").exists(), "no member may escape the project root")
+        escaped = [p for p in self.root.rglob("escape.txt") if self.proj not in p.parents]
+        self.assertEqual(escaped, [], "the traversal-shaped member must stay under the project root")
+
+    def test_feature_only_archive_skips_zero(self) -> None:
+        # Requirement 5: the bridge-retained inner zip is feature-only; the skip log must never fire.
+        zp = self.root / "feature-only.zip"
+        with zipfile.ZipFile(zp, "w") as zf:
+            zf.writestr(".wavefoundry/framework/VERSION", "9.9.9+test")
+            zf.writestr("install-wavefoundry.md", "bootstrap instructions")
+        self.assertEqual(self._extract(zp), 0)
+
+    def test_allowlist_pins_bundle_layout_constants(self) -> None:
+        # Requirement 2: the runner mirrors upgrade_bundle's layout constants (it cannot import them
+        # mid-upgrade); this pin fails loudly if the pack layout contract moves.
+        import upgrade_bundle
+        self.assertEqual(self.mod._EXTRACT_MEMBER_PREFIX, upgrade_bundle.FEATURE_MEMBER_PREFIX)
+        self.assertEqual(set(self.mod._EXTRACT_ROOT_MEMBERS), set(upgrade_bundle.FEATURE_ROOT_MEMBERS))
+        self.assertFalse(
+            upgrade_bundle.PAYLOAD_PREFIX.startswith(self.mod._EXTRACT_MEMBER_PREFIX),
+            "payload members must fall outside the extraction allowlist",
+        )
+
+    def test_no_unfiltered_extractall_remains(self) -> None:
+        # The bare full-archive extract must never return to the runner.
+        import inspect
+        src = inspect.getsource(self.mod)
+        self.assertNotIn("zf.extractall(str(root))", src)
 
 
 class UpgradeContextChunkerFieldsTests(unittest.TestCase):
@@ -4516,6 +4664,28 @@ class DetectDashboardLivenessTests(unittest.TestCase):
                 running_dead, pid_dead, url_dead = self.mod._detect_dashboard(self.root)
             self.assertEqual((running_dead, pid_dead, url_dead), (False, None, None))
             dead_probe.assert_called_once_with(4242)
+
+    @unittest.skipIf(sys.platform == "win32", "POSIX holder probe uses fcntl in this test")
+    def test_held_canonical_lifetime_lock_overrides_missing_metadata(self):
+        import dashboard_lib
+        from runtime_lock import RuntimeFileLock
+
+        path = dashboard_lib.dashboard_metadata_path(self.root)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        holder = RuntimeFileLock(
+            path,
+            blocking=False,
+            offset=dashboard_lib._LOCK_BYTE_OFFSET,
+        )
+        holder.acquire()
+        try:
+            path.write_text("{}\n", encoding="utf-8")
+            self.assertEqual(
+                self.mod._detect_dashboard(self.root),
+                (True, None, None),
+            )
+        finally:
+            holder.release()
 
 
 class WindowsTempPathRobustnessTests(unittest.TestCase):
@@ -5348,6 +5518,244 @@ class HistoricalMemoryUpgradeGateTests(unittest.TestCase):
         self.assertEqual(second, 0)
         phase_again.assert_not_called()
 
+    def test_docs_gate_resume_establishes_memory_checkpoint_and_composes(self):
+        """External pfq6 reproduction: the successful docs recovery used to
+        retain ``review_sidecar_cleanup_complete``, making the immediately
+        documented memory recovery unreachable.
+        """
+
+        self.upgrade_lib.update_upgrade_lock(
+            self.root,
+            current_phase="review_sidecar_cleanup_complete",
+            failed_phase="docs_gate",
+            failed_at="t",
+        )
+        with patch.object(self.mod, "phase_docs_gate"):
+            resumed_gate = self.mod.main(
+                ["--root", str(self.root), "--resume-after-gate"]
+            )
+        self.assertEqual(resumed_gate, 0)
+        checkpoint = self.upgrade_lib.read_upgrade_lock(self.root)
+        self.assertIsNone(checkpoint.get("failed_phase"))
+        self.assertEqual(
+            checkpoint.get("current_phase"), "awaiting_memory_validation"
+        )
+        self.assertEqual(checkpoint.get("memory_backfill_run_id"), self.run_id)
+
+        with patch.object(self.mod, "phase_index_update") as phase:
+            resumed_memory = self.mod.main(
+                ["--root", str(self.root), "--resume-after-memory"]
+            )
+        self.assertEqual(resumed_memory, 0)
+        phase.assert_called_once_with(self.root.resolve())
+
+    def _insert_memory_source(self, memory_id: str) -> None:
+        conn = self.backfill._connect(self.root)
+        try:
+            with conn:
+                conn.execute(
+                    "INSERT INTO memory_backfill_sources"
+                    "(run_id,wave_id,source_event,memory_id) VALUES(?,?,?,?)",
+                    (
+                        self.run_id,
+                        "1aaa closed",
+                        "decision-log:historical",
+                        memory_id,
+                    ),
+                )
+        finally:
+            conn.close()
+
+    def test_resume_after_memory_repairs_same_version_stale_memory_id(self):
+        """The public recovery command must not depend on the <1.15 migration gate."""
+
+        import memory_records
+
+        legacy_id = "mem-" + ("a" * 59) + "-"
+        slug = memory_records.slugify(legacy_id[4:])
+        lifecycle_id = f"1abc1-mem {slug}"
+        content = memory_records.render_memory_record(
+            memory_id=lifecycle_id,
+            kind="decision",
+            summary="A rewritten historical candidate already resolved.",
+            evidence=["`1aaaa-bug historical-source` — observed"],
+            targets=["foo.py"],
+            status="superseded",
+            source_event="decision-log:historical",
+            validation="rewrite",
+            date="2026-01-10",
+        )
+        content = content.replace(
+            "Status: superseded\n",
+            "Status: superseded\nSuperseded by: `1abc9-mem successor`\n",
+        )
+        memory_records.write_memory_record(self.root, content, lifecycle_id)
+        self._insert_memory_source(legacy_id)
+        self.upgrade_lib.update_upgrade_lock(
+            self.root,
+            current_phase="awaiting_memory_validation",
+            memory_backfill_state="awaiting_validation",
+        )
+
+        with patch.object(self.mod, "phase_index_update") as phase:
+            result = self.mod.main(
+                ["--root", str(self.root), "--resume-after-memory"]
+            )
+
+        self.assertEqual(result, 0)
+        phase.assert_called_once_with(self.root.resolve())
+        conn = self.backfill._connect(self.root)
+        try:
+            row = conn.execute(
+                "SELECT memory_id FROM memory_backfill_sources WHERE run_id=?",
+                (self.run_id,),
+            ).fetchone()
+        finally:
+            conn.close()
+        self.assertEqual(str(row["memory_id"]), lifecycle_id)
+
+    def test_pending_resume_restores_memory_recovery_publication_phase(self):
+        """Action-required may not strand the tools needed to clear the action."""
+
+        import publication_control
+
+        self._insert_memory_source("mem-genuinely-missing")
+        self.upgrade_lib.update_upgrade_lock(
+            self.root,
+            current_phase="awaiting_memory_validation",
+            memory_backfill_state="awaiting_validation",
+        )
+        stderr = io.StringIO()
+        with patch.object(self.mod, "phase_index_update") as phase, \
+             contextlib.redirect_stderr(stderr):
+            result = self.mod.main(
+                ["--root", str(self.root), "--resume-after-memory"]
+            )
+
+        self.assertEqual(result, self.backfill.ACTION_REQUIRED_EXIT)
+        phase.assert_not_called()
+        checkpoint = self.upgrade_lib.read_upgrade_lock(self.root)
+        self.assertEqual(
+            checkpoint.get("current_phase"), "awaiting_memory_validation"
+        )
+        self.assertIsNone(
+            publication_control.publication_block_reason(
+                self.root, "memory_backfill"
+            )
+        )
+        self.assertIsNone(
+            publication_control.publication_block_reason(
+                self.root, "memory_validate"
+            )
+        )
+        self.assertIn("awaiting validation", stderr.getvalue())
+
+    def test_ambiguous_memory_id_resume_fails_loud_and_restores_phase(self):
+        import memory_records
+        import publication_control
+
+        legacy_id = "mem-ambiguous-record"
+        slug = memory_records.slugify(legacy_id[4:])
+        for prefix in ("1abc1", "1abc2"):
+            memory_id = f"{prefix}-mem {slug}"
+            content = memory_records.render_memory_record(
+                memory_id=memory_id,
+                kind="decision",
+                summary="An ambiguous migrated historical record.",
+                evidence=["`1aaaa-bug historical-source` — observed"],
+                targets=["foo.py"],
+                source_event="decision-log:historical",
+                validation="rewrite",
+                date="2026-01-10",
+            )
+            memory_records.write_memory_record(self.root, content, memory_id)
+        self._insert_memory_source(legacy_id)
+        self.upgrade_lib.update_upgrade_lock(
+            self.root,
+            current_phase="awaiting_memory_validation",
+            memory_backfill_state="awaiting_validation",
+        )
+        stderr = io.StringIO()
+
+        with patch.object(self.mod, "phase_index_update") as phase, \
+             contextlib.redirect_stderr(stderr):
+            result = self.mod.main(
+                ["--root", str(self.root), "--resume-after-memory"]
+            )
+
+        self.assertEqual(result, self.backfill.ACTION_REQUIRED_EXIT)
+        phase.assert_not_called()
+        self.assertIn("ambiguous migrated memory id", stderr.getvalue())
+        checkpoint = self.upgrade_lib.read_upgrade_lock(self.root)
+        self.assertEqual(
+            checkpoint.get("current_phase"), "awaiting_memory_validation"
+        )
+        self.assertIsNone(
+            publication_control.publication_block_reason(
+                self.root, "memory_backfill"
+            )
+        )
+        conn = self.backfill._connect(self.root)
+        try:
+            row = conn.execute(
+                "SELECT memory_id FROM memory_backfill_sources WHERE run_id=?",
+                (self.run_id,),
+            ).fetchone()
+        finally:
+            conn.close()
+        self.assertEqual(str(row["memory_id"]), legacy_id)
+
+    def test_resume_after_memory_restages_receipt_to_trailing_graph_attempt(self):
+        """External pfqq reproduction: the content child writes a staging
+        receipt, then graph maintenance starts a later attempt at the same
+        generation.  The graph child must become the exact authorized receipt
+        attempt before the parent CAS; generation-only aliasing is not enough.
+        """
+
+        _wave, index_state_store = self._ready_candidate_run()
+        attempts: list[tuple[str, str]] = []
+
+        def child_run(argv, *, cwd, check, env=None, **_kwargs):
+            scope = "graph" if "--graph-only" in argv else "all"
+            with patch.dict(os.environ, env or {}, clear=True):
+                attempt = index_state_store.begin_build_epoch(
+                    self.root / ".wavefoundry" / "index", scope
+                )
+                attempts.append((scope, attempt))
+                self.assertTrue(
+                    index_state_store.finalize_build_epoch(
+                        self.root / ".wavefoundry" / "index", attempt
+                    )
+                )
+            return subprocess.CompletedProcess(argv, 0)
+
+        with patch.object(
+            self.mod.subprocess_util, "isolated_run", side_effect=child_run
+        ):
+            result = self.mod.main(
+                ["--root", str(self.root), "--resume-after-memory"]
+            )
+
+        self.assertEqual(result, 0)
+        self.assertEqual([scope for scope, _attempt in attempts], ["all", "graph"])
+        state = index_state_store.read_build_state(
+            self.root / ".wavefoundry" / "index"
+        )
+        self.assertEqual(state["status"], "complete")
+        self.assertEqual(state["generation"], 1)
+        self.assertEqual(state["attempt_id"], attempts[-1][1])
+        self.assertEqual(
+            self.backfill.run_summary(self.root, self.run_id)["state"], "indexed"
+        )
+        self.assertFalse(
+            (
+                self.root
+                / ".wavefoundry"
+                / "index"
+                / "upgrade-index-staging-receipt.json"
+            ).exists()
+        )
+
     def test_resume_recovers_published_epoch_without_second_index_pass(self):
         _wave, index_state_store = self._ready_candidate_run()
         phase_calls = 0
@@ -5637,6 +6045,21 @@ class HistoricalMemoryUpgradeGateTests(unittest.TestCase):
         )
         self.assertLess(phase, mark)
 
+    def test_default_upgrade_clears_docs_failure_and_runs_canonical_bounded_batch(self):
+        source = UPGRADE_PATH.read_text(encoding="utf-8")
+        docs_pass = source.index("phase_docs_gate(root)")
+        clear = source.index("failed_phase=None", docs_pass)
+        post_hook = source.index('_run_hook("post_docs_gate"', docs_pass)
+        batch = source.index("server_impl._memory_backfill_batch_locked(", post_hook)
+        action_return = source.index(
+            "return memory_backfill.ACTION_REQUIRED_EXIT",
+            batch,
+        )
+        self.assertLess(docs_pass, clear)
+        self.assertLess(clear, post_hook)
+        self.assertLess(post_hook, batch)
+        self.assertLess(batch, action_return)
+
 
 class HistoricalMemoryUpgradeExtensionBootstrapTests(unittest.TestCase):
     def setUp(self):
@@ -5675,6 +6098,24 @@ class HistoricalMemoryUpgradeExtensionBootstrapTests(unittest.TestCase):
         )
         self.assertEqual(lock["memory_backfill_state"], "awaiting_validation")
         self.assertEqual(lock["memory_backfill_pending"], 1)
+
+    def test_post_docs_gate_leaves_protocol_two_runner_to_process_bounded_batch(self):
+        wave = self.root / "docs" / "waves" / "1old closed"
+        wave.mkdir()
+        wave.joinpath("wave.md").write_text(
+            "# Wave\n\nStatus: closed\n", encoding="utf-8"
+        )
+        self.ctx.runner_protocol = 2
+        with patch.object(
+            self.ext, "_installed_memory_backfill", return_value=self.backfill
+        ):
+            self.assertIsNone(self.ext.post_docs_gate(self.ctx))
+        lock = json.loads(
+            (self.root / ".wavefoundry" / "upgrade-in-progress.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertEqual(lock["memory_backfill_state"], "awaiting_validation")
 
     def test_pre_docs_gate_loads_new_module_and_runs_sidecar_cleanup_for_old_runner(self):
         """An old loaded runner reaches the new cutover only through this hook."""

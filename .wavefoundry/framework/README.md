@@ -26,7 +26,7 @@ Use these public phrases in a target project's repository:
 - `Close wave`
 - `Finalize feature`
 
-Packaging (maintainer / cross-repo distribution) uses **`Package Wavefoundry`** — the wavefoundry-repo-only operator entry lives at `docs/prompts/package-wavefoundry.prompt.md` in the wavefoundry source tree and is intentionally not shipped to consumer projects (consumers run **`Upgrade Wavefoundry`** instead). From the Wavefoundry repository root, run `python3 .wavefoundry/framework/scripts/build_pack.py --version MAJOR.MINOR.PATCH`. The script writes `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` to `~/.wavefoundry/dist/` by default, where `<build>` is the rightmost 4 characters of the current lifecycle prefix. It stamps `.wavefoundry/framework/VERSION` to `MAJOR.MINOR.PATCH+<build>` before writing the archive. Every zip entry begins with `.wavefoundry/framework/`, so extracting at a repository root restores the canonical framework source layout. Legacy phrases such as **`Package wave framework`** and **`Package wave context`** remain accepted only as migration aliases.
+Packaging (maintainer / cross-repo distribution) uses **`Package Wavefoundry`** — the wavefoundry-repo-only operator entry lives at `docs/prompts/package-wavefoundry.prompt.md` in the wavefoundry source tree and is intentionally not shipped to consumer projects (consumers run **`Upgrade Wavefoundry`** instead). From the Wavefoundry repository root, run `python3 .wavefoundry/framework/scripts/build_pack.py --version MAJOR.MINOR.PATCH`. The script writes exactly one `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` to `~/.wavefoundry/dist/` by default, where `<build>` is the 4-character pure-time build suffix. It stamps `.wavefoundry/framework/VERSION` to `MAJOR.MINOR.PATCH+<build>` before writing the package. Extracting at a repository root restores the canonical framework source layout; executing that same zip supplies the verified one-command protocol-1→2 bridge. Internal bridge components are payloads inside the package, not release assets. Legacy phrases such as **`Package wave framework`** and **`Package wave context`** remain accepted only as migration aliases.
 
 **`Install Wavefoundry`** (legacy: **`Install wave framework`** / **`Install wave context`**) may be accepted as a convenience alias, but it is not a new primary public command:
 
@@ -309,10 +309,10 @@ The coordinator's execution loop during the implement phase follows a ReAct-deri
 
 - **Thought before action:** the coordinator records a `Thought:` entry in the Progress Log before each lane invocation, stating why this action now.
 - **Wave plan:** before the first edit, the coordinator produces an ordered lane sequence with scoped inputs per serialization unit; deviations are named events, not silent reorderings.
-- **Parallel lane merge:** reviewer and persona lanes with no shared dependencies run concurrently; the coordinator synthesizes a merged `Observe:` before the next `Thought:`.
-- **Finding classification (CRITIC):** after each review cycle, findings are evaluated against the change doc's acceptance criteria before a loop level is chosen — "reviewer clean" alone is not the exit condition.
+- **Parallel lane merge:** implementation and computational-verification lanes with no shared dependencies run concurrently; routine inferential reviewer lanes run later in the distinct `Review wave` phase.
+- **Finding classification (CRITIC):** after an exceptional named checkpoint or the delivery review, findings are evaluated against the change doc's acceptance criteria before a loop level is chosen — "reviewer clean" alone is not the exit condition.
 - **Root cause capture (Reflexion):** after a blocking finding, the coordinator records a `Reflect:` entry identifying the pattern and updating remaining tasks proactively.
-- **Three loop levels:** Level 1 (micro — internal to implementer, no log entry), Level 2 (reviewer loop — fix and re-run, no re-Prepare), Level 3 (wave lifecycle — scope or plan invalidation, stop and re-Prepare or re-plan). Finding type — not severity — determines the level.
+- **Three loop levels:** Level 1 (micro — internal to implementer, no log entry), Level 2 (exceptional focused independent checkpoint — re-check the affected boundary, no re-Prepare), Level 3 (wave lifecycle — scope or plan invalidation, stop and re-Prepare or re-plan). Finding type — not severity — determines the level.
 
 See `001-feature-wave-framework-overview.md` section 3a for the full loop model, finding classification table, and escalation reference.
 

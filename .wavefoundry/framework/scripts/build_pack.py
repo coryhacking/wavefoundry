@@ -16,14 +16,18 @@ Usage:
 
 import argparse
 import datetime
+import hashlib
+import json
 import os
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Mapping, Optional
 
 
 # Patterns excluded from the zip.
@@ -52,6 +56,10 @@ if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
 import venv_bootstrap  # the single venv resolver (wave 1p7pl)
+from upgrade_protocol import (
+    PROTOCOL_METADATA_FILENAME,
+    build_protocol_metadata,
+)
 
 FRAMEWORK_REL = ".wavefoundry/framework"
 ZIP_PREFIX = "wavefoundry-"
@@ -579,7 +587,8 @@ def _run_release_orchestration(
         print(f"[--release-dry-run] would run: git push origin {tag}", file=sys.stderr)
         print(
             f"[--release-dry-run] would run: gh release create {tag} "
-            f"--title {version!r} --notes-file <tmp> {zip_path}",
+            f"--title {version!r} --notes-file <tmp> "
+            + str(zip_path),
             file=sys.stderr,
         )
         print(
@@ -684,7 +693,8 @@ def _run_release_orchestration(
             f"manually (`git push origin {tag}`) once the underlying issue is fixed."
         )
 
-    # Step 5: create the GitHub Release with the local zip as the asset.
+    # Step 5: publish the one Wavefoundry package. It is both the normal
+    # extractable feature pack and the executable protocol-bridge carrier.
     with tempfile.NamedTemporaryFile(
         mode="w", suffix=".md", delete=False, encoding="utf-8"
     ) as notes_file:
@@ -716,7 +726,9 @@ def _run_release_orchestration(
             f"  recovery: tag `{tag}` is already on origin. Re-run only the "
             f"release-create step:\n"
             f"    gh release create {tag} --title {version} "
-            f"--notes-file <CHANGELOG-{version}-section> {zip_path}\n"
+            f"--notes-file <CHANGELOG-{version}-section> "
+            + " ".join(str(asset) for asset in assets)
+            + "\n"
             f"  Or, if the wrong tag was pushed, delete it "
             f"(`git push origin :refs/tags/{tag}` and `git tag -d {tag}`) "
             f"and re-run --release."
@@ -749,6 +761,21 @@ def build_zip(
         write_pack_version(fw, version, build_prefix)
     if update_manifest:
         update_manifest_revision(repo_root, f"{version}+{build_prefix}")
+
+    protocol_metadata_path = fw / PROTOCOL_METADATA_FILENAME
+    protocol_metadata_path.write_text(
+        json.dumps(
+            build_protocol_metadata(
+                release_version=f"{version}+{build_prefix}",
+                build_id=build_prefix,
+                artifact_type="feature",
+            ),
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
 
     # Remove .DS_Store files from the repo root before collecting files.
     for ds in repo_root.rglob(".DS_Store"):
@@ -839,8 +866,236 @@ def build_zip(
         manifest_path.unlink(missing_ok=True)
     except OSError:
         pass
+    try:
+        protocol_metadata_path.unlink(missing_ok=True)
+    except OSError:
+        pass
 
     return zip_path
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def build_protocol_bridge_artifacts(
+    feature_zip: Path,
+    *,
+    version: str,
+    build_prefix: str,
+    bootstrap_source: Path | None = None,
+) -> dict[str, Path]:
+    """Emit the framework-only bridge, standalone bootstrap, and selection ABI."""
+
+    output_dir = feature_zip.parent
+    bridge_build_id = f"bridge-{build_prefix}-p2"
+    bridge_zip = output_dir / f"wavefoundry-bridge-{version}.{build_prefix}.zip"
+    bootstrap = output_dir / f"wavefoundry-bridge-{version}.{build_prefix}.py"
+    selection = output_dir / f"wavefoundry-upgrade-{version}.{build_prefix}.json"
+    source = bootstrap_source or (Path(__file__).resolve().parent / "upgrade_bridge_bootstrap.py")
+    if not source.is_file():
+        raise RuntimeError(f"bridge bootstrap source is missing: {source}")
+
+    protocol_arc = FRAMEWORK_REL + f"/{PROTOCOL_METADATA_FILENAME}"
+    version_arc = FRAMEWORK_REL + "/VERSION"
+    with zipfile.ZipFile(feature_zip, "r") as incoming, zipfile.ZipFile(
+        bridge_zip, "w", compression=zipfile.ZIP_DEFLATED
+    ) as outgoing:
+        for info in incoming.infolist():
+            if not info.filename.startswith(FRAMEWORK_REL + "/"):
+                continue
+            body = incoming.read(info.filename)
+            if info.filename == protocol_arc:
+                body = (
+                    json.dumps(
+                        build_protocol_metadata(
+                            release_version=f"{version}+{build_prefix}",
+                            build_id=bridge_build_id,
+                            artifact_type="bridge",
+                        ),
+                        indent=2,
+                        sort_keys=True,
+                    )
+                    + "\n"
+                ).encode("utf-8")
+            elif info.filename == version_arc:
+                # The bridge is a protocol carrier, not a product release.
+                # The bootstrap restores the installed VERSION bytes before
+                # the atomic swap; only the feature archive carries the new
+                # product version.
+                body = b"protocol-bridge-2\n"
+            outgoing.writestr(info, body)
+
+    shutil.copy2(source, bootstrap)
+    metadata = {
+        "schema_version": 1,
+        "bridge_build_id": bridge_build_id,
+        "upgrade_protocol_version": 2,
+        "minimum_runner_protocol": 2,
+        "supported_source_version": "1.14.0",
+        "supported_source_protocol": 1,
+        "feature_release_version": version,
+        "bridge_archive": bridge_zip.name,
+        "bridge_sha256": _file_sha256(bridge_zip),
+        "feature_archive": feature_zip.name,
+        "feature_sha256": _file_sha256(feature_zip),
+    }
+    selection.write_text(
+        json.dumps(metadata, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    return {"bridge": bridge_zip, "bootstrap": bootstrap, "selection": selection}
+
+
+def build_upgrade_bundle(
+    feature_zip: Path,
+    bridge_artifacts: dict[str, Path],
+    *,
+    version: str,
+    build_prefix: str,
+    bundle_source: Path | None = None,
+) -> Path:
+    """Add the verified bridge runner to the normal Wavefoundry package.
+
+    The public distribution remains the single ``wavefoundry-*.zip``.  A
+    byte-exact copy of its feature-only form is nested as the selected feature
+    payload before the executable runner is appended to the outer archive.
+    """
+
+    required = {"bridge", "selection"}
+    if not required.issubset(bridge_artifacts):
+        raise RuntimeError("protocol bridge artifacts are incomplete")
+    payload_copy: Path | None = None
+    assembled: Path | None = None
+    try:
+        source = bundle_source or (Path(__file__).resolve().parent / "upgrade_bundle.py")
+        bootstrap_source = Path(__file__).resolve().parent / "upgrade_bridge_bootstrap.py"
+        subprocess_source = Path(__file__).resolve().parent / "subprocess_util.py"
+        if (
+            not source.is_file()
+            or not bootstrap_source.is_file()
+            or not subprocess_source.is_file()
+        ):
+            raise RuntimeError("upgrade bundle sources are missing")
+        selection = json.loads(
+            bridge_artifacts["selection"].read_text(encoding="utf-8")
+        )
+        bridge = bridge_artifacts["bridge"]
+        if _file_sha256(bridge) != selection.get("bridge_sha256"):
+            raise RuntimeError("bridge artifact no longer matches selection metadata")
+        if _file_sha256(feature_zip) != selection.get("feature_sha256"):
+            raise RuntimeError("feature artifact no longer matches selection metadata")
+        payload_fd, payload_name = tempfile.mkstemp(
+            prefix=f".{feature_zip.name}.",
+            suffix=".payload",
+            dir=feature_zip.parent,
+        )
+        os.close(payload_fd)
+        payload_copy = Path(payload_name)
+        bundle_fd, bundle_name = tempfile.mkstemp(
+            prefix=f".{feature_zip.name}.",
+            suffix=".assembling",
+            dir=feature_zip.parent,
+        )
+        os.close(bundle_fd)
+        assembled = Path(bundle_name)
+        shutil.copyfile(feature_zip, payload_copy)
+        shutil.copyfile(feature_zip, assembled)
+        with zipfile.ZipFile(assembled, "a", compression=zipfile.ZIP_DEFLATED) as archive:
+            archive.write(source, "__main__.py")
+            archive.write(bootstrap_source, "upgrade_bridge_bootstrap.py")
+            archive.write(subprocess_source, "subprocess_util.py")
+            archive.write(
+                bridge_artifacts["selection"],
+                "payload/" + bridge_artifacts["selection"].name,
+            )
+            archive.write(bridge, "payload/" + bridge.name)
+            archive.write(payload_copy, "payload/" + feature_zip.name)
+        if not zipfile.is_zipfile(assembled):
+            raise RuntimeError("assembled Wavefoundry package is not a readable zip")
+        os.replace(assembled, feature_zip)
+        return feature_zip
+    finally:
+        if payload_copy is not None:
+            payload_copy.unlink(missing_ok=True)
+        if assembled is not None:
+            assembled.unlink(missing_ok=True)
+        for artifact in bridge_artifacts.values():
+            artifact.unlink(missing_ok=True)
+
+
+def _public_package_snapshot(output_dir: Path) -> dict[Path, tuple[int, str]]:
+    """Fingerprint every top-level Wavefoundry-named release artifact."""
+
+    snapshot: dict[Path, tuple[int, str]] = {}
+    for path in output_dir.iterdir():
+        if (
+            not path.is_file()
+            or not path.name.startswith(ZIP_PREFIX)
+        ):
+            continue
+        snapshot[path] = (path.stat().st_size, _file_sha256(path))
+    return snapshot
+
+
+def _is_normal_release_zip(path: Path) -> bool:
+    return bool(
+        re.fullmatch(
+            r"wavefoundry-\d+\.\d+\.\d+\.[A-Za-z0-9]+\.zip",
+            path.name,
+        )
+    )
+
+
+def _reject_stale_public_build_artifacts(
+    before: Mapping[Path, tuple[int, str]],
+) -> None:
+    stale = sorted(path.name for path in before if not _is_normal_release_zip(path))
+    if stale:
+        raise RuntimeError(
+            "remove stale public bridge/composition artifact(s) before building: "
+            + ", ".join(stale)
+        )
+
+
+def _enforce_single_public_package(
+    output_dir: Path,
+    expected_package: Path,
+    before: Mapping[Path, tuple[int, str]],
+) -> None:
+    """Require this invocation to leave exactly its normal zip as public output.
+
+    Older package files already present in ``output_dir`` are preserved and do
+    not count against the current build. Any newly created or modified sibling
+    package does: bridge/bootstrap artifacts are internal assembly inputs, not
+    a second distributable.
+    """
+
+    after = _public_package_snapshot(output_dir)
+    expected = expected_package
+    if expected not in after or not _is_normal_release_zip(expected):
+        raise RuntimeError(
+            f"release build did not produce the expected public zip: {expected}"
+        )
+    removed = sorted(path.name for path in before if path not in after)
+    changed = {
+        path for path, fingerprint in after.items()
+        if before.get(path) != fingerprint
+    }
+    unexpected = sorted(path.name for path in changed if path != expected)
+    if removed or unexpected:
+        detail = []
+        if unexpected:
+            detail.append("unexpected current-build package(s): " + ", ".join(unexpected))
+        if removed:
+            detail.append("pre-existing package(s) removed: " + ", ".join(removed))
+        raise RuntimeError(
+            "release build must leave one current-build public Wavefoundry zip; "
+            + "; ".join(detail)
+        )
 
 
 def _reexec_with_venv_if_needed() -> None:
@@ -1022,6 +1277,12 @@ def main():
     # content-only fixes). Mtime tie-break in `_find_latest_release_zip` ensures the
     # newest pack still wins on `wave_upgrade`, but bumping semver makes it explicit.
     _warn_on_same_semver_collision(output_dir, args.version)
+    public_packages_before = _public_package_snapshot(output_dir)
+    try:
+        _reject_stale_public_build_artifacts(public_packages_before)
+    except RuntimeError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        sys.exit(1)
 
     try:
         zip_path = build_zip(
@@ -1032,6 +1293,34 @@ def main():
             # 1p4ww: the framework index is no longer shipped — framework seeds/README
             # fold into each project's own docs index. The pack ships framework SOURCE only.
             verbose=args.verbose,
+        )
+        bridge_artifacts = (
+            build_protocol_bridge_artifacts(
+                zip_path,
+                version=args.version,
+                build_prefix=build_prefix,
+            )
+            if zip_path.is_file()
+            else {}
+        )
+        release_package = (
+            build_upgrade_bundle(
+                zip_path,
+                bridge_artifacts,
+                version=args.version,
+                build_prefix=build_prefix,
+            )
+            if bridge_artifacts
+            else None
+        )
+        if release_package is not None and release_package != zip_path:
+            raise RuntimeError(
+                "upgrade assembly must preserve the single public package path"
+            )
+        _enforce_single_public_package(
+            output_dir,
+            zip_path,
+            public_packages_before,
         )
     except RuntimeError as exc:
         print(f"error: {exc}", file=sys.stderr)

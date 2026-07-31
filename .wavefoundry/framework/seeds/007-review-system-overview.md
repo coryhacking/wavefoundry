@@ -6,7 +6,7 @@ Explain the shared Wave Framework review model: what review is for, how it fits 
 
 ## Shared Review Model
 
-- Review begins with a readiness evaluation before implementation and continues with implementation-time and final review passes as the wave progresses.
+- Review begins with a readiness evaluation before implementation and resumes as a distinct delivery review after implementation; routine inferential review does not run inside implementation.
 - Required review depth depends on change type, risk, and project policy.
 - The shared framework supplies generic review lanes and expects seeded repositories to define exact triggers and local reviewer surfaces.
 - A wave is not complete until required review outputs are collected and addressed.
@@ -14,10 +14,10 @@ Explain the shared Wave Framework review model: what review is for, how it fits 
 
 ## Wave Council Meta-Review
 
-Projects may enable **Wave Council** as a universal meta-review for every wave. Wave Council does **not** replace specialist review lanes. It adds two required synthesis checkpoints:
+Projects may enable **Wave Council** as a phase-specific meta-review. Wave Council does **not** replace specialist review lanes. Readiness Council is required whenever review is enabled; delivery Council follows `wave_review.delivery_mode` (`universal`, risk-selected `targeted`, or the valid review-disabled `disabled` pairing):
 
-- **`wave-council-readiness`** — before implementation begins; requires a structured `prepare-council` verdict line in `## Review Checkpoints` whose `seats:` field names the seats actually run (each at most once — a verbatim template roster is a recording defect) and whose rostered seats each have recorded evidence in the wave record; docs-lint checks this roster⇄evidence consistency
-- **`wave-council-delivery`** — after implementation and before closure
+- **`wave-council-readiness`** — before implementation begins; declared waves record this authority as a typed approval event in `events.jsonl`, while legacy waves retain the structured prose verdict gate. A declared wave may keep a structured checkpoint as narrative, but it is not machine authority.
+- **`wave-council-delivery`** — after implementation and before closure only when selected by the current Prepare receipt
 
 Wave Council uses a two-phase structured protocol:
 
@@ -54,12 +54,12 @@ Projects may adapt the rotating-seat policy locally, but the non-waiver rule is 
 
 ## Archetype Council Meta-Review (Optional)
 
-A third adversarial-review primitive, complementary to `red-team` (single-stance, in isolation) and Wave Council (role-based specialist seats). The **Archetype Council** runs orthogonal stance-based seats (Sun Tzu, Yoda, Spock, Marcus Aurelius, Feynman; with documented Hemingway / Munger swap-ins) and is invoked **optionally** by the operator. It does not gate Prepare wave, Review wave, or Close wave and does not record `wave-council-readiness` or `wave-council-delivery` signoffs. Reach for it when the artifact's load-bearing surface is AC text precision, prose, decision narrative, or naming — situations where the Wave Council's role-based seats are in the wrong shape. Wave Council remains required when `wave_review.enabled` is true; the Archetype Council runs *in addition*, not in place of. Seed: `236-archetype-council.prompt.md`.
+A third adversarial-review primitive, complementary to `red-team` (single-stance, in isolation) and Wave Council (role-based specialist seats). The **Archetype Council** runs orthogonal stance-based seats (Sun Tzu, Yoda, Spock, Marcus Aurelius, Feynman; with documented Hemingway / Munger swap-ins) and is invoked **optionally** by the operator. It does not gate Prepare wave, Review wave, or Close wave and does not record lifecycle signoffs. Reach for it when the artifact's load-bearing surface is AC text precision, prose, decision narrative, or naming. Required Wave Council phases still follow `wave_review.enabled` plus the explicit delivery mode; Archetype Council runs *in addition*, not in place of. Seed: `236-archetype-council.prompt.md`.
 
 | Surface | When to invoke |
 |---|---|
 | **`red-team`** alone | A focused artifact needs one sharp challenge before commit; or as Phase 1 primer to Wave Council |
-| **Wave Council** | Code, architecture, trust-boundary, implementation-shaped work; mandatory at Prepare and Review when `wave_review.enabled` is true |
+| **Wave Council** | Code, architecture, trust-boundary, implementation-shaped work; mandatory at Prepare when enabled and at Review when the delivery mode/receipt requires it |
 | **Archetype Council** | AC text precision, prose drafts, naming decisions, decision narratives; optional and operator-invoked |
 
 ## Generic Review Lanes
@@ -145,7 +145,7 @@ Projects that enable Wave Council should also declare an explicit council policy
 {
   "wave_review": {
     "enabled": true,
-    "required_for_all_waves": true,
+    "delivery_mode": "universal",
     "evidence_section": "## Review Evidence",
     "transition_policy": "applies-from-next-prepare",
     "phases": {

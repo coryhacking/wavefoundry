@@ -698,13 +698,17 @@ process.stdout.write(JSON.stringify(rendered.map(text)));
         argv = ["build_pack.py", "--version", version, "--output", str(self.tmp)]
         stderr = io.StringIO()
         fake_zip = self.tmp / f"wavefoundry-{version}.{FAKE_PREFIX}.zip"
+        def _fake_build(*_args, **_kwargs):
+            fake_zip.write_bytes(b"package")
+            return fake_zip
         code = 0
         with patch.object(sys, "argv", argv), \
              patch.object(build_pack, "_reexec_with_venv_if_needed"), \
              patch.object(build_pack, "find_repo_root", return_value=self.tmp), \
              patch.object(build_pack, "_current_build_suffix", return_value=FAKE_PREFIX), \
              patch.object(build_pack, "check_docs_gate") as gate, \
-             patch.object(build_pack, "build_zip", return_value=fake_zip) as bz, \
+             patch.object(build_pack, "build_zip", side_effect=_fake_build) as bz, \
+             patch.object(build_pack, "build_protocol_bridge_artifacts", return_value={}), \
              contextlib.redirect_stderr(stderr), \
              contextlib.redirect_stdout(io.StringIO()):
             try:
@@ -1352,6 +1356,306 @@ class ReleaseOrchestrationOrderingTests(unittest.TestCase):
         self.assertEqual(verbs, ["commit", "tag", "push-main", "push-tag", "gh-release"])
         # And specifically: the stamp commit lands before the tag.
         self.assertLess(verbs.index("commit"), verbs.index("tag"))
+
+    def test_release_uploads_single_wavefoundry_package(self):
+        root = self._repo_with_version()
+        rec = self._Recorder()
+        package = Path("/tmp/wavefoundry-1.6.0.ptest.zip")
+        with patch("build_pack.subprocess.run", rec):
+            build_pack._run_release_orchestration(
+                root,
+                "1.6.0",
+                package,
+                "notes",
+                dry_run=False,
+            )
+        release_call = next(c for c in rec.calls if c[:3] == ["gh", "release", "create"])
+        self.assertEqual(release_call.count(str(package)), 1)
+        self.assertEqual(
+            [arg for arg in release_call if arg.endswith((".zip", ".pyz"))],
+            [str(package)],
+        )
+
+    def test_release_main_wires_only_single_wavefoundry_package(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._repo_with_version()
+            output = Path(tmp)
+            feature = output / "wavefoundry-1.6.0.ptest.zip"
+            feature.write_bytes(b"feature")
+            internal = {
+                "bridge": output / "internal-bridge.zip",
+                "selection": output / "internal-selection.json",
+            }
+            orchestration = MagicMock()
+            argv = [
+                "build_pack.py",
+                "--version",
+                "1.6.0",
+                "--output",
+                str(output),
+                "--release-dry-run",
+            ]
+            with patch.object(sys, "argv", argv), patch.object(
+                build_pack, "_reexec_with_venv_if_needed"
+            ), patch.object(
+                build_pack, "find_repo_root", return_value=root
+            ), patch.object(
+                build_pack, "_current_build_suffix", return_value="ptest"
+            ), patch.object(
+                build_pack, "_check_git_working_tree_clean"
+            ), patch.object(
+                build_pack, "_check_on_main_branch"
+            ), patch.object(
+                build_pack, "_check_tag_does_not_exist"
+            ), patch.object(
+                build_pack, "_check_gh_authenticated"
+            ), patch.object(
+                build_pack, "_extract_changelog_section", return_value="release notes"
+            ), patch.object(
+                build_pack, "_assemble_release_notes", return_value="assembled notes"
+            ), patch.object(
+                build_pack, "check_docs_gate"
+            ), patch.object(
+                build_pack, "_warn_on_same_semver_collision"
+            ), patch.object(
+                build_pack, "build_zip", return_value=feature
+            ), patch.object(
+                build_pack, "build_protocol_bridge_artifacts", return_value=internal
+            ) as bridge_build, patch.object(
+                build_pack, "build_upgrade_bundle", return_value=feature
+            ) as bundle_build, patch.object(
+                build_pack, "_run_release_orchestration", orchestration
+            ):
+                build_pack.main()
+
+            bridge_build.assert_called_once()
+            bundle_build.assert_called_once_with(
+                feature,
+                internal,
+                version="1.6.0",
+                build_prefix="ptest",
+            )
+            orchestration.assert_called_once_with(
+                root,
+                "1.6.0",
+                feature,
+                "assembled notes",
+                dry_run=True,
+            )
+            self.assertEqual(orchestration.call_args.args[2], feature)
+            self.assertNotIn("additional_assets", orchestration.call_args.kwargs)
+
+    def test_release_main_rejects_extra_current_build_public_package(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._repo_with_version()
+            output = Path(tmp)
+            feature = output / "wavefoundry-1.6.0.ptest.zip"
+            feature.write_bytes(b"feature")
+            internal = {
+                "bridge": output / "internal-bridge.zip",
+                "selection": output / "internal-selection.json",
+            }
+
+            def emit_extra_package(*_args, **_kwargs):
+                (output / "wavefoundry-upgrade-extra.pyz").write_bytes(b"extra")
+                (output / "wavefoundry-upgrade-1.6.0.ptest.json").write_text(
+                    "{}", encoding="utf-8"
+                )
+                return feature
+
+            argv = [
+                "build_pack.py",
+                "--version",
+                "1.6.0",
+                "--output",
+                str(output),
+                "--release-dry-run",
+            ]
+            with patch.object(sys, "argv", argv), patch.object(
+                build_pack, "_reexec_with_venv_if_needed"
+            ), patch.object(
+                build_pack, "find_repo_root", return_value=root
+            ), patch.object(
+                build_pack, "_current_build_suffix", return_value="ptest"
+            ), patch.object(
+                build_pack, "_check_git_working_tree_clean"
+            ), patch.object(
+                build_pack, "_check_on_main_branch"
+            ), patch.object(
+                build_pack, "_check_tag_does_not_exist"
+            ), patch.object(
+                build_pack, "_check_gh_authenticated"
+            ), patch.object(
+                build_pack, "_extract_changelog_section", return_value="release notes"
+            ), patch.object(
+                build_pack, "_assemble_release_notes", return_value="assembled notes"
+            ), patch.object(
+                build_pack, "check_docs_gate"
+            ), patch.object(
+                build_pack, "_warn_on_same_semver_collision"
+            ), patch.object(
+                build_pack, "build_zip", return_value=feature
+            ), patch.object(
+                build_pack, "build_protocol_bridge_artifacts", return_value=internal
+            ), patch.object(
+                build_pack, "build_upgrade_bundle", side_effect=emit_extra_package
+            ), patch.object(
+                build_pack, "_run_release_orchestration"
+            ) as orchestration:
+                with self.assertRaises(SystemExit) as raised:
+                    build_pack.main()
+
+            self.assertEqual(raised.exception.code, 1)
+            orchestration.assert_not_called()
+
+    def test_public_artifact_census_includes_bridge_composition_json(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp)
+            before = build_pack._public_package_snapshot(output)
+            expected = output / "wavefoundry-1.6.0.ptest.zip"
+            expected.write_bytes(b"package")
+            composition = output / "wavefoundry-upgrade-1.6.0.ptest.json"
+            composition.write_text("{}", encoding="utf-8")
+
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "wavefoundry-upgrade-1.6.0.ptest.json",
+            ):
+                build_pack._enforce_single_public_package(
+                    output,
+                    expected,
+                    before,
+                )
+
+    def test_release_main_rejects_preexisting_special_upgrade_artifact(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._repo_with_version()
+            output = Path(tmp)
+            stale = output / "wavefoundry-upgrade-1.15.0.stale.pyz"
+            stale.write_bytes(b"stale")
+            feature = output / "wavefoundry-1.6.0.ptest.zip"
+            argv = [
+                "build_pack.py",
+                "--version",
+                "1.6.0",
+                "--output",
+                str(output),
+                "--release-dry-run",
+            ]
+            with patch.object(sys, "argv", argv), patch.object(
+                build_pack, "_reexec_with_venv_if_needed"
+            ), patch.object(
+                build_pack, "find_repo_root", return_value=root
+            ), patch.object(
+                build_pack, "_current_build_suffix", return_value="ptest"
+            ), patch.object(
+                build_pack, "_check_git_working_tree_clean"
+            ), patch.object(
+                build_pack, "_check_on_main_branch"
+            ), patch.object(
+                build_pack, "_check_tag_does_not_exist"
+            ), patch.object(
+                build_pack, "_check_gh_authenticated"
+            ), patch.object(
+                build_pack, "_extract_changelog_section", return_value="release notes"
+            ), patch.object(
+                build_pack, "_assemble_release_notes", return_value="assembled notes"
+            ), patch.object(
+                build_pack, "check_docs_gate"
+            ), patch.object(
+                build_pack, "_warn_on_same_semver_collision"
+            ), patch.object(
+                build_pack, "build_zip", return_value=feature
+            ) as build:
+                with self.assertRaises(SystemExit) as raised:
+                    build_pack.main()
+
+            self.assertEqual(raised.exception.code, 1)
+            build.assert_not_called()
+            self.assertEqual(stale.read_bytes(), b"stale")
+
+    def test_release_main_real_build_leaves_one_new_public_package(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._repo_with_version()
+            output = Path(tmp) / "dist"
+            output.mkdir()
+            older = output / "wavefoundry-1.5.0.older.zip"
+            older.write_bytes(b"older")
+            framework = root / build_pack.FRAMEWORK_REL
+            (framework / "scripts").mkdir(parents=True, exist_ok=True)
+            (framework / "scripts" / "placeholder.py").write_text(
+                "# packaged\n", encoding="utf-8"
+            )
+            real_build_zip = build_pack.build_zip
+
+            def isolated_build_zip(out_dir, version, build_prefix, **_kwargs):
+                return real_build_zip(
+                    out_dir,
+                    version,
+                    build_prefix,
+                    framework_dir=framework,
+                    update_manifest=False,
+                    inject_install_templates=False,
+                )
+
+            argv = [
+                "build_pack.py",
+                "--version",
+                "1.6.0",
+                "--output",
+                str(output),
+                "--release-dry-run",
+            ]
+            with patch.object(sys, "argv", argv), patch.object(
+                build_pack, "_reexec_with_venv_if_needed"
+            ), patch.object(
+                build_pack, "find_repo_root", return_value=root
+            ), patch.object(
+                build_pack, "_current_build_suffix", return_value="ptest"
+            ), patch.object(
+                build_pack, "_check_git_working_tree_clean"
+            ), patch.object(
+                build_pack, "_check_on_main_branch"
+            ), patch.object(
+                build_pack, "_check_tag_does_not_exist"
+            ), patch.object(
+                build_pack, "_check_gh_authenticated"
+            ), patch.object(
+                build_pack, "_extract_changelog_section", return_value="release notes"
+            ), patch.object(
+                build_pack, "_assemble_release_notes", return_value="assembled notes"
+            ), patch.object(
+                build_pack, "check_docs_gate"
+            ), patch.object(
+                build_pack, "_warn_on_same_semver_collision"
+            ), patch.object(
+                build_pack, "build_zip", side_effect=isolated_build_zip
+            ), patch.object(
+                build_pack, "_run_release_orchestration"
+            ):
+                build_pack.main()
+
+            packages = sorted(
+                path.name
+                for path in output.iterdir()
+                if path.name.startswith("wavefoundry-")
+                and path.suffix in {".zip", ".pyz"}
+            )
+            self.assertEqual(
+                packages,
+                ["wavefoundry-1.5.0.older.zip", "wavefoundry-1.6.0.ptest.zip"],
+            )
+            self.assertTrue(zipfile.is_zipfile(output / packages[1]))
 
     def test_commit_message_carries_the_version_stamp(self):
         root = self._repo_with_version("1.6.0+ptest")

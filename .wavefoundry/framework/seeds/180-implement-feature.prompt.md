@@ -16,18 +16,18 @@ Use this when you want a single command-style request such as:
 
 Intent:
 
-- Ready and execute the active wave — evaluate its admitted changes, coordinate agents and reviews, and drive the implementation-review loop until the wave is **closure-ready**. **Do not** perform **terminal closure** (completed `Status`, `Completed at`, closure-only plan/handoff reconciliation) unless the operator **explicitly confirms** closure in the current request (e.g. **`Close wave`**, **`Finalize feature`**, or a clear yes after you ask). See `docs/prompts/implement-wave.prompt.md` and `docs/prompts/close-wave.prompt.md`.
+- Ready and execute the active wave — evaluate its admitted changes, coordinate implementation and computational verification, then hand complete evidence to `Review wave` until the wave is **closure-ready**. **Do not** perform **terminal closure** (completed `Status`, `Completed at`, closure-only plan/handoff reconciliation) unless the operator **explicitly confirms** closure in the current request (e.g. **`Close wave`**, **`Finalize feature`**, or a clear yes after you ask). See `docs/prompts/implement-wave.prompt.md` and `docs/prompts/close-wave.prompt.md`.
 
 Core execution model:
 
 - the wave is the delivery unit; the coordinator implements all admitted changes together as a cohesive set
 - the coordinator is the wave coordinator for the active wave; review and handoff actions do not create a separate execution authority
-- the coordinator runs or confirms the wave-readiness evaluation before allocating implementer and reviewer lanes
-- the coordinator uses that evaluation to decide which implementer, reviewer, and persona agents must participate for the active wave
+- the coordinator consumes the current wave-readiness approval before allocating implementation work
+- readiness records which implementer, reviewer, and persona agents may be needed; routine inferential reviewer lanes run later through `Review wave`
 - the active wave contains one or more changes; each change may include optional tasks/subtasks when finer tracking is useful
 - the coordinator decides which agents work on which admitted changes or tasks and in what order
-- blocking review findings send the wave back into implementation until the required lanes are clean
-- **`Review wave`** is the operator shortcut for running or reconciling required reviewer lanes **during** this same implementation phase; it shares the coordinator contract with **`Implement wave`** and must not be treated as “only for closure” unless every required lane is already clean or explicitly deferred with recorded rationale
+- blocking delivery-review findings send the wave back into implementation until the required lanes are clean
+- **`Review wave`** is the operator shortcut for the post-implementation inferential review. Implementation uses computational checks and only an exceptional named checkpoint at a high-risk boundary.
 - scoped **work** is done when all admitted changes are implemented and required reviews are clean, or changes are explicitly deferred, moved, or superseded — **formal wave closure** (terminal metadata and closure artifacts) still requires **operator-confirmed** `Close wave` / `Finalize feature` per project prompt docs (for example `docs/prompts/` and `AGENTS.md`)
 - the committed result is the wave as a whole — individual changes do not ship outside a wave
 - incomplete changes carry forward into the next wave under the same `Change ID`; create a new change only when the remaining work is materially different and that split is made explicit
@@ -39,7 +39,7 @@ Implement loop execution model:
 The coordinator's implementation loop follows a ReAct-derived model. Each iteration is explicit and auditable:
 
 - **Thought** — before every lane invocation, record a `Thought:` entry in `## Progress Log` stating *why* this action now (not just what). This is a required step, not optional narration.
-- **Action** — invoke a single, scoped lane (implementer task, reviewer lane, or persona lane) with defined inputs.
+- **Action** — invoke a single, scoped implementation or computational-verification action with defined inputs. A named reviewer checkpoint is permitted only for the Level 2 boundary below.
 - **Observe** — record the lane's output as an `Observe:` entry before the next Thought. When lanes ran concurrently, record a single merged `Observe:` synthesizing all outputs before the next Thought.
 - **Reflect** — after any blocking finding, record a `Reflect:` entry identifying the root cause pattern and any remaining tasks that should be updated proactively to prevent the same class of finding recurring in this wave.
 - **Gapfill** — after all lanes in a phase complete, if any evidence referenced in the briefing packet (per `209-agent-harness-core.prompt.md`) was absent or incomplete, record a `Gapfill:` entry in Progress Log noting what was missing and where it should be added before the next wave. This is a forward-looking record, not a blocking finding.
@@ -47,33 +47,32 @@ The coordinator's implementation loop follows a ReAct-derived model. Each iterat
 Loop levels — the finding type, not severity alone, determines which level activates:
 
 - **Level 1 (Micro):** edit → test → observe → fix, entirely internal to the implementer sub-agent. No Progress Log entry required. Does not involve the coordinator.
-- **Level 2 (Reviewer loop):** implement task(s) → invoke reviewer lane(s) → CRITIC evaluation → fix → re-invoke. Stays within the implementation phase. `Prepare wave` does not re-run. This is the default for findings that do not invalidate an acceptance criterion.
+- **Level 2 (Focused independent checkpoint):** when implementation exposes a logic, behavior, or coverage risk that is not safely implementer-internal but does not invalidate scope or an acceptance criterion, request one named reviewer for that affected boundary, fix, and re-check the boundary. This stays in phase but is exceptional, not the routine delivery review.
 - **Level 3 (Wave lifecycle):** a finding invalidates an acceptance criterion, contradicts the approved plan, crosses an architecture boundary, or reveals scope or requirement ambiguity the coordinator cannot resolve. Coordinator stops, surfaces to operator, routes to `Plan feature` or re-`Prepare wave` before continuing.
 
 Finding escalation — apply this table before deciding which loop level to activate:
 
 | Finding type | Level | Coordinator action |
 |---|---|---|
-| Code quality, style, formatting | 2 | Fix in place, re-run reviewer lane |
-| Missing test coverage | 2 | Add tests, re-run qa-reviewer |
-| Logic error, missing behavior | 2 | Fix, re-run affected lanes |
+| Code quality, style, formatting | 1 | Fix in place and rerun focused computational checks |
+| Missing test coverage | 2 | Request a named QA checkpoint for the affected boundary, add tests, and re-check it |
+| Logic error, missing behavior | 2 | Request a named code-review checkpoint for the affected boundary, fix, and re-check it |
 | Scope creep discovered during implementation | 3 | Stop, update change doc, operator resolution, re-Prepare |
 | Finding invalidates an acceptance criterion | 3 | Stop, surface to operator, route to Plan feature or re-Prepare |
 | Architecture boundary violation | 3 | Stop, route to architecture-reviewer + operator, re-Prepare |
 | Requirement ambiguity blocking implementation | 3 | Stop, operator resolution, update change doc, re-Prepare |
 | Accepted tradeoff with recorded rationale | Exit loop | Record in change doc, continue |
 
-CRITIC evaluation — after each review cycle, before deciding which loop level to activate:
+Finding classification — after an exceptional named checkpoint or the delivery review, before deciding which loop level to activate:
 - For each finding, evaluate: does this invalidate any acceptance criterion in the change doc?
 - Early exit on first match — if yes, escalate to Level 3.
-- If no finding matches any criterion, route to Level 2.
-- "All reviewer lanes clean" alone is not the exit condition for the implement loop; all acceptance criteria met is.
+- If no finding matches any criterion, use Level 1 when the issue is safely internal; use the named Level 2 checkpoint only when independent judgment is needed at the affected boundary.
+- "All reviewer lanes clean" alone is not the closure-ready condition; all acceptance criteria must also be met.
 
-Parallel lane merge — when reviewer or persona lanes with no shared dependencies run concurrently:
-- The coordinator invokes them together (one Action per concurrent set).
-- The coordinator records a single merged `Observe:` synthesizing all lane outputs before the next `Thought:`.
-- The coordinator does not act on partial findings from one lane while others are still running.
-- When multiple lanes produce overlapping findings, the coordinator deduplicates by `finding_id` (per `209-agent-harness-core.prompt.md`) before recording the merged Observe.
+Parallel action merge — when implementation or computational-verification actions with no shared dependencies run concurrently:
+- The coordinator invokes them together and records a single merged `Observe:` before the next `Thought:`.
+- The coordinator does not act on partial results while related actions are still running.
+- Routine inferential reviewer fan-out and finding deduplication belong to `Review wave`.
 
 Wave plan — extends the operator-approval checkpoint (see Machine-usable execution expectations below):
 - Before the first edit, the coordinator assembles a briefing packet per `209-agent-harness-core.prompt.md` required fields (`wave_id`, `phase`, `change_ids`, `trust_boundaries_touched`, `files_in_scope`) as part of the wave plan.
@@ -81,37 +80,9 @@ Wave plan — extends the operator-approval checkpoint (see Machine-usable execu
 - This plan is what the operator reviews before implementation begins — not just a list of files, but an ordered execution sequence. An explicit implementation instruction in the current request such as `Implement wave` or `Implement feature` counts as approval to proceed once the plan is surfaced, unless repo-local docs, the active handoff, or a material review-driven packet change creates an explicit hold.
 - Deviations from the plan are named `Deviation:` events recorded in Progress Log, not silent reorderings.
 
-Pre-implementation review gate:
+Readiness handoff:
 
-This gate is the **mandatory first phase of `Implement wave`** — it runs after the wave plan is assembled and before the first code edit. Its purpose is not to re-do readiness; it is to challenge the wave from the perspective of likely failure and confirm the implementation packet contains enough information to proceed without avoidable churn.
-
-**Step 1 — Pre-mortem:** Assume the implementation was completed and produced avoidable rework, missed a key assumption, or required a re-Prepare. Name the 3–5 most likely causes before writing any code. Use these categories to structure the challenge:
-- Misunderstood or ambiguous scope in the change doc
-- Missing codebase knowledge (what a symbol does, who calls it, what the dominant pattern is)
-- Unknown dependency or ordering between admitted changes
-- Missing test or verification strategy
-- Hidden trust, data, or interface assumption not surfaced in requirements
-- Missing or wrong builder lanes or review lanes for the work
-
-**Step 2 — Packet completeness check:** Before the first edit, verify the following are all present and current:
-- Every admitted change doc is complete and contains both Requirements and Acceptance Criteria
-- AC priority has been recorded (required / important / nice-to-have / not this scope)
-- Required review and builder lanes are selected and recorded in the wave record
-- Relevant architecture docs, specs, or context docs are identified
-- Key unknowns and risk areas named in Step 1 are either resolved or explicitly accepted as known risks
-- The ordered lane sequence (from the wave plan) is grounded in MCP evidence, not shell-discovered assumptions
-
-**Step 3 — Verdict:** Record the outcome in the wave record under `## Review Checkpoints` using this format:
-```
-- pre-implementation-review: passed (<date>) — pre-mortem completed, packet complete, [brief note on highest risk and how it was addressed]
-```
-Or, if the gate finds a blocking gap:
-```
-- pre-implementation-review: blocked (<date>) — [specific missing evidence or unresolved risk that must be resolved before coding starts]
-```
-A `blocked` verdict halts implementation until the gap is resolved and the gate is re-run with a `passed` verdict.
-
-When `wave_review.enabled` is true: the existing `wave-council-readiness` verdict proves the wave was admissible; the pre-implementation verdict is the coordinator's own packet-completeness and failure-mode challenge. Both must be present before the first edit. The council does not need to run a second session for this gate unless the coordinator's pre-mortem reveals a risk large enough to require council-level synthesis.
+`Prepare wave` owns the single pre-code critique: failure-first analysis, packet completeness, and the current readiness approval. Before editing, consume that approval and the ordered implementation plan. Do not repeat the critique or mint a second approval inside `Implement wave`.
 
 MCP-first code exploration:
 
@@ -231,7 +202,7 @@ Required tasks:
 7. Assign admitted changes, tasks, and review lanes to agents and personas.
 8. Confirm the wave roster, allocation rules, dependency rules, readiness checkpoints, and review checkpoints.
 9. Before the first edit, produce the wave plan: an ordered lane sequence with scoped inputs per serialization unit. This is the plan the operator approves at the checkpoint in task 8. Record it in the wave's Progress Log as the baseline. Deviations are `Deviation:` events, not silent reorderings.
-10. Execute the implement loop per the **Implement loop execution model** above (Thought → Action → Observe → Reflect, with CRITIC evaluation and Level 1/2/3 escalation). Defaults apply as specified there; do not restate them inline. After implementation tasks are complete and before invoking inferential reviewer lanes, run `wf_run_sensors()` if the project has computational sensors configured — fix any sensor failures before proceeding to reviewer lanes.
+10. Execute the implement loop per the **Implement loop execution model** above (Thought → Action → Observe → Reflect, with Level 1/2/3 escalation). Defaults apply as specified there; do not restate them inline. Run `wf_run_sensors()` when computational sensors are configured and fix sensor failures. After implementation evidence is complete, hand off to `Review wave` for routine inferential lanes.
 11. Coordinate execution until the wave objective is satisfied or the wave must be reconsidered.
 12. Reconcile partial completions, blocked changes, retries, deferred work, or moved work as execution proceeds.
 13. Rerun the readiness evaluation during final review before closure is accepted. After confirming required reviewer lanes are clean and required acceptance criteria are met, run an **AC scope gap check**: surface important/nice-to-have items not in admitted scope that would add value, confirm not-this-scope deferrals, and present a short prioritized list so the operator can decide before closure whether to admit follow-on work or carry it to the next wave. Keep this pass bounded — one list, no full discovery exercise.

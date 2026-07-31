@@ -24,6 +24,17 @@ from unittest.mock import MagicMock, patch
 SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
 
 
+def integrity_checks() -> dict[str, object]:
+    return {
+        "test_ran_without_unintended_skip": True,
+        "public_path_reached": True,
+        "boundary_values_realistic": True,
+        "assertions_non_vacuous": True,
+        "known_bad_detected": True,
+        "known_bad_detection_method": "known-bad fixture mutation was detected",
+    }
+
+
 def _load(name: str):
     spec = importlib.util.spec_from_file_location(name, SCRIPTS_ROOT / f"{name}.py")
     mod = importlib.util.module_from_spec(spec)
@@ -267,6 +278,63 @@ class LifecycleMemoryIdTests(_MemoryCase):
         finally:
             conn.close()
         self.assertEqual(str(row["memory_id"]), alpha_new)
+
+    def test_rerun_normalizes_truncated_legacy_slug_before_repairing_store_row(self):
+        """External pfq6 reproduction: generated legacy ids may end in ``-``
+        after their bounded slug is truncated, while lifecycle-name minting
+        strips that dash.  The state-derived repair must use the same canonical
+        slug on retry or a rewritten/superseded candidate remains permanently
+        missing from the historical-memory gate.
+        """
+
+        self._v2_policy()
+        from datetime import datetime, timezone
+
+        old_id = "mem-" + ("a" * 59) + "-"
+        ts = datetime(2026, 1, 10, tzinfo=timezone.utc)
+        new_id = self.mem.mint_memory_id(self.root, old_id[4:], timestamp=ts)
+        self.assertEqual(new_id.split("-mem ", 1)[1], "a" * 59)
+        content = self.mem.render_memory_record(
+            memory_id=new_id,
+            kind="decision",
+            summary="A rewritten candidate already captured by its successor.",
+            evidence=["`1abcd-bug some-change` — observed"],
+            targets=["src/a.py"],
+            status="superseded",
+            date="2026-01-10",
+        )
+        self.mem.write_memory_record(self.root, content, new_id)
+
+        backfill = _load("memory_backfill")
+        run_id = backfill.ensure_run(self.root, "manual")
+        conn = backfill._connect(self.root)
+        try:
+            with conn:
+                conn.execute(
+                    "INSERT INTO memory_backfill_sources"
+                    "(run_id,wave_id,source_event,memory_id) VALUES (?,?,?,?)",
+                    (run_id, "1aaa closed", "decision-log:x", old_id),
+                )
+        finally:
+            conn.close()
+
+        result = self.mem.migrate_memory_ids_to_lifecycle_naming(self.root)
+        self.assertEqual(result["renamed"], 0)
+        self.assertEqual(result["residual_references"], [])
+        self.assertEqual(result["references_repaired"], 1)
+        conn = backfill._connect(self.root)
+        try:
+            row = conn.execute(
+                "SELECT memory_id FROM memory_backfill_sources WHERE run_id=?",
+                (run_id,),
+            ).fetchone()
+        finally:
+            conn.close()
+        self.assertEqual(str(row["memory_id"]), new_id)
+
+        again = self.mem.migrate_memory_ids_to_lifecycle_naming(self.root)
+        self.assertEqual(again["references_repaired"], 0)
+        self.assertEqual(again["residual_references"], [])
 
     def test_rerun_completes_interrupted_rename_without_collision(self):
         """Operator P1 reproduction (window 2): a crash between writing the
@@ -2259,7 +2327,7 @@ class MemoryProposeTests(_MemoryCase):
                 "limitations": "producer-derived local fixture",
                 "safety_and_authorization": "local fixture only",
                 "disposition_rationale": "a reproduced required-contract defect",
-                "integrity_confirmed": True,
+                "integrity_checks": integrity_checks(),
                 "review_boundaries_changed": [],
                 "source_lanes": ["qa-reviewer"],
                 "blocking_required_lanes": ["qa-reviewer"],
@@ -2593,7 +2661,7 @@ class MemoryProposeTests(_MemoryCase):
             "limitations": "local disposable fixture",
             "safety_and_authorization": "local fixture only",
             "disposition_rationale": "a reproduced required-contract defect",
-            "integrity_confirmed": True,
+            "integrity_checks": integrity_checks(),
             "review_boundaries_changed": [],
             "source_lanes": ["qa-reviewer"],
             "blocking_required_lanes": ["qa-reviewer"],
@@ -2663,7 +2731,7 @@ class MemoryProposeTests(_MemoryCase):
             "known_bad_detection_method": "pre-repair behavior probe",
             "limitations": "local fixture", "safety_and_authorization": "local",
             "disposition_rationale": "a reproduced required-contract defect",
-            "integrity_confirmed": True, "review_boundaries_changed": [],
+            "integrity_checks": integrity_checks(), "review_boundaries_changed": [],
             "source_lanes": ["qa-reviewer"],
             "blocking_required_lanes": ["qa-reviewer"],
             "approval_recheck_lanes": ["qa-reviewer"],

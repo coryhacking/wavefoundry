@@ -496,6 +496,54 @@ def _wave_dir_status(wave_dir: Path) -> Optional[str]:
     return match.group(1).lower() if match else None
 
 
+def resolve_migrated_memory_id(root: Path, legacy_id: str) -> Optional[str]:
+    """Resolve one legacy ``mem-*`` id to its unique verified lifecycle record.
+
+    Lifecycle-name minting canonicalizes the legacy suffix through
+    :func:`slugify`.  Recovery must apply the same transform because a bounded
+    legacy id can end in a truncation dash that is absent from the migrated
+    filename.  No match is an ordinary unresolved candidate and returns
+    ``None``.  Multiple filename matches, or a matching file whose internal
+    id disagrees with its filename, are corrupt/ambiguous authority and fail
+    loud rather than guessing.
+    """
+
+    token = str(legacy_id or "")
+    if not token.startswith("mem-"):
+        return None
+    slug = slugify(token[4:])
+    if len(slug) < 2:
+        return None
+    memory_root = canonical_memory_root(root)
+    if memory_root is None or not memory_root.is_dir():
+        return None
+    matches = sorted(memory_root.glob(f"*-mem {slug}.md"))
+    if not matches:
+        return None
+    verified: list[str] = []
+    for path in matches:
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError as exc:
+            raise ValueError(
+                f"migrated memory record is unreadable while resolving {token!r}: "
+                f"{path.name!r}"
+            ) from exc
+        internal_id = _ID_RE.search(text)
+        if internal_id is None or internal_id.group(1) != path.stem:
+            raise ValueError(
+                "migrated memory record does not match its filename while "
+                f"resolving {token!r}: {path.name!r}"
+            )
+        verified.append(path.stem)
+    if len(verified) != 1:
+        raise ValueError(
+            f"ambiguous migrated memory id for {token!r}: "
+            + ", ".join(repr(value) for value in verified)
+        )
+    return verified[0]
+
+
 def migrate_memory_ids_to_lifecycle_naming(root: Path) -> dict[str, Any]:
     """Rename generated legacy ``mem-*`` records to ``<lifecycleId>-mem <slug>``.
 
@@ -516,9 +564,11 @@ def migrate_memory_ids_to_lifecycle_naming(root: Path) -> dict[str, Any]:
       legacy file is removed to complete the interrupted step; only a target
       whose internal id disagrees raises.
     - Reference passes: stale backticked ``mem-``-prefixed tokens are
-      DISCOVERED by scanning and resolved to their migrated record by slug
-      lookup against the directory — so references are repaired even when the
-      rename happened in an earlier interrupted run. Scope: the memory root,
+      DISCOVERED by scanning and resolved to their migrated record by applying
+      the same canonical slug normalization as the rename mint, then looking
+      up that slug in the directory — so references are repaired even when the
+      rename happened in an earlier interrupted run (including a truncated
+      legacy id whose trailing dash was stripped during minting). Scope: the memory root,
       every live doc surface (``docs/**/*.md`` plus repository-root
       markdown), and the ``memory_backfill_sources`` rows. Closed or
       unclassifiable wave directories are skipped silently — archives keep
@@ -588,21 +638,12 @@ def migrate_memory_ids_to_lifecycle_naming(root: Path) -> dict[str, Any]:
         mapping[old_id] = new_id
         renamed += 1
 
-    def _resolve_stale(token: str) -> Optional[str]:
-        slug = token[4:]
-        if len(slug) < 2:
-            return None
-        matches = list(memory_root.glob(f"*-mem {slug}.md"))
-        if len(matches) == 1:
-            return matches[0].stem
-        return None
-
     def _repair_text_file(path: Path) -> tuple[int, list[str]]:
         text = original = path.read_text(encoding="utf-8")
         repaired = 0
         unresolved: list[str] = []
         for token in sorted(set(_LEGACY_REF_TOKEN_RE.findall(text))):
-            new_id = _resolve_stale(token)
+            new_id = resolve_migrated_memory_id(root, token)
             if new_id is None:
                 unresolved.append(token)
                 continue
@@ -655,7 +696,7 @@ def migrate_memory_ids_to_lifecycle_naming(root: Path) -> dict[str, Any]:
                     "WHERE memory_id LIKE 'mem-%'"
                 ).fetchall()
                 for (stale_id,) in rows:
-                    new_id = _resolve_stale(str(stale_id))
+                    new_id = resolve_migrated_memory_id(root, str(stale_id))
                     if new_id is None:
                         residual_references.append(
                             {"path": "memory-state.sqlite", "token": str(stale_id)}

@@ -17,7 +17,7 @@ The install state machine is `wavefoundry-install-log.md`, a pre-populated check
 
 ## How to enter
 
-- **From a fresh zip** (the common case): operator extracts the zip into their repo root. Agent finds `install-wavefoundry.md` and follows the install log.
+- **From a fresh zip** (the common case): the zip is unpacked into the repo root with a **scoped** extraction — only `.wavefoundry/*` and `install-wavefoundry.md` (`unzip -o <zip> '.wavefoundry/*' 'install-wavefoundry.md' -d .`). The release zip also carries its own zipapp installer members at the zip root (`payload/*`, `__main__.py`, `upgrade_bridge_bootstrap.py`, `subprocess_util.py`); an unscoped extraction dumps them into the project root as debris and can overwrite same-named project files — never delete those names to compensate, scope the extraction instead. Agent finds `install-wavefoundry.md` and follows the install log.
 - **From the shortcut phrase** (`Install Wavefoundry` etc.): if the install log already exists, continue from the first unchecked row. If the install log doesn't exist (rare — only when the entry doc was deleted), regenerate it from `.wavefoundry/framework/templates/wavefoundry-install-log.md.template`.
 - **Mid-install resumption**: a new agent session entering this surface MUST call `wf_audit_install` first to confirm the log's `[x]` markers actually have their expected artifacts. The trustworthy-invariant rule is captured in `docs/references/install-log-format.md`.
 

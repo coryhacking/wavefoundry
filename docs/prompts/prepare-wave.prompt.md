@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-27
+Last verified: 2026-07-31
 
 Shortcut: **`Prepare wave`** | Alias: **`Ready wave`**
 
@@ -16,7 +16,7 @@ Confirm wave readiness before implementation begins. The stage gate: implementat
 2. Confirm each change doc is complete: Rationale, Requirements, Scope, Acceptance Criteria, Affected architecture docs.
 3. Select required review lanes for each admitted change (see `docs/contributing/agent-team-workflow.md`).
 4. Confirm `qa-reviewer` is included for any bug fix (`review_policies.require_qa_reviewer_for_bug_fixes: true`).
-5. When `wave_review.enabled` is true, run the Wave Council readiness pass in two phases: first, the `wave-council` declares a **primer depth tier** (`lightweight` / `standard` / `full`) based on trust boundaries touched, files in scope, and change type — this sets how many stances and `primer_questions` Phase 1 produces; (1) `red-team` runs the adversarial primer (`council-adversarial-primer` mode) first in isolation at the declared depth — strongest challenge, best alternative, and `primer_questions`; (2) fixed seats each receive the standard briefing plus the primer output and must address `strongest_challenge` and `primer_questions` before producing their own findings; a rotating fifth seat finds the strongest alternative path the wave did not take; `wave-council` synthesizes all outputs; record `wave-council-readiness` (on declared waves as a typed approval event via `wf_review_event`, which projects into `## Review Evidence`; only legacy prose waves record the signoff line directly) and the narrative verdict in `## Review checkpoints`. The recorded verdict must be a structured `prepare-council` line with `moderator`, `primer-depth`, `seats`, `rotating-seat`, `strongest-challenge`, and `strongest-alternative` fields; `seats:` names the seats actually run, each at most once, and every rostered seat must have recorded evidence in the wave record (docs-lint checks this roster⇄evidence consistency — see `docs/prompts/council-review.prompt.md`). **`wf_prepare_wave` signals this step with `status: "ready_for_council_review"` — run the review immediately when you see that status, then call `wf_prepare_wave` again (mode `ready` to ready-without-opening, or `create` to prepare-and-open) to complete prepare.**
+5. When `wave_review.enabled` is true, run the Wave Council readiness pass in two phases: first, the `wave-council` declares a **primer depth tier** (`lightweight` / `standard` / `full`) based on trust boundaries touched, files in scope, and change type — this sets how many stances and `primer_questions` Phase 1 produces; (1) `red-team` runs the adversarial primer (`council-adversarial-primer` mode) first in isolation at the declared depth — strongest challenge, best alternative, and `primer_questions`; (2) fixed seats each receive the standard briefing plus the primer output and must address `strongest_challenge` and `primer_questions` before producing their own findings; a rotating fifth seat finds the strongest alternative path the wave did not take; `wave-council` synthesizes all outputs. On declared waves, record `wave-council-readiness` as a typed approval event via `wf_review_event`; this typed record is the sole machine authority, and any structured `prepare-council` checkpoint is narrative only. Legacy prose waves retain the structured checkpoint compatibility gate. Call `wf_prepare_wave` again after the current typed approval is recorded (`ready` to ready without opening, or `create` to prepare and open).
 6. **AC priority check:** categorize each admitted change's ACs as required / important / nice-to-have / not-this-scope; record in `## AC priority` on the change doc; interrogate required and important ACs until each classification is explicitly justified. ACs admitted with the `[~]` marker (intentionally not met from the outset) are unusual but accepted — they must already carry an inline status note explaining the deferral, and the `## AC priority` row must still record their priority. See `.wavefoundry/framework/seeds/170-plan-feature.prompt.md` *"AC and task checkbox states — the `[~]` marker"* for the canonical convention. Note the close-time hard gate: silent `[ ]` items block `wf_close_wave`, so prepare-time AC tracking habits matter.
 7. Record product-owner acknowledgment for product-impacting waves (feature changes shifting product behavior/UX/acceptance).
 8. Record the readiness verdict; the wave stays **readied** (`Status: planned`). Readiness no longer flips the wave to `active` (wave 1p45l) — opening it is a separate, single-OPEN-gated step. Complete readiness with `wf_prepare_wave(mode='ready')` (readies without opening — works while another wave is OPEN) or `wf_prepare_wave(mode='create')` (prepare-and-open in one step, the common single-wave flow).
@@ -31,7 +31,7 @@ Record a readiness verdict in the wave record `## Review checkpoints` (e.g., `Pr
 - AC priority is recorded on each change doc
 - Product-owner acknowledgment is recorded (when applicable)
 
-A clean readiness verdict confirms the wave is **admissible**. It does not replace the **pre-implementation review gate**, which is the mandatory first phase of `Implement wave`. The lifecycle sequence is: `Prepare wave` (readiness) → **pre-implementation review gate** (first phase of `Implement wave`) → first code edit.
+A clean readiness verdict confirms the wave is **admissible** and is the single pre-code review decision. The lifecycle sequence is: `Prepare wave` (failure-first critique, packet completeness, current readiness approval) → `Implement wave` → first code edit.
 
 ## Single-OPEN-Wave Rule
 
@@ -75,3 +75,11 @@ Assign lanes at Prepare time and record them in the wave record `## Participants
 When Wave Council is enabled, `red-team` always runs first as the adversarial primer (Phase 1) before any other seat. The fixed Phase 2 seats are `architecture-reviewer`, `security-reviewer`, `qa-reviewer`, and `reality-checker` — each receives the red-team primer and must engage with it. The fifth seat rotates from the admitted wave evidence: prefer `docs-contract-reviewer` for seed/prompt/contract work, `performance-reviewer` for indexing/search/hot-path work, `release-reviewer` for packaging/distribution work, or an applicable persona when operator-facing acceptance is central.
 
 **Do not assign** legacy factor lanes (`factor-12`, `factor-13`) — these have no governing prompt body and their review obligations are covered by the lanes above.
+
+<!-- wavefoundry:review-policy:begin -->
+## Review-policy readiness
+
+Prepare Wave is the single readiness authority. It evaluates the configured
+`wave_review.delivery_mode`, records the review-policy receipt, and requires a
+re-Prepare whenever policy inputs change before implementation.
+<!-- wavefoundry:review-policy:end -->

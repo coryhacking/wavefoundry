@@ -33,11 +33,16 @@ prose implementation survives only as the legacy branch inside
 
 from __future__ import annotations
 
+import sys
 import unittest
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 FRAMEWORK = REPO_ROOT / ".wavefoundry" / "framework"
+if str(FRAMEWORK / "scripts") not in sys.path:
+    sys.path.insert(0, str(FRAMEWORK / "scripts"))
+
+from review_policy import RETIRED_LIFECYCLE_TOKENS
 
 
 # Adoption-only API symbols, migration helpers, retired projector, and
@@ -102,6 +107,7 @@ BOUNDED_ALLOWANCES = {
         ".wavefoundry/framework/scripts/review_evidence.py",
         ".wavefoundry/framework/scripts/upgrade_wavefoundry.py",
         ".wavefoundry/framework/scripts/upgrade_extensions.py",
+        ".wavefoundry/framework/scripts/upgrade_bridge_bootstrap.py",
         ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md",
         "docs/architecture/cross-cutting-concerns.md",
         "docs/architecture/data-and-control-flow.md",
@@ -170,6 +176,7 @@ TEST_ALLOWANCES: dict[str, frozenset[str]] = {
     # project_state_publication_lock: cross-process lock probes are real uses.
     "review-evidence-adoptions.lock": frozenset({
         f"{_TESTS_PREFIX}/test_review_evidence.py",
+        f"{_TESTS_PREFIX}/test_review_policy.py",
         f"{_TESTS_PREFIX}/test_runtime_lock.py",
         f"{_TESTS_PREFIX}/test_upgrade_wavefoundry.py",
     }),
@@ -180,7 +187,143 @@ TEST_ALLOWANCES: dict[str, frozenset[str]] = {
     "prose_max_severity": frozenset({f"{_TESTS_PREFIX}/test_server_tools.py"}),
 }
 
-TEXT_SUFFIXES = {".py", ".md", ".json", ".toml", ".txt", ".yml", ".yaml", ".js", ".css", ".html", ".cmd", ".sh", ""}
+TEXT_SUFFIXES = {".py", ".md", ".mdc", ".json", ".toml", ".txt", ".yml", ".yaml", ".js", ".css", ".html", ".cmd", ".sh", ""}
+
+
+# Wave 1tsyx (AC-3): the retired pre-implementation review gate appears as
+# both a machine-readable verdict token and prose. Keep the forms separate so
+# a carrier cannot survive merely by dropping the token while retaining the
+# instruction. Matching is case-insensitive; the values here are normalized.
+PREIMPLEMENTATION_GATE_TOKENS = RETIRED_LIFECYCLE_TOKENS
+
+# These are the committed, project-local host surfaces rendered by the
+# framework today, plus reserved roots for supported hosts whose renderer may
+# add a surface later. Scanning a missing directory is intentionally a no-op;
+# the non-vacuity test pins every surface that exists in this repository.
+PREIMPLEMENTATION_PLATFORM_DIRS = (
+    ".agents",       # Antigravity
+    ".air",          # Air (when a project-local surface is available)
+    ".claude",       # Claude Code
+    ".codex",        # Codex
+    ".cursor",       # Cursor
+    ".github",       # Copilot
+    ".junie",        # Junie
+    ".vscode",       # Copilot workspace surface, when present
+    ".windsurf",     # Windsurf
+)
+PREIMPLEMENTATION_ROOT_SURFACES = (
+    "AGENTS.md",
+    "AIR.md",
+    "CLAUDE.md",
+    "GEMINI.md",
+    "README.md",
+    "WARP.md",
+)
+
+# Exact file/token/count allowances for historical prose that is evidence of
+# the retired gate rather than a live instruction. The expected count makes
+# each allowance load-bearing in both directions: deletion makes it stale and
+# another occurrence in the same file exceeds the allowance rather than being
+# hidden by it. Every entry also carries its required written justification.
+PREIMPLEMENTATION_GATE_ALLOWANCES: dict[
+    str, dict[str, tuple[int, str]]
+] = {
+    "pre-implementation review gate": {
+        "docs/agents/wave-coordinator.md": (
+            1,
+            "dated planning-history entry recording the gate's original introduction",
+        ),
+    },
+}
+
+
+def _normalized_preimplementation_text(text: str) -> str:
+    """Case-fold and collapse layout whitespace so line wrapping cannot evade a token."""
+    return " ".join(text.casefold().split())
+
+
+def _preimplementation_carrier_files(root: Path = REPO_ROOT) -> list[Path]:
+    """Return every current carrier that may install or instruct the gate."""
+    relative_dirs = (
+        ".wavefoundry/framework/seeds",
+        ".wavefoundry/framework/install",
+        "docs/prompts",
+        "docs/agents",
+        "docs/architecture",
+        "docs/contributing",
+        "docs/references",
+        "docs/specs",
+        *PREIMPLEMENTATION_PLATFORM_DIRS,
+    )
+    files: set[Path] = set()
+    for rel in relative_dirs:
+        base = root / rel
+        if not base.is_dir():
+            continue
+        for path in base.rglob("*"):
+            if path.is_file() and path.suffix in TEXT_SUFFIXES:
+                files.add(path)
+    for rel in PREIMPLEMENTATION_ROOT_SURFACES:
+        path = root / rel
+        if path.is_file():
+            files.add(path)
+    framework_readme = root / ".wavefoundry" / "framework" / "README.md"
+    if framework_readme.is_file():
+        files.add(framework_readme)
+    owner_readme = root / ".wavefoundry" / "README.md"
+    if owner_readme.is_file():
+        files.add(owner_readme)
+    return sorted(files)
+
+
+def _scan_preimplementation_gate(files: list[Path], root: Path) -> list[str]:
+    """Flag retired gate carriers outside exact, count-bounded allowances."""
+    violations: list[str] = []
+    for path in files:
+        try:
+            text = _normalized_preimplementation_text(
+                path.read_text(encoding="utf-8")
+            )
+        except (OSError, UnicodeDecodeError):
+            continue
+        rel = str(path.relative_to(root)).replace("\\", "/")
+        for token in PREIMPLEMENTATION_GATE_TOKENS:
+            count = text.count(token)
+            if count == 0:
+                continue
+            allowance = PREIMPLEMENTATION_GATE_ALLOWANCES.get(token, {}).get(rel)
+            if allowance is not None and count == allowance[0]:
+                continue
+            violations.append(f"{rel}: {token} ({count} occurrence(s))")
+    return violations
+
+
+def _dead_preimplementation_allowances(
+    root: Path,
+    allowances: dict[str, dict[str, tuple[int, str]]] | None = None,
+) -> list[str]:
+    """Reject missing, stale, count-drifted, or unjustified allowances."""
+    dead: list[str] = []
+    table = PREIMPLEMENTATION_GATE_ALLOWANCES if allowances is None else allowances
+    for token, entries in sorted(table.items()):
+        for rel, (expected_count, justification) in sorted(entries.items()):
+            path = root / rel
+            try:
+                text = _normalized_preimplementation_text(
+                    path.read_text(encoding="utf-8")
+                )
+            except (OSError, UnicodeDecodeError):
+                dead.append(f"{rel}: {token} (allowance file missing or unreadable)")
+                continue
+            actual_count = text.count(token)
+            if actual_count != expected_count:
+                dead.append(
+                    f"{rel}: {token} (allowance expected {expected_count}, "
+                    f"found {actual_count})"
+                )
+            if not justification.strip():
+                dead.append(f"{rel}: {token} (allowance has no justification)")
+    return dead
 
 
 def _census_files() -> list[Path]:
@@ -323,6 +466,275 @@ class EventsOnlyResidueCensusTests(unittest.TestCase):
         self.assertIn(".wavefoundry/framework/scripts/upgrade_wavefoundry.py", rels)
         self.assertIn("docs/architecture/data-and-control-flow.md", rels)
         self.assertIn("docs/specs/mcp-tool-surface.md", rels)
+
+    def test_preimplementation_carrier_scope_is_non_vacuous(self):
+        files = _preimplementation_carrier_files()
+        rels = {str(f.relative_to(REPO_ROOT)).replace("\\", "/") for f in files}
+        # Canonical/install/rendered prompt carriers plus the public README.
+        self.assertIn(
+            ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md", rels
+        )
+        self.assertIn(
+            ".wavefoundry/framework/install/lifecycle-prompts/implement-wave.prompt.md",
+            rels,
+        )
+        self.assertIn("docs/prompts/implement-wave.prompt.md", rels)
+        self.assertIn(".wavefoundry/README.md", rels)
+        self.assertIn(".wavefoundry/framework/README.md", rels)
+        self.assertIn("docs/contributing/feature-workflow.md", rels)
+        self.assertIn("README.md", rels)
+        # Every committed platform family is inside the executable scope.
+        self.assertIn(".agents/mcp_config.json", rels)
+        self.assertIn(".claude/skills/upgrade-wave.md", rels)
+        self.assertIn(".codex/skills/auto-guru/SKILL.md", rels)
+        self.assertIn(".cursor/rules/project-context.mdc", rels)
+        self.assertIn(".github/copilot-instructions.md", rels)
+        self.assertIn(".junie/guidelines.md", rels)
+        self.assertIn(".windsurf/hooks/docs-lint.py", rels)
+        self.assertIn("WARP.md", rels)
+
+    def test_no_live_surface_retains_preimplementation_review_gate(self):
+        self.maxDiff = None
+        self.assertEqual(
+            _scan_preimplementation_gate(
+                _preimplementation_carrier_files(), REPO_ROOT
+            ),
+            [],
+        )
+
+    def test_review_system_keeps_the_existing_final_readiness_recheck_contract(self):
+        text = (
+            REPO_ROOT / ".wavefoundry" / "framework" / "seeds"
+            / "007-review-system-overview.md"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "The same readiness evaluation used before implementation should be rerun "
+            "during final review before closure.",
+            text,
+        )
+        self.assertNotIn(
+            "does not rerun or replace the readiness decision",
+            text,
+        )
+
+    def test_upgrade_seed_does_not_claim_downstream_reconciliation(self):
+        text = (
+            REPO_ROOT / ".wavefoundry" / "framework" / "seeds"
+            / "160-upgrade-wavefoundry.prompt.md"
+        ).read_text(encoding="utf-8")
+        self.assertNotIn(
+            "reconcile every previously installed retired review-lifecycle carrier",
+            text,
+        )
+        self.assertNotIn(
+            "recursively scan every live file under `docs/prompts/`",
+            text,
+        )
+        self.assertNotIn(
+            "## Retired review-lifecycle reconciliation",
+            (
+                REPO_ROOT / "docs" / "prompts" / "upgrade-wavefoundry.prompt.md"
+            ).read_text(encoding="utf-8"),
+        )
+
+    def test_historical_target_carrier_family_is_detected_before_reconciliation(self):
+        import tempfile
+
+        historical = {
+            "docs/prompts/implement-wave.prompt.md": (
+                "## Pre-Implementation Review Gate\n"
+                "Runs parallel reviewer lanes (those with no shared dependencies) concurrently.\n"
+                "Level 2 is the reviewer loop; reviewers participate during implementation.\n"
+            ),
+            "docs/prompts/review-wave.prompt.md": (
+                "## Pre-Implementation Gate Reconciliation\n"
+                "Blocking findings return the wave to implementation (Level 2 loop).\n"
+                "Verify that the prior prepare-council verdict was structured and machine-readable.\n"
+            ),
+            "docs/prompts/agents/review-wave.prompt.md": (
+                "Level 2: fix and re-run reviewer, no re-Prepare.\n"
+            ),
+            "docs/prompts/council-review.prompt.md": (
+                "The recorded verdict must be written back into `## Review Checkpoints` "
+                "as a structured `prepare-council` line.\n"
+                "The lifecycle gate only accepts that structured verdict.\n"
+            ),
+            "docs/prompts/prepare-wave.prompt.md": (
+                "The recorded verdict must be a structured `prepare-council` line.\n"
+                "`wf_prepare_wave` signals this step with `status: \"ready_for_council_review\"`.\n"
+                "pre-implementation-review: passed\n"
+            ),
+        }
+        current = {
+            "docs/prompts/implement-wave.prompt.md": (
+                "Prepare owns the single pre-code critique; an exceptional named checkpoint "
+                "is available at a high-risk boundary.\n"
+            ),
+            "docs/prompts/review-wave.prompt.md": (
+                "Record repair_start before mutation and reverify the typed finding chain.\n"
+            ),
+            "docs/prompts/agents/review-wave.prompt.md": (
+                "Level 2: exceptional named checkpoint at the affected boundary.\n"
+            ),
+            "docs/prompts/council-review.prompt.md": (
+                "Declared waves consume typed readiness authority; legacy prose stays narrative.\n"
+            ),
+            "docs/prompts/prepare-wave.prompt.md": (
+                "Readiness approval is the single pre-code review decision.\n"
+            ),
+        }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for rel, body in historical.items():
+                path = root / rel
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(body, encoding="utf-8")
+
+            violations = _scan_preimplementation_gate(
+                _preimplementation_carrier_files(root), root
+            )
+            violation_paths = {entry.split(": ", 1)[0] for entry in violations}
+            self.assertEqual(violation_paths, set(historical))
+
+            for rel, body in current.items():
+                (root / rel).write_text(body, encoding="utf-8")
+            self.assertEqual(
+                _scan_preimplementation_gate(
+                    _preimplementation_carrier_files(root), root
+                ),
+                [],
+            )
+
+    def test_each_new_historical_semantic_route_is_detected_individually(self):
+        import tempfile
+
+        routes = {
+            "`wf_prepare_wave` signals this step with `status: \"ready_for_council_review\"`":
+                "`wf_prepare_wave` signals this step with `status: \"ready_for_council_review\"`",
+            "The recorded verdict must be a structured `prepare-council` line":
+                "the recorded verdict must be a structured `prepare-council` line",
+            "Runs parallel reviewer lanes (those with no shared dependencies) concurrently":
+                "runs parallel reviewer lanes (those with no shared dependencies) concurrently",
+            "The recorded verdict must be written back into `## Review Checkpoints` "
+            "as a structured `prepare-council` line":
+                "recorded verdict must be written back into `## review checkpoints` "
+                "as a structured `prepare-council` line",
+        }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            probe = root / "docs" / "prompts" / "probe.prompt.md"
+            probe.parent.mkdir(parents=True)
+            for body, expected_token in routes.items():
+                with self.subTest(body=body):
+                    probe.write_text(body + "\n", encoding="utf-8")
+                    self.assertEqual(
+                        _scan_preimplementation_gate([probe], root),
+                        [f"docs/prompts/probe.prompt.md: {expected_token} (1 occurrence(s))"],
+                    )
+
+    def test_every_preimplementation_allowance_is_load_bearing(self):
+        self.assertEqual(_dead_preimplementation_allowances(REPO_ROOT), [])
+
+    def test_stale_preimplementation_allowance_fails_the_census(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            stale = root / "docs" / "agents" / "history.md"
+            stale.parent.mkdir(parents=True)
+            stale.write_text("no retired gate vocabulary here\n", encoding="utf-8")
+            synthetic = {
+                "pre-implementation review gate": {
+                    "docs/agents/history.md": (1, "historical record"),
+                    "docs/agents/missing.md": (1, "historical record"),
+                },
+                "pre-implementation-review": {
+                    "docs/agents/history.md": (0, ""),
+                },
+            }
+            self.assertEqual(
+                _dead_preimplementation_allowances(root, synthetic),
+                [
+                    "docs/agents/history.md: pre-implementation review gate "
+                    "(allowance expected 1, found 0)",
+                    "docs/agents/missing.md: pre-implementation review gate "
+                    "(allowance file missing or unreadable)",
+                    "docs/agents/history.md: pre-implementation-review "
+                    "(allowance has no justification)",
+                ],
+            )
+
+    def test_preimplementation_census_detects_seed_and_non_seed_mutations(self):
+        # AC-3 known-bad controls use the REAL scope builder and scanner. One
+        # plants seed 160's prose carrier; the other plants the verdict token
+        # in README.md, proving the census is not a seeds-only check.
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            seed = (
+                root
+                / ".wavefoundry"
+                / "framework"
+                / "seeds"
+                / "160-upgrade-wavefoundry.prompt.md"
+            )
+            seed.parent.mkdir(parents=True)
+            seed.write_text(
+                "Restore the Pre-Implementation Review Gate.\n",
+                encoding="utf-8",
+            )
+            framework_readme = root / ".wavefoundry" / "framework" / "README.md"
+            framework_readme.parent.mkdir(parents=True, exist_ok=True)
+            framework_readme.write_text(
+                "Level 2 is the reviewer loop.\n", encoding="utf-8"
+            )
+            owner_readme = root / ".wavefoundry" / "README.md"
+            owner_readme.write_text(
+                "L2 is the reviewer loop.\n", encoding="utf-8"
+            )
+            readme = root / "README.md"
+            readme.write_text(
+                "pre-implementation-review: passed\n", encoding="utf-8"
+            )
+            workflow = root / "docs" / "contributing" / "feature-workflow.md"
+            workflow.parent.mkdir(parents=True, exist_ok=True)
+            workflow.write_text(
+                "reviewers participate during implementation\n"
+                "fix and re-run reviewer\n"
+                "blocking findings return the wave to implementation (Level 2 loop)\n",
+                encoding="utf-8",
+            )
+            files = _preimplementation_carrier_files(root)
+            rels = {str(f.relative_to(root)).replace("\\", "/") for f in files}
+            self.assertEqual(
+                rels,
+                {
+                    ".wavefoundry/README.md",
+                    ".wavefoundry/framework/README.md",
+                    ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md",
+                    "README.md",
+                    "docs/contributing/feature-workflow.md",
+                },
+            )
+            self.assertEqual(
+                _scan_preimplementation_gate(files, root),
+                [
+                    ".wavefoundry/README.md: reviewer loop (1 occurrence(s))",
+                    ".wavefoundry/framework/README.md: reviewer loop (1 occurrence(s))",
+                    ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md: "
+                    "pre-implementation review gate (1 occurrence(s))",
+                    "README.md: pre-implementation-review (1 occurrence(s))",
+                    "docs/contributing/feature-workflow.md: fix and re-run reviewer "
+                    "(1 occurrence(s))",
+                    "docs/contributing/feature-workflow.md: blocking findings return the wave "
+                    "to implementation (level 2 loop) (1 occurrence(s))",
+                    "docs/contributing/feature-workflow.md: reviewers participate during "
+                    "implementation (1 occurrence(s))",
+                ],
+            )
 
     def test_no_live_surface_retains_adoption_symbols_or_diagnostics(self):
         self.assertEqual(_scan_forbidden(_census_files(), REPO_ROOT), [])

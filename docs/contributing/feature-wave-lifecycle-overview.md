@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-20
+Last verified: 2026-07-31
 
 Adapted from `.wavefoundry/framework/seeds/001-feature-wave-framework-overview.md` for Wavefoundry's specific reviewer roles, personas, and artifact paths.
 
@@ -29,8 +29,9 @@ Prepare wave (stage gate — required before implementation)
   → required reviewers confirmed; product-owner acknowledgment if product-impacting
 
 Implement wave / Implement feature
-  → implementer executes; reviewer lanes participate during execution
-  → blocking findings return wave to implementation (Level 2 loop)
+  → implementer executes and verifies computationally
+  → Review wave runs required inferential lanes
+  → blocking findings return wave to implementation through the delivery repair loop
   → scope or plan invalidation triggers re-Prepare (Level 3 loop)
 
 Review wave
@@ -62,7 +63,7 @@ Close wave / Finalize feature
 
 ## Wave Council
 
-The framework ships `wave_review.enabled: true` by default so the Wave Council surface is available out of the box. Enforcement on every wave is operator opt-in via `required_for_all_waves: true`. When enforcement is on, every wave also requires:
+The framework ships `wave_review.enabled: true` and `delivery_mode: universal` by default. Enabled review requires readiness Council; delivery Council follows the explicit `universal | targeted | disabled` mode:
 
 - `wave-council-readiness` before implementation
 - `wave-council-delivery` before closure
@@ -87,3 +88,10 @@ Generate with the MCP `wave_new_<kind>` / `wf_create_wave` tools (preferred — 
 Kind options: `wave`, `feat`, `bug`, `enh`, `change`, `doc`, `debt`, `ref`, `task`, `maint`, `ops`.
 
 See `docs/workflow-config.json` `lifecycle_id_policy` for epoch details.
+
+<!-- wavefoundry:review-policy:begin -->
+## Review-policy lifecycle baseline
+
+The review policy records phase-scoped approval_phase evidence separately for
+readiness and delivery.
+<!-- wavefoundry:review-policy:end -->

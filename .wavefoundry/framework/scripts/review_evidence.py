@@ -27,10 +27,23 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Mapping
-from runtime_lock import RuntimeFileLock
+from runtime_lock import RuntimeFileLock, RuntimeLockBusy, RuntimeLockError
+from review_policy import (
+    GENESIS_RECEIPT_PARENT,
+    REVIEW_POLICY_RECEIPT_RECORD_TYPE,
+    current_policy_receipt,
+    derive_receipt_id,
+    normalize_wave_review_policy,
+    receipt_semantic_fields,
+    validate_policy_receipt,
+)
 
 
 PROTOCOL_VERSION = 1
+
+
+class ProjectPublicationUnavailable(RuntimeError):
+    """The project publication boundary could not be owned immediately."""
 FINDING_SYNTHESIS_MARKER_BEGIN = "<!-- wave:finding-synthesis begin -->"
 FINDING_SYNTHESIS_MARKER_END = "<!-- wave:finding-synthesis end -->"
 REVIEW_STATUS_MARKER_BEGIN = "<!-- wave:review-status begin -->"
@@ -122,10 +135,14 @@ def canonicalize_finding_synthesis_markers(text: str) -> str:
 
     return _canonicalize_finding_synthesis_markers(text)
 
+REVIEW_EVENT_TYPES = ("approval", "finding", "run", "list")
+REVIEW_WRITE_EVENT_TYPES = frozenset(REVIEW_EVENT_TYPES[:-1])
+REVIEW_LIST_EVENT = REVIEW_EVENT_TYPES[-1]
 RUN_KINDS = frozenset(
     {"readiness", "initial_delivery", "repair_start", "reverification", "convergence_checkpoint"}
 )
 EVIDENCE_PHASES = frozenset({"readiness", "delivery"})
+APPROVAL_PHASES = EVIDENCE_PHASES
 EVIDENCE_STATUSES = frozenset({"executed", "inferred", "unverified", "not_applicable"})
 EVIDENCE_CLAIM_KINDS = frozenset(
     {"finding", "approval", "dedup", "lane_reassessment", "census"}
@@ -219,8 +236,110 @@ _EVIDENCE_REQUIRED = frozenset(
     }
 )
 _EVIDENCE_OPTIONAL = frozenset(
-    {"census", EVENT_IDENTITY_FIELD, REQUEST_DIGEST_FIELD}
+    {"approval_phase", "policy_receipt_id", "census", EVENT_IDENTITY_FIELD, REQUEST_DIGEST_FIELD}
 )
+INTEGRITY_CHECK_BOOLEAN_FIELDS = (
+    "test_ran_without_unintended_skip",
+    "public_path_reached",
+    "boundary_values_realistic",
+    "assertions_non_vacuous",
+    "known_bad_detected",
+)
+INTEGRITY_CHECK_METHOD_FIELD = "known_bad_detection_method"
+INTEGRITY_CHECK_FIELDS = frozenset(
+    (*INTEGRITY_CHECK_BOOLEAN_FIELDS, INTEGRITY_CHECK_METHOD_FIELD)
+)
+# Wave 1tvbs: one exported vocabulary for guided review actions.  The action
+# model contains only state-derived arguments; every judgment-bearing value
+# remains an explicit caller input to wf_review_event.
+REVIEW_FINDING_CORE_JUDGMENT_FIELDS = (
+    "validation_status",
+    "scope_relation",
+    "introduced_or_worsened_by_wave",
+    "contract_relevance",
+    "supported_reachability",
+    "attacker_reachability",
+    "authority_domain",
+    "authority_delta",
+    "observable_impact",
+    "containment",
+)
+REVIEW_FINDING_REPAIR_JUDGMENT_FIELDS = (
+    "fix_risk",
+    "optional_value",
+    "repair_scope_bounded",
+    "repair_safety",
+    "benefit_vs_fix_risk",
+    "rejection_basis",
+)
+REVIEW_FINDING_REQUIRED_EVIDENCE_FIELDS = (
+    "proposition",
+    "failure_condition",
+    "public_path",
+    "command_or_fixture",
+    "expected",
+    "observed",
+    "artifact_or_test_id",
+    "limitations",
+    "safety_and_authorization",
+    "disposition_rationale",
+)
+REVIEW_APPROVAL_REQUIRED_EVIDENCE_FIELDS = (
+    "observed",
+    "artifact_or_test_id",
+)
+REVIEW_ACTION_CAP = 50
+REVIEW_ACTION_KINDS = ("repair_start", "reverification", "approval")
+REVIEW_ACTION_FIELDS = (
+    "action_id",
+    "action_kind",
+    "actor_role",
+    "phase",
+    "state_args",
+    "required_caller_inputs",
+    "legal_alternatives",
+    "reinspect_after_success",
+)
+REVIEW_ACTION_STATE_FIELDS = {
+    "repair_start": (
+        "event", "finding_id", "run_kind", "cycle", "source_lanes",
+        "blocking_required_lanes", "approval_recheck_lanes",
+    ),
+    "reverification": (
+        "event", "finding_id", "run_kind", "cycle", "source_lanes",
+        "blocking_required_lanes", "approval_recheck_lanes",
+    ),
+    "approval": ("event", "signoff_key", "approval_phase"),
+}
+REVIEW_ACTION_CALLER_INPUTS = {
+    "repair_start": ("context_id", "judgment", "evidence", "integrity_checks"),
+    "reverification": (
+        "context_id", "judgment", "evidence", "integrity_checks",
+        "fresh_context", "independent",
+    ),
+    "approval": (
+        "context_id", "evidence", "integrity_checks", "fresh_context", "independent",
+    ),
+}
+REVIEW_ACTION_TRUNCATED_DIAGNOSTIC = "review_actions_truncated"
+
+
+def _review_action_state_args(
+    action_kind: str, values: Mapping[str, Any]
+) -> dict[str, Any]:
+    """Return one action's state arguments in canonical registry order."""
+
+    fields = REVIEW_ACTION_STATE_FIELDS[action_kind]
+    missing = [field for field in fields if field not in values]
+    extra = [field for field in values if field not in fields]
+    if missing or extra:
+        raise ValueError(
+            f"{action_kind} state args do not match REVIEW_ACTION_STATE_FIELDS "
+            f"(missing={missing}, extra={extra})"
+        )
+    return {field: values[field] for field in fields}
+
+
 _VERIFICATION_CONTEXT_REQUIRED = frozenset(
     {"actor", "context_id", "fresh_context", "independent"}
 )
@@ -594,10 +713,6 @@ def normalize_review_event_request(event: Mapping[str, Any]) -> dict[str, Any]:
             "expected", "the approving actor independently verifies the current affected scope"
         )
         normalized.setdefault(
-            "known_bad_detection_method",
-            "approval evidence and affected-lane chronology were checked",
-        )
-        normalized.setdefault(
             "limitations",
             "Approval remains scoped to the recorded actor and affected review boundary.",
         )
@@ -658,7 +773,7 @@ def build_identified_review_event(
 
 
 @contextmanager
-def project_state_publication_lock(repo_root: Path):
+def project_state_publication_lock(repo_root: Path, *, wait: bool = True):
     """Blocking, re-entrant, cross-process project-global publication lock.
 
     Serializes every project-state publication: wave lifecycle mutations,
@@ -672,7 +787,12 @@ def project_state_publication_lock(repo_root: Path):
     fixed: ``lifecycle-mutation.lock`` → this lock; never invert it.
     """
 
-    with _WRITE_THREAD_LOCK:
+    thread_lock_acquired = _WRITE_THREAD_LOCK.acquire(blocking=wait)
+    if not thread_lock_acquired:
+        raise ProjectPublicationUnavailable(
+            "project publication lock is busy in this process"
+        )
+    try:
         depth = int(getattr(_WRITE_LOCK_STATE, "depth", 0))
         if depth:
             _WRITE_LOCK_STATE.depth = depth + 1
@@ -681,14 +801,57 @@ def project_state_publication_lock(repo_root: Path):
             finally:
                 _WRITE_LOCK_STATE.depth = depth
             return
-        with RuntimeFileLock(
-            repo_root / PROJECT_STATE_PUBLICATION_LOCK_REL, blocking=True
-        ):
+        lock = RuntimeFileLock(
+            repo_root / PROJECT_STATE_PUBLICATION_LOCK_REL, blocking=False
+        )
+        try:
+            lock.acquire()
+        except RuntimeLockBusy as exc:
+            if not wait:
+                raise ProjectPublicationUnavailable(
+                    f"project publication lock is busy: {exc}"
+                ) from exc
+            # Ordinary publishers preserve their historical serialization.
+            # Upgrade is different: it owns the outer lifecycle lock before
+            # publication, so probing that lock distinguishes the race window
+            # before its durable checkpoint exists and keeps callers fail-fast.
+            lifecycle_probe = RuntimeFileLock(
+                repo_root / ".wavefoundry/lifecycle-mutation.lock",
+                blocking=False,
+                offset=1 << 30,
+                style="record",
+            )
+            try:
+                lifecycle_probe.acquire()
+            except (RuntimeLockBusy, RuntimeLockError) as lifecycle_exc:
+                raise ProjectPublicationUnavailable(
+                    f"project publication lock is unavailable during lifecycle mutation: {lifecycle_exc}"
+                ) from lifecycle_exc
+            else:
+                lifecycle_probe.release()
+            lock = RuntimeFileLock(
+                repo_root / PROJECT_STATE_PUBLICATION_LOCK_REL, blocking=True
+            )
+            try:
+                lock.acquire()
+            except RuntimeLockError as blocking_exc:
+                raise ProjectPublicationUnavailable(
+                    f"project publication lock is unavailable: {blocking_exc}"
+                ) from blocking_exc
+        except RuntimeLockError as exc:
+            raise ProjectPublicationUnavailable(
+                f"project publication lock is unavailable: {exc}"
+            ) from exc
+        try:
             _WRITE_LOCK_STATE.depth = 1
             try:
                 yield
             finally:
                 _WRITE_LOCK_STATE.depth = 0
+        finally:
+            lock.release()
+    finally:
+        _WRITE_THREAD_LOCK.release()
 
 
 def _is_true(value: object) -> bool:
@@ -851,8 +1014,23 @@ def review_evidence_human_table(records: Iterable[Mapping[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+def approval_record_phase(record: Mapping[str, Any]) -> str:
+    """Return phase currency for new and immutable historical approvals."""
+
+    explicit = record.get("approval_phase")
+    if explicit in APPROVAL_PHASES:
+        return str(explicit)
+    return (
+        "readiness"
+        if record.get("claim_id") == "approval:wave-council-readiness"
+        else "delivery"
+    )
+
+
 def _approval_rows(
     records: Iterable[Mapping[str, Any]],
+    *,
+    approval_phase: str | None = None,
 ) -> dict[str, tuple[int, Mapping[str, Any]]]:
     return {
         str(record.get("claim_id")): (position, record)
@@ -862,6 +1040,10 @@ def _approval_rows(
         and record.get("required_for_approval") is True
         and record.get("phase") == "delivery"
         and record.get("execution_status") == "executed"
+        and (
+            approval_phase is None
+            or approval_record_phase(record) == approval_phase
+        )
     }
 
 
@@ -940,25 +1122,159 @@ def _finding_origin_phases(records: Iterable[Mapping[str, Any]]) -> dict[str, st
     return result
 
 
-def review_status_rows(
+def finding_origin_phase(
+    records: Iterable[Mapping[str, Any]], finding_id: str
+) -> str | None:
+    """Return the canonical sealed origin phase for one finding."""
+
+    return _finding_origin_phases(records).get(str(finding_id))
+
+
+def _guided_repair_cycle(records: Iterable[Mapping[str, Any]]) -> int:
+    """Return the one wave-global cycle a new repair_start may legally join."""
+
+    rows = tuple(dict(record) for record in records)
+    repair_cycles = {
+        int(record["cycle"])
+        for record in rows
+        if record.get("record_type") == "review_run"
+        and record.get("run_kind") in {"repair_start", "reverification"}
+        and isinstance(record.get("cycle"), int)
+        and not isinstance(record.get("cycle"), bool)
+        and int(record["cycle"]) >= 1
+    }
+    if not repair_cycles:
+        return 1
+    completed, _errors = _repair_cycle_progress(rows)
+    highest = max(repair_cycles)
+    return highest + 1 if highest in completed else highest
+
+
+def review_authority_projection(
     records: Iterable[Mapping[str, Any]],
     required_signoff_keys: Iterable[str],
-) -> tuple[dict[str, Any], ...]:
-    """Derive one causal current-state row per canonical signoff key.
+    *,
+    approval_phase: str | None = None,
+    required_run_kind: str | None = None,
+) -> dict[str, Any]:
+    """Derive the canonical structured current-state and guided actions.
 
-    ``events.jsonl`` remains the only history.  These rows are a bounded view:
-    current finding heads plus the latest applicable approval. Readiness
-    findings may stale readiness approval until their same-phase repair chain
-    is terminal; later delivery-only repairs affect only their declared lanes.
+    This is the single structured projection consumed by the legacy status/list
+    presentations and the guided review surface.  It deliberately owns the
+    approval-affect relation so callers never parse ``why`` prose or reproduce
+    ``_finding_affects_signoff``.
     """
 
     rows = tuple(dict(record) for record in records)
-    approvals = _approval_rows(rows)
+    if approval_phase is not None and approval_phase not in APPROVAL_PHASES:
+        raise ValueError("approval_phase must be readiness or delivery")
+    selected_projection_phase = approval_phase or "delivery"
     heads = current_synthesis_heads(rows)
     finding_origin_phases = _finding_origin_phases(rows)
+    current_receipt = current_policy_receipt(rows)
+    guided_repair_cycle = _guided_repair_cycle(rows)
     positions = {id(record): position for position, record in enumerate(rows)}
-    result: list[dict[str, Any]] = []
-    for key in dict.fromkeys(str(item) for item in required_signoff_keys if str(item)):
+    runs_by_id = {
+        str(record.get("review_run_id")): record
+        for record in rows
+        if record.get("record_type") == "review_run"
+    }
+    evidence_by_id = {
+        str(record.get("evidence_record_id")): record
+        for record in rows
+        if record.get("record_type") == "executable_evidence"
+    }
+    required_run_present = bool(
+        required_run_kind is None
+        or any(
+            record.get("record_type") == "review_run"
+            and record.get("run_kind") == required_run_kind
+            for record in rows
+        )
+    )
+    signoff_keys = tuple(
+        dict.fromkeys(str(item) for item in required_signoff_keys if str(item))
+    )
+
+    finding_facts: list[dict[str, Any]] = []
+    for order, (finding_id, head) in enumerate(heads.items()):
+        unresolved = tuple(
+            str(lane)
+            for lane in head.get("blocking_required_lanes", [])
+            if str(lane)
+        )
+        disposition = derive_disposition(head)
+        repair_state = head.get("repair_execution_state")
+        run = runs_by_id.get(str(head.get("review_run_id")))
+        run_kind = str(run.get("run_kind")) if isinstance(run, Mapping) else ""
+        head_evidence = evidence_by_id.get(str(head.get("evidence_record_id")))
+        verification_context = (
+            head_evidence.get("verification_context")
+            if isinstance(head_evidence, Mapping)
+            else None
+        )
+        head_actor = (
+            str(verification_context.get("actor"))
+            if isinstance(verification_context, Mapping)
+            and verification_context.get("actor")
+            else ""
+        )
+        origin_phase = finding_origin_phases.get(str(finding_id))
+        terminal = bool(
+            disposition in {"not_issue", "dont_do_later"}
+            or (
+                repair_state in {"completed", "operator_waived", "not_required"}
+                and not unresolved
+            )
+        )
+        explicit_recheck = head.get("approval_recheck_lanes")
+        approval_recheck_lanes = tuple(
+            str(lane)
+            for lane in (
+                explicit_recheck
+                if isinstance(explicit_recheck, list)
+                else [
+                    *head.get("source_lanes", []),
+                    *head.get("blocking_required_lanes", []),
+                ]
+            )
+            if str(lane)
+        )
+        finding_facts.append(
+            {
+                "finding_id": str(finding_id),
+                "first_seen_order": order,
+                "head_record_id": str(head.get("record_id") or ""),
+                "cycle": head.get("cycle"),
+                "run_kind": run_kind,
+                "head_actor": head_actor,
+                "origin_phase": origin_phase,
+                "disposition": disposition,
+                "blocking": head.get("blocking") is True,
+                "repair_execution_state": repair_state,
+                "source_lanes": tuple(
+                    str(lane) for lane in head.get("source_lanes", []) if str(lane)
+                ),
+                "unresolved_required_lanes": unresolved,
+                "approval_recheck_lanes": tuple(dict.fromkeys(approval_recheck_lanes)),
+                "affected_signoff_keys": tuple(
+                    key
+                    for key in signoff_keys
+                    if _finding_affects_signoff(
+                        head, key, origin_phase=origin_phase
+                    )
+                ),
+                "terminal": terminal,
+            }
+        )
+
+    approval_facts: list[dict[str, Any]] = []
+    status_rows: list[dict[str, Any]] = []
+    for key in signoff_keys:
+        selected_phase = approval_phase or (
+            "readiness" if key == "wave-council-readiness" else "delivery"
+        )
+        approvals = _approval_rows(rows, approval_phase=selected_phase)
         approval = approvals.get(f"approval:{key}")
         approval_position = approval[0] if approval is not None else -1
         approval_record = approval[1] if approval is not None else None
@@ -983,35 +1299,37 @@ def review_status_rows(
                     and context.get("independent") is True
                 )
             )
-        )
-        blocking: list[tuple[str, Mapping[str, Any]]] = []
-        for finding_id, head in heads.items():
-            if head.get("blocking") is not True:
-                continue
-            if not _finding_affects_signoff(
-                head,
-                key,
-                origin_phase=finding_origin_phases.get(str(finding_id)),
-            ):
-                continue
-            head_position = positions.get(id(head), -1)
-            repair_state = head.get("repair_execution_state")
-            unresolved_head = bool(head.get("blocking_required_lanes")) or (
-                repair_state not in {"completed", "operator_waived"}
+            and (
+                approval_record_phase(approval_record) != "readiness"
+                or "approval_phase" not in approval_record
+                or (
+                    current_receipt is not None
+                    and approval_record.get("policy_receipt_id")
+                    == current_receipt.get("receipt_id")
+                )
             )
+        )
+        blocking: list[dict[str, Any]] = []
+        for fact in finding_facts:
+            if fact["blocking"] is not True:
+                continue
+            if key not in fact["affected_signoff_keys"]:
+                continue
+            head = heads[fact["finding_id"]]
+            head_position = positions.get(id(head), -1)
+            unresolved_head = not fact["terminal"]
             # An approval cannot paper over a still-open current head merely
             # by appearing later in the ledger. A terminal repair, however,
             # only stales approvals that predate that repair.
             if unresolved_head or approval_position < head_position:
-                blocking.append((str(finding_id), head))
+                blocking.append(fact)
         if blocking:
-            finding_ids = [finding_id for finding_id, _head in blocking]
+            finding_ids = [fact["finding_id"] for fact in blocking]
             unresolved = sorted(
                 {
-                    str(lane)
-                    for _finding_id, head in blocking
-                    for lane in head.get("blocking_required_lanes", [])
-                    if str(lane)
+                    lane
+                    for fact in blocking
+                    for lane in fact["unresolved_required_lanes"]
                 }
             )
             why = "blocking findings: " + ", ".join(finding_ids[:8])
@@ -1040,15 +1358,206 @@ def review_status_rows(
                 else "no current executed approval"
             )
             next_action = f"record approval evidence for {key}"
-        result.append(
+        status_row = {
+            "signoff_key": key,
+            "state": state,
+            "why": why,
+            "next_action": next_action,
+        }
+        status_rows.append(status_row)
+        approval_facts.append(
             {
                 "signoff_key": key,
+                "approval_phase": selected_phase,
+                "expected_actor": expected_actor,
+                "approval_recorded": approval_record is not None,
+                "approval_current": state == "approved",
                 "state": state,
-                "why": why,
-                "next_action": next_action,
+                "blocking_finding_ids": tuple(
+                    fact["finding_id"] for fact in blocking
+                ),
+                "has_unresolved_blocking_findings": any(
+                    not fact["terminal"] for fact in blocking
+                ),
+                "unresolved_required_lanes": tuple(unresolved if blocking else ()),
             }
         )
-    return tuple(result)
+
+    actions: list[dict[str, Any]] = []
+    continuation = {
+        "source": "wf_review_event.create_response.data.review_actions",
+        "fallback": "wf_review_wave",
+        "fallback_when": "write_failed_or_state_became_stale",
+    }
+    for fact in finding_facts:
+        if fact["origin_phase"] != selected_projection_phase:
+            continue
+        if fact["terminal"] or fact["blocking"] is not True:
+            continue
+        common_state = {
+            "event": "finding",
+            "finding_id": fact["finding_id"],
+            "source_lanes": list(fact["source_lanes"]),
+            "approval_recheck_lanes": list(fact["approval_recheck_lanes"]),
+        }
+        if fact["run_kind"] in {"readiness", "initial_delivery"}:
+            kind = "repair_start"
+            actor = "implementer"
+            state_args = _review_action_state_args(kind, {
+                **common_state,
+                "run_kind": kind,
+                "cycle": guided_repair_cycle,
+                "blocking_required_lanes": list(fact["unresolved_required_lanes"]),
+            })
+            actions.append(
+                {
+                    "action_id": f"{kind}:{fact['finding_id']}",
+                    "action_kind": kind,
+                    "actor_role": actor,
+                    "phase": selected_projection_phase,
+                    "state_args": state_args,
+                    "required_caller_inputs": list(REVIEW_ACTION_CALLER_INPUTS[kind]),
+                    "legal_alternatives": [],
+                    "reinspect_after_success": dict(continuation),
+                }
+            )
+        elif fact["run_kind"] in {"repair_start", "reverification"}:
+            # Historical and direct callers may have authored an actionable
+            # zero-lane head. Preserve that accepted ledger shape, but give it
+            # a real terminal route: one originating reviewer independently
+            # reverifies the repair without pretending a lane was cleared.
+            actors = fact["unresolved_required_lanes"]
+            if not actors:
+                actors = tuple(
+                    lane
+                    for lane in fact["source_lanes"]
+                    if lane not in {fact["head_actor"], "implementer"}
+                )
+            if not actors:
+                actors = tuple(
+                    key
+                    for key in signoff_keys
+                    if key not in {
+                        fact["head_actor"], "implementer", "operator-signoff"
+                    }
+                    and not key.startswith("wave-council-")
+                )
+            if not actors:
+                # Compatibility route for previously accepted malformed
+                # zero-lane history whose only source was the implementer.
+                # The validator still enforces distinct fresh context; this
+                # merely names a real reviewer role that can satisfy it.
+                actors = (
+                    "qa-reviewer"
+                    if fact["head_actor"] == "code-reviewer"
+                    else "code-reviewer"
+                ,)
+            for actor in actors:
+                kind = "reverification"
+                state_args = _review_action_state_args(kind, {
+                    **common_state,
+                    "run_kind": kind,
+                    "cycle": fact["cycle"],
+                    "blocking_required_lanes": [
+                        lane
+                        for lane in fact["unresolved_required_lanes"]
+                        if lane != actor
+                    ],
+                })
+                actions.append(
+                    {
+                        "action_id": f"{kind}:{fact['finding_id']}:{actor}",
+                        "action_kind": kind,
+                        "actor_role": actor,
+                        "phase": selected_projection_phase,
+                        "state_args": state_args,
+                        "required_caller_inputs": list(REVIEW_ACTION_CALLER_INPUTS[kind]),
+                        "legal_alternatives": [],
+                        "reinspect_after_success": dict(continuation),
+                    }
+                )
+
+    for fact in approval_facts:
+        if fact["approval_phase"] != selected_projection_phase:
+            continue
+        if (
+            not required_run_present
+            or fact["approval_current"]
+            or fact["has_unresolved_blocking_findings"]
+        ):
+            continue
+        kind = "approval"
+        caller_inputs = list(REVIEW_ACTION_CALLER_INPUTS[kind])
+        if fact["expected_actor"] == "operator":
+            caller_inputs = [
+                name for name in caller_inputs
+                if name not in {"fresh_context", "independent"}
+            ]
+        actions.append(
+            {
+                "action_id": f"{kind}:{fact['signoff_key']}",
+                "action_kind": kind,
+                "actor_role": fact["expected_actor"],
+                "phase": selected_projection_phase,
+                "state_args": _review_action_state_args(kind, {
+                    "event": kind,
+                    "signoff_key": fact["signoff_key"],
+                    "approval_phase": selected_projection_phase,
+                }),
+                "required_caller_inputs": caller_inputs,
+                "legal_alternatives": [],
+                "reinspect_after_success": dict(continuation),
+            }
+        )
+
+    total = len(actions)
+    visible = actions[:REVIEW_ACTION_CAP]
+    for action in visible:
+        if action["action_kind"] == "reverification":
+            action["legal_alternatives"] = [
+                candidate["action_id"]
+                for candidate in visible
+                if candidate["action_kind"] == "reverification"
+                and candidate["state_args"].get("finding_id")
+                == action["state_args"].get("finding_id")
+                and candidate["action_id"] != action["action_id"]
+            ]
+        elif action["action_kind"] == "approval":
+            action["legal_alternatives"] = [
+                candidate["action_id"]
+                for candidate in visible
+                if candidate["action_kind"] == "approval"
+                and candidate["action_id"] != action["action_id"]
+            ]
+    return {
+        "phase": selected_projection_phase,
+        "finding_facts": tuple(finding_facts),
+        "approval_facts": tuple(approval_facts),
+        "status_rows": tuple(status_rows),
+        "next_actions": tuple(visible),
+        "recommended_next_action": visible[0] if visible else None,
+        "total_current_actions": total,
+        "returned_current_actions": len(visible),
+        "omitted_current_actions": total - len(visible),
+        "truncated": total > REVIEW_ACTION_CAP,
+        "action_cap": REVIEW_ACTION_CAP,
+        "required_run_kind": required_run_kind,
+        "required_run_present": required_run_present,
+    }
+
+
+def review_status_rows(
+    records: Iterable[Mapping[str, Any]],
+    required_signoff_keys: Iterable[str],
+    *,
+    approval_phase: str | None = None,
+) -> tuple[dict[str, Any], ...]:
+    """Preserve the historical presentation over the structured authority."""
+
+    projection = review_authority_projection(
+        records, required_signoff_keys, approval_phase=approval_phase
+    )
+    return tuple(projection["status_rows"])
 
 
 def review_status_human_table(
@@ -1097,6 +1606,8 @@ def required_review_status_keys(
     root: Path,
     wave_text: str,
     records: Iterable[Mapping[str, Any]] = (),
+    *,
+    config_override: Mapping[str, Any] | None = None,
 ) -> tuple[str, ...]:
     """Return every signoff row required by the wave and project policy.
 
@@ -1127,6 +1638,7 @@ def required_review_status_keys(
                 value.strip().strip("`").strip()
                 for value in match.group("lanes").split(",")
                 if value.strip().strip("`").strip()
+                and value.strip().strip("`").strip().lower() not in {"none", "—", "-"}
             )
             continue
         if not line.startswith("|") or line.startswith("|------"):
@@ -1135,28 +1647,51 @@ def required_review_status_keys(
         if len(cells) >= 2 and cells[0].lower() != "role" and "review" in cells[1].lower():
             lanes.append(cells[0])
 
-    config: dict[str, Any] = {}
-    try:
-        loaded = json.loads((root / "docs" / "workflow-config.json").read_text("utf-8"))
-        if isinstance(loaded, dict):
-            config = loaded
-    except (OSError, UnicodeError, json.JSONDecodeError):
-        pass
+    config: dict[str, Any] = dict(config_override or {})
+    if config_override is None:
+        try:
+            loaded = json.loads((root / "docs" / "workflow-config.json").read_text("utf-8"))
+            if isinstance(loaded, dict):
+                config = loaded
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            pass
     project_lanes = config.get("required_review_lanes", [])
     if isinstance(project_lanes, list):
         lanes.extend(str(value).strip() for value in project_lanes if str(value).strip())
 
-    council_keys = ["wave-council-readiness", "wave-council-delivery"]
+    council_keys: list[str] = []
     council = config.get("wave_review")
-    if isinstance(council, dict) and bool(council.get("enabled")):
+    normalized_policy, policy_errors = normalize_wave_review_policy(council)
+    if policy_errors:
+        # A malformed policy cannot weaken the rendered gate.  Lint reports
+        # the configuration error separately; projection retains both keys.
+        council_keys.extend(
+            ["wave-council-readiness", "wave-council-delivery"]
+        )
+    elif normalized_policy is not None and normalized_policy["enabled"]:
         phases = council.get("phases", {})
+        prepare_key = "wave-council-readiness"
+        review_key = "wave-council-delivery"
         if isinstance(phases, dict):
-            for phase in ("prepare", "review"):
+            for phase, default_key in (
+                ("prepare", prepare_key),
+                ("review", review_key),
+            ):
                 value = phases.get(phase, {})
                 if isinstance(value, dict):
-                    key = str(value.get("signoff_key") or "").strip()
-                    if key:
-                        council_keys.append(key)
+                    key = str(value.get("signoff_key") or default_key).strip()
+                    if phase == "prepare":
+                        prepare_key = key
+                    else:
+                        review_key = key
+        council_keys.append(prepare_key)
+        mode = normalized_policy["delivery_mode"]
+        receipt = current_policy_receipt(records)
+        targeted_required = bool(
+            receipt is None or receipt.get("delivery_council_required") is True
+        )
+        if mode == "universal" or (mode == "targeted" and targeted_required):
+            council_keys.append(review_key)
 
     return review_status_signoff_keys(
         records,
@@ -1416,30 +1951,69 @@ class ReviewAuthority:
     records: tuple[Mapping[str, Any], ...] = ()
     ledger_errors: tuple[str, ...] = ()
 
-    def _typed_state(self, key: str) -> str:
-        rows = review_status_rows(self.records, (key,))
+    def _typed_state(self, key: str, approval_phase: str) -> str:
+        rows = review_status_rows(
+            self.records, (key,), approval_phase=approval_phase
+        )
         return rows[0]["state"] if rows else "pending"
 
-    def signoff_current(self, key: str, *, section: str = "review") -> bool:
+    def signoff_current(
+        self,
+        key: str,
+        *,
+        section: str = "review",
+        approval_phase: str | None = None,
+    ) -> bool:
         """Current positive signoff/approval state for one canonical key.
 
-        ``section`` names the prose section the LEGACY branch reads
+        ``section`` names the prose section the LEGACY branch reads and is the
+        compatibility default for typed phase selection (prepare=readiness,
+        review=delivery). Typed lifecycle callers should pass
+        ``approval_phase`` explicitly.
         (``"review"`` = combined Review Evidence, ``"prepare"`` = Prepare
-        Review Evidence). The typed branch has one approval currency per key
-        — the executed ``approval:<key>`` claim and its chronology — so the
-        section distinction does not exist there.
+        Review Evidence).
         """
         if self.typed:
-            return self._typed_state(key) == "approved"
+            selected_phase = approval_phase or (
+                "readiness" if section == "prepare" else "delivery"
+            )
+            return self._typed_state(key, selected_phase) == "approved"
         if section == "prepare":
             evidence = prepare_review_evidence(self.wave_text)
         else:
             evidence = combined_review_evidence(self.wave_text)
         return lane_has_signoff_in_evidence(evidence, key)
 
+    def signoff_recorded(
+        self,
+        key: str,
+        *,
+        section: str = "review",
+        approval_phase: str | None = None,
+    ) -> bool:
+        """Whether an approval/signoff exists, regardless of current currency.
+
+        The typed branch deliberately distinguishes an absent approval from a
+        recorded approval made stale by later affected work. Legacy prose has
+        no chronology model, so its historical signoff predicate is both
+        presence and currency.
+        """
+        if self.typed:
+            selected_phase = approval_phase or (
+                "readiness" if section == "prepare" else "delivery"
+            )
+            return f"approval:{key}" in _approval_rows(
+                self.records, approval_phase=selected_phase
+            )
+        return self.signoff_current(
+            key, section=section, approval_phase=approval_phase
+        )
+
     def operator_signoff_present(self) -> bool:
         """True if the operator's closure approval is currently recorded."""
-        return self.signoff_current("operator-signoff")
+        return self.signoff_current(
+            "operator-signoff", approval_phase="delivery"
+        )
 
     def evidence_present(self) -> bool:
         """Whether any review evidence exists at all (typed: any validated records)."""
@@ -1455,7 +2029,7 @@ class ReviewAuthority:
         check, which never validated positivity either).
         """
         if self.typed:
-            return bool(_approval_rows(self.records))
+            return bool(_approval_rows(self.records, approval_phase="delivery"))
         return review_evidence_has_any_signoff_line(self.wave_text)
 
     def max_severity(self) -> str:
@@ -1643,32 +2217,19 @@ def _unique_record_id(records: Iterable[Mapping[str, Any]], prefix: str, base: s
     return candidate
 
 
-_COMPACT_CORE_JUDGMENT_FIELDS = frozenset(
-    {
-        "validation_status",
-        "scope_relation",
-        "introduced_or_worsened_by_wave",
-        "contract_relevance",
-        "supported_reachability",
-        "attacker_reachability",
-        "authority_domain",
-        "authority_delta",
-        "observable_impact",
-        "containment",
-    }
-)
-_COMPACT_OPTIONAL_REPAIR_FIELDS = frozenset(
-    {"fix_risk", "optional_value", "repair_scope_bounded", "repair_safety", "benefit_vs_fix_risk", "rejection_basis"}
-)
-
 # Wave 1tmb2: chain-aware repair/reverification independence.  These names are
 # both the leading token of the validator error string and the public
 # diagnostic code emitted by the append boundary.
 REVERIFICATION_CONTEXT_NOT_FRESH = "reverification_context_not_fresh"
 REVERIFICATION_ACTOR_NOT_DISTINCT = "reverification_actor_not_distinct"
+REVERIFICATION_ANCHOR_UNRESOLVED = "reverification_anchor_unresolved"
 REVIEW_EVIDENCE_INDEPENDENCE_INVALID = "review_evidence_independence_invalid"
 INDEPENDENCE_DIAGNOSTIC_CODES = frozenset(
-    {REVERIFICATION_CONTEXT_NOT_FRESH, REVERIFICATION_ACTOR_NOT_DISTINCT}
+    {
+        REVERIFICATION_CONTEXT_NOT_FRESH,
+        REVERIFICATION_ACTOR_NOT_DISTINCT,
+        REVERIFICATION_ANCHOR_UNRESOLVED,
+    }
 )
 
 
@@ -1726,12 +2287,14 @@ def _reverification_independence_defect(
 ) -> str | None:
     """Classify a reverification against the repair_start it resolves.
 
-    Two decidable-from-the-ledger policies, in fixed precedence order:
+    Three decidable-from-the-ledger policies, in fixed precedence order:
 
-    1. Same context declaring ``fresh_context=true`` is self-contradictory —
+    1. The exact ``(finding_id, cycle)`` repair-start anchor must resolve. An
+       absent or cycle-mismatched anchor is invalid rather than silently clean.
+    2. Same context declaring ``fresh_context=true`` is self-contradictory —
        two records sharing a ``context_id`` are by definition the same
        context.  This carries no trust assumption.
-    2. Same actor is rejected as forward protocol policy, regardless of the
+    3. Same actor is rejected as forward protocol policy, regardless of the
        context declaration.  Actor equality is NOT proof of shared caller
        identity (the validator sees strings, not callers); the policy exists
        because the repairer-reverifies-itself shape is the observed accidental
@@ -1752,7 +2315,7 @@ def _reverification_independence_defect(
 
     start_context = _resolving_repair_start_context(records, finding_id, cycle)
     if start_context is None:
-        return None
+        return REVERIFICATION_ANCHOR_UNRESOLVED
     if start_context.get("context_id") == context_id and fresh_context is True:
         return REVERIFICATION_CONTEXT_NOT_FRESH
     if start_context.get("actor") == actor:
@@ -1763,6 +2326,12 @@ def _reverification_independence_defect(
 def _independence_defect_description(
     code: str, finding_id: str, cycle: int, actor: Any, context_id: Any
 ) -> str:
+    if code == REVERIFICATION_ANCHOR_UNRESOLVED:
+        return (
+            f"reverification for `{finding_id}` cycle {cycle} has no resolvable "
+            "repair_start anchor for the exact (finding_id, cycle) chain; "
+            "record the canonical repair_start before reverification"
+        )
     if code == REVERIFICATION_CONTEXT_NOT_FRESH:
         return (
             f"reverification for `{finding_id}` cycle {cycle} shares its "
@@ -1861,7 +2430,7 @@ def build_compact_review_event(
     prior = tuple(dict(record) for record in records)
     errors: list[str] = []
     event_type = event.get("event")
-    if event_type not in {"approval", "finding", "run"}:
+    if event_type not in REVIEW_WRITE_EVENT_TYPES:
         return (), ("event must be one of: approval, finding, run",)
     actor = event.get("actor")
     context_id = event.get("context_id")
@@ -1910,6 +2479,7 @@ def build_compact_review_event(
 
     if event_type == "approval":
         signoff_key = event.get("signoff_key")
+        approval_phase = event.get("approval_phase")
         if not _nonempty_string(signoff_key):
             errors.append("approval event requires signoff_key")
         else:
@@ -1931,9 +2501,21 @@ def build_compact_review_event(
                 errors.append(
                     "specialist and council approvals require fresh_context=true and independent=true"
                 )
-        if event.get("integrity_confirmed") is not True:
-            errors.append("approval event requires integrity_confirmed=true")
-        for field in ("observed", "artifact_or_test_id"):
+        if approval_phase not in APPROVAL_PHASES:
+            errors.append("approval event requires approval_phase readiness or delivery")
+        elif signoff_key == "wave-council-readiness" and approval_phase != "readiness":
+            errors.append("wave-council-readiness approval requires approval_phase=readiness")
+        elif signoff_key in {"wave-council-delivery", "operator-signoff"} and approval_phase != "delivery":
+            errors.append(f"{signoff_key} approval requires approval_phase=delivery")
+        if approval_phase == "readiness" and not _nonempty_string(
+            event.get("policy_receipt_id")
+        ):
+            errors.append("readiness approval requires server-derived policy_receipt_id")
+        integrity_checks, integrity_errors = _validated_integrity_checks(
+            event.get("integrity_checks"), executed=True, label="approval event"
+        )
+        errors.extend(integrity_errors)
+        for field in REVIEW_APPROVAL_REQUIRED_EVIDENCE_FIELDS:
             if not _nonempty_string(event.get(field)):
                 errors.append(f"approval event requires {field}")
         if errors:
@@ -1948,6 +2530,12 @@ def build_compact_review_event(
                 "claim_kind": "approval",
                 "required_for_approval": True,
                 "phase": "delivery",
+                "approval_phase": approval_phase,
+                **(
+                    {"policy_receipt_id": event["policy_receipt_id"]}
+                    if approval_phase == "readiness"
+                    else {}
+                ),
                 "proposition": str(event.get("proposition") or f"{signoff_key} approves the current affected scope"),
                 "counterexample_or_failure_condition": str(event.get("failure_condition") or "the approval predates an affected repair or is not independently grounded"),
                 "execution_status": "executed",
@@ -1957,12 +2545,11 @@ def build_compact_review_event(
                 "observed": observed,
                 "artifact_or_test_id": str(event["artifact_or_test_id"]),
                 "adjacent_controls": list(event.get("adjacent_controls") or []),
-                "test_ran_without_unintended_skip": True,
-                "public_path_reached": True,
-                "boundary_values_realistic": True,
-                "assertions_non_vacuous": True,
-                "known_bad_detected": True,
-                "known_bad_detection_method": str(event.get("known_bad_detection_method") or "approval evidence and affected-lane chronology were checked"),
+                **{
+                    field: integrity_checks[field]
+                    for field in INTEGRITY_CHECK_BOOLEAN_FIELDS
+                },
+                "known_bad_detection_method": integrity_checks[INTEGRITY_CHECK_METHOD_FIELD],
                 "limitations": str(event.get("limitations") or "Approval remains scoped to the recorded actor and affected review boundary."),
                 "safety_and_authorization": str(event.get("safety_and_authorization") or "Local review evidence only; no external side effects."),
                 "probe_class": "none",
@@ -1992,10 +2579,12 @@ def build_compact_review_event(
     if not isinstance(judgment, dict):
         errors.append("finding event requires a judgment object")
         judgment = {}
-    missing_core = sorted(_COMPACT_CORE_JUDGMENT_FIELDS - judgment.keys())
+    missing_core = sorted(
+        set(REVIEW_FINDING_CORE_JUDGMENT_FIELDS) - judgment.keys()
+    )
     if missing_core:
         errors.append("finding judgment missing load-bearing fields: " + ", ".join(missing_core))
-    for field in ("proposition", "failure_condition", "public_path", "command_or_fixture", "expected", "observed", "artifact_or_test_id", "known_bad_detection_method", "limitations", "safety_and_authorization", "disposition_rationale"):
+    for field in REVIEW_FINDING_REQUIRED_EVIDENCE_FIELDS:
         if not _nonempty_string(event.get(field)):
             errors.append(f"finding event requires {field}")
     # Credible-threat gate — the requirement that a material/critical authority delta
@@ -2004,8 +2593,13 @@ def build_compact_review_event(
     # A prose-length heuristic here would be both bypassable (generic filler passes) and
     # over-strict (a valid concise basis like "read API keys" is short), so no machine
     # check is added; `disposition_rationale` remains required non-empty above.
-    if event.get("integrity_confirmed") is not True and event.get("execution_status", "executed") == "executed":
-        errors.append("executed finding evidence requires integrity_confirmed=true")
+    execution_status = str(event.get("execution_status", "executed"))
+    integrity_checks, integrity_errors = _validated_integrity_checks(
+        event.get("integrity_checks"),
+        executed=execution_status == "executed",
+        label="finding event",
+    )
+    errors.extend(integrity_errors)
     triggers = event.get("review_boundaries_changed")
     if not isinstance(triggers, list) or len(triggers) != len(set(triggers)) or any(item not in FULL_COUNCIL_TRIGGERS for item in triggers):
         errors.append("review_boundaries_changed must be a duplicate-free list of canonical trigger names")
@@ -2030,10 +2624,14 @@ def build_compact_review_event(
     action_required = derive_action_required(provisional)
     validation_status = provisional.get("validation_status")
     if validation_status == "real" and not action_required:
-        missing_optional = sorted(_COMPACT_OPTIONAL_REPAIR_FIELDS - judgment.keys())
+        missing_optional = sorted(
+            set(REVIEW_FINDING_REPAIR_JUDGMENT_FIELDS) - judgment.keys()
+        )
         if missing_optional:
             return (), ("non-action-required real finding judgment missing repair/disposition fields: " + ", ".join(missing_optional),)
-        provisional.update({field: judgment[field] for field in _COMPACT_OPTIONAL_REPAIR_FIELDS})
+        provisional.update(
+            {field: judgment[field] for field in REVIEW_FINDING_REPAIR_JUDGMENT_FIELDS}
+        )
     elif validation_status in {"invalid", "conforming"}:
         provisional["rejection_basis"] = "none"
     promotion_trigger = event.get("promotion_trigger")
@@ -2054,7 +2652,26 @@ def build_compact_review_event(
         return (), (
             f"{run_kind} requires an earlier finding synthesis for `{finding_id}`",
         )
+    if run_kind == "repair_start" and actor in blocking_lanes:
+        return (), (
+            "repair_start actor cannot also remain in blocking_required_lanes; "
+            "the repair actor cannot independently clear its own reviewer lane. "
+            "Derive the current phase-correct repair action through wf_review_wave "
+            "before retrying.",
+        )
     if run_kind == "reverification":
+        prior_blocking_lanes = set(
+            _string_items(prior_head.get("blocking_required_lanes", []))
+        )
+        added_blocking_lanes = set(blocking_lanes) - prior_blocking_lanes
+        if added_blocking_lanes:
+            return (), (
+                "stale reverification cannot add previously cleared "
+                "blocking_required_lanes: "
+                + ", ".join(sorted(added_blocking_lanes))
+                + ". Nothing was appended; derive the current phase-correct "
+                "lane action through wf_review_wave before retrying.",
+            )
         # Wave 1tmb2: evaluate the exact finding/cycle chain BEFORE building
         # any terminal synthesis.  A rejected attempt appends nothing, so the
         # prior synthesis remains the single current-state authority.
@@ -2087,8 +2704,6 @@ def build_compact_review_event(
     evidence_id = _unique_record_id(prior, "ev", str(finding_id))
     run_id = _unique_record_id(prior, "run", f"{run_kind}-{cycle}-{finding_id}")
     synthesis_id = _unique_record_id(prior, "syn", f"{finding_id}-{cycle}")
-    integrity = event.get("integrity_confirmed") is True
-    execution_status = str(event.get("execution_status", "executed"))
     evidence: dict[str, Any] = {
         "record_type": "executable_evidence",
         "evidence_record_id": evidence_id,
@@ -2105,12 +2720,11 @@ def build_compact_review_event(
         "observed": event["observed"],
         "artifact_or_test_id": event["artifact_or_test_id"],
         "adjacent_controls": list(event.get("adjacent_controls") or []),
-        "test_ran_without_unintended_skip": integrity,
-        "public_path_reached": integrity,
-        "boundary_values_realistic": integrity,
-        "assertions_non_vacuous": integrity,
-        "known_bad_detected": integrity,
-        "known_bad_detection_method": event["known_bad_detection_method"],
+        **{
+            field: integrity_checks[field]
+            for field in INTEGRITY_CHECK_BOOLEAN_FIELDS
+        },
+        "known_bad_detection_method": integrity_checks[INTEGRITY_CHECK_METHOD_FIELD],
         "limitations": event["limitations"],
         "safety_and_authorization": event["safety_and_authorization"],
         "probe_class": event.get("probe_class", "local_safe"),
@@ -2210,10 +2824,8 @@ def build_compact_review_event(
             if cleared != {actor} or event.get("fresh_context") is not True or event.get("independent") is not True:
                 return (), (
                     "clearing a required lane requires the same fresh independent actor. "
-                    'Recovery: call event="list" for the finding, choose one currently '
-                    "blocking lane as the actor, then submit a fresh independent "
-                    "reverification with blocking_required_lanes equal to the current "
-                    "list minus that actor.",
+                    "Derive the current phase-correct lane action through wf_review_wave "
+                    "before retrying.",
                 )
             reassessment_id = _unique_record_id([*prior, *rows], "ev-reassess", str(finding_id))
             reassessment = dict(evidence)
@@ -2292,6 +2904,47 @@ def _require_fields(record: Mapping[str, Any], required: frozenset[str], optiona
 
 def _nonempty_string(value: object) -> bool:
     return isinstance(value, str) and bool(value.strip())
+
+
+def _validated_integrity_checks(
+    value: object,
+    *,
+    executed: bool,
+    label: str,
+) -> tuple[dict[str, Any] | None, tuple[str, ...]]:
+    """Validate the exact caller-owned integrity assertion object.
+
+    Executed approvals and findings must affirm every boolean.  Non-executed
+    findings still use the same exact, typed shape, but may honestly carry a
+    false check.  The builder copies these values verbatim; it never expands a
+    single confirmation into several claims.
+    """
+
+    if not isinstance(value, dict):
+        return None, (f"{label} requires an exact integrity_checks object",)
+    keys = frozenset(value)
+    missing = sorted(INTEGRITY_CHECK_FIELDS - keys)
+    extra = sorted(keys - INTEGRITY_CHECK_FIELDS)
+    errors: list[str] = []
+    if missing:
+        errors.append(f"{label} integrity_checks missing fields: " + ", ".join(missing))
+    if extra:
+        errors.append(f"{label} integrity_checks has unsupported fields: " + ", ".join(extra))
+    for field in INTEGRITY_CHECK_BOOLEAN_FIELDS:
+        field_value = value.get(field)
+        if not isinstance(field_value, bool):
+            errors.append(f"{label} integrity_checks.{field} must be boolean")
+        elif executed and field_value is not True:
+            errors.append(
+                f"executed {label} requires integrity_checks.{field}=true"
+            )
+    method = value.get(INTEGRITY_CHECK_METHOD_FIELD)
+    if not _nonempty_string(method):
+        errors.append(
+            f"{label} integrity_checks.{INTEGRITY_CHECK_METHOD_FIELD} "
+            "must be a non-empty string"
+        )
+    return (dict(value) if not errors else None), tuple(errors)
 
 
 def _string_list(value: object, *, allow_empty: bool = True) -> bool:
@@ -2464,6 +3117,21 @@ def _validate_evidence_shape(record: Mapping[str, Any], index: int) -> list[str]
         enum_error = _enum_error(record, field, allowed, label)
         if enum_error:
             errors.append(enum_error)
+    if "approval_phase" in record:
+        enum_error = _enum_error(
+            record, "approval_phase", APPROVAL_PHASES, label
+        )
+        if enum_error:
+            errors.append(enum_error)
+        if record.get("claim_kind") != "approval":
+            errors.append(f"{label}: `approval_phase` is valid only for approval evidence")
+    if "policy_receipt_id" in record:
+        if not _nonempty_string(record.get("policy_receipt_id")):
+            errors.append(f"{label}: `policy_receipt_id` must be a non-empty string")
+        if record.get("approval_phase") != "readiness":
+            errors.append(
+                f"{label}: `policy_receipt_id` is valid only for readiness approval evidence"
+            )
     for field in (
         "required_for_approval",
         "safe_boundary",
@@ -3082,10 +3750,8 @@ def _validate_relationships(records: list[dict[str, Any]], *, closure: bool) -> 
             if current.get("blocking_required_lanes"):
                 errors.append(
                     f"current synthesis `{record_id}` for `{finding_id}` retains unresolved required lanes. "
-                    'Recovery: call event="list" for the finding, choose one currently '
-                    "blocking lane as the actor, then submit a fresh independent "
-                    "reverification with blocking_required_lanes equal to the current "
-                    "list minus that actor."
+                    "Derive the current phase-correct lane action through wf_review_wave "
+                    "before retrying."
                 )
 
     last_cycle = -1
@@ -3173,8 +3839,50 @@ def validate_review_evidence_records(
             errors.extend(_validate_evidence_shape(record, index))
         elif record_type == "finding_synthesis":
             errors.extend(_validate_synthesis_shape(record, index, closure=closure))
+        elif record_type == REVIEW_POLICY_RECEIPT_RECORD_TYPE:
+            errors.extend(
+                f"review_policy_receipt[{index}]: {error}"
+                for error in validate_policy_receipt(record)
+            )
         else:
             errors.append(f"record[{index}]: unknown record_type {record_type!r}")
+    receipts = [
+        record
+        for record in rows
+        if record.get("record_type") == REVIEW_POLICY_RECEIPT_RECORD_TYPE
+    ]
+    receipt_ids: set[str] = set()
+    for position, receipt in enumerate(receipts):
+        receipt_id = str(receipt.get("receipt_id") or "")
+        if receipt_id in receipt_ids:
+            errors.append(f"review_policy_receipt duplicate receipt_id: {receipt_id}")
+        if position == 0:
+            if "supersedes_receipt_id" in receipt:
+                errors.append("genesis review_policy_receipt may not supersede a receipt")
+        else:
+            parent = str(receipt.get("supersedes_receipt_id") or "")
+            expected_parent = str(receipts[position - 1].get("receipt_id") or "")
+            if parent != expected_parent:
+                errors.append(
+                    "review_policy_receipt chain must supersede the immediately "
+                    f"previous receipt ({expected_parent})"
+                )
+        parent_id = (
+            GENESIS_RECEIPT_PARENT
+            if position == 0
+            else str(receipts[position - 1].get("receipt_id") or "")
+        )
+        try:
+            expected_id = derive_receipt_id(
+                receipt_semantic_fields(receipt), parent_id
+            )
+        except (KeyError, TypeError, ValueError):
+            expected_id = ""
+        if expected_id and receipt_id != expected_id:
+            errors.append(
+                "review_policy_receipt receipt_id does not match its semantic fields and parent"
+            )
+        receipt_ids.add(receipt_id)
     errors.extend(_validate_relationships(rows, closure=closure))
     return tuple(errors)
 
@@ -3293,6 +4001,7 @@ __all__ = [
     "FULL_COUNCIL_TRIGGERS",
     "PROJECT_STATE_PUBLICATION_LOCK_REL",
     "PROTOCOL_VERSION",
+    "ProjectPublicationUnavailable",
     "REQUEST_DIGEST_FIELD",
     "REVIEW_STATUS_MARKER_BEGIN",
     "REVIEW_STATUS_MARKER_END",

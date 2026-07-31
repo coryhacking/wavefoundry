@@ -33,6 +33,15 @@
             "statusMessage": "Capturing session state..."
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -c \"import os,runpy,sys; root=os.environ.get('CLAUDE_PROJECT_DIR'); root or sys.exit('wavefoundry hook .claude/hooks/context-efficiency-project.py: missing project root environment variable CLAUDE_PROJECT_DIR'); runpy.run_path(os.path.join(root, '.claude', 'hooks', 'context-efficiency-project.py'), run_name='__main__')\"",
+            "statusMessage": "Scheduling context-efficiency projection..."
+          }
+        ]
       }
     ]
   },

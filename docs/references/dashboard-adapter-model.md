@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-22
+Last verified: 2026-07-31
 
 Reference doc for how target repositories declare custom data sources, port preferences, terminology, and file-activity scope for the local dashboard. The dashboard is a generic Wave Framework feature; this doc defines the knobs available to any seeded repo without forking the core UI or server.
 
@@ -66,6 +66,15 @@ The dashboard reads exclusively from Wave Framework doc conventions. There are n
 | Framework version | `.wavefoundry/framework/VERSION` | `collect_dashboard_snapshot` |
 | Index health | `.wavefoundry/index/index-state.sqlite` (build snapshot; wave 1sed7) | `collect_dashboard_snapshot` |
 | File activity | Repo mtime scan, scoped by `include_dirs` | `count_files_updated_since` |
+
+### Review-policy presentation
+
+The dashboard presents the persisted wave record; it does not independently
+derive review authority. Prepare is the single readiness critique when review
+is enabled. Delivery review follows the persisted `disabled | targeted |
+universal` policy receipt and `Required review lanes:` roster. A dashboard
+adapter must not infer a different Council requirement or specialist roster
+from change text, because Review and Close consume the Prepare-owned receipt.
 
 ### Extending File Activity Scope
 
@@ -149,3 +158,10 @@ Repos that need to coexist must use non-overlapping `port_range_start`–`port_r
 - `docs/references/dashboard-install-upgrade.md` — install, upgrade, and package flows (AC-6)
 - `.wavefoundry/framework/scripts/dashboard_lib.py` — canonical reader implementation
 - `.wavefoundry/framework/scripts/dashboard_server.py` — HTTP server and config loading
+
+<!-- wavefoundry:review-policy:begin -->
+## Review-policy dashboard baseline
+
+Dashboard review state projects the current review-policy receipt rather than
+deriving a parallel policy.
+<!-- wavefoundry:review-policy:end -->

@@ -14,6 +14,7 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+import time
 import types
 import unittest
 from pathlib import Path
@@ -22,6 +23,19 @@ from unittest.mock import MagicMock, patch
 
 SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
 SERVER_PATH = SCRIPTS_ROOT / "server.py"
+
+
+def integrity_checks(**overrides: object) -> dict[str, object]:
+    values: dict[str, object] = {
+        "test_ran_without_unintended_skip": True,
+        "public_path_reached": True,
+        "boundary_values_realistic": True,
+        "assertions_non_vacuous": True,
+        "known_bad_detected": True,
+        "known_bad_detection_method": "known-bad mutation was detected",
+    }
+    values.update(overrides)
+    return values
 
 
 def load_server():
@@ -932,6 +946,34 @@ def _append_review_run(root: Path, wave_id: str, *, kind: str = "readiness") -> 
     events.write_bytes(review.canonical_review_events_bytes(records))
     text = review.render_review_evidence_projection(
         wave_md.read_text(encoding="utf-8"), records
+    )
+    wave_md.write_text(text, encoding="utf-8")
+
+
+def _append_typed_approval(
+    root: Path,
+    wave_id: str,
+    signoff_key: str,
+    *,
+    actor: str,
+) -> None:
+    """Append one typed approval through the canonical external-ledger shape."""
+    wave_md = root / "docs" / "waves" / wave_id / "wave.md"
+    review = sys.modules["review_evidence"]
+    existing, errors = review.read_review_event_ledger(wave_md)
+    assert not errors, errors
+    approval = WaveLifecycleMutationTests._approval_record(signoff_key, actor=actor)
+    records = (*existing, approval)
+    review.review_event_path(wave_md).write_bytes(
+        review.canonical_review_events_bytes(records)
+    )
+    text = review.render_review_evidence_projection(
+        wave_md.read_text(encoding="utf-8"), records
+    )
+    text = review.render_review_status_projection(
+        text,
+        records,
+        review.required_review_status_keys(root, text, records),
     )
     wave_md.write_text(text, encoding="utf-8")
 
@@ -3199,6 +3241,11 @@ class WaveLifecycleMutationTests(unittest.TestCase):
                 any(d["code"] == "review_evidence_invalid" for d in result["diagnostics"]),
                 result["diagnostics"],
             )
+            if "review_actions" in result.get("data", {}):
+                actions = result["data"]["review_actions"]
+                self.assertFalse(actions["available"])
+                self.assertEqual(actions["next_actions"], [])
+                self.assertIsNone(actions["recommended_next_action"])
 
     def test_stray_adoption_sidecar_is_never_read_by_lifecycle(self):
         # Wave 1tomw (AC-7): the retired sidecar is dead state. Even a
@@ -3576,7 +3623,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             signoff_key="qa-reviewer",
             fresh_context=True,
             independent=True,
-            integrity_confirmed=True,
+            integrity_checks=integrity_checks(),
             evidence={
                 "actor": "qa-reviewer",
                 "observed": "must not be accepted",
@@ -3684,9 +3731,10 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             "qa-approval",
             mode="create",
             signoff_key="qa-reviewer",
+            approval_phase="delivery",
             fresh_context=True,
             independent=True,
-            integrity_confirmed=True,
+            integrity_checks=integrity_checks(),
             evidence={
                 "observed": "public-path QA passed",
                 "artifact_or_test_id": "qa:typed-review-approval",
@@ -3773,9 +3821,10 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             context,
             mode="create",
             signoff_key=signoff_key,
+            approval_phase="delivery",
             fresh_context=True,
             independent=True,
-            integrity_confirmed=True,
+            integrity_checks=integrity_checks(),
             evidence={"observed": observed, "artifact_or_test_id": f"test:{signoff_key}"},
         )
         first = call("same-operation")
@@ -3851,7 +3900,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
                 judgment=judgment,
                 evidence=evidence,
                 source_lanes=["qa-reviewer"],
-                integrity_confirmed=True,
+                integrity_checks=integrity_checks(),
             )
             self.assertEqual(result["status"], "ok", result)
         records, errors = self.srv.read_review_event_ledger(
@@ -3912,7 +3961,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
                 review_boundaries_changed=[],
                 fresh_context=True,
                 independent=True,
-                integrity_confirmed=True,
+                integrity_checks=integrity_checks(),
             )
 
         transitions = (
@@ -3991,7 +4040,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
                 review_boundaries_changed=[],
                 fresh_context=True,
                 independent=True,
-                integrity_confirmed=True,
+                integrity_checks=integrity_checks(),
             )
 
         findings = [f"finding-{index}" for index in range(5)]
@@ -4132,7 +4181,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
                 review_boundaries_changed=[],
                 fresh_context=True,
                 independent=True,
-                integrity_confirmed=True,
+                integrity_checks=integrity_checks(),
             )
 
         self.assertEqual(record("initial_delivery", 0, "qa-reviewer", "rg-init", lanes)["status"], "ok")
@@ -4143,8 +4192,8 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         both = record("reverification", 1, "qa-reviewer", "rg-clear-both", [])
         self.assertEqual(both["status"], "error", both)
         messages = "\n".join(item["message"] for item in both["diagnostics"])
-        self.assertIn('event="list"', messages)
-        self.assertIn("current list minus that actor", messages)
+        self.assertIn("wf_review_wave", messages)
+        self.assertNotIn('event="list"', messages)
 
         # Closure diagnostic: an unresolved-lanes head reports the same
         # recovery text at closure validation.
@@ -4152,8 +4201,8 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         closure = self.srv.validate_external_review_evidence(wave_md, closure=True)
         closure_errors = "\n".join(closure.errors)
         self.assertIn("retains unresolved required lanes", closure_errors)
-        self.assertIn('event="list"', closure_errors)
-        self.assertIn("current list minus that actor", closure_errors)
+        self.assertIn("wf_review_wave", closure_errors)
+        self.assertNotIn('event="list"', closure_errors)
 
     def test_typed_reverification_can_reclassify_started_finding(self):
         created = self.srv.wf_create_wave_response(
@@ -4218,7 +4267,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
                 review_boundaries_changed=[],
                 fresh_context=True,
                 independent=True,
-                integrity_confirmed=True,
+                integrity_checks=integrity_checks(),
             )
 
         self.assertEqual(
@@ -4287,7 +4336,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
                 review_boundaries_changed=[],
                 fresh_context=True,
                 independent=True,
-                integrity_confirmed=True,
+                integrity_checks=integrity_checks(),
             )
 
         findings = ["finding-a", "finding-b"]
@@ -4439,6 +4488,15 @@ class WaveLifecycleMutationTests(unittest.TestCase):
                 wave_md.read_text(encoding="utf-8"), records
             ),
             encoding="utf-8",
+        )
+        review_response = self.srv.wf_review_wave_response(self.root, wave_id)
+        self.assertTrue(
+            any(
+                diagnostic["code"] == "review_evidence_invalid"
+                and "initial_delivery" in diagnostic["message"]
+                for diagnostic in review_response.get("diagnostics", [])
+            ),
+            review_response,
         )
         response = self.srv.wf_close_wave_response(self.root, wave_id, mode="dry_run")
         self.assertTrue(
@@ -5483,6 +5541,7 @@ class RunGardenTests(unittest.TestCase):
         self.assertTrue(all(p.endswith(".md") for p in result["updated"]))
         self.assertTrue(result.get("output_truncated"))
         self.assertLessEqual(len(result["output"]), 200_000 + 200)
+        self.assertNotIn("log_path", result["output"])
 
     def test_no_updates_when_empty_output(self):
         result = self._run(0, "")
@@ -6040,6 +6099,41 @@ class WaveIndexHealthTests(unittest.TestCase):
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["diagnostics"], [])
         self.assertEqual(result["data"]["readiness_overview"], "ready")
+
+    def test_reports_additive_background_monitor_status(self):
+        index = MagicMock()
+        index.docs_health.return_value = {
+            "semantic_ready": True,
+            "stale_layers": [],
+            "missing_layers": [],
+            "has_any_index": True,
+            "compatible_chunks": True,
+            "readiness_overview": "ready",
+            "project": {"readiness": "current"},
+        }
+        monitors = {
+            "index": {
+                "configured": True,
+                "alive": True,
+                "last_checked_at": 123.0,
+                "stale": False,
+                "triggered": False,
+                "reason": "current_or_undetermined",
+            },
+            "context_efficiency_projection": {
+                "configured": True,
+                "alive": True,
+                "last_checked_at": 124.0,
+                "triggered": False,
+                "reason": "nothing_pending",
+                "quiet_period_seconds": 120.0,
+            },
+        }
+        result = self.srv.index_health_response(
+            index, background_monitors=monitors
+        )
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["data"]["background_monitors"], monitors)
 
     def test_returns_ok_with_index_stale_diagnostic(self):
         # AC-1: health check returns "ok" even when index is stale — agents read
@@ -6685,7 +6779,7 @@ class RepairIndependenceBoundaryTests(unittest.TestCase):
             source_lanes=["qa-reviewer"],
             blocking_required_lanes=["qa-reviewer"] if blocking is None else blocking,
             approval_recheck_lanes=["qa-reviewer"],
-            fresh_context=fresh, independent=True, integrity_confirmed=True,
+            fresh_context=fresh, independent=True, integrity_checks=integrity_checks(),
         )
 
     def _snapshot(self):
@@ -6725,15 +6819,15 @@ class RepairIndependenceBoundaryTests(unittest.TestCase):
             "ok",
         )
         self.assertEqual(
-            self._finding("qa-reviewer", "ctx-repair-2", "repair_start", 1,
+            self._finding("code-reviewer", "ctx-repair-2", "repair_start", 1,
                           finding_id="finding-ind-2")["status"],
             "ok",
         )
         snapshot = self._snapshot()
         for mode in ("dry_run", "create"):
             rejected = self._finding(
-                "qa-reviewer", "ctx-verify-2", "reverification", 1,
-                finding_id="finding-ind-2", blocking=[], mode=mode,
+                "code-reviewer", "ctx-verify-2", "reverification", 1,
+                finding_id="finding-ind-2", blocking=["qa-reviewer"], mode=mode,
             )
             self._assert_rejected(rejected, "reverification_actor_not_distinct", snapshot)
 
@@ -6900,7 +6994,7 @@ class ReviewEvidenceListEventTests(unittest.TestCase):
             self.root, self.wave_id, "finding", "qa-reviewer", "find-ctx",
             mode="create", finding_id="fixture-finding", run_kind="initial_delivery",
             cycle=0, judgment=judgment, evidence=evidence,
-            source_lanes=["qa-reviewer"], integrity_confirmed=True,
+            source_lanes=["qa-reviewer"], integrity_checks=integrity_checks(),
         )
         if not complete:
             return
@@ -6909,14 +7003,14 @@ class ReviewEvidenceListEventTests(unittest.TestCase):
             self.root, self.wave_id, "finding", "implementer", "repair-ctx",
             mode="create", finding_id="fixture-finding", run_kind="repair_start",
             cycle=1, judgment=judgment, evidence=evidence,
-            source_lanes=["qa-reviewer"], integrity_confirmed=True,
+            source_lanes=["qa-reviewer"], integrity_checks=integrity_checks(),
         )
         judgment, evidence = self._finding_payloads(repair_state="completed")
         self.srv.wf_review_event_response(
             self.root, self.wave_id, "finding", "reverifier", "reverify-ctx",
             mode="create", finding_id="fixture-finding", run_kind="reverification",
             cycle=1, judgment=judgment, evidence=evidence,
-            source_lanes=["qa-reviewer"], integrity_confirmed=True,
+            source_lanes=["qa-reviewer"], integrity_checks=integrity_checks(),
             fresh_context=True, independent=True,
         )
 
@@ -6937,7 +7031,8 @@ class ReviewEvidenceListEventTests(unittest.TestCase):
         self.srv.wf_review_event_response(
             self.root, self.wave_id, "approval", "qa-reviewer", "qa-approval",
             mode="create", signoff_key="qa-reviewer", fresh_context=True,
-            independent=True, integrity_confirmed=True,
+            approval_phase="delivery",
+            independent=True, integrity_checks=integrity_checks(),
             evidence={"observed": "qa pass", "artifact_or_test_id": "qa:list"},
         )
         result = self._list()
@@ -6971,8 +7066,9 @@ class ReviewEvidenceListEventTests(unittest.TestCase):
         start = source.index("def _review_evidence_list_response")
         end = source.index("def wf_review_event_response")
         body = source[start:end]
-        self.assertIn("current_synthesis_heads", body)
-        self.assertIn("review_status_rows", body)
+        self.assertIn("review_authority_projection", body)
+        self.assertNotIn("current_synthesis_heads(", body)
+        self.assertNotIn("review_status_rows(", body)
         self.assertNotIn("supersedes_record_id\"] ==", body)
 
     def _seed_finding_chain_completion(self):
@@ -6981,14 +7077,14 @@ class ReviewEvidenceListEventTests(unittest.TestCase):
             self.root, self.wave_id, "finding", "implementer", "repair-ctx",
             mode="create", finding_id="fixture-finding", run_kind="repair_start",
             cycle=1, judgment=judgment, evidence=evidence,
-            source_lanes=["qa-reviewer"], integrity_confirmed=True,
+            source_lanes=["qa-reviewer"], integrity_checks=integrity_checks(),
         )
         judgment, evidence = self._finding_payloads(repair_state="completed")
         self.srv.wf_review_event_response(
             self.root, self.wave_id, "finding", "reverifier", "reverify-ctx",
             mode="create", finding_id="fixture-finding", run_kind="reverification",
             cycle=1, judgment=judgment, evidence=evidence,
-            source_lanes=["qa-reviewer"], integrity_confirmed=True,
+            source_lanes=["qa-reviewer"], integrity_checks=integrity_checks(),
             fresh_context=True, independent=True,
         )
 
@@ -7025,6 +7121,1166 @@ class ReviewEvidenceListEventTests(unittest.TestCase):
             self.root, self.wave_id, "list", "probe", "list-test", mode="bogus"
         )
         self.assertEqual(result["status"], "ok", result)
+
+    def test_guided_action_cap_has_named_forensic_diagnostic(self):
+        judgment, evidence = self._finding_payloads()
+        for index in range(3):
+            response = self.srv.wf_review_event_response(
+                self.root, self.wave_id, "finding", "qa-reviewer", f"cap-{index}",
+                mode="create", finding_id=f"cap-finding-{index}",
+                run_kind="initial_delivery", cycle=0, judgment=judgment,
+                evidence=evidence, source_lanes=["qa-reviewer"],
+                blocking_required_lanes=["qa-reviewer"],
+                approval_recheck_lanes=["qa-reviewer"],
+                review_boundaries_changed=[], integrity_checks=integrity_checks(),
+            )
+            self.assertEqual(response["status"], "ok", response)
+        review_evidence = sys.modules["review_evidence"]
+        with patch.object(review_evidence, "REVIEW_ACTION_CAP", 2), patch.object(
+            self.srv, "run_validate",
+            return_value={"passed": True, "errors": [], "warnings": [], "output": ""},
+        ):
+            reviewed = self.srv.wf_review_wave_response(
+                self.root, self.wave_id, phase="implementation"
+            )
+        actions = reviewed["data"]["review_actions"]
+        self.assertEqual(actions["total_current_actions"], 3)
+        self.assertEqual(actions["returned_current_actions"], 2)
+        self.assertEqual(actions["omitted_current_actions"], 1)
+        self.assertTrue(actions["truncated"])
+        diagnostic = next(
+            item for item in reviewed["diagnostics"]
+            if item["code"] == review_evidence.REVIEW_ACTION_TRUNCATED_DIAGNOSTIC
+        )
+        self.assertIn("wf_review_event(event='list')", diagnostic["message"])
+
+    def test_approval_actions_require_the_phase_run_and_preserve_public_actor_contract(self):
+        """AC-1/AC-9: approval guidance begins only after the phase run.
+
+        The mutation probe crosses the registered public response seam: if the
+        product projection emits the wrong operator actor, the oracle must fail.
+        """
+        validate_ok = {"passed": True, "errors": [], "warnings": [], "output": ""}
+        with patch.object(self.srv, "run_validate", return_value=validate_ok):
+            before = self.srv.wf_review_wave_response(
+                self.root, self.wave_id, phase="implementation"
+            )
+        self.assertEqual(
+            before["data"]["review_actions"]["next_actions"], [], before
+        )
+
+        recorded = self.srv.wf_review_event_response(
+            self.root, self.wave_id, "run", "wave-council", "delivery-run",
+            mode="create", run_kind="initial_delivery", cycle=0,
+        )
+        self.assertEqual(recorded["status"], "ok", recorded)
+
+        def assert_operator_actor(response):
+            action = next(
+                item for item in response["data"]["review_actions"]["next_actions"]
+                if item["action_id"] == "approval:operator-signoff"
+            )
+            self.assertEqual(action["actor_role"], "operator")
+
+        with patch.object(self.srv, "run_validate", return_value=validate_ok):
+            after = self.srv.wf_review_wave_response(
+                self.root, self.wave_id, phase="implementation"
+            )
+        assert_operator_actor(after)
+
+        original_projection = self.srv.review_authority_projection
+
+        def wrong_operator_actor(*args, **kwargs):
+            projection = json.loads(json.dumps(original_projection(*args, **kwargs)))
+            for action in projection["next_actions"]:
+                if action["action_id"] == "approval:operator-signoff":
+                    action["actor_role"] = "wave-council"
+            recommended = projection.get("recommended_next_action")
+            if recommended and recommended["action_id"] == "approval:operator-signoff":
+                recommended["actor_role"] = "wave-council"
+            return projection
+
+        with patch.object(self.srv, "run_validate", return_value=validate_ok), \
+             patch.object(self.srv, "review_authority_projection", wrong_operator_actor):
+            mutated = self.srv.wf_review_wave_response(
+                self.root, self.wave_id, phase="implementation"
+            )
+        with self.assertRaises(AssertionError):
+            assert_operator_actor(mutated)
+
+    def test_zero_lane_finding_has_a_terminal_guided_route(self):
+        """AC-2: accepted historical zero-lane heads cannot loop forever."""
+        judgment, evidence = self._finding_payloads()
+        initial = self.srv.wf_review_event_response(
+            self.root, self.wave_id, "finding", "implementer", "zero-initial",
+            mode="create", finding_id="zero-lane", run_kind="initial_delivery",
+            cycle=0, judgment=judgment, evidence=evidence,
+            source_lanes=["implementer"], blocking_required_lanes=[],
+            integrity_checks=integrity_checks(),
+        )
+        self.assertEqual(initial["status"], "ok", initial)
+        repair = initial["data"]["review_actions"]["recommended_next_action"]
+        self.assertEqual(repair["action_kind"], "repair_start", repair)
+
+        repair_state = dict(repair["state_args"])
+        repair_event = repair_state.pop("event")
+        repaired = self.srv.wf_review_event_response(
+            self.root, self.wave_id, repair_event, repair["actor_role"], "zero-repair",
+            mode="create", judgment=judgment, evidence=evidence,
+            integrity_checks=integrity_checks(), **repair_state,
+        )
+        self.assertEqual(repaired["status"], "ok", repaired)
+        reverify = repaired["data"]["review_actions"]["recommended_next_action"]
+        self.assertEqual(reverify["action_kind"], "reverification", reverify)
+        self.assertEqual(reverify["actor_role"], "code-reviewer", reverify)
+        self.assertEqual(reverify["state_args"]["blocking_required_lanes"], [])
+
+        completed_judgment, completed_evidence = self._finding_payloads(
+            repair_state="completed"
+        )
+        reverify_state = dict(reverify["state_args"])
+        reverify_event = reverify_state.pop("event")
+        verified = self.srv.wf_review_event_response(
+            self.root, self.wave_id, reverify_event, reverify["actor_role"],
+            "zero-reverify", mode="create", judgment=completed_judgment,
+            evidence=completed_evidence, fresh_context=True, independent=True,
+            integrity_checks=integrity_checks(), **reverify_state,
+        )
+        self.assertEqual(verified["status"], "ok", verified)
+        summary = self._list(finding_id="zero-lane")["data"]["chain_summary"]["zero-lane"]
+        self.assertTrue(summary["terminal"], summary)
+        self.assertEqual(summary["unresolved_required_lanes"], [])
+        self.assertTrue(
+            any(
+                action["action_kind"] == "approval"
+                for action in verified["data"]["review_actions"]["next_actions"]
+            ),
+            verified,
+        )
+
+    def test_zero_lane_fallback_excludes_the_actual_repair_actor(self):
+        """AC-2: accepted same-role repairs still get a distinct terminal route."""
+        cases = (
+            ("qa-reviewer", "qa-reviewer", "code-reviewer"),
+            ("implementer", "code-reviewer", "qa-reviewer"),
+        )
+        for source_actor, repair_actor, expected_reviewer in cases:
+            with self.subTest(
+                source_actor=source_actor, repair_actor=repair_actor
+            ), tempfile.TemporaryDirectory() as tmp:
+                root = _make_repo(Path(tmp))
+                created = self.srv.wf_create_wave_response(
+                    root, f"zero-{source_actor}-{repair_actor}", mode="create"
+                )
+                wave_id = created["data"]["wave_id"]
+                judgment, evidence = self._finding_payloads()
+                initial = self.srv.wf_review_event_response(
+                    root, wave_id, "finding", source_actor, "variant-initial",
+                    mode="create", finding_id="zero-variant",
+                    run_kind="initial_delivery", cycle=0, judgment=judgment,
+                    evidence=evidence, source_lanes=[source_actor],
+                    blocking_required_lanes=[], integrity_checks=integrity_checks(),
+                )
+                self.assertEqual(initial["status"], "ok", initial)
+                repaired = self.srv.wf_review_event_response(
+                    root, wave_id, "finding", repair_actor, "variant-repair",
+                    mode="create", finding_id="zero-variant",
+                    run_kind="repair_start", cycle=1, judgment=judgment,
+                    evidence=evidence, source_lanes=[source_actor],
+                    blocking_required_lanes=[], integrity_checks=integrity_checks(),
+                )
+                self.assertEqual(repaired["status"], "ok", repaired)
+                action = repaired["data"]["review_actions"]["recommended_next_action"]
+                self.assertEqual(action["actor_role"], expected_reviewer, action)
+                state = dict(action["state_args"])
+                event = state.pop("event")
+                completed, completed_evidence = self._finding_payloads(
+                    repair_state="completed"
+                )
+                verified = self.srv.wf_review_event_response(
+                    root, wave_id, event, action["actor_role"], "variant-reverify",
+                    mode="create", judgment=completed, evidence=completed_evidence,
+                    fresh_context=True, independent=True,
+                    integrity_checks=integrity_checks(), **state,
+                )
+                self.assertEqual(verified["status"], "ok", verified)
+                listed = self.srv.wf_review_event_response(
+                    root, wave_id, "list", "probe", "variant-list",
+                    finding_id="zero-variant",
+                )
+                self.assertTrue(
+                    listed["data"]["chain_summary"]["zero-variant"]["terminal"],
+                    listed,
+                )
+
+    def test_repair_start_rejects_actor_blocking_lane_overlap_without_append(self):
+        """A repair actor can never independently clear its own reviewer lane."""
+
+        for lanes in (["qa-reviewer"], ["qa-reviewer", "code-reviewer"]):
+            with self.subTest(lanes=lanes), tempfile.TemporaryDirectory() as tmp:
+                root = _make_repo(Path(tmp))
+                created = self.srv.wf_create_wave_response(
+                    root, "repair-actor-overlap", mode="create"
+                )
+                wave_id = created["data"]["wave_id"]
+                wave_md = root / "docs" / "waves" / wave_id / "wave.md"
+                events_path = sys.modules["review_evidence"].review_event_path(wave_md)
+                judgment, evidence = self._finding_payloads()
+                initial = self.srv.wf_review_event_response(
+                    root, wave_id, "finding", "qa-reviewer", "overlap-initial",
+                    mode="create", finding_id="actor-overlap",
+                    run_kind="initial_delivery", cycle=0, judgment=judgment,
+                    evidence=evidence, source_lanes=lanes,
+                    blocking_required_lanes=lanes,
+                    approval_recheck_lanes=lanes,
+                    integrity_checks=integrity_checks(),
+                )
+                self.assertEqual(initial["status"], "ok", initial)
+                before = events_path.read_bytes()
+                rejected = self.srv.wf_review_event_response(
+                    root, wave_id, "finding", "qa-reviewer", "overlap-repair",
+                    mode="create", finding_id="actor-overlap",
+                    run_kind="repair_start", cycle=1, judgment=judgment,
+                    evidence=evidence, source_lanes=lanes,
+                    blocking_required_lanes=lanes,
+                    approval_recheck_lanes=lanes,
+                    integrity_checks=integrity_checks(),
+                )
+                self.assertEqual(rejected["status"], "error", rejected)
+                self.assertEqual(events_path.read_bytes(), before)
+                diagnostic = next(
+                    item for item in rejected["diagnostics"]
+                    if "repair_start actor" in item["message"]
+                )
+                self.assertEqual(diagnostic["code"], "invalid_review_event")
+                self.assertEqual(diagnostic["recovery_tools"], ["wf_review_wave"])
+                self.assertIn("phase='implementation'", diagnostic["recovery_usage"])
+
+    def test_stale_lane_action_cannot_resurrect_a_cleared_lane(self):
+        """AC-9: old legal alternatives reject with zero append."""
+
+        judgment, evidence = self._finding_payloads()
+        lanes = ["code-reviewer", "qa-reviewer"]
+        initial = self.srv.wf_review_event_response(
+            self.root, self.wave_id, "finding", "qa-reviewer", "stale-initial",
+            mode="create", finding_id="stale-lanes", run_kind="initial_delivery",
+            cycle=0, judgment=judgment, evidence=evidence, source_lanes=lanes,
+            blocking_required_lanes=lanes, approval_recheck_lanes=lanes,
+            integrity_checks=integrity_checks(),
+        )
+        self.assertEqual(initial["status"], "ok", initial)
+        repair = initial["data"]["review_actions"]["recommended_next_action"]
+        repair_state = dict(repair["state_args"])
+        repair_event = repair_state.pop("event")
+        repaired = self.srv.wf_review_event_response(
+            self.root, self.wave_id, repair_event, repair["actor_role"],
+            "stale-repair", mode="create", judgment=judgment,
+            evidence=evidence, integrity_checks=integrity_checks(), **repair_state,
+        )
+        self.assertEqual(repaired["status"], "ok", repaired)
+        actions = repaired["data"]["review_actions"]["next_actions"]
+        code_action = next(
+            action for action in actions if action["actor_role"] == "code-reviewer"
+        )
+        stale_qa_action = next(
+            action for action in actions if action["actor_role"] == "qa-reviewer"
+        )
+
+        code_state = dict(code_action["state_args"])
+        code_event = code_state.pop("event")
+        completed, completed_evidence = self._finding_payloads(
+            repair_state="completed"
+        )
+        cleared = self.srv.wf_review_event_response(
+            self.root, self.wave_id, code_event, code_action["actor_role"],
+            "stale-code-clear", mode="create", judgment=completed,
+            evidence=completed_evidence, fresh_context=True, independent=True,
+            integrity_checks=integrity_checks(), **code_state,
+        )
+        self.assertEqual(cleared["status"], "ok", cleared)
+        before = self.events_path.read_bytes()
+
+        stale_state = dict(stale_qa_action["state_args"])
+        stale_event = stale_state.pop("event")
+        rejected = self.srv.wf_review_event_response(
+            self.root, self.wave_id, stale_event, stale_qa_action["actor_role"],
+            "stale-qa-replay", mode="create", judgment=completed,
+            evidence=completed_evidence, fresh_context=True, independent=True,
+            integrity_checks=integrity_checks(), **stale_state,
+        )
+        self.assertEqual(rejected["status"], "error", rejected)
+        self.assertEqual(self.events_path.read_bytes(), before)
+        diagnostic = next(
+            item for item in rejected["diagnostics"]
+            if "stale reverification" in item["message"]
+        )
+        self.assertEqual(diagnostic["code"], "invalid_review_event")
+        self.assertEqual(diagnostic["recovery_tools"], ["wf_review_wave"])
+        current = self._list(finding_id="stale-lanes")
+        self.assertEqual(
+            current["data"]["chain_summary"]["stale-lanes"]
+            ["unresolved_required_lanes"],
+            ["qa-reviewer"],
+        )
+
+    def test_guided_single_lane_stale_approval_and_operator_shapes(self):
+        """AC-3/AC-9: the remaining promised evaluation shapes are executable.
+
+        One validation enters the guided flow. A current operator approval is
+        then made stale by a new single-lane finding; the accepted write
+        continuations repair, independently reverify, and refresh approval
+        without an exploratory rejection or forensic-list navigation step.
+        """
+        run = self.srv.wf_review_event_response(
+            self.root, self.wave_id, "run", "wave-council", "shape-run",
+            mode="create", run_kind="initial_delivery", cycle=0,
+        )
+        self.assertEqual(run["status"], "ok", run)
+        validate_ok = {"passed": True, "errors": [], "warnings": [], "output": ""}
+        with patch.object(self.srv, "run_validate", return_value=validate_ok) as validate:
+            reviewed = self.srv.wf_review_wave_response(
+                self.root, self.wave_id, phase="implementation"
+            )
+        self.assertEqual(validate.call_count, 1)
+        operator = reviewed["data"]["review_actions"]["recommended_next_action"]
+        self.assertEqual(operator["action_id"], "approval:operator-signoff", operator)
+        approved = self.srv.wf_review_event_response(
+            self.root, self.wave_id, "approval", operator["actor_role"], "shape-approval",
+            mode="create", signoff_key="operator-signoff", approval_phase="delivery",
+            integrity_checks=integrity_checks(),
+            evidence={"observed": "operator approved", "artifact_or_test_id": "shape"},
+        )
+        self.assertEqual(approved["status"], "ok", approved)
+
+        judgment, evidence = self._finding_payloads()
+        found = self.srv.wf_review_event_response(
+            self.root, self.wave_id, "finding", "qa-reviewer", "shape-finding",
+            mode="create", finding_id="single-lane-shape",
+            run_kind="initial_delivery", cycle=0, judgment=judgment,
+            evidence=evidence, source_lanes=["qa-reviewer"],
+            blocking_required_lanes=["qa-reviewer"],
+            approval_recheck_lanes=["operator-signoff"],
+            integrity_checks=integrity_checks(),
+        )
+        self.assertEqual(found["status"], "ok", found)
+        self.assertFalse(
+            any(
+                action["action_kind"] == "approval"
+                for action in found["data"]["review_actions"]["next_actions"]
+            ),
+            found,
+        )
+
+        action = found["data"]["review_actions"]["recommended_next_action"]
+        accepted_kinds = []
+        for context in ("shape-repair", "shape-reverify"):
+            state = dict(action["state_args"])
+            event = state.pop("event")
+            step_judgment, step_evidence = self._finding_payloads(
+                repair_state=(
+                    "completed"
+                    if action["action_kind"] == "reverification"
+                    else "pending"
+                )
+            )
+            written = self.srv.wf_review_event_response(
+                self.root, self.wave_id, event, action["actor_role"], context,
+                mode="create", judgment=step_judgment, evidence=step_evidence,
+                fresh_context=action["action_kind"] == "reverification",
+                independent=action["action_kind"] == "reverification",
+                integrity_checks=integrity_checks(), **state,
+            )
+            self.assertEqual(written["status"], "ok", written)
+            accepted_kinds.append(action["action_kind"])
+            action = written["data"]["review_actions"]["recommended_next_action"]
+
+        self.assertEqual(accepted_kinds, ["repair_start", "reverification"])
+        self.assertEqual(action["action_id"], "approval:operator-signoff", action)
+        refreshed = self.srv.wf_review_event_response(
+            self.root, self.wave_id, "approval", action["actor_role"], "shape-refresh",
+            mode="create", signoff_key="operator-signoff", approval_phase="delivery",
+            integrity_checks=integrity_checks(),
+            evidence={"observed": "operator re-approved", "artifact_or_test_id": "shape"},
+        )
+        self.assertEqual(refreshed["status"], "ok", refreshed)
+        operator_row = next(
+            row for row in self._list()["data"]["approvals"]
+            if row["signoff_key"] == "operator-signoff"
+        )
+        self.assertEqual(operator_row["state"], "approved", operator_row)
+
+    def test_frozen_single_lane_stale_approval_operator_equivalence(self):
+        """AC-9: the remaining three named shapes get the same fair oracle."""
+
+        generated_wave_id = self.wave_id
+        fixed_wave_id = "1200b ergonomics-single-lane"
+        fixed_dir = self.wave_md.parent.parent / fixed_wave_id
+        self.wave_md.parent.rename(fixed_dir)
+        self.wave_id = fixed_wave_id
+        self.wave_md = fixed_dir / "wave.md"
+        self.wave_md.write_text(
+            self.wave_md.read_text(encoding="utf-8").replace(
+                generated_wave_id, fixed_wave_id
+            ),
+            encoding="utf-8",
+        )
+        self.events_path = sys.modules["review_evidence"].review_event_path(
+            self.wave_md
+        )
+
+        run = self.srv.wf_review_event_response(
+            self.root, self.wave_id, "run", "wave-council", "frozen-shape-run",
+            mode="create", run_kind="initial_delivery", cycle=0,
+        )
+        self.assertEqual(run["status"], "ok", run)
+        old_approval = self.srv.wf_review_event_response(
+            self.root, self.wave_id, "approval", "operator", "frozen-old-approval",
+            mode="create", signoff_key="operator-signoff",
+            approval_phase="delivery", integrity_checks=integrity_checks(),
+            evidence={
+                "observed": "operator approved before the finding",
+                "artifact_or_test_id": "frozen-single-lane",
+            },
+        )
+        self.assertEqual(old_approval["status"], "ok", old_approval)
+        judgment, evidence = self._finding_payloads()
+        found = self.srv.wf_review_event_response(
+            self.root, self.wave_id, "finding", "qa-reviewer", "frozen-finding",
+            mode="create", finding_id="frozen-single-lane",
+            run_kind="initial_delivery", cycle=0, judgment=judgment,
+            evidence=evidence, source_lanes=["qa-reviewer"],
+            blocking_required_lanes=["qa-reviewer"],
+            approval_recheck_lanes=["operator-signoff"],
+            integrity_checks=integrity_checks(),
+        )
+        self.assertEqual(found["status"], "ok", found)
+        starting_bytes = self.events_path.read_bytes()
+        starting_fingerprint = hashlib.sha256(starting_bytes).hexdigest()
+        self.assertEqual(
+            starting_fingerprint,
+            "e3592ff07b5e48f80705a5570b27c9d16a735ad4754523197c530f2e607a81fa",
+        )
+
+        candidate_tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(candidate_tmp.cleanup)
+        candidate_root = Path(candidate_tmp.name) / "candidate"
+        shutil.copytree(self.root, candidate_root)
+        candidate_events = candidate_root / self.events_path.relative_to(self.root)
+        self.assertEqual(candidate_events.read_bytes(), starting_bytes)
+
+        validate_ok = {"passed": True, "errors": [], "warnings": [], "output": ""}
+        baseline_trace = []
+        with patch.object(self.srv, "run_validate", return_value=validate_ok) as baseline_validate:
+            reviewed = self.srv.wf_review_wave_response(
+                self.root, self.wave_id, phase="implementation"
+            )
+            baseline_trace.append("wf_review_wave")
+            self.assertIn(reviewed["status"], {"ok", "error"})
+            for context, kind, actor, lanes, repair_state in (
+                ("frozen-repair", "repair_start", "implementer", ["qa-reviewer"], "pending"),
+                ("frozen-reverify", "reverification", "qa-reviewer", [], "completed"),
+            ):
+                listed = self._list(finding_id="frozen-single-lane")
+                self.assertEqual(listed["status"], "ok", listed)
+                baseline_trace.append("wf_review_event:list")
+                step_judgment, step_evidence = self._finding_payloads(
+                    repair_state=repair_state
+                )
+                written = self.srv.wf_review_event_response(
+                    self.root, self.wave_id, "finding", actor, context,
+                    mode="create", finding_id="frozen-single-lane",
+                    run_kind=kind, cycle=1, judgment=step_judgment,
+                    evidence=step_evidence, source_lanes=["qa-reviewer"],
+                    blocking_required_lanes=lanes,
+                    approval_recheck_lanes=["operator-signoff"],
+                    fresh_context=kind == "reverification",
+                    independent=kind == "reverification",
+                    integrity_checks=integrity_checks(),
+                )
+                self.assertEqual(written["status"], "ok", written)
+                baseline_trace.append(f"wf_review_event:{kind}")
+            listed = self._list(finding_id="frozen-single-lane")
+            self.assertTrue(
+                listed["data"]["chain_summary"]["frozen-single-lane"]["terminal"]
+            )
+            baseline_trace.append("wf_review_event:list")
+            refreshed = self.srv.wf_review_event_response(
+                self.root, self.wave_id, "approval", "operator",
+                "frozen-operator-refresh", mode="create",
+                signoff_key="operator-signoff", approval_phase="delivery",
+                integrity_checks=integrity_checks(),
+                evidence={
+                    "observed": "operator refreshed after repair",
+                    "artifact_or_test_id": "frozen-single-lane",
+                },
+            )
+            self.assertEqual(refreshed["status"], "ok", refreshed)
+            baseline_trace.append("wf_review_event:approval")
+
+        candidate_trace = []
+        with patch.object(self.srv, "run_validate", return_value=validate_ok) as candidate_validate:
+            reviewed = self.srv.wf_review_wave_response(
+                candidate_root, self.wave_id, phase="implementation"
+            )
+            candidate_trace.append("wf_review_wave")
+            action = reviewed["data"]["review_actions"]["recommended_next_action"]
+            for context in (
+                "frozen-repair", "frozen-reverify", "frozen-operator-refresh"
+            ):
+                state = dict(action["state_args"])
+                event_name = state.pop("event")
+                kwargs = {
+                    "mode": "create",
+                    "integrity_checks": integrity_checks(),
+                    **state,
+                }
+                if action["action_kind"] in {"repair_start", "reverification"}:
+                    step_judgment, step_evidence = self._finding_payloads(
+                        repair_state=(
+                            "completed"
+                            if action["action_kind"] == "reverification"
+                            else "pending"
+                        )
+                    )
+                    kwargs.update(
+                        judgment=step_judgment,
+                        evidence=step_evidence,
+                        fresh_context=action["action_kind"] == "reverification",
+                        independent=action["action_kind"] == "reverification",
+                    )
+                else:
+                    kwargs["evidence"] = {
+                        "observed": "operator refreshed after repair",
+                        "artifact_or_test_id": "frozen-single-lane",
+                    }
+                written = self.srv.wf_review_event_response(
+                    candidate_root, self.wave_id, event_name,
+                    action["actor_role"], context, **kwargs,
+                )
+                self.assertEqual(written["status"], "ok", written)
+                candidate_trace.append(f"wf_review_event:{action['action_kind']}")
+                action = written["data"]["review_actions"].get(
+                    "recommended_next_action"
+                )
+                if action is None:
+                    break
+
+        self.assertEqual(baseline_validate.call_count, 1)
+        self.assertEqual(candidate_validate.call_count, 1)
+        self.assertNotIn("wf_review_event:list", candidate_trace)
+        self.assertLess(len(candidate_trace), len(baseline_trace))
+        self.assertEqual(candidate_events.read_bytes(), self.events_path.read_bytes())
+        baseline_records = self.srv.validate_external_review_evidence(
+            self.wave_md
+        ).records
+        candidate_wave = candidate_root / self.wave_md.relative_to(self.root)
+        candidate_records = self.srv.validate_external_review_evidence(
+            candidate_wave
+        ).records
+        review_evidence = sys.modules["review_evidence"]
+        self.assertEqual(
+            review_evidence.current_synthesis_heads(candidate_records),
+            review_evidence.current_synthesis_heads(baseline_records),
+        )
+        self.assertEqual(
+            review_evidence.review_status_rows(
+                candidate_records, ("qa-reviewer", "operator-signoff")
+            ),
+            review_evidence.review_status_rows(
+                baseline_records, ("qa-reviewer", "operator-signoff")
+            ),
+        )
+
+    def test_frozen_invalid_transition_matrix_rejects_without_append(self):
+        """AC-9: every named invalid transition is a frozen twin-tree oracle."""
+
+        judgment, evidence = self._finding_payloads()
+        initial = self.srv.wf_review_event_response(
+            self.root, self.wave_id, "finding", "qa-reviewer", "matrix-initial",
+            mode="create", finding_id="matrix-finding",
+            run_kind="initial_delivery", cycle=0, judgment=judgment,
+            evidence=evidence, source_lanes=["code-reviewer", "qa-reviewer"],
+            blocking_required_lanes=["code-reviewer", "qa-reviewer"],
+            approval_recheck_lanes=["code-reviewer", "qa-reviewer"],
+            integrity_checks=integrity_checks(),
+        )
+        self.assertEqual(initial["status"], "ok", initial)
+
+        def twin_roots(label):
+            holder = tempfile.TemporaryDirectory()
+            self.addCleanup(holder.cleanup)
+            baseline = Path(holder.name) / f"{label}-baseline"
+            candidate = Path(holder.name) / f"{label}-candidate"
+            shutil.copytree(self.root, baseline)
+            shutil.copytree(self.root, candidate)
+            return baseline, candidate
+
+        def assert_rejected_twins(label, invoke):
+            baseline, candidate = twin_roots(label)
+            signatures = []
+            for root in (baseline, candidate):
+                events_path = root / self.events_path.relative_to(self.root)
+                before = events_path.read_bytes()
+                response = invoke(root)
+                self.assertEqual(response["status"], "error", (label, response))
+                self.assertEqual(events_path.read_bytes(), before, label)
+                signatures.append(
+                    tuple(item["code"] for item in response.get("diagnostics", []))
+                )
+            self.assertEqual(signatures[0], signatures[1], label)
+
+        common = {
+            "mode": "create", "finding_id": "matrix-finding",
+            "judgment": judgment, "evidence": evidence,
+            "source_lanes": ["code-reviewer", "qa-reviewer"],
+            "blocking_required_lanes": ["code-reviewer", "qa-reviewer"],
+            "approval_recheck_lanes": ["code-reviewer", "qa-reviewer"],
+            "integrity_checks": integrity_checks(),
+        }
+        assert_rejected_twins(
+            "wrong-cycle",
+            lambda root: self.srv.wf_review_event_response(
+                root, self.wave_id, "finding", "implementer", "matrix-wrong-cycle",
+                run_kind="repair_start", cycle=0, **common,
+            ),
+        )
+        assert_rejected_twins(
+            "missing-repair-start",
+            lambda root: self.srv.wf_review_event_response(
+                root, self.wave_id, "finding", "qa-reviewer", "matrix-no-repair",
+                run_kind="reverification", cycle=1, fresh_context=True,
+                independent=True, **common,
+            ),
+        )
+        assert_rejected_twins(
+            "wrong-approval-phase",
+            lambda root: self.srv.wf_review_event_response(
+                root, self.wave_id, "approval", "operator", "matrix-phase",
+                mode="create", signoff_key="operator-signoff",
+                approval_phase="readiness", integrity_checks=integrity_checks(),
+                evidence={"observed": "wrong", "artifact_or_test_id": "matrix"},
+            ),
+        )
+        assert_rejected_twins(
+            "actor-swap",
+            lambda root: self.srv.wf_review_event_response(
+                root, self.wave_id, "approval", "wave-council", "matrix-actor",
+                mode="create", signoff_key="operator-signoff",
+                approval_phase="delivery", integrity_checks=integrity_checks(),
+                evidence={"observed": "wrong", "artifact_or_test_id": "matrix"},
+            ),
+        )
+        malformed = dict(common)
+        malformed["integrity_checks"] = {
+            "test_ran_without_unintended_skip": True
+        }
+        assert_rejected_twins(
+            "malformed-integrity",
+            lambda root: self.srv.wf_review_event_response(
+                root, self.wave_id, "finding", "implementer", "matrix-integrity",
+                run_kind="repair_start", cycle=1, **malformed,
+            ),
+        )
+
+        def assert_same_context_rejected(root):
+            repaired = self.srv.wf_review_event_response(
+                root, self.wave_id, "finding", "implementer", "matrix-same-context",
+                run_kind="repair_start", cycle=1, **common,
+            )
+            self.assertEqual(repaired["status"], "ok", repaired)
+            events_path = root / self.events_path.relative_to(self.root)
+            before = events_path.read_bytes()
+            response = self.srv.wf_review_event_response(
+                root, self.wave_id, "finding", "qa-reviewer", "matrix-same-context",
+                run_kind="reverification", cycle=1, fresh_context=True,
+                independent=True, **common,
+            )
+            self.assertEqual(events_path.read_bytes(), before)
+            return response
+
+        same_context_signatures = []
+        for root in twin_roots("same-context"):
+            response = assert_same_context_rejected(root)
+            self.assertEqual(response["status"], "error", response)
+            same_context_signatures.append(
+                tuple(item["code"] for item in response.get("diagnostics", []))
+            )
+        self.assertEqual(same_context_signatures[0], same_context_signatures[1])
+
+        def assert_stale_lane_rejected(root):
+            repaired = self.srv.wf_review_event_response(
+                root, self.wave_id, "finding", "implementer", "matrix-stale-repair",
+                run_kind="repair_start", cycle=1, **common,
+            )
+            self.assertEqual(repaired["status"], "ok", repaired)
+            actions = repaired["data"]["review_actions"]["next_actions"]
+            code_action = next(
+                action for action in actions
+                if action["actor_role"] == "code-reviewer"
+            )
+            stale_qa_action = next(
+                action for action in actions
+                if action["actor_role"] == "qa-reviewer"
+            )
+            completed, completed_evidence = self._finding_payloads(
+                repair_state="completed"
+            )
+            code_state = dict(code_action["state_args"])
+            code_event = code_state.pop("event")
+            cleared = self.srv.wf_review_event_response(
+                root, self.wave_id, code_event, code_action["actor_role"],
+                "matrix-stale-code", mode="create", judgment=completed,
+                evidence=completed_evidence, fresh_context=True, independent=True,
+                integrity_checks=integrity_checks(), **code_state,
+            )
+            self.assertEqual(cleared["status"], "ok", cleared)
+            events_path = root / self.events_path.relative_to(self.root)
+            before = events_path.read_bytes()
+            stale_state = dict(stale_qa_action["state_args"])
+            stale_event = stale_state.pop("event")
+            response = self.srv.wf_review_event_response(
+                root, self.wave_id, stale_event, stale_qa_action["actor_role"],
+                "matrix-stale-qa", mode="create", judgment=completed,
+                evidence=completed_evidence, fresh_context=True, independent=True,
+                integrity_checks=integrity_checks(), **stale_state,
+            )
+            self.assertEqual(events_path.read_bytes(), before)
+            return response
+
+        stale_lane_signatures = []
+        for root in twin_roots("stale-lane"):
+            response = assert_stale_lane_rejected(root)
+            self.assertEqual(response["status"], "error", response)
+            stale_lane_signatures.append(
+                tuple(item["code"] for item in response.get("diagnostics", []))
+            )
+        self.assertEqual(stale_lane_signatures[0], stale_lane_signatures[1])
+
+    def test_action_cap_bounds_legal_alternatives_to_returned_actions(self):
+        """AC-6: omitted actions cannot survive quadratically in alternatives."""
+        judgment, evidence = self._finding_payloads()
+        lanes = [f"lane-{index}" for index in range(8)]
+        initial = self.srv.wf_review_event_response(
+            self.root, self.wave_id, "finding", "qa-reviewer", "cap-initial",
+            mode="create", finding_id="wide-finding", run_kind="initial_delivery",
+            cycle=0, judgment=judgment, evidence=evidence,
+            source_lanes=lanes, blocking_required_lanes=lanes,
+            approval_recheck_lanes=lanes, integrity_checks=integrity_checks(),
+        )
+        self.assertEqual(initial["status"], "ok", initial)
+        repair = initial["data"]["review_actions"]["recommended_next_action"]
+        state = dict(repair["state_args"])
+        event = state.pop("event")
+        review_evidence = sys.modules["review_evidence"]
+        with patch.object(review_evidence, "REVIEW_ACTION_CAP", 5):
+            repaired = self.srv.wf_review_event_response(
+                self.root, self.wave_id, event, repair["actor_role"], "cap-repair",
+                mode="create", judgment=judgment, evidence=evidence,
+                integrity_checks=integrity_checks(), **state,
+            )
+        self.assertEqual(repaired["status"], "ok", repaired)
+        actions = repaired["data"]["review_actions"]
+        self.assertEqual(actions["total_current_actions"], 8)
+        self.assertEqual(actions["returned_current_actions"], 5)
+        self.assertEqual(actions["omitted_current_actions"], 3)
+        returned_ids = {item["action_id"] for item in actions["next_actions"]}
+        for action in actions["next_actions"]:
+            self.assertEqual(len(action["legal_alternatives"]), 4, action)
+            self.assertTrue(
+                set(action["legal_alternatives"]).issubset(returned_ids), action
+            )
+
+    def test_postbuild_relationship_rejection_has_guided_recovery(self):
+        """AC-8: relationship validation failures get phase-correct recovery."""
+        judgment, evidence = self._finding_payloads()
+        initial = self.srv.wf_review_event_response(
+            self.root, self.wave_id, "finding", "qa-reviewer", "invalid-initial",
+            mode="create", finding_id="bad-cycle", run_kind="initial_delivery",
+            cycle=0, judgment=judgment, evidence=evidence,
+            source_lanes=["qa-reviewer"], blocking_required_lanes=["qa-reviewer"],
+            integrity_checks=integrity_checks(),
+        )
+        self.assertEqual(initial["status"], "ok", initial)
+        rejected = self.srv.wf_review_event_response(
+            self.root, self.wave_id, "finding", "implementer", "invalid-repair",
+            mode="create", finding_id="bad-cycle", run_kind="repair_start",
+            cycle=0, judgment=judgment, evidence=evidence,
+            source_lanes=["qa-reviewer"], blocking_required_lanes=["qa-reviewer"],
+            integrity_checks=integrity_checks(),
+        )
+        self.assertEqual(rejected["status"], "error", rejected)
+        diagnostic = next(
+            item for item in rejected["diagnostics"]
+            if "cycle >= 1" in item["message"]
+        )
+        self.assertEqual(diagnostic["code"], "review_evidence_invalid")
+        self.assertEqual(diagnostic["recovery_tools"], ["wf_review_wave"])
+        self.assertIn("phase='implementation'", diagnostic["recovery_usage"])
+
+    def test_recovery_phase_is_derived_from_authority_not_invalid_caller_phase(self):
+        """AC-8: invalid caller fields cannot redirect corrective guidance."""
+        for supplied_phase in (None, "delivery", "bogus"):
+            rejected = self.srv.wf_review_event_response(
+                self.root, self.wave_id, "approval", "wave-council",
+                f"bad-readiness-{supplied_phase}", mode="create",
+                signoff_key="wave-council-readiness",
+                approval_phase=supplied_phase, fresh_context=True, independent=True,
+                integrity_checks=integrity_checks(),
+                evidence={"observed": "invalid phase", "artifact_or_test_id": "phase"},
+            )
+            self.assertEqual(rejected["status"], "error", rejected)
+            usages = " ".join(
+                item.get("recovery_usage", "") for item in rejected["diagnostics"]
+            )
+            self.assertIn("phase='prepare'", usages, rejected)
+
+        self.wave_md.write_text(
+            self.wave_md.read_text(encoding="utf-8").replace(
+                "Status: planned", "Status: implementing"
+            ),
+            encoding="utf-8",
+        )
+        delivery = self.srv.wf_review_event_response(
+            self.root, self.wave_id, "approval", "operator", "bad-delivery",
+            mode="create", signoff_key="operator-signoff",
+            approval_phase="readiness", integrity_checks=integrity_checks(),
+            evidence={"observed": "invalid phase", "artifact_or_test_id": "phase"},
+        )
+        self.assertEqual(delivery["status"], "error", delivery)
+        delivery_usages = " ".join(
+            item.get("recovery_usage", "") for item in delivery["diagnostics"]
+        )
+        self.assertIn("phase='implementation'", delivery_usages, delivery)
+
+        judgment, evidence = self._finding_payloads()
+        irrelevant_phase = self.srv.wf_review_event_response(
+            self.root, self.wave_id, "finding", "qa-reviewer", "finding-phase",
+            mode="create", finding_id="finding-phase", run_kind="initial_delivery",
+            cycle=0, approval_phase="readiness", judgment=judgment,
+            evidence=evidence, source_lanes=["qa-reviewer"],
+            blocking_required_lanes=["qa-reviewer"],
+            integrity_checks=integrity_checks(),
+        )
+        self.assertEqual(irrelevant_phase["status"], "ok", irrelevant_phase)
+        self.assertEqual(
+            irrelevant_phase["data"]["review_actions"]["phase"], "delivery"
+        )
+        self.assertEqual(
+            irrelevant_phase["data"]["review_actions"]["recommended_next_action"]["phase"],
+            "delivery",
+        )
+
+    def test_continuation_is_successful_create_only_and_runs_no_validation(self):
+        judgment, evidence = self._finding_payloads()
+        kwargs = {
+            "finding_id": "continuation-boundary",
+            "run_kind": "initial_delivery",
+            "cycle": 0,
+            "judgment": judgment,
+            "evidence": evidence,
+            "source_lanes": ["qa-reviewer"],
+            "blocking_required_lanes": ["qa-reviewer"],
+            "approval_recheck_lanes": ["qa-reviewer"],
+            "review_boundaries_changed": [],
+            "integrity_checks": integrity_checks(),
+        }
+        preview = self.srv.wf_review_event_response(
+            self.root, self.wave_id, "finding", "qa-reviewer", "boundary-preview",
+            **kwargs,
+        )
+        self.assertEqual(preview["status"], "dry_run", preview)
+        self.assertNotIn("review_actions", preview["data"])
+        invalid = self.srv.wf_review_event_response(
+            self.root, self.wave_id, "finding", "qa-reviewer", "boundary-invalid",
+            mode="create", finding_id="invalid-only",
+        )
+        self.assertEqual(invalid["status"], "error", invalid)
+        self.assertNotIn("review_actions", invalid["data"])
+        listed = self._list()
+        self.assertNotIn("review_actions", listed["data"])
+        with patch.object(
+            self.srv, "run_validate",
+            side_effect=AssertionError("event continuation must not run full validation"),
+        ):
+            created = self.srv.wf_review_event_response(
+                self.root, self.wave_id, "finding", "qa-reviewer", "boundary-create",
+                mode="create", **kwargs,
+            )
+        self.assertEqual(created["status"], "ok", created)
+        self.assertTrue(created["data"]["review_actions"]["available"])
+        self.assertEqual(
+            created["data"]["review_actions"]["recommended_next_action"]["action_kind"],
+            "repair_start",
+        )
+
+    def test_review_ergonomics_prechange_baseline_is_frozen(self):
+        """1tvbs baseline: current public flow reinspects through list after writes.
+
+        This driver intentionally uses only public response functions and freezes
+        the canonical starting ledger before the action-continuation product edit.
+        Candidate tests start from the same bytes and must remove inspections,
+        never transitions or validation.
+        """
+        generated_wave_id = self.wave_id
+        fixed_wave_id = "1200a ergonomics-baseline"
+        fixed_dir = self.wave_md.parent.parent / fixed_wave_id
+        self.wave_md.parent.rename(fixed_dir)
+        self.wave_id = fixed_wave_id
+        self.wave_md = fixed_dir / "wave.md"
+        self.wave_md.write_text(
+            self.wave_md.read_text(encoding="utf-8").replace(
+                generated_wave_id, fixed_wave_id
+            ),
+            encoding="utf-8",
+        )
+        self.events_path = sys.modules["review_evidence"].review_event_path(self.wave_md)
+        judgment = {
+            "validation_status": "real",
+            "scope_relation": "admitted",
+            "introduced_or_worsened_by_wave": True,
+            "contract_relevance": "required_ac",
+            "supported_reachability": True,
+            "attacker_reachability": False,
+            "authority_domain": "integrity",
+            "authority_delta": "low",
+            "observable_impact": "material",
+            "containment": "none",
+        }
+        evidence = {
+            "proposition": "the repair chain requires two independent lanes",
+            "failure_condition": "a lane is skipped or a transition is guessed",
+            "public_path": "wf_review_event",
+            "command_or_fixture": "1tvbs frozen two-lane baseline",
+            "expected": "repair_start then one reverification per lane",
+            "observed": "the requested public transition completed",
+            "artifact_or_test_id": "test:1tvbs-baseline",
+            "limitations": "local canonical fixture",
+            "safety_and_authorization": "local non-destructive fixture",
+            "disposition_rationale": "required review state is actionable",
+        }
+
+        def write(root, kind, actor, context, blocking, *, cycle=None):
+            return self.srv.wf_review_event_response(
+                root, self.wave_id, "finding", actor, context,
+                mode="create", finding_id="ergonomics-finding", run_kind=kind,
+                cycle=(0 if kind == "initial_delivery" else 1) if cycle is None else cycle,
+                judgment=judgment, evidence=evidence,
+                source_lanes=["code-reviewer", "qa-reviewer"],
+                blocking_required_lanes=blocking,
+                approval_recheck_lanes=["code-reviewer", "qa-reviewer"],
+                review_boundaries_changed=[], fresh_context=True, independent=True,
+                integrity_checks=integrity_checks(),
+            )
+
+        initial = write(
+            self.root,
+            "initial_delivery", "qa-reviewer", "baseline-initial",
+            ["code-reviewer", "qa-reviewer"],
+        )
+        self.assertEqual(initial["status"], "ok", initial)
+        starting_bytes = self.events_path.read_bytes()
+        self.assertEqual(
+            hashlib.sha256(starting_bytes).hexdigest(),
+            "a3fa2311d0c993c22c1e950797c3b4a1ec40c1ac6d125126b33bfa560dad2fcc",
+        )
+        self.candidate_tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.candidate_tmp.cleanup)
+        candidate_root = Path(self.candidate_tmp.name) / "candidate"
+        shutil.copytree(self.root, candidate_root)
+        candidate_events = candidate_root / self.events_path.relative_to(self.root)
+        self.assertEqual(candidate_events.read_bytes(), starting_bytes)
+
+        call_trace = []
+        with patch.object(
+            self.srv, "run_validate",
+            return_value={"passed": True, "errors": [], "warnings": [], "output": ""},
+        ) as full_validate:
+            reviewed = self.srv.wf_review_wave_response(
+                self.root, self.wave_id, phase="implementation"
+            )
+            call_trace.append("wf_review_wave")
+            self.assertIn(reviewed["status"], {"ok", "error"})
+            for transition in (
+                ("repair_start", "implementer", "baseline-repair", ["code-reviewer", "qa-reviewer"]),
+                ("reverification", "code-reviewer", "baseline-code", ["qa-reviewer"]),
+                ("reverification", "qa-reviewer", "baseline-qa", []),
+            ):
+                listed = self._list(finding_id="ergonomics-finding")
+                call_trace.append("wf_review_event:list")
+                self.assertEqual(listed["status"], "ok", listed)
+                written = write(self.root, *transition)
+                call_trace.append(f"wf_review_event:{transition[0]}")
+                self.assertEqual(written["status"], "ok", written)
+
+        final_list = self._list(finding_id="ergonomics-finding")
+        call_trace.append("wf_review_event:list")
+        head = final_list["data"]["chain_summary"]["ergonomics-finding"]
+        self.assertTrue(head["terminal"], head)
+        self.assertEqual(head["unresolved_required_lanes"], [])
+
+        # A later repair pass is caller judgment rather than a state-derived
+        # continuation. Once that cycle is explicitly opened, the same guided
+        # contract removes every intermediate list inspection and derives the
+        # mandatory convergence checkpoint after the final lane clears.
+        for transition in (
+            ("repair_start", "implementer", "baseline-repair-2", ["code-reviewer", "qa-reviewer"]),
+            ("reverification", "code-reviewer", "baseline-code-2", ["qa-reviewer"]),
+            ("reverification", "qa-reviewer", "baseline-qa-2", []),
+        ):
+            written = write(self.root, *transition, cycle=2)
+            call_trace.append(f"wf_review_event:{transition[0]}")
+            self.assertEqual(written["status"], "ok", written)
+            listed = self._list(finding_id="ergonomics-finding")
+            call_trace.append("wf_review_event:list")
+            self.assertEqual(listed["status"], "ok", listed)
+        self.assertEqual(full_validate.call_count, 1)
+        self.assertEqual(call_trace.count("wf_review_event:list"), 7)
+        self.assertEqual(
+            call_trace,
+            [
+                "wf_review_wave",
+                "wf_review_event:list", "wf_review_event:repair_start",
+                "wf_review_event:list", "wf_review_event:reverification",
+                "wf_review_event:list", "wf_review_event:reverification",
+                "wf_review_event:list",
+                "wf_review_event:repair_start", "wf_review_event:list",
+                "wf_review_event:reverification", "wf_review_event:list",
+                "wf_review_event:reverification", "wf_review_event:list",
+            ],
+        )
+
+        candidate_trace = []
+        with patch.object(
+            self.srv, "run_validate",
+            return_value={"passed": True, "errors": [], "warnings": [], "output": ""},
+        ) as candidate_validate:
+            candidate_review = self.srv.wf_review_wave_response(
+                candidate_root, self.wave_id, phase="implementation"
+            )
+            candidate_trace.append("wf_review_wave")
+            action = candidate_review["data"]["review_actions"]["recommended_next_action"]
+            self.assertEqual(action["action_kind"], "repair_start", action)
+            for context in ("baseline-repair", "baseline-code", "baseline-qa"):
+                state = dict(action["state_args"])
+                event = state.pop("event")
+                written = self.srv.wf_review_event_response(
+                    candidate_root,
+                    self.wave_id,
+                    event,
+                    action["actor_role"],
+                    context,
+                    mode="create",
+                    judgment=judgment,
+                    evidence=evidence,
+                    review_boundaries_changed=[],
+                    fresh_context=True,
+                    independent=True,
+                    integrity_checks=integrity_checks(),
+                    **state,
+                )
+                self.assertEqual(written["status"], "ok", written)
+                candidate_trace.append(f"wf_review_event:{action['action_kind']}")
+                action = written["data"]["review_actions"]["recommended_next_action"]
+
+            cycle_two = write(
+                candidate_root,
+                "repair_start",
+                "implementer",
+                "baseline-repair-2",
+                ["code-reviewer", "qa-reviewer"],
+                cycle=2,
+            )
+            self.assertEqual(cycle_two["status"], "ok", cycle_two)
+            candidate_trace.append("wf_review_event:repair_start")
+            action = cycle_two["data"]["review_actions"]["recommended_next_action"]
+            for context in ("baseline-code-2", "baseline-qa-2"):
+                state = dict(action["state_args"])
+                event = state.pop("event")
+                written = self.srv.wf_review_event_response(
+                    candidate_root,
+                    self.wave_id,
+                    event,
+                    action["actor_role"],
+                    context,
+                    mode="create",
+                    judgment=judgment,
+                    evidence=evidence,
+                    review_boundaries_changed=[],
+                    fresh_context=True,
+                    independent=True,
+                    integrity_checks=integrity_checks(),
+                    **state,
+                )
+                self.assertEqual(written["status"], "ok", written)
+                candidate_trace.append(f"wf_review_event:{action['action_kind']}")
+                action = written["data"]["review_actions"]["recommended_next_action"]
+
+        self.assertEqual(candidate_validate.call_count, 1)
+        self.assertNotIn("wf_review_event:list", candidate_trace)
+        self.assertEqual(
+            candidate_trace,
+            [
+                "wf_review_wave",
+                "wf_review_event:repair_start",
+                "wf_review_event:reverification",
+                "wf_review_event:reverification",
+                "wf_review_event:repair_start",
+                "wf_review_event:reverification",
+                "wf_review_event:reverification",
+            ],
+        )
+        self.assertLess(len(candidate_trace), len(call_trace))
+        self.assertEqual(candidate_events.read_bytes(), self.events_path.read_bytes())
+        baseline_records = self.srv.validate_external_review_evidence(self.wave_md).records
+        candidate_wave_md = candidate_root / self.wave_md.relative_to(self.root)
+        candidate_records = self.srv.validate_external_review_evidence(candidate_wave_md).records
+        review_evidence = sys.modules["review_evidence"]
+        self.assertEqual(
+            review_evidence.current_synthesis_heads(candidate_records),
+            review_evidence.current_synthesis_heads(baseline_records),
+        )
+        self.assertEqual(
+            review_evidence.review_status_rows(
+                candidate_records, ("code-reviewer", "qa-reviewer")
+            ),
+            review_evidence.review_status_rows(
+                baseline_records, ("code-reviewer", "qa-reviewer")
+            ),
+        )
+        self.assertTrue(
+            any(
+                row.get("record_type") == "review_run"
+                and row.get("run_kind") == "convergence_checkpoint"
+                for row in baseline_records
+            ),
+            "the multi-cycle path must derive its convergence checkpoint",
+        )
+
+        def close_signature(response):
+            return (
+                response["status"],
+                tuple(row["code"] for row in response.get("diagnostics", [])),
+            )
+
+        close_validate = {
+            "passed": True,
+            "errors": [],
+            "warnings": [],
+            "output": "",
+        }
+        with patch.object(self.srv, "run_validate", return_value=close_validate) as baseline_close_validate:
+            baseline_close = self.srv.wf_close_wave_response(
+                self.root, self.wave_id, mode="dry_run"
+            )
+        with patch.object(self.srv, "run_validate", return_value=close_validate) as candidate_close_validate:
+            candidate_close = self.srv.wf_close_wave_response(
+                candidate_root, self.wave_id, mode="dry_run"
+            )
+        self.assertEqual(close_signature(candidate_close), close_signature(baseline_close))
+        self.assertEqual(baseline_close_validate.call_count, 1)
+        self.assertEqual(candidate_close_validate.call_count, 1)
+        self.assertEqual(full_validate.call_count + baseline_close_validate.call_count, 2)
+        self.assertEqual(candidate_validate.call_count + candidate_close_validate.call_count, 2)
 
     def test_list_event_credits_ledger_state_source(self):
         """Operator extension: the list response credits the live ledger file
@@ -7105,15 +8361,17 @@ class ReviewEvidenceListEventTests(unittest.TestCase):
         _, id_after = self.srv._artifact_from_review_evidence(self.root, after_write)
         self.assertNotEqual(id_first, id_after)
 
-    def test_write_rejection_recovery_hint_names_list_event(self):
-        """AC-4: chain-state-dependent write rejections point at event='list'."""
+    def test_write_rejection_recovery_hint_names_guided_review(self):
+        """1tvbs: field-shape rejections route to phase-correct guided review."""
         response = self.srv.wf_review_event_response(
             self.root, self.wave_id, "finding", "qa-reviewer", "missing-facts",
             mode="create", finding_id="missing-facts", run_kind="initial_delivery",
         )
         self.assertEqual(response["status"], "error")
         usages = " ".join(d.get("recovery_usage", "") for d in response["diagnostics"])
-        self.assertIn("event='list'", usages)
+        self.assertIn("wf_review_wave", usages)
+        self.assertIn("phase='implementation'", usages)
+        self.assertNotIn("event='list'", usages)
 
 
 # ---------------------------------------------------------------------------
@@ -10757,6 +12015,12 @@ class WavePrepareSingleActiveGuardTests(unittest.TestCase):
     def _add_council_verdict(self, wave_id: str) -> None:
         """Append a prepare-council verdict to the wave's ## Review Checkpoints section."""
         _append_review_run(self.root, wave_id, kind="readiness")
+        _append_typed_approval(
+            self.root,
+            wave_id,
+            "wave-council-readiness",
+            actor="wave-council",
+        )
         wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
         wave_md.write_text(
             wave_md.read_text(encoding="utf-8")
@@ -11468,10 +12732,73 @@ class BackgroundRefreshActiveTests(unittest.TestCase):
         self.assertFalse(self.server._background_refresh_active(self.state_path))
         self.assertFalse(lock_path.exists())
 
-    def test_returns_true_when_pid_running(self):
+    def test_returns_true_when_registered_builder_pid_is_running(self):
+        child = subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(10)"],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        self._write_state(pid=child.pid, started_at=0.0)
+        self.server._BACKGROUND_BUILD_PIDS.add(child.pid)
+        try:
+            self.assertTrue(self.server._background_refresh_active(self.state_path))
+        finally:
+            self.server._BACKGROUND_BUILD_PIDS.discard(child.pid)
+            child.terminate()
+            child.wait(timeout=5)
+
+    def test_recycled_unrelated_pid_is_not_a_live_refresh(self):
         import os
         self._write_state(pid=os.getpid(), started_at=0.0)
-        self.assertTrue(self.server._background_refresh_active(self.state_path))
+        indexer = self.server._load_script("indexer")
+        with patch.object(indexer, "_process_cmdline", return_value="python unrelated.py"):
+            self.assertFalse(self.server._background_refresh_active(self.state_path))
+
+    def test_recycled_indexer_pid_for_another_root_is_not_a_live_refresh(self):
+        root = self.tmp / "target"
+        state_path = root / ".wavefoundry" / "index" / "background-refresh.json"
+        state_path.parent.mkdir(parents=True)
+        state_path.write_text(
+            json.dumps({"pid": os.getpid(), "started_at": 0.0, "layer": "project"}),
+            encoding="utf-8",
+        )
+        indexer = self.server._load_script("indexer")
+        other = self.tmp / "other"
+        cmdline = f"python indexer.py --root {other} --content all"
+        with patch.object(indexer, "_process_cmdline", return_value=cmdline):
+            self.assertFalse(self.server._background_refresh_active(state_path))
+
+    def test_live_indexer_pid_for_same_root_remains_active(self):
+        root = self.tmp / "target"
+        state_path = root / ".wavefoundry" / "index" / "background-refresh.json"
+        state_path.parent.mkdir(parents=True)
+        state_path.write_text(
+            json.dumps({"pid": os.getpid(), "started_at": 0.0, "layer": "project"}),
+            encoding="utf-8",
+        )
+        indexer = self.server._load_script("indexer")
+        cmdline = f"python indexer.py --root {root} --content all"
+        with patch.object(indexer, "_process_cmdline", return_value=cmdline):
+            self.assertTrue(self.server._background_refresh_active(state_path))
+
+    def test_windows_quoted_indexer_root_is_compared_case_insensitively(self):
+        cmdline = (
+            '"C:\\Python311\\python.exe" '
+            '"C:\\Work\\Repo Name\\.wavefoundry\\framework\\scripts\\indexer.py" '
+            '--root "c:\\work\\repo name" --content all'
+        )
+        with patch.object(self.server.os, "name", "nt"):
+            self.assertTrue(
+                self.server._index_builder_cmdline_targets_root(
+                    cmdline, Path("C:/Work/Repo Name")
+                )
+            )
+            self.assertFalse(
+                self.server._index_builder_cmdline_targets_root(
+                    cmdline, Path("C:/Work/Other")
+                )
+            )
 
     def test_returns_false_when_pid_dead_and_throttle_expired(self):
         import time as _time
@@ -11491,6 +12818,23 @@ class BackgroundRefreshActiveTests(unittest.TestCase):
         lock_path.parent.mkdir(parents=True, exist_ok=True)
         lock_path.write_text(str(os.getpid()), encoding="utf-8")
         self.assertTrue(self.server._background_refresh_active(self.state_path))
+
+    def test_authoritative_held_build_lock_prevents_refresh(self):
+        with patch.object(
+            self.server, "_index_build_lock_info", return_value={"held": True}
+        ):
+            self.assertTrue(self.server._background_refresh_active(self.state_path))
+
+    def test_native_windows_reaper_never_calls_waitpid(self):
+        with patch.object(self.server.os, "name", "nt"), patch.object(
+            self.server.os, "waitpid"
+        ) as waitpid:
+            self.server._BACKGROUND_BUILD_PIDS.add(12345)
+            try:
+                self.server._reap_background_build_pids()
+            finally:
+                self.server._BACKGROUND_BUILD_PIDS.discard(12345)
+        waitpid.assert_not_called()
 
     def test_build_status_reports_removed_stale_locks(self):
         root = self.tmp
@@ -11568,6 +12912,108 @@ class MaybeRefreshIfStaleTests(unittest.TestCase):
         # No built index -> indexer returns None -> treated as not stale.
         self.assertFalse(self.server._index_inputs_stale(self.root))
 
+    @unittest.skipIf(os.name == "nt", "POSIX zombie lifecycle")
+    def test_completed_registered_child_is_reaped_before_refresh_decision(self):
+        import time
+
+        child = subprocess.Popen(
+            [sys.executable, "-c", "pass"],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        time.sleep(0.05)
+        state_path = self.server._background_refresh_state_path(self.root, "project")
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        state_path.write_text(
+            json.dumps(
+                {
+                    "pid": child.pid,
+                    "started_at": time.time() - 300,
+                    "layer": "project",
+                }
+            ),
+            encoding="utf-8",
+        )
+        self.server._BACKGROUND_BUILD_PIDS.add(child.pid)
+        started: list[tuple[Path, str]] = []
+        with patch.object(self.server, "_index_inputs_stale", return_value=True), \
+             patch.object(
+                 self.server,
+                 "_start_background_index_refresh",
+                 side_effect=lambda root, layer="project": started.append((root, layer)) or True,
+             ):
+            result = self.server._maybe_refresh_if_stale(self.root)
+        self.assertTrue(result)
+        self.assertEqual(started, [(self.root, "project")])
+        self.assertNotIn(child.pid, self.server._BACKGROUND_BUILD_PIDS)
+        child.returncode = 0  # the server's WNOHANG sweep, not Popen, reaped it
+
+    def test_monitor_observer_reports_bounded_decision(self):
+        observations: list[dict] = []
+        with patch.object(self.server, "_index_inputs_stale", return_value=False):
+            result = self.server._maybe_refresh_if_stale(
+                self.root, observer=observations.append
+            )
+        self.assertFalse(result)
+        self.assertEqual(len(observations), 1)
+        self.assertEqual(
+            set(observations[0]),
+            {"last_checked_at", "stale", "triggered", "reason"},
+        )
+        self.assertEqual(observations[0]["reason"], "current_or_undetermined")
+
+    def test_reload_empty_registry_rejects_unrelated_persisted_pid_and_refreshes(self):
+        state_path = self.server._background_refresh_state_path(self.root, "project")
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        state_path.write_text(
+            json.dumps(
+                {
+                    "pid": os.getpid(),
+                    "started_at": time.time() - 300,
+                    "layer": "project",
+                }
+            ),
+            encoding="utf-8",
+        )
+        self.server._BACKGROUND_BUILD_PIDS.clear()
+        indexer = self.server._load_script("indexer")
+        started: list[tuple[Path, str]] = []
+        with patch.object(indexer, "_process_cmdline", return_value="python unrelated.py"), \
+             patch.object(self.server, "_index_inputs_stale", return_value=True), \
+             patch.object(
+                 self.server,
+                 "_start_background_index_refresh",
+                 side_effect=lambda root, layer="project": started.append((root, layer)) or True,
+             ):
+            self.assertTrue(self.server._maybe_refresh_if_stale(self.root))
+        self.assertEqual(started, [(self.root, "project")])
+
+    def test_unavailable_pid_classifier_fails_safe_without_spawn(self):
+        state_path = self.server._background_refresh_state_path(self.root, "project")
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        state_path.write_text(
+            json.dumps(
+                {
+                    "pid": os.getpid(),
+                    "started_at": time.time() - 300,
+                    "layer": "project",
+                }
+            ),
+            encoding="utf-8",
+        )
+        started: list[tuple] = []
+        indexer = self.server._load_script("indexer")
+        with patch.object(indexer, "classify_index_build_lock_owner", side_effect=OSError("probe")), \
+             patch.object(self.server, "_index_inputs_stale", return_value=True), \
+             patch.object(
+                 self.server,
+                 "_start_background_index_refresh",
+                 side_effect=lambda *args: started.append(args) or True,
+             ):
+            self.assertFalse(self.server._maybe_refresh_if_stale(self.root))
+        self.assertEqual(started, [])
+
 
 class MonitorConfigTests(unittest.TestCase):
     """Wave 1p5xu: _read_monitor_config framework-owned defaults (AC-4)."""
@@ -11600,6 +13046,42 @@ class MonitorConfigTests(unittest.TestCase):
         self.assertEqual(
             self.server._read_monitor_config(self.root)["interval_seconds"],
             self.server._MONITOR_MIN_INTERVAL_SECONDS,
+        )
+
+    def test_context_efficiency_projection_defaults_and_bounds(self):
+        self.assertEqual(
+            self.server._read_ce_projection_config(self.root)["quiet_period_seconds"],
+            120.0,
+        )
+        self._write_cfg(
+            {"context_efficiency": {"projection": {"quiet_period_seconds": 1}}}
+        )
+        self.assertEqual(
+            self.server._read_ce_projection_config(self.root)["quiet_period_seconds"],
+            90.0,
+        )
+        self._write_cfg(
+            {"context_efficiency": {"projection": {"quiet_period_seconds": 600}}}
+        )
+        self.assertEqual(
+            self.server._read_ce_projection_config(self.root)["quiet_period_seconds"],
+            600.0,
+        )
+        self._write_cfg(
+            {"context_efficiency": {"projection": {"quiet_period_seconds": 900}}}
+        )
+        self.assertEqual(
+            self.server._read_ce_projection_config(self.root)["quiet_period_seconds"],
+            600.0,
+        )
+
+    def test_context_efficiency_projection_invalid_value_falls_back(self):
+        self._write_cfg(
+            {"context_efficiency": {"projection": {"quiet_period_seconds": "slow"}}}
+        )
+        self.assertEqual(
+            self.server._read_ce_projection_config(self.root)["quiet_period_seconds"],
+            120.0,
         )
 
 
@@ -11649,6 +13131,27 @@ class StalenessMonitorLifecycleTests(unittest.TestCase):
         handler = self.srv.build_handler(self.root)
         # close() must not raise even though no monitor thread exists.
         handler.close()
+
+    def test_ce_projection_monitor_is_independent_and_observable(self):
+        self._write_monitor_cfg({"enabled": False})
+        handler = self.srv.build_handler(self.root)
+        projection_thread = handler._ce_projection_thread
+        try:
+            status = handler.background_monitor_status()
+            self.assertIsNone(handler._monitor_thread)
+            self.assertTrue(handler._ce_projection_thread.is_alive())
+            self.assertTrue(handler._ce_projection_thread.daemon)
+            self.assertFalse(status["index"]["configured"])
+            self.assertTrue(status["context_efficiency_projection"]["configured"])
+            self.assertTrue(status["context_efficiency_projection"]["alive"])
+            self.assertEqual(
+                status["context_efficiency_projection"]["quiet_period_seconds"],
+                120.0,
+            )
+        finally:
+            handler.close()
+        self.assertIsNotNone(projection_thread)
+        self.assertFalse(projection_thread.is_alive())
 
 
 class WaveIndexAutoReloadTests(unittest.TestCase):
@@ -13313,6 +14816,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
             "lifecycle_id_policy": {"epoch_utc": "2020-02-02T02:02:00Z", "hour_offset": 0},
             "wave_review": {
                 "enabled": enabled,
+                "delivery_mode": "universal" if enabled else "disabled",
                 "transition_policy": transition_policy,
                 "phases": {
                     "prepare": {"signoff_key": "wave-council-readiness", "moderator_role": "wave-council"},
@@ -13438,12 +14942,142 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         self.assertEqual(result["data"]["required_council_signoffs"], ["wave-council-delivery"])
         self.assertFalse(any(d["code"] == "missing_wave_council_signoff" for d in result.get("diagnostics", [])))
 
+    def test_transition_policy_distinguishes_stale_absent_and_current_readiness(self):
+        """1tsyx AC-7: canonical producers pin stale, absent, and current."""
+        self._write_config(transition_policy="applies-from-next-prepare")
+        expected = {
+            "stale": ["wave-council-readiness", "wave-council-delivery"],
+            "absent": ["wave-council-delivery"],
+            "current": ["wave-council-readiness", "wave-council-delivery"],
+        }
+        for state, keys in expected.items():
+            created = self.srv.wf_create_wave_response(
+                self.root, f"transition-{state}", mode="create"
+            )
+            self.assertEqual(created["status"], "ok", created)
+            wave_id = created["data"]["wave_id"]
+            wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+            wave_text = wave_md.read_text(encoding="utf-8")
+            brief = self.srv._build_prepare_council_brief(wave_id, wave_text, [])
+            policy_state, policy_errors = self.srv._prepare_policy_state(
+                self.root, wave_md, wave_text, [], brief
+            )
+            self.assertEqual(policy_errors, ())
+            self.srv._publish_prepare_policy_state(
+                self.root, wave_md, wave_text, policy_state
+            )
+
+            if state != "absent":
+                approval = self.srv.wf_review_event_response(
+                    self.root,
+                    wave_id,
+                    "approval",
+                    "wave-council",
+                    f"transition-{state}-approval",
+                    mode="create",
+                    signoff_key="wave-council-readiness",
+                    approval_phase="readiness",
+                    fresh_context=True,
+                    independent=True,
+                    integrity_checks=integrity_checks(),
+                    evidence={
+                        "observed": "readiness approved",
+                        "artifact_or_test_id": f"test:transition-{state}-approval",
+                    },
+                )
+                self.assertEqual(approval["status"], "ok", approval)
+
+            if state == "stale":
+                finding = self.srv.wf_review_event_response(
+                    self.root,
+                    wave_id,
+                    "finding",
+                    "qa-reviewer",
+                    "transition-stale-finding",
+                    mode="create",
+                    finding_id="readiness-regression",
+                    run_kind="readiness",
+                    cycle=0,
+                    judgment={
+                        "validation_status": "real",
+                        "scope_relation": "admitted",
+                        "introduced_or_worsened_by_wave": True,
+                        "contract_relevance": "required_ac",
+                        "supported_reachability": True,
+                        "attacker_reachability": False,
+                        "authority_domain": "integrity",
+                        "authority_delta": "low",
+                        "observable_impact": "material",
+                        "containment": "preventive",
+                    },
+                    evidence={
+                        "proposition": "later readiness work makes the prior approval stale",
+                        "failure_condition": "the stale approval remains current",
+                        "public_path": "wf_review_event then close-policy derivation",
+                        "command_or_fixture": "WaveCouncilPolicyTests canonical producer fixture",
+                        "expected": "readiness approval is recorded but stale",
+                        "observed": "blocking readiness finding recorded after approval",
+                        "artifact_or_test_id": "test:transition-stale-finding",
+                        "known_bad_detection_method": "mutate signoff_recorded to current-only",
+                        "limitations": "temporary local fixture only",
+                        "safety_and_authorization": "local disposable fixture",
+                        "disposition_rationale": "required readiness behavior regressed",
+                    },
+                    source_lanes=["qa-reviewer"],
+                    blocking_required_lanes=["qa-reviewer"],
+                    approval_recheck_lanes=["wave-council-readiness"],
+                    review_boundaries_changed=[],
+                    fresh_context=True,
+                    independent=True,
+                    integrity_checks=integrity_checks(),
+                )
+                self.assertEqual(finding["status"], "ok", finding)
+
+            with self.subTest(state=state):
+                actual = self.srv._required_wave_council_signoffs(
+                    self.root,
+                    "close",
+                    wave_text=wave_md.read_text(encoding="utf-8"),
+                    wave_md=wave_md,
+                )
+                self.assertEqual(actual, keys)
+
+    def test_policy_reader_no_longer_exposes_required_for_all_waves(self):
+        """1tsyx AC-5 red-first: the parsed-but-unused flag is removed."""
+        self._write_config()
+        self.assertNotIn("required_for_all_waves", self.srv._read_wave_council_policy(self.root))
+
+    def test_projection_keys_follow_explicit_review_policy(self):
+        """1tsbu: disabled policy has no phantom Council projection rows."""
+        review = sys.modules["review_evidence"]
+        wave_text = (
+            "# Wave\nStatus: planned\n\n"
+            "## Participants\n\n- Required review lanes: `qa-reviewer`\n"
+        )
+        results = []
+        expected = {
+            True: (
+                "wave-council-readiness",
+                "wave-council-delivery",
+                "qa-reviewer",
+                "operator-signoff",
+            ),
+            False: ("qa-reviewer", "operator-signoff"),
+        }
+        for enabled in (True, False):
+            self._write_config(enabled=enabled)
+            keys = review.required_review_status_keys(self.root, wave_text, ())
+            results.append(keys)
+            self.assertEqual(keys, expected[enabled])
+        self.assertNotEqual(results[0], results[1])
+
     def _write_config_with_new_key(self, enabled=True, transition_policy=""):
         """Wave 1p337 (1p336): write config using the new `wave_review` key."""
         cfg = {
             "lifecycle_id_policy": {"epoch_utc": "2020-02-02T02:02:00Z", "hour_offset": 0},
             "wave_review": {
                 "enabled": enabled,
+                "delivery_mode": "universal" if enabled else "disabled",
                 "transition_policy": transition_policy,
                 "phases": {
                     "prepare": {"signoff_key": "wave-council-readiness", "moderator_role": "wave-council"},
@@ -20621,6 +22255,8 @@ class TestMcpWrapperParameterExposure(unittest.TestCase):
             "mode",
             "judgment",
             "evidence",
+            "approval_phase",
+            "integrity_checks",
             "approval_recheck_lanes",
         ):
             self.assertIn(
@@ -20628,6 +22264,64 @@ class TestMcpWrapperParameterExposure(unittest.TestCase):
                 props,
                 f"{required} missing from wf_review_event MCP schema; got {props}",
             )
+
+    def test_review_ergonomics_adds_no_tool_or_parameter_surface(self):
+        """1tvbs exact census: additive responses, no tool/event/list mode."""
+        mcp = self._build_thin_runner.build_server(self.root)
+        names = sorted(self.srv._registered_mcp_tool_names(mcp))
+
+        def assert_tool_registry(candidate: list[str]) -> None:
+            self.assertEqual(len(candidate), 84)
+            self.assertEqual(
+                hashlib.sha256("\n".join(candidate).encode("utf-8")).hexdigest(),
+                "eb0c3f2ff184be9154113649f8318ce586a53a66a9d6ba219e0edf8592afc52c",
+            )
+
+        assert_tool_registry(names)
+        with self.assertRaises(AssertionError):
+            assert_tool_registry(sorted([*names, "wf_review_actions"]))
+
+        props = self._properties("wf_review_event")
+        self.assertEqual(
+            props,
+            {
+                "wave_id", "event", "actor", "context_id", "mode",
+                "signoff_key", "approval_phase", "finding_id", "run_kind", "cycle",
+                "judgment", "evidence", "source_lanes", "blocking_required_lanes",
+                "approval_recheck_lanes", "review_boundaries_changed", "fresh_context",
+                "independent", "integrity_checks", "record_type", "verbose",
+            },
+        )
+        self.assertEqual(
+            props.intersection({"finding_id", "record_type", "run_kind", "verbose", "compact"}),
+            {"finding_id", "record_type", "run_kind", "verbose"},
+        )
+
+    def test_guided_projection_adds_no_validation_sensor_or_lifecycle_transition(self):
+        """1tvbs exact source census: presentation only, no hidden gate."""
+        review_evidence = sys.modules["review_evidence"]
+        sources = {
+            "authority": inspect.getsource(review_evidence.review_authority_projection),
+            "presentation": inspect.getsource(self.srv._guided_review_actions),
+            "write": inspect.getsource(self.srv.wf_review_event_response),
+        }
+        forbidden = (
+            "run_validate(",
+            "run_validate_changed(",
+            "wf_run_sensors_response(",
+            "_replace_status(",
+            "Status: implementing",
+            "Status: closed",
+        )
+
+        def assert_presentation_only(candidate):
+            for name, source in candidate.items():
+                for token in forbidden:
+                    self.assertNotIn(token, source, f"{name} introduced {token}")
+
+        assert_presentation_only(sources)
+        with self.assertRaises(AssertionError):
+            assert_presentation_only({**sources, "known_bad": "run_validate(root)"})
 
     def _tool_description(self, tool_name: str) -> str:
         mcp = self._build_thin_runner.build_server(self.root)
@@ -20638,15 +22332,14 @@ class TestMcpWrapperParameterExposure(unittest.TestCase):
         tool = tools.get(tool_name)
         return str(getattr(tool, "description", "") or "")
 
-    def test_review_evidence_description_carries_lane_clearing_recipe(self):
-        """Wave 1tbw4: the registered description must keep the operational
-        lane-clearing recipe discoverable. Semantic anchors, not a verbatim
-        pin, so rewording survives while the contract cannot silently drop."""
+    def test_review_evidence_description_carries_guided_lane_recipe(self):
+        """1tvbs: normal flow is guided; list remains explicitly forensic."""
         description = self._tool_description("wf_review_event")
         for anchor in (
+            "wf_review_wave",
             'event="list"',
             "ONE reverification per lane",
-            "minus that one actor",
+            "post-commit",
             "fresh_context=true",
             "independent=true",
             "lane_reassessment",
@@ -20658,6 +22351,59 @@ class TestMcpWrapperParameterExposure(unittest.TestCase):
                 f"lane-clearing anchor {anchor!r} missing from the registered "
                 "wf_review_event description",
             )
+
+    def test_review_field_vocabulary_matches_all_public_contract_surfaces(self):
+        """AC-5: exported registries are semantic pins, not declarations only."""
+
+        review_evidence = sys.modules["review_evidence"]
+        seed = (
+            SCRIPTS_ROOT.parent / "seeds" / "209-agent-harness-core.prompt.md"
+        ).read_text(encoding="utf-8")
+        spec = (
+            SCRIPTS_ROOT.parents[2] / "docs" / "specs" / "mcp-tool-surface.md"
+        ).read_text(encoding="utf-8")
+        description = self._tool_description("wf_review_event")
+        surfaces = {"seed 209": seed, "tool spec": spec, "tool description": description}
+        registry_fields = tuple(dict.fromkeys((
+            *review_evidence.REVIEW_FINDING_CORE_JUDGMENT_FIELDS,
+            *review_evidence.REVIEW_FINDING_REPAIR_JUDGMENT_FIELDS,
+            *review_evidence.REVIEW_FINDING_REQUIRED_EVIDENCE_FIELDS,
+            *review_evidence.REVIEW_APPROVAL_REQUIRED_EVIDENCE_FIELDS,
+            *review_evidence.INTEGRITY_CHECK_FIELDS,
+        )))
+        self.assertGreater(len(registry_fields), 25, "registry census must be non-vacuous")
+
+        def assert_contract_fields(fields):
+            for surface_name, surface in surfaces.items():
+                for field in fields:
+                    self.assertIn(
+                        field, surface,
+                        f"{field} missing from {surface_name}",
+                    )
+
+        assert_contract_fields(registry_fields)
+        with self.assertRaises(AssertionError):
+            assert_contract_fields((*registry_fields, "fabricated_attestation"))
+
+        builder_source = inspect.getsource(
+            review_evidence.build_compact_review_event
+        )
+        for registry_name in (
+            "REVIEW_FINDING_CORE_JUDGMENT_FIELDS",
+            "REVIEW_FINDING_REPAIR_JUDGMENT_FIELDS",
+            "REVIEW_FINDING_REQUIRED_EVIDENCE_FIELDS",
+            "REVIEW_APPROVAL_REQUIRED_EVIDENCE_FIELDS",
+        ):
+            self.assertIn(registry_name, builder_source)
+        self.assertIn(
+            "INTEGRITY_CHECK_FIELDS",
+            inspect.getsource(review_evidence._validated_integrity_checks),
+        )
+        projection_source = inspect.getsource(
+            review_evidence.review_authority_projection
+        )
+        self.assertIn("_review_action_state_args", projection_source)
+        self.assertIn("REVIEW_ACTION_CALLER_INPUTS", projection_source)
 
     def test_kwargs_is_not_published_or_required_on_first_party_tools(self):
         """1tmaz: implementation-only ``**kwargs`` must not become public API."""
@@ -21372,6 +23118,7 @@ class PreferredPythonSubprocessTests(unittest.TestCase):
         self.assertTrue(started)
         called_cmd = popen_mock.call_args.args[0]
         self.assertEqual(called_cmd[0], str(venv_python))
+        self.assertEqual(called_cmd[-2:], ["--content", "all"])
 
     def test_wf_start_dashboard_prefers_tool_venv_python(self):
         venv_python = self._make_venv_python()
@@ -21563,6 +23310,464 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
         diag_codes = [d["code"] for d in result.get("diagnostics", [])]
         self.assertIn("upgrade_failed", diag_codes)
 
+    def test_bridge_refusal_is_promoted_to_typed_handoff(self):
+        payload = {
+            "status": "error",
+            "code": "bridge_release_required",
+            "why": "the live runner cannot replace itself",
+            "package": "/tmp/wavefoundry-1.15.0.zip",
+            "package_present": True,
+            "command_argv": ["python3", "/tmp/wavefoundry-1.15.0.zip"],
+        }
+        mock_proc = MagicMock(
+            returncode=3, stdout=json.dumps(payload) + "\n", stderr=""
+        )
+        with patch("subprocess.run", return_value=mock_proc):
+            result = self.srv.wf_upgrade_response(self.root)
+        self.assertEqual(result["status"], "error")
+        self.assertEqual(
+            result["diagnostics"][0]["code"], "bridge_release_required"
+        )
+        self.assertEqual(result["data"]["bridge_release_required"], payload)
+        self.assertNotIn(
+            "upgrade_failed", [item["code"] for item in result["diagnostics"]]
+        )
+        self.assertIn("restart every attached host", result["next_step"])
+
+    def test_bridge_refusal_parses_complete_output_but_returns_bounded_display(self):
+        payload = {
+            "status": "error",
+            "code": "bridge_release_required",
+            "why": "the live runner cannot replace itself",
+            "package": "/tmp/wavefoundry-1.15.0.zip",
+            "package_present": True,
+            "command_argv": ["python3", "/tmp/wavefoundry-1.15.0.zip"],
+        }
+        stdout = ("seed diff detail\n" * 30_000) + json.dumps(payload) + "\n"
+        self.assertGreater(len(stdout), 300_000)
+        mock_proc = MagicMock(returncode=3, stdout=stdout, stderr="")
+        with patch("subprocess.run", return_value=mock_proc):
+            result = self.srv.wf_upgrade_response(self.root)
+        self.assertEqual(result["data"]["bridge_release_required"], payload)
+        self.assertTrue(result["data"]["output_truncated"])
+        self.assertEqual(result["data"]["output_total_chars"], len(stdout))
+        self.assertLess(len(result["data"]["output"]), 61_000)
+        self.assertIn("see log_path", result["data"]["output"])
+
+    def test_repo_sized_summary_keeps_complete_envelope_below_public_cap(self):
+        findings = [
+            {
+                "file": f"docs/agents/carrier-{index:05d}.md",
+                "line": index + 1,
+                "retired_surface": "reviewer loop",
+                "matched": "reviewer loop",
+                "suggested": "Use Review wave and a typed repair cycle.",
+            }
+            for index in range(10_000)
+        ]
+        summary = {
+            "from_version": "1.14.0",
+            "to_version": "1.15.0",
+            "docs_gate": "PASSED",
+            "failed_phase": None,
+            "reconciliation": findings,
+            "host_permission_flags": list(findings),
+            "skipped_scan_locations": [],
+        }
+        stdout = (
+            ("seed diff detail\n" * 30_000)
+            + self.srv._upgrade_summary_sentinel()
+            + json.dumps(summary)
+            + "\n"
+        )
+        mock_proc = MagicMock(returncode=0, stdout=stdout, stderr="")
+        with patch("subprocess.run", return_value=mock_proc):
+            result = self.srv.wf_upgrade_response(self.root)
+
+        envelope_chars = len(json.dumps(result, ensure_ascii=False))
+        self.assertLessEqual(envelope_chars, self.srv.UPGRADE_RESPONSE_CAP_CHARS)
+        self.assertTrue(result["data"]["output_truncated"])
+        bounded = result["data"]["summary"]
+        self.assertTrue(bounded["summary_truncated"])
+        self.assertEqual(bounded["reconciliation_total"], 10_000)
+        self.assertGreater(bounded["reconciliation_remaining"], 0)
+        self.assertEqual(
+            bounded["reconciliation_returned"]
+            + bounded["reconciliation_remaining"],
+            bounded["reconciliation_total"],
+        )
+        self.assertEqual(bounded["host_permission_flags_total"], 10_000)
+        self.assertGreater(bounded["summary_total_chars"], 900_000)
+        self.assertEqual(
+            result["data"]["log_path"],
+            str(self.root / ".wavefoundry/logs/upgrade.log"),
+        )
+
+    def test_oversized_summary_scalar_and_nested_detail_cannot_bypass_cap(self):
+        summary = {
+            "from_version": "1.14.0",
+            "to_version": "1.15.0",
+            "docs_gate": "PASSED",
+            "failed_phase": None,
+            "unexpected_detail": "x" * 180_000,
+            "future_nested_detail": {
+                "rows": [{"body": "y" * 10_000} for _ in range(20)]
+            },
+            "reconciliation": [],
+            "host_permission_flags": [],
+        }
+        stdout = self.srv._upgrade_summary_sentinel() + json.dumps(summary) + "\n"
+        mock_proc = MagicMock(returncode=0, stdout=stdout, stderr="")
+        with patch("subprocess.run", return_value=mock_proc):
+            result = self.srv.wf_upgrade_response(self.root)
+
+        self.assertLessEqual(
+            len(json.dumps(result, ensure_ascii=False)),
+            self.srv.UPGRADE_RESPONSE_CAP_CHARS,
+        )
+        bounded = result["data"]["summary"]
+        self.assertIsNone(bounded["unexpected_detail"])
+        self.assertTrue(bounded["unexpected_detail_truncated"])
+        self.assertGreater(bounded["unexpected_detail_total_chars"], 180_000)
+        self.assertIsNone(bounded["future_nested_detail"])
+        self.assertTrue(bounded["future_nested_detail_truncated"])
+        self.assertTrue(bounded["summary_truncated"])
+        self.assertEqual(bounded["from_version"], "1.14.0")
+        self.assertEqual(bounded["docs_gate"], "PASSED")
+
+    def test_many_individually_small_unknown_summary_scalars_cannot_bypass_cap(self):
+        summary = {
+            "from_version": "1.14.0",
+            "to_version": "1.15.0",
+            "docs_gate": "PASSED",
+            "failed_phase": None,
+            **{
+                f"future_scalar_{index:03d}": "x" * 1_900
+                for index in range(80)
+            },
+            "reconciliation": [],
+            "host_permission_flags": [],
+        }
+        stdout = self.srv._upgrade_summary_sentinel() + json.dumps(summary) + "\n"
+        mock_proc = MagicMock(returncode=0, stdout=stdout, stderr="")
+        with patch("subprocess.run", return_value=mock_proc):
+            result = self.srv.wf_upgrade_response(self.root)
+
+        self.assertLessEqual(
+            len(json.dumps(result, ensure_ascii=False)),
+            self.srv.UPGRADE_RESPONSE_CAP_CHARS,
+        )
+        bounded = result["data"]["summary"]
+        self.assertTrue(bounded["summary_truncated"])
+        self.assertGreater(bounded["summary_scalar_fields_truncated"], 0)
+        self.assertLess(
+            bounded["summary_scalar_fields_returned"],
+            bounded["summary_scalar_fields_total"],
+        )
+        self.assertEqual(bounded["from_version"], "1.14.0")
+        self.assertEqual(bounded["to_version"], "1.15.0")
+        self.assertEqual(bounded["docs_gate"], "PASSED")
+
+    def test_many_omitted_scalar_metadata_records_preserve_terminal_summary(self):
+        summary = {
+            "from_version": "1.14.0",
+            "to_version": "1.15.0",
+            "docs_gate": "PASSED",
+            "failed_phase": None,
+            **{
+                f"future_scalar_{index:03d}_{'k' * 96}": "x" * 1_900
+                for index in range(320)
+            },
+            "reconciliation": [],
+            "host_permission_flags": [],
+        }
+        stdout = self.srv._upgrade_summary_sentinel() + json.dumps(summary) + "\n"
+        mock_proc = MagicMock(returncode=0, stdout=stdout, stderr="")
+        with patch("subprocess.run", return_value=mock_proc):
+            result = self.srv.wf_upgrade_response(self.root)
+
+        self.assertLessEqual(
+            len(json.dumps(result, ensure_ascii=False)),
+            self.srv.UPGRADE_RESPONSE_CAP_CHARS,
+        )
+        bounded = result["data"]["summary"]
+        self.assertEqual(bounded["from_version"], "1.14.0")
+        self.assertEqual(bounded["to_version"], "1.15.0")
+        self.assertEqual(bounded["docs_gate"], "PASSED")
+        self.assertGreater(bounded["summary_scalar_fields_omitted"], 0)
+        self.assertGreater(
+            bounded["summary_scalar_metadata_fields_omitted"],
+            0,
+        )
+        self.assertLessEqual(
+            bounded["summary_scalar_metadata_returned_chars"],
+            bounded["summary_scalar_metadata_cap_chars"],
+        )
+
+    def test_oversized_unknown_summary_key_cannot_bypass_cap(self):
+        oversized_key = "future_" + ("k" * 140_000)
+        summary = {
+            "from_version": "1.14.0",
+            "to_version": "1.15.0",
+            "docs_gate": "PASSED",
+            "failed_phase": None,
+            oversized_key: "x",
+            "reconciliation": [],
+            "host_permission_flags": [],
+        }
+        stdout = self.srv._upgrade_summary_sentinel() + json.dumps(summary) + "\n"
+        mock_proc = MagicMock(returncode=0, stdout=stdout, stderr="")
+        with patch("subprocess.run", return_value=mock_proc):
+            result = self.srv.wf_upgrade_response(self.root)
+
+        self.assertLessEqual(
+            len(json.dumps(result, ensure_ascii=False)),
+            self.srv.UPGRADE_RESPONSE_CAP_CHARS,
+        )
+        bounded = result["data"]["summary"]
+        self.assertTrue(bounded["summary_truncated"])
+        self.assertEqual(bounded["summary_oversized_key_fields_omitted"], 1)
+        self.assertGreater(bounded["summary_oversized_key_chars_total"], 100_000)
+        self.assertNotIn(oversized_key, bounded)
+        self.assertEqual(bounded["from_version"], "1.14.0")
+        self.assertEqual(bounded["docs_gate"], "PASSED")
+
+    def test_oversized_unknown_collection_key_preserves_terminal_summary(self):
+        oversized_key = "future_" + ("k" * 140_000)
+        summary = {
+            "from_version": "1.14.0",
+            "to_version": "1.15.0",
+            "docs_gate": "PASSED",
+            "failed_phase": None,
+            oversized_key: [],
+            "reconciliation": [],
+            "host_permission_flags": [],
+        }
+        stdout = self.srv._upgrade_summary_sentinel() + json.dumps(summary) + "\n"
+        mock_proc = MagicMock(returncode=0, stdout=stdout, stderr="")
+        with patch("subprocess.run", return_value=mock_proc):
+            result = self.srv.wf_upgrade_response(self.root)
+
+        self.assertLessEqual(
+            len(json.dumps(result, ensure_ascii=False)),
+            self.srv.UPGRADE_RESPONSE_CAP_CHARS,
+        )
+        bounded = result["data"]["summary"]
+        self.assertEqual(bounded["from_version"], "1.14.0")
+        self.assertEqual(bounded["to_version"], "1.15.0")
+        self.assertEqual(bounded["docs_gate"], "PASSED")
+        self.assertEqual(bounded["summary_oversized_key_fields_omitted"], 1)
+        self.assertEqual(bounded["summary_collection_fields_omitted"], 1)
+        self.assertNotIn(oversized_key, bounded)
+
+    def test_many_empty_unknown_collections_preserve_terminal_summary(self):
+        summary = {
+            "from_version": "1.14.0",
+            "to_version": "1.15.0",
+            "docs_gate": "PASSED",
+            "failed_phase": None,
+            **{
+                f"future_collection_{index:03d}_{'k' * 96}": []
+                for index in range(160)
+            },
+            "reconciliation": [],
+            "host_permission_flags": [],
+        }
+        stdout = self.srv._upgrade_summary_sentinel() + json.dumps(summary) + "\n"
+        mock_proc = MagicMock(returncode=0, stdout=stdout, stderr="")
+        with patch("subprocess.run", return_value=mock_proc):
+            result = self.srv.wf_upgrade_response(self.root)
+
+        self.assertLessEqual(
+            len(json.dumps(result, ensure_ascii=False)),
+            self.srv.UPGRADE_RESPONSE_CAP_CHARS,
+        )
+        bounded = result["data"]["summary"]
+        self.assertEqual(bounded["from_version"], "1.14.0")
+        self.assertEqual(bounded["to_version"], "1.15.0")
+        self.assertEqual(bounded["docs_gate"], "PASSED")
+        self.assertGreater(bounded["summary_collection_fields_omitted"], 0)
+        self.assertLess(
+            bounded["summary_collection_fields_returned"],
+            bounded["summary_collection_fields_total"],
+        )
+        self.assertTrue(bounded["summary_truncated"])
+
+    def test_unknown_exit_three_retains_generic_failure(self):
+        mock_proc = MagicMock(returncode=3, stdout='{"code":"different"}\n', stderr="")
+        with patch("subprocess.run", return_value=mock_proc):
+            result = self.srv.wf_upgrade_response(self.root)
+        self.assertEqual(result["diagnostics"][0]["code"], "upgrade_failed")
+
+    def test_bridge_payload_prose_and_unknown_fields_cannot_bypass_cap(self):
+        argv = ["python3", "/tmp/wavefoundry-1.15.0.zip", "--root", "/tmp/repo"]
+        payload = {
+            "status": "error",
+            "code": "bridge_release_required",
+            "why": "x" * 180_000,
+            "package": "/tmp/wavefoundry-1.15.0.zip",
+            "package_present": True,
+            "command_argv": argv,
+            "unexpected_detail": {"body": "y" * 180_000},
+        }
+        mock_proc = MagicMock(
+            returncode=3, stdout=json.dumps(payload) + "\n", stderr=""
+        )
+        with patch("subprocess.run", return_value=mock_proc):
+            result = self.srv.wf_upgrade_response(self.root)
+
+        self.assertLessEqual(
+            len(json.dumps(result, ensure_ascii=False)),
+            self.srv.UPGRADE_RESPONSE_CAP_CHARS,
+        )
+        handoff = result["data"]["bridge_release_required"]
+        self.assertEqual(handoff["command_argv"], argv)
+        self.assertEqual(handoff["omitted_field_count"], 1)
+        self.assertEqual(handoff["text_truncated_fields"], ["why"])
+        self.assertNotIn("unexpected_detail", handoff)
+        self.assertEqual(result["diagnostics"][0]["code"], "bridge_release_required")
+        self.assertIn("restart every attached host", result["next_step"])
+
+    def test_bridge_payload_aggregate_argv_cannot_bypass_cap(self):
+        payload = {
+            "status": "error",
+            "code": "bridge_release_required",
+            "why": "the live runner cannot replace itself",
+            "package": "/tmp/wavefoundry-1.15.0.zip",
+            "package_present": True,
+            "command_argv": ["x" * 4_096 for _ in range(32)],
+        }
+        mock_proc = MagicMock(
+            returncode=3, stdout=json.dumps(payload) + "\n", stderr=""
+        )
+        with patch("subprocess.run", return_value=mock_proc):
+            result = self.srv.wf_upgrade_response(self.root)
+
+        self.assertLessEqual(
+            len(json.dumps(result, ensure_ascii=False)),
+            self.srv.UPGRADE_RESPONSE_CAP_CHARS,
+        )
+        self.assertNotIn("bridge_release_required", result["data"])
+        self.assertEqual(result["diagnostics"][0]["code"], "upgrade_failed")
+
+    def test_bridge_payload_wrong_typed_protocol_detail_cannot_bypass_cap(self):
+        payload = {
+            "status": "error",
+            "code": "bridge_release_required",
+            "runner_protocol": {"future": "r" * 180_000},
+            "minimum_runner_protocol": 2,
+            "why": "the live runner cannot replace itself",
+            "package": "/tmp/wavefoundry-1.15.0.zip",
+            "package_present": True,
+            "command_argv": ["python3", "/tmp/wavefoundry-1.15.0.zip"],
+        }
+        mock_proc = MagicMock(
+            returncode=3, stdout=json.dumps(payload) + "\n", stderr=""
+        )
+        with patch("subprocess.run", return_value=mock_proc):
+            result = self.srv.wf_upgrade_response(self.root)
+
+        self.assertLessEqual(
+            len(json.dumps(result, ensure_ascii=False)),
+            self.srv.UPGRADE_RESPONSE_CAP_CHARS,
+        )
+        self.assertNotIn("bridge_release_required", result["data"])
+        self.assertEqual(result["diagnostics"][0]["code"], "upgrade_failed")
+
+    def test_bridge_payload_argv_uses_serialized_wire_budget(self):
+        payload = {
+            "status": "error",
+            "code": "bridge_release_required",
+            "runner_protocol": 1,
+            "minimum_runner_protocol": 2,
+            "why": "the live runner cannot replace itself",
+            "package": "/tmp/wavefoundry-1.15.0.zip",
+            "package_present": True,
+            "command_argv": ["\u0001" * 4_000 for _ in range(6)],
+        }
+        self.assertEqual(
+            sum(len(item) for item in payload["command_argv"]),
+            self.srv.UPGRADE_BRIDGE_ARGV_CAP_CHARS,
+        )
+        self.assertGreater(
+            len(json.dumps(payload["command_argv"], ensure_ascii=False)),
+            self.srv.UPGRADE_RESPONSE_CAP_CHARS,
+        )
+        mock_proc = MagicMock(
+            returncode=3, stdout=json.dumps(payload) + "\n", stderr=""
+        )
+        with patch("subprocess.run", return_value=mock_proc):
+            result = self.srv.wf_upgrade_response(self.root)
+
+        self.assertLessEqual(
+            len(json.dumps(result, ensure_ascii=False)),
+            self.srv.UPGRADE_RESPONSE_CAP_CHARS,
+        )
+        self.assertNotIn("bridge_release_required", result["data"])
+        self.assertEqual(result["diagnostics"][0]["code"], "upgrade_failed")
+
+    def test_terminal_response_compaction_bounds_diagnostic_keys(self):
+        result = self.srv._bounded_upgrade_response_envelope(
+            {
+                "status": "error",
+                "data": {"phase": "preflight_to_docs_gate"},
+                "diagnostics": [{"code": "c" * 180_000, "message": "small"}],
+            }
+        )
+        self.assertLessEqual(
+            len(json.dumps(result, ensure_ascii=False)),
+            self.srv.UPGRADE_RESPONSE_CAP_CHARS,
+        )
+        self.assertEqual(
+            len(result["diagnostics"][0]["code"]),
+            self.srv.UPGRADE_SUMMARY_KEY_CAP_CHARS,
+        )
+
+    def test_terminal_response_compaction_bounds_retained_bridge_detail(self):
+        argv = ["python3", "/tmp/wavefoundry-1.15.0.zip"]
+        result = self.srv._bounded_upgrade_response_envelope(
+            {
+                "status": "error",
+                "data": {
+                    "phase": "preflight_to_docs_gate",
+                    "log_path": "/tmp/upgrade.log",
+                    "bridge_release_required": {
+                        "status": "error",
+                        "code": "bridge_release_required",
+                        "package": "/tmp/wavefoundry-1.15.0.zip",
+                        "package_present": True,
+                        "command_argv": argv,
+                        "future_detail": {"body": "x" * 180_000},
+                    },
+                },
+                "diagnostics": [
+                    {"code": "bridge_release_required", "message": "bridge required"}
+                ],
+            }
+        )
+        self.assertLessEqual(
+            len(json.dumps(result, ensure_ascii=False)),
+            self.srv.UPGRADE_RESPONSE_CAP_CHARS,
+        )
+        handoff = result["data"]["bridge_release_required"]
+        self.assertEqual(handoff["command_argv"], argv)
+        self.assertTrue(handoff["handoff_compacted"])
+        self.assertNotIn("future_detail", handoff)
+
+    def test_spawn_failure_diagnostic_cannot_bypass_cap(self):
+        with patch("subprocess.run", side_effect=OSError("x" * 180_000)):
+            result = self.srv.wf_upgrade_response(self.root)
+
+        self.assertLessEqual(
+            len(json.dumps(result, ensure_ascii=False)),
+            self.srv.UPGRADE_RESPONSE_CAP_CHARS,
+        )
+        diagnostic = result["diagnostics"][0]
+        self.assertEqual(diagnostic["code"], "spawn_failed")
+        self.assertTrue(diagnostic["message_truncated"])
+        self.assertGreater(diagnostic["message_total_chars"], 100_000)
+        self.assertLess(len(diagnostic["message"]), 3_000)
+
     def test_action_required_exit_exposes_structured_memory_gate(self):
         mock_proc = MagicMock(returncode=4, stdout="paused\n", stderr="")
         backfill = MagicMock()
@@ -21637,6 +23842,8 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
         called_cmd = mock_run.call_args[0][0]
         self.assertIn("--resume-after-gate", called_cmd)
         self.assertNotEqual(result.get("status"), "error")
+        self.assertIn("resume_after_memory", result["next_step"])
+        self.assertNotIn("phase='update_index'", result["next_step"])
 
     def test_resume_after_gate_nonzero_exit_is_error(self):  # wave 1p44r AC-5 (delivery review)
         # A repeated docs-gate failure (exit 1) on resume must map to status=error
@@ -22053,6 +24260,12 @@ class WavePrepareCouncilGateTests(unittest.TestCase):
 
     def _add_verdict(self, wave_id: str) -> None:
         _append_review_run(self.root, wave_id, kind="readiness")
+        _append_typed_approval(
+            self.root,
+            wave_id,
+            "wave-council-readiness",
+            actor="wave-council",
+        )
         wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
         wave_md.write_text(
             wave_md.read_text(encoding="utf-8")
@@ -22069,20 +24282,21 @@ class WavePrepareCouncilGateTests(unittest.TestCase):
         )
 
     def test_prepare_create_blocked_without_council_verdict(self):
-        """AC-3: wf_prepare_wave(mode='create') returns ready_for_council_review when no prepare-council verdict."""
+        """Declared Prepare blocks without the current typed readiness authority."""
         wave_id = self._make_wave("council-gate-block")
         with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
             with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
                 result = self.srv.wf_prepare_wave_response(self.root, wave_id, mode="create")
-        self.assertEqual(result["status"], "ready_for_council_review")
+        self.assertEqual(result["status"], "error")
         codes = [d.get("code") for d in result.get("diagnostics", [])]
-        self.assertIn("prepare_council_verdict_missing", codes)
+        self.assertIn("missing_wave_council_signoff", codes)
+        self.assertIn("council_brief", result["data"])
         # Wave must not have transitioned to active
         wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
         self.assertNotIn("Status: active", wave_md.read_text(encoding="utf-8"))
 
     def test_prepare_create_succeeds_with_council_verdict(self):
-        """AC-4: wf_prepare_wave(mode='create') succeeds when prepare-council verdict is recorded."""
+        """Declared Prepare succeeds with current typed readiness authority."""
         wave_id = self._make_wave("council-gate-pass")
         self._add_verdict(wave_id)
         with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
@@ -22093,15 +24307,22 @@ class WavePrepareCouncilGateTests(unittest.TestCase):
         self.assertIn("Status: active", wave_md.read_text(encoding="utf-8"))
 
     def test_prepare_create_blocks_on_malformed_council_verdict(self):
-        """AC-4: malformed prepare-council verdicts are rejected."""
+        """Malformed prose is inert when declared typed readiness is current."""
         wave_id = self._make_wave("council-gate-invalid")
+        _append_review_run(self.root, wave_id, kind="readiness")
+        _append_typed_approval(
+            self.root,
+            wave_id,
+            "wave-council-readiness",
+            actor="wave-council",
+        )
         self._add_invalid_verdict(wave_id)
         with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
             with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
                 result = self.srv.wf_prepare_wave_response(self.root, wave_id, mode="create")
-        self.assertEqual(result["status"], "error")
+        self.assertEqual(result["status"], "ok")
         codes = [d.get("code") for d in result.get("diagnostics", [])]
-        self.assertIn("prepare_council_verdict_invalid", codes)
+        self.assertNotIn("prepare_council_verdict_invalid", codes)
 
     def test_prepare_dry_run_includes_council_brief_without_verdict(self):
         """AC-1: dry_run includes council_brief when no verdict is present."""
@@ -22245,6 +24466,9 @@ class WaveImplementTests(unittest.TestCase):
         self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
+        (self.root / "docs" / "workflow-config.json").write_text(
+            json.dumps({"wave_review": {"enabled": True, "delivery_mode": "universal"}}), encoding="utf-8"
+        )
         (self.root / "docs" / "agents" / "journals").mkdir(parents=True, exist_ok=True)
 
     def tearDown(self):
@@ -22264,7 +24488,7 @@ class WaveImplementTests(unittest.TestCase):
         return wave_id
 
     def _add_council_verdict(self, wave_id: str) -> None:
-        _append_review_run(self.root, wave_id, kind="readiness")
+        self._add_prepare_review_signoffs(wave_id, ["wave-council-readiness"])
         wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
         wave_md.write_text(
             wave_md.read_text(encoding="utf-8")
@@ -22288,11 +24512,41 @@ class WaveImplementTests(unittest.TestCase):
         review = sys.modules["review_evidence"]
         records, errors = review.read_review_event_ledger(wave_md)
         assert not errors, errors
+        policy = __import__("review_policy")
+        receipt = policy.current_policy_receipt(records)
+        selected_lanes = list(lanes)
+        if receipt is None:
+            wave_text = wave_md.read_text(encoding="utf-8")
+            change_ids = self.srv._extract_change_ids_from_wave_text(wave_text)
+            brief = self.srv._build_prepare_council_brief(
+                wave_id, wave_text, change_ids
+            )
+            state, state_errors = self.srv._prepare_policy_state(
+                self.root, wave_md, wave_text, change_ids, brief
+            )
+            assert not state_errors, state_errors
+            self.srv._publish_prepare_policy_state(
+                self.root, wave_md, wave_text, state
+            )
+            records, errors = review.read_review_event_ledger(wave_md)
+            assert not errors, errors
+            receipt = policy.current_policy_receipt(records)
+            selected_lanes = list(
+                dict.fromkeys([*lanes, *state["required_lanes"]])
+            )
+        receipt_id = receipt["receipt_id"]
         records = (
             *records,
             *(
-                WaveLifecycleMutationTests._approval_record(lane, actor=lane)
-                for lane in lanes
+                {
+                    **WaveLifecycleMutationTests._approval_record(
+                        lane,
+                        actor="wave-council" if lane == "wave-council-readiness" else lane,
+                    ),
+                    "approval_phase": "readiness",
+                    "policy_receipt_id": receipt_id,
+                }
+                for lane in selected_lanes
             ),
         )
         review.review_event_path(wave_md).write_bytes(
@@ -22309,8 +24563,20 @@ class WaveImplementTests(unittest.TestCase):
     def _add_participants(self, wave_id: str, review_lanes: list) -> None:
         wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
         rows = "\n".join(f"| {lane} | review | scope |" for lane in review_lanes)
-        table = f"## Participants\n\n| Role | Lane | Scope |\n|------|------|-------|\n{rows}\n"
-        wave_md.write_text(wave_md.read_text(encoding="utf-8") + f"\n{table}", encoding="utf-8")
+        roster = (
+            "- Requested review lanes: "
+            + (", ".join(review_lanes) if review_lanes else "none")
+            + "\n- Required review lanes: none\n\n"
+            + f"| Role | Lane | Scope |\n|------|------|-------|\n{rows}\n\n"
+        )
+        text = wave_md.read_text(encoding="utf-8")
+        text = re.sub(
+            r"(?ms)(^## Participants[ \t]*\n).*?(?=^## )",
+            rf"\1\n{roster}",
+            text,
+            count=1,
+        )
+        wave_md.write_text(text, encoding="utf-8")
         self._reproject(wave_id)
 
     def _reproject(self, wave_id: str) -> None:
@@ -22324,6 +24590,73 @@ class WaveImplementTests(unittest.TestCase):
             self.srv._project_current_review_status(self.root, wave_md, text),
             encoding="utf-8",
         )
+
+    # --- 1tsyx AC-8(b): producer and parser parity ------------------------
+
+    def test_create_wave_emits_discoverable_empty_roster_both_parsers_agree_on(self):
+        wave_id = self._make_wave("empty-roster-producer", status="planned")
+        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        text = wave_md.read_text(encoding="utf-8")
+        self.assertIn("## Participants", text)
+        self.assertEqual(self.srv._extract_required_review_lanes(text), [])
+        review = sys.modules["review_evidence"]
+        keys = review.required_review_status_keys(self.root, text, ())
+        projected_lanes = [
+            key for key in keys
+            if key not in {
+                "wave-council-readiness",
+                "wave-council-delivery",
+                "operator-signoff",
+            }
+        ]
+        self.assertEqual(projected_lanes, [])
+
+    def test_roster_extractors_preserve_duplicate_order_parity(self):
+        text = (
+            "# Wave\nStatus: active\n\n"
+            "## Participants\n\n"
+            "- Required review lanes: `qa-reviewer`, `code-reviewer`, `qa-reviewer`\n"
+            "| Role | Lane | Scope |\n"
+            "|------|------|-------|\n"
+            "| security-reviewer | review | trust |\n"
+            "| code-reviewer | review | code |\n"
+        )
+        server_lanes = self.srv._extract_required_review_lanes(text)
+        review = sys.modules["review_evidence"]
+        keys = review.required_review_status_keys(self.root, text, ())
+        projection_lanes = [
+            key for key in keys
+            if key not in {
+                "wave-council-readiness",
+                "wave-council-delivery",
+                "operator-signoff",
+            }
+        ]
+        self.assertEqual(server_lanes, ["qa-reviewer", "code-reviewer", "security-reviewer"])
+        self.assertEqual(projection_lanes, server_lanes)
+
+    def test_roster_extractors_agree_over_current_wave_corpus(self):
+        repo = Path(self.srv.__file__).resolve().parents[3]
+        wave_paths = sorted((repo / "docs" / "waves").glob("*/wave.md"))
+        if not wave_paths:
+            self.skipTest("repository wave corpus is unavailable")
+        review = sys.modules["review_evidence"]
+        mismatches = []
+        for wave_md in wave_paths:
+            text = wave_md.read_text(encoding="utf-8")
+            server_lanes = self.srv._extract_required_review_lanes(text)
+            keys = review.required_review_status_keys(repo, text, ())
+            projection_lanes = [
+                key for key in keys
+                if key not in {
+                    "wave-council-readiness",
+                    "wave-council-delivery",
+                    "operator-signoff",
+                }
+            ]
+            if projection_lanes != server_lanes:
+                mismatches.append((wave_md.parent.name, server_lanes, projection_lanes))
+        self.assertEqual(mismatches, [])
 
     # --- AC-1/AC-2: wf_review_wave phase parameter ---
 
@@ -22375,20 +24708,45 @@ class WaveImplementTests(unittest.TestCase):
 
     # --- AC-3/AC-4: wf_implement_wave gate checks ---
 
-    def test_wf_implement_wave_blocked_without_council_verdict(self):
-        """AC-3: wf_implement_wave returns error when council verdict is missing."""
+    def test_wf_implement_wave_blocked_without_council_readiness_approval(self):
+        """AC-3: declared activation requires current typed council readiness."""
         wave_id = self._make_wave("impl-no-council")
         result = self.srv.wf_implement_wave_response(self.root, wave_id, mode="create")
         self.assertEqual(result["status"], "error")
         codes = [d.get("code") for d in result.get("diagnostics", [])]
-        self.assertIn("prepare_council_verdict_missing", codes)
+        self.assertIn("missing_wave_council_signoff", codes)
 
     def test_wf_implement_wave_blocked_without_prepare_review(self):
         """AC-4: wf_implement_wave returns error when prepare-phase lane review is incomplete."""
         wave_id = self._make_wave("impl-no-review")
-        self._add_council_verdict(wave_id)
         self._add_participants(wave_id, ["code-reviewer"])
-        # No prepare-review signoffs
+        self._add_council_verdict(wave_id)
+        # Retain the Council approval but remove the independently required
+        # lane so this fixture exercises the incomplete-roster branch.
+        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        review = sys.modules["review_evidence"]
+        records, errors = review.read_review_event_ledger(wave_md)
+        self.assertEqual(errors, ())
+        records = tuple(
+            record
+            for record in records
+            if not (
+                record.get("claim_id") == "approval:code-reviewer"
+            )
+        )
+        review.review_event_path(wave_md).write_bytes(
+            review.canonical_review_events_bytes(records)
+        )
+        wave_md.write_text(
+            self.srv._project_current_review_status(
+                self.root,
+                wave_md,
+                review.render_review_evidence_projection(
+                    wave_md.read_text(encoding="utf-8"), records
+                ),
+            ),
+            encoding="utf-8",
+        )
         result = self.srv.wf_implement_wave_response(self.root, wave_id, mode="create")
         self.assertEqual(result["status"], "error")
         codes = [d.get("code") for d in result.get("diagnostics", [])]
@@ -23888,6 +26246,7 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
                 "lifecycle_id_policy": {"epoch_utc": "2020-02-02T02:02:00Z", "hour_offset": 0},
                 "wave_review": {
                     "enabled": True,
+                    "delivery_mode": "universal",
                     "phases": {
                         "prepare": {"signoff_key": "wave-council-readiness", "moderator_role": "wave-council"},
                         "review": {"signoff_key": "wave-council-delivery", "moderator_role": "wave-council"},
@@ -23899,19 +26258,31 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
         created = self.srv.wf_create_wave_response(self.root, "typed-gates", mode="create")
         self.wave_id = created["data"]["wave_id"]
         self.wave_md = self.root / "docs" / "waves" / self.wave_id / "wave.md"
-        # Operator-authored configuration sections: lane roster + council verdict.
+        # Operator-authored configuration sections: populate the scaffolded
+        # roster in place, then append the narrative council checkpoint.
+        _scaffold = self.wave_md.read_text(encoding="utf-8")
+        _scaffold = re.sub(
+            r"(?ms)(^## Participants[ \t]*\n).*?(?=^## )",
+            r"\1\n- Required review lanes: `qa-reviewer`\n\n",
+            _scaffold,
+            count=1,
+        )
         self.wave_md.write_text(
-            self.wave_md.read_text(encoding="utf-8")
-            + "\n## Participants\n\n- Required review lanes: `qa-reviewer`\n"
-            + f"\n## Review Checkpoints\n\n{_prepare_council_verdict_line()}\n",
+            _scaffold + f"\n## Review Checkpoints\n\n{_prepare_council_verdict_line()}\n",
             encoding="utf-8",
         )
+        # The roster edit changes the required projection key set. Keep the
+        # generated projection current before exercising Prepare; otherwise
+        # the preflight correctly refuses to mint a receipt from a stale
+        # carrier.
+        self._set_records(())
         # Admit one completed change through the canonical producer.
         (self.root / "docs" / "plans").mkdir(exist_ok=True)
         (self.root / "docs" / "plans" / "1200a-feat sample.md").write_text(
             "# Sample\n\n"
             "Change ID: `1200a-feat sample`\n"
-            "Change Status: `planned`\n\n"
+            "Change Status: `planned`\n"
+            "Last verified: 2026-07-29\n\n"
             "## Rationale\n\nWhy.\n\n"
             "## Requirements\n\n1. One.\n\n"
             "## Scope\n\nIn scope.\n\n"
@@ -23922,12 +26293,42 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
         )
         add = self.srv.wf_add_change_response(self.root, self.wave_id, "1200a-feat sample", mode="create")
         assert add["status"] == "ok", add
-        # Typed readiness evidence: readiness run + council + lane approvals.
-        _append_review_run(self.root, self.wave_id, kind="readiness")
-        self._append_records(
-            WaveLifecycleMutationTests._approval_record("wave-council-readiness", actor="wave-council"),
-            WaveLifecycleMutationTests._approval_record("qa-reviewer", actor="qa-reviewer"),
+        # Prepare first publishes the server-owned policy receipt/roster.  The
+        # expected missing-approval result is still a successful publication
+        # boundary; readiness actors can only approve that current receipt.
+        seeded = self._run(
+            self.srv.wf_prepare_wave_response,
+            self.root,
+            self.wave_id,
+            mode="ready",
         )
+        assert seeded["status"] == "error", seeded
+        assert "missing_wave_council_signoff" in self._codes(seeded), seeded
+        # Typed readiness evidence: readiness run + receipt-bound council and
+        # specialist-lane approvals through the registered public producer.
+        _append_review_run(self.root, self.wave_id, kind="readiness")
+        for signoff_key, actor in (
+            ("wave-council-readiness", "wave-council"),
+            ("code-reviewer", "code-reviewer"),
+        ):
+            approval = self.srv.wf_review_event_response(
+                self.root,
+                self.wave_id,
+                "approval",
+                actor,
+                f"typed-gates-{signoff_key}",
+                mode="create",
+                signoff_key=signoff_key,
+                approval_phase="readiness",
+                fresh_context=True,
+                independent=True,
+                integrity_checks=integrity_checks(),
+                evidence={
+                    "observed": "receipt-bound readiness approval passed",
+                    "artifact_or_test_id": f"test:{signoff_key}",
+                },
+            )
+            assert approval["status"] == "ok", approval
 
     # -- canonical ledger/projection helpers --------------------------------
 
@@ -23960,10 +26361,29 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
 
     def _add_delivery_evidence(self):
         _append_review_run(self.root, self.wave_id, kind="initial_delivery")
-        self._append_records(
-            WaveLifecycleMutationTests._approval_record("operator-signoff", actor="operator"),
-            WaveLifecycleMutationTests._approval_record("wave-council-delivery", actor="wave-council"),
-        )
+        for signoff_key, actor in (
+            ("operator-signoff", "operator"),
+            ("wave-council-delivery", "wave-council"),
+            ("code-reviewer", "code-reviewer"),
+        ):
+            approval = self.srv.wf_review_event_response(
+                self.root,
+                self.wave_id,
+                "approval",
+                actor,
+                f"typed-gates-delivery-{signoff_key}",
+                mode="create",
+                signoff_key=signoff_key,
+                approval_phase="delivery",
+                fresh_context=True,
+                independent=True,
+                integrity_checks=integrity_checks(),
+                evidence={
+                    "observed": "delivery approval passed",
+                    "artifact_or_test_id": f"test:delivery-{signoff_key}",
+                },
+            )
+            self.assertEqual(approval["status"], "ok", approval)
 
     def _mark_change_complete(self):
         for path in (self.wave_md, self.wave_md.parent / "1200a-feat sample.md"):
@@ -23997,6 +26417,28 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
                 f"fixture must carry zero prose signoff lines, found: {line!r}",
             )
 
+    def test_specialist_readiness_approval_uses_valid_phase_after_activation(self):
+        """A valid specialist phase remains authoritative on an OPEN wave."""
+        self.wave_md.write_text(
+            self.wave_md.read_text(encoding="utf-8").replace(
+                "Status: planned", "Status: implementing"
+            ),
+            encoding="utf-8",
+        )
+        approval = self.srv.wf_review_event_response(
+            self.root, self.wave_id, "approval", "qa-reviewer",
+            "specialist-readiness-after-activation", mode="create",
+            signoff_key="qa-reviewer", approval_phase="readiness",
+            fresh_context=True, independent=True,
+            integrity_checks=integrity_checks(),
+            evidence={
+                "observed": "specialist approved the current readiness receipt",
+                "artifact_or_test_id": "specialist-readiness-after-activation",
+            },
+        )
+        self.assertEqual(approval["status"], "ok", approval)
+        self.assertEqual(approval["data"]["review_actions"]["phase"], "readiness")
+
     # -- AC-1(a) green path --------------------------------------------------
 
     def test_typed_only_evidence_is_green_across_all_gate_surfaces(self):
@@ -24010,7 +26452,7 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
         self.assertEqual(review_prepare["status"], "ok", review_prepare)
         self.assertEqual(
             review_prepare["data"]["lane_results"],
-            [{"lane": "qa-reviewer", "recorded_signoff": True}],
+            [{"lane": "code-reviewer", "recorded_signoff": True}],
         )
 
         gate2 = self._run(self.srv.wf_implement_wave_response, self.root, self.wave_id, mode="dry_run")
@@ -24035,6 +26477,36 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
         self.assertNotIn("high_severity_finding", self._codes(review_impl))
 
         self._mark_change_complete()
+        refreshed = self._run(
+            self.srv.wf_prepare_wave_response,
+            self.root,
+            self.wave_id,
+            mode="ready",
+        )
+        self.assertEqual(refreshed["status"], "error", refreshed)
+        self.assertIn("missing_wave_council_signoff", self._codes(refreshed))
+        for signoff_key, actor in (
+            ("wave-council-readiness", "wave-council"),
+            ("code-reviewer", "code-reviewer"),
+        ):
+            approval = self.srv.wf_review_event_response(
+                self.root,
+                self.wave_id,
+                "approval",
+                actor,
+                f"typed-gates-final-{signoff_key}",
+                mode="create",
+                signoff_key=signoff_key,
+                approval_phase="readiness",
+                fresh_context=True,
+                independent=True,
+                integrity_checks=integrity_checks(),
+                evidence={
+                    "observed": "final change bytes approved",
+                    "artifact_or_test_id": f"test:final-{signoff_key}",
+                },
+            )
+            self.assertEqual(approval["status"], "ok", approval)
         close = self._run(self.srv.wf_close_wave_response, self.root, self.wave_id, mode="dry_run")
         self.assertEqual(close["status"], "dry_run", close)
         self.assertEqual(close.get("diagnostics", []), [])
@@ -24044,7 +26516,7 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
     def test_dropping_one_typed_lane_approval_blocks_every_surface(self):
         self._add_delivery_evidence()
         self._mark_change_complete()
-        self._drop_approval("qa-reviewer")
+        self._drop_approval("code-reviewer")
 
         review_prepare = self._run(self.srv.wf_review_wave_response, self.root, self.wave_id, phase="prepare")
         self.assertEqual(review_prepare["status"], "error")
@@ -24067,18 +26539,18 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
     def test_prose_only_signoff_lines_satisfy_no_surface(self):
         self._add_delivery_evidence()
         self._mark_change_complete()
-        self._drop_approval("qa-reviewer")
+        self._drop_approval("code-reviewer")
         # Prose forgeries in BOTH prose evidence sections. The prepare-section
         # line is the decisive one: the pre-facade Gate 2 accepted it.
         self.wave_md.write_text(
             self.wave_md.read_text(encoding="utf-8")
-            + "\n## Prepare Review Evidence\n\n- qa-reviewer: approved\n",
+            + "\n## Prepare Review Evidence\n\n- code-reviewer: approved\n",
             encoding="utf-8",
         )
         self.wave_md.write_text(
             self.wave_md.read_text(encoding="utf-8").replace(
                 "- operator-signoff: <approved when operator confirms closure>",
-                "- qa-reviewer: approved\n- operator-signoff: approved",
+                "- code-reviewer: approved\n- operator-signoff: approved",
             ),
             encoding="utf-8",
         )
@@ -24109,7 +26581,7 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
         caller to write prose into `## Prepare Review Evidence` (which is
         inert on declared waves). Legacy prose fixtures keep the historical
         wording, pinned in LegacyProseGateParityTests."""
-        self._drop_approval("qa-reviewer")
+        self._drop_approval("code-reviewer")
 
         review_prepare = self._run(self.srv.wf_review_wave_response, self.root, self.wave_id, phase="prepare")
         self.assertEqual(review_prepare["status"], "error")
@@ -24119,7 +26591,7 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
         ]
         self.assertIn("wf_review_event", message)
         self.assertIn("signoff_key", message)
-        self.assertIn("qa-reviewer", message)
+        self.assertIn("code-reviewer", message)
         self.assertNotIn("`## Prepare Review Evidence` section", message)
 
         gate2 = self._run(self.srv.wf_implement_wave_response, self.root, self.wave_id, mode="dry_run")
@@ -24130,7 +26602,7 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
         ]
         self.assertIn("wf_review_event", gate2_message)
         self.assertIn("signoff_key", gate2_message)
-        self.assertIn("qa-reviewer", gate2_message)
+        self.assertIn("code-reviewer", gate2_message)
         self.assertNotIn("missing signoffs in `## Prepare Review Evidence`", gate2_message)
 
     # -- AC-1(a): readiness council surface (f) ------------------------------
@@ -24149,11 +26621,333 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
         self.assertIn("missing_wave_council_signoff", self._codes(prepare))
 
     def test_typed_readiness_approval_without_any_prose_passes_prepare_gate(self):
-        prepare = self._run(self.srv.wf_prepare_wave_response, self.root, self.wave_id, mode="dry_run")
-        self.assertNotIn("missing_wave_council_signoff", self._codes(prepare))
+        text = self.wave_md.read_text(encoding="utf-8")
+        text = text.split("\n## Review Checkpoints\n", 1)[0] + "\n"
+        self.wave_md.write_text(text, encoding="utf-8")
+        self._set_records(self._records())
+
+        for mode, expected_status in (
+            ("dry_run", "dry_run"),
+            ("ready", "ok"),
+            ("create", "ok"),
+        ):
+            prepare = self._run(
+                self.srv.wf_prepare_wave_response,
+                self.root,
+                self.wave_id,
+                mode=mode,
+            )
+            self.assertEqual(prepare["status"], expected_status, prepare)
+            self.assertNotIn("missing_wave_council_signoff", self._codes(prepare))
+            self.assertNotIn("prepare_council_verdict_missing", self._codes(prepare))
+
+    def test_disabled_council_policy_requires_neither_council_phase(self):
+        config_path = self.root / "docs" / "workflow-config.json"
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+        config["wave_review"]["enabled"] = False
+        config["wave_review"]["delivery_mode"] = "disabled"
+        config_path.write_text(json.dumps(config), encoding="utf-8")
+        text = self.wave_md.read_text(encoding="utf-8")
+        text = text.split("\n## Review Checkpoints\n", 1)[0] + "\n"
+        self.wave_md.write_text(text, encoding="utf-8")
+        self._set_records(self._records())
+
+        # The policy edit invalidates the old receipt. Re-Prepare publishes a
+        # disabled receipt; the specialist lane remains non-waivable and must
+        # approve the new receipt even though Council is no longer required.
+        reprepared = self._run(
+            self.srv.wf_prepare_wave_response,
+            self.root,
+            self.wave_id,
+            mode="ready",
+        )
+        self.assertEqual(reprepared["status"], "ok", reprepared)
+        lane_reapproval = self.srv.wf_review_event_response(
+            self.root,
+            self.wave_id,
+            "approval",
+            "code-reviewer",
+            "typed-gates-code-disabled-receipt",
+            mode="create",
+            signoff_key="code-reviewer",
+            approval_phase="readiness",
+            fresh_context=True,
+            independent=True,
+            integrity_checks=integrity_checks(),
+            evidence={
+                "observed": "specialist lane approved the disabled-policy receipt",
+                "artifact_or_test_id": "test:code-disabled-receipt",
+            },
+        )
+        self.assertEqual(lane_reapproval["status"], "ok", lane_reapproval)
+
         self._drop_approval("wave-council-readiness")
-        blocked = self._run(self.srv.wf_prepare_wave_response, self.root, self.wave_id, mode="dry_run")
-        self.assertIn("missing_wave_council_signoff", self._codes(blocked))
+        disabled_prepare = self._run(
+            self.srv.wf_prepare_wave_response,
+            self.root,
+            self.wave_id,
+            mode="dry_run",
+        )
+        self.assertEqual(disabled_prepare["status"], "dry_run", disabled_prepare)
+        self.assertNotIn("missing_wave_council_signoff", self._codes(disabled_prepare))
+        disabled_implement = self._run(
+            self.srv.wf_implement_wave_response,
+            self.root,
+            self.wave_id,
+            mode="dry_run",
+        )
+        self.assertEqual(disabled_implement["status"], "dry_run", disabled_implement)
+        self.assertNotIn("missing_wave_council_signoff", self._codes(disabled_implement))
+
+    # -- 1tsyx AC-1: activation reads typed readiness authority ------------
+
+    def test_implement_rejects_declared_wave_with_only_prose_verdict(self):
+        """A well-formed prose verdict cannot forge activation readiness."""
+        self._drop_approval("wave-council-readiness")
+        before = self.wave_md.read_bytes()
+        result = self._run(
+            self.srv.wf_implement_wave_response,
+            self.root,
+            self.wave_id,
+            mode="create",
+        )
+        self.assertEqual(result["status"], "error", result)
+        self.assertIn("missing_wave_council_signoff", self._codes(result))
+        self.assertEqual(self.wave_md.read_bytes(), before, "rejection must not mutate the wave")
+
+    def test_implement_accepts_declared_typed_readiness_without_prose_verdict(self):
+        """Typed readiness is sufficient even when Review Checkpoints has no verdict."""
+        text = self.wave_md.read_text(encoding="utf-8")
+        text = text.split("\n## Review Checkpoints\n", 1)[0] + "\n"
+        self.wave_md.write_text(text, encoding="utf-8")
+        self._set_records(self._records())
+        result = self._run(
+            self.srv.wf_implement_wave_response,
+            self.root,
+            self.wave_id,
+            mode="dry_run",
+        )
+        self.assertEqual(result["status"], "dry_run", result)
+        self.assertNotIn("prepare_council_verdict_missing", self._codes(result))
+
+    # -- AC-2: Prepare-owned roster tampering is stale and blocking ----------
+
+    def test_declared_roster_tamper_blocks_review_and_close(self):
+        text = self.wave_md.read_text(encoding="utf-8").replace(
+            "- Required review lanes: code-reviewer",
+            "- Required review lanes: none",
+        )
+        self.wave_md.write_text(text, encoding="utf-8")
+        self._set_records(self._records())
+        self._add_delivery_evidence()
+        self._mark_change_complete()
+
+        review = self._run(self.srv.wf_review_wave_response, self.root, self.wave_id)
+        self.assertEqual(review["status"], "error", review)
+        self.assertIn("review_policy_receipt_stale", self._codes(review))
+        actions = review["data"]["review_actions"]
+        self.assertFalse(actions["available"], actions)
+        self.assertEqual(actions["reason"], "review_policy_receipt_stale")
+        self.assertEqual(actions["next_actions"], [])
+
+        close = self._run(
+            self.srv.wf_close_wave_response,
+            self.root,
+            self.wave_id,
+            mode="dry_run",
+        )
+        self.assertEqual(close["status"], "error", close)
+        self.assertIn("review_policy_receipt_stale", self._codes(close))
+
+    def test_gardener_only_date_rollover_keeps_all_lifecycle_surfaces_current(self):
+        """A midnight gardener stamp cannot invalidate the prepared receipt."""
+
+        self._mark_change_complete()
+        refreshed = self._run(
+            self.srv.wf_prepare_wave_response,
+            self.root,
+            self.wave_id,
+            mode="ready",
+        )
+        self.assertEqual(refreshed["status"], "error", refreshed)
+        self.assertIn("missing_wave_council_signoff", self._codes(refreshed))
+        for signoff_key, actor in (
+            ("wave-council-readiness", "wave-council"),
+            ("code-reviewer", "code-reviewer"),
+        ):
+            approved = self.srv.wf_review_event_response(
+                self.root,
+                self.wave_id,
+                "approval",
+                actor,
+                f"midnight-{signoff_key}",
+                mode="create",
+                signoff_key=signoff_key,
+                approval_phase="readiness",
+                fresh_context=True,
+                independent=True,
+                integrity_checks=integrity_checks(),
+                evidence={
+                    "observed": "approved the completed pre-midnight change",
+                    "artifact_or_test_id": f"test:midnight-{signoff_key}",
+                },
+            )
+            self.assertEqual(approved["status"], "ok", approved)
+        self._add_delivery_evidence()
+
+        change = self.wave_md.parent / "1200a-feat sample.md"
+        change.write_text(
+            change.read_text(encoding="utf-8").replace(
+                "Last verified: 2026-07-29", "Last verified: 2026-07-30"
+            ),
+            encoding="utf-8",
+        )
+
+        surfaces = (
+            self._run(
+                self.srv.wf_prepare_wave_response,
+                self.root,
+                self.wave_id,
+                mode="dry_run",
+            ),
+            self._run(
+                self.srv.wf_review_wave_response,
+                self.root,
+                self.wave_id,
+                phase="prepare",
+            ),
+            self._run(
+                self.srv.wf_implement_wave_response,
+                self.root,
+                self.wave_id,
+                mode="dry_run",
+            ),
+            self._run(
+                self.srv.wf_close_wave_response,
+                self.root,
+                self.wave_id,
+                mode="dry_run",
+            ),
+        )
+        for response in surfaces:
+            self.assertNotIn("review_policy_receipt_stale", self._codes(response), response)
+        self.assertEqual(surfaces[-1]["status"], "dry_run", surfaces[-1])
+
+    def test_public_prepare_converges_once_from_evaluator_v1_to_v2(self):
+        review_policy = sys.modules["review_policy"]
+
+        def receipts():
+            return tuple(
+                record
+                for record in self._records()
+                if record.get("record_type") == "review_policy_receipt"
+            )
+
+        initial_count = len(receipts())
+        with patch.object(
+            review_policy, "REVIEW_POLICY_EVALUATOR_VERSION", 1
+        ), patch.object(
+            self.srv, "REVIEW_POLICY_EVALUATOR_VERSION", 1
+        ):
+            legacy = self._run(
+                self.srv.wf_prepare_wave_response,
+                self.root,
+                self.wave_id,
+                mode="ready",
+            )
+        self.assertEqual(legacy["status"], "error", legacy)
+        self.assertEqual(len(receipts()), initial_count + 1)
+        self.assertEqual(receipts()[-1]["evaluator_version"], 1)
+
+        upgraded = self._run(
+            self.srv.wf_prepare_wave_response,
+            self.root,
+            self.wave_id,
+            mode="ready",
+        )
+        self.assertEqual(upgraded["status"], "error", upgraded)
+        self.assertEqual(len(receipts()), initial_count + 2)
+        self.assertEqual(receipts()[-1]["evaluator_version"], 2)
+
+        repeated = self._run(
+            self.srv.wf_prepare_wave_response,
+            self.root,
+            self.wave_id,
+            mode="ready",
+        )
+        self.assertEqual(repeated["status"], "error", repeated)
+        self.assertEqual(
+            len(receipts()),
+            initial_count + 2,
+            "a current evaluator-v2 receipt must make repeated Prepare idempotent",
+        )
+
+    def test_failed_docs_gate_publishes_no_new_roster_receipt_or_projection(self):
+        config_path = self.root / "docs/workflow-config.json"
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+        config["wave_review"]["delivery_mode"] = "targeted"
+        config_path.write_text(json.dumps(config), encoding="utf-8")
+        wave_before = self.wave_md.read_bytes()
+        ledger_before = self.review.review_event_path(self.wave_md).read_bytes()
+        with patch.object(self.srv, "run_garden", return_value=self.GARDEN_OK), \
+             patch.object(self.srv, "run_validate", return_value={"passed": False, "errors": ["injected lint failure"], "warnings": [], "output": ""}), \
+             patch.object(self.srv, "_trigger_background_index_refresh_for_paths"):
+            result = self.srv.wf_prepare_wave_response(
+                self.root, self.wave_id, mode="ready"
+            )
+        self.assertEqual(result["status"], "error", result)
+        self.assertIn("docs_lint_error", self._codes(result))
+        self.assertEqual(self.wave_md.read_bytes(), wave_before)
+        self.assertEqual(
+            self.review.review_event_path(self.wave_md).read_bytes(), ledger_before
+        )
+
+    def test_targeted_prepare_receipt_binds_admitted_trust_boundary_trigger(self):
+        config_path = self.root / "docs/workflow-config.json"
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+        config["wave_review"]["delivery_mode"] = "targeted"
+        config_path.write_text(json.dumps(config), encoding="utf-8")
+        change = self.wave_md.parent / "1200a-feat sample.md"
+        change.write_text(
+            change.read_text(encoding="utf-8")
+            + "\n## Boundary declaration\n\nThis changes a trust boundary.\n",
+            encoding="utf-8",
+        )
+        result = self._run(
+            self.srv.wf_prepare_wave_response,
+            self.root,
+            self.wave_id,
+            mode="ready",
+        )
+        self.assertEqual(result["status"], "error", result)
+        records = self._records()
+        receipt = __import__("review_policy").current_policy_receipt(records)
+        self.assertIsNotNone(receipt)
+        self.assertTrue(receipt["delivery_council_required"])
+        self.assertIn(
+            "wave-council-delivery",
+            self.srv._required_wave_council_signoffs(
+                self.root,
+                "review",
+                wave_text=self.wave_md.read_text(encoding="utf-8"),
+                wave_md=self.wave_md,
+            ),
+        )
+
+    def test_malformed_canonical_receipt_returns_diagnostic_instead_of_crashing(self):
+        self.review.review_event_path(self.wave_md).write_bytes(
+            self.review.canonical_review_events_bytes(
+                (*self._records(), {"record_type": "review_policy_receipt"})
+            )
+        )
+        result = self._run(
+            self.srv.wf_prepare_wave_response,
+            self.root,
+            self.wave_id,
+            mode="dry_run",
+        )
+        self.assertEqual(result["status"], "error", result)
+        self.assertIn("review_policy_receipt_stale", self._codes(result))
 
 
 class LegacyProseGateParityTests(unittest.TestCase):
@@ -24176,12 +26970,16 @@ class LegacyProseGateParityTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.root = _make_repo(Path(self.tmp.name))
 
-    def _write_wave(self, *, evidence_lines, prepare_lines=()):
+    def _write_wave(self, *, evidence_lines, prepare_lines=(), checkpoint_lines=()):
         wave_dir = self.root / "docs" / "waves" / "1200a legacy-wave"
         wave_dir.mkdir(parents=True, exist_ok=True)
         prepare_section = (
             "## Prepare Review Evidence\n\n" + "\n".join(prepare_lines) + "\n\n"
             if prepare_lines else ""
+        )
+        checkpoint_section = (
+            "## Review Checkpoints\n\n" + "\n".join(checkpoint_lines) + "\n\n"
+            if checkpoint_lines else ""
         )
         (wave_dir / "wave.md").write_text(
             "# Wave Record\n"
@@ -24195,8 +26993,17 @@ class LegacyProseGateParityTests(unittest.TestCase):
             "|------|------|------|\n"
             "| code-reviewer | review | x |\n\n"
             + prepare_section +
+            checkpoint_section +
             "## Review Evidence\n\n"
             + "\n".join(evidence_lines) + "\n",
+            encoding="utf-8",
+        )
+        (wave_dir / "1200a-feat sample.md").write_text(
+            "# Sample\n\nChange ID: `1200a-feat sample`\nChange Status: `complete`\n\n"
+            "## Rationale\n\nx\n\n## Requirements\n\n1. x\n\n## Scope\n\nx\n\n"
+            "## Acceptance Criteria\n\n- [x] x\n\n## Tasks\n\n- [x] x\n\n"
+            "## AC Priority\n\n| AC | Priority | Rationale |\n| --- | --- | --- |\n"
+            "| AC-1 | required | x |\n",
             encoding="utf-8",
         )
         return wave_dir / "wave.md"
@@ -24226,6 +27033,64 @@ class LegacyProseGateParityTests(unittest.TestCase):
         close = self._run(self.srv.wf_close_wave_response, self.root, "1200a legacy-wave", mode="dry_run")
         self.assertEqual(close["status"], "dry_run", close)
         self.assertEqual(self._codes(close), set())
+
+    def test_legacy_prepare_and_activation_keep_the_prose_verdict_gate(self):
+        self._write_wave(
+            evidence_lines=["- operator-signoff: approved", "- code-reviewer: approved"],
+            prepare_lines=["- code-reviewer: approved"],
+            checkpoint_lines=[_prepare_council_verdict_line()],
+        )
+        prepare = self._run(
+            self.srv.wf_prepare_wave_response, self.root, "1200a legacy-wave", mode="create"
+        )
+        self.assertEqual(prepare["status"], "ok", prepare)
+        implement = self._run(
+            self.srv.wf_implement_wave_response, self.root, "1200a legacy-wave", mode="dry_run"
+        )
+        self.assertEqual(implement["status"], "dry_run", implement)
+
+        self._write_wave(
+            evidence_lines=["- operator-signoff: approved", "- code-reviewer: approved"],
+            prepare_lines=["- code-reviewer: approved"],
+        )
+        prepare_missing = self._run(
+            self.srv.wf_prepare_wave_response, self.root, "1200a legacy-wave", mode="create"
+        )
+        self.assertEqual(prepare_missing["status"], "ready_for_council_review", prepare_missing)
+        implement_missing = self._run(
+            self.srv.wf_implement_wave_response, self.root, "1200a legacy-wave", mode="dry_run"
+        )
+        self.assertEqual(implement_missing["status"], "error", implement_missing)
+        self.assertIn("prepare_council_verdict_missing", self._codes(implement_missing))
+
+    def test_legacy_malformed_verdict_blocks_prepare_and_activation(self):
+        """1tsyx AC-1: both legacy surfaces retain the invalid-verdict branch."""
+        malformed = _prepare_council_verdict_line().replace(
+            "primer-depth: standard; ", ""
+        )
+        self._write_wave(
+            evidence_lines=["- operator-signoff: approved", "- code-reviewer: approved"],
+            prepare_lines=["- code-reviewer: approved"],
+            checkpoint_lines=[malformed],
+        )
+
+        prepare = self._run(
+            self.srv.wf_prepare_wave_response,
+            self.root,
+            "1200a legacy-wave",
+            mode="create",
+        )
+        self.assertEqual(prepare["status"], "error", prepare)
+        self.assertIn("prepare_council_verdict_invalid", self._codes(prepare))
+
+        implement = self._run(
+            self.srv.wf_implement_wave_response,
+            self.root,
+            "1200a legacy-wave",
+            mode="dry_run",
+        )
+        self.assertEqual(implement["status"], "error", implement)
+        self.assertIn("prepare_council_verdict_invalid", self._codes(implement))
 
     def test_prose_absent_blocks_legacy_gates(self):
         self._write_wave(evidence_lines=["- note: review still pending"])
@@ -24379,7 +27244,17 @@ class DeclaredWaveTreeSweepTests(unittest.TestCase):
             required_keys = ["operator-signoff", *lanes, *council]
             green = (
                 not authority.ledger_errors
-                and all(authority.signoff_current(key) for key in required_keys)
+                and all(
+                    authority.signoff_current(
+                        key,
+                        approval_phase=(
+                            "readiness"
+                            if key == "wave-council-readiness"
+                            else "delivery"
+                        ),
+                    )
+                    for key in required_keys
+                )
                 and authority.evidence_present()
             )
             seen[wave_md.parent.name] = (lanes, green)
@@ -27160,9 +30035,10 @@ def _typed_event_race_worker(
         f"race-context-{actor}",
         mode="create",
         signoff_key=actor,
+        approval_phase="delivery",
         fresh_context=True,
         independent=True,
-        integrity_confirmed=True,
+        integrity_checks=integrity_checks(),
         evidence={"observed": "passed", "artifact_or_test_id": f"test:{actor}"},
     )
     results.put(
@@ -27348,9 +30224,10 @@ class TypedEventNamedCrashCutTests(unittest.TestCase):
             context,
             mode="create",
             signoff_key="qa-reviewer",
+            approval_phase="delivery",
             fresh_context=True,
             independent=True,
-            integrity_confirmed=True,
+            integrity_checks=integrity_checks(),
             evidence={"observed": "passed", "artifact_or_test_id": "test:qa"},
         )
 
@@ -27579,3 +30456,153 @@ class TrueTerminationCrashCutTests(unittest.TestCase):
         self._spawn_cut("torn_write_control")
         records, errors = self.srv.read_review_event_ledger(self.wave_md)
         self.assertTrue(errors)
+
+
+class SharedDeliveryEvaluatorContractTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def test_shared_and_closure_only_registries_are_exact(self):
+        self.assertEqual(
+            self.srv.SHARED_DELIVERY_DIAGNOSTIC_CODES,
+            (
+                "review_evidence_invalid",
+                "missing_executable_approval_evidence",
+                "docs_lint_error",
+                "missing_operator_signoff",
+                "missing_required_lane",
+                "missing_wave_council_signoff",
+                "review_policy_receipt_stale",
+                "review_policy_reprepare_required",
+            ),
+        )
+        self.assertEqual(len(self.srv.CLOSURE_ONLY_DIAGNOSTIC_CODES), 11)
+        self.assertTrue(
+            set(self.srv.SHARED_DELIVERY_DIAGNOSTIC_CODES).isdisjoint(
+                self.srv.CLOSURE_ONLY_DIAGNOSTIC_CODES
+            )
+        )
+
+    def test_review_and_close_both_consume_the_single_evaluator(self):
+        review_source = inspect.getsource(self.srv.wf_review_wave_response)
+        close_source = inspect.getsource(self.srv.wf_close_wave_response)
+        self.assertEqual(review_source.count("_evaluate_shared_delivery_state("), 1)
+        self.assertEqual(close_source.count("_evaluate_shared_delivery_state("), 1)
+
+
+class UpgradePublicationWrapperContractTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def _mcp(self, name, fn):
+        tool = types.SimpleNamespace(fn=fn)
+        manager = types.SimpleNamespace(_tools={name: tool})
+        return types.SimpleNamespace(_tool_manager=manager), tool
+
+    def _checkpoint(self, root: Path, phase: str = "surface_rendering") -> None:
+        path = root / ".wavefoundry" / "upgrade-in-progress.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"current_phase": phase}), encoding="utf-8")
+
+    def test_review_public_path_refuses_during_upgrade_checkpoint(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._checkpoint(root)
+            calls = []
+            def original(*args, **kwargs):
+                calls.append((args, kwargs))
+                return {"status": "ok"}
+            mcp, tool = self._mcp("wf_review_wave", original)
+            self.srv._wrap_upgrade_publication_guard(
+                mcp, lambda: types.SimpleNamespace(root=root)
+            )
+
+            result = tool.fn(wave_id="1abc")
+
+            self.assertEqual(result["status"], "error")
+            self.assertEqual(
+                [row["code"] for row in result["diagnostics"]],
+                ["upgrade_in_progress"],
+            )
+            self.assertEqual(calls, [])
+
+    def test_upgrade_guard_is_outermost_and_never_waits_on_lifecycle_lock(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._checkpoint(root)
+            calls = []
+            def original(*args, **kwargs):
+                calls.append((args, kwargs))
+                return {"status": "ok"}
+            mcp, tool = self._mcp("wf_prepare_wave", original)
+            self.srv._wrap_lifecycle_mutation_lock(
+                mcp, lambda: types.SimpleNamespace(root=root)
+            )
+            self.srv._wrap_upgrade_publication_guard(
+                mcp, lambda: types.SimpleNamespace(root=root)
+            )
+
+            with patch.object(
+                self.srv,
+                "_lifecycle_mutation_lock",
+                side_effect=AssertionError("upgrade guard must return before lock acquisition"),
+            ):
+                result = tool.fn(wave_id="1abc")
+
+            self.assertEqual(result["status"], "error")
+            self.assertEqual(result["diagnostics"][0]["code"], "upgrade_in_progress")
+            self.assertEqual(calls, [])
+
+    def test_read_only_tool_records_no_context_efficiency_cost_during_upgrade(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._checkpoint(root)
+            recorded = []
+
+            class Telemetry:
+                focus = types.SimpleNamespace(wave_id="", stage="general")
+
+                def record_tool_cost(self, *args, **kwargs):
+                    recorded.append((args, kwargs))
+
+            mcp, tool = self._mcp(
+                "wf_help", lambda **_kwargs: {"status": "ok", "data": {}}
+            )
+            handler = types.SimpleNamespace(root=root, telemetry=Telemetry())
+            self.srv._wrap_first_party_tool_costs(mcp, lambda: handler)
+            result = tool.fn()
+            self.assertEqual(result["status"], "ok")
+            self.assertEqual(recorded, [])
+
+    def test_native_retrieval_recorder_is_quiet_during_upgrade(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._checkpoint(root)
+
+            class Telemetry:
+                def record_retrieval(self, *_args, **_kwargs):
+                    raise AssertionError("retrieval telemetry must be fenced")
+
+            handler = types.SimpleNamespace(root=root, telemetry=Telemetry())
+            response = {"status": "ok", "data": {"content": "result"}}
+            result = self.srv._record_retrieval_context(
+                handler, "code_read", response, indexed_epoch_stable=True
+            )
+            self.assertIs(result, response)
+            self.assertNotIn("context_avoided", result["data"])
+
+    def test_background_index_launcher_is_quiet_during_upgrade(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._checkpoint(root)
+            with patch.object(
+                self.srv, "_reap_background_build_pids",
+                side_effect=AssertionError("checkpoint must precede native work"),
+            ), patch("subprocess.Popen") as popen:
+                self.assertFalse(
+                    self.srv._start_background_index_refresh(root, "project")
+                )
+            popen.assert_not_called()
+            self.assertFalse((root / ".wavefoundry/index").exists())

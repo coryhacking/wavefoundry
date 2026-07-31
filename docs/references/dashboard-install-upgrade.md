@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-20
+Last verified: 2026-07-31
 
 Reference doc covering how the local dashboard feature moves from the Wavefoundry framework pack into target repositories. Addresses packaging (build_pack.py), install (seed-010), upgrade (seed-160), and the sibling-directory runtime option.
 
@@ -35,10 +35,10 @@ These paths are tracked in `.wavefoundry/framework/MANIFEST`. The build script r
 `seed-010` (Install Wavefoundry) unpacks the framework zip into the target repo under `.wavefoundry/framework/` using:
 
 ```bash
-unzip -o wavefoundry-<date>.zip -d <repo-root>
+unzip -o wavefoundry-<version>.zip '.wavefoundry/*' 'install-wavefoundry.md' -d <repo-root>
 ```
 
-The `-o` flag overwrites existing files without prompting. After unpacking, seed-010 seeds the dashboard public prompt docs: `docs/prompts/start-dashboard.prompt.md`, `docs/prompts/stop-dashboard.prompt.md`, and `docs/prompts/restart-dashboard.prompt.md`. These prompts document the operator-facing dashboard control commands and are the canonical entry points for dashboard discovery.
+The `-o` flag overwrites existing files without prompting; the member scope keeps the pack's zipapp installer members (`payload/*`, `__main__.py`, `upgrade_bridge_bootstrap.py`, `subprocess_util.py`) out of the target repo root. After unpacking, seed-010 seeds the dashboard public prompt docs: `docs/prompts/start-dashboard.prompt.md`, `docs/prompts/stop-dashboard.prompt.md`, and `docs/prompts/restart-dashboard.prompt.md`. These prompts document the operator-facing dashboard control commands and are the canonical entry points for dashboard discovery.
 
 **Config seeding:** `docs/workflow-config.json` must include a `dashboard` block after install. The minimum valid config:
 

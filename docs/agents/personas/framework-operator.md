@@ -4,13 +4,13 @@ Owner: Engineering
 Status: active
 Role: framework-operator
 Category: persona
-Last verified: 2026-07-22
+Last verified: 2026-07-31
 
 ## Who
 
 - A developer or engineering lead who installs, upgrades, and operates the Wave Framework in their own target repository
 - Not a Wavefoundry maintainer — consumes the framework distribution as a dependency
-- Interacts with Wavefoundry through the zip distribution, **Init wave framework** / **Upgrade wave framework** commands, and the rendered local surface in their repository
+- Interacts with Wavefoundry through its one extractable/executable package, **Init wave framework** / **Upgrade wave framework** commands, and the rendered local surface in their repository
 
 ## Goals
 
@@ -36,9 +36,9 @@ Last verified: 2026-07-22
 - Generate IDs: prefer the MCP `wf_create_wave` / `wf_new_<kind>` tools (they dedupe against on-disk IDs). CLI fallback when MCP is unavailable: `wf lifecycle-id --kind wave --slug <slug>`
 
 **Upgrade:**
-1. Build or obtain a new semver release zip in the repository root, `~/.wavefoundry/`, or `~/.wavefoundry/dist/`
-2. Run **Upgrade wave framework**
-3. Review the diff of changed files; commit after verification
+1. For protocol-2 upgrades, obtain the semver feature zip in the repository root, `~/.wavefoundry/`, or `~/.wavefoundry/dist/` and run **Upgrade wave framework**.
+2. For a protocol-1 / 1.14 installation moving to 1.15, obtain the same matching `wavefoundry-<version>.zip`, fully stop the dashboard and every attached MCP/agent host, let the agent execute the exact returned argv once through its ordinary non-MCP shell (the operator does not copy or type it), restart every attached host, and follow the structured reconciliation/cleanup result.
+3. Review the diff of changed files; commit after verification. Never coordinate the bundle's internal bridge pieces or synthesize a second feature command.
 
 **Sequencing install/upgrade surface changes:**
 - Coordinate with the docs-contract-reviewer when install/upgrade prompt docs change
@@ -51,6 +51,7 @@ Last verified: 2026-07-22
 - Lifecycle IDs look wrong: epoch was re-anchored incorrectly during upgrade
 - Customizations overwritten: project-specific prompt doc changes lost during upgrade
 - Zip not found: wrong filename, wrong directory, or no matching semver pack was available in the repository root, `~/.wavefoundry/`, or `~/.wavefoundry/dist/`
+- Protocol bridge required: the target is still on protocol 1; execute the same single matching Wavefoundry zip after explicit host shutdown instead of extracting it through the old runner or assembling a second command
 - A proposed change would silently overwrite operator customizations without a warning: escalate to architecture-reviewer and wave-coordinator before admission
 - An upgrade changes the epoch value, invalidating existing wave IDs: escalate to wave-coordinator immediately
 
@@ -123,6 +124,6 @@ The journal system is retired (wave 1t9w9); this section preserves the role jour
 
 ### Active Watchpoints
 
-- **Watchpoint:** The operator-facing upgrade workflow depends on the semver pack contract (`wavefoundry-MAJOR.MINOR.PATCH.<build>.zip`) and on searching the repository root, `~/.wavefoundry/`, and `~/.wavefoundry/dist/`. If the filename format or search locations change, the **Upgrade wave framework** prompt doc must be updated simultaneously.
+- **Watchpoint:** The operator-facing upgrade workflow has one release contract: `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` is both the extractable feature pack and the executable protocol-1→2 carrier. If its filename format, search path, or handoff changes, update the **Upgrade wave framework** prompt and release block simultaneously.
 - **Watchpoint:** The operator summary (output of Init wave framework) must tell the operator: what files were installed, what the lifecycle looks like, how to generate IDs, and where config lives.
 - **Watchpoint:** Docs-lint failure after upgrade is the most common operator failure mode. The fix path (`framework_revision` must match `.wavefoundry/framework/VERSION`) should be surfaced clearly in any upgrade error output.

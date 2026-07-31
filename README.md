@@ -37,7 +37,7 @@ All exposed as MCP tools — `docs_search`, `code_search`, `code_ask`, `code_cal
 
 - **Local-first.** Operational state lives on disk in your repo and your home directory. No service, no account, no telemetry.
 - **Structural enforcement over policy.** Gates fire in the framework, not in seed-prompt language. An agent cannot talk its way past `wf_close_wave`.
-- **Framework as a deployable artifact.** Wavefoundry ships as a zip that any repository can install or upgrade. The framework evolves in Wavefoundry's own wave process, gets packaged, and propagates to downstream projects.
+- **Framework as one deployable package.** Wavefoundry ships one extractable `wavefoundry-*.zip` for fresh installs and protocol-2 upgrades; that same zip is directly executable when a protocol-1 installation must cross to protocol 2. The framework evolves in Wavefoundry's own wave process, gets packaged, and propagates to downstream projects.
 - **Honest about scope.** What's required is required; what's optional is clearly labeled.
 
 ---
@@ -209,7 +209,7 @@ Agent: Running readiness checks…
        - AC priority recorded: ✓
        - Required review lanes selected: code-review, qa-review: ✓
        - Wave Council readiness review: PASS
-       Wave status: active. Pre-implementation review gate next.
+       Wave status: planned and readied. Implement wave next.
 ```
 
 `Prepare wave` is a real gate. Docs-lint must pass. Every admitted change doc must be complete. AC priority must be recorded. When configured, a structured council review must record `wave-council-readiness`. Only then is the wave **readied** — it stays `planned`; a separate, single-OPEN-gated step (`Implement wave`) opens it to `active`/`implementing`. Any number of waves can be planned and readied in parallel; only one may be OPEN at a time.
@@ -356,7 +356,18 @@ Credential scanning is built in: the framework checks every project file against
 Upgrade wave framework
 ```
 
-The agent detects framework drift, reconciles prompts and hook surfaces, runs the docs gate, reloads the MCP server in-process (release cutovers that require it instruct a full host restart instead), and updates the semantic index. The upgrader searches the project root, `~/.wavefoundry/`, and `~/.wavefoundry/dist/` for the highest semver zip available.
+For an ordinary protocol-2 upgrade, the agent detects framework drift, reconciles prompts and hook
+surfaces, runs the docs gate, reloads the MCP server in-process (release cutovers that require it
+instruct a full host restart instead), and updates the semantic index. The upgrader searches the
+project root, `~/.wavefoundry/`, and `~/.wavefoundry/dist/` for the highest semver feature zip.
+
+When a 1.14 / protocol-1 installation is moving to 1.15, use that same matching
+`wavefoundry-<version>.zip` package. Fully stop the dashboard and every attached MCP/agent host,
+then let the agent execute the exact returned argv once through its ordinary non-MCP shell; the
+operator does not copy or type the command. Restart every attached host after it returns, then
+follow its structured reconciliation/cleanup result. The package verifies and runs its embedded
+feature payload; there is no special upgrade package, separate bridge asset, or second feature
+command.
 
 ---
 

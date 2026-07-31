@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import os
 import sys
@@ -228,6 +229,12 @@ CLAUDE_HOOKS: tuple[dict[str, object], ...] = (
         "event": "Stop",
         "matcher": None,
         "status_message": "Capturing session state...",
+    },
+    {
+        "name": "context-efficiency-project",
+        "event": "Stop",
+        "matcher": None,
+        "status_message": "Scheduling context-efficiency projection...",
     },
 )
 
@@ -932,6 +939,70 @@ def windsurf_docs_lint_source() -> str:
     )
 
 
+def claude_context_efficiency_source() -> str:
+    """Dedicated, detached Claude Stop adapter for CE projection."""
+
+    return compose_script(
+        '''
+        import os
+        import subprocess
+        import sys
+        from pathlib import Path
+
+
+        def main() -> int:
+            try:
+                try:
+                    sys.stdin.read()
+                except Exception:
+                    pass
+                # The owner-bound Claude launcher resolves this committed hook
+                # through CLAUDE_PROJECT_DIR.  Derive the same owner from the
+                # hook file itself so a host cwd outside the repository cannot
+                # turn a successfully launched Stop hook into a silent no-op.
+                root = Path(__file__).resolve().parents[2]
+                if not (root / ".wavefoundry").is_dir():
+                    return 0
+                script = (
+                    root / ".wavefoundry" / "framework" / "scripts"
+                    / "project_context_efficiency.py"
+                )
+                if not script.is_file():
+                    return 0
+                python = sys.executable
+                detached = {}
+                if os.name == "nt":
+                    candidate = Path(sys.executable).with_name("pythonw.exe")
+                    if candidate.exists():
+                        python = str(candidate)
+                    detached["creationflags"] = (
+                        subprocess.DETACHED_PROCESS
+                        | subprocess.CREATE_NEW_PROCESS_GROUP
+                        | getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                    )
+                else:
+                    detached["start_new_session"] = True
+                subprocess.Popen(
+                    [python, str(script), "--root", str(root)],
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    cwd=str(root),
+                    close_fds=os.name != "nt",
+                    **detached,
+                )
+            except Exception:
+                pass
+            return 0
+
+
+        if __name__ == "__main__":
+            raise SystemExit(main())
+        ''',
+        include_helpers=False,
+    )
+
+
 def claude_stop_source() -> str:
     """Session-end capture hook (wave 1p5ti).
 
@@ -1170,9 +1241,45 @@ def render_claude_settings(repo_root: Path) -> None:
         except json.JSONDecodeError:
             existing = {}
 
-    # Derive the hooks dict from the shared CLAUDE_HOOKS registry so the rendered
-    # settings can never drift from the simulate map (claude_simulate_hooks_source).
+    # Derive Wavefoundry's entries from the shared CLAUDE_HOOKS registry while
+    # retaining operator-authored events and commands.  Remove only commands
+    # owned by this registry before re-adding their canonical forms, so repeat
+    # renders are idempotent and custom hooks are never overwritten.
+    prior_hooks = existing.get("hooks")
     hooks: dict[str, list] = {}
+    owned_markers = tuple(
+        f".claude/hooks/{hook['name']}.py" for hook in CLAUDE_HOOKS
+    )
+    if isinstance(prior_hooks, dict):
+        for event, entries in prior_hooks.items():
+            if not isinstance(event, str) or not isinstance(entries, list):
+                continue
+            preserved_entries: list[object] = []
+            for raw_entry in entries:
+                if not isinstance(raw_entry, dict):
+                    preserved_entries.append(copy.deepcopy(raw_entry))
+                    continue
+                commands = raw_entry.get("hooks")
+                if not isinstance(commands, list):
+                    preserved_entries.append(copy.deepcopy(raw_entry))
+                    continue
+                kept_commands = [
+                    copy.deepcopy(command)
+                    for command in commands
+                    if not (
+                        isinstance(command, dict)
+                        and any(
+                            marker in str(command.get("command", ""))
+                            for marker in owned_markers
+                        )
+                    )
+                ]
+                if kept_commands:
+                    preserved = copy.deepcopy(raw_entry)
+                    preserved["hooks"] = kept_commands
+                    preserved_entries.append(preserved)
+            if preserved_entries:
+                hooks[event] = preserved_entries
     for hook in CLAUDE_HOOKS:
         entry_hook = {
             "type": "command",
@@ -1659,6 +1766,10 @@ _GITIGNORE_BLOCK = [
     ".wavefoundry/index/",
     ".wavefoundry/framework/index/",
     "",
+    "# Wavefoundry upgrade recovery assets (generated locally — never commit)",
+    ".wavefoundry/upgrade-assets/",
+    ".wavefoundry/framework.rollback-*/",
+    "",
     "# Wavefoundry framework pack archives (tracked source lives under .wavefoundry/framework/; do not commit zip drops)",
     "/wavefoundry-*.zip",
 ]
@@ -1840,6 +1951,10 @@ def render_platform_entrypoints(repo_root: Path, platform: str) -> None:
         write_hook_bundle(repo_root / ".claude" / "hooks" / "post-edit", claude_post_edit_source())
         write_hook_bundle(repo_root / ".claude" / "hooks" / "simulate-hooks", claude_simulate_hooks_source())
         write_hook_bundle(repo_root / ".claude" / "hooks" / "session-capture", claude_stop_source())
+        write_hook_bundle(
+            repo_root / ".claude" / "hooks" / "context-efficiency-project",
+            claude_context_efficiency_source(),
+        )
         render_claude_settings(repo_root)
         render_mcp_json(repo_root)
         render_upgrade_skill(repo_root)

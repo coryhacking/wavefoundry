@@ -39,6 +39,11 @@
     "retention_policy": "retire_when_root_cause_resolved_or_constraint_no_longer_exists",
     "sensitivity": "no_secrets_credentials_pii_in_journals"
   },
+  "context_efficiency": {
+    "projection": {
+      "quiet_period_seconds": 120
+    }
+  },
   "project_persona_generation": {
     "enabled": true,
     "persona_root": "docs/agents/personas/",
@@ -142,7 +147,7 @@
   },
   "wave_review": {
     "enabled": true,
-    "required_for_all_waves": true,
+    "delivery_mode": "universal",
     "evidence_section": "## Review Evidence",
     "transition_policy": "applies-from-next-prepare",
     "non_waiver_rule": "Wave Council may synthesize and escalate specialist findings, but it may not waive blocking required lanes by itself.",

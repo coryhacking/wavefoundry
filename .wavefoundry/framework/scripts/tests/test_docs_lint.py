@@ -2115,6 +2115,16 @@ class PrepareCouncilVerdictLintTests(DocsLintFixtureTests):
 
     ACTIVE_WAVE = Path("docs/waves/waves/change-2026-03/wave.md")
 
+    def _make_legacy(self, root: Path) -> None:
+        wave_md = root / self.ACTIVE_WAVE
+        wave_md.write_text(
+            wave_md.read_text(encoding="utf-8").replace(
+                "review-evidence-source: events.jsonl\n", ""
+            ),
+            encoding="utf-8",
+        )
+        wave_md.with_name("events.jsonl").unlink(missing_ok=True)
+
     def _patch_wave_status(self, root: Path, status: str) -> None:
         wave_md = root / self.ACTIVE_WAVE
         wave_md.write_text(
@@ -2137,9 +2147,63 @@ class PrepareCouncilVerdictLintTests(DocsLintFixtureTests):
             encoding="utf-8",
         )
 
+    def _declare_with_typed_readiness(self, root: Path) -> None:
+        """Add a schema-valid typed readiness approval with no prose verdict."""
+        import review_evidence
+
+        wave_md = root / self.ACTIVE_WAVE
+        text = wave_md.read_text(encoding="utf-8")
+        if "review-evidence-source: events.jsonl" not in text:
+            text = text.replace(
+                "Last verified:",
+                "review-evidence-source: events.jsonl\nLast verified:",
+                1,
+            )
+        wave_md.write_text(text, encoding="utf-8")
+        approval = {
+            "record_type": "executable_evidence",
+            "evidence_record_id": "approval-wave-council-readiness",
+            "claim_id": "approval:wave-council-readiness",
+            "claim_kind": "approval",
+            "required_for_approval": True,
+            "phase": "readiness",
+            "proposition": "readiness council independently approved the plan",
+            "counterexample_or_failure_condition": "the plan still has a blocking finding",
+            "execution_status": "executed",
+            "public_path": "wf_review_event",
+            "command_or_fixture": "PrepareCouncilVerdictLintTests typed readiness",
+            "expected": "a current typed readiness approval",
+            "observed": "the typed approval was recorded",
+            "artifact_or_test_id": "test:typed-readiness-no-prose",
+            "adjacent_controls": ["legacy missing-verdict fixture"],
+            "test_ran_without_unintended_skip": True,
+            "public_path_reached": True,
+            "boundary_values_realistic": True,
+            "assertions_non_vacuous": True,
+            "known_bad_detected": True,
+            "known_bad_detection_method": "remove typed approval control",
+            "limitations": "temporary local fixture",
+            "safety_and_authorization": "local temporary fixture only",
+            "probe_class": "local_safe",
+            "authorization_status": "not_required",
+            "safe_boundary": False,
+            "unexecuted_remainder_prohibited": False,
+            "universal_claim": False,
+            "verification_context": {
+                "actor": "wave-council",
+                "context_id": "ctx-typed-readiness-no-prose",
+                "fresh_context": True,
+                "independent": True,
+            },
+        }
+        review_evidence.review_event_path(wave_md).write_bytes(
+            review_evidence.canonical_review_events_bytes((approval,))
+        )
+
     def test_active_wave_with_council_verdict_passes(self) -> None:
         root = self.copy_fixture()
         try:
+            self._make_legacy(root)
             self._add_council_verdict(root)
             result = self.run_docs_lint(root)
         finally:
@@ -2151,6 +2215,7 @@ class PrepareCouncilVerdictLintTests(DocsLintFixtureTests):
     def test_active_wave_without_council_verdict_warns(self) -> None:
         root = self.copy_fixture()
         try:
+            self._make_legacy(root)
             result = self.run_docs_lint(root)
         finally:
             shutil.rmtree(root)
@@ -2161,6 +2226,7 @@ class PrepareCouncilVerdictLintTests(DocsLintFixtureTests):
     def test_implementing_wave_without_council_verdict_errors(self) -> None:
         root = self.copy_fixture()
         try:
+            self._make_legacy(root)
             self._patch_wave_status(root, "implementing")
             result = self.run_docs_lint(root)
         finally:
@@ -2172,6 +2238,7 @@ class PrepareCouncilVerdictLintTests(DocsLintFixtureTests):
     def test_implementing_wave_with_council_verdict_passes(self) -> None:
         root = self.copy_fixture()
         try:
+            self._make_legacy(root)
             self._patch_wave_status(root, "implementing")
             self._add_council_verdict(root)
             result = self.run_docs_lint(root)
@@ -2179,6 +2246,66 @@ class PrepareCouncilVerdictLintTests(DocsLintFixtureTests):
             shutil.rmtree(root)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("docs-lint: ok", result.stdout)
+
+    def test_declared_implementing_wave_with_typed_readiness_needs_no_prose_verdict(self) -> None:
+        """1tsyx AC-2 red-first at the only pre-change hard-error status."""
+        from wave_lint_lib.wave_validators import check_prepare_council_verdict
+
+        root = self.copy_fixture()
+        try:
+            self._patch_wave_status(root, "implementing")
+            self._declare_with_typed_readiness(root)
+            wave_md = root / self.ACTIVE_WAVE
+            wave_text = wave_md.read_text(encoding="utf-8")
+            self.assertNotIn("prepare-council", wave_text.casefold())
+            records, ledger_errors = read_review_event_ledger(wave_md)
+            self.assertFalse(ledger_errors, ledger_errors)
+            self.assertEqual(
+                [record.get("claim_id") for record in records],
+                ["approval:wave-council-readiness"],
+            )
+            errors, warnings = check_prepare_council_verdict(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(errors, [])
+        self.assertEqual(warnings, [])
+
+    def test_narrative_or_malformed_declaration_cannot_bypass_legacy_verdict_gate(self) -> None:
+        from wave_lint_lib.wave_validators import check_prepare_council_verdict
+
+        root = self.copy_fixture()
+        try:
+            self._make_legacy(root)
+            self._patch_wave_status(root, "implementing")
+            wave_md = root / self.ACTIVE_WAVE
+            base = wave_md.read_text(encoding="utf-8")
+
+            wave_md.write_text(
+                base
+                + "\n## Notes\n\nThe token `review-evidence-source: events.jsonl` is discussed here only.\n",
+                encoding="utf-8",
+            )
+            narrative_errors, narrative_warnings = check_prepare_council_verdict(root)
+
+            wave_md.write_text(
+                base.replace(
+                    "Last verified:",
+                    "review-evidence-source events.jsonl\nLast verified:",
+                    1,
+                ),
+                encoding="utf-8",
+            )
+            malformed_errors, malformed_warnings = check_prepare_council_verdict(root)
+        finally:
+            shutil.rmtree(root)
+
+        for errors, warnings in (
+            (narrative_errors, narrative_warnings),
+            (malformed_errors, malformed_warnings),
+        ):
+            self.assertEqual(len(errors), 1, errors)
+            self.assertIn("prepare-council", errors[0])
+            self.assertEqual(warnings, [])
 
 
 class PrepareCouncilRosterEvidenceTests(unittest.TestCase):
@@ -2610,11 +2737,13 @@ class CouncilSeedVerificationContractTests(unittest.TestCase):
 
     def test_seed_215_cross_references_recording_contract(self) -> None:
         text = (self.SEEDS_DIR / "215-wave-council.prompt.md").read_text(encoding="utf-8")
-        self.assertIn("`prepare-council` recording contract in `237-council-review.prompt.md`", text)
+        self.assertIn("typed `wave-council-readiness` approval", text)
+        self.assertIn("legacy waves retain the structured verdict contract", text)
 
     def test_seed_007_points_at_roster_evidence_consistency(self) -> None:
         text = (self.SEEDS_DIR / "007-review-system-overview.md").read_text(encoding="utf-8")
-        self.assertIn("roster⇄evidence consistency", text)
+        self.assertIn("typed approval event in `events.jsonl`", text)
+        self.assertIn("not machine authority", text)
         self.assertIn("per-seat findings (or an explicit no-findings note)", text)
 
 

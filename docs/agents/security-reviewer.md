@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: security-reviewer
 Category: review
-Last verified: 2026-07-27
+Last verified: 2026-07-31
 
 ## Operating Identity
 
@@ -123,7 +123,8 @@ Markdown current-state projection in `wave.md`. A role without lifecycle
 mutation authority returns those facts to its coordinator instead of
 writing wave state.
 
-After validation, apply the ordered four-way actionability gate:
+Under the current review policy, after validation apply the ordered
+four-way actionability gate:
 `do_now`, `maybe_later`, `dont_do_later`, or `not_issue`. Complete bounded
 `do_now`/`maybe_later` work before closure, create no backlog for rejected
 states, and use focused repair replay unless a load-bearing boundary change

@@ -28,7 +28,6 @@ only one wave may be open for implementation.
 
 ## Gate
 
-Implementation may begin only after readiness is clean and the mandatory
-pre-implementation review gate records `passed`. A readiness verdict confirms
-admissibility; it is not delivery approval.
-
+Implementation may begin only after readiness is clean and its current approval
+is recorded. The readiness verdict is the single pre-code review decision; it
+confirms admissibility, not delivery approval.

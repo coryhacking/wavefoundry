@@ -44,12 +44,12 @@ The **wave** is the primary delivery unit. A wave is a bounded, reviewable conta
 
 1. Plan the wave — define scope, admit changes, establish review gates.
 2. Ready the wave — validate that admitted change docs are already wave-owned, repair placement drift if needed, evaluate the admitted changes, select required implementer, reviewer, persona, and council lanes, run the Wave Council readiness pass when the project enables it, and block start until readiness is clean.
-3. Implement the wave — beginning with a mandatory **pre-implementation review gate** (pre-mortem, packet completeness check, and recorded verdict) before the first code edit, then implement all admitted changes.
+3. Implement the wave — consume the current readiness approval, then implement and run focused computational checks for all admitted changes.
 4. Review the wave — run required review lanes as a unified set, run the Wave Council delivery pass when the project enables it, and rerun readiness at final review.
 5. Close and commit the wave — record completion, reconcile wave-owned change docs and reports, commit the result.
 6. Either plan the next wave (carry incomplete changes forward) or finalize.
 
-- **Execution ordering:** Steps 3–4 are **interleaved** while the wave is active (see section 3): implement, verify, run required reviewer lanes, and return to implementation when findings block. **`Review wave`** is the explicit operator shortcut for that review work under the same coordinator-owned execution contract as **`Implement wave`**. **Close** adds a **final** readiness pass so triggers that emerged during implementation are not skipped; it does **not** replace required review during execution.
+- **Execution ordering:** Steps 3–4 are distinct: implementation produces complete evidence first, then **`Review wave`** runs the required inferential lanes. A high-risk boundary may request the named focused checkpoint below, but routine reviewer passes belong to Review. **Close** verifies that the delivery review is current.
 
 ## 1. Plan A Wave And Its Changes
 
@@ -89,7 +89,7 @@ flowchart TD
 - Readiness includes validating that admitted change docs are already in `docs/waves/<wave-id>/`, repairing staged-only drift when needed, and clearing duplicate staging copies.
 - The readiness evaluation determines which implementer lanes, reviewer lanes, persona lanes, and any required Wave Council seats must participate.
 - If a user asks to implement the wave directly, the coordinator should run or confirm this readiness evaluation automatically first.
-- When the project enables Wave Council, readiness is not complete until the wave-council has synthesized the isolated council-seat outputs into a recorded `wave-council-readiness` verdict and the wave record contains a structured `prepare-council` verdict line in `## Review Checkpoints`.
+- When the project enables Wave Council, readiness is not complete until the wave-council has synthesized the isolated council-seat outputs into a current `wave-council-readiness` approval. Declared waves store that authority in `events.jsonl`; legacy waves retain their prose verdict contract.
 
 ## 3. Implement The Wave
 
@@ -101,16 +101,12 @@ flowchart TD
     D --> E{Verification passed?}
     E -->|No| F[Fix issues or return to planning if assumptions changed]
     F --> B
-    E -->|Yes| G[Collect required review outputs for all admitted changes]
-    G --> H{All review gates satisfied?}
-    H -->|No| I[Address findings and continue the review loop]
-    I --> B
-    H -->|Yes| J[Wave implementation complete]
+    E -->|Yes| G[Wave implementation complete; hand off to Review wave]
 ```
 
 - Implementation should stay inside the admitted wave scope; changes outside the wave must wait for the next wave.
 - Implementation should start only after readiness has passed; otherwise the coordinator must block and repair the prerequisites first.
-- The mandatory first phase of `Implement wave` is a **pre-implementation review gate**: the coordinator runs a pre-mortem (3–5 most likely failure modes), verifies packet completeness, and records a `pre-implementation-review: passed/blocked (<date>)` verdict in `## Review Checkpoints` before the first code edit. No code edit may begin until the verdict is `passed`. If Wave Council is enabled, the gate also requires the structured `prepare-council` verdict line before implementation may start.
+- `Prepare wave` owns the one pre-code critique: failure-first review, packet completeness, and the current readiness approval. `Implement wave` consumes that authority instead of repeating it.
 - Admitted change docs should already live under `docs/waves/<wave-id>/` after `Add change to wave`; `Prepare wave` repairs drift defensively if staging copies remain.
 - Verification follows the project's build, test, docs, and smoke-check procedures before wave closure.
 - For exact reviewer roles, personas, and gate triggers, use the seeded project's agent-team workflow and review docs.
@@ -126,7 +122,7 @@ Each iteration of the implement loop follows this pattern:
 
 ```
 Thought  → why this action now (recorded in Progress Log before every lane invocation)
-Action   → a single, scoped lane invocation (implementer task, reviewer lane, or persona lane)
+Action   → a single, scoped implementation or computational-verification action
 Observe  → structured output of that lane (test results, review findings, build state)
 [Reflect] → root cause pattern when a blocking finding occurs (informs remaining tasks)
 → repeat
@@ -138,13 +134,13 @@ Before the first edit, the coordinator produces an ordered execution plan: which
 
 ### Parallel Lane Merge
 
-Reviewer and persona lanes that share no dependencies run concurrently. The coordinator records a single merged `Observe:` entry synthesizing all concurrent lane outputs before emitting the next `Thought:`. This prevents the coordinator from acting on partial findings from one lane while others are still running.
+Implementation and computational-verification lanes that share no dependencies run concurrently. The coordinator records a single merged `Observe:` entry synthesizing all concurrent lane outputs before emitting the next `Thought:`. Routine inferential reviewer and persona lanes belong to the distinct post-implementation `Review wave` phase; implementation requests one only for an exceptional named checkpoint at a risky boundary.
 
-When Wave Council is enabled, the council seats also run in parallel on an isolated first pass. The wave-council — not the wave-coordinator — owns the synthesis step, optional targeted challenge round on material disagreement, and final council verdict. The wave-coordinator remains responsible for lifecycle routing and gate enforcement.
+When the distinct `Review wave` phase begins and Wave Council is enabled, council seats run in parallel on an isolated first pass. The wave-council — not the wave-coordinator — owns the synthesis step, optional targeted challenge round on material disagreement, and final council verdict. The wave-coordinator remains responsible for lifecycle routing and gate enforcement.
 
 ### Finding Classification (CRITIC)
 
-After each review cycle the coordinator evaluates every finding against the change doc's `## Acceptance Criteria` before deciding which loop to activate. "All reviewer lanes clean" is not sufficient — the exit condition is "all acceptance criteria met." This classification step prevents waves that satisfy every reviewer lane but miss a criterion no lane was explicitly checking.
+After an exceptional checkpoint or the delivery review, the coordinator evaluates every finding against the change doc's `## Acceptance Criteria` before deciding which loop to activate. "All reviewer lanes clean" is not sufficient — the exit condition is "all acceptance criteria met."
 
 ### Root Cause Capture (Reflexion)
 
@@ -157,16 +153,16 @@ The implement loop has three distinct levels. The finding type — not severity 
 | Level | Name | Trigger | Action |
 |---|---|---|---|
 | **1** | Micro | Implementer observes test/build failure within a single task | Fix in place; stays internal to the implementer sub-agent; no Progress Log entry required |
-| **2** | Reviewer loop | Review finding does not invalidate any acceptance criterion | Fix, re-invoke affected reviewer lane(s), merge observations, continue; `Prepare wave` does not re-run |
+| **2** | Focused independent checkpoint | Implementation exposes a logic, behavior, or coverage risk that is not safely implementer-internal but does not invalidate scope or an acceptance criterion | Request one named reviewer for the affected boundary, fix and re-check that boundary, then continue; this is exceptional, not the routine delivery review |
 | **3** | Wave lifecycle | Finding invalidates an acceptance criterion, contradicts the approved plan, crosses an architecture boundary, or reveals a scope or requirement ambiguity | Stop, surface to operator, route to `Plan feature` or re-`Prepare wave` before continuing |
 
 **Finding escalation reference:**
 
 | Finding type | Level | Coordinator action |
 |---|---|---|
-| Code quality, style, formatting | 2 | Fix in place, re-run reviewer lane |
-| Missing test coverage | 2 | Add tests, re-run qa-reviewer |
-| Logic error, missing behavior | 2 | Fix, re-run affected lanes |
+| Code quality, style, formatting | 1 | Fix in place and rerun focused computational checks |
+| Missing test coverage | 2 | Request a named QA checkpoint for the affected boundary, add tests, and re-check it |
+| Logic error, missing behavior | 2 | Request a named code-review checkpoint for the affected boundary, fix, and re-check it |
 | Scope creep discovered during implementation | 3 | Stop, update change doc, operator resolution, re-Prepare |
 | Finding invalidates an acceptance criterion | 3 | Stop, surface to operator, route to Plan feature or re-Prepare |
 | Architecture boundary violation | 3 | Stop, route to architecture-reviewer + operator, re-Prepare |
@@ -175,7 +171,7 @@ The implement loop has three distinct levels. The finding type — not severity 
 
 ### Auditability and Resume
 
-The structured Thought→Action→Observe record in `## Progress Log` means any session can resume a paused wave by reading the last Observation and computing the next Thought — without reconstructing coordinator state from chat history. Level 2 loops stay in the implementation phase; only Level 3 escalation sends the wave back to planning or re-Prepare.
+The structured Thought→Action→Observe record in `## Progress Log` means any session can resume a paused wave by reading the last Observation and computing the next Thought — without reconstructing coordinator state from chat history. Level 2 is a bounded named checkpoint inside implementation; only Level 3 sends the wave back to planning or re-Prepare.
 
 ## 4. Close And Commit The Wave
 

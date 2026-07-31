@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-31
+Last verified: 2026-07-31
 
 Hub index for Wavefoundry architecture documentation. Child docs provide detail; this file provides scope, update triggers, and cross-links.
 
@@ -43,3 +43,4 @@ Update this hub and relevant child docs when:
 - `docs/repo-index.md` — inventory and architecture handoff
 - `docs/specs/` — behavioral contracts (does not exist yet; see `docs/missing-docs.md`)
 - `docs/architecture/decisions/README.md` — ADR index
+- `docs/architecture/decisions/1tsbu-adr review-policy-and-upgrade-protocol.md` — review-policy authority, shared evaluator, lock order, reconciliation, and protocol-2 bridge

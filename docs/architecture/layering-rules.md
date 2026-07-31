@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-20
+Last verified: 2026-07-31
 
 ## Allowed Dependencies
 
@@ -21,6 +21,10 @@ Last verified: 2026-07-20
 | `build_pack.py` → VERSION | Must stamp VERSION before writing zip; VERSION must match zip basename date+letter | Verified from build_pack.py behavior described in seeds |
 | `docs_lint.py` → manifest | Must fail (exit non-zero) when `framework_revision` in manifest does not match `.wavefoundry/framework/VERSION` | Verified from seed-010 lint gate requirement |
 | `render_platform_surfaces.py` → `.github/` | Must not create or modify `.github/workflows/` — only `.github/hooks/` | Verified from seed-050 scope boundary |
+| `review_policy.py` carrier registry → renderer | Renderer writes only the registered marker-owned region and preserves surrounding bytes | Verified by registry/renderer carrier tests |
+| `review_policy.py` carrier registry → lifecycle reconciler | Reconciler writes only exact registered legacy markers or byte-known baseline sections after complete preflight; ambiguity or symlink escape writes nothing | Verified by reconciler mutation and containment tests |
+| `review_policy.py` carrier registry → direct docs | Direct-doc carriers are validation-only and never target-repository writers | Verified by owner-permission registry tests |
+| Upgrade → project publishers | Upgrade acquires lifecycle then publication ownership; registered publishers fail fast from the durable checkpoint, except the two memory-recovery writers at the exact memory pause | Verified by lock-order, checkpoint, and public-wrapper tests |
 
 ## Violation Detection
 

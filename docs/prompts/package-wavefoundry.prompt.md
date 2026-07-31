@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-22
+Last verified: 2026-07-31
 
 Shortcut: **`Package Wavefoundry`** | Legacy: **`Package wave framework`** / **`Package wave context`**
 
 ## Purpose
 
-Build a semver distribution zip of the canonical framework tree so other repositories can adopt it through **Upgrade Wavefoundry**.
+Build the single semver Wavefoundry package. The same extractable zip also carries the executable protocol-bridge entry point used by **Upgrade Wavefoundry**.
 
 ## Run
 
@@ -49,13 +49,13 @@ python3 -B .wavefoundry/framework/scripts/run_tests.py
 
    **Changelog completeness and amendments:** the entry must be COMPLETE — covering every landed change for the version — before the final pack that goes out for field testing, so the archive's internal changelog matches what ships. If the changelog is amended after a pack was built (late fixes, post-test additions), rebuild before publishing: a released zip must never carry a stale internal changelog. When only the changelog changed, the rebuild differs from the tested archive in that one file, which keeps ship-what-you-tested honest. For the actual publish, prefer `build_pack.py --release`: its preflight requires a clean tree on `main` with the matching changelog section and then builds fresh, so the uploaded archive cannot lag the repo.
 5. Ensure `docs/prompts/prompt-surface-manifest.json` `framework_revision` matches the packaged revision unless you intentionally use `--skip-manifest-check`.
-6. Run the packaging command once. It stamps `.wavefoundry/framework/VERSION` and creates the source-only zip — no framework index is built or shipped (framework seeds fold into each project's docs index at setup/upgrade).
-7. Review the produced zip name and stamped `VERSION` for consistency. Spot-check that `CHANGELOG.md` is in the zip (`unzip -l <zip> | grep CHANGELOG`) and that the latest section matches the version just stamped.
+6. Run the packaging command once. It stamps `.wavefoundry/framework/VERSION` and creates one self-contained `wavefoundry-<version>.zip`: normally extractable as the feature pack and directly executable for protocol-1→2 upgrades. No framework index is built or shipped (framework seeds fold into each project's docs index at setup/upgrade).
+7. Review the one operator-facing artifact name and stamped `VERSION` for consistency. Spot-check that `CHANGELOG.md` is present (`unzip -l <zip> | grep CHANGELOG`), that the latest section matches the version just stamped, and that the same zip contains its executable entry point plus the exact hash-bound feature and bridge payloads. Internal bridge composition files must be removed from `dist/` after assembly.
 8. Hand off diff + suggested commit message unless the operator explicitly asks to finalize the commit in this request.
 
 ## Output
 
-The command writes a zip under `~/.wavefoundry/dist/` by default:
+The command writes exactly one operator-facing package under `~/.wavefoundry/dist/` by default:
 
 ```text
 wavefoundry-MAJOR.MINOR.PATCH.<build>.zip
@@ -64,6 +64,7 @@ wavefoundry-MAJOR.MINOR.PATCH.<build>.zip
 - `MAJOR.MINOR.PATCH` is the required semver release version passed via `--version`.
 - `<build>` is a standalone 4-character base36 pure-time build suffix (5-minute buckets on a pinned build epoch), computed automatically by `build_pack.py` — independent of the lifecycle-ID policy.
 - `VERSION` is stamped to `MAJOR.MINOR.PATCH+<build>` before zip creation, and manifest `framework_revision` must match unless `--skip-manifest-check` is used.
+- The zip is both the normal feature pack and the protocol-bridge executable. Release orchestration uploads only that file; the separately built bridge archive, bootstrap, and selection metadata are consumed during assembly and removed from `dist/`.
 
 ## Options
 
@@ -81,6 +82,10 @@ After packaging, target repositories should consume the pack via **Upgrade Wavef
 - regenerate host surfaces (`.cursor/mcp.json`, `.mcp.json`, `.junie/mcp/mcp.json`) through `wf render-surfaces`,
 - keep the cross-OS `wf` / `wf.cmd` dispatcher (and its `wf docs-lint` / `wf docs-gardener` subcommands) aligned with the packaged scripts,
 - validate MCP recovery paths (`wf_audit`, `index_build`) plus docs gate.
+
+A protocol-1 / 1.14 target moving to protocol 2 / 1.15 consumes the matching `.pyz` directly after
+explicitly stopping attached hosts. The bundle verifies and executes the embedded feature zip in
+one invocation; do not publish or instruct the operator to coordinate the internal bridge pieces.
 
 ## Notes
 

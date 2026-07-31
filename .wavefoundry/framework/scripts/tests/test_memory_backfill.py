@@ -749,6 +749,102 @@ os._exit(23)
         self.assertEqual(summary["eligible_waves"], 0)
         self.assertEqual(summary["state"], "ready_for_index")
 
+    def _seed_migrated_memory_record(
+        self, legacy_id: str, *, prefix: str = "1abc1"
+    ) -> str:
+        slug = memory_records.slugify(legacy_id[4:])
+        memory_id = f"{prefix}-mem {slug}"
+        content = memory_records.render_memory_record(
+            memory_id=memory_id,
+            kind="decision",
+            summary="A historical candidate already resolved by migration.",
+            evidence=["`1aaaa-bug historical-source` — observed"],
+            targets=["foo.py"],
+            status="superseded",
+            source_event="decision-log:historical",
+            validation="rewrite",
+            date="2026-01-10",
+        )
+        content = content.replace(
+            "Status: superseded\n",
+            "Status: superseded\nSuperseded by: `1abc9-mem successor`\n",
+        )
+        memory_records.write_memory_record(self.root, content, memory_id)
+        return memory_id
+
+    def _insert_stale_source(self, run_id: str, memory_id: str) -> None:
+        conn = memory_backfill._connect(self.root)
+        try:
+            with conn:
+                conn.execute(
+                    "INSERT INTO memory_backfill_sources"
+                    "(run_id,wave_id,source_event,memory_id) VALUES(?,?,?,?)",
+                    (run_id, "1aaa closed", "decision-log:x", memory_id),
+                )
+        finally:
+            conn.close()
+
+    def test_sync_inventory_repairs_unique_normalized_legacy_memory_id(self):
+        """The ordinary same-version synchronization path repairs the pfq6 row."""
+
+        legacy_id = "mem-" + ("a" * 59) + "-"
+        lifecycle_id = self._seed_migrated_memory_record(legacy_id)
+        run_id = memory_backfill.ensure_run(self.root, "upgrade")
+        self._insert_stale_source(run_id, legacy_id)
+
+        repaired = memory_backfill.sync_inventory(self.root, run_id)
+        self.assertEqual(repaired["memory_id_references_repaired"], 1)
+        self.assertEqual(repaired["candidates_pending"], 0)
+        self.assertEqual(repaired["state"], "ready_for_index")
+        conn = memory_backfill._connect(self.root)
+        try:
+            row = conn.execute(
+                "SELECT memory_id FROM memory_backfill_sources WHERE run_id=?",
+                (run_id,),
+            ).fetchone()
+        finally:
+            conn.close()
+        self.assertEqual(str(row["memory_id"]), lifecycle_id)
+
+        unchanged = memory_backfill.sync_inventory(self.root, run_id)
+        self.assertEqual(unchanged["memory_id_references_repaired"], 0)
+
+    def test_sync_inventory_leaves_unresolved_legacy_memory_id_actionable(self):
+        run_id = memory_backfill.ensure_run(self.root, "upgrade")
+        legacy_id = "mem-no-longer-present"
+        self._insert_stale_source(run_id, legacy_id)
+
+        summary = memory_backfill.sync_inventory(self.root, run_id)
+
+        self.assertEqual(summary["memory_id_references_repaired"], 0)
+        self.assertEqual(summary["candidates_pending"], 1)
+        self.assertEqual(summary["state"], "awaiting_validation")
+        worklist = memory_backfill.validation_worklist(self.root, run_id)
+        self.assertEqual(
+            worklist["validation_worklist"][0]["state"], "missing"
+        )
+
+    def test_sync_inventory_refuses_ambiguous_legacy_memory_id_mapping(self):
+        legacy_id = "mem-ambiguous-record"
+        first = self._seed_migrated_memory_record(legacy_id, prefix="1abc1")
+        self._seed_migrated_memory_record(legacy_id, prefix="1abc2")
+        run_id = memory_backfill.ensure_run(self.root, "upgrade")
+        self._insert_stale_source(run_id, legacy_id)
+
+        with self.assertRaisesRegex(ValueError, "ambiguous migrated memory id"):
+            memory_backfill.sync_inventory(self.root, run_id)
+
+        conn = memory_backfill._connect(self.root)
+        try:
+            row = conn.execute(
+                "SELECT memory_id FROM memory_backfill_sources WHERE run_id=?",
+                (run_id,),
+            ).fetchone()
+        finally:
+            conn.close()
+        self.assertEqual(str(row["memory_id"]), legacy_id)
+        self.assertNotEqual(str(row["memory_id"]), first)
+
     def test_ready_backfill_routes_to_owning_lifecycle_without_setup_tool(self):
         setup = server_impl.memory_backfill_response(
             self.root, mode="create", entry_path="setup"
@@ -1028,6 +1124,63 @@ os._exit(23)
             memory_backfill.record_publication_success(self.root, run_id, attempt)
         )
         self.assertEqual(memory_backfill.run_state(self.root, run_id), "indexed")
+
+    def test_staged_publication_transfers_to_final_attempt_same_generation(self):
+        run_id = self._validated_publication_run()
+        index_dir = self.root / ".wavefoundry" / "index"
+        content_attempt = index_state_store.begin_build_epoch(index_dir, "all")
+        self.assertTrue(
+            memory_backfill.authorize_index_finalize(
+                self.root, run_id, content_attempt, 1
+            )
+        )
+        graph_attempt = index_state_store.begin_build_epoch(index_dir, "graph")
+
+        self.assertTrue(
+            memory_backfill.restage_index_finalize(
+                self.root, run_id, graph_attempt, 1
+            )
+        )
+        self.assertFalse(
+            memory_backfill.record_publication_success(
+                self.root, run_id, content_attempt
+            )
+        )
+        self.assertTrue(
+            memory_backfill.record_publication_success(
+                self.root, run_id, graph_attempt
+            )
+        )
+
+    def test_staged_publication_rejects_generation_or_inventory_change(self):
+        run_id = self._validated_publication_run()
+        index_dir = self.root / ".wavefoundry" / "index"
+        content_attempt = index_state_store.begin_build_epoch(index_dir, "all")
+        self.assertTrue(
+            memory_backfill.authorize_index_finalize(
+                self.root, run_id, content_attempt, 1
+            )
+        )
+        graph_attempt = index_state_store.begin_build_epoch(index_dir, "graph")
+        self.assertFalse(
+            memory_backfill.restage_index_finalize(
+                self.root, run_id, graph_attempt, 2
+            )
+        )
+        wave_md = self.root / "docs" / "waves" / "1aaa closed" / "wave.md"
+        wave_md.write_text(
+            wave_md.read_text(encoding="utf-8") + "\nchanged before publish\n",
+            encoding="utf-8",
+        )
+        self.assertFalse(
+            memory_backfill.restage_index_finalize(
+                self.root, run_id, graph_attempt, 1
+            )
+        )
+        self.assertEqual(
+            memory_backfill.run_summary(self.root, run_id)["state"],
+            "awaiting_validation",
+        )
 
     def test_receipt_does_not_alias_a_later_unrelated_generation(self):
         """Crash-window retarget (1t9th): with the CAS-time success record

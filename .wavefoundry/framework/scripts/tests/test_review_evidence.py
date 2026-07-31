@@ -6,9 +6,11 @@ import json
 import multiprocessing
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
@@ -16,6 +18,19 @@ sys.path.insert(0, str(SCRIPTS_ROOT))
 
 import review_evidence as subject  # noqa: E402
 from wave_lint_lib.wave_validators import check_wave_docs  # noqa: E402
+
+
+def integrity_checks(**overrides: object) -> dict[str, object]:
+    values: dict[str, object] = {
+        "test_ran_without_unintended_skip": True,
+        "public_path_reached": True,
+        "boundary_values_realistic": True,
+        "assertions_non_vacuous": True,
+        "known_bad_detected": True,
+        "known_bad_detection_method": "known-bad mutation was detected",
+    }
+    values.update(overrides)
+    return values
 
 
 def review_run(
@@ -221,6 +236,12 @@ def _publication_lock_worker(
     outcomes.put("clean")
 
 
+def _publication_lock_holder(root: str, ready: object, release: object) -> None:
+    with subject.project_state_publication_lock(Path(root)):
+        ready.set()
+        release.wait(10)
+
+
 class ReviewEvidenceStateMachineTests(unittest.TestCase):
     def validate(self, records: list[dict[str, object]], **kwargs: object) -> subject.ReviewEvidenceValidation:
         if kwargs.get("closure") and not any(
@@ -334,7 +355,7 @@ class ReviewEvidenceStateMachineTests(unittest.TestCase):
             "limitations": "temporary local wave",
             "safety_and_authorization": "local disposable fixture",
             "disposition_rationale": "introduced public-contract regression is actionable now",
-            "integrity_confirmed": True,
+            "integrity_checks": integrity_checks(),
             "review_boundaries_changed": [],
             "source_lanes": ["qa-reviewer"],
             "blocking_required_lanes": ["qa-reviewer"],
@@ -382,7 +403,7 @@ class ReviewEvidenceStateMachineTests(unittest.TestCase):
             "limitations": "local disposable event ledger",
             "safety_and_authorization": "local fixture only",
             "disposition_rationale": "a required-contract regression must be repaired now",
-            "integrity_confirmed": True,
+            "integrity_checks": integrity_checks(),
             "fresh_context": True,
             "independent": True,
             "review_boundaries_changed": [],
@@ -494,7 +515,7 @@ class ReviewEvidenceStateMachineTests(unittest.TestCase):
             "limitations": "the finding is scoped to the named reviewed fixture",
             "safety_and_authorization": "local disposable fixture only",
             "disposition_rationale": "vacuous required-AC evidence cannot carry approval",
-            "integrity_confirmed": True,
+            "integrity_checks": integrity_checks(),
             "review_boundaries_changed": [],
             "source_lanes": ["qa-reviewer"],
             "blocking_required_lanes": ["qa-reviewer"],
@@ -564,7 +585,7 @@ class ReviewEvidenceStateMachineTests(unittest.TestCase):
                 "limitations": "temporary local wave",
                 "safety_and_authorization": "local disposable fixture",
                 "disposition_rationale": rationale,
-                "integrity_confirmed": True,
+                "integrity_checks": integrity_checks(),
                 "review_boundaries_changed": [],
                 "source_lanes": ["security-reviewer"],
                 "blocking_required_lanes": ["security-reviewer"],
@@ -628,7 +649,7 @@ class ReviewEvidenceStateMachineTests(unittest.TestCase):
             "limitations": "temporary local wave",
             "safety_and_authorization": "local disposable fixture",
             "disposition_rationale": "root containment required-AC",
-            "integrity_confirmed": True,
+            "integrity_checks": integrity_checks(),
             "review_boundaries_changed": [],
             "source_lanes": ["security-reviewer"],
             "blocking_required_lanes": ["security-reviewer"],
@@ -678,9 +699,10 @@ class ReviewEvidenceStateMachineTests(unittest.TestCase):
             "actor": "code-reviewer",
             "context_id": "approval-context",
             "signoff_key": "qa-reviewer",
+            "approval_phase": "delivery",
             "observed": "passed",
             "artifact_or_test_id": "qa:approval",
-            "integrity_confirmed": True,
+            "integrity_checks": integrity_checks(),
             "fresh_context": True,
             "independent": True,
         }
@@ -1392,7 +1414,7 @@ class ReviewEvidenceConvergenceTests(unittest.TestCase):
             "limitations": "local deterministic event sequence",
             "safety_and_authorization": "local fixture only",
             "disposition_rationale": "a required readiness-contract defect must be repaired now",
-            "integrity_confirmed": True,
+            "integrity_checks": integrity_checks(),
             "fresh_context": True,
             "independent": True,
             "review_boundaries_changed": [],
@@ -2437,6 +2459,57 @@ class ExternalReviewEventLedgerTests(unittest.TestCase):
             probe = probe_runtime_lock(root / subject.PROJECT_STATE_PUBLICATION_LOCK_REL)
             self.assertFalse(probe.held)
 
+    def test_automatic_publication_probe_fails_fast_when_lock_is_busy(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            context = multiprocessing.get_context("spawn")
+            ready = context.Event()
+            release = context.Event()
+            holder = context.Process(
+                target=_publication_lock_holder,
+                args=(str(root), ready, release),
+            )
+            holder.start()
+            try:
+                self.assertTrue(ready.wait(5), "lock holder did not start")
+                started = time.monotonic()
+                with self.assertRaises(subject.ProjectPublicationUnavailable):
+                    with subject.project_state_publication_lock(root, wait=False):
+                        self.fail("busy automatic publisher entered the critical section")
+                self.assertLess(time.monotonic() - started, 1.0)
+            finally:
+                release.set()
+                holder.join(5)
+                if holder.is_alive():
+                    holder.terminate()
+                    holder.join(5)
+            self.assertEqual(holder.exitcode, 0)
+
+    def test_automatic_publication_probe_fails_fast_on_same_process_thread(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            ready = threading.Event()
+            release = threading.Event()
+
+            def hold() -> None:
+                with subject.project_state_publication_lock(root):
+                    ready.set()
+                    release.wait(5)
+
+            holder = threading.Thread(target=hold)
+            holder.start()
+            try:
+                self.assertTrue(ready.wait(2), "thread lock holder did not start")
+                started = time.monotonic()
+                with self.assertRaises(subject.ProjectPublicationUnavailable):
+                    with subject.project_state_publication_lock(root, wait=False):
+                        self.fail("busy automatic publisher entered the critical section")
+                self.assertLess(time.monotonic() - started, 0.25)
+            finally:
+                release.set()
+                holder.join(2)
+            self.assertFalse(holder.is_alive())
+
 
 class ReviewStatusProjectionTests(unittest.TestCase):
     def approval(self, key: str, *, actor: str | None = None) -> dict[str, object]:
@@ -2650,6 +2723,469 @@ class ReviewStatusProjectionTests(unittest.TestCase):
         self.assertIn("F-1", table)
 
 
+class GuidedReviewAuthorityProjectionTests(unittest.TestCase):
+    """1tvbs: one structured authority owns status facts and guided actions."""
+
+    @staticmethod
+    def _actionable_head(
+        finding_id: str,
+        *,
+        run_id: str,
+        cycle: int,
+        lanes: list[str],
+        supersedes: str | None = None,
+    ) -> dict[str, object]:
+        extra: dict[str, object] = {
+            "validation_status": "real",
+            "scope_relation": "admitted",
+            "introduced_or_worsened_by_wave": True,
+            "contract_relevance": "required_ac",
+            "supported_reachability": True,
+            "observable_impact": "material",
+            "containment": "none",
+            "blocking": True,
+            "disposition": "do_now",
+            "repair_execution_state": "pending",
+            "source_lanes": ["code-reviewer", "qa-reviewer"],
+            "blocking_required_lanes": lanes,
+            "approval_recheck_lanes": ["code-reviewer", "qa-reviewer"],
+        }
+        if supersedes is not None:
+            extra["supersedes_record_id"] = supersedes
+        return synthesis(
+            f"syn-{finding_id}-{cycle}",
+            run_id=run_id,
+            finding_id=finding_id,
+            cycle=cycle,
+            **extra,
+        )
+
+    def test_initial_and_repair_heads_emit_discriminated_actions(self):
+        initial_run = review_run(
+            "run-initial", kind="initial_delivery", candidates=["finding-a"]
+        )
+        initial_head = self._actionable_head(
+            "finding-a", run_id="run-initial", cycle=0,
+            lanes=["code-reviewer", "qa-reviewer"],
+        )
+        initial = subject.review_authority_projection(
+            (initial_run, initial_head),
+            ("code-reviewer", "qa-reviewer", "operator-signoff"),
+            approval_phase="delivery",
+        )
+        action = initial["recommended_next_action"]
+        self.assertEqual(action["action_kind"], "repair_start")
+        self.assertEqual(action["actor_role"], "implementer")
+        self.assertEqual(action["state_args"]["cycle"], 1)
+        self.assertEqual(tuple(action), subject.REVIEW_ACTION_FIELDS)
+        self.assertNotIn("judgment", action["state_args"])
+        self.assertIn("judgment", action["required_caller_inputs"])
+
+        repair_run = review_run(
+            "run-repair", kind="repair_start", cycle=1,
+            candidates=["finding-a"],
+        )
+        repair_head = self._actionable_head(
+            "finding-a", run_id="run-repair", cycle=1,
+            lanes=["code-reviewer", "qa-reviewer"],
+            supersedes="syn-finding-a-0",
+        )
+        repaired = subject.review_authority_projection(
+            (initial_run, initial_head, repair_run, repair_head),
+            ("code-reviewer", "qa-reviewer", "operator-signoff"),
+            approval_phase="delivery",
+        )
+        actions = repaired["next_actions"]
+        self.assertEqual(
+            [item["actor_role"] for item in actions],
+            ["code-reviewer", "qa-reviewer"],
+        )
+        self.assertEqual(actions[0]["state_args"]["blocking_required_lanes"], ["qa-reviewer"])
+        self.assertEqual(actions[1]["state_args"]["blocking_required_lanes"], ["code-reviewer"])
+        self.assertEqual(actions[0]["legal_alternatives"], [actions[1]["action_id"]])
+        self.assertEqual(actions[1]["legal_alternatives"], [actions[0]["action_id"]])
+
+    def test_readiness_findings_stay_in_the_prepare_phase(self):
+        readiness_run = review_run(
+            "run-readiness", kind="readiness", candidates=["finding-ready"]
+        )
+        readiness_head = self._actionable_head(
+            "finding-ready",
+            run_id="run-readiness",
+            cycle=0,
+            lanes=["architecture-reviewer"],
+        )
+        projection = subject.review_authority_projection(
+            (readiness_run, readiness_head),
+            ("architecture-reviewer", "wave-council-readiness"),
+            approval_phase="readiness",
+        )
+        action = projection["recommended_next_action"]
+        self.assertEqual(projection["phase"], "readiness")
+        self.assertEqual(action["phase"], "readiness")
+        self.assertEqual(action["action_kind"], "repair_start")
+        self.assertEqual(action["state_args"]["cycle"], 1)
+        self.assertEqual(action["state_args"]["approval_recheck_lanes"], [
+            "code-reviewer", "qa-reviewer"
+        ])
+
+    def test_approval_actions_wait_for_the_required_phase_run(self):
+        cases = (
+            (
+                "readiness", "readiness",
+                ("architecture-reviewer", "wave-council-readiness"),
+            ),
+            (
+                "delivery", "initial_delivery",
+                ("qa-reviewer", "operator-signoff"),
+            ),
+        )
+        for phase, run_kind, signoff_keys in cases:
+            with self.subTest(phase=phase):
+                before_run = subject.review_authority_projection(
+                    (), signoff_keys, approval_phase=phase,
+                    required_run_kind=run_kind,
+                )
+                self.assertFalse(before_run["required_run_present"])
+                self.assertEqual(before_run["next_actions"], ())
+                self.assertIsNone(before_run["recommended_next_action"])
+
+                after_run = subject.review_authority_projection(
+                    (review_run(f"empty-{phase}", kind=run_kind, candidates=[]),),
+                    signoff_keys, approval_phase=phase,
+                    required_run_kind=run_kind,
+                )
+                self.assertTrue(after_run["required_run_present"])
+                self.assertEqual(
+                    [action["action_id"] for action in after_run["next_actions"]],
+                    [f"approval:{key}" for key in signoff_keys],
+                )
+
+    def test_zero_lane_repair_has_source_reverification_and_no_withheld_approval(self):
+        initial_run = review_run(
+            "zero-initial", kind="initial_delivery", candidates=["zero-lane"]
+        )
+        initial_head = self._actionable_head(
+            "zero-lane", run_id="zero-initial", cycle=0, lanes=[]
+        )
+        repair_run = review_run(
+            "zero-repair", kind="repair_start", cycle=1, candidates=["zero-lane"]
+        )
+        repair_head = self._actionable_head(
+            "zero-lane",
+            run_id="zero-repair",
+            cycle=1,
+            lanes=[],
+            supersedes="syn-zero-lane-0",
+        )
+        projection = subject.review_authority_projection(
+            (initial_run, initial_head, repair_run, repair_head),
+            ("code-reviewer", "qa-reviewer", "operator-signoff"),
+            approval_phase="delivery",
+            required_run_kind="initial_delivery",
+        )
+        self.assertEqual(
+            [action["action_kind"] for action in projection["next_actions"]],
+            ["reverification", "reverification"],
+        )
+        self.assertEqual(
+            [action["actor_role"] for action in projection["next_actions"]],
+            ["code-reviewer", "qa-reviewer"],
+        )
+        self.assertNotIn(
+            "approval", {action["action_kind"] for action in projection["next_actions"]}
+        )
+
+    def test_zero_lane_implementer_source_never_self_reverifies(self):
+        initial_run = review_run(
+            "zero-initial", kind="initial_delivery", candidates=["zero-lane"]
+        )
+        initial_head = self._actionable_head(
+            "zero-lane", run_id="zero-initial", cycle=0, lanes=[]
+        )
+        initial_head["source_lanes"] = ["implementer"]
+        repair_run = review_run(
+            "zero-repair", kind="repair_start", cycle=1, candidates=["zero-lane"]
+        )
+        repair_head = self._actionable_head(
+            "zero-lane", run_id="zero-repair", cycle=1, lanes=[],
+            supersedes="syn-zero-lane-0",
+        )
+        repair_head["source_lanes"] = ["implementer"]
+        repair_evidence = executable_evidence(
+            str(repair_head["evidence_record_id"]), "zero-lane",
+            actor="implementer", fresh_context=False, independent=False,
+        )
+        projection = subject.review_authority_projection(
+            (initial_run, initial_head, repair_run, repair_evidence, repair_head),
+            ("operator-signoff",), approval_phase="delivery",
+            required_run_kind="initial_delivery",
+        )
+        action = projection["recommended_next_action"]
+        self.assertEqual(action["action_kind"], "reverification")
+        self.assertEqual(action["actor_role"], "code-reviewer")
+
+    def test_action_event_and_run_vocabularies_are_exact_and_mutation_sensitive(self):
+        expected_events = ("approval", "finding", "run", "list")
+        expected_runs = {
+            "readiness", "initial_delivery", "repair_start", "reverification",
+            "convergence_checkpoint",
+        }
+        expected_action_fields = (
+            "action_id", "action_kind", "actor_role", "phase", "state_args",
+            "required_caller_inputs", "legal_alternatives", "reinspect_after_success",
+        )
+        self.assertEqual(subject.REVIEW_EVENT_TYPES, expected_events)
+        self.assertEqual(subject.RUN_KINDS, expected_runs)
+        self.assertEqual(subject.REVIEW_ACTION_FIELDS, expected_action_fields)
+        self.assertEqual(
+            subject.REVIEW_FINDING_CORE_JUDGMENT_FIELDS,
+            (
+                "validation_status", "scope_relation",
+                "introduced_or_worsened_by_wave", "contract_relevance",
+                "supported_reachability", "attacker_reachability",
+                "authority_domain", "authority_delta", "observable_impact",
+                "containment",
+            ),
+        )
+        self.assertEqual(
+            subject.REVIEW_FINDING_REPAIR_JUDGMENT_FIELDS,
+            (
+                "fix_risk", "optional_value", "repair_scope_bounded",
+                "repair_safety", "benefit_vs_fix_risk", "rejection_basis",
+            ),
+        )
+        self.assertEqual(
+            subject.REVIEW_FINDING_REQUIRED_EVIDENCE_FIELDS,
+            (
+                "proposition", "failure_condition", "public_path",
+                "command_or_fixture", "expected", "observed",
+                "artifact_or_test_id", "limitations",
+                "safety_and_authorization", "disposition_rationale",
+            ),
+        )
+        self.assertEqual(
+            subject.REVIEW_APPROVAL_REQUIRED_EVIDENCE_FIELDS,
+            ("observed", "artifact_or_test_id"),
+        )
+        self.assertEqual(
+            subject.REVIEW_ACTION_STATE_FIELDS,
+            {
+                "repair_start": (
+                    "event", "finding_id", "run_kind", "cycle",
+                    "source_lanes", "blocking_required_lanes",
+                    "approval_recheck_lanes",
+                ),
+                "reverification": (
+                    "event", "finding_id", "run_kind", "cycle",
+                    "source_lanes", "blocking_required_lanes",
+                    "approval_recheck_lanes",
+                ),
+                "approval": ("event", "signoff_key", "approval_phase"),
+            },
+        )
+        self.assertEqual(
+            subject.REVIEW_ACTION_CALLER_INPUTS,
+            {
+                "repair_start": (
+                    "context_id", "judgment", "evidence", "integrity_checks",
+                ),
+                "reverification": (
+                    "context_id", "judgment", "evidence", "integrity_checks",
+                    "fresh_context", "independent",
+                ),
+                "approval": (
+                    "context_id", "evidence", "integrity_checks",
+                    "fresh_context", "independent",
+                ),
+            },
+        )
+        for action in (
+            initial_action
+            for initial_action in subject.review_authority_projection(
+                (
+                    review_run(
+                        "registry-run", kind="initial_delivery",
+                        candidates=["registry-finding"],
+                    ),
+                    self._actionable_head(
+                        "registry-finding", run_id="registry-run", cycle=0,
+                        lanes=["qa-reviewer"],
+                    ),
+                ),
+                ("qa-reviewer",), approval_phase="delivery",
+            )["next_actions"]
+        ):
+            self.assertEqual(
+                tuple(action["state_args"]),
+                subject.REVIEW_ACTION_STATE_FIELDS[action["action_kind"]],
+            )
+        with self.assertRaises(AssertionError):
+            self.assertEqual((*subject.REVIEW_EVENT_TYPES, "compact_list"), expected_events)
+        with self.assertRaises(AssertionError):
+            self.assertEqual(subject.RUN_KINDS | {"guided_transition"}, expected_runs)
+        with self.assertRaises(AssertionError):
+            self.assertEqual((*subject.REVIEW_ACTION_FIELDS, "inferred_evidence"), expected_action_fields)
+
+    def test_repair_start_cycle_uses_wave_global_progress(self):
+        """Post-convergence findings join the legal wave-global cycle."""
+
+        initial_run = review_run(
+            "origin", kind="initial_delivery", candidates=["old", "new"]
+        )
+        old_initial = self._actionable_head(
+            "old", run_id="origin", cycle=0, lanes=["qa-reviewer"]
+        )
+        new_initial = self._actionable_head(
+            "new", run_id="origin", cycle=0, lanes=["qa-reviewer"]
+        )
+
+        def completed_cycle(cycle: int, supersedes: str):
+            repair_run = review_run(
+                f"repair-{cycle}", kind="repair_start", cycle=cycle,
+                candidates=["old"],
+            )
+            repair_head = self._actionable_head(
+                "old", run_id=f"repair-{cycle}", cycle=cycle,
+                lanes=["qa-reviewer"], supersedes=supersedes,
+            )
+            verify_run = review_run(
+                f"verify-{cycle}", kind="reverification", cycle=cycle,
+                candidates=["old"],
+            )
+            verify_head = self._actionable_head(
+                "old", run_id=f"verify-{cycle}", cycle=cycle,
+                lanes=[], supersedes=f"syn-old-{cycle}",
+            )
+            verify_head["record_id"] = f"syn-old-{cycle}-done"
+            verify_head["repair_execution_state"] = "completed"
+            verify_evidence = executable_evidence(
+                str(verify_head["evidence_record_id"]), "old",
+                actor="qa-reviewer", fresh_context=True, independent=True,
+            )
+            return repair_run, repair_head, verify_run, verify_evidence, verify_head
+
+        no_prior = subject.review_authority_projection(
+            (initial_run, new_initial), ("qa-reviewer",),
+            approval_phase="delivery",
+        )
+        self.assertEqual(
+            next(
+                action for action in no_prior["next_actions"]
+                if action["state_args"].get("finding_id") == "new"
+            )["state_args"]["cycle"],
+            1,
+        )
+
+        cycle_one = completed_cycle(1, "syn-old-0")
+        partial_rows = (
+            initial_run, old_initial, new_initial,
+            cycle_one[0], cycle_one[1],
+        )
+        partial = subject.review_authority_projection(
+            partial_rows, ("qa-reviewer",), approval_phase="delivery"
+        )
+        self.assertEqual(
+            next(
+                action for action in partial["next_actions"]
+                if action["state_args"].get("finding_id") == "new"
+            )["state_args"]["cycle"],
+            1,
+        )
+
+        completed_one_rows = (*partial_rows, *cycle_one[2:])
+        completed_one = subject.review_authority_projection(
+            completed_one_rows, ("qa-reviewer",), approval_phase="delivery"
+        )
+        self.assertEqual(
+            next(
+                action for action in completed_one["next_actions"]
+                if action["state_args"].get("finding_id") == "new"
+            )["state_args"]["cycle"],
+            2,
+        )
+
+        cycle_two = completed_cycle(2, "syn-old-1-done")
+        completed_two = subject.review_authority_projection(
+            (*completed_one_rows, *cycle_two),
+            ("qa-reviewer",), approval_phase="delivery",
+        )
+        self.assertEqual(
+            next(
+                action for action in completed_two["next_actions"]
+                if action["state_args"].get("finding_id") == "new"
+            )["state_args"]["cycle"],
+            3,
+        )
+
+    def test_cap_reports_exact_named_totals_and_stable_prefix(self):
+        records: list[dict[str, object]] = []
+        for index in range(5):
+            finding_id = f"finding-{index}"
+            run_id = f"run-{index}"
+            records.append(
+                review_run(run_id, kind="repair_start", cycle=1, candidates=[finding_id])
+            )
+            records.append(
+                self._actionable_head(
+                    finding_id, run_id=run_id, cycle=1,
+                    lanes=["qa-reviewer"],
+                )
+            )
+        with patch.object(subject, "REVIEW_ACTION_CAP", 3):
+            projection = subject.review_authority_projection(
+                records, ("qa-reviewer",), approval_phase="delivery"
+            )
+        self.assertEqual(projection["total_current_actions"], 5)
+        self.assertEqual(projection["returned_current_actions"], 3)
+        self.assertEqual(projection["omitted_current_actions"], 2)
+        self.assertTrue(projection["truncated"])
+        self.assertEqual(
+            [action["state_args"]["finding_id"] for action in projection["next_actions"]],
+            ["finding-0", "finding-1", "finding-2"],
+        )
+
+    def test_cap_bounds_legal_alternatives_to_returned_actions(self):
+        lanes = [f"lane-{index}" for index in range(8)]
+        records = (
+            review_run("many-lanes", kind="repair_start", cycle=1, candidates=["many"]),
+            self._actionable_head(
+                "many", run_id="many-lanes", cycle=1, lanes=lanes
+            ),
+        )
+        with patch.object(subject, "REVIEW_ACTION_CAP", 5):
+            projection = subject.review_authority_projection(
+                records, (), approval_phase="delivery"
+            )
+        returned_ids = {
+            action["action_id"] for action in projection["next_actions"]
+        }
+        self.assertEqual(projection["total_current_actions"], 8)
+        self.assertEqual(projection["returned_current_actions"], 5)
+        self.assertEqual(projection["omitted_current_actions"], 3)
+        for action in projection["next_actions"]:
+            self.assertTrue(set(action["legal_alternatives"]).issubset(returned_ids))
+            self.assertEqual(len(action["legal_alternatives"]), 4)
+
+    def test_legacy_status_rows_are_the_projection_presentation(self):
+        records = (
+            review_run("run-initial", kind="initial_delivery", candidates=["finding-a"]),
+            self._actionable_head(
+                "finding-a", run_id="run-initial", cycle=0,
+                lanes=["qa-reviewer"],
+            ),
+        )
+        projection = subject.review_authority_projection(
+            records, ("qa-reviewer",), approval_phase="delivery"
+        )
+        self.assertEqual(
+            subject.review_status_rows(
+                records, ("qa-reviewer",), approval_phase="delivery"
+            ),
+            projection["status_rows"],
+        )
+
+
 class ReviewEvidenceLintIntegrationTests(unittest.TestCase):
     def test_external_ledger_symlink_is_rejected_as_authority(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -2745,7 +3281,7 @@ class RepairReverificationIndependenceTests(unittest.TestCase):
             "review_boundaries_changed": [],
             "fresh_context": True,
             "independent": True,
-            "integrity_confirmed": True,
+            "integrity_checks": integrity_checks(),
         }
         event.update(overrides)
         return event
@@ -2888,11 +3424,11 @@ class RepairReverificationIndependenceTests(unittest.TestCase):
         """AC-2 red test: actor equality with the resolving repair_start is
         rejected as protocol policy without claiming caller identity."""
         records = self._chain_through_repair_start(
-            repair_actor="qa-reviewer", repair_context="ctx-repair"
+            repair_actor="implementer", repair_context="ctx-repair"
         )
         rows, errors = subject.build_compact_review_event(
             records,
-            self._clearing_reverification(actor="qa-reviewer", context_id="ctx-verify"),
+            self._clearing_reverification(actor="implementer", context_id="ctx-verify"),
         )
         self.assertEqual(rows, (), "same-actor reverification must append nothing")
         joined = "\n".join(errors)
@@ -2910,10 +3446,10 @@ class RepairReverificationIndependenceTests(unittest.TestCase):
         unchanged) — the shape a mutation narrowing the actor check to
         fresh_context=true would wrongly accept."""
         records = self._chain_through_repair_start(
-            repair_actor="qa-reviewer", repair_context="ctx-repair"
+            repair_actor="implementer", repair_context="ctx-repair"
         )
         event = self._finding_event(
-            actor="qa-reviewer",
+            actor="implementer",
             context_id="ctx-verify",
             run_kind="reverification",
             cycle=1,
@@ -2940,10 +3476,10 @@ class RepairReverificationIndependenceTests(unittest.TestCase):
         with ``reverification_actor_not_distinct`` and append nothing — not
         slip through the same-context/non-fresh early return."""
         records = self._chain_through_repair_start(
-            repair_actor="qa-reviewer", repair_context="ctx-shared"
+            repair_actor="implementer", repair_context="ctx-shared"
         )
         event = self._finding_event(
-            actor="qa-reviewer",
+            actor="implementer",
             context_id="ctx-shared",
             run_kind="reverification",
             cycle=1,
@@ -2969,11 +3505,11 @@ class RepairReverificationIndependenceTests(unittest.TestCase):
         returned — actor policy is evaluated only when the contradiction did
         not fire."""
         records = self._chain_through_repair_start(
-            repair_actor="qa-reviewer", repair_context="ctx-shared"
+            repair_actor="implementer", repair_context="ctx-shared"
         )
         rows, errors = subject.build_compact_review_event(
             records,
-            self._clearing_reverification(actor="qa-reviewer", context_id="ctx-shared"),
+            self._clearing_reverification(actor="implementer", context_id="ctx-shared"),
         )
         self.assertEqual(rows, (), "contradictory reverification must append nothing")
         joined = "\n".join(errors)
@@ -3016,13 +3552,89 @@ class RepairReverificationIndependenceTests(unittest.TestCase):
         self.assertEqual(head.get("repair_execution_state"), "completed")
         self.assertEqual(head.get("blocking_required_lanes"), [])
 
+    # ---- 1tsyx AC-6: unresolved anchors fail closed ----------------------
+
+    def test_anchorless_reverification_is_rejected_at_append(self) -> None:
+        """A prior finding is not itself an independence anchor.
+
+        This deliberately omits the cycle-1 repair_start while retaining the
+        initial finding synthesis, so the compact producer reaches the
+        independence check instead of the unrelated "earlier finding" guard.
+        Pre-1tsyx code returned rows and no errors here.
+        """
+        records = self._append([], self._finding_event())
+        rows, errors = subject.build_compact_review_event(
+            records,
+            self._clearing_reverification(
+                actor="qa-reviewer", context_id="ctx-anchorless"
+            ),
+        )
+        self.assertEqual(rows, (), "an anchorless reverification must append nothing")
+        self.assertIn("reverification_anchor_unresolved", "\n".join(errors))
+
+    def test_anchorless_reverification_is_rejected_by_close_audit(self) -> None:
+        """The close-time backstop rejects an older-code anchorless chain."""
+        records = self._append([], self._finding_event())
+        # Simulate only the older append-time defect while keeping the
+        # canonical producer and complete current schema.  This remains
+        # load-bearing after the append guard is repaired: the local patch
+        # admits the historical shape so the independent close audit still
+        # has something real to reject.
+        with patch.object(subject, "_reverification_independence_defect", return_value=None):
+            rows, errors = subject.build_compact_review_event(
+                records,
+                self._clearing_reverification(
+                    actor="qa-reviewer", context_id="ctx-anchorless"
+                ),
+            )
+        self.assertEqual(errors, (), errors)
+        self.assertTrue(rows, "older-code simulation must actually append the bad chain")
+        violations = subject.repair_independence_violations([*records, *rows])
+        self.assertEqual(len(violations), 1, violations)
+        self.assertIn("anchor", violations[0].casefold())
+
+    def test_cycle_mismatched_repair_start_is_not_an_anchor(self) -> None:
+        """The join key is (finding_id, cycle), not finding_id alone."""
+        records = self._chain_through_repair_start(
+            repair_actor="implementer", repair_context="ctx-cycle-1"
+        )
+        event = self._finding_event(
+            actor="qa-reviewer",
+            context_id="ctx-cycle-2-verify",
+            run_kind="reverification",
+            cycle=2,
+            blocking_required_lanes=[],
+            observed="cycle 2 reverification without a cycle 2 repair_start",
+        )
+        rows, errors = subject.build_compact_review_event(records, event)
+        self.assertEqual(rows, (), "cycle 1 must not anchor a cycle 2 reverification")
+        self.assertIn("reverification_anchor_unresolved", "\n".join(errors))
+
+    def test_canonical_repair_producer_always_writes_resolvable_anchor(self) -> None:
+        """Green control: normal compact repair production is not blocked."""
+        records = self._chain_through_repair_start(
+            repair_actor="implementer", repair_context="ctx-canonical-repair"
+        )
+        anchor = subject._resolving_repair_start_context(records, "finding-1", 1)
+        self.assertIsNotNone(anchor)
+        self.assertEqual(anchor.get("actor"), "implementer")
+        self.assertEqual(anchor.get("context_id"), "ctx-canonical-repair")
+        rows, errors = subject.build_compact_review_event(
+            records,
+            self._clearing_reverification(
+                actor="qa-reviewer", context_id="ctx-canonical-verify"
+            ),
+        )
+        self.assertFalse(errors, errors)
+        self.assertTrue(rows)
+
     def test_waiver_fields_do_not_bypass_independence_policies(self) -> None:
         """AC-2: the broad repair waiver has different semantics and must not
         become an independence bypass."""
         records = self._chain_through_repair_start(
-            repair_actor="qa-reviewer", repair_context="ctx-repair"
+            repair_actor="implementer", repair_context="ctx-repair"
         )
-        event = self._clearing_reverification(actor="qa-reviewer", context_id="ctx-verify")
+        event = self._clearing_reverification(actor="implementer", context_id="ctx-verify")
         event.update(
             {
                 "waiver_id": "waiver-1",
@@ -3039,11 +3651,11 @@ class RepairReverificationIndependenceTests(unittest.TestCase):
         """Requirement 3: when both match, only the decidable same-context
         contradiction is returned."""
         records = self._chain_through_repair_start(
-            repair_actor="qa-reviewer", repair_context="ctx-shared"
+            repair_actor="implementer", repair_context="ctx-shared"
         )
         rows, errors = subject.build_compact_review_event(
             records,
-            self._clearing_reverification(actor="qa-reviewer", context_id="ctx-shared"),
+            self._clearing_reverification(actor="implementer", context_id="ctx-shared"),
         )
         self.assertEqual(rows, ())
         joined = "\n".join(errors)
@@ -3157,11 +3769,11 @@ class RepairReverificationIndependenceTests(unittest.TestCase):
         # Behavioral half of the pin: the codes the seed names are exactly
         # the leading tokens of the validator's rejections.
         records = self._chain_through_repair_start(
-            repair_actor="qa-reviewer", repair_context="ctx-shared"
+            repair_actor="implementer", repair_context="ctx-shared"
         )
         _rows, context_errors = subject.build_compact_review_event(
             records,
-            self._clearing_reverification(actor="qa-reviewer", context_id="ctx-shared"),
+            self._clearing_reverification(actor="implementer", context_id="ctx-shared"),
         )
         self.assertTrue(
             context_errors
@@ -3172,7 +3784,7 @@ class RepairReverificationIndependenceTests(unittest.TestCase):
         )
         _rows, actor_errors = subject.build_compact_review_event(
             records,
-            self._clearing_reverification(actor="qa-reviewer", context_id="ctx-distinct"),
+            self._clearing_reverification(actor="implementer", context_id="ctx-distinct"),
         )
         self.assertTrue(
             actor_errors

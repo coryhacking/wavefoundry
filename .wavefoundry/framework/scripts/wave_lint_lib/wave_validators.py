@@ -1803,6 +1803,13 @@ def check_prepare_council_verdict(root: Path) -> tuple[list[str], list[str]]:
         status = (_metadata_value(text, "Status") or "").casefold().strip()
         if status not in ("active", "implementing"):
             continue
+        # Declared waves use their typed events.jsonl readiness approval as
+        # authority. Resolve that declaration through the canonical parser so
+        # a narrative mention (or malformed declaration) cannot exempt a
+        # legacy wave from its prose gate.
+        source, source_errors = parse_review_evidence_source(text)
+        if source == "events.jsonl" and not source_errors:
+            continue
         sections = _extract_sections(text)
         checkpoints = sections.get("## Review Checkpoints", "")
         if "prepare-council" in checkpoints.casefold():

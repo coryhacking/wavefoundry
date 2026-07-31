@@ -47,13 +47,15 @@ import sqlite3
 import sys
 import time
 from pathlib import Path
-from typing import Any, Iterable, Optional
+
+from typing import Any, Iterable, Mapping, Optional
 
 sys.dont_write_bytecode = True
 
 _scripts_dir = str(Path(__file__).resolve().parent)
 if _scripts_dir not in sys.path:
     sys.path.insert(0, _scripts_dir)
+from gardener_metadata import is_gardener_date_line, normalize_gardener_date  # noqa: E402
 import subprocess_util  # shared subprocess isolation (wave 1p8gu)  # noqa: E402
 
 STATE_STORE_FILENAME = "index-state.sqlite"
@@ -2259,6 +2261,21 @@ def begin_build_epoch(index_dir: Path, scope: str) -> str:
     version-gated reset both land `uninitialized`, which this immediately
     transitions).
     """
+    import publication_control
+
+    root = index_dir.parent.parent
+    checkpoint = publication_control.read_upgrade_checkpoint(root)
+    owner = bool(
+        isinstance(checkpoint, dict)
+        and checkpoint.get("pid") == os.getpid()
+    )
+    staged_upgrade_child = bool(
+        os.environ.get("WAVEFOUNDRY_UPGRADE_PARENT_FINALIZE_RECEIPT", "").strip()
+    )
+    reason = publication_control.publication_checkpoint_reason(root, "index_build")
+    if reason is not None and not owner and not staged_upgrade_child:
+        raise RuntimeError(reason)
+
     store = IndexStateStore(index_dir)
     try:
         store.ensure_current()
@@ -2288,6 +2305,67 @@ def finalize_build_epoch(index_dir: Path, attempt_id: str) -> bool:
     success. Only this function may advance `generation`.
     """
     backfill_run_id = os.environ.get("WAVEFOUNDRY_MEMORY_BACKFILL_RUN_ID", "").strip()
+    parent_receipt_path = os.environ.get(
+        "WAVEFOUNDRY_UPGRADE_PARENT_FINALIZE_RECEIPT", ""
+    ).strip()
+    import publication_control
+
+    root = index_dir.parent.parent
+    checkpoint = publication_control.read_upgrade_checkpoint(root)
+    owner = bool(
+        isinstance(checkpoint, dict)
+        and checkpoint.get("pid") == os.getpid()
+    )
+    reason = publication_control.publication_checkpoint_reason(root, "index_build")
+    if reason is not None and not owner and not parent_receipt_path:
+        raise RuntimeError(reason)
+
+    if backfill_run_id and parent_receipt_path:
+        state = read_build_state(index_dir)
+        if (
+            state is None
+            or state.get("status") != "building"
+            or state.get("attempt_id") != str(attempt_id)
+        ):
+            return False
+        import memory_backfill
+
+        expected_generation = int(state["generation"]) + 1
+        gate_state = memory_backfill.run_state(root, backfill_run_id)
+        if gate_state == "publishing_index":
+            authorized = memory_backfill.restage_index_finalize(
+                root,
+                backfill_run_id,
+                str(attempt_id),
+                expected_generation,
+            )
+        else:
+            authorized = memory_backfill.authorize_index_finalize(
+                root,
+                backfill_run_id,
+                str(attempt_id),
+                expected_generation,
+            )
+        if not authorized:
+            return False
+        receipt = Path(parent_receipt_path)
+        receipt.parent.mkdir(parents=True, exist_ok=True)
+        tmp = receipt.with_name(receipt.name + f".{os.getpid()}.tmp")
+        tmp.write_text(
+            json.dumps(
+                {
+                    "index_dir": str(index_dir.resolve()),
+                    "attempt_id": str(attempt_id),
+                    "expected_generation": expected_generation,
+                    "memory_backfill_run_id": backfill_run_id,
+                },
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        os.replace(tmp, receipt)
+        return True
 
     def _finalize() -> bool:
         state = read_build_state(index_dir)
@@ -2355,6 +2433,49 @@ def finalize_build_epoch(index_dir: Path, attempt_id: str) -> bool:
 
     with review_evidence.project_state_publication_lock(index_dir.parent.parent):
         return _finalize()
+
+
+def finalize_staged_build_epoch(
+    index_dir: Path, receipt: Mapping[str, Any], expected_run_id: str
+) -> bool:
+    """Parent-owned epoch CAS after a lock-free child staging receipt."""
+
+    state = read_build_state(index_dir)
+    if (
+        set(receipt)
+        != {
+            "index_dir", "attempt_id", "expected_generation",
+            "memory_backfill_run_id",
+        }
+        or receipt.get("index_dir") != str(index_dir.resolve())
+        or receipt.get("memory_backfill_run_id") != str(expected_run_id)
+        or state is None
+        or state.get("status") != "building"
+        or state.get("attempt_id") != receipt.get("attempt_id")
+        or int(state.get("generation") or 0) + 1
+        != receipt.get("expected_generation")
+    ):
+        return False
+    conn = _full_durable_connection(index_dir)
+    try:
+        with conn:
+            cur = conn.execute(
+                "UPDATE build_state SET status = 'complete', generation = generation + 1, "
+                "completed_at = ? WHERE id = 1 AND attempt_id = ? AND status = 'building'",
+                (time.time(), str(receipt["attempt_id"])),
+            )
+            finalized = cur.rowcount == 1
+    finally:
+        conn.close()
+    if finalized:
+        import memory_backfill
+
+        memory_backfill.record_publication_success(
+            index_dir.parent.parent,
+            expected_run_id,
+            str(receipt["attempt_id"]),
+        )
+    return finalized
 
 
 def read_build_state(index_dir: Path) -> Optional[dict[str, Any]]:
@@ -3075,42 +3196,10 @@ def _collect_git_history(root: Path) -> tuple[bool, list[dict[str, Any]]]:
     return True, commits
 
 
-# The canonical gardener metadata line is the DATE-form `Last verified:` in
-# the header block only. Restricting to the date form (delivery-review
-# finding) means a body/fenced lookalike such as ``Last verified: see
-# `src/a.py` `` is NEVER treated as mechanical — it is real content, so a
-# change to it invalidates the skip fingerprint and is material for the anchor.
-_GARDENER_DATE_LINE_RE = re.compile(r"^Last verified:\s+\d{4}-\d{2}-\d{2}\s*$")
-_GARDENER_DATE_LINE_MULTILINE = re.compile(
-    r"^Last verified:\s+\d{4}-\d{2}-\d{2}\s*$", re.MULTILINE
-)
-
-
-# A leading-frontmatter line is blank, a `# Title`, or a `Key: value` metadata
-# line — the region where the gardener's `Last verified:` lives. The scan stops
-# at the first line that is none of these (a `## ` heading, a code fence, a
-# bullet, or prose), so a body/fenced `Last verified: <date>` lookalike is
-# NEVER stripped — even in a doc with no `## ` heading at all (delivery-review
-# finding: `partition("\n## ")` treated a heading-less doc's whole body as
-# header).
-_FRONTMATTER_METADATA_RE = re.compile(r"^[A-Za-z][\w .()/-]*:\s")
-
-
 def _strip_gardener_field(text: str) -> str:
     """Normalize out ONLY the canonical ``Last verified: <date>`` line in the
     leading metadata frontmatter. Body/fenced content is preserved verbatim."""
-    out: list[str] = []
-    in_frontmatter = True
-    stripped = False
-    for line in text.split("\n"):
-        if in_frontmatter:
-            if not stripped and _GARDENER_DATE_LINE_RE.match(line):
-                stripped = True
-                continue  # drop the single canonical header date line
-            if line.strip() and not line.startswith("# ") and not _FRONTMATTER_METADATA_RE.match(line):
-                in_frontmatter = False  # first non-metadata line ends frontmatter
-        out.append(line)
-    return "\n".join(out)
+    return normalize_gardener_date(text, replacement=None)
 
 
 def _batch_git_blobs(root: Path, specs: list[str]) -> Optional[dict[str, tuple[bool, str]]]:
@@ -3281,7 +3370,7 @@ def _gardener_only_pairs(
             hunk_content = True
             key = (sha, cur_file)
             changed[key] = True
-            if not _GARDENER_DATE_LINE_RE.match(line[1:]):
+            if not is_gardener_date_line(line[1:]):
                 all_date[key] = all_date.get(key, True) and False
             else:
                 all_date.setdefault(key, True)

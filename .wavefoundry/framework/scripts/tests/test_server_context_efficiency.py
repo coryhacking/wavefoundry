@@ -10,6 +10,7 @@ import tempfile
 import threading
 import time
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -172,7 +173,7 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn(
-            '{"review_evidence", "context_efficiency", "public_contract"}',
+            '"review_evidence",\n            "review_policy",\n            "lifecycle_lock",\n            "publication_control",\n            "context_efficiency",\n            "public_contract",',
             source,
         )
 
@@ -281,6 +282,354 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
             skipped = projected.get("skipped_unknown_waves", [])
             self.assertEqual([s["wave_id"] for s in skipped], ["1zzzz-phantom-change-id"])
             self.assertFalse(ce.read_wave_snapshot(root, real)["pending"])
+
+    def test_quiet_period_projects_only_after_unchanged_generation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            wave_id = "1aaaa quiet-projection"
+            wave_md = root / "docs" / "waves" / wave_id / "wave.md"
+            wave_md.parent.mkdir(parents=True)
+            wave_md.write_text(
+                f"# Wave\n\nStatus: implementing\n\nwave-id: `{wave_id}`\n",
+                encoding="utf-8",
+            )
+            telemetry = ce.ProcessTelemetry(root)
+            telemetry.set_focus(wave_id, "implement", new_phase=True)
+            telemetry.record_retrieval(
+                {
+                    "estimated_request_tokens": 2,
+                    "estimated_returned_tokens": 3,
+                    "estimated_source_tokens": 1,
+                    "estimated_avoided_tokens": 4,
+                    "source_files_counted": 1,
+                    "source_files_verified": 1,
+                    "source_files_estimated": 0,
+                    "captured": True,
+                    "persistence": "pending",
+                    "method": ce.RETRIEVAL_METHOD,
+                },
+                event_id="quiet-seed",
+            )
+            observed: dict[str, tuple[int, float]] = {}
+
+            first = srv._maybe_project_context_efficiency(root, observed, now=100.0)
+            early = srv._maybe_project_context_efficiency(root, observed, now=219.9)
+            projected = srv._maybe_project_context_efficiency(root, observed, now=220.0)
+
+            self.assertEqual(first["reason"], "quiet_period_pending")
+            self.assertEqual(early["reason"], "quiet_period_pending")
+            self.assertFalse(first["triggered"])
+            self.assertTrue(projected["triggered"], projected)
+            self.assertEqual(projected["projected"], [wave_id])
+            snapshot = ce.read_wave_snapshot(root, wave_id)
+            self.assertFalse(snapshot["pending"])
+            self.assertIn("## Context Efficiency", wave_md.read_text(encoding="utf-8"))
+
+    def test_quiet_period_restarts_when_generation_changes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            wave_id = "1aaaa changing-generation"
+            wave_md = root / "docs" / "waves" / wave_id / "wave.md"
+            wave_md.parent.mkdir(parents=True)
+            wave_md.write_text(
+                f"# Wave\n\nStatus: implementing\n\nwave-id: `{wave_id}`\n",
+                encoding="utf-8",
+            )
+            telemetry = ce.ProcessTelemetry(root)
+            telemetry.set_focus(wave_id, "implement", new_phase=True)
+
+            def record(event_id: str) -> None:
+                telemetry.record_retrieval(
+                    {
+                        "estimated_request_tokens": 1,
+                        "estimated_returned_tokens": 1,
+                        "estimated_source_tokens": 0,
+                        "estimated_avoided_tokens": 0,
+                        "source_files_counted": 0,
+                        "source_files_verified": 0,
+                        "source_files_estimated": 0,
+                        "captured": True,
+                        "persistence": "pending",
+                        "method": ce.RETRIEVAL_METHOD,
+                    },
+                    event_id=event_id,
+                )
+
+            record("first")
+            observed: dict[str, tuple[int, float]] = {}
+            srv._maybe_project_context_efficiency(root, observed, now=10.0)
+            record("second")
+            reset = srv._maybe_project_context_efficiency(root, observed, now=130.0)
+            still_early = srv._maybe_project_context_efficiency(root, observed, now=249.9)
+            projected = srv._maybe_project_context_efficiency(root, observed, now=250.0)
+
+            self.assertFalse(reset["triggered"])
+            self.assertFalse(still_early["triggered"])
+            self.assertTrue(projected["triggered"])
+
+    def test_automatic_projector_is_accounting_and_focus_neutral(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            wave_id = "1aaaa neutral-projector"
+            wave_md = root / "docs" / "waves" / wave_id / "wave.md"
+            wave_md.parent.mkdir(parents=True)
+            wave_md.write_text(
+                f"# Wave\n\nStatus: implementing\n\nwave-id: `{wave_id}`\n",
+                encoding="utf-8",
+            )
+            telemetry = ce.ProcessTelemetry(root)
+            telemetry.set_focus(wave_id, "review", new_phase=True)
+            telemetry.record_retrieval(
+                {
+                    "estimated_request_tokens": 1,
+                    "estimated_returned_tokens": 2,
+                    "estimated_source_tokens": 0,
+                    "estimated_avoided_tokens": 0,
+                    "source_files_counted": 0,
+                    "source_files_verified": 0,
+                    "source_files_estimated": 0,
+                    "captured": True,
+                    "persistence": "pending",
+                    "method": ce.RETRIEVAL_METHOD,
+                },
+                event_id="neutral-seed",
+            )
+            before = ce.read_wave_snapshot(root, wave_id)
+            focus_before = (telemetry.focus.wave_id, telemetry.focus.stage, telemetry.focus.phase_id)
+            with patch.object(srv.context_efficiency.ProcessTelemetry, "flush", side_effect=AssertionError("flush called")), \
+                 patch.object(srv, "_attempt_focus_state", side_effect=AssertionError("focus changed")):
+                result = srv._project_context_efficiency_wave(
+                    root, wave_id, automatic=True
+                )
+            after = ce.read_wave_snapshot(root, wave_id)
+
+            self.assertEqual(result["projection"], "published")
+            self.assertEqual(after["generation"], before["generation"])
+            self.assertEqual(after["stages"], before["stages"])
+            self.assertEqual(
+                (telemetry.focus.wave_id, telemetry.focus.stage, telemetry.focus.phase_id),
+                focus_before,
+            )
+            source = (SCRIPTS_ROOT / "server_impl.py").read_text(encoding="utf-8")
+            tree = ast.parse(source)
+            projector = next(
+                node
+                for node in tree.body
+                if isinstance(node, ast.FunctionDef)
+                and node.name == "_project_context_efficiency_wave"
+            )
+            segment = ast.get_source_segment(source, projector) or ""
+            self.assertNotIn(".flush(", segment)
+            self.assertNotIn("transfer_general", segment)
+            self.assertNotIn("set_focus", segment)
+
+    def test_no_pending_projection_does_not_rewrite_wave(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            wave_id = "1aaaa no-op"
+            wave_md = root / "docs" / "waves" / wave_id / "wave.md"
+            wave_md.parent.mkdir(parents=True)
+            wave_md.write_text(
+                f"# Wave\n\nStatus: implementing\n\nwave-id: `{wave_id}`\n",
+                encoding="utf-8",
+            )
+            before = wave_md.stat().st_mtime_ns
+            result = srv.project_pending_context_efficiency_root(root, automatic=True)
+            self.assertTrue(result["ok"])
+            self.assertEqual(result["projected"], [])
+            self.assertEqual(wave_md.stat().st_mtime_ns, before)
+
+    def test_new_generation_during_projection_remains_pending(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            wave_id = "1aaaa projection-race"
+            wave_md = root / "docs" / "waves" / wave_id / "wave.md"
+            wave_md.parent.mkdir(parents=True)
+            wave_md.write_text(
+                f"# Wave\n\nStatus: implementing\n\nwave-id: `{wave_id}`\n",
+                encoding="utf-8",
+            )
+            telemetry = ce.ProcessTelemetry(root)
+            telemetry.set_focus(wave_id, "implement", new_phase=True)
+
+            def record(event_id: str) -> None:
+                telemetry.record_retrieval(
+                    {
+                        "estimated_request_tokens": 1,
+                        "estimated_returned_tokens": 1,
+                        "estimated_source_tokens": 0,
+                        "estimated_avoided_tokens": 0,
+                        "source_files_counted": 0,
+                        "source_files_verified": 0,
+                        "source_files_estimated": 0,
+                        "captured": True,
+                        "persistence": "pending",
+                        "method": ce.RETRIEVAL_METHOD,
+                    },
+                    event_id=event_id,
+                )
+
+            record("before-projection")
+            original_replace = srv._atomic_replace_text
+
+            def replace_then_advance(*args, **kwargs):
+                original_replace(*args, **kwargs)
+                record("during-projection")
+
+            with patch.object(srv, "_atomic_replace_text", side_effect=replace_then_advance):
+                first = srv._project_context_efficiency_wave(
+                    root, wave_id, automatic=True
+                )
+            raced = ce.read_wave_snapshot(root, wave_id)
+            self.assertEqual(first["projection"], "pending")
+            self.assertTrue(raced["pending"])
+            second = srv._project_context_efficiency_wave(
+                root, wave_id, automatic=True
+            )
+            self.assertEqual(second["projection"], "published")
+            self.assertFalse(ce.read_wave_snapshot(root, wave_id)["pending"])
+
+    def test_close_status_is_reread_inside_publication_lock(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            wave_id = "1aaaa close-race"
+            wave_md = root / "docs" / "waves" / wave_id / "wave.md"
+            wave_md.parent.mkdir(parents=True)
+            wave_md.write_text(
+                f"# Wave\n\nStatus: implementing\n\nwave-id: `{wave_id}`\n",
+                encoding="utf-8",
+            )
+            telemetry = ce.ProcessTelemetry(root)
+            telemetry.set_focus(wave_id, "implement", new_phase=True)
+            telemetry.record_retrieval(
+                {
+                    "estimated_request_tokens": 1,
+                    "estimated_returned_tokens": 1,
+                    "estimated_source_tokens": 0,
+                    "estimated_avoided_tokens": 0,
+                    "source_files_counted": 0,
+                    "source_files_verified": 0,
+                    "source_files_estimated": 0,
+                    "captured": True,
+                    "persistence": "pending",
+                    "method": ce.RETRIEVAL_METHOD,
+                },
+                event_id="close-race",
+            )
+
+            @contextmanager
+            def close_before_enter(_root, *, wait=True):
+                self.assertFalse(wait)
+                wave_md.write_text(
+                    wave_md.read_text(encoding="utf-8").replace(
+                        "Status: implementing", "Status: closed"
+                    ),
+                    encoding="utf-8",
+                )
+                conn = sqlite3.connect(ce.store_path(root))
+                try:
+                    conn.execute(
+                        "UPDATE wave_state SET sealed=1,pending=1 WHERE wave_id=?",
+                        (wave_id,),
+                    )
+                    conn.commit()
+                finally:
+                    conn.close()
+                yield
+
+            with patch.object(
+                srv, "project_state_publication_lock", close_before_enter
+            ):
+                result = srv._project_context_efficiency_wave(
+                    root, wave_id, automatic=True
+                )
+
+            self.assertEqual(result["projection"], "pending")
+            self.assertEqual(result["reason"], "closed_wave_requires_hard_boundary")
+            conn = sqlite3.connect(ce.store_path(root))
+            try:
+                row = conn.execute(
+                    "SELECT sealed,pending FROM wave_state WHERE wave_id=?",
+                    (wave_id,),
+                ).fetchone()
+            finally:
+                conn.close()
+            self.assertEqual(row, (1, 1))
+
+    def test_idle_projection_poll_is_bounded_and_does_not_scan_docs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            observed: dict[str, tuple[int, float]] = {}
+            with patch.object(
+                srv.context_efficiency,
+                "pending_wave_ids",
+                return_value={"ok": True, "pending": []},
+            ), patch.object(
+                srv,
+                "run_validate",
+                side_effect=AssertionError("idle poll scanned docs"),
+            ):
+                started = time.perf_counter()
+                for index in range(1000):
+                    result = srv._maybe_project_context_efficiency(
+                        root, observed, now=float(index)
+                    )
+                elapsed = time.perf_counter() - started
+            self.assertEqual(result["reason"], "nothing_pending")
+            self.assertLess(elapsed, 2.0)
+
+    def test_automatic_pass_does_not_starve_later_waves_after_retryable_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            pending = ["1aaaa closed", "1aaab current"]
+            responses = {
+                "1aaaa closed": {
+                    "persistence": "durable",
+                    "projection": "pending",
+                    "reason": "closed_wave_requires_hard_boundary",
+                },
+                "1aaab current": {
+                    "persistence": "durable",
+                    "projection": "published",
+                },
+            }
+            with patch.object(
+                srv.context_efficiency,
+                "pending_wave_ids",
+                return_value={"ok": True, "pending": pending},
+            ), patch.object(
+                srv,
+                "_project_context_efficiency_wave",
+                side_effect=lambda _root, wave_id, **_kwargs: responses[wave_id],
+            ) as project:
+                automatic = srv.project_pending_context_efficiency_root(
+                    root, automatic=True
+                )
+            self.assertFalse(automatic["ok"])
+            self.assertEqual(automatic["failed_wave"], "1aaaa closed")
+            self.assertEqual(automatic["projected"], ["1aaab current"])
+            self.assertEqual(project.call_count, 2)
+
+            with patch.object(
+                srv.context_efficiency,
+                "pending_wave_ids",
+                return_value={"ok": True, "pending": pending},
+            ), patch.object(
+                srv,
+                "_project_context_efficiency_wave",
+                side_effect=lambda _root, wave_id, **_kwargs: responses[wave_id],
+            ) as project:
+                hard_boundary = srv.project_pending_context_efficiency_root(root)
+            self.assertFalse(hard_boundary["ok"])
+            self.assertEqual(hard_boundary["projected"], [])
+            self.assertEqual(project.call_count, 1)
 
     def test_lifecycle_focus_never_set_from_unresolved_wave_argument(self):
         """1t59p hardening: _lifecycle_context_result must leave the process
@@ -3725,7 +4074,7 @@ class LifecycleFocusReportingTests(unittest.TestCase):
                 "_apply_lifecycle_focus_reporting",
                 "wf_reopen_wave",
                 "wf_pause_wave",
-                "_flush_context_efficiency",
+                "_project_context_efficiency_wave",
             },
         )
         self.assertEqual(classifier_callers, {"_lifecycle_context_result"})

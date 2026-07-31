@@ -20,6 +20,7 @@ import time
 import unittest
 from contextlib import redirect_stderr
 from pathlib import Path
+from unittest import mock
 
 SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
 STORE_PATH = SCRIPTS_ROOT / "index_state_store.py"
@@ -528,6 +529,48 @@ class BuildEpochTests(_TempRepoCase):
         self.assertTrue(self.iss.finalize_build_epoch(self.index_dir, second))
         self.assertEqual(
             self.iss.build_epoch_token(self.index_dir), (second, 1)
+        )
+
+    def test_parent_staged_receipt_keeps_strict_shape_attempt_and_generation(self):
+        import memory_backfill
+
+        attempt = self.iss.begin_build_epoch(self.index_dir, "all")
+        receipt = {
+            "index_dir": str(self.index_dir.resolve()),
+            "attempt_id": attempt,
+            "expected_generation": 1,
+            "memory_backfill_run_id": "run-1",
+        }
+        for mutation in (
+            {**receipt, "unexpected": True},
+            {**receipt, "attempt_id": "other-attempt"},
+            {**receipt, "expected_generation": 2},
+            {**receipt, "memory_backfill_run_id": "other-run"},
+        ):
+            with self.subTest(mutation=mutation):
+                self.assertFalse(
+                    self.iss.finalize_staged_build_epoch(
+                        self.index_dir, mutation, "run-1"
+                    )
+                )
+                self.assertEqual(
+                    self.iss.read_build_state(self.index_dir)["status"],
+                    "building",
+                )
+
+        with mock.patch.object(
+            memory_backfill, "record_publication_success", return_value=True
+        ) as record:
+            self.assertTrue(
+                self.iss.finalize_staged_build_epoch(
+                    self.index_dir, receipt, "run-1"
+                )
+            )
+        record.assert_called_once_with(self.root, "run-1", attempt)
+        self.assertFalse(
+            self.iss.finalize_staged_build_epoch(
+                self.index_dir, receipt, "run-1"
+            )
         )
 
     def test_token_changes_across_generations(self):

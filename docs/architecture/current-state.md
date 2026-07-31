@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-23
+Last verified: 2026-07-31
 
 ## Runtime Topology
 
@@ -33,7 +33,7 @@ MCP client (Claude Code, Cursor, Copilot, etc.)
               │       └── .wavefoundry/index/ (read: *.npy, *.json)
               ├── wf_current_wave / wf_list_waves / wf_list_plans / wf_get_change / wf_get_prompt
               │       └── docs/waves/ (read), docs/plans/ (read), docs/prompts/ (read)
-              │       [wf_current_wave: returns data.waves[] of all non-closed waves (active→planned→paused), advisory drift detection on active; wf_get_change: supports bulk wave_id mode; wf_prepare_wave: modes dry_run/ready/create — readiness (ready) stays planned and is unguarded; the single-OPEN guard (another_wave_active) fires at activation (implement/reopen/prepare-create); wf_pause_wave: transitions active/implementing→paused]
+              │       [wf_current_wave: returns data.waves[] of all non-closed waves (active→planned→paused), advisory drift detection on active; wf_get_change: supports bulk wave_id mode; wf_prepare_wave: modes dry_run/ready/create — readiness (ready) stays planned and is unguarded; wf_implement_wave consumes current typed readiness authority on declared waves and the legacy prose verdict only on legacy waves; the single-OPEN guard (another_wave_active) fires at activation (implement/reopen/prepare-create); wf_pause_wave: transitions active/implementing→paused]
               ├── wf_get_handoff / wf_set_handoff
               │       └── docs/agents/session-handoff.md (read/write; wf_set_handoff triggers background refresh)
               │       [wf_close_wave/wf_pause_wave: targeted handoff update (Active wave line + Last verified only); close summary includes Owner/Status/Last verified metadata]
@@ -94,8 +94,9 @@ setup_wavefoundry.py --root .
 
 build_pack.py
   ├── stamps .wavefoundry/framework/VERSION
-  └── writes wavefoundry-MAJOR.MINOR.PATCH.<build>.zip (framework source only) under ~/.wavefoundry/dist/
-      (wave 1p4ww removed the separate framework index; framework seeds fold into the project docs index at setup/upgrade)
+  ├── writes one wavefoundry-MAJOR.MINOR.PATCH.<build>.zip under ~/.wavefoundry/dist/
+  └── enriches that same zip with the executable protocol-1→2 entry point and verified payloads
+      (the package embeds the verified bridge plus exact feature payload; internal components are removed after assembly)
 
 dashboard_server.py
   ├── reads docs/workflow-config.json dashboard settings
@@ -104,11 +105,15 @@ dashboard_server.py
   └── writes .wavefoundry/dashboard-server.json for host-local endpoint discovery
 ```
 
-**Supported operator environments:** macOS and Linux are supported natively. Windows operator workflows are currently supported through WSL2. The codebase contains targeted Windows launchers and path/process handling, but install, upgrade, and bootstrap still include POSIX-shell assumptions such as the Codex registration launcher and root-zip upgrade flow. (Policy decided wave `12t9b`.)
+**Supported operator environments:** native Windows, WSL2, macOS, and Linux are first-class. MCP and the cross-platform `wf` / `wf.cmd` dispatcher own the executable flow; human display commands are rendered for the detected host while structured argv remains authoritative.
 
 **Release versioning contract:** Wavefoundry uses semver-only packaging and upgrade code paths. `check_version.py` compares `MAJOR.MINOR.PATCH` tuples and rejects non-semver strings, release zips default to `~/.wavefoundry/dist/`, and packaging requires `--version 1.0.0` or later. `VERSION` and manifest `framework_revision` are stamped as `MAJOR.MINOR.PATCH+<build>` during packaging.
 
 **Python environment contract:** Wavefoundry targets Python ≥ 3.11 and uses a shared user-level tool venv at `~/.wavefoundry/venv` by default (overridable via `WAVEFOUNDRY_TOOL_VENV`). `setup_wavefoundry.py` is the preferred operator bootstrap entrypoint and delegates to `setup_index.py`, which bootstraps and installs framework dependencies into that venv. Generated launchers and MCP configs prefer it, and operator/runtime subprocesses for indexing, dashboard spawn, validation/gardening, surface sync, and upgrade execution resolve it explicitly when present. The intentional exception is the fresh-machine bootstrap path: venv creation itself still begins from the invoking interpreter so the shared venv can be created before any managed-runtime handoff occurs.
+
+**Review-policy authority:** `review_policy.py` owns policy normalization, risk-selected lane order, delivery-Council selection, the typed carrier registry, and parent-bound policy receipts. Prepare persists the roster/receipt and readiness approvals bind it. Review and Close use one shared evaluator; Close adds the registered terminal-only delta. Approval evidence is phase-scoped and executed evidence carries caller-authored integrity checks.
+
+**Upgrade protocol:** protocol 2 validates builder-stamped metadata before extraction and accepts an explicit `--pack` path. For protocol-1 runners, the builder emits one self-contained `.pyz` operator bundle: after explicit host quiescence it validates both embedded archives, installs the hash-verified framework-only bridge with rollback, and immediately runs the exact feature hop in the same invocation. Upgrade uses the shared strict lifecycle→publication lock order, a durable memory-validation pause, fail-fast publisher registry, exact lifecycle-section reconciler, and closed-wave-immutable in-flight reprojection.
 
 ## Current Risk Areas
 

@@ -307,6 +307,40 @@ def _inventory_digest(inventory: Iterable[dict[str, Any]]) -> str:
     return digest.hexdigest()
 
 
+def _reconcile_migrated_memory_source_ids(
+    root: Path, conn: sqlite3.Connection
+) -> int:
+    """Repair uniquely resolvable legacy source ids inside the caller's txn.
+
+    This is deliberately part of ordinary inventory synchronization rather
+    than only the version-gated filename migration.  Successor builds within
+    the same release therefore converge after an interrupted rename too.
+    Missing records stay untouched and visible to the validation worklist;
+    ambiguous or internally inconsistent records raise and roll the caller's
+    transaction back.
+    """
+
+    import memory_records
+
+    repaired = 0
+    rows = conn.execute(
+        "SELECT DISTINCT memory_id FROM memory_backfill_sources "
+        "WHERE memory_id LIKE 'mem-%'"
+    ).fetchall()
+    for row in rows:
+        stale_id = str(row["memory_id"] or "")
+        replacement = memory_records.resolve_migrated_memory_id(root, stale_id)
+        if replacement is None:
+            continue
+        repaired += int(
+            conn.execute(
+                "UPDATE memory_backfill_sources SET memory_id=? WHERE memory_id=?",
+                (replacement, stale_id),
+            ).rowcount
+        )
+    return repaired
+
+
 def sync_inventory(
     root: Path,
     run_id: str,
@@ -318,6 +352,7 @@ def sync_inventory(
     )
     conn = _connect(root)
     now = _now()
+    references_repaired = 0
     try:
         conn.execute("BEGIN IMMEDIATE")
         run = conn.execute(
@@ -325,6 +360,7 @@ def sync_inventory(
         ).fetchone()
         if run is None:
             raise ValueError(f"unknown memory backfill run {run_id}")
+        references_repaired = _reconcile_migrated_memory_source_ids(root, conn)
         inventory_changed = False
         for item in inventory_rows:
             wave_id = str(item["wave_id"])
@@ -390,7 +426,9 @@ def sync_inventory(
         raise
     finally:
         conn.close()
-    return run_summary(root, run_id)
+    summary = run_summary(root, run_id)
+    summary["memory_id_references_repaired"] = references_repaired
+    return summary
 
 
 def claim_next(root: Path, run_id: str) -> dict[str, str] | None:
@@ -761,6 +799,57 @@ def record_publication_success(root: Path, run_id: str, attempt_id: str) -> bool
             "updated_at=? WHERE run_id=? AND state='publishing_index' "
             "AND publication_attempt_id=?",
             (_now(), run_id, str(attempt_id)),
+        )
+        conn.execute("COMMIT")
+        return cur.rowcount == 1
+    except Exception:
+        if conn.in_transaction:
+            conn.execute("ROLLBACK")
+        raise
+    finally:
+        conn.close()
+
+
+def restage_index_finalize(
+    root: Path,
+    run_id: str,
+    attempt_id: str,
+    expected_generation: int,
+) -> bool:
+    """Transfer one frozen publication to a later staged child attempt.
+
+    Phase 4 is multi-pass: the content child freezes the zero-pending census,
+    then graph maintenance may start a new build attempt before the parent
+    owns the final CAS.  The generation and inventory authority must remain
+    identical, but the exact staged attempt must move to the final child so
+    the parent can retain attempt-ID protection instead of accepting by
+    generation alone.
+    """
+
+    inventory = inventory_closed_waves(root)
+    summary = sync_inventory(root, run_id, inventory=inventory)
+    if (
+        summary["state"] != "publishing_index"
+        or summary["remaining_waves"]
+        or summary["candidates_pending"]
+        or summary["failures"]
+    ):
+        return False
+    digest = _inventory_digest(inventory)
+    conn = _connect(root)
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        cur = conn.execute(
+            "UPDATE memory_backfill_runs SET publication_attempt_id=?,updated_at=? "
+            "WHERE run_id=? AND state='publishing_index' "
+            "AND publication_generation=? AND publication_inventory_digest=?",
+            (
+                str(attempt_id),
+                _now(),
+                run_id,
+                int(expected_generation),
+                digest,
+            ),
         )
         conn.execute("COMMIT")
         return cur.rowcount == 1

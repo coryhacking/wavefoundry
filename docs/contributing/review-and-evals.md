@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-27
+Last verified: 2026-07-31
 
 ## Review Lane Summary
 
@@ -44,11 +44,11 @@ Seed `209-agent-harness-core.prompt.md` is the only full executable-review-evide
 | Seeds 050 + 209 | Existing/enabled `docs/agents/docs-contract-reviewer.md`; `docs/agents/release-reviewer.md` | Seed 050 + public renderer | Seeds 150 / 160 + public renderer | `ReviewProtocolCarrierRegistryTests` |
 | Seed 209 | `docs/contributing/review-and-evals.md` | Public renderer | Seeds 150 / 160 + public renderer | `ReviewProtocolCarrierRegistryTests` |
 | Registered canonical role | Existing/enabled `.claude/agents/<role>.md`; `.codex/skills/agent-role-<role>/SKILL.md`; canonical Guru wrappers `.claude/agents/guru.md` and `.codex/skills/auto-guru/SKILL.md` | Seed 050 + public renderer | Seeds 150 / 160 + public renderer | `ReviewProtocolCarrierRegistryTests` |
-| `review_evidence.py` + `wf_review_event` | Fixed sibling `docs/waves/<wave>/events.jsonl` as the sole machine authority; generated Markdown current-head projection in `wave.md` | Seed 100 / `wf_create_wave`; framework MCP server | Direct-ledger validation (missing/noncanonical/schema/relationship failures reject without Git); typed append on installed/upgraded servers; no consumer-history migration; no receipt or hash sidecar | `ReviewEvidenceStateMachineTests`; `WaveLifecycleMutationTests`; `WaveCreateScaffoldAlignmentTests`; build-pack/setup/upgrade distribution fixtures; rollback-boundary negative control; live-surface deletion census |
+| Seed 209 + `review_evidence.py` + `wf_review_wave` + `wf_review_event` | Seed 209 owns the human protocol and bounded same-root-cause review rule. `review_evidence.py` owns typed state, vocabulary, and the one structured authority/action projection. `wf_review_wave` is the sole guided inspection entry point and full-validation owner. `wf_review_event` owns typed writes, the post-commit continuation, and the forensic `list` presentation. The fixed sibling `events.jsonl` remains the sole machine authority; generated Markdown is presentation only. | Seed 100 / `wf_create_wave`; framework MCP server | Direct-ledger validation (missing/noncanonical/schema/relationship failures reject without Git); typed append; Prepare-owned policy receipt in the same ledger; protocol-2 upgrade reprojects only non-closed waves; successful writes derive continuation without rerunning validation | `ReviewEvidenceStateMachineTests`; `GuidedReviewAuthorityProjectionTests`; `ReviewEvidenceListEventTests`; `WaveLifecycleMutationTests`; `WaveCreateScaffoldAlignmentTests`; build-pack/setup/upgrade distribution fixtures; rollback-boundary negative control; live-surface deletion census |
 
 Fresh setup, full upgrade, direct `wf render-surfaces`, and self-host refresh converge on that renderer operation. Missing required canonical carriers are materialized from their installed seeds (or a bounded bootstrap pointer for multi-output owners); Guru, conditional repo-local reviewers, and arbitrary native wrappers remain existing/enabled-only. Newly created canonical Guru wrappers are reconciled after materialization in the same render pass. Malformed markers fail safe rather than authorizing whole-file replacement.
 
-The machine contract is fail-closed. `wave.md` declares `review-evidence-source: events.jsonl`; the fixed sibling ledger—not the generated Markdown table—is the append-only authority. The typed `wf_review_event` tool serializes its event transaction under the project-global lock and refreshes the concise current-head projection on each write. A one-candidate run may reuse its finding evidence as universe proof, and an empty lightweight run needs only one run row, retaining reviewer `verification_context` without a separate dedup row. A synthesis links only to earlier `claim_kind: finding` evidence for the same finding. Approval records use `claim_id: approval:<signoff-key>` and bind the exact authority actor: `operator`, `wave-council`, or the named specialist lane; specialist and council approvals must be fresh and independent. Approval chronology is affected-lane scoped through `approval_recheck_lanes`; unrelated later synthesis does not stale another lane, while readiness findings stale readiness approval until terminal, delivery findings stale their declared delivery lanes, and operator approval remains final-wave scoped. Independence means the reviewer did not implement the repair and formed its own current-tree/test assessment before relying on prior findings or verdicts. Mandatory project orientation may disclose status or history, but it is context rather than evidence and does not by itself disqualify a fresh review. Lane reassessment is exact-lane, fresh, independent, and single-use. Universal census records include `residual_uncertainty_status` (`none | bounded | unresolved`) and `index_freshness` (`current | stale | unknown`). Operator waivers include scope, reason, and risk.
+The machine contract is fail-closed. `wave.md` declares `review-evidence-source: events.jsonl`; the fixed sibling ledger—not the generated Markdown table—is the append-only authority. Start guided work with one phase-correct `wf_review_wave`; it runs the existing full validation and returns state-derived actions without supplying reviewer judgments. The typed `wf_review_event` tool serializes its event transaction under the project-global lock, refreshes the concise current-head projection, and on successful create returns the next post-commit actions without another validation or list call. Use `event="list"` for forensic history, filters, truncation recovery, or disputed state. A one-candidate run may reuse its finding evidence as universe proof, and an empty lightweight run needs only one run row, retaining reviewer `verification_context` without a separate dedup row. A synthesis links only to earlier `claim_kind: finding` evidence for the same finding. Approval records use `claim_id: approval:<signoff-key>` and bind the exact authority actor: `operator`, `wave-council`, or the named specialist lane; specialist and council approvals must be fresh and independent. Approval chronology is affected-lane scoped through `approval_recheck_lanes`; unrelated later synthesis does not stale another lane, while readiness findings stale readiness approval until terminal, delivery findings stale their declared delivery lanes, and operator approval remains final-wave scoped. Independence means the reviewer did not implement the repair and formed its own current-tree/test assessment before relying on prior findings or verdicts. Mandatory project orientation may disclose status or history, but it is context rather than evidence and does not by itself disqualify a fresh review. Lane reassessment is exact-lane, fresh, independent, and single-use. Universal census records include `residual_uncertainty_status` (`none | bounded | unresolved`) and `index_freshness` (`current | stale | unknown`). Operator waivers include scope, reason, and risk.
 
 Independence is split between what the validator enforces and what stays declared (seed 209, "Enforced versus declared independence"). Enforced, chain-aware and matched by exact finding and cycle: a `reverification` sharing its resolving `repair_start`'s `context_id` while declaring `fresh_context=true` is rejected at append with `reverification_context_not_fresh` (a self-contradiction, decidable with no trust assumption); a `reverification` carrying the same `actor` as that `repair_start` from a different context is rejected with `reverification_actor_not_distinct` (forward protocol policy — not proof of shared caller identity). When both match, only the same-context contradiction is returned. Rejected attempts append nothing, so the prior synthesis head stays authoritative. The close gate additionally audits an open or reopened wave's current/latest chains for the same defects appended by older code (`review_evidence_independence_invalid`); recovery is a next-cycle `repair_start` plus a distinct-role, distinct-context reverification, and sealed/closed archives are never retroactively invalidated. Declared, honor-system: the truth of `fresh_context` and `independent`, and actor identity itself — the validator sees strings, not callers, and no waiver bypasses the enforced checks.
 
@@ -74,7 +74,7 @@ Before implementation begins, the wave-coordinator confirms:
 
 1. All changes marked `complete` or `deferred` with explicit rationale
 2. All required review lanes from readiness are reconciled in `## Review checkpoints` (including deferred with rationale when applicable)
-3. `wave-council-readiness` and `wave-council-delivery` signoffs are present when `wave_review.enabled` (typed approval events on declared waves, projected into `## Review Evidence`; prose lines count only on legacy waves)
+3. `wave-council-readiness` is present when review is enabled, and `wave-council-delivery` is present when the persisted Prepare receipt says the configured delivery mode requires it (typed, phase-scoped approval events on declared waves; prose lines count only on legacy waves)
 4. Docs-contract review: recorded as performed (findings in `## Review checkpoints`) or `not applicable` with rationale, when any `docs/specs/*.md` changed during the wave
 5. Journal distillation complete: any important implementation/review lessons added to relevant role or persona journals
 6. Durable memory promoted to `docs/references/project-context-memory.md` (and other canonical docs when applicable)
@@ -87,10 +87,10 @@ Before implementation begins, the wave-coordinator confirms:
 
 ## Wave Council
 
-The framework ships `wave_review.enabled: true` by default so the council surface is available without operator action. When `required_for_all_waves: true` (operator opt-in for enforcement), Wavefoundry requires a universal two-phase council pass for every wave:
+The framework ships `wave_review.enabled: true` and `delivery_mode: universal` by default. Readiness Council is required whenever review is enabled. Delivery Council follows the explicit mode: `universal` requires it for every wave, `targeted` requires it only when the Prepare receipt or current boundary triggers select it, and `disabled` is valid only with `enabled: false`.
 
 - `wave-council-readiness` before implementation
-- `wave-council-delivery` before closure
+- `wave-council-delivery` before closure when the selected delivery mode requires it
 
 Wave Council runs a red-team adversarial primer (Phase 1) before fixed seats (Phase 2), then synthesizes. The full protocol — depth tiers, seat responsibilities, output shape — is in `docs/agents/specialists/wave-council.md`.
 
@@ -100,7 +100,11 @@ The `wave-council` owns the protocol and verdict. The `wave-coordinator` routes 
 
 Record machine-readable council signoffs as typed approval events through `wf_review_event` on declared waves (they project into `## Review Evidence`); only legacy prose waves record the signoff line in `## Review Evidence` directly. Record the narrative synthesis in `## Review checkpoints`.
 
-**Readiness recording contract:** the structured `prepare-council` verdict line's `seats:` field names the seats actually run, each at most once (a rotating pick that is also a fixed seat appears once, identified by `rotating-seat:`), and every rostered seat other than the `red-team` primer and the `wave-council` moderator must have recorded evidence — a finding or an explicit no-findings note — in `## Prepare Review Evidence`, `## Review Evidence`, or a `## Review Checkpoints` entry other than the verdict line itself. docs-lint checks this roster⇄evidence consistency on open waves. Seat verification follows the all-phase code-grounded verification tenet (canonical definition: seed `209-agent-harness-core.prompt.md`, "Code-Grounded Verification"; review-phase contract: `docs/prompts/council-review.prompt.md`).
+Prepare is the sole policy authority. It derives the ordered specialist roster from requested lanes, project policy, and admitted change bytes; appends an idempotent, parent-bound `review_policy_receipt`; reprojects status rows; and clears `review-policy-reprepare-required`. Readiness approvals bind the current receipt and use `approval_phase: readiness`; Review/Close consume the persisted roster and receipt without independently selecting lanes. A changed policy input or upgrade marker blocks Implement, Review, and Close until Prepare runs again. Delivery approvals use `approval_phase: delivery`; historical approvals without the field retain their documented compatibility mapping.
+
+Review and Close consume one shared delivery evaluator for ledger validity, receipt/marker currency, docs lint, required lanes, Council selection, approval evidence, and operator state. Close then adds only its registered closure delta (garden, unresolved change/checkbox, repair-independence, memory, secrets, gates, and transition checks), preventing the two lifecycle paths from silently drifting.
+
+**Readiness recording contract:** on declared waves, the typed `wave-council-readiness` approval is the machine authority. A structured `prepare-council` checkpoint may still summarize the seats actually run, but it is narrative and cannot change a lifecycle result; when present, docs-lint may warn if its roster lacks corresponding evidence. Legacy waves retain the structured verdict compatibility gate. Seat verification follows the all-phase code-grounded verification tenet (canonical definition: seed `209-agent-harness-core.prompt.md`, "Code-Grounded Verification"; review-phase contract: `docs/prompts/council-review.prompt.md`).
 
 ## Code Review Requirements
 
@@ -129,6 +133,14 @@ Reference independence improves evidence quality; it does not confer reviewer in
 
 At wave closure: if any `docs/specs/*.md` behavioral contract changed during the wave, record a docs-contract review with findings in `## Review checkpoints`. If no specs changed, record `Docs-contract review: not applicable` with a one-line rationale.
 
+<!-- wavefoundry:review-policy:begin -->
+## Review-policy evidence baseline
+
+The review policy requires phase-scoped integrity evidence. After repair,
+check the same root cause and adjacent repair class before focused repair
+reverification.
+<!-- wavefoundry:review-policy:end -->
+
 <!-- wave:executable-review-evidence begin — generated by render_agent_surfaces.py; preserve project-authored content outside this region -->
 ## Executable review evidence
 
@@ -149,7 +161,8 @@ Markdown current-state projection in `wave.md`. A role without lifecycle
 mutation authority returns those facts to its coordinator instead of
 writing wave state.
 
-After validation, apply the ordered four-way actionability gate:
+Under the current review policy, after validation apply the ordered
+four-way actionability gate:
 `do_now`, `maybe_later`, `dont_do_later`, or `not_issue`. Complete bounded
 `do_now`/`maybe_later` work before closure, create no backlog for rejected
 states, and use focused repair replay unless a load-bearing boundary change

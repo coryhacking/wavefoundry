@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-26
+Last verified: 2026-07-31
 
 Maps Wave Framework agent docs, personas, specialists, and factor agents to native agent platform files.
 
@@ -42,7 +42,7 @@ Maps Wave Framework agent docs, personas, specialists, and factor agents to nati
 
 | Host | Hook path contract | MCP path contract | Evidence level |
 |------|--------------------|-------------------|----------------|
-| Claude Code | Owner-bound through `CLAUDE_PROJECT_DIR`; no cwd search | Owner-bound through `CLAUDE_PROJECT_DIR` | Executed on macOS from nested cwd; Windows runtime pending |
+| Claude Code | Owner-bound through `CLAUDE_PROJECT_DIR`; main-session `Stop` renders separate session-capture and detached Context Efficiency projection adapters | Owner-bound through `CLAUDE_PROJECT_DIR` | Executed on macOS from nested cwd; committed launcher is platform-neutral and uses windowless detached Python on Windows |
 | Cursor | Host launches project hooks from the workspace root | `${workspaceFolder}` `cwd` pin | Renderer/fixture verified |
 | GitHub Copilot | Repository-root contract; native `bash` and `powershell` fields | Provider/UI registration | Schema rendered; host runtime not claimed |
 | Windsurf | `working_directory: "."` project-root contract | Provider/UI registration | Renderer/fixture verified |
@@ -50,6 +50,12 @@ Maps Wave Framework agent docs, personas, specialists, and factor agents to nati
 | Codex | No native hooks are emitted without a verified project-owner signal | Project-local config; host opens the project root | Root-only; non-Git projects are supported when opened at their root |
 | Air / Warp | Delegated to the underlying agent host; no invented native hook files | Provider/UI registration | Explicitly unsupported as native hook surfaces |
 | Antigravity | No native hook file is emitted | Workspace-local `.agents/mcp_config.json`, root-only | Config shape verified; no native hook claim |
+
+The Context Efficiency projection safety net is MCP-owned and therefore applies
+to every attached host independently of native hook support or index-monitor
+configuration. Only Claude Code receives the verified native turn-end adapter;
+Codex, Cursor, Copilot, Windsurf, Junie, Air, Warp, and Antigravity receive no
+invented end-turn surface and converge through the MCP quiet-period monitor.
 
 Root-only means exactly that: the host must launch from the configured project root. Wavefoundry does
 not search upward from an arbitrary cwd, because a descendant containing another installation could

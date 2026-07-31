@@ -116,7 +116,9 @@ The Wave Framework addresses this by giving agents a persistent operating surfac
   README.md       This file — project owner orientation
 ```
 
-The framework ships as a semver zip (`wavefoundry-MAJOR.MINOR.PATCH.<build>.zip`). When you run `Upgrade Wavefoundry`, the agent adopts the highest matching pack it finds, reconciles the operating surface, and updates the indexes.
+Each release ships exactly one semver package (`wavefoundry-MAJOR.MINOR.PATCH.<build>.zip`). Fresh
+installs and protocol-2 upgrades extract that package through `Upgrade Wavefoundry`; a protocol-1 /
+1.14 installation moving to 1.15 executes the same package directly after explicit host shutdown.
 
 ---
 
@@ -197,7 +199,7 @@ The framework ships a local semantic search index built on `fastembed` and `BAAI
 
 ### The Coordinator Loop
 
-When a wave contains multiple changes, the coordinator — not each individual implementer — owns execution order, dependency sequencing, and review checkpoints. The coordinator follows an explicit ReAct-derived loop: **Thought → Action → Observe**, recorded in the wave's Progress Log.
+When a wave contains multiple changes, the coordinator — not each individual implementer — owns execution order, dependency sequencing, and exceptional named checkpoints. The coordinator follows an explicit ReAct-derived loop: **Thought → Action → Observe**, recorded in the wave's Progress Log. Routine inferential review runs later through the distinct `Review wave` phase.
 
 **Before the first edit**, the coordinator produces a wave plan: an ordered sequence of lane invocations with explicit inputs per change, and which changes can run in parallel vs. sequentially.
 
@@ -224,12 +226,12 @@ When a reviewer or sensor finds a problem, the coordinator chooses the right res
 | Level | Trigger | Response |
 |-------|---------|----------|
 | **L1 — Micro** | Fix is local to the implementer, no reviewer needed | Fix inline; no log entry required |
-| **L2 — Reviewer loop** | Reviewer found a real defect; fix is scoped to the change | Fix, re-run reviewers; no re-Prepare needed |
+| **L2 — Focused independent checkpoint** | Implementation exposes a risky boundary that is not safely implementer-internal | Request one named reviewer, fix, and re-check that boundary; no re-Prepare needed |
 | **L3 — Wave lifecycle** | Finding invalidates a frozen assumption or changes scope | Stop. Record `Reflect:`. Re-Prepare or re-plan. |
 
 **CRITIC — finding classification before looping**
 
-After each review cycle, findings are evaluated against the admitted change's acceptance criteria — not just "reviewer clean." A change is not done until its ACs are met. "Reviewer approved" alone is not the exit condition.
+After an exceptional named checkpoint or the distinct delivery review, findings are evaluated against the admitted change's acceptance criteria — not just "reviewer clean." A change is not done until its ACs are met. "Reviewer approved" alone is not the exit condition.
 
 **Carry-forward at closure**
 
@@ -250,7 +252,7 @@ This disposition record is what lets future sessions continue without reconstruc
 
 ### Installing
 
-Place the distribution zip (`wavefoundry-MAJOR.MINOR.PATCH.<build>.zip`) in the repository root, `~/.wavefoundry/`, or `~/.wavefoundry/dist/`, and run:
+For a fresh install, place the feature zip (`wavefoundry-MAJOR.MINOR.PATCH.<build>.zip`) in the repository root, `~/.wavefoundry/`, or `~/.wavefoundry/dist/`, and run:
 
 ```
 Upgrade Wavefoundry
@@ -269,6 +271,13 @@ Upgrade Wavefoundry
 ```
 
 The agent detects drift, reconciles prompts and hook surfaces, runs the docs gate, restarts MCP, and updates the index.
+
+When a 1.14 / protocol-1 installation is moving to 1.15, use the same matching
+`wavefoundry-<version>.zip` package. Fully stop the dashboard and every attached MCP/agent host;
+the agent then executes the exact returned argv once through its ordinary non-MCP shell. The
+operator does not copy or type that command. After it returns, restart every attached host and
+follow the structured reconciliation/cleanup result. No special upgrade package, separate bridge
+asset, or second copied command is required.
 
 ### Starting a session
 

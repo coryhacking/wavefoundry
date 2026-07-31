@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-20
+Last verified: 2026-07-31
 
 ## Default Change Path
 
@@ -12,8 +12,8 @@ All non-trivial work follows this sequence. Do not edit repository code before s
 2. **Create wave** — create `docs/waves/<wave-id>/wave.md`. Generate a wave ID with the MCP `wf_create_wave` tool; CLI fallback when MCP is unavailable: `wf lifecycle-id --kind wave --slug <slug>`.
 3. **Add change to wave** — admit the change into the wave and relocate the active change doc from `docs/plans/` into `docs/waves/<wave-id>/`.
 4. **Prepare wave** — confirm readiness: validate admitted-doc placement, repair any staged-only doc, confirm all admitted changes are documented, select review lanes, record AC priority. The wave must have a clean Prepare wave pass before implementation begins.
-5. **Implement wave / Implement feature** — execute the admitted changes. Coordinator manages reviewer lanes during implementation.
-6. **Review wave** — all required review lanes (code, QA, architecture, etc.) must produce findings or be explicitly deferred with rationale.
+5. **Implement wave / Implement feature** — execute admitted changes and focused computational verification; use an exceptional named checkpoint only at a high-risk boundary.
+6. **Review wave** — after implementation evidence is complete, all required inferential lanes (code, QA, architecture, etc.) must produce findings or be explicitly deferred with rationale; blocking findings return to implementation.
 7. **Close wave / Finalize feature** — mark all changes complete or deferred; distill journals; promote memory to canonical docs; clear session handoff.
 
 ## Documentation-Only Changes

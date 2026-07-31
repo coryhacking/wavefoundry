@@ -19,9 +19,85 @@ GURU_STUB = "# Guru\n\nRole: guru\n"
 sys.path.insert(0, str(SCRIPTS_ROOT))
 import render_agent_surfaces as ras  # noqa: E402
 import render_platform_surfaces as rps  # noqa: E402
+from wave_lint_lib.core_validators import check_review_policy_carriers  # noqa: E402
 
 
 class ReviewProtocolCarrierRegistryTests(unittest.TestCase):
+    def test_policy_lifecycle_baselines_are_derived_from_the_registry(self) -> None:
+        derived = {
+            (carrier.destination, carrier.source.removeprefix("lifecycle:"))
+            for carrier in ras.REVIEW_POLICY_CARRIER_REGISTRY
+            if carrier.owner == "renderer" and carrier.source.startswith("lifecycle:")
+        }
+        self.assertTrue(derived)
+        self.assertTrue(derived.issubset(set(ras.LIFECYCLE_PROMPT_BASELINES)))
+
+    def test_policy_renderer_materializes_all_registered_policy_blocks(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            for destination, block in ras.REVIEW_POLICY_SURFACE_BLOCKS.items():
+                path = root / destination
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("project prose\n", encoding="utf-8")
+            written = ras.reconcile_review_policy_surfaces(root)
+            self.assertEqual(set(written), set(ras.REVIEW_POLICY_SURFACE_BLOCKS))
+            for destination in ras.REVIEW_POLICY_SURFACE_BLOCKS:
+                text = (root / destination).read_text(encoding="utf-8")
+                self.assertEqual(text.count(ras.REVIEW_POLICY_SURFACE_MARKER_BEGIN), 1)
+                self.assertEqual(text.count(ras.REVIEW_POLICY_SURFACE_MARKER_END), 1)
+
+    def test_pre_v115_existing_docs_receive_owned_policy_baselines_and_validate(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            direct_docs = {
+                carrier.destination
+                for carrier in ras.REVIEW_POLICY_CARRIER_REGISTRY
+                if carrier.owner == "direct_docs"
+                and carrier.destination not in {
+                    "docs/agents",
+                    "docs/references/dashboard-adapter-model.md",
+                }
+            }
+            original: dict[str, bytes] = {}
+            for destination in direct_docs:
+                path = root / destination
+                path.parent.mkdir(parents=True, exist_ok=True)
+                body = f"# Existing project document\n\nproject-owned:{destination}\n".encode()
+                path.write_bytes(body)
+                original[destination] = body
+
+            written = ras.render_agent_surfaces(root)
+            self.assertTrue(direct_docs.issubset(set(written)))
+            self.assertEqual(check_review_policy_carriers(root), [])
+            for destination, prefix in original.items():
+                with self.subTest(destination=destination):
+                    rendered = (root / destination).read_bytes()
+                    self.assertTrue(rendered.startswith(prefix))
+                    text = rendered.decode("utf-8")
+                    self.assertEqual(
+                        text.count(ras.REVIEW_POLICY_SURFACE_MARKER_BEGIN), 1
+                    )
+                    self.assertEqual(
+                        text.count(ras.REVIEW_POLICY_SURFACE_MARKER_END), 1
+                    )
+
+            absent = root / "docs/references/dashboard-adapter-model.md"
+            self.assertFalse(absent.exists())
+            snapshot = {
+                path.relative_to(root).as_posix(): path.read_bytes()
+                for path in root.rglob("*")
+                if path.is_file()
+            }
+            self.assertEqual(ras.render_agent_surfaces(root), [])
+            self.assertEqual(
+                snapshot,
+                {
+                    path.relative_to(root).as_posix(): path.read_bytes()
+                    for path in root.rglob("*")
+                    if path.is_file()
+                },
+            )
+
     def test_independent_reference_contract_is_bounded_and_preserves_independence(self) -> None:
         seeds_root = PROJECT_ROOT / "framework" / "seeds"
         core = (seeds_root / "209-agent-harness-core.prompt.md").read_text(encoding="utf-8")

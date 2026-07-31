@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-27
+Last verified: 2026-07-31
 
 Shortcut: **`Close wave`**
 
@@ -16,7 +16,7 @@ All closure-time code and docs investigation follows the run contract's Retrieva
 
 1. All changes marked `complete` or `deferred` with explicit rationale
 2. All required review lanes from readiness reconciled in `## Review checkpoints` (or deferred with rationale)
-3. When `wave_review.enabled` is true, both `wave-council-readiness` and `wave-council-delivery` are present in `## Review Evidence`
+3. When review is enabled, `wave-council-readiness` is present and `wave-council-delivery` is present only when selected by the current Prepare receipt in `## Review Evidence`
 4. **Docs-contract review:** recorded as performed with findings, or `Docs-contract review: not applicable` with rationale — required whenever any `docs/specs/*.md` changed during the wave
 5. Chronology reconciled: `Status: completed`, `Completed at:` date, all change statuses finalized
 6. Memory capture: important implementation/review lessons recorded as typed memory candidates and validated at the close checkpoint (absence of new candidates is acceptable if nothing warranted one)
@@ -42,7 +42,7 @@ All closure-time code and docs investigation follows the run contract's Retrieva
 - If framework scripts changed: confirm `python3 .wavefoundry/framework/scripts/run_tests.py` passes
 - If `docs/prompts/` or manifest changed: confirm docs gate passes (**`wf_validate_docs`** over MCP, or **`wf docs-lint`** if MCP is unavailable)
 - If seed prompts changed: confirm guard-overrides reset to `false`
-- If Wave Council is enabled: confirm `wave-council` recorded both council signoffs (typed approval events in the wave's `events.jsonl` on declared waves, projected into `## Review Evidence`; prose lines count only on legacy waves)
+- If Wave Council is enabled: confirm `wave-council-readiness` is current and confirm `wave-council-delivery` only when the current Prepare receipt selected it (typed approval events in the wave's `events.jsonl` on declared waves, projected into `## Review Evidence`; prose lines count only on legacy waves)
 
 ## Agent Memory Validation Checkpoint
 
@@ -67,3 +67,11 @@ eligible through
 preferences, and fragile-file records require a current evidence check before
 setting `eligibility_confirmed=true`. Archival renames the canonical body and
 leaves a compact active pointer; it does not delete history.
+
+<!-- wavefoundry:review-policy:begin -->
+## Review-policy closure
+
+Close Wave consumes the same shared delivery evaluator and current
+`wave_review.delivery_mode`; it performs closure-only delta checks and does not
+recompute a parallel review policy.
+<!-- wavefoundry:review-policy:end -->

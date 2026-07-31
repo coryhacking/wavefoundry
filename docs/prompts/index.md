@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-25
+Last verified: 2026-07-31
 
 The public catalog of shortcut phrases you can say to your agent. Each phrase routes to the documented prompt body for that command. See `AGENTS.md` for the agent-side routing table.
 
@@ -72,7 +72,7 @@ The following phrases are accepted for backwards compatibility but redirect to p
 ## Usage Notes
 
 - **Full lifecycle required before code:** Every non-trivial code change needs a change doc, wave admission, and a clean **Prepare wave** before implementation. See `AGENTS.md` **Stage Gate (repository code)**.
-- **Wave Council:** when `docs/workflow-config.json` `wave_review.enabled` is true, every wave also requires a council readiness pass during **Prepare wave** and a council delivery pass during **Review wave** / before **Close wave**. These are universal meta-review checkpoints and do not replace specialist lanes.
+- **Wave Council:** when `docs/workflow-config.json` `wave_review.enabled` is true, every wave requires a council readiness pass during **Prepare wave**. Delivery Council during **Review wave** / before **Close wave** follows `delivery_mode`: universal, targeted by the Prepare receipt/current boundary, or disabled with review disabled. These meta-review checkpoints do not replace the persisted specialist roster.
 - **Implement wave vs Implement feature:** Use **Implement wave** for multiple admitted changes; use **Implement feature** for a single docs-first change.
 - **Concurrency and protected surfaces:** See `docs/prompts/agent-routing-concurrency.prompt.md` for read-only vs write-owning lane rules.
 - **Stress-testing plans:** After **Plan feature**, use **Interrogate this plan** to walk unresolved decision branches before admission.

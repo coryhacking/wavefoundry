@@ -76,10 +76,13 @@ import json
 import importlib.util
 import os
 import re
+import shlex
+import subprocess
 import sys
 import traceback
+import zipfile
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 
 _LEGACY_RUNTIME_LOCKS = (
@@ -87,6 +90,113 @@ _LEGACY_RUNTIME_LOCKS = (
     ("dashboard-start.lock", 1 << 30),
     ("dashboard-server.lock", 1 << 30),
 )
+
+_PROTOCOL_METADATA_ARC = ".wavefoundry/framework/UPGRADE-PROTOCOL.json"
+
+
+def _render_command(argv: list[str], *, platform_name: str | None = None) -> str:
+    """Render human guidance; callers execute the original argv list."""
+
+    selected = platform_name or os.name
+    return subprocess.list2cmdline(argv) if selected == "nt" else shlex.join(argv)
+
+
+def _operator_python(executable: str, *, platform_name: str | None = None) -> str:
+    """Return a console interpreter for the human-run package command."""
+
+    selected = platform_name or os.name
+    if selected == "nt":
+        path = PureWindowsPath(executable)
+        if path.stem.lower() == "pythonw" and path.suffix.lower() == ".exe":
+            return str(path.with_name(path.stem[:-1] + path.suffix))
+    return executable
+
+
+def post_preflight(ctx):
+    """Stop a protocol-1 runner before it can enter extraction.
+
+    The supported-floor runner already invokes this incoming hook but has no
+    native protocol vocabulary. Absence of ``runner_protocol`` therefore
+    identifies that legacy ABI; protocol-2 runners set it explicitly.
+    """
+
+    zip_path = getattr(ctx, "zip_path", None)
+    if zip_path is None:
+        return
+    runner_protocol = getattr(ctx, "runner_protocol", 1)
+    try:
+        with zipfile.ZipFile(zip_path, "r") as archive:
+            metadata = json.loads(
+                archive.read(_PROTOCOL_METADATA_ARC).decode("utf-8")
+            )
+        minimum = metadata.get("minimum_runner_protocol")
+    except (OSError, KeyError, UnicodeError, ValueError, zipfile.BadZipFile) as exc:
+        print(
+            json.dumps(
+                {
+                    "status": "error",
+                    "code": "upgrade_protocol_invalid",
+                    "message": f"feature-pack protocol metadata is unavailable: {exc}",
+                },
+                sort_keys=True,
+            )
+        )
+        raise SystemExit(3)
+    if not isinstance(minimum, int) or isinstance(minimum, bool):
+        print(json.dumps({"status": "error", "code": "upgrade_protocol_invalid"}))
+        raise SystemExit(3)
+    if int(runner_protocol) >= minimum:
+        return
+    package = Path(zip_path)
+    root = Path(getattr(ctx, "root", Path.cwd())).resolve()
+    command_argv = [
+        _operator_python(sys.executable),
+        str(package),
+        "--root",
+        str(root),
+        "--confirm-hosts-stopped",
+    ]
+    command = _render_command(command_argv)
+    print(
+        json.dumps(
+            {
+                "status": "error",
+                "code": "bridge_release_required",
+                "runner_protocol": int(runner_protocol),
+                "minimum_runner_protocol": minimum,
+                "why": (
+                    "the attached protocol-1 runner cannot replace itself or extract "
+                    "a protocol-2 feature pack"
+                ),
+                "package": str(package),
+                "package_present": package.is_file(),
+                "command_argv": command_argv if package.is_file() else None,
+                "command": command if package.is_file() else None,
+                "hosts_to_stop": (
+                    "Wavefoundry dashboard and MCP server processes for this repository; "
+                    "keep the agent session idle while the shell command runs"
+                ),
+                "restart_guidance": (
+                    "The agent runs command_argv through its ordinary non-MCP shell after "
+                    "Wavefoundry services stop. After the package finishes or pauses, fully "
+                    "restart every attached host and follow the structured recovery result."
+                ),
+                "legacy_wrapper_limitation": (
+                    "The already-loaded protocol-1 MCP wrapper predates the current response "
+                    "cap and cannot be changed by this incoming pack; this compact JSON record "
+                    "is emitted last. If the host rejects or truncates it, the agent uses its "
+                    "ordinary shell to detect and execute the single installed package after "
+                    "Wavefoundry services stop; the operator does not enter a command."
+                ),
+                "acquisition": (
+                    "Download the single matching wavefoundry-<version>.zip release "
+                    "package when it is not present."
+                ),
+            },
+            sort_keys=True,
+        )
+    )
+    raise SystemExit(3)
 
 
 def _read_json_object(path: Path) -> dict:
@@ -552,6 +662,11 @@ def post_docs_gate(ctx):
         ),
         memory_backfill_last_failure=summary["last_failure"],
     )
+    # Protocol-2 runners own the canonical bounded extraction attempt after
+    # this hook returns.  A protocol-1 runner cannot safely continue through
+    # the new memory state machine, so it retains the compatibility pause.
+    if int(getattr(ctx, "runner_protocol", 1) or 1) >= 2:
+        return
     if summary["state"] == "awaiting_validation":
         print(
             "\nHistorical memory requires bounded extraction and agent validation "

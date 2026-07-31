@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-20
+Last verified: 2026-07-31
 
 This document describes how Wavefoundry builds and maintains its search indexes. It covers
 every stage of the pipeline: file discovery, change detection, chunking, embedding, and
@@ -114,7 +114,16 @@ each other: a prompt **turn-end** trigger and a slow **quiet-period safety net**
   it defers while a `reindex-pending` marker is fresh (the turn-end hook owns the next reindex) and for
   `quiet_period` seconds after the last build's `ended_at`. It fires only for drift the turn-end path
   missed — external (non-agent) edits, a turn that ended without the `Stop` hook flushing, or a
-  non-Stop host — so it never competes with active editing.
+  non-Stop host — so it never competes with active editing. Before classifying persisted
+  `background-refresh.json` state as active, the monitor non-blockingly reaps MCP-owned POSIX
+  children and validates unregistered PIDs with the indexer's zombie/PID-reuse-safe process
+  classifier. A completed child or recycled unrelated PID therefore cannot suppress the next
+  eligible refresh after MCP reload; a genuine builder or held build lock remains single-flight.
+  The recovery spawn passes `--content all` explicitly—`indexer.py` defaults to docs-only—so one
+  project refresh converges both docs and code semantic layers.
+  `index_health.data.background_monitors.index` exposes configured/alive state and the bounded last
+  stale/trigger/reason decision. The lock object from `index_build_status` remains the authority for
+  whether a build is running.
 - **MCP mutating tools → background project refresh** — most doc-writing wave-lifecycle tools
   (`wf_new_*`, `wf_add_change`, `wf_set_handoff`, prepare / pause / review / close / reopen,
   docs gardening) call `_trigger_background_index_refresh_for_paths` → `_start_background_index_refresh`

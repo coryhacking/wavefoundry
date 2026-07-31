@@ -11,10 +11,40 @@ from __future__ import annotations
 import datetime
 import json
 import os
+import tempfile
 from pathlib import Path
 from typing import Any
 
 UPGRADE_LOCK_FILENAME = "upgrade-in-progress.json"
+
+
+def _durable_json_replace(path: Path, data: dict[str, Any]) -> None:
+    """Atomically replace *path* and fsync both file and containing directory."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, raw_tmp = tempfile.mkstemp(prefix=f".{path.name}.", dir=str(path.parent))
+    tmp = Path(raw_tmp)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
+            json.dump(data, handle, indent=2)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp, path)
+        try:
+            dir_fd = os.open(path.parent, os.O_RDONLY)
+        except OSError:
+            dir_fd = -1
+        if dir_fd >= 0:
+            try:
+                os.fsync(dir_fd)
+            finally:
+                os.close(dir_fd)
+    finally:
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 def upgrade_lock_path(root: Path) -> Path:
@@ -42,6 +72,9 @@ def write_upgrade_lock(
     from_version: str | None,
     to_version: str,
     zip_path: Path | None = None,
+    *,
+    runner_protocol: int | None = None,
+    pack_protocol: int | None = None,
 ) -> Path:
     """Write the upgrade lock file and return its path.
 
@@ -53,7 +86,6 @@ def write_upgrade_lock(
     """
     p = upgrade_lock_path(root)
     prior = read_upgrade_lock(root) or {}
-    p.parent.mkdir(parents=True, exist_ok=True)
     data: dict[str, Any] = {
         "started_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "from_version": from_version,
@@ -68,6 +100,9 @@ def write_upgrade_lock(
         # --cleanup/resume) that the tree is in a known-failed state.
         "failed_phase": None,
         "failed_at": None,
+        "current_phase": "preflight",
+        "runner_protocol": runner_protocol,
+        "pack_protocol": pack_protocol,
     }
     # A failed prior run may have stopped a dashboard before mutating the tree.
     # A full recovery run replaces the lock, but must carry that restart intent
@@ -77,7 +112,7 @@ def write_upgrade_lock(
         port = prior.get("dashboard_restart_port")
         if isinstance(port, int):
             data["dashboard_restart_port"] = port
-    p.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    _durable_json_replace(p, data)
     return p
 
 
@@ -94,7 +129,7 @@ def update_upgrade_lock(root: Path, **fields: Any) -> bool:
     lock.update(fields)
     p = upgrade_lock_path(root)
     try:
-        p.write_text(json.dumps(lock, indent=2) + "\n", encoding="utf-8")
+        _durable_json_replace(p, lock)
         return True
     except OSError:
         return False

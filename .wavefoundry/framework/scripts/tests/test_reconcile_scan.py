@@ -243,6 +243,8 @@ class ExclusionTests(unittest.TestCase):
     def test_each_excluded_path_is_not_flagged(self):
         excluded = [
             ".wavefoundry/framework/seeds/160-x.md",   # framework pack tree (prefix)
+            ".wavefoundry/framework.rollback-bridge-pfps-p2/docs/legacy.md",  # inactive bridge backup
+            ".wavefoundry/upgrade-assets/feature.zip.md",  # retained generated upgrade payload
             ".wavefoundry/index/notes.md",             # generated index (prefix)
             "docs/waves/1p8ev/x.md",                   # wave history (prefix)
             "docs/reports/field-report.md",            # report history (prefix)
@@ -273,6 +275,8 @@ class ExclusionTests(unittest.TestCase):
         near_miss = [
             "docs/reports-overview.md",   # NOT under docs/reports/
             "src/snapshotter.py",         # substring `snapshot` but no snapshots/ component
+            ".wavefoundry/framework.rollback-notes.md",  # file, not a generated rollback directory
+            "docs/framework.rollback-p2/guide.md",        # similarly named project directory
         ]
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

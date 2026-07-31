@@ -1,10 +1,10 @@
 # Context Efficiency Turn-End and Quiet-Period Projection
 
 Change ID: `1tsjh-enh context-efficiency-turn-end-projection`
-Change Status: `planned`
+Change Status: `implemented`
 Owner: Engineering
-Status: planned
-Last verified: 2026-07-27
+Status: implemented
+Last verified: 2026-07-31
 Wave: `1tskc context-efficiency-projection-freshness`
 
 ## Rationale
@@ -26,7 +26,9 @@ credits, debits, phase semantics, close sealing, or the existing hard publicatio
 2. Provide one canonical, root-bound pending-projection operation used by lifecycle/reload/upgrade,
    the turn-end adapter, and the background safety net. It must reuse the project-global publication
    lock, re-read SQLite and `wave.md` after acquiring the lock, atomically replace only the owned
-   checkpoint region, and retain the generation compare-and-set behavior.
+   checkpoint region, and retain the generation compare-and-set behavior. Extract projection from
+   the current lifecycle-oriented `_flush_context_efficiency` wrapper: automatic callers must not
+   invoke process-buffer flushing, general-bucket transfer, focus writes, sealing, or stage changes.
 3. The automatic operation is accounting-neutral. It must not record a tool-cost event, increment a
    Context Efficiency generation because of its own response, change process focus, transfer a
    general bucket, advance a stage, or expose a metered public-tool feedback loop.
@@ -41,7 +43,9 @@ credits, debits, phase semantics, close sealing, or the existing hard publicatio
    independently of the indexing monitor's enabled state. It observes pending `(wave_id, generation)`
    values and attempts projection only after the same generation has remained unchanged for the full
    quiet period. It is a daemon/scheduler owned by the MCP process, not an installed user-home daemon
-   or another platform-specific artifact.
+   or another platform-specific artifact. Its configured/alive state and bounded last-check,
+   last-decision, and last-projection outcome must be inspectable through an existing diagnostic
+   surface; failures must not disappear solely into an exception-swallowing loop.
 7. Default the quiet period to **120 seconds without a generation change**. Expose
    `context_efficiency.projection.quiet_period_seconds` in project workflow configuration, clamp
    values below 90 seconds to 90, and allow values through 600 seconds so operators may choose a
@@ -95,56 +99,57 @@ implementation and review work.
 
 ## Acceptance Criteria
 
-- [ ] AC-1: An eligible measured event is durable immediately, marks its wave generation pending,
+- [x] AC-1: An eligible measured event is durable immediately, marks its wave generation pending,
   and produces exactly the same stage and total calculations before and after automatic projection.
-- [ ] AC-2: On the verified Claude turn-end path, one pending generation is projected through the
+- [x] AC-2: On the verified Claude turn-end path, one pending generation is projected through the
   canonical operation; a busy publication lock or injected projection failure returns promptly,
   exits successfully, and leaves the generation pending.
-- [ ] AC-3: With no native turn-end signal, a pending generation is not projected before 120 seconds
+- [x] AC-3: With no native turn-end signal, a pending generation is not projected before 120 seconds
   of unchanged observation by default, is projected on the first eligible poll afterward, and has its
-  quiet clock restarted whenever the generation changes.
-- [ ] AC-4: Configuration tests prove the 120-second default, the 90-second lower clamp, acceptance
+  quiet clock restarted whenever the generation changes. The same fixture proves the monitor's
+  configured/alive state and last decision/outcome are observable without generating telemetry.
+- [x] AC-4: Configuration tests prove the 120-second default, the 90-second lower clamp, acceptance
   through 600 seconds, and graceful fallback on missing or invalid configuration.
-- [ ] AC-5: A race that commits a newer event during projection cannot publish that newer generation
+- [x] AC-5: A race that commits a newer event during projection cannot publish that newer generation
   under the older snapshot; the next automatic or hard-boundary attempt publishes it.
-- [ ] AC-6: Two independent MCP processes and an overlapping lifecycle writer converge without lost
+- [x] AC-6: Two independent MCP processes and an overlapping lifecycle writer converge without lost
   events, duplicate credit, corrupted markers, or lost project-authored prose.
-- [ ] AC-7: The automatic projection path creates no telemetry event, credit, debit, focus mutation,
+- [x] AC-7: The automatic projection path creates no telemetry event, credit, debit, focus mutation,
   phase mutation, general-bucket transfer, or self-perpetuating pending generation.
-- [ ] AC-8: When no generation is pending or the rendered checkpoint is byte-identical, `wave.md`
+- [x] AC-8: When no generation is pending or the rendered checkpoint is byte-identical, `wave.md`
   contents and modification time remain unchanged.
-- [ ] AC-9: Existing create/prepare/implement/review/pause/reopen/close, reload, and upgrade projection
+- [x] AC-9: Existing create/prepare/implement/review/pause/reopen/close, reload, and upgrade projection
   tests remain behaviorally unchanged, including failure barriers, close sealing, and compaction.
-- [ ] AC-10: The background safety net executes through platform-neutral code on native Windows,
+- [x] AC-10: The background safety net executes through platform-neutral code on native Windows,
   WSL2, macOS, and Linux; committed hook/config artifacts contain no render-host absolute path and
   unsupported hosts receive no invented native hook surface.
-- [ ] AC-11: The quiet-period path remains cheap while idle and under repeated generation changes;
+- [x] AC-11: The quiet-period path remains cheap while idle and under repeated generation changes;
   performance coverage uses contention-tolerant bounds and proves that polling does not write the
   checkpoint or scan the documentation corpus.
-- [ ] AC-12: Context Efficiency reference, MCP surface specification, data/control-flow architecture,
+- [x] AC-12: Context Efficiency reference, MCP surface specification, data/control-flow architecture,
   workflow-config reference, and platform hook coverage all describe the shipped trigger hierarchy
   and recovery behavior consistently.
 
 ## Tasks
 
-- [ ] Extract or introduce the canonical root-bound pending-projection operation and route existing
+- [x] Extract or introduce the canonical root-bound pending-projection operation and route existing
   lifecycle/reload/upgrade callers through it without changing their public envelopes.
-- [ ] Add generation-observation state and the 120-second trailing-edge background scheduler with
-  bounded configuration parsing and clean handler shutdown.
-- [ ] Add a dedicated, fail-safe Claude `Stop` adapter for Context Efficiency projection and preserve
+- [x] Add generation-observation state and the 120-second trailing-edge background scheduler with
+  bounded configuration parsing, clean handler shutdown, and bounded read-only status reporting.
+- [x] Add a dedicated, fail-safe Claude `Stop` adapter for Context Efficiency projection and preserve
   the existing session-capture hook's separate responsibility.
-- [ ] Ensure the automatic path is excluded from first-party tool-cost accounting and cannot create a
+- [x] Ensure the automatic path is excluded from first-party tool-cost accounting and cannot create a
   projection feedback loop.
-- [ ] Add no-op, generation-reset, in-flight-race, lock-contention, multi-process, focus-neutrality,
+- [x] Add no-op, generation-reset, in-flight-race, lock-contention, multi-process, focus-neutrality,
   closed-wave, and hard-barrier regression tests.
-- [ ] Add platform/config rendering tests for native Windows, WSL2/POSIX, macOS, and Linux-compatible
+- [x] Add platform/config rendering tests for native Windows, WSL2/POSIX, macOS, and Linux-compatible
   committed surfaces, including no absolute render-host paths.
-- [ ] Add contention-tolerant performance coverage for idle polling and warm projection.
-- [ ] Update the Context Efficiency reference, MCP tool-surface specification, workflow-config
+- [x] Add contention-tolerant performance coverage for idle polling and warm projection.
+- [x] Update the Context Efficiency reference, MCP tool-surface specification, workflow-config
   reference, platform mapping, and data/control-flow architecture documentation.
-- [ ] Re-render only the canonical platform surfaces affected by the verified Claude hook change and
+- [x] Re-render only the canonical platform surfaces affected by the verified Claude hook change and
   validate that operator-authored configuration remains preserved.
-- [ ] Run targeted tests, the full framework suite, docs lint, and live post-reload probes for both
+- [x] Run targeted tests, the full framework suite, docs lint, and live post-reload probes for both
   turn-end and quiet-period projection before delivery review.
 
 ## Agent Execution Graph
@@ -162,7 +167,8 @@ implementation and review work.
 - `.wavefoundry/framework/scripts/context_efficiency.py` and the canonical projection owner — one
   authority for generation, snapshot, publication, and accounting-neutral automatic projection.
 - `.wavefoundry/framework/scripts/server_impl.py` — lifecycle barriers, handler monitor lifecycle,
-  configuration, and cost-exemption wiring must be reconciled as one control-flow change.
+  configuration, status observability, and cost-exemption wiring must be reconciled as one
+  control-flow change with `1txzt-bug`'s index-monitor lifecycle repair.
 - `.wavefoundry/framework/scripts/render_platform_surfaces.py` and rendered Claude hook/config files —
   canonical-source-first edits followed by bounded re-rendering; never hand-edit generated surfaces.
 - `project_state_publication_lock` remains the sole cross-process `wave.md` writer serialization
@@ -188,13 +194,30 @@ implementation and review work.
 
 | AC | Priority | Rationale |
 | -- | -------- | --------- |
-| AC-1 | required / important / nice-to-have / not-this-scope | |
+| AC-1 | required | Preserves the durable-accounting authority and calculation invariants. |
+| AC-2 | required | The verified turn-end path must be fail-safe and leave retryable work pending. |
+| AC-3 | required | Cross-host eventual projection is the wave's central operator-visible outcome. |
+| AC-4 | required | Bounded configuration is part of the shipped cross-project contract. |
+| AC-5 | required | Generation races cannot be allowed to publish or clear newer work incorrectly. |
+| AC-6 | required | Cross-process convergence protects project prose and durable telemetry. |
+| AC-7 | required | Accounting neutrality prevents a self-perpetuating metering loop. |
+| AC-8 | required | No-op stability prevents tracked-file churn during idle polling. |
+| AC-9 | required | Existing lifecycle hard barriers are release-critical compatibility. |
+| AC-10 | required | Windows, WSL2, macOS, and Linux are first-class supported environments. |
+| AC-11 | important | Performance evidence guards usability but does not define accounting correctness. |
+| AC-12 | required | Shipped trigger and recovery behavior must remain discoverable and consistent. |
 
 ## Progress Log
 
 | Date | Update | Evidence |
 | ---- | ------ | -------- |
 | 2026-07-27 | Planned as a dedicated wave with a 120-second default unchanged-generation quiet period. | Operator direction and current Context Efficiency projection review. |
+| 2026-07-29 | Readiness review made projection-only extraction explicit and assigned AC priorities. | Current `_flush_context_efficiency` combines process flush, projection, sealing, compaction, and focus handling; automatic callers require the narrower primitive. |
+| 2026-07-29 | Implemented the accounting-neutral root projector, dedicated Claude Stop adapter, independent 120-second generation-stable MCP monitor, additive monitor status, and bounded configuration. | `test_server_context_efficiency.py` 94/94; render tests 30/30; review-evidence tests 138/138; live MCP reload exposed both monitors alive and the current wave checkpoint projected without a metered feedback loop. |
+| 2026-07-29 | Adversarial live review found that retryable closed-wave rows could precede and starve the current wave in an automatic pass; automatic mode now continues per-wave while hard boundaries retain fail-fast behavior. | New two-polarity regression proves the automatic pass reaches the later wave and the lifecycle/reload path still stops on its first failure. |
+| 2026-07-29 | Gapfill: exact source diagnostics used `rg` after MCP retrieval returned stale results from the field-defect index; the repaired monitor then launched a live refresh and a deterministic all-layer update restored index health. | Pre-repair `index_health`: 19 stale paths and stale-child suppression; post-repair monitor owner PID 11565 completed, followed by `index_build(content='all', mode='update')` with docs+code stats. |
+| 2026-07-29 | Canonical suite executed after implementation. | 6,492 tests across 61 files: all changed-area tests passed after one fixture repair; one independently reproducible pre-existing `RepairIndependenceBoundaryTests` actor-policy expectation remains outside this wave and is disclosed to delivery review. Docs lint clean. |
+| 2026-07-29 | Independent review found and repaired four boundary defects: the Claude adapter rediscovered root from cwd, same-process publication contention blocked despite `wait=False`, projection read close status before the publication lock, and Claude settings rendering replaced operator hooks. | External-cwd owner-root probe, sentinel-blocked detached-child probe, same-process lock probe, deterministic close/seal race, and custom Stop/Notification preservation+idempotence regressions all pass. Independent QA, code, architecture, and docs reviewers report no remaining wave-scoped finding. |
 
 ## Decision Log
 
@@ -203,6 +226,8 @@ implementation and review work.
 | 2026-07-27 | Use a verified turn-end trigger plus a generation-stable quiet-period safety net, while retaining all hard lifecycle barriers. | Prompt projection on capable hosts and portable recovery elsewhere provide fresher visibility without making either asynchronous mechanism responsible for durability. | Hook-only was rejected because Wavefoundry has no verified turn-end contract on several supported hosts; timer-only was rejected because it would unnecessarily delay projection where a semantic turn boundary exists. |
 | 2026-07-27 | Default to 120 seconds with a 90-second lower bound and configurable values through 600 seconds. | This matches the operator's preference for 90–120 seconds or a few minutes and avoids reacting to normal pauses inside an active turn. | A 20–45 second delay was rejected as too eager; a fixed periodic writer was rejected because it would create tracked-file churn during active work. |
 | 2026-07-27 | Make automatic projection accounting-neutral and internal rather than a normally metered MCP call. | A metered projection response could create another debit and pending generation after publishing, producing a feedback loop. | A public metered flush tool was rejected; lifecycle-only projection is the current behavior but leaves long-running wave records stale. |
+| 2026-07-29 | Extract a projection-only primitive rather than calling `_flush_context_efficiency` from the daemon or Stop adapter. | The existing wrapper also flushes process state and owns lifecycle-only focus/seal behavior; automatic visibility work must not cross that boundary. | Reusing the wrapper directly was rejected because a nominally accounting-neutral timer could mutate attribution or lifecycle state. |
+| 2026-07-29 | Keep automatic per-wave failures retryable without starving other quiet eligible waves. | Legacy closed or phantom telemetry rows may remain pending; one such row must not indefinitely suppress the current open wave's portable projection. | Reusing hard-boundary fail-fast iteration unchanged was rejected; it made cross-host eventual projection order-dependent. |
 
 ## Risks
 
@@ -213,6 +238,7 @@ implementation and review work.
 | Turn-end lock contention delays or breaks host completion. | Use a non-blocking/bounded attempt, always exit successfully, and leave durable state pending for the safety net or hard barrier. |
 | The projection operation records its own debit indefinitely. | Keep it outside normal cost instrumentation or explicitly exempt it; pin zero telemetry mutation in regression tests. |
 | Background behavior silently depends on indexing configuration or host support. | Give it its own configuration/lifecycle and verify operation with indexing disabled and without native hook surfaces. |
+| A fail-safe exception loop leaves the monitor alive but ineffective with no operator-visible reason. | Expose bounded configured/alive, last-check, last-decision, and last-outcome state through an existing diagnostic surface. |
 | A newer event lands between snapshot and publication. | Preserve generation compare-and-set semantics and prove the newer generation remains pending. |
 | Platform render introduces machine-specific paths or unsupported hook claims. | Reuse the committed owner-bound launcher contract, scan generated artifacts, and emit only the verified Claude adapter. |
 

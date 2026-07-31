@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-27
+Last verified: 2026-07-31
 
 Shortcut: **`Upgrade Wavefoundry`** | Legacy: **`Upgrade wave framework`** / **`Upgrade wave context`**
 
@@ -25,7 +25,7 @@ The expected operator flow is:
    - It then regenerates tracked platform surfaces, reconciles docs/prompts/config, and validates drift.
 3. Reload the MCP server **in-process** when the upgrade finishes.
    - The upgrade reloads the server code in-process — call `wf_reload_mcp()` (or run `wf_upgrade` cleanup, which reloads automatically). Tool additions/removals and description changes emit `notifications/tools/list_changed`; a full host restart is only needed when the attached host does not honor that notification.
-   - **Exception — upgrades that RENAME MCP tools require a full host restart (or a fresh session), not a hot reload.** The 1.14.0 release renames the whole tool surface (`wave_*` to `wf_*`/`memory_*`/`index_*`), including the reload tool itself: the upgrading session's server still holds the OLD in-memory tool names, and the hot-reload path cannot re-register the renamed reload survivor from inside the old process. After upgrading across such a boundary, fully quit and restart the agent host (or start a fresh conversation); until then the old session's tools are stale and renamed-tool calls fail. The reconciliation scan lists the old-to-new tool renames alongside the retired-wrapper findings, and stale `mcp__wavefoundry__<old-name>` entries in host permission/allow-rule files surface in the operator flags channel — update those rules or every renamed tool call will prompt.
+   - **Exception — upgrades that RENAME MCP tools require a full restart of every attached host (or fresh sessions), not a hot reload.** The 1.14.0 release renames the whole tool surface (`wave_*` to `wf_*`/`memory_*`/`index_*`), including the reload tool itself: upgrading sessions still hold the OLD in-memory tool names, and the hot-reload path cannot re-register the renamed reload survivor from inside an old process. After upgrading across such a boundary, fully quit and restart every attached agent host (or start fresh conversations); until then old sessions' tools are stale and renamed-tool calls fail. The reconciliation scan lists the old-to-new tool renames alongside the retired-wrapper findings, and stale `mcp__wavefoundry__<old-name>` entries in host permission/allow-rule files surface in the operator flags channel — update those rules or every renamed tool call will prompt.
    - **Exception: a cutover-active 1.15 events-only review-evidence upgrade run requires a full restart of every attached MCP/agent host, including the invoking one, not a hot reload.** The restart requirement is scoped: `restart_required` is true only on cutover-active runs (the run removed a retired review-evidence sidecar or the stale v1.13 root lock, or the installed version predates 1.15; an unknown installed version is treated fail-safe as pre-1.15). On a cutover-active run the upgrade suppresses its own automatic in-process reload at both automatic-reload phases, removes `wf_reload_mcp` from the suggested next tools, and instructs the full host restart in the response; do not reload in-process on such a run. The suppression executes in the invoking host's already-loaded server code, so it is guaranteed only when that host already runs 1.15-or-later code; an upgrade invoked from a pre-1.15 host may still fire its old unconditional in-process reload, which loads the new module but does not substitute for the full restart; the full-restart instruction, delivered in the upgrade summary, stands either way. Ordinary post-1.15 upgrades, and reruns on an already-converged repository, keep the normal in-process reload flow above and report no cutover restart requirement. One narrow exception: when the upgrade pauses action-required at the historical-memory gate, that response still names `wf_reload_mcp`, because the reload is required to continue the upgrade itself; the final cleanup response still carries the full-restart instruction.
    - If you use Codex, the MCP server reloads from the committed `.codex/config.toml` automatically — no re-registration needed after upgrade.
 4. The index update runs **automatically** at the end of the upgrade.
@@ -40,7 +40,7 @@ What this prompt is not:
 - It is **not** init. Use init only for first-time seeding or legacy routing cases.
 - It is **not** a manual unzip checklist. Root zip adoption is built into the upgrade flow.
 
-**Supported operator environments:** macOS and Linux are supported natively. Windows is currently supported through **WSL2** for upgrade and operator workflows because some launcher and shell steps still assume a POSIX environment.
+**Supported operator environments:** native Windows, WSL2, macOS, and Linux are first-class. Prefer the MCP path or the cross-platform `wf` / `wf.cmd` dispatcher for the host; structured argv is authoritative and display commands are rendered for the detected platform.
 
 **Python requirement:** Python 3.11 or later is required. Framework dependencies are installed into a shared tool environment at `~/.wavefoundry/venv` (or `$WAVEFOUNDRY_TOOL_VENV` to override); `wf setup` is the operator command to create/populate it and run the index setup flow when the dispatcher is on PATH. If `wf` is not on PATH, use the setup step documented in the install prompt. If the setup step fails specifically because a required model cannot be downloaded, keep recovery on the canonical setup path: in agent-driven sessions, the agent should ask the operator for permission to rerun the same setup command with network access or host escalation enabled instead of doing an out-of-band manual model download.
 
@@ -64,7 +64,7 @@ What this prompt is not:
 
 Discovery/preview is **CLI-only**: run the flag via your shell (that is the agent-safe path — not `ls`). The MCP `wf_upgrade` tool *runs* the upgrade — its default `preflight_to_docs_gate` phase adopts the highest pack — and has **no** dry-run or discovery-only phase (its only argument is `phase=`; there is no `mode=`).
 
-**Step 0 (optional zip adoption):** If a `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` is in the repository root, `~/.wavefoundry/`, `~/.wavefoundry/dist/`, or `~/Downloads/`, the upgrade seed stages the selected pack under `.wavefoundry/framework/`, runs `wf render-surfaces`, and continues full reconciliation. Non-matching filenames are skipped. The shell-heavy upgrade flow still runs from **WSL2** on Windows; the no-PATH dispatcher fallback above is the native-Windows form. The pack ships the single-use bootstrap `install-wavefoundry.md` at the zip root, so extraction re-drops it at the repository root; the upgrade removes it automatically (`wf_upgrade` / `wf upgrade`). If you run a fully-manual `unzip -o`, delete it yourself after pruning (`rm -f install-wavefoundry.md`).
+**Step 0 (optional zip adoption):** If a `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` is in the repository root, `~/.wavefoundry/`, `~/.wavefoundry/dist/`, or `~/Downloads/`, the upgrade seed stages the selected pack under `.wavefoundry/framework/`, runs `wf render-surfaces`, and continues full reconciliation. Non-matching filenames are skipped. Native Windows, WSL2, macOS, and Linux use the same MCP/dispatcher flow with host-appropriate command rendering. The zip root also carries the pack's zipapp installer members (`payload/*`, `__main__.py`, `upgrade_bridge_bootstrap.py`, `subprocess_util.py`) and the single-use bootstrap `install-wavefoundry.md`; the script/MCP path extracts through an allowlist so none of the runner members reach the project root, and removes the bootstrap automatically (the one exception: the upgrade run that first installs the allowlist still extracts with the pre-upgrade code, so the debris lands one final time on that transition run — positively identify and remove it; every later upgrade extracts scoped). If you run a fully-manual unzip, scope it (`unzip -o <zip> '.wavefoundry/*' -d .`) rather than extracting the whole archive — an unscoped `unzip -o` dumps the runner members into the repository root and can overwrite same-named project files — and delete any previously re-dropped bootstrap after pruning (`rm -f install-wavefoundry.md`).
 
 **Full reconciliation:**
 1. Inventory current state (seed-030 in targeted mode)
@@ -177,9 +177,13 @@ Inventory/drift-detection subagents run read-only. Broad edits to `docs/prompts/
 
 ## Historical-Memory Gate
 
-Established projects pause after the docs gate and before Phase 4 with
-lifecycle state `awaiting_memory_validation` (CLI exit 4: action required, not
-failure or completion). Reload the newly installed MCP, repeatedly call
+Established projects first run one canonical bounded historical extraction
+batch after the docs gate. When its run-wide total contains no candidates,
+failures, or remaining waves, upgrade advances to Phase 4 automatically; an
+empty candidate page before extraction is not treated as proof of no work.
+A real candidate, failure, or remaining bounded batch pauses before Phase 4
+with lifecycle state `awaiting_memory_validation` (CLI exit 4: action required,
+not failure or completion). Reload the newly installed MCP, repeatedly call
 `memory_backfill(mode="create", entry_path="upgrade")`, validate every
 exact `data.validation_worklist[].memory_id`, then call backfill again until
 the run is clear and call
@@ -189,7 +193,9 @@ Resume-after-memory, index, and cleanup verbs all refuse while the
 retired-sidecar cleanup or docs lint has a retained failed phase; recover a
 docs-gate failure through `resume_after_gate`, and recover a
 `review_sidecar_cleanup` refusal by stopping every attached host and
-re-running the full upgrade. Index and cleanup also refuse while memory
+re-running the full upgrade. After lint passes, `resume_after_gate` establishes
+or refreshes the memory checkpoint and may return its action-required worklist;
+continue through `resume_after_memory`, not `update_index`. Index and cleanup also refuse while memory
 work remains. Fresh/no-history projects continue directly. Upgrade/status responses expose the run id, outcome/pending
 counts, last failure, and next bounded worklist; do not scrape output or use a
 global candidate search. The no-MCP `wf memory-validate` fallback has full
@@ -204,7 +210,9 @@ refused cleanup (a shipped publication-lock path is held) leaves
 MCP/agent host, then re-run the full upgrade. A lint repair leaves
 `failed_phase=docs_gate`; after the repair, `wf upgrade --resume-after-gate`
 or `wf_upgrade(phase="resume_after_gate")` reruns only the docs gate against
-the already-extracted tree. A cutover-active run (the run removed a retired
+the already-extracted tree, then establishes or refreshes the memory
+checkpoint. If it returns memory action-required, inspect the worklist and
+continue through `resume_after_memory`. A cutover-active run (the run removed a retired
 sidecar or the stale root lock, or the installed version predates 1.15, with
 unknown treated fail-safe as pre-1.15) requires a full restart of every
 attached host, including the invoking one, before lifecycle mutation resumes;
@@ -225,3 +233,34 @@ cleanup all refuse a retained sidecar-cleanup/docs failure until the matching
 recovery succeeds. Update, rebuild, and cleanup also run the publication
 backstop, so an old-shaped retained lock cannot publish or clean up around
 the cutover.
+
+<!-- wavefoundry:review-policy-upgrade:begin -->
+## Versioned review-policy and bridge recovery
+
+Upgrade maps legacy review enablement without weakening it: enabled projects become
+`enabled=true, delivery_mode=universal`; disabled projects become
+`enabled=false, delivery_mode=disabled`. Every non-closed declared wave is marked
+for re-Prepare; closed wave Markdown and ledgers remain immutable. While
+`.wavefoundry/upgrade-in-progress.json` exists, lifecycle, review-evidence,
+context-efficiency, memory, docs, and index publication is blocked except the named
+memory-recovery phase.
+
+Feature packs carry integer `upgrade_protocol_version` and
+`minimum_runner_protocol`. `upgrade_protocol_invalid` means the pack is missing,
+malformed, import-incomplete, or incompatible and is refused before extraction.
+`bridge_release_required` means the installed protocol-1 runner must not extract the
+feature. Use the same single matching `wavefoundry-<version>.zip` release package.
+The agent stops the dashboard, disconnects/stops every Wavefoundry MCP server for
+the repository, and leaves the current host session idle; it then runs the exact
+`command_argv` through its ordinary non-MCP shell. No operator-entered terminal
+command is required. The package records that confirmation, verifies both embedded
+archives, swaps only
+`.wavefoundry/framework/`, and immediately executes the hash-bound feature hop.
+Fully restart every attached host and follow the package's structured recovery result;
+retry or resume any retained failed phase until the checkpoint reaches terminal cleanup.
+An already-loaded protocol-1 MCP wrapper predates the current response cap and cannot
+be changed by the incoming pack. Its compact bridge JSON is emitted last; if the host
+rejects or truncates that one legacy response, the agent uses its ordinary shell to
+detect and execute the single installed package after Wavefoundry services stop. The
+operator still does not copy or type a terminal command.
+<!-- wavefoundry:review-policy-upgrade:end -->

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-27
+Last verified: 2026-07-31
 
 ## Domains
 
@@ -27,6 +27,7 @@ Last verified: 2026-07-27
 6. The semantic index (`.wavefoundry/index/`) is a derived artifact — it can always be deleted and rebuilt from source. Nothing outside `server.py` reads it directly.
 7. Context-efficiency telemetry writes eligible calls through to SQLite. It can affect the public result only when neither the event nor the durable accounting-gap poison can be persisted; ordinary measurement/projection failures undercount or suppress the headline.
 8. `.wavefoundry/logs/context-efficiency.sqlite` is ignored, host-local, and not an index or review authority. It stores opaque identifiers and accounting values, never paths, queries, returned content, prompts, secrets, or conversations. Public reads distinguish absent, healthy, accounting-gap, and failed state. The marker-owned checkpoint is a portable projection, not a numeric recovery source for lost store identity.
+9. `review_policy.REVIEW_POLICY_CARRIER_REGISTRY` is the review-policy carrier authority. Its owner labels are permissions: `renderer` may replace only registered marker-owned regions; `lifecycle_reconciler` may replace only an exact registered marker or byte-known baseline section after an all-carrier preflight; `direct_docs` is validation-only and never writes a target repository. A destination may therefore have a `direct_docs` validation row and a separate `renderer` companion row whose only authority is the portable marker-bounded baseline; the validation row does not acquire write authority. No owner may broaden another owner's write boundary, and project-authored surrounding prose remains immutable.
 
 ## Interaction Edges
 
@@ -39,6 +40,7 @@ Last verified: 2026-07-27
 | `render_agent_surfaces.py` → framework-marked regions in registered `docs/agents/`, `docs/prompts/`, `docs/contributing/`, and explicitly enabled native `.claude/agents/` / `.codex/skills/` carriers | bounded file write | stable | Engineering (framework renderer) |
 | `wf_review_event` → `docs/waves/<wave>/events.jsonl` + `wave.md` | locked canonical event append plus generated Markdown current-head projection | stable | MCP lifecycle authoring tool |
 | `review_evidence.py` → `.wavefoundry/locks/review-evidence-adoptions.lock` | host-local `project_state_publication_lock` coordination write | stable | MCP lifecycle validator |
+| `review_policy_reconcile.py` → registered lifecycle carrier sections | all-or-nothing exact-section atomic replacement under lifecycle→publication ownership | stable | Upgrade lifecycle reconciler |
 | `indexer.py` → `.wavefoundry/index/` | file write | stable | Engineering (setup/incremental) |
 | `server.py` → `.wavefoundry/index/` | file read | stable | MCP server (search tools) |
 | `server.py` → `.wavefoundry/logs/context-efficiency.sqlite` | bounded write-through event/source/evaluation transaction on eligible calls | stable | MCP server (context-efficiency telemetry) |

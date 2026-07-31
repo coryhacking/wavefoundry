@@ -3,7 +3,8 @@
     "enabled": true
   },
   "wave_review": {
-    "enabled": true
+    "enabled": true,
+    "delivery_mode": "universal"
   },
   "agent_memory": {
     "enabled": true

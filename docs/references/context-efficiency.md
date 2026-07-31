@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-27
+Last verified: 2026-07-31
 
 Wavefoundry reports one conservative estimate of tokens saved while its tools
 support a wave. The estimate is an accounting signal, not a billing record and
@@ -273,8 +273,28 @@ deduplication.
 
 Lifecycle projection boundaries update it under the shared wave writer lock.
 Pending generations are also projected before MCP reload and before framework
-upgrade. Projection is idempotent and uses a generation compare-and-set so a
-newer event cannot be marked published by an older projection.
+upgrade. Between those hard boundaries, Claude Code's verified main-session
+`Stop` event launches a dedicated, detached projection adapter, and every MCP
+server runs a cross-host quiet-period safety net. The safety net observes the
+durable `(wave_id, generation)` pair and projects only after the generation has
+stayed unchanged for the configured interval. The default is 120 seconds;
+`context_efficiency.projection.quiet_period_seconds` in
+`docs/workflow-config.json` is clamped to 90–600 seconds and invalid values fall
+back to 120. Hosts without a verified native turn-end contract use the MCP
+safety net; Wavefoundry does not invent native hooks for them.
+
+Both automatic triggers call the same root-bound, accounting-neutral projector.
+They do not flush a process buffer, transfer general rows, record a debit or
+credit, mutate focus/stage, seal, or compact a wave. Lock contention and corrupt
+or missing state leave the generation pending for retry and never reject the
+host turn. Projection is idempotent and uses a generation compare-and-set so a
+newer event cannot be marked published by an older projection. A byte-identical
+render does not replace `wave.md`.
+
+`index_health` exposes bounded in-memory status for both MCP-owned background
+monitors under `background_monitors`: configured/alive state plus the latest
+check, decision, and trigger outcome. Reading that status is observational; the
+pollers do not meter themselves or write status files.
 
 Close publication seals the wave at that exact generation. After the Markdown
 replacement and SQLite compare-and-set both succeed, payload-bearing event,
