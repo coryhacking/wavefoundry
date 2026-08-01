@@ -300,7 +300,11 @@ class SetupWavefoundryTests(unittest.TestCase):
         self.assertEqual(len(captured), 1)
         self.assertEqual(captured[0][0], sys.executable)
         self.assertTrue(captured[0][1].endswith("render_platform_surfaces.py"))
-        self.assertEqual(captured[0][2:], ["--repo-root", str(root)])
+        # Wave 1u2az: install is an operator-run orchestration, one of the two
+        # paths allowed to render the MCP permission allowlist.
+        self.assertEqual(
+            captured[0][2:], ["--repo-root", str(root), "--include-permissions"]
+        )
 
     def test_run_mcp_dry_run_invokes_server_with_generated_mcp_python_shape(self):
         captured: list[list[str]] = []

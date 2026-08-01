@@ -531,6 +531,119 @@ class BuildEpochTests(_TempRepoCase):
             self.iss.build_epoch_token(self.index_dir), (second, 1)
         )
 
+    def _write_checkpoint(self, payload: dict) -> None:
+        checkpoint = self.root / ".wavefoundry" / "upgrade-in-progress.json"
+        checkpoint.parent.mkdir(parents=True, exist_ok=True)
+        checkpoint.write_text(json.dumps(payload), encoding="utf-8")
+
+    def test_value_bound_publisher_grant_admits_phase4_child_at_any_phase(self):
+        """1u44m red-first (AC-1): a non-owner Phase 4 child holding the
+        value-bound publisher grant is ADMITTED at ``begin_build_epoch`` and
+        completes the epoch, with the checkpoint's ``current_phase`` held
+        constant across both field values, so the pass cannot be attributed
+        to the phase. Owner disjunct defeated via ``"pid": -1``; the staged
+        receipt env var is cleared so the presence-bound disjunct cannot
+        vacuously admit."""
+        token = "grant-token-1u44m"
+        for phase in ("awaiting_memory_validation", "index_update"):
+            with self.subTest(phase=phase):
+                phase_root = self.root / phase.replace("_", "-")
+                index_dir = phase_root / ".wavefoundry" / "index"
+                checkpoint = (
+                    phase_root / ".wavefoundry" / "upgrade-in-progress.json"
+                )
+                checkpoint.parent.mkdir(parents=True, exist_ok=True)
+                checkpoint.write_text(
+                    json.dumps(
+                        {
+                            "current_phase": phase,
+                            "pid": -1,
+                            "publisher_grant": token,
+                            "memory_backfill_pending": 0,
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                # Geometry guard: the store derives the repo root as
+                # index_dir.parent.parent, so the checkpoint above is the one
+                # the guard reads. Prove it: without the grant this refuses.
+                with mock.patch.dict(os.environ, {}, clear=False):
+                    os.environ.pop(
+                        "WAVEFOUNDRY_UPGRADE_PARENT_FINALIZE_RECEIPT", None
+                    )
+                    os.environ.pop(
+                        "WAVEFOUNDRY_UPGRADE_PUBLISHER_TOKEN", None
+                    )
+                    with self.assertRaisesRegex(
+                        RuntimeError, "upgrade_in_progress"
+                    ):
+                        self.iss.begin_build_epoch(index_dir, "docs")
+                with mock.patch.dict(os.environ, {}, clear=False):
+                    os.environ.pop(
+                        "WAVEFOUNDRY_UPGRADE_PARENT_FINALIZE_RECEIPT", None
+                    )
+                    os.environ.pop("WAVEFOUNDRY_MEMORY_BACKFILL_RUN_ID", None)
+                    os.environ["WAVEFOUNDRY_UPGRADE_PUBLISHER_TOKEN"] = token
+                    attempt = self.iss.begin_build_epoch(index_dir, "docs")
+                    self.assertTrue(
+                        self.iss.finalize_build_epoch(index_dir, attempt)
+                    )
+                state = self.iss.read_build_state(index_dir)
+                self.assertEqual(state["status"], "complete")
+                self.assertEqual(state["generation"], 1)
+
+    def test_publisher_grant_is_value_bound_not_presence_bound(self):
+        """A mismatched or unrecorded token never admits: the grant must MATCH
+        the checkpoint's recorded ``publisher_grant`` (a stale copy leaked into
+        the detached background child dies with this checkpoint)."""
+        self._write_checkpoint(
+            {
+                "current_phase": "index_update",
+                "pid": -1,
+                "publisher_grant": "the-real-token",
+                "memory_backfill_pending": 0,
+            }
+        )
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("WAVEFOUNDRY_UPGRADE_PARENT_FINALIZE_RECEIPT", None)
+            os.environ.pop("WAVEFOUNDRY_MEMORY_BACKFILL_RUN_ID", None)
+            os.environ["WAVEFOUNDRY_UPGRADE_PUBLISHER_TOKEN"] = "a-stale-token"
+            with self.assertRaisesRegex(RuntimeError, "upgrade_in_progress"):
+                self.iss.begin_build_epoch(self.index_dir, "docs")
+        # A token in the environment with NO recorded grant in the checkpoint
+        # is refused too (presence alone must never admit).
+        self._write_checkpoint({"current_phase": "index_update", "pid": -1})
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("WAVEFOUNDRY_UPGRADE_PARENT_FINALIZE_RECEIPT", None)
+            os.environ["WAVEFOUNDRY_UPGRADE_PUBLISHER_TOKEN"] = "any-token"
+            with self.assertRaisesRegex(RuntimeError, "upgrade_in_progress"):
+                self.iss.begin_build_epoch(self.index_dir, "docs")
+
+    def test_ungranted_non_owner_stays_refused_at_both_phases(self):
+        """Negative control: with no grant env var and the receipt env var
+        cleared, a non-owner is refused regardless of ``current_phase`` (the
+        pre-1u44m field baseline, preserved for callers without status)."""
+        for phase in ("awaiting_memory_validation", "index_update"):
+            with self.subTest(phase=phase):
+                self._write_checkpoint(
+                    {
+                        "current_phase": phase,
+                        "pid": -1,
+                        "memory_backfill_pending": 0,
+                    }
+                )
+                with mock.patch.dict(os.environ, {}, clear=False):
+                    os.environ.pop(
+                        "WAVEFOUNDRY_UPGRADE_PARENT_FINALIZE_RECEIPT", None
+                    )
+                    os.environ.pop(
+                        "WAVEFOUNDRY_UPGRADE_PUBLISHER_TOKEN", None
+                    )
+                    with self.assertRaisesRegex(
+                        RuntimeError, "upgrade_in_progress"
+                    ):
+                        self.iss.begin_build_epoch(self.index_dir, "docs")
+
     def test_parent_staged_receipt_keeps_strict_shape_attempt_and_generation(self):
         import memory_backfill
 

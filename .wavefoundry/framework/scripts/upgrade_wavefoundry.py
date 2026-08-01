@@ -1471,7 +1471,118 @@ def _print_change_plan(
 
 # ── Phase 1 — Surface rendering ───────────────────────────────────────────────
 
+# Wave 1u2b0 (1u2az): the rendered-permissions delta captured by this run's
+# phase_surface_rendering (or the --update-index new-code backstop), or None when
+# no permissions render ran in this process (e.g. the separate --cleanup
+# invocation, which instead adopts the record this run persisted into the upgrade
+# lock). INTERNAL carrier shape:
+# {"file": str, "added": [rule...], "removed": [rule...], "unmanaged_present": int|None}.
+# `_build_upgrade_summary` FLATTENS it into scalar/list summary fields
+# (permissions_file / permissions_added / permissions_removed /
+# permissions_changed / permissions_unmanaged_present) because the MCP response
+# bounder treats a nested dict as one scalar value and drops the whole consent
+# delta once it exceeds the per-value character cap.
+_PERMISSIONS_DELTA: dict | None = None
+
+# The lock field the delta rides in so the operator prose survives the
+# process boundary (see `_persist_permissions_delta`).
+_PERMISSIONS_DELTA_LOCK_FIELD = "permissions_delta"
+
+
+def _read_permissions_allow(root: Path) -> list[str]:
+    """Fail-safe read of the `.claude/settings.json` `permissions.allow` rule
+    strings (empty list when the file/keys are absent or unreadable)."""
+    try:
+        loaded = json.loads(
+            (root / ".claude" / "settings.json").read_text(encoding="utf-8")
+        )
+        permissions = loaded.get("permissions") if isinstance(loaded, dict) else None
+        allow = permissions.get("allow") if isinstance(permissions, dict) else None
+        if isinstance(allow, list):
+            return [entry for entry in allow if isinstance(entry, str)]
+    except (OSError, ValueError):
+        pass
+    return []
+
+
+def _permissions_unmanaged_present(root: Path) -> int | None:
+    """Count roster-desired allow rules ALREADY present in `.claude/settings.json`
+    `permissions.allow` but NOT recorded in the renderer's provenance.
+
+    The renderer deliberately never claims a desired rule it did not add, so an
+    operator's own `mcp__wavefoundry__…` rule always survives a later roster
+    retirement. The consequence is invisible without this count: a repo that
+    hand-added the rules before upgrading gets an empty provenance, therefore NO
+    rename self-heal, and an otherwise reassuring "Permissions: unchanged" line.
+    Reporting the count lets the operator see the managed surface is inert for
+    them (delete those rules and re-render to hand them over).
+
+    Fail-safe: returns None when the count cannot be established.
+    """
+    try:
+        import mcp_tool_roster
+        import render_platform_surfaces as renderer
+
+        loaded = json.loads(
+            (root / ".claude" / "settings.json").read_text(encoding="utf-8")
+        )
+        if not isinstance(loaded, dict):
+            return None
+        permissions = loaded.get("permissions")
+        allow = permissions.get("allow") if isinstance(permissions, dict) else None
+        present = (
+            {entry for entry in allow if isinstance(entry, str)}
+            if isinstance(allow, list)
+            else set()
+        )
+        prior = loaded.get(renderer.PERMISSIONS_PROVENANCE_KEY)
+        claimed = (
+            {entry for entry in prior if isinstance(entry, str)}
+            if isinstance(prior, list)
+            else set()
+        )
+        include_write = loaded.get(renderer.PERMISSIONS_WRITE_TIER_KEY) is True
+        desired = set(mcp_tool_roster.allow_rules(include_write=include_write))
+        return len(desired & (present - claimed))
+    except Exception:
+        return None
+
+
+def _permissions_delta_record(
+    root: Path, allow_before: list[str], allow_after: list[str]
+) -> dict:
+    """Build the internal permissions-delta carrier for one render."""
+    before_set, after_set = set(allow_before), set(allow_after)
+    return {
+        "file": ".claude/settings.json",
+        "added": sorted(after_set - before_set),
+        "removed": sorted(before_set - after_set),
+        "unmanaged_present": _permissions_unmanaged_present(root),
+    }
+
+
+def _persist_permissions_delta(root: Path, delta: dict) -> None:
+    """Record this process's permissions delta in the upgrade lock.
+
+    The MCP flow renders in one process and prints the operator prose in ANOTHER
+    (the separate `--cleanup` invocation), where the in-process global is None —
+    so without a persisted record the consent line silently vanishes from the
+    human summary exactly when it matters. The upgrade lock is the established
+    cross-process carrier for this kind of run fact (`review_sidecar_cleanup`
+    rides the same way). Fail-safe: a missing lock or a write fault is a no-op.
+    """
+    try:
+        import upgrade_lib
+
+        upgrade_lib.update_upgrade_lock(
+            root, **{_PERMISSIONS_DELTA_LOCK_FIELD: delta}
+        )
+    except Exception:
+        pass
+
+
 def phase_surface_rendering(root: Path) -> None:
+    global _PERMISSIONS_DELTA
     _log("\n── Phase 1: Surface rendering ──")
     # Wave 1p88t (1p7pb-adr): VERIFY the committed `command: "python3"` launchers resolve on every
     # upgrade (detect + guide — no shim/symlink creation, no PATH edit). strict=False — warn
@@ -1484,8 +1595,15 @@ def phase_surface_rendering(root: Path) -> None:
     if not script.exists():
         _log("  render_platform_surfaces.py not found — skipping surface rendering.")
         return
+    # Wave 1u2b0 (1u2az): the upgrade is one of the two orchestrations allowed
+    # to render the MCP permission allowlist (`--include-permissions`); the
+    # agent-invocable wf_sync_surfaces render never passes that switch. Capture
+    # the permissions.allow set before/after so the delta is surfaced as an
+    # explicit operator consent line, never folded into the generic
+    # surfaces-rendered line.
+    allow_before = _read_permissions_allow(root)
     result = subprocess_util.isolated_run(
-        [_preferred_python(), str(script), "--repo-root", str(root)],
+        [_preferred_python(), str(script), "--repo-root", str(root), "--include-permissions"],
         cwd=str(root),
         check=False,
     )
@@ -1493,6 +1611,130 @@ def phase_surface_rendering(root: Path) -> None:
         _err("Surface rendering failed.")
         sys.exit(2)
     _log("  Surfaces rendered.")
+    try:
+        allow_after = _read_permissions_allow(root)
+        _PERMISSIONS_DELTA = _permissions_delta_record(root, allow_before, allow_after)
+        added = _PERMISSIONS_DELTA["added"]
+        removed = _PERMISSIONS_DELTA["removed"]
+        # Persist so the separate --cleanup process can still print the consent
+        # prose (the global is None over there).
+        _persist_permissions_delta(root, _PERMISSIONS_DELTA)
+        if added or removed:
+            _log(
+                "  Permissions delta (.claude/settings.json permissions.allow); "
+                "review before relying on the new prompting posture:"
+            )
+            for rule in added:
+                _log(f"    + {rule}")
+            for rule in removed:
+                _log(f"    - {rule}")
+        else:
+            _log("  Permissions delta: none (.claude/settings.json permissions.allow unchanged).")
+        _log_permissions_unmanaged_present(_PERMISSIONS_DELTA)
+    except Exception:
+        # The consent line is best-effort; a delta-report fault never fails the phase.
+        pass
+
+
+def _log_permissions_unmanaged_present(delta: dict | None) -> None:
+    """Name the roster-desired rules the render deliberately left operator-owned."""
+    unmanaged = (delta or {}).get("unmanaged_present")
+    if unmanaged:
+        _log(
+            f"  Permissions: {unmanaged} roster-desired rule(s) were already present and "
+            "operator-owned, so the render left them unmanaged — they will NOT self-heal on a "
+            "later tool rename. Delete them and re-render to hand them over."
+        )
+
+
+def _ensure_rendered_permissions_backstop(root: Path) -> None:
+    """New-code permissions-render backstop, called from TWO phases of one upgrade.
+
+    The permissions allowlist render is a Phase 1 step, but the in-process orchestrator
+    that runs Phase 1 is the OLD code (the module was imported before extraction
+    replaced the tree), and the old module body never passes ``--include-permissions``.
+    Without a backstop the upgrade that INSTALLS this feature renders no permission
+    block at all and the operator first sees one a full upgrade cycle later. Healing
+    therefore has to happen from a process that loaded the freshly extracted NEW code,
+    which means a phase the upgrade runs in a SEPARATE process.
+
+    There are two such phases, and both call this:
+
+    * ``--update-index`` — the subprocess every MCP upgrade flow runs post-extract.
+    * ``--cleanup`` (Phase 5) — the phase EVERY documented upgrade path reaches in a
+      fresh process, on the CLI (``upgrade-wavefoundry --cleanup``) and through MCP
+      (``wf_upgrade(phase="cleanup")`` spawns the same ``--cleanup`` subprocess). This
+      is the default-path site: an ordinary ``wf upgrade`` renders surfaces and runs
+      Phase 4 inline in the old-code process and never invokes ``--update-index``, so
+      without the cleanup site the backstop would be unreachable on that path.
+
+    Same two-site precedent as ``_ensure_lifecycle_policy_backstop``, which pairs its
+    ``--update-index`` call with one inside ``phase_cleanup``.
+
+    Properties:
+
+    * PERMISSIONS ONLY — ``--permissions-only`` restricts the renderer to the
+      allowlist merge, so this never re-renders unrelated surfaces mid-upgrade.
+    * still inside the upgrade trust boundary: this is upgrade orchestration passing
+      the one ``--include-permissions`` switch, and ``--include-permissions`` remains
+      the single gate — no other render path acquires permissions authority from it.
+    * IDEMPOTENT — a no-op when an earlier phase already rendered the block (the merge
+      is byte-stable, so the delta comes back empty), which is what makes calling it
+      from both phases of the same upgrade safe.
+    * reports through the SAME consent fields, and only overwrites a persisted
+      delta when it actually changed something (so a new-code Phase 1 render's
+      consent record is never laundered into "unchanged" by a later pass).
+    * fail-safe: never fails its calling phase.
+    """
+    global _PERMISSIONS_DELTA
+    try:
+        script = SCRIPTS_DIR / "render_platform_surfaces.py"
+        if not script.exists():
+            return
+        allow_before = _read_permissions_allow(root)
+        result = subprocess_util.isolated_run(
+            [
+                _preferred_python(),
+                str(script),
+                "--repo-root",
+                str(root),
+                "--platform",
+                "claude",
+                "--include-permissions",
+                "--permissions-only",
+            ],
+            cwd=str(root),
+            check=False,
+        )
+        if result.returncode != 0:
+            _log(
+                f"  ⚠  Permissions render backstop exited {result.returncode} — continuing "
+                "(the next upgrade's Phase 1 render remains the safety net)."
+            )
+            return
+        delta = _permissions_delta_record(root, allow_before, _read_permissions_allow(root))
+        added, removed = delta["added"], delta["removed"]
+        if added or removed:
+            _log(
+                "  Permissions delta (.claude/settings.json permissions.allow, new-code "
+                "backstop); review before relying on the new prompting posture:"
+            )
+            for rule in added:
+                _log(f"    + {rule}")
+            for rule in removed:
+                _log(f"    - {rule}")
+        _log_permissions_unmanaged_present(delta)
+        _PERMISSIONS_DELTA = delta
+        if added or removed:
+            _persist_permissions_delta(root, delta)
+        else:
+            import upgrade_lib
+
+            lock = upgrade_lib.read_upgrade_lock(root) or {}
+            if lock.get(_PERMISSIONS_DELTA_LOCK_FIELD) is None:
+                _persist_permissions_delta(root, delta)
+    except Exception as exc:
+        _log(f"  ⚠  Permissions render backstop skipped ({exc}) — continuing.")
 
 
 # ── Phase 2 — Pruning ─────────────────────────────────────────────────────────
@@ -1781,26 +2023,93 @@ def phase_docs_gate(root: Path) -> None:
 
 # ── Phase 4 — Index update / rebuild ──────────────────────────────────────────
 
-def phase_index_update(root: Path) -> None:
+def _index_child_publisher_grant(root: Path) -> str | None:
+    """Mint or reuse the value-bound Phase 4 publisher token (wave 1u44n).
+
+    ``index_state_store.begin_build_epoch`` refuses any caller while the
+    upgrade checkpoint exists unless it is the checkpoint-owning pid, a
+    staged-receipt child, or a caller whose
+    ``WAVEFOUNDRY_UPGRADE_PUBLISHER_TOKEN`` MATCHES the checkpoint's recorded
+    ``publisher_grant``. The Phase 4 ``setup_index.py`` children are separate
+    processes, so without this grant publication is refused on every upgrade
+    with real index work. Returns ``None`` when no upgrade lock exists (no
+    checkpoint means no refusal, so no grant is needed). Reuses a token the
+    ``pre_index_update`` bridge may already have recorded; fail-safe, because
+    an ungranted child degrades to the pre-existing refusal, never worse.
+    """
+    import upgrade_lib
+
+    try:
+        lock = upgrade_lib.read_upgrade_lock(root)
+        if not isinstance(lock, dict):
+            return None
+        token = str(lock.get("publisher_grant") or "").strip()
+        if not token:
+            import uuid
+
+            token = uuid.uuid4().hex
+            upgrade_lib.update_upgrade_lock(root, publisher_grant=token)
+        return token
+    except (OSError, ValueError, RuntimeError):
+        return None
+
+
+def _record_index_publication_outcome(root: Path, published: bool) -> None:
+    """Stamp the upgrade lock from the OBSERVED publication result (1u44n).
+
+    ``index_rebuilt_at`` is written only when publication was observed
+    successful; a failed publication clears it and records
+    ``index_publication_failed`` instead, so the cleanup summary's
+    ``index_update`` field derives from the outcome, never from the phase
+    having been attempted. No lock present is a no-op.
+    """
+    import upgrade_lib
+
+    if upgrade_lib.read_upgrade_lock(root) is None:
+        return
+    if published:
+        upgrade_lib.update_upgrade_lock(
+            root,
+            index_rebuilt_at=datetime.datetime.now(
+                datetime.timezone.utc
+            ).isoformat(),
+            index_publication_failed=False,
+        )
+    else:
+        upgrade_lib.update_upgrade_lock(
+            root,
+            index_rebuilt_at=None,
+            index_publication_failed=True,
+        )
+
+
+def phase_index_update(root: Path) -> bool:
     """Incremental index update — re-embeds only changed files.
 
     Auto-escalates to a full rebuild when chunker or embedding model version
     changed.  Use when source files have been edited but the format is stable.
+
+    Returns True when the blocking docs-layer publication was observed
+    successful, False when the child exited non-zero (1u44n: the outcome is
+    OBSERVED, not assumed; callers derive the summary field from it).
     """
     _log("\n── Phase 4: Index update ──")
     setup_script = SCRIPTS_DIR / "setup_index.py"
     if not setup_script.exists():
         _log("  setup_index.py not found — skipping index update.")
-        return
+        return True
 
     _log("  Phase 4a: updating docs index (blocking) ...")
     memory_run_id = os.environ.get(
         "WAVEFOUNDRY_MEMORY_BACKFILL_RUN_ID", ""
     ).strip()
-    child_env = None
+    grant_token = _index_child_publisher_grant(root)
+    child_env = dict(os.environ)
     if memory_run_id:
-        child_env = dict(os.environ)
         child_env["WAVEFOUNDRY_MEMORY_BACKFILL_RUN_ID"] = str(memory_run_id)
+    if grant_token:
+        child_env["WAVEFOUNDRY_UPGRADE_PUBLISHER_TOKEN"] = grant_token
+    published = True
     result = subprocess_util.isolated_run(
         [_preferred_python(), str(setup_script), "--root", str(root)],
         cwd=str(root),
@@ -1814,7 +2123,16 @@ def phase_index_update(root: Path) -> None:
                 message
                 + " — historical-memory publication remains incomplete and retryable"
             )
-        _log(f"  ⚠  {message} — continuing.")
+        # 1u44n: OBSERVED failure, not a silent warning. The upgrade
+        # continues (the documented recovery does not need a retained lock),
+        # but the outcome propagates to the summary and MCP diagnostic.
+        published = False
+        _err(
+            "Index publication FAILED: "
+            + message
+            + "; the semantic index epoch is incomplete. Recover with "
+            "index_build, then confirm with index_health."
+        )
 
     # Phase 4b: update the GRAPH index too (blocking; graph-only is fast, ~seconds,
     # no embedding). Symmetric with the semantic update: `--graph-only` (no --full)
@@ -1830,13 +2148,26 @@ def phase_index_update(root: Path) -> None:
         followup_env["WAVEFOUNDRY_MEMORY_BACKFILL_RUN_ID"] = memory_run_id
     else:
         followup_env.pop("WAVEFOUNDRY_MEMORY_BACKFILL_RUN_ID", None)
+    # 1u44n: the blocking graph child is an upgrade-owned publisher, but the
+    # DETACHED Phase 4c child below is NOT (it outlives the parent and the
+    # lock). Strip the grant from the shared env and add it only to the graph
+    # child's own copy, so the background child's environment carries no
+    # publisher grant even when the pre_index_update bridge exported one.
+    followup_env.pop("WAVEFOUNDRY_UPGRADE_PUBLISHER_TOKEN", None)
+    graph_env = dict(followup_env)
+    if grant_token:
+        graph_env["WAVEFOUNDRY_UPGRADE_PUBLISHER_TOKEN"] = grant_token
     graph_result = subprocess_util.isolated_run(
         [_preferred_python(), str(setup_script), "--root", str(root), "--graph-only"],
         cwd=str(root),
         check=False,
-        env=followup_env,
+        env=graph_env,
     )
     if graph_result.returncode != 0:
+        # 1u44n recorded justification: the graph store sits outside the
+        # semantic build epoch and the first-query rebuild remains its safety
+        # net, so this stays a warning — it cannot produce a false-success
+        # `index_update` field.
         _log(f"  ⚠  Graph index update exited {graph_result.returncode} — continuing (first-query rebuild remains the safety net).")
 
     if memory_run_id:
@@ -1844,7 +2175,7 @@ def phase_index_update(root: Path) -> None:
             "  Phase 4c: skipped — the receipt-owned foreground pass already "
             "converged both semantic layers."
         )
-        return
+        return published
 
     _log("  Phase 4c: launching code index update in background ...")
     background_cmd = [
@@ -1866,11 +2197,12 @@ def phase_index_update(root: Path) -> None:
         stdout=_bg_log_file,
         stderr=_bg_log_file,
         cwd=str(root),
-        env=followup_env,  # 1p8gv: UTF-8 stdio in the child (cp1252 safety)
+        env=followup_env,  # 1p8gv: UTF-8 stdio in the child (cp1252 safety); no publisher grant (1u44n)
         )
     finally:
         _bg_log_file.close()
     _log(f"  Code index update running in background (launcher log: {_bg_log}).")
+    return published
 
 
 def phase_index_update_parent_owned(root: Path, memory_run_id: str) -> None:
@@ -1915,26 +2247,45 @@ def phase_index_update_parent_owned(root: Path, memory_run_id: str) -> None:
         )
 
 
-def phase_index_rebuild(root: Path) -> None:
+def phase_index_rebuild(root: Path) -> bool:
     """Full index rebuild — re-embeds every file from scratch.
 
     Use when a chunker version bump, embedding model change, or index corruption
     requires starting fresh.  Prefer phase_index_update for normal upgrades.
+
+    Returns True when the blocking docs-layer publication was observed
+    successful, False when the child exited non-zero (1u44n).
     """
     _log("\n── Phase 4: Index rebuild (full) ──")
     setup_script = SCRIPTS_DIR / "setup_index.py"
     if not setup_script.exists():
         _log("  setup_index.py not found — skipping index rebuild.")
-        return
+        return True
 
+    grant_token = _index_child_publisher_grant(root)
+    rebuild_env = subprocess_util.utf8_child_env()
+    # 1u44n: blocking children are upgrade-owned publishers; the DETACHED
+    # Phase 4c child below is not. Grant only the blocking children.
+    rebuild_env.pop("WAVEFOUNDRY_UPGRADE_PUBLISHER_TOKEN", None)
+    blocking_env = dict(rebuild_env)
+    if grant_token:
+        blocking_env["WAVEFOUNDRY_UPGRADE_PUBLISHER_TOKEN"] = grant_token
+    published = True
     _log("  Phase 4a: rebuilding docs index (blocking) ...")
     result = subprocess_util.isolated_run(
         [_preferred_python(), str(setup_script), "--root", str(root), "--full"],
         cwd=str(root),
         check=False,
+        env=blocking_env,
     )
     if result.returncode != 0:
-        _log(f"  ⚠  Docs index rebuild exited {result.returncode} — continuing.")
+        # 1u44n: OBSERVED failure, not a silent warning (see phase_index_update).
+        published = False
+        _err(
+            f"Index publication FAILED: Docs index rebuild exited "
+            f"{result.returncode}; the semantic index epoch is incomplete. "
+            "Recover with index_build, then confirm with index_health."
+        )
 
     # Phase 4b: rebuild the GRAPH index too (blocking; fast, no embedding) —
     # symmetric with the semantic full rebuild.
@@ -1943,8 +2294,11 @@ def phase_index_rebuild(root: Path) -> None:
         [_preferred_python(), str(setup_script), "--root", str(root), "--graph-only", "--full"],
         cwd=str(root),
         check=False,
+        env=blocking_env,
     )
     if graph_result.returncode != 0:
+        # 1u44n recorded justification: graph sits outside the semantic build
+        # epoch; the first-query rebuild remains the safety net (warning only).
         _log(f"  ⚠  Graph index rebuild exited {graph_result.returncode} — continuing (first-query rebuild remains the safety net).")
 
     _log("  Phase 4c: launching code index rebuild in background ...")
@@ -1965,11 +2319,12 @@ def phase_index_rebuild(root: Path) -> None:
             stdout=_bg_log_file,
             stderr=_bg_log_file,
             cwd=str(root),
-            env=subprocess_util.utf8_child_env(),  # 1p8gv: UTF-8 stdio in the child (cp1252 safety)
+            env=rebuild_env,  # 1p8gv: UTF-8 stdio in the child (cp1252 safety); no publisher grant (1u44n)
         )
     finally:
         _bg_log_file.close()
     _log(f"  Code index rebuild running in background (launcher log: {_bg_log}).")
+    return published
 
 
 # ── Phase 5 — Cleanup & summary ───────────────────────────────────────────────
@@ -1984,6 +2339,7 @@ def phase_cleanup(
     failed_phase: str | None = None,
     lock_present: bool = True,
     review_sidecar_cleanup: dict | None = None,
+    index_update_failed: bool = False,
 ) -> None:
     import upgrade_lib
 
@@ -2000,6 +2356,14 @@ def phase_cleanup(
     lock_state = upgrade_lib.read_upgrade_lock(root) or {}
     restart_pending = bool(lock_state.get("dashboard_restart_pending"))
     restart_port = lock_state.get("dashboard_restart_port")
+    # Wave 1u2b0: cleanup usually runs in a DIFFERENT process from the render, so the
+    # in-process delta carrier is None here and the operator would lose the permissions
+    # consent line from the human summary. Adopt the record the rendering process
+    # persisted (read BEFORE the lock is removed below). A dict is the only shape the
+    # summary builder accepts; anything else degrades to "no claim".
+    _cl_permissions = lock_state.get(_PERMISSIONS_DELTA_LOCK_FIELD)
+    if not isinstance(_cl_permissions, dict):
+        _cl_permissions = None
     if failed_phase:
         _log(
             f"  Upgrade lock retained — it carries a failure marker (phase: "
@@ -2031,6 +2395,8 @@ def phase_cleanup(
             failed_phase=failed_phase,
             root=root,
             review_sidecar_cleanup=review_sidecar_cleanup,
+            permissions_delta=_cl_permissions,
+            index_update_failed=index_update_failed,
         )
         raise SystemExit(1)
 
@@ -2098,6 +2464,8 @@ def phase_cleanup(
         failed_phase=failed_phase,
         root=root,
         review_sidecar_cleanup=review_sidecar_cleanup,
+        permissions_delta=_cl_permissions,
+        index_update_failed=index_update_failed,
     )
     if (
         zip_path is not None
@@ -2290,32 +2658,38 @@ def _config_review_recommendation_lines(
         return []
 
 
-def _run_reconciliation_scan(root: Path | None) -> tuple[list[dict], list[dict]]:
-    """Wave 1p8et / 1p8o5 — run the shipped retired-surface reconciliation scan over *root*.
+def _run_reconciliation_scan(
+    root: Path | None,
+) -> tuple[list[dict], list[dict], list[dict]]:
+    """Wave 1p8et / 1p8o5 / 1u2az: run the shipped retired-surface reconciliation scan over *root*.
 
-    Returns ``(reconciliation, host_permission_flags)`` — two lists of
+    Returns ``(reconciliation, host_permission_flags, renderer_provenance_flags)``, three lists of
     ``{file, line, retired_surface, matched, suggested}`` dicts (report-only — the scan never mutates
     any file):
 
     * ``reconciliation`` — stale refs in editable repo docs/prompts/configs/scripts (the agent edits).
     * ``host_permission_flags`` — stale refs in host permission/allow-rule files the agent cannot
       self-edit under host auto-mode guards (flagged for the operator; wave 1p8o5).
+    * ``renderer_provenance_flags``: stale allow rules in `.claude/settings.json` that the
+      permissions renderer recorded emitting (wave 1u2az): these SELF-HEAL at the next
+      upgrade/install permissions render; no operator edit needed.
 
-    Fully fail-safe: returns ``([], [])`` when *root* is None or any import/scan error occurs, so a
-    scanner fault never breaks the upgrade summary.
+    Fully fail-safe: returns ``([], [], [])`` when *root* is None or any import/scan error occurs,
+    so a scanner fault never breaks the upgrade summary.
     """
     if root is None:
-        return [], []
+        return [], [], []
     try:
         import reconcile_scan
 
-        reconciliation, host_perm = reconcile_scan.scan_repo_channels(root)
+        reconciliation, host_perm, renderer_prov = reconcile_scan.scan_repo_channels(root)
         return (
             [ref.as_dict() for ref in reconciliation],
             [ref.as_dict() for ref in host_perm],
+            [ref.as_dict() for ref in renderer_prov],
         )
     except Exception:  # noqa: BLE001 — fail-safe: a scan fault must never break the upgrade
-        return [], []
+        return [], [], []
 
 
 def _reconciliation_recommendation_lines(
@@ -2323,6 +2697,7 @@ def _reconciliation_recommendation_lines(
     to_version: str | None,
     findings: list[dict] | None = None,
     host_permission_flags: list[dict] | None = None,
+    renderer_provenance_flags: list[dict] | None = None,
 ) -> list[str]:
     """Recommendation to reconcile local surfaces against changed/retired framework surfaces.
 
@@ -2342,6 +2717,10 @@ def _reconciliation_recommendation_lines(
     Wave 1p8o5: ``host_permission_flags`` (stale refs in host permission/allow-rule files the agent
     cannot self-edit) are emitted in a DISTINCT section so the operator — not the agent — makes those
     edits. They are never folded into the editable list above (seed-160 "flagged separately").
+
+    Wave 1u2az: ``renderer_provenance_flags`` (stale allow rules the permissions renderer recorded
+    emitting into `.claude/settings.json`) are emitted as a SELF-HEALING section: the next
+    upgrade/install permissions render prunes/replaces them; nobody hand-edits these.
     """
     try:
         # Wave 1p8kz (operator direction): run on EVERY upgrade, not only major/minor. A patch — or a
@@ -2381,6 +2760,24 @@ def _reconciliation_recommendation_lines(
                 lines.append(
                     f"    {ref['file']}:{ref['line']} ({matched}) → {ref['suggested']}"
                 )
+        # Wave 1u2az, renderer-provenance allow rules: SELF-HEALING. These are stale
+        # wavefoundry rules the permissions renderer recorded emitting; the next
+        # upgrade/install permissions render prunes/replaces them automatically. A hit
+        # here after this run's render usually means the render was skipped; no
+        # manual edit either way.
+        if renderer_provenance_flags:
+            lines.append("")
+            lines.append(
+                "  Renderer-provenance allow rules (SELF-HEALING, no edit needed; the"
+            )
+            lines.append(
+                "  upgrade/install permissions render prunes/replaces these automatically):"
+            )
+            for ref in renderer_provenance_flags:
+                matched = ref.get("matched") or f".wavefoundry/bin/{ref['retired_surface']}"
+                lines.append(
+                    f"    {ref['file']}:{ref['line']} ({matched}) → {ref['suggested']}"
+                )
         return lines
     except Exception:
         return []
@@ -2396,8 +2793,20 @@ def _build_upgrade_summary(
     reconciliation: list[dict],
     host_permission_flags: list[dict] | None = None,
     review_sidecar_cleanup: dict | None = None,
+    renderer_provenance_flags: list[dict] | None = None,
+    permissions_delta: dict | None = None,
+    index_update_failed: bool = False,
 ) -> dict:
     """Wave 1p8eu — assemble the operator summary ONCE as a dict.
+
+    ``ran_index_rebuild`` (wave 1u44n semantics): True means the Phase 4
+    docs-layer publication was OBSERVED successful (the child exited zero and
+    the epoch completed), never merely that the phase was attempted. Do not
+    reintroduce a hardcoded ``True`` at any caller. ``index_update_failed``
+    distinguishes an observed failed/refused publication from a phase that was
+    not run at all; together they select the ``index_update`` value domain:
+    success, "publication failed" (recover with ``index_build``, confirm with
+    ``index_health``), or "not run".
 
     Both the human prose and the machine-readable sentinel line are rendered from this single dict so
     they cannot drift. Reuses ``_docs_gate_summary_line`` and ``_is_major_or_minor_upgrade`` (the
@@ -2411,7 +2820,21 @@ def _build_upgrade_summary(
     ``restart_required`` boolean) into the machine-readable channel so ``wf_upgrade_response`` can
     suppress the in-process reload on cutover-active runs. ``None`` when the run recorded no
     cleanup counts (e.g. a pre-1.15 failure before Phase 2d).
+
+    ``permissions_delta`` (wave 1u2b0) overrides the in-process ``_PERMISSIONS_DELTA`` carrier with
+    a record persisted by an EARLIER process of the same upgrade (the `--cleanup` invocation passes
+    the lock's copy). The delta is FLATTENED into ``permissions_added`` / ``permissions_removed``
+    (lists, which the MCP response bounder pages instead of dropping) plus the scalars
+    ``permissions_file`` / ``permissions_changed`` / ``permissions_unmanaged_present``; it is never
+    emitted as a nested dict, because the bounder treats a dict as one scalar VALUE and drops the
+    entire consent delta once it exceeds the per-value character cap — which the write tier does.
+    ``permissions_changed`` is the tri-state: ``None`` when no permissions render ran for this
+    upgrade at all (no consent claim to make), ``0`` when a render ran and changed nothing, and the
+    added+removed count otherwise.
     """
+    delta = permissions_delta if permissions_delta is not None else _PERMISSIONS_DELTA
+    permissions_added = [str(rule) for rule in (delta or {}).get("added") or []]
+    permissions_removed = [str(rule) for rule in (delta or {}).get("removed") or []]
     return {
         "review_sidecar_cleanup": review_sidecar_cleanup,
         "from_version": from_version,
@@ -2422,12 +2845,33 @@ def _build_upgrade_summary(
         "index_update": (
             "docs layer complete, code layer running in background"
             if ran_index_rebuild
-            else "not run — call with --update-index after editing pass"
+            else (
+                "publication failed: semantic index epoch incomplete; run "
+                "index_build, then confirm with index_health"
+                if index_update_failed
+                else "not run — call with --update-index after editing pass"
+            )
         ),
         "failed_phase": failed_phase,
         "is_major_or_minor": _is_major_or_minor_upgrade(from_version, to_version),
         "reconciliation": reconciliation,
         "host_permission_flags": host_permission_flags or [],
+        # 1u2az: stale allow rules inside the permissions renderer's provenance;
+        # SELF-HEALING at the next upgrade/install permissions render.
+        "renderer_provenance_flags": renderer_provenance_flags or [],
+        # 1u2az/1u2b0: this upgrade's rendered-permissions delta (the operator
+        # consent point), FLATTENED so the response bounder pages the rule lists
+        # instead of dropping a nested dict as one over-cap scalar.
+        "permissions_file": (delta or {}).get("file"),
+        "permissions_added": permissions_added,
+        "permissions_removed": permissions_removed,
+        "permissions_changed": (
+            None if delta is None else len(permissions_added) + len(permissions_removed)
+        ),
+        # Roster-desired rules already present but operator-owned: the render
+        # leaves them unmanaged by design, so they never self-heal on a rename.
+        # None when the count could not be established.
+        "permissions_unmanaged_present": (delta or {}).get("unmanaged_present"),
         # 1p8xl: pack-search locations skipped because they were unreadable (e.g. a TCC-sandboxed
         # ~/Downloads). Surfaced so the operator can acknowledge — and grant access + re-run if a
         # newer pack lives there. Empty when every location read cleanly.
@@ -2454,6 +2898,8 @@ def _emit_primary_phase_summary(
     pruned_count: int,
     root: Path | None,
     review_sidecar_cleanup: dict | None = None,
+    *,
+    index_published: bool,
 ) -> None:
     """Wave 1p8kz — emit the structured summary sentinel at the end of the primary upgrade phase
     (phases 0–4, the default ``wf_upgrade()`` call) so agents get ``data['summary']`` — including
@@ -2463,19 +2909,26 @@ def _emit_primary_phase_summary(
     reconciliation scan runs on EVERY upgrade — not only major/minor — since a patch or same-version
     build-successor can change/retire a surface during testing (the rendered surfaces it needs are in
     place by phase 1); fail-safe."""
-    reconciliation, host_permission_flags = (
-        _run_reconciliation_scan(root) if root is not None else ([], [])
+    reconciliation, host_permission_flags, renderer_provenance_flags = (
+        _run_reconciliation_scan(root) if root is not None else ([], [], [])
     )
     summary = _build_upgrade_summary(
         from_version=from_version,
         to_version=to_version,
         zip_path=zip_path,
         pruned_count=pruned_count,
-        ran_index_rebuild=True,  # the default --yes path runs phase 4 (index update) before this point
+        # 1u44n: derived from the OBSERVED Phase 4 outcome the caller passes in
+        # (required keyword — never assumed from the phase having run).
+        ran_index_rebuild=index_published,
+        # failed_phase=None is audit-and-justify (1u44n requirement 6): this
+        # emit site is unreachable on failure — main() raises past it and the
+        # failure summary is rendered by the cleanup path from the lock marker.
         failed_phase=None,
         reconciliation=reconciliation,
         host_permission_flags=host_permission_flags,
         review_sidecar_cleanup=review_sidecar_cleanup,
+        renderer_provenance_flags=renderer_provenance_flags,
+        index_update_failed=not index_published,
     )
     _emit_summary_line(summary)
 
@@ -2489,15 +2942,19 @@ def _print_operator_summary(
     failed_phase: str | None = None,
     root: Path | None = None,
     review_sidecar_cleanup: dict | None = None,
+    permissions_delta: dict | None = None,
+    index_update_failed: bool = False,
 ) -> None:
     # Wave 1p8et/1p8kz: run the shipped retired-surface reconciliation scan on EVERY upgrade (operator
     # direction — a patch or same-version build-successor can change/retire a surface too), report-only
     # + fail-safe. Wave 1p8eu: build the summary dict ONCE so the prose + machine-readable sentinel
     # cannot drift.
     if root is not None and not failed_phase:
-        reconciliation, host_permission_flags = _run_reconciliation_scan(root)
+        reconciliation, host_permission_flags, renderer_provenance_flags = (
+            _run_reconciliation_scan(root)
+        )
     else:
-        reconciliation, host_permission_flags = [], []
+        reconciliation, host_permission_flags, renderer_provenance_flags = [], [], []
     summary = _build_upgrade_summary(
         from_version=from_version,
         to_version=to_version,
@@ -2508,6 +2965,9 @@ def _print_operator_summary(
         reconciliation=reconciliation,
         host_permission_flags=host_permission_flags,
         review_sidecar_cleanup=review_sidecar_cleanup,
+        renderer_provenance_flags=renderer_provenance_flags,
+        permissions_delta=permissions_delta,
+        index_update_failed=index_update_failed,
     )
 
     from_str = from_version or "(none)"
@@ -2525,6 +2985,33 @@ def _print_operator_summary(
     else:
         _log("Zip applied:        none (upgraded from current tree)")
     _log("Surfaces rendered:  hooks, MCP config, bin launchers, agent surfaces")
+    # Wave 1u2az: the rendered-permissions delta is the operator's CONSENT
+    # point for the prompting-posture change; name it explicitly, never fold it
+    # into the generic surfaces-rendered line. Wave 1u2b0: the delta reaches this
+    # process either from its own render (the module carrier) or from the record
+    # the rendering process persisted into the upgrade lock, so the separate
+    # --cleanup invocation prints the consent line too. `permissions_changed` is
+    # None only when no permissions render ran for this upgrade at all.
+    changed = summary["permissions_changed"]
+    if changed:
+        added = summary["permissions_added"]
+        removed = summary["permissions_removed"]
+        _log(
+            "Permissions:        CHANGED: .claude/settings.json permissions.allow "
+            f"(+{len(added)} added, -{len(removed)} removed); review before relying on the new prompting posture"
+        )
+        for rule in added:
+            _log(f"                    + {rule}")
+        for rule in removed:
+            _log(f"                    - {rule}")
+    elif changed is not None:
+        _log("Permissions:        unchanged (.claude/settings.json permissions.allow)")
+    if changed is not None and summary["permissions_unmanaged_present"]:
+        _log(
+            f"Permissions:        {summary['permissions_unmanaged_present']} roster-desired rule(s) "
+            "already present and operator-owned — left UNMANAGED (no self-heal on a later tool "
+            "rename); delete them and re-render to hand them over"
+        )
     _log(f"Files pruned:       {summary['pruned_count']}")
     _log(f"Docs gate:          {summary['docs_gate']}")
     _log(f"Index update:       {summary['index_update']}")
@@ -2556,7 +3043,11 @@ def _print_operator_summary(
         for line in _config_review_recommendation_lines(from_version, to_version):
             _log(line)
         for line in _reconciliation_recommendation_lines(
-            from_version, to_version, reconciliation, host_permission_flags
+            from_version,
+            to_version,
+            reconciliation,
+            host_permission_flags,
+            renderer_provenance_flags,
         ):
             _log(line)
     # Wave 1p8eu/1p8kz — emit the summary machine-readably so wf_upgrade_response parses it into
@@ -3206,7 +3697,15 @@ def main(argv: list[str] | None = None) -> int:
                         phase_index_update_parent_owned(root, run_id)
                     backfill.complete_index_publication(root, run_id)
                 else:
-                    phase_index_update(root)
+                    # 1u44n: an OBSERVED docs-layer failure must not be marked
+                    # indexed; raise into this branch's existing
+                    # failed_phase="index_update" handler below.
+                    if not phase_index_update(root):
+                        raise RuntimeError(
+                            "index publication did not complete (docs layer "
+                            "child exited non-zero); recover with index_build "
+                            "and confirm with index_health"
+                        )
                     backfill.mark_indexed(root, run_id)
             except Exception as exc:
                 recovered = backfill.reconcile_index_publication(root, run_id)
@@ -3228,6 +3727,8 @@ def main(argv: list[str] | None = None) -> int:
                 current_phase="index_complete",
                 memory_backfill_state="indexed",
                 index_rebuilt_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                # 1u44n: this success supersedes any earlier observed failure.
+                index_publication_failed=False,
             )
             upgrade_lib.clear_failed_phase(root, "index_update")
             _log("Historical memory validated; Phase 4 index publication complete.")
@@ -3264,10 +3765,30 @@ def main(argv: list[str] | None = None) -> int:
                 and summary is not None
                 and summary["state"] != "indexed"
             ):
-                _err(
-                    "Historical memory validation is pending; index/cleanup is refused. "
-                    "Run bounded memory backfill + validation, then --resume-after-memory."
+                # 1u44n: branch the refusal on the ACTUAL pending count (the
+                # same memory_backfill_pending composition the checkpoint
+                # writers use). At zero pending, "validation is pending" is
+                # false and the correct recovery is the ordered
+                # resume-after-memory / cleanup / index_build sequence the
+                # field operators had to rediscover by tracing.
+                _gate_pending = (
+                    summary["remaining_waves"]
+                    + summary["candidates_pending"]
+                    + summary["failures"]
                 )
+                if _gate_pending == 0:
+                    _err(
+                        "Historical memory is complete (0 pending) but not yet "
+                        "marked indexed; index/cleanup is refused. Recover in "
+                        "order: --resume-after-memory first (it exits zero "
+                        "while the upgrade is still non-terminal), then "
+                        "--cleanup, then index_build; confirm with index_health."
+                    )
+                else:
+                    _err(
+                        "Historical memory validation is pending; index/cleanup is refused. "
+                        "Run bounded memory backfill + validation, then --resume-after-memory."
+                    )
                 standalone_transaction.__exit__(None, None, None)
                 return backfill.ACTION_REQUIRED_EXIT
         except (
@@ -3294,7 +3815,7 @@ def main(argv: list[str] | None = None) -> int:
             # Wave 1p3dk / 1p3ho: always call phase_index_update — the indexer's
             # internal auto-escalate handles the chunker/walker bump full-rebuild
             # case. Trust the indexer; no explicit force-rebuild routing.
-            phase_index_update(root)
+            _ui_published = bool(phase_index_update(root))
             # Wave 1ryce: lifecycle scheme-v2 provisioning backstop from NEW code. An MCP wf_upgrade
             # from a version BEFORE 1.10.1 runs the pre-upgrade orchestrator through preflight (which
             # therefore has no Phase 2c) and the old server may never reach the phase_cleanup backstop —
@@ -3311,11 +3832,21 @@ def main(argv: list[str] | None = None) -> int:
             # MCP upgrade flow post-extract, so it reliably cleans up the file even from an older source
             # version. Idempotent (a missing file is a no-op) and fail-safe (never aborts the index phase).
             _remove_root_bootstrap_file(root)
+            # Wave 1u2b0: rendered-permissions backstop from NEW code, same old-code-window
+            # precedent as the two backstops above — an upgrade runs Phase 1 on the
+            # already-imported OLD orchestrator, which never passes --include-permissions, so
+            # without a backstop the upgrade that installs the permission surface renders none.
+            # This site covers the MCP flows that run --update-index; the DEFAULT path (which
+            # never does) is covered by the sibling call in the `--cleanup` branch below.
+            # Permissions-only, idempotent, fail-safe.
+            _ensure_rendered_permissions_backstop(root)
             _run_hook("post_index_update", _rb_ctx, _rb_ext)
-            upgrade_lib.update_upgrade_lock(
-                root,
-                index_rebuilt_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            )
+            # 1u44n: stamp the lock from the OBSERVED outcome only; a failed
+            # publication records index_publication_failed and exits non-zero
+            # instead of a false process-level success.
+            _record_index_publication_outcome(root, _ui_published)
+            if not _ui_published:
+                return 1
         finally:
             _close_log()
             if standalone_transaction is not None:
@@ -3333,12 +3864,13 @@ def main(argv: list[str] | None = None) -> int:
             _rb_ctx = UpgradeContext(root, _rb_from, _rb_to, _rb_zip, args.yes)
             _rb_ext = _load_extension_module(_rb_zip)
             _run_hook("pre_index_rebuild", _rb_ctx, _rb_ext)
-            phase_index_rebuild(root)
+            _ri_published = bool(phase_index_rebuild(root))
             _run_hook("post_index_rebuild", _rb_ctx, _rb_ext)
-            upgrade_lib.update_upgrade_lock(
-                root,
-                index_rebuilt_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            )
+            # 1u44n: stamp the lock from the OBSERVED outcome only (see
+            # --update-index above).
+            _record_index_publication_outcome(root, _ri_published)
+            if not _ri_published:
+                return 1
         finally:
             _close_log()
             if standalone_transaction is not None:
@@ -3357,8 +3889,14 @@ def main(argv: list[str] | None = None) -> int:
             _cl_to = lock.get("to_version") if lock else None
             _cl_zip = _zip_from_lock(lock)
             _cl_pruned = (lock.get("pruned_count") or 0) if lock else 0
-            # True when --rebuild-index already ran and recorded its completion.
+            # True when a Phase 4 publication was OBSERVED successful and its
+            # completion recorded (1u44n: never merely attempted).
             _cl_rebuilt = bool(lock.get("index_rebuilt_at")) if lock else False
+            # 1u44n: an OBSERVED failed/refused publication recorded by any of
+            # the three writers; distinguishes "failed" from "not run".
+            _cl_index_failed = (
+                bool(lock.get("index_publication_failed")) if lock else False
+            )
             _cl_failed = lock.get("failed_phase") if lock else None
             # This run's cutover counts (recorded by the new-code backstop above)
             # ride into the operator summary so the machine-readable channel can
@@ -3366,6 +3904,22 @@ def main(argv: list[str] | None = None) -> int:
             _cl_sidecar = lock.get("review_sidecar_cleanup") if lock else None
             _cl_ctx = UpgradeContext(root, _cl_from, _cl_to, _cl_zip, args.yes)
             _cl_ext = _load_extension_module(_cl_zip)
+            # Wave 1u2b0: DEFAULT-PATH permissions backstop. The `--update-index` site
+            # below covers MCP flows that run that subprocess, but an ordinary upgrade
+            # never does: its primary phase renders surfaces and runs Phase 4 inline and
+            # then exits. Cleanup is the one phase every documented upgrade path reaches
+            # in a FRESH process (`upgrade-wavefoundry --cleanup` on the CLI, and the
+            # `--cleanup` subprocess the MCP `wf_upgrade(phase="cleanup")` spawns), so it
+            # is the reliable new-code place on the default path — the same reasoning that
+            # gives `_ensure_lifecycle_policy_backstop` a second site inside phase_cleanup.
+            # Placed BEFORE phase_cleanup so the delta this pass records in the upgrade
+            # lock is still there when phase_cleanup reads it for the operator consent
+            # line, and before the lock is removed. Gated on the lock: with no upgrade in
+            # flight, cleanup prints its "nothing to clean up" warning and returns, and
+            # mutating a committed operator file there would be a silent write outside an
+            # upgrade. Permissions-only, idempotent, fail-safe.
+            if _cl_present:
+                _ensure_rendered_permissions_backstop(root)
             _run_hook("pre_cleanup", _cl_ctx, _cl_ext)
             phase_cleanup(
                 root=root,
@@ -3379,6 +3933,7 @@ def main(argv: list[str] | None = None) -> int:
                 review_sidecar_cleanup=(
                     _cl_sidecar if isinstance(_cl_sidecar, dict) else None
                 ),
+                index_update_failed=_cl_index_failed,
             )
             _run_hook("post_cleanup", _cl_ctx, _cl_ext)
         finally:
@@ -3902,19 +4457,25 @@ def main(argv: list[str] | None = None) -> int:
             int(memory_summary.get("candidates_drafted") or 0) > 0
             and memory_summary["state"] == "ready_for_index"
         )
+        index_published = True
         if publication_pending:
             with memory_backfill.index_publication_scope(memory_run_id):
                 phase_index_update_parent_owned(root, memory_run_id)
         else:
-            phase_index_update(root)
+            index_published = bool(phase_index_update(root))
         if publication_pending:
             memory_backfill.complete_index_publication(root, memory_run_id)
         _run_hook("post_index_update", ctx, ext_mod)
-        upgrade_lib.update_upgrade_lock(
-            root,
-            memory_backfill_state="indexed",
-            index_rebuilt_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        )
+        # 1u44n: stamp the lock from the OBSERVED outcome only. On failure the
+        # upgrade still completes (the documented recovery is index_build +
+        # index_health, which needs no retained lock), but nothing may claim
+        # the phase succeeded: no index_rebuilt_at, no "indexed" state.
+        _record_index_publication_outcome(root, index_published)
+        if index_published:
+            upgrade_lib.update_upgrade_lock(
+                root,
+                memory_backfill_state="indexed",
+            )
 
     except SystemExit:
         # A phase or hook failed (phase_docs_gate raises sys.exit(1) on a docs
@@ -3953,6 +4514,7 @@ def main(argv: list[str] | None = None) -> int:
         pruned_count,
         root,
         review_sidecar_cleanup=sidecar_counts,
+        index_published=index_published,
     )
 
     _log(

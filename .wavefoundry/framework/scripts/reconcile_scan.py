@@ -24,6 +24,15 @@ never flags the framework pack tree, the generated index, wave/report history, a
 (by basename, anywhere), the renderer-managed `prompt-surface-manifest.json`, journals/snapshots, or
 test files.
 
+Wave 1u2az adds a THIRD channel: stale allow rules in the committed `.claude/settings.json` that
+fall inside the permissions renderer's provenance key are SELF-HEALING (the next upgrade/install
+permissions render prunes/replaces them) and are partitioned into ``renderer_provenance_flags``
+rather than the operator's ``host_permission_flags`` channel. Membership is decided only by exact
+provenance membership AND the hit's location inside an allow/provenance array (the only regions the
+render rewrites), never by the ``mcp__wavefoundry__`` name prefix and never by substring
+containment — a stale rule elsewhere in that file, e.g. inside a hooks command, is operator
+territory because no render will ever fix it.
+
 Reconciliation is UPGRADE-TIME-ONLY: this helper is called from the upgrade reconciliation phase. It
 is intentionally NOT wired to a standalone ``wf reconcile`` CLI subcommand or a ``wave_reconcile`` MCP
 tool (operator decision 2026-06-27 — a reference only goes stale crossing a version boundary).
@@ -40,6 +49,7 @@ from typing import Iterator
 # ``_RETIRED_BIN_WRAPPERS`` in render_platform_surfaces.py; ``retired_surface_suggestion`` resolves
 # the human-facing replacement form (``wf <subcommand>`` or the no-replacement guidance).
 from render_platform_surfaces import (  # noqa: E402 — SCRIPTS_DIR is on sys.path
+    PERMISSIONS_PROVENANCE_KEY,
     _RENAMED_MCP_TOOLS,
     _RETIRED_SURFACE_REPLACEMENTS,
     renamed_tool_suggestion,
@@ -166,6 +176,192 @@ def is_host_permission_file(rel: str) -> bool:
     return rel in HOST_PERMISSION_FILES
 
 
+# ── Renderer-provenance allow rules (self-healing channel, wave 1u2az) ────────
+# The committed `.claude/settings.json` now carries a renderer-owned MCP allowlist whose exact
+# emitted entries are recorded under `render_platform_surfaces.PERMISSIONS_PROVENANCE_KEY`. A stale
+# reference INSIDE that provenance, in a region the render rewrites, is not operator territory: the
+# next upgrade/install permissions render prunes/replaces it automatically, so the scan reports it in
+# a third, SELF-HEALING channel.
+# Everything else in `.claude/settings.json` (operator-authored rules, including rules that happen
+# to name a wavefoundry tool, plus hook wiring — even a hooks COMMAND naming the exact same stale
+# rule string), all of `.claude/settings.local.json`, and `.cursor/settings.json` remain genuinely
+# operator-owned and keep routing to the host-permission channel. Ownership is decided ONLY by exact
+# provenance membership plus the hit's location inside an allow/provenance array, never by the
+# `mcp__wavefoundry__` name prefix.
+_CLAUDE_SETTINGS_FILE = ".claude/settings.json"
+
+
+def renderer_provenance_rules(root: Path | str) -> frozenset[str]:
+    """The allow-rule strings the permissions renderer recorded emitting into
+    `.claude/settings.json` (its provenance key).
+
+    Fail-safe by construction: an absent or unreadable file (``OSError``), malformed JSON
+    or an undecodable byte stream (``ValueError``, which covers ``json.JSONDecodeError``
+    and ``UnicodeDecodeError``), a non-object payload, or a non-list provenance key all
+    yield an EMPTY set, so every finding routes to the operator channel and never
+    silently to the self-healing one. ``PERMISSIONS_PROVENANCE_KEY`` is resolved by this
+    module's top-level import (never re-authored here and never a call-time import that
+    could raise inside this helper)."""
+    import json
+
+    try:
+        loaded = json.loads(
+            (Path(root) / ".claude" / "settings.json").read_text(encoding="utf-8")
+        )
+        raw = loaded.get(PERMISSIONS_PROVENANCE_KEY) if isinstance(loaded, dict) else None
+        if isinstance(raw, list):
+            return frozenset(entry for entry in raw if isinstance(entry, str))
+    except (OSError, ValueError):
+        pass
+    return frozenset()
+
+
+# The two renderer-governed regions of `.claude/settings.json`, each pinned to an exact
+# document position rather than to a key NAME: the top-level provenance record, and the
+# `allow` array that is a direct member of the TOP-LEVEL `permissions` object. A stale rule
+# anywhere else in that file (a hooks command, an operator-authored key, a `deny`/`ask`
+# entry, or a foreign array that merely happens to be named `allow`) is NOT self-healing —
+# the permissions render only ever rewrites these two arrays.
+_PROVENANCE_ALLOW_CONTAINER_KEY = "permissions"
+_PROVENANCE_ALLOW_KEY = "allow"
+
+
+def _json_key_value_spans(
+    text: str, key: str, *, depth: int, opener: str
+) -> list[tuple[int, int]]:
+    """Character spans of every ``opener``-opened value bound to ``"key"`` at object *depth*.
+
+    Position-tracking scan (one left-to-right pass, no full parse): string literals are
+    consumed whole, so brackets, braces, escaped quotes and embedded key tokens inside a
+    rule string can never be mistaken for structure. A quoted token counts as a KEY only
+    when the next non-whitespace character is ``:``; a string VALUE equal to the key token
+    is therefore ignored.
+
+    ``depth`` is the number of enclosing containers around the key, so a member of the root
+    object is at depth 1 and a member of a top-level object's value is at depth 2. Keying on
+    depth (and, for ``allow``, on containment inside the ``permissions`` object — see
+    ``provenance_governed_spans``) is what keeps a foreign ``somePlugin.config.allow`` array
+    out of renderer-governed territory.
+
+    Returns ``[]`` for a key that is absent, is not at *depth*, or whose value does not open
+    with ``opener``. Malformed input (an unterminated string, an unclosed array or object,
+    an unbalanced closer) yields no span for the affected region, so an unrecognized shape
+    degrades to "not governed" — the operator channel, which is the safe direction.
+    """
+    spans: list[tuple[int, int]] = []
+    # Open containers, innermost last: (opening char, start offset, the key it is bound to,
+    # that key's object depth). ``None`` for a container that is an array element.
+    stack: list[tuple[str, int, str | None, int]] = []
+    pending_key: str | None = None
+    index = 0
+    length = len(text)
+    while index < length:
+        char = text[index]
+        if char == '"':
+            end = index + 1
+            escaped = False
+            while end < length:
+                current = text[end]
+                if escaped:
+                    escaped = False
+                elif current == "\\":
+                    escaped = True
+                elif current == '"':
+                    break
+                end += 1
+            if end >= length:
+                return spans  # unterminated string — degrade to "not governed"
+            token = text[index + 1:end]
+            cursor = end + 1
+            while cursor < length and text[cursor].isspace():
+                cursor += 1
+            if cursor < length and text[cursor] == ":":
+                pending_key = token
+                index = cursor + 1
+                continue
+            pending_key = None  # a string VALUE, not a key
+            index = end + 1
+            continue
+        if char in "{[":
+            stack.append((char, index, pending_key, len(stack)))
+            pending_key = None
+            index += 1
+            continue
+        if char in "}]":
+            if not stack:
+                return spans  # unbalanced closer — degrade to "not governed"
+            open_char, start, frame_key, frame_depth = stack.pop()
+            if open_char == opener and frame_key == key and frame_depth == depth:
+                spans.append((start, index + 1))
+            pending_key = None
+            index += 1
+            continue
+        if char == ",":
+            pending_key = None
+        index += 1
+    return spans
+
+
+def provenance_governed_spans(text: str) -> list[tuple[int, int]]:
+    """Character spans in a `.claude/settings.json` body that the permissions render owns.
+
+    Exactly two regions: the TOP-LEVEL provenance array, and the ``allow`` array that is a
+    direct member of the TOP-LEVEL ``permissions`` object. Used to require that a stale hit
+    is an allow/provenance ENTRY before calling it self-healing. An array named ``allow``
+    that lives anywhere else (a plugin's own config, a nested object, a second
+    ``permissions`` key deeper in the tree) is not governed: no render will ever rewrite it,
+    so a hit there must stay in the operator channel.
+    """
+    spans: list[tuple[int, int]] = _json_key_value_spans(
+        text, PERMISSIONS_PROVENANCE_KEY, depth=1, opener="["
+    )
+    container_spans = _json_key_value_spans(
+        text, _PROVENANCE_ALLOW_CONTAINER_KEY, depth=1, opener="{"
+    )
+    if not container_spans:
+        return spans
+    for allow_start, allow_end in _json_key_value_spans(
+        text, _PROVENANCE_ALLOW_KEY, depth=2, opener="["
+    ):
+        if any(
+            start <= allow_start and allow_end <= end
+            for start, end in container_spans
+        ):
+            spans.append((allow_start, allow_end))
+    return spans
+
+
+def _is_renderer_provenance_hit(
+    rel: str,
+    matched: str,
+    provenance: frozenset[str],
+    governed_spans: list[tuple[int, int]],
+    offset: int,
+) -> bool:
+    """True when a stale hit in `.claude/settings.json` is a renderer-governed allow rule.
+
+    THREE conditions, all required:
+
+    * the file is the committed Claude settings file — a provenance list never reclassifies
+      hits in `settings.local.json` or any other host file;
+    * the matched stale text EQUALS a recorded provenance rule. Exact membership, not
+      containment: the renderer emits bare ``mcp__wavefoundry__<name>`` rules (Claude Code
+      MCP rules carry no argument suffixes), so a containment test could only ever fire on
+      a coincidental substring and would route a rule nobody rewrites into the
+      "no edit needed" channel;
+    * the hit LOCATION lies inside an allow/provenance array (``governed_spans``). Without
+      this, the same rule string sitting in a hooks command in the same file would be
+      reported as self-healing while no render ever touches it.
+
+    Anything that fails a condition stays operator-side, which is the safe direction.
+    """
+    if rel != _CLAUDE_SETTINGS_FILE or not provenance:
+        return False
+    if matched not in provenance:
+        return False
+    return any(start <= offset < end for start, end in governed_spans)
+
+
 @dataclass(frozen=True)
 class StaleReference:
     """One stale retired-surface reference found in a repo-authored file.
@@ -178,6 +374,10 @@ class StaleReference:
     no-replacement case, the remove/rewrite guidance). ``host_permission`` is True when the hit is in a
     host permission/allow-rule file (``HOST_PERMISSION_FILES``) — those go to the separate
     operator-flag channel, not the editable ``reconciliation`` list (an agent cannot self-edit them).
+    ``renderer_provenance`` (wave 1u2az) is True only for hits in `.claude/settings.json` that sit
+    inside an allow/provenance array AND exactly equal a rule the permissions renderer recorded
+    emitting; those SELF-HEAL at the next upgrade/install permissions render and route to their own
+    channel. A hit anywhere else in that file (a hooks command, an operator key) is False.
     """
 
     file: str
@@ -186,6 +386,7 @@ class StaleReference:
     matched: str
     suggested: str
     host_permission: bool = False
+    renderer_provenance: bool = False
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -264,6 +465,7 @@ def scan_repo(root: Path | str) -> list[StaleReference]:
     only in ``.py`` files (they are a Python-construction concern).
     """
     root = Path(root)
+    provenance = renderer_provenance_rules(root)
     findings: list[StaleReference] = []
     for path, rel in _iter_scannable_files(root):
         try:
@@ -271,6 +473,20 @@ def scan_repo(root: Path | str) -> list[StaleReference]:
         except (UnicodeDecodeError, OSError):
             continue
         host_perm = is_host_permission_file(rel)
+        # Renderer-governed regions of the committed Claude settings file (allow +
+        # provenance arrays). Computed once per file; empty for every other file, so
+        # `_is_renderer_provenance_hit` can only ever fire on a real allow/provenance entry.
+        governed_spans = (
+            provenance_governed_spans(text)
+            if provenance and rel == _CLAUDE_SETTINGS_FILE
+            else []
+        )
+
+        def _provenance_flag(m: re.Match[str]) -> bool:
+            return _is_renderer_provenance_hit(
+                rel, m.group(0), provenance, governed_spans, m.start()
+            )
+
         patterns = [_LITERAL_PATTERN]
         if path.suffix == ".py":
             patterns += [_DYNAMIC_PATTERN, _VAR_BINDIR_PATTERN]
@@ -286,6 +502,7 @@ def scan_repo(root: Path | str) -> list[StaleReference]:
                         matched=m.group(0),
                         suggested=retired_surface_suggestion(retired),
                         host_permission=host_perm,
+                        renderer_provenance=_provenance_flag(m),
                     )
                 )
         # Renamed MCP tools (1.14.0): the fully-qualified form first; its match
@@ -304,6 +521,7 @@ def scan_repo(root: Path | str) -> list[StaleReference]:
                     matched=m.group(0),
                     suggested=renamed_tool_suggestion(old_name),
                     host_permission=host_perm,
+                    renderer_provenance=_provenance_flag(m),
                 )
             )
         for m in _TOOL_BARE_PATTERN.finditer(text):
@@ -319,6 +537,7 @@ def scan_repo(root: Path | str) -> list[StaleReference]:
                     matched=m.group(0),
                     suggested=renamed_tool_suggestion(old_name),
                     host_permission=host_perm,
+                    renderer_provenance=_provenance_flag(m),
                 )
             )
     findings.sort(key=lambda f: (f.file, f.line, f.retired_surface))
@@ -327,22 +546,33 @@ def scan_repo(root: Path | str) -> list[StaleReference]:
 
 def scan_repo_channels(
     root: Path | str,
-) -> tuple[list[StaleReference], list[StaleReference]]:
-    """Scan ``root`` and partition findings into the TWO operator channels.
+) -> tuple[list[StaleReference], list[StaleReference], list[StaleReference]]:
+    """Scan ``root`` and partition findings into the THREE channels.
 
-    Returns ``(reconciliation, host_permission_flags)``:
+    Returns ``(reconciliation, host_permission_flags, renderer_provenance_flags)``:
 
     * ``reconciliation`` — stale refs in editable repo docs/prompts/configs/scripts. The agent applies
       each suggested edit itself.
     * ``host_permission_flags`` — stale refs in host permission/allow-rule files
-      (``HOST_PERMISSION_FILES``). The agent CANNOT self-edit these under host auto-mode guards, so
-      they are flagged for the operator to edit (seed-160 "flagged separately for the operator").
+      (``HOST_PERMISSION_FILES``) OUTSIDE the permissions renderer's provenance. The agent CANNOT
+      self-edit these under host auto-mode guards, so they are flagged for the operator to edit
+      (seed-160 "flagged separately for the operator"). All of ``.claude/settings.local.json`` and
+      ``.cursor/settings.json``, and every non-provenance ``.claude/settings.json`` hit, stay here.
+    * ``renderer_provenance_flags`` (wave 1u2az): stale allow rules in ``.claude/settings.json``
+      recorded in the permissions renderer's provenance: SELF-HEALING; the next upgrade/install
+      permissions render prunes/replaces them; nobody hand-edits these.
 
-    Both lists hold :class:`StaleReference` in the same deterministic (file, line, retired_surface)
+    All lists hold :class:`StaleReference` in the same deterministic (file, line, retired_surface)
     order produced by :func:`scan_repo`.
     """
     reconciliation: list[StaleReference] = []
     host_permission_flags: list[StaleReference] = []
+    renderer_provenance_flags: list[StaleReference] = []
     for ref in scan_repo(root):
-        (host_permission_flags if ref.host_permission else reconciliation).append(ref)
-    return reconciliation, host_permission_flags
+        if ref.renderer_provenance:
+            renderer_provenance_flags.append(ref)
+        elif ref.host_permission:
+            host_permission_flags.append(ref)
+        else:
+            reconciliation.append(ref)
+    return reconciliation, host_permission_flags, renderer_provenance_flags

@@ -80,13 +80,18 @@ def _run_render_platform_surfaces(repo_root: Path) -> int:
     ``setup --root`` may target a repository other than the checkout containing
     this script.  Passing the resolved root through avoids silently rendering
     the framework checkout while indexing the requested target.
+
+    Wave 1u2b0 (1u2az): install is one of the two operator-run orchestrations
+    allowed to render the MCP permission allowlist, so it passes
+    ``--include-permissions``. The agent-invocable ``wf_sync_surfaces`` render
+    never passes that switch.
     """
     script_path = _SCRIPTS_DIR / "render_platform_surfaces.py"
     if not script_path.exists():
         print(f"ERROR: render_platform_surfaces.py not found at {script_path}", file=sys.stderr)
         return 1
     result = subprocess_util.isolated_run(
-        [sys.executable, str(script_path), "--repo-root", str(repo_root)],
+        [sys.executable, str(script_path), "--repo-root", str(repo_root), "--include-permissions"],
         check=False,
     )
     return result.returncode

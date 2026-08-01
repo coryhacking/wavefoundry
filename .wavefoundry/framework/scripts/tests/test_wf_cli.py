@@ -249,7 +249,7 @@ class NoLiveReferenceToRetiredWrapperTests(unittest.TestCase):
         # The guard asserts the EDITABLE channel only: host permission/allow-rule findings route to
         # the operator-flag channel by design (an agent must not self-edit those files), so they are
         # surfaced at upgrade time rather than gating the framework suite on operator-owned files.
-        reconciliation, _host_flags = self.scan.scan_repo_channels(REPO_ROOT)
+        reconciliation, _host_flags, _prov_flags = self.scan.scan_repo_channels(REPO_ROOT)
         offenders = [f"{f.file}:{f.line} ({f.matched} -> {f.suggested})" for f in reconciliation]
         self.assertEqual(
             offenders,

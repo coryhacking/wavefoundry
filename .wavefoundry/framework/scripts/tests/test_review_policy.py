@@ -532,6 +532,103 @@ class LockAndPublicationPolicyTests(unittest.TestCase):
                 publication_control.publication_block_reason(root, "memory_validate"),
             )
 
+    def test_zero_pending_refusal_names_the_complete_ordered_recovery(self):
+        """1u44n (AC-2): with historical memory complete (0 pending) the
+        refusal states the ordered recovery (resume_after_memory, then
+        cleanup, then index_build), names index_health as the confirming
+        check, and states that resume_after_memory exits zero while the
+        lifecycle is still non-terminal."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            checkpoint = root / publication_control.UPGRADE_CHECKPOINT_REL
+            checkpoint.parent.mkdir(parents=True)
+            checkpoint.write_text(
+                json.dumps(
+                    {
+                        "current_phase": "awaiting_memory_validation",
+                        "memory_backfill_pending": 0,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            reason = publication_control.publication_checkpoint_reason(
+                root, "index_build"
+            )
+            self.assertTrue(reason.startswith("upgrade_in_progress"))
+            resume = reason.index("resume_after_memory")
+            cleanup = reason.index("cleanup")
+            build = reason.index("index_build; confirm")
+            self.assertLess(resume, cleanup)
+            self.assertLess(cleanup, build)
+            self.assertIn("index_health", reason)
+            self.assertIn("exits zero", reason)
+            self.assertNotIn("memory_validate", reason)
+
+    def test_pending_or_unknown_refusal_routes_to_validation_not_skip(self):
+        """1u44n (AC-2): non-zero, absent, or unreadable pending is a genuine
+        pause (fail safe) — route to memory_backfill / memory_validate and
+        never emit the skip-validation ordered recovery."""
+        cases = (
+            {"current_phase": "awaiting_memory_validation", "memory_backfill_pending": 3},
+            {"current_phase": "awaiting_memory_validation"},
+            {"current_phase": "awaiting_memory_validation", "memory_backfill_pending": "junk"},
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            checkpoint = root / publication_control.UPGRADE_CHECKPOINT_REL
+            checkpoint.parent.mkdir(parents=True)
+            for payload in cases:
+                with self.subTest(payload=payload):
+                    checkpoint.write_text(json.dumps(payload), encoding="utf-8")
+                    reason = publication_control.publication_checkpoint_reason(
+                        root, "index_build"
+                    )
+                    self.assertIn("memory_backfill", reason)
+                    self.assertIn("memory_validate", reason)
+                    self.assertNotIn("index_health", reason)
+                    self.assertNotIn("cleanup", reason)
+            # Unreadable checkpoint file: read_upgrade_checkpoint returns {}
+            # (pending absent) — same genuine-pause branch.
+            checkpoint.write_text("{", encoding="utf-8")
+            reason = publication_control.publication_checkpoint_reason(
+                root, "index_build"
+            )
+            self.assertIn("memory_validate", reason)
+            self.assertNotIn("index_health", reason)
+
+    def test_child_raise_renders_the_same_composed_refusal_text(self):
+        """1u44n (AC-2): the in-upgrade child surface (begin_build_epoch's
+        RuntimeError) renders EXACTLY the composed string; the MCP surface
+        strips only the `upgrade_in_progress: ` prefix (asserted in
+        test_server_tools)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            index_dir = root / ".wavefoundry" / "index"
+            checkpoint = root / publication_control.UPGRADE_CHECKPOINT_REL
+            checkpoint.parent.mkdir(parents=True)
+            checkpoint.write_text(
+                json.dumps(
+                    {
+                        "current_phase": "awaiting_memory_validation",
+                        "pid": -1,
+                        "memory_backfill_pending": 0,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            reason = publication_control.publication_checkpoint_reason(
+                root, "index_build"
+            )
+            import os
+
+            with patch.dict(os.environ, {}, clear=False):
+                os.environ.pop("WAVEFOUNDRY_UPGRADE_PARENT_FINALIZE_RECEIPT", None)
+                os.environ.pop("WAVEFOUNDRY_UPGRADE_PUBLISHER_TOKEN", None)
+                with self.assertRaises(RuntimeError) as raised:
+                    index_state_store.begin_build_epoch(index_dir, "docs")
+            self.assertEqual(str(raised.exception), reason)
+            self.assertIn("index_health", str(raised.exception))
+
     def test_non_object_checkpoint_shapes_are_corrupt_and_blocking(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -3302,9 +3302,10 @@ def server_identity(root: Path, *, server_runner_version: str | None = None) -> 
         "repo_name": resolved_root.name,
         "project_slug": _project_slug(resolved_root),
     }
+    # Always include the version payload (wave 1u2b0): with no runner process the runner fields
+    # are explicit nulls rather than silently absent, so consumers can rely on the field set.
     rv = server_runner_version if server_runner_version is not None else _runner_version
-    if rv:
-        data.update(version_payload(root, server_runner_version=rv))
+    data.update(version_payload(root, server_runner_version=rv or None))
     return data
 
 
@@ -3917,6 +3918,15 @@ def run_sync_surfaces(root: Path) -> dict:
     actually changed via --manifest (recorded inside its write chokepoints);
     the old files_written prose-line grep is retired (it held log lines, not
     paths, and had no consumers).
+
+    Wave 1u2b0 (1u2az) SECURITY INVARIANT: this agent-invocable render must
+    NEVER pass the renderer's opt-in permission-allowlist CLI switch (the one
+    the operator-run upgrade and install orchestrations pass). Permissions
+    rendering (the MCP allowlist merged into .claude/settings.json) is
+    reachable only from those orchestrations; adding that switch here would
+    reopen the agent permission-escalation channel wave 1u2b0 closed. A test
+    pins that this module never names the switch, so keep its spelling out of
+    this file entirely, prose included.
     """
     import subprocess as _subprocess
 
@@ -12484,6 +12494,33 @@ def wf_upgrade_response(
     if summary is not None:
         data["summary"] = _bounded_upgrade_summary(summary)
 
+    # Wave 1u44n: an OBSERVED failed/refused Phase 4 publication must reach the
+    # caller as a diagnostic naming index_health, on the success AND failure
+    # envelopes. The summary's `index_update` value domain carries it for the
+    # sentinel-emitting phases; the standalone --update/--rebuild-index phases
+    # (no sentinel) are detected from the child's printed failure marker.
+    _index_pub_failed = bool(
+        (
+            summary is not None
+            and str(summary.get("index_update") or "").startswith(
+                "publication failed"
+            )
+        )
+        or "Index publication FAILED" in output
+    )
+    _index_pub_diag = (
+        _diagnostic(
+            "index_publication_failed",
+            "Index publication did not complete; the semantic index epoch is "
+            "incomplete and readers fail closed. Run index_build, then "
+            "confirm with index_health.",
+            recovery_tools=["index_health", "index_build"],
+            recovery_usage="index_health()",
+        )
+        if _index_pub_failed
+        else None
+    )
+
     # Wave 1p8eu / F2 — compute the phase-aware next step + next_tools BEFORE the returncode check so
     # both the success AND the failure response carry them.
     _next_step, _next_tools = _upgrade_next_step(phase)
@@ -12561,12 +12598,18 @@ def wf_upgrade_response(
             phase == "resume_after_gate" or "--resume-after-gate" in output
         ):
             reason = "review-state projection or docs gate failed"
+        if result.returncode == 1 and _index_pub_failed:
+            # 1u44n: the standalone index phases reuse exit 1; do not mislabel
+            # an observed publication failure as a docs-gate failure.
+            reason = "index publication failed"
         err = _response(
             "error",
             data,
             diagnostics=[_diagnostic("upgrade_failed", f"Upgrade phase '{phase}' failed: {reason}")],
             next_tools=_next_tools,
         )
+        if _index_pub_diag is not None:
+            err.setdefault("diagnostics", []).append(_index_pub_diag)
         err["next_step"] = _next_step
         return _bounded_upgrade_response_envelope(err)
 
@@ -12588,6 +12631,10 @@ def wf_upgrade_response(
             _next_step = _next_step + " " + _CUTOVER_RESTART_INSTRUCTION
 
     resp = _response("ok", data, usage=f"wf_upgrade(phase='{phase}')", next_tools=_next_tools)
+    if _index_pub_diag is not None:
+        # 1u44n: a zero-exit run whose summary reports a failed publication
+        # still carries the index_health-naming diagnostic.
+        resp.setdefault("diagnostics", []).append(_index_pub_diag)
     resp["next_step"] = _next_step
     # Wave 1p3dk / 1p3ho: reload the MCP server's in-process code after the
     # main upgrade phase or cleanup so subsequent MCP calls (index_health,
@@ -23314,7 +23361,37 @@ def code_ask_response(index: "WaveIndex", root: Path, question: str, rerank: str
 # Implementation version (refreshed on importlib.reload)
 # ---------------------------------------------------------------------------
 
-SERVER_RUNNER_VERSION = "1"  # re-exported alias; canonical runner version lives in server.py
+# Wave 1u2b0: the retired frozen SERVER_RUNNER_VERSION = "1" alias is deliberately NOT defined
+# here. The runner identity is a capture-at-launch content hash owned by server.py (which computes
+# it via compute_runner_identity below); a literal here would silently diverge behind server.py's
+# module __getattr__ fallback. A standalone server_impl with no runner process reports null.
+
+_RUNNER_IDENTITY_HEX_LEN = 12
+# Derived from the length constant on purpose: a hardcoded repetition count would silently stop
+# matching real identities (disabling every staleness comparison) if the length ever changed.
+_RUNNER_IDENTITY_RE = re.compile(rf"^[0-9a-f]{{{_RUNNER_IDENTITY_HEX_LEN}}}$")
+
+
+def compute_runner_identity(runner_files: Iterable[str] | None) -> str | None:
+    """Short content identity (first 12 sha256 hex chars) over the un-reloadable runner set.
+
+    The thin runner (server.py) captures this at process launch over server.py and
+    venv_bootstrap.py, the two files that execute at launch and are never reloaded in-process.
+    wf_server_info recomputes the same hash from disk at query time and compares; opening the
+    stored unresolved launch paths re-resolves symlinks, so a swapped install target is seen.
+    Fail-safe by contract: returns None when the set is empty or unknown, or when any file is
+    unreadable (missing, locked, or a torn mid-upgrade copy); it never raises, because
+    wf_server_info is exactly the tool operators reach for mid-upgrade.
+    """
+    if not runner_files:
+        return None
+    digest = hashlib.sha256()
+    for name in runner_files:
+        try:
+            digest.update(Path(name).read_bytes())
+        except Exception:
+            return None
+    return digest.hexdigest()[:_RUNNER_IDENTITY_HEX_LEN]
 
 
 def _read_framework_pack_version(*, scripts_dir: Path | None = None) -> str:
@@ -23336,7 +23413,11 @@ def _read_framework_version_at_root(root: Path) -> str:
 
 SERVER_IMPL_VERSION = _read_framework_pack_version()
 
+# Runner identity state, populated by the thin runner via set_server_runner_version at build time
+# and re-populated after every in-process reload. Defaults mean "no runner process": a standalone
+# server_impl reports an explicit null identity, never a fake value.
 _runner_version: str = ""
+_runner_files: list[str] = []
 
 _CONTEXT_RETRIEVAL_TOOLS = frozenset(
     {
@@ -24805,23 +24886,60 @@ def _lifecycle_context_result(
     return response
 
 
-def set_server_runner_version(v: str) -> None:
-    global _runner_version
+def set_server_runner_version(v: str, runner_files: Iterable[str] | None = None) -> None:
+    """Record the runner's capture-at-launch identity plus the runner-set file paths.
+
+    Called by the thin runner (server.py) at build time and again after every in-process
+    reload, so a reload never changes the reported identity; only a real process restart
+    can. A standalone server_impl with no runner process never calls this and keeps the
+    null-identity defaults.
+    """
+    global _runner_version, _runner_files
     _runner_version = v
+    _runner_files = [str(f) for f in runner_files] if runner_files else []
 
 
-def version_payload(root: Path, *, server_runner_version: str) -> dict[str, Any]:
+def _runner_stale_detail() -> str:
+    names = ", ".join(sorted({Path(f).name for f in _runner_files})) or "the runner files"
+    return (
+        f"The on-disk runner files ({names}) no longer match the copies this server process "
+        "launched from. That is expected after a framework upgrade, and equally after editing "
+        "those files in a development checkout. An in-process wf_reload_mcp cannot pick up "
+        "runner changes: fully restart the MCP host (quit and relaunch it) to load the "
+        "current runner."
+    )
+
+
+def version_payload(root: Path, *, server_runner_version: str | None) -> dict[str, Any]:
     framework_version = _read_framework_version_at_root(root)
     impl_version = SERVER_IMPL_VERSION
     impl_matches_disk: bool | None = None
     if framework_version and impl_version:
         impl_matches_disk = framework_version == impl_version
-    return {
+    # Runner staleness (wave 1u2b0): compare the capture-at-launch identity against the current
+    # on-disk runner-set hash. Tri-state and fail-safe: either side unknown (no runner process,
+    # unreadable or torn disk file, or a non-hash launch identity such as a pre-1.16 runner's
+    # frozen "1") degrades to null, never an exception.
+    launch_identity = server_runner_version or None
+    disk_identity = compute_runner_identity(_runner_files)
+    runner_stale: bool | None = None
+    if (
+        disk_identity is not None
+        and launch_identity is not None
+        and _RUNNER_IDENTITY_RE.match(launch_identity)
+    ):
+        runner_stale = launch_identity != disk_identity
+    payload: dict[str, Any] = {
         "framework_version": framework_version,
-        "server_runner_version": server_runner_version,
+        "server_runner_version": launch_identity,
+        "runner_disk_identity": disk_identity,
+        "runner_stale": runner_stale,
         "server_impl_version": impl_version,
         "impl_matches_disk": impl_matches_disk,
     }
+    if runner_stale:
+        payload["runner_stale_detail"] = _runner_stale_detail()
+    return payload
 
 
 class ImplHandler:
@@ -25004,9 +25122,16 @@ def build_handler(root: Path) -> ImplHandler:
 
 
 def wf_server_info_response(root: Path, *, server_runner_version: str | None = None) -> dict[str, Any]:
+    data = server_identity(root, server_runner_version=server_runner_version)
+    diagnostics: list[dict[str, Any]] = []
+    if data.get("runner_stale") is True:
+        diagnostics.append(
+            _diagnostic("runner_stale", str(data.get("runner_stale_detail") or _runner_stale_detail()))
+        )
     return _response(
         "ok",
-        server_identity(root, server_runner_version=server_runner_version),
+        data,
+        diagnostics=diagnostics,
         next_tools=["wf_current_wave", "wf_help"],
         usage="wf_server_info()",
     )
@@ -29572,6 +29697,36 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         raise RuntimeError(
             "MCP tool name prefix contract violated for: " + ", ".join(violations)
         )
+    # Wave 1u2b0 (1u2az): roster parity check. mcp_tool_roster.py (the stdlib-only
+    # source the permission-allowlist renderer consumes) must track this
+    # registration surface exactly. Runner-registered reload survivors
+    # (RUNNER_TOOLS, e.g. wf_reload_mcp) are roster members registered later by
+    # server.py, so they are excluded from this implementation-side comparison.
+    # WARNING-ONLY on stderr: a drift must never deny the whole MCP server;
+    # the hard gate is the AST parity test in tests/test_render_platform_surfaces.py.
+    try:
+        _roster = _load_script("mcp_tool_roster")
+        _runner = set(_roster.RUNNER_TOOLS)
+        # Runner survivors are excluded from BOTH sides: they are registered by
+        # server.py (absent on first registration, already present when a hot
+        # reload re-registers onto the live FastMCP instance), so their
+        # presence or absence here is not drift.
+        _expected = set(_roster.TOOL_TIERS) - _runner
+        _registered = set(tool_names) - _runner
+        # An empty registered set means a stub/partial harness `mcp` that does
+        # not track tool names; that is not roster drift either.
+        if _registered and _registered != _expected:
+            _missing = sorted(_registered - _expected)
+            _extra = sorted(_expected - _registered)
+            print(
+                "wavefoundry: WARNING, mcp_tool_roster drift vs registered surface. "
+                f"registered-not-in-roster={_missing} roster-not-registered={_extra}. "
+                "Update mcp_tool_roster.TOOL_TIERS so the rendered permission "
+                "allowlist tracks the tool surface.",
+                file=sys.stderr,
+            )
+    except Exception:
+        pass
     # Inner-to-outer order matters: ordinary successful calls are costed under
     # their lifecycle lock, while the upgrade checkpoint guard is outermost so
     # it can fail fast without either waiting on Upgrade's lifecycle lock or

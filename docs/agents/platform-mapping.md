@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-31
+Last verified: 2026-08-01
 
 Maps Wave Framework agent docs, personas, specialists, and factor agents to native agent platform files.
 
@@ -61,6 +61,45 @@ Root-only means exactly that: the host must launch from the configured project r
 not search upward from an arbitrary cwd, because a descendant containing another installation could
 silently change project identity. Missing host authority is surfaced as a support limitation, not
 papered over with a generic locator.
+
+## Rendered MCP Permission Surface (wave 1u2b0)
+
+| Host | Rendered surface | Render path | Ownership model |
+|------|------------------|-------------|-----------------|
+| Claude Code | `.claude/settings.json` `permissions.allow` allowlist (read-only tier by default; write tier behind the operator-authored `wavefoundryAllowWriteTools` key) | Upgrade/install orchestration (renderer's explicit include-permissions switch); the agent-invocable `wf_sync_surfaces` render never touches `permissions` content | Provenance set-merge: emitted entries recorded under `wavefoundryManagedAllow`; operator entries (including wavefoundry-named ones) survive every render; ownership is never inferred from the `mcp__wavefoundry__` name prefix |
+| Cursor / Codex / Copilot / Windsurf / Junie / Air / Warp / Antigravity | None rendered in this release | n/a | Out of scope for rendering; the design does not preclude equivalent surfaces later |
+
+The allowlist derives from the canonical stdlib tool roster
+(`.wavefoundry/framework/scripts/mcp_tool_roster.py`, tool name plus a dedicated
+permission tier), so tool renames self-heal on the next upgrade render; the
+upgrade output names the rendered permissions delta as an explicit operator
+consent line, and the reconciliation scan reports renderer-provenance stale
+rules in their own self-healing channel (see `docs/specs/mcp-tool-surface.md`).
+
+Render-boundary honesty: the `wf_sync_surfaces` negative is a tested invariant,
+but the boundary as a whole is **operator approval plus host enforcement, not
+structural agent-unreachability**. `wf_upgrade` is an ordinary agent-callable
+MCP tool whose first phase renders, so an agent can trigger a render; the
+impact is bounded to the read tier, because the write tier needs the operator
+knob and `wf_upgrade` is itself write-tier and so cannot allowlist itself.
+Passing the include-permissions switch to the renderer through the `wf`
+dispatcher is an accepted residual outside the threat model (an agent with
+unrestricted shell access can write `.claude/settings.json` directly). The
+knob's home is likewise protected by the host prompting on edits to that file
+plus prompt policy, not by the framework: the framework's own pre-edit guard
+there is the `framework_edit_allowed` gate, which an agent can open, so writing
+the knob takes the same capability as writing the rules by hand.
+
+First-render timing: a fresh install and a protocol-bridge upgrade render the
+block immediately; an ordinary upgrade of an existing target renders it during
+the same upgrade only because of backstops in the upgrade's later phases, which
+exist because the in-process orchestrator running the surface-render phase is
+pre-extraction (old) code. The backstops run from phases the upgrade executes in
+a separate process on the freshly extracted code: the cleanup phase, which every
+upgrade path reaches, plus the index-refresh phase for the flows that run it. A repo that already hand-maintained the wavefoundry
+allow rules gets nothing claimed, an empty provenance, and no rename self-heal
+until the operator deletes those rules and lets the renderer re-emit them; the
+consent output reports them as already present and left unmanaged.
 
 ## Executable Review-Evidence Propagation
 

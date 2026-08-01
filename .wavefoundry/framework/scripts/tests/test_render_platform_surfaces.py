@@ -1721,3 +1721,461 @@ class ManifestChannelTests(unittest.TestCase):
                 (root / "render-manifest.json").exists(),
                 "no manifest file without the --manifest argument",
             )
+
+
+class ClaudePermissionsRenderTests(unittest.TestCase):
+    """Wave 1u2b0 (1u2az): provenance-tracked MCP permission allowlist rendered
+    into .claude/settings.json on the upgrade/install path only."""
+
+    def setUp(self):
+        scripts_dir = str(SCRIPT_PATH.parent)
+        if scripts_dir not in sys.path:
+            sys.path.insert(0, scripts_dir)
+        self.mod = _load_render_module()
+        import mcp_tool_roster
+        self.roster = mcp_tool_roster
+
+    @staticmethod
+    def _settings_path(root: Path) -> Path:
+        return root / ".claude" / "settings.json"
+
+    def _read(self, root: Path) -> dict:
+        return json.loads(self._settings_path(root).read_text(encoding="utf-8"))
+
+    # AC-1: read-tier allowlist matches the roster; byte-stable re-render.
+    def test_render_emits_read_tier_allowlist_and_is_byte_stable(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td).resolve()
+            self.assertEqual(
+                self.mod.main(
+                    ["--repo-root", str(root), "--platform", "claude", "--include-permissions"]
+                ),
+                0,
+            )
+            data = self._read(root)
+            expected = list(self.roster.allow_rules(include_write=False))
+            allow = data["permissions"]["allow"]
+            self.assertEqual(sorted(r for r in allow if isinstance(r, str)), expected)
+            self.assertEqual(data[self.mod.PERMISSIONS_PROVENANCE_KEY], expected)
+            # No write-tier rule leaks into the default render.
+            write_rules = set(self.roster.allow_rules(include_write=True)) - set(expected)
+            self.assertTrue(write_rules, "roster sanity: a write tier exists")
+            self.assertFalse(write_rules & set(allow))
+            first = self._settings_path(root).read_bytes()
+            self.assertEqual(
+                self.mod.main(
+                    ["--repo-root", str(root), "--platform", "claude", "--include-permissions"]
+                ),
+                0,
+            )
+            self.assertEqual(
+                self._settings_path(root).read_bytes(),
+                first,
+                "re-render with no interleaved writers must be byte-stable",
+            )
+
+    # AC-1: operator/host entries survive value-identically after a host write.
+    def test_operator_and_host_entries_preserved_value_identically(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td).resolve()
+            self.mod.main(
+                ["--repo-root", str(root), "--platform", "claude", "--include-permissions"]
+            )
+            # Simulated host/operator write: appended allow rules (one naming a
+            # wavefoundry write-tier tool), a deny list, an unknown key.
+            data = self._read(root)
+            data["permissions"]["allow"].append("Bash(npm test:*)")
+            data["permissions"]["allow"].append("mcp__wavefoundry__wf_review_event")
+            data["permissions"]["deny"] = ["WebFetch"]
+            data["operatorCustomKey"] = {"kept": True}
+            self._settings_path(root).write_text(
+                json.dumps(data, indent=2) + "\n", encoding="utf-8"
+            )
+            self.mod.main(
+                ["--repo-root", str(root), "--platform", "claude", "--include-permissions"]
+            )
+            after = self._read(root)
+            allow = after["permissions"]["allow"]
+            self.assertIn("Bash(npm test:*)", allow)
+            self.assertIn("mcp__wavefoundry__wf_review_event", allow)
+            self.assertEqual(allow.count("mcp__wavefoundry__wf_review_event"), 1)
+            self.assertEqual(after["permissions"]["deny"], ["WebFetch"])
+            self.assertEqual(after["operatorCustomKey"], {"kept": True})
+            # The operator's wavefoundry-named rule is NEVER claimed.
+            self.assertNotIn(
+                "mcp__wavefoundry__wf_review_event",
+                after[self.mod.PERMISSIONS_PROVENANCE_KEY],
+            )
+
+    # AC-2: a roster rename self-heals with no renderer code edit; the
+    # operator-authored rule naming the SAME retired tool survives.
+    def test_roster_rename_self_heals_and_operator_rule_survives(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td).resolve()
+            self.mod.main(
+                ["--repo-root", str(root), "--platform", "claude", "--include-permissions"]
+            )
+            # Simulate a tool rename purely in roster data: retire code_hover,
+            # introduce code_hover_v2. No renderer code edit.
+            renamed = dict(self.roster.TOOL_TIERS)
+            self.assertEqual(renamed.pop("code_hover"), "read")
+            renamed["code_hover_v2"] = "read"
+            # Operator separately authored a rule naming the retired tool.
+            data = self._read(root)
+            operator_rule = "mcp__wavefoundry__code_hover"
+            self.assertIn(operator_rule, data[self.mod.PERMISSIONS_PROVENANCE_KEY])
+            data["permissions"]["allow"].append("mcp__wavefoundry__code_hover(deep:*)")
+            self._settings_path(root).write_text(
+                json.dumps(data, indent=2) + "\n", encoding="utf-8"
+            )
+            with patch.dict(self.roster.TOOL_TIERS, renamed, clear=True):
+                self.mod.render_claude_permissions(root)
+            after = self._read(root)
+            allow = after["permissions"]["allow"]
+            self.assertNotIn(operator_rule, allow, "retired claimed rule must be pruned")
+            self.assertIn("mcp__wavefoundry__code_hover_v2", allow)
+            self.assertIn(
+                "mcp__wavefoundry__code_hover(deep:*)", allow,
+                "operator-authored rule naming a retired wavefoundry tool must survive",
+            )
+            self.assertIn(
+                "mcp__wavefoundry__code_hover_v2",
+                after[self.mod.PERMISSIONS_PROVENANCE_KEY],
+            )
+
+    # AC-3: write tier renders only under the operator-owned knob; clearing the
+    # knob prunes the renderer's write-tier rules again.
+    def test_write_tier_gated_by_operator_knob(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td).resolve()
+            self.mod.main(
+                ["--repo-root", str(root), "--platform", "claude", "--include-permissions"]
+            )
+            probe = "mcp__wavefoundry__wf_close_wave"
+            self.assertNotIn(probe, self._read(root)["permissions"]["allow"])
+            data = self._read(root)
+            data[self.mod.PERMISSIONS_WRITE_TIER_KEY] = True
+            self._settings_path(root).write_text(
+                json.dumps(data, indent=2) + "\n", encoding="utf-8"
+            )
+            self.mod.render_claude_permissions(root)
+            enabled = self._read(root)
+            self.assertIn(probe, enabled["permissions"]["allow"])
+            self.assertIn(probe, enabled[self.mod.PERMISSIONS_PROVENANCE_KEY])
+            enabled[self.mod.PERMISSIONS_WRITE_TIER_KEY] = False
+            self._settings_path(root).write_text(
+                json.dumps(enabled, indent=2) + "\n", encoding="utf-8"
+            )
+            self.mod.render_claude_permissions(root)
+            disabled = self._read(root)
+            self.assertNotIn(probe, disabled["permissions"]["allow"])
+            self.assertNotIn(probe, disabled[self.mod.PERMISSIONS_PROVENANCE_KEY])
+
+    # AC-3: the default (agent-reachable) render leaves permissions untouched.
+    def test_default_render_never_touches_permissions(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td).resolve()
+            settings = self._settings_path(root)
+            settings.parent.mkdir(parents=True)
+            operator_permissions = {
+                "allow": ["Bash(npm test:*)", "mcp__wavefoundry__wf_review_event"],
+                "deny": ["WebFetch"],
+            }
+            settings.write_text(
+                json.dumps({"permissions": operator_permissions}, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                self.mod.main(["--repo-root", str(root), "--platform", "claude"]), 0
+            )
+            after = self._read(root)
+            self.assertEqual(after["permissions"], operator_permissions)
+            self.assertNotIn(self.mod.PERMISSIONS_PROVENANCE_KEY, after)
+            # And no wavefoundry read-tier rule appeared.
+            self.assertNotIn("mcp__wavefoundry__code_search", after["permissions"]["allow"])
+
+    def test_corrupt_settings_json_leaves_file_untouched(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td).resolve()
+            settings = self._settings_path(root)
+            settings.parent.mkdir(parents=True)
+            settings.write_text("{not json", encoding="utf-8")
+            self.mod.render_claude_permissions(root)
+            self.assertEqual(settings.read_text(encoding="utf-8"), "{not json")
+
+    def test_valid_non_object_payload_leaves_file_untouched(self):
+        # A top-level list is the same hazard as corrupt JSON: merging into a
+        # fresh dict would DISCARD the operator payload. Same policy.
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td).resolve()
+            settings = self._settings_path(root)
+            settings.parent.mkdir(parents=True)
+            settings.write_text('["operator", "payload"]\n', encoding="utf-8")
+            self.mod.render_claude_permissions(root)
+            self.assertEqual(
+                settings.read_text(encoding="utf-8"), '["operator", "payload"]\n'
+            )
+
+    def test_unreadable_settings_file_warns_and_does_not_raise(self):
+        # `.claude/settings.json` is the most host-contended file in the tree
+        # (Windows lock, read-only mode). The caller aborts the whole upgrade on a
+        # non-zero exit on a post-extraction tree, so an OSError must never escape.
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td).resolve()
+            settings = self._settings_path(root)
+            settings.parent.mkdir(parents=True)
+            settings.write_text("{}\n", encoding="utf-8")
+            real_read_text = Path.read_text
+
+            def boom(self_path, *args, **kwargs):
+                if self_path == settings:
+                    raise OSError(13, "locked by the host")
+                return real_read_text(self_path, *args, **kwargs)
+
+            with patch.object(Path, "read_text", boom):
+                self.mod.render_claude_permissions(root)  # must not raise
+            self.assertEqual(settings.read_text(encoding="utf-8"), "{}\n")
+
+    def test_no_empty_managed_block_when_nothing_is_claimed_or_pruned(self):
+        # The operator already hand-authored every roster-desired rule: those stay
+        # operator-owned (never claimed), so the render must NOT materialize a
+        # `wavefoundryManagedAllow: []` block in a file that had none.
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td).resolve()
+            settings = self._settings_path(root)
+            settings.parent.mkdir(parents=True)
+            payload = json.dumps(
+                {"permissions": {"allow": list(self.roster.allow_rules(include_write=False))}},
+                indent=2,
+            ) + "\n"
+            settings.write_text(payload, encoding="utf-8")
+            self.mod.render_claude_permissions(root)
+            self.assertEqual(settings.read_text(encoding="utf-8"), payload)
+            self.assertNotIn(self.mod.PERMISSIONS_PROVENANCE_KEY, self._read(root))
+            # Positive control: one missing rule and the render DOES write + claim.
+            partial = list(self.roster.allow_rules(include_write=False))
+            dropped = partial.pop()
+            settings.write_text(
+                json.dumps({"permissions": {"allow": partial}}, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            self.mod.render_claude_permissions(root)
+            after = self._read(root)
+            self.assertIn(dropped, after["permissions"]["allow"])
+            self.assertEqual(after[self.mod.PERMISSIONS_PROVENANCE_KEY], [dropped])
+
+    def test_permissions_only_renders_the_allowlist_and_nothing_else(self):
+        # The upgrade's new-code backstop scope: the allowlist merge without
+        # re-rendering unrelated surfaces mid-upgrade.
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td).resolve()
+            self.assertEqual(
+                self.mod.main(
+                    [
+                        "--repo-root", str(root),
+                        "--platform", "claude",
+                        "--include-permissions",
+                        "--permissions-only",
+                    ]
+                ),
+                0,
+            )
+            self.assertEqual(
+                sorted(
+                    r for r in self._read(root)["permissions"]["allow"]
+                    if isinstance(r, str)
+                ),
+                list(self.roster.allow_rules(include_write=False)),
+            )
+            for other in (".mcp.json", ".codex/config.toml", ".claude/hooks", ".wavefoundry/bin"):
+                self.assertFalse((root / other).exists(), other)
+
+    def test_permissions_only_alone_never_widens_permissions(self):
+        # --permissions-only narrows SCOPE; --include-permissions remains the one
+        # switch that enables permission rendering, so the P1 boundary keeps
+        # exactly one gate to pin.
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td).resolve()
+            self.assertEqual(
+                self.mod.main(
+                    ["--repo-root", str(root), "--platform", "claude", "--permissions-only"]
+                ),
+                0,
+            )
+            self.assertFalse(self._settings_path(root).exists())
+
+
+class SyncSurfacesNeverRendersPermissionsTests(unittest.TestCase):
+    """Wave 1u2b0 council P1 (AC-3): permissions rendering is structurally
+    unreachable from the agent-invocable render entry point. server_impl's
+    wf_sync_surfaces shells out to this renderer with a fixed argv that never
+    names the include-permissions switch; pinned here at source level, with
+    the upgrade/install orchestrations as positive controls proving the pin is
+    not vacuous."""
+
+    SCRIPTS = SCRIPT_PATH.parent
+    SWITCH = "--include-permissions"
+
+    def test_server_impl_never_names_the_permissions_switch(self):
+        source = (self.SCRIPTS / "server_impl.py").read_text(encoding="utf-8")
+        self.assertNotIn(
+            self.SWITCH,
+            source,
+            "server_impl.py (the agent-invocable wf_sync_surfaces path) must "
+            "never name the renderer's permissions switch",
+        )
+
+    def test_server_runner_never_names_the_permissions_switch(self):
+        source = (self.SCRIPTS / "server.py").read_text(encoding="utf-8")
+        self.assertNotIn(self.SWITCH, source)
+
+    def test_upgrade_and_install_orchestrations_pass_the_switch(self):
+        # Positive controls: the two operator-run orchestrations DO pass it,
+        # proving the negative pins above cannot rot into vacuity via a rename.
+        for name in ("upgrade_wavefoundry.py", "setup_wavefoundry.py"):
+            source = (self.SCRIPTS / name).read_text(encoding="utf-8")
+            self.assertIn(self.SWITCH, source, f"{name} must pass {self.SWITCH}")
+
+    def test_renderer_default_is_off(self):
+        mod = _load_render_module()
+        args = mod.parse_args([])
+        self.assertFalse(args.include_permissions)
+        self.assertFalse(args.permissions_only)
+
+    def test_server_impl_never_names_the_permissions_renderer_internals(self):
+        # Stronger than the switch spelling alone: the agent-invocable server must
+        # not reach the permissions renderer under ANY name — not the function, not
+        # the provenance key, not the scope-narrowing switch.
+        for name in ("server_impl.py", "server.py"):
+            source = (self.SCRIPTS / name).read_text(encoding="utf-8")
+            for symbol in (
+                "render_claude_permissions",
+                "PERMISSIONS_PROVENANCE_KEY",
+                "wavefoundryManagedAllow",
+                "--permissions-only",
+            ):
+                self.assertNotIn(symbol, source, f"{name} must never name {symbol}")
+
+    def test_permissions_only_switch_is_upgrade_orchestration_only(self):
+        # Positive control for the negative pin above: the new-code backstop in the
+        # upgrade orchestration DOES pass it, so a rename cannot make the pin vacuous.
+        source = (self.SCRIPTS / "upgrade_wavefoundry.py").read_text(encoding="utf-8")
+        self.assertIn("--permissions-only", source)
+
+
+class RosterShipsInPackTests(unittest.TestCase):
+    """The stdlib tool roster the permission render derives from must SHIP —
+    mirrors reconcile_scan's pack-inclusion gate (a renderer dependency missing
+    from the pack breaks every target's render, not just this repo's)."""
+
+    SCRIPTS = SCRIPT_PATH.parent
+
+    def test_mcp_tool_roster_not_excluded_from_pack(self):
+        import importlib.util
+
+        build_pack_path = self.SCRIPTS / "build_pack.py"
+        spec = importlib.util.spec_from_file_location("build_pack_canonical", build_pack_path)
+        bp = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(bp)
+        self.assertNotIn("scripts/mcp_tool_roster.py", bp.EXCLUDED_REL_PATHS)
+        # Assert the REAL ship gate, not just list membership.
+        self.assertFalse(
+            bp.should_exclude("scripts/mcp_tool_roster.py", "mcp_tool_roster.py"),
+            "mcp_tool_roster.py must ship in the pack (should_exclude returned True)",
+        )
+        roster_path = self.SCRIPTS / "mcp_tool_roster.py"
+        self.assertTrue(roster_path.is_file())
+        self.assertNotIn("tests", roster_path.relative_to(self.SCRIPTS).parts)
+
+
+class RosterRegistrationParityTests(unittest.TestCase):
+    """Wave 1u2az AC-5: the stdlib roster module and the registered MCP
+    surface agree exactly (AST census over server_impl.register_mcp_surface
+    plus the server.py runner survivors)."""
+
+    SCRIPTS = SCRIPT_PATH.parent
+
+    def _census(self, file_name: str, fn_name: str, source: str | None = None) -> set[str]:
+        import ast as _ast
+
+        # Both def forms and both decorator forms: an `async def` tool, or a bare
+        # `@mcp.tool` (no call parens), must not be invisible to this hard gate
+        # while the runtime parity check only warns.
+        def_kinds = (_ast.FunctionDef, _ast.AsyncFunctionDef)
+
+        def _is_tool_decorator(dec) -> bool:
+            target = dec.func if isinstance(dec, _ast.Call) else dec
+            return isinstance(target, _ast.Attribute) and target.attr == "tool"
+
+        if source is None:
+            source = (self.SCRIPTS / file_name).read_text(encoding="utf-8")
+        found: set[str] = set()
+        for node in _ast.walk(_ast.parse(source)):
+            if isinstance(node, def_kinds) and node.name == fn_name:
+                for inner in _ast.walk(node):
+                    if isinstance(inner, def_kinds) and inner is not node:
+                        if any(_is_tool_decorator(d) for d in inner.decorator_list):
+                            found.add(inner.name)
+        return found
+
+    def test_census_sees_async_and_bare_decorator_tool_definitions(self):
+        # Guards the census itself (runs the REAL _census over synthetic source):
+        # a future `async def` tool or a bare `@mcp.tool` decorator must be
+        # counted, or this hard gate silently stops gating while the runtime
+        # parity check only ever warns.
+        import textwrap
+
+        source = textwrap.dedent(
+            """
+            def register_mcp_surface(mcp):
+                @mcp.tool()
+                def plain_tool():
+                    pass
+
+                @mcp.tool
+                def bare_decorator_tool():
+                    pass
+
+                @mcp.tool()
+                async def async_tool():
+                    pass
+
+                def not_a_tool():
+                    pass
+            """
+        )
+        self.assertEqual(
+            self._census("<synthetic>", "register_mcp_surface", source=source),
+            {"plain_tool", "bare_decorator_tool", "async_tool"},
+        )
+
+    def test_roster_matches_registration_census(self):
+        scripts_dir = str(self.SCRIPTS)
+        if scripts_dir not in sys.path:
+            sys.path.insert(0, scripts_dir)
+        import mcp_tool_roster as roster
+
+        impl = self._census("server_impl.py", "register_mcp_surface")
+        runner = self._census("server.py", "build_server")
+        self.assertGreater(len(impl), 60, "census sanity: the surface is large")
+        self.assertTrue(runner, "runner survivors must be registered in build_server")
+        self.assertEqual(
+            set(roster.TOOL_TIERS),
+            impl | runner,
+            "mcp_tool_roster.TOOL_TIERS must equal the registered tool surface "
+            "(update the roster in the same change as any tool add/rename/remove)",
+        )
+        self.assertEqual(
+            set(roster.RUNNER_TOOLS),
+            runner,
+            "RUNNER_TOOLS must be exactly the server.py-registered survivors",
+        )
+        self.assertTrue(
+            set(roster.TOOL_TIERS.values()) <= {roster.TIER_READ, roster.TIER_WRITE}
+        )
+
+    def test_register_mcp_surface_consumes_the_roster(self):
+        # The implementation side asserts parity at registration time
+        # (warning-only; this test is the hard gate).
+        source = (self.SCRIPTS / "server_impl.py").read_text(encoding="utf-8")
+        self.assertIn('_load_script("mcp_tool_roster")', source)

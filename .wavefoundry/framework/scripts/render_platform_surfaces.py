@@ -1296,6 +1296,170 @@ def render_claude_settings(repo_root: Path) -> None:
     write_text(settings_path, json.dumps(existing, indent=2) + "\n")
 
 
+# ── Renderer-owned MCP permission allowlist (wave 1u2b0 / 1u2az) ──────────────
+# Provenance key: records EXACTLY which `permissions.allow` entries this
+# renderer emitted, so later renders add/remove only entries it recorded
+# emitting. Ownership is NEVER inferred from the `mcp__wavefoundry__` name
+# prefix: an operator-authored rule that happens to name a wavefoundry tool
+# must survive every render.
+PERMISSIONS_PROVENANCE_KEY = "wavefoundryManagedAllow"
+# Operator-owned knob enabling the mutating (write-tier) allow rules. The
+# renderer only ever READS this key; it is operator-authored, lives outside
+# the provenance, and `.claude/settings.json` is a host permission file agents
+# cannot self-edit under host auto-mode guards (see reconcile_scan
+# HOST_PERMISSION_FILES). Not in workflow-config, not in any rendered block.
+PERMISSIONS_WRITE_TIER_KEY = "wavefoundryAllowWriteTools"
+
+
+def _load_tool_roster():
+    """Import the stdlib-only tool roster module (sibling script)."""
+    scripts_dir = str(Path(__file__).resolve().parent)
+    if scripts_dir not in sys.path:
+        sys.path.insert(0, scripts_dir)
+    import mcp_tool_roster
+
+    return mcp_tool_roster
+
+
+def render_claude_permissions(repo_root: Path) -> None:
+    """Provenance-tracked set-merge of the roster-derived allowlist into
+    ``.claude/settings.json`` ``permissions.allow``.
+
+    UPGRADE/INSTALL PATH ONLY: this function is reachable solely via the
+    explicit ``--include-permissions`` CLI switch, which only the upgrade
+    (``upgrade_wavefoundry``) and install (``setup_wavefoundry``)
+    orchestrations pass. The agent-invocable ``wf_sync_surfaces`` render never
+    passes it, so no agent can widen its own allow rules through the
+    surface-sync path.
+
+    That boundary is OPERATOR-APPROVED, not structurally unreachable by an
+    agent, and this docstring must not claim otherwise. ``wf_upgrade`` is an
+    ordinary agent-callable MCP tool whose upgrade orchestration renders here,
+    so an agent can trigger a permissions render; its blast radius is bounded
+    to the READ tier, because the write tier requires the operator-authored
+    ``PERMISSIONS_WRITE_TIER_KEY`` and ``wf_upgrade`` is itself a write-tier
+    tool, so an agent-triggered upgrade can never allowlist the tool that
+    triggered it. Passing ``--include-permissions`` through the ``wf``
+    dispatcher (which forwards argv verbatim) is an accepted residual outside
+    the threat model: an agent holding unrestricted shell access can write
+    ``.claude/settings.json`` directly. Protection of the write-tier knob is a
+    HOST guarantee (the host prompts before an agent edits that file) plus
+    prompt policy, never framework-enforced isolation.
+
+    Merge contract:
+
+    * Entries previously recorded under ``PERMISSIONS_PROVENANCE_KEY`` that
+      are no longer roster-desired are pruned (tool renames self-heal).
+    * Roster-desired entries missing from ``permissions.allow`` are appended
+      (sorted) and recorded in the provenance.
+    * A desired entry already present but NOT recorded in the provenance is
+      operator-authored: it is left in place and never claimed, so a later
+      roster retirement can never delete it.
+    * All other content (operator allow/deny/ask entries, unknown keys)
+      is preserved value-identically under the canonical ``indent=2``
+      re-serialization. Re-rendering with no interleaved writers is
+      byte-stable.
+
+    The write (mutating) tier is included only when the operator-owned
+    ``PERMISSIONS_WRITE_TIER_KEY`` is ``true`` in the settings file; turning
+    it off prunes the write-tier entries the renderer emitted.
+
+    Uniformly FAIL-SAFE: every way this file can refuse to be read (corrupt
+    JSON, a valid non-object payload, or an OS-level read fault such as a
+    Windows lock or a read-only mode) leaves the file exactly as it was and
+    returns, because this runs on a post-extraction tree where the caller
+    aborts the whole upgrade on a non-zero exit.
+    """
+    roster = _load_tool_roster()
+    settings_path = repo_root / ".claude" / "settings.json"
+    existing: dict[str, object] = {}
+    if settings_path.exists():
+        try:
+            loaded = json.loads(settings_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            # Never rebuild a corrupt operator settings file from scratch here:
+            # writing permissions into a fresh dict would DELETE operator
+            # content. Leave the file for render_claude_settings' policy.
+            print(
+                f"render_platform_surfaces: WARNING, left {settings_path} "
+                "permissions unchanged (unparseable JSON).",
+                file=sys.stderr,
+            )
+            return
+        except OSError as exc:
+            # `.claude/settings.json` is the most host-contended file in the
+            # tree (the agent host may hold it open; it may be read-only). An
+            # unreadable settings file must never abort the upgrade at the
+            # caller's sys.exit(2) — warn and leave permissions alone.
+            print(
+                f"render_platform_surfaces: WARNING, left {settings_path} "
+                f"permissions unchanged (unreadable: {exc}).",
+                file=sys.stderr,
+            )
+            return
+        if not isinstance(loaded, dict):
+            # Valid JSON that is not an object (e.g. a top-level list) is the
+            # same hazard as corrupt JSON: merging into a fresh dict would
+            # DISCARD the operator payload. Same policy — leave it untouched.
+            print(
+                f"render_platform_surfaces: WARNING, left {settings_path} "
+                "permissions unchanged (top-level JSON is not an object).",
+                file=sys.stderr,
+            )
+            return
+        existing = loaded
+    include_write = existing.get(PERMISSIONS_WRITE_TIER_KEY) is True
+    desired = list(roster.allow_rules(include_write=include_write))
+    desired_set = set(desired)
+    prior_raw = existing.get(PERMISSIONS_PROVENANCE_KEY)
+    claimed_set = (
+        {entry for entry in prior_raw if isinstance(entry, str)}
+        if isinstance(prior_raw, list)
+        else set()
+    )
+    permissions = existing.get("permissions")
+    if not isinstance(permissions, dict):
+        permissions = {}
+    allow = permissions.get("allow")
+    if not isinstance(allow, list):
+        allow = []
+    # Prune ONLY renderer-claimed entries that are no longer desired.
+    def _is_stale_claim(entry: object) -> bool:
+        return (
+            isinstance(entry, str)
+            and entry in claimed_set
+            and entry not in desired_set
+        )
+
+    pruned_count = sum(1 for entry in allow if _is_stale_claim(entry))
+    kept: list[object] = [entry for entry in allow if not _is_stale_claim(entry)]
+    present = {entry for entry in kept if isinstance(entry, str)}
+    new_claims: list[str] = []
+    for rule in desired:
+        if rule in present:
+            if rule in claimed_set:
+                new_claims.append(rule)
+            # Present but unclaimed → operator-authored; never claim it.
+            continue
+        kept.append(rule)
+        new_claims.append(rule)
+    if (
+        not new_claims
+        and not pruned_count
+        and PERMISSIONS_PROVENANCE_KEY not in existing
+    ):
+        # Nothing to claim, nothing to prune, and no provenance record to keep
+        # current: do NOT materialize an empty managed block (a `permissions`
+        # section plus `"wavefoundryManagedAllow": []`) in a file that never had
+        # one. Reachable when the operator already hand-authored every
+        # roster-desired rule — those stay operator-owned by design.
+        return
+    permissions["allow"] = kept
+    existing["permissions"] = permissions
+    existing[PERMISSIONS_PROVENANCE_KEY] = sorted(new_claims)
+    write_text(settings_path, json.dumps(existing, indent=2) + "\n")
+
+
 def _merge_mcp_server(target: Path, stanza: dict) -> None:
     """Read-modify-write an MCP JSON config file, setting only ``mcpServers["wavefoundry"]``.
 
@@ -2016,6 +2180,29 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--repo-root", default="", help="Override the repository root.")
     parser.add_argument("--platform", action="append", choices=("claude", "codex", "cursor", "copilot", "junie", "windsurf", "antigravity"))
     parser.add_argument("--manifest", default="", help="Write a JSON manifest of changed files to this path.")
+    parser.add_argument(
+        "--include-permissions",
+        action="store_true",
+        help=(
+            "Also render the provenance-tracked MCP permission allowlist into "
+            ".claude/settings.json. Upgrade/install orchestration only; the "
+            "agent-invocable wf_sync_surfaces render must never pass this "
+            "(wave 1u2b0 council P1: agent-reachable renders never widen "
+            "permissions)."
+        ),
+    )
+    parser.add_argument(
+        "--permissions-only",
+        action="store_true",
+        help=(
+            "Restrict this invocation to the permission allowlist merge and "
+            "render no other surface. Does NOT itself enable permissions "
+            "rendering: --include-permissions remains the single switch that "
+            "does, so the P1 boundary keeps exactly one gate. Used by the "
+            "upgrade's new-code permissions backstop, which must not re-render "
+            "unrelated surfaces from the --update-index phase."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -2042,6 +2229,14 @@ def main(argv: list[str] | None = None) -> int:
         pass
     detected_platforms = detect_platforms(repo_root)
     platforms = set(args.platform or detected_platforms)
+    # Wave 1u2b0 permissions-only backstop: render the allowlist merge and
+    # NOTHING else, before any other writer runs. Still gated on
+    # --include-permissions (the one permissions switch), so this narrows the
+    # render scope without adding a second way to widen permissions.
+    if args.permissions_only:
+        if args.include_permissions and "claude" in platforms:
+            render_claude_permissions(repo_root)
+        return 0
     from render_agent_surfaces import preflight_agent_surface_paths, render_agent_surfaces
 
     # Wave 1skt1: containment is an orchestration precondition, not a late
@@ -2068,6 +2263,12 @@ def main(argv: list[str] | None = None) -> int:
     render_codex_mcp_config(repo_root)
     for platform in sorted(platforms - {"codex"}):
         render_platform_entrypoints(repo_root, platform)
+    # Wave 1u2b0 (1u2az): permissions rendering is upgrade/install-only:
+    # default OFF, gated on the explicit CLI switch that the agent-invocable
+    # wf_sync_surfaces path never passes. Runs AFTER render_claude_settings so
+    # both merges compose on the same file.
+    if args.include_permissions and "claude" in platforms:
+        render_claude_permissions(repo_root)
     try:
         agent_written = render_agent_surfaces(repo_root)
     except RuntimeError as exc:

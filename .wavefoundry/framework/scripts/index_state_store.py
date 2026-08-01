@@ -2250,6 +2250,26 @@ def _full_durable_connection(index_dir: Path) -> "sqlite3.Connection":
     return conn
 
 
+def _upgrade_publisher_granted(checkpoint: object) -> bool:
+    """Value-bound Phase 4 publisher grant (wave 1u44n).
+
+    The upgrade runner (or the new pack's ``pre_index_update`` bridge) records
+    a random token as ``publisher_grant`` in the upgrade checkpoint and exports
+    ``WAVEFOUNDRY_UPGRADE_PUBLISHER_TOKEN`` into the index child's environment.
+    A caller is a granted publisher only when the two MATCH; presence alone
+    never admits. That value binding is the leak containment: a token copy
+    inherited by the detached background code child (which outlives the parent
+    and the lock) dies with this checkpoint, because a later upgrade's
+    checkpoint carries a fresh token.
+    """
+    token = os.environ.get("WAVEFOUNDRY_UPGRADE_PUBLISHER_TOKEN", "").strip()
+    return bool(
+        token
+        and isinstance(checkpoint, dict)
+        and str(checkpoint.get("publisher_grant") or "").strip() == token
+    )
+
+
 def begin_build_epoch(index_dir: Path, scope: str) -> str:
     """Durably mark the store `building` BEFORE the first index mutation (1sed6).
 
@@ -2272,8 +2292,14 @@ def begin_build_epoch(index_dir: Path, scope: str) -> str:
     staged_upgrade_child = bool(
         os.environ.get("WAVEFOUNDRY_UPGRADE_PARENT_FINALIZE_RECEIPT", "").strip()
     )
+    granted_upgrade_child = _upgrade_publisher_granted(checkpoint)
     reason = publication_control.publication_checkpoint_reason(root, "index_build")
-    if reason is not None and not owner and not staged_upgrade_child:
+    if (
+        reason is not None
+        and not owner
+        and not staged_upgrade_child
+        and not granted_upgrade_child
+    ):
         raise RuntimeError(reason)
 
     store = IndexStateStore(index_dir)
@@ -2317,7 +2343,12 @@ def finalize_build_epoch(index_dir: Path, attempt_id: str) -> bool:
         and checkpoint.get("pid") == os.getpid()
     )
     reason = publication_control.publication_checkpoint_reason(root, "index_build")
-    if reason is not None and not owner and not parent_receipt_path:
+    if (
+        reason is not None
+        and not owner
+        and not parent_receipt_path
+        and not _upgrade_publisher_granted(checkpoint)
+    ):
         raise RuntimeError(reason)
 
     if backfill_run_id and parent_receipt_path:

@@ -681,12 +681,52 @@ def post_docs_gate(ctx):
         raise SystemExit(backfill.ACTION_REQUIRED_EXIT)
 
 
+def _bridge_index_publisher_grant(root, lock) -> None:
+    """Establish the value-bound Phase 4 publisher grant (wave 1u44n).
+
+    The parent runner executing Phase 4 may still be OLD code that spawns the
+    ``setup_index.py`` children with no authorized-publisher status, so the
+    installed ``index_state_store.begin_build_epoch`` refuses them on
+    checkpoint presence and the build epoch is left incomplete. This bridge
+    runs NEW pack code inside that old parent, immediately before the Phase 4
+    dispatch: it records a random token as ``publisher_grant`` in the upgrade
+    checkpoint and exports the matching
+    ``WAVEFOUNDRY_UPGRADE_PUBLISHER_TOKEN`` into the parent environment the
+    children inherit. The installed store admits a publisher only when the two
+    MATCH, so a copy leaked into the old parent's detached background code
+    child dies with this checkpoint (a later upgrade mints a fresh token).
+    Idempotent, and a no-op when the grant is already in place.
+    """
+    if not lock:
+        return
+    token = str(lock.get("publisher_grant") or "").strip()
+    if not token:
+        import uuid
+
+        token = uuid.uuid4().hex
+        _update_upgrade_state(root, publisher_grant=token)
+    if os.environ.get("WAVEFOUNDRY_UPGRADE_PUBLISHER_TOKEN") != token:
+        os.environ["WAVEFOUNDRY_UPGRADE_PUBLISHER_TOKEN"] = token
+
+
 def pre_index_update(ctx):
     """Keep candidate publication on the newly installed runner."""
 
     lock = _read_json_object(
         ctx.root / ".wavefoundry" / "upgrade-in-progress.json"
     )
+    # 1u44n: authorize the Phase 4 children BEFORE the no-memory early return
+    # below — the non-memory case is exactly the one that needs the bridge
+    # most. Fail-safety lives HERE, inside the hook body: the dispatcher
+    # re-raises SystemExit and converts any other hook exception into a fatal
+    # exit 3 that RETAINS the lock, so an unexpected bridge bug must be
+    # absorbed rather than convert every zip-borne upgrade into a
+    # retained-lock failure. An ungranted child degrades to the pre-existing
+    # refusal, never worse.
+    try:
+        _bridge_index_publisher_grant(ctx.root, lock)
+    except Exception:
+        pass
     run_id = str(lock.get("memory_backfill_run_id") or "").strip()
     if not run_id:
         return

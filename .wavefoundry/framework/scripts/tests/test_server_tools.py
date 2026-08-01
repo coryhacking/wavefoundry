@@ -1787,6 +1787,13 @@ class GuidedContractTests(unittest.TestCase):
 
     def test_wf_server_info_returns_repo_identity(self):
         tmp = tempfile.TemporaryDirectory()
+        runner = load_thin_runner()
+        saved = (self.srv._runner_version, list(self.srv._runner_files))
+        # Inject the real capture-at-launch state the thin runner records at build time
+        # (wave 1u2b0): the launch identity hash plus the un-reloadable runner file set.
+        self.srv.set_server_runner_version(
+            runner.SERVER_RUNNER_VERSION, runner_files=runner.SERVER_RUNNER_FILES
+        )
         try:
             root = _make_repo(Path(tmp.name) / "wave_foundry")
             result = self.srv.wf_server_info_response(root)
@@ -1799,10 +1806,14 @@ class GuidedContractTests(unittest.TestCase):
             self.assertIn("server_runner_version", result["data"])
             self.assertIn("server_impl_version", result["data"])
             self.assertIn("impl_matches_disk", result["data"])
-            self.assertEqual(result["data"]["server_runner_version"], self.srv.SERVER_RUNNER_VERSION)
+            self.assertEqual(result["data"]["server_runner_version"], runner.SERVER_RUNNER_VERSION)
             self.assertEqual(result["data"]["server_impl_version"], self.srv.SERVER_IMPL_VERSION)
+            # Runner files unchanged on disk: the query-time hash matches launch, not stale.
+            self.assertEqual(result["data"]["runner_disk_identity"], runner.SERVER_RUNNER_VERSION)
+            self.assertIs(result["data"]["runner_stale"], False)
             self.assertEqual(result["next_tools"], ["wf_current_wave", "wf_help"])
         finally:
+            self.srv.set_server_runner_version(saved[0], runner_files=saved[1])
             tmp.cleanup()
 
     def test_ensure_no_extra_args_returns_envelope(self):
@@ -9037,6 +9048,389 @@ class ServerToolRegistrationTests(unittest.TestCase):
         )
 
 
+class RunnerIdentityTests(unittest.TestCase):
+    """Wave 1u2b0 (1u2ay): capture-at-launch runner identity plus tri-state staleness.
+
+    AC-1 test shape (named per the change doc's allowance): injection of the captured
+    identity. The launch state the thin runner would record is injected via
+    set_server_runner_version over temp COPIES of the real runner files, then the
+    on-disk copies are mutated to simulate an upgrade or a development edit; no
+    fresh-subprocess MCP probe is needed because the comparison seam is the injected
+    (identity, runner_files) pair, which is exactly what server.py records at launch.
+    """
+
+    def setUp(self):
+        self.srv = load_server()
+        self.runner = load_thin_runner()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+        self._saved = (self.srv._runner_version, list(self.srv._runner_files))
+
+    def tearDown(self):
+        self.srv.set_server_runner_version(self._saved[0], runner_files=self._saved[1])
+        self.tmp.cleanup()
+
+    def _copied_runner_files(self) -> list[str]:
+        copies: list[str] = []
+        for src in self.runner.SERVER_RUNNER_FILES:
+            dst = Path(self.tmp.name) / Path(src).name
+            shutil.copyfile(src, dst)
+            copies.append(str(dst))
+        return copies
+
+    def test_launch_identity_is_content_hash_not_frozen_literal(self):
+        ident = self.runner.SERVER_RUNNER_VERSION
+        self.assertRegex(ident, r"^[0-9a-f]{12}$")
+        self.assertNotEqual(ident, "1")
+        self.assertEqual(
+            ident, self.srv.compute_runner_identity(self.runner.SERVER_RUNNER_FILES)
+        )
+
+    def test_runner_file_set_covers_server_and_venv_bootstrap(self):
+        names = sorted(Path(f).name for f in self.runner.SERVER_RUNNER_FILES)
+        self.assertEqual(names, ["server.py", "venv_bootstrap.py"])
+
+    def test_identity_changes_when_either_runner_file_changes(self):
+        copies = self._copied_runner_files()
+        base = self.srv.compute_runner_identity(copies)
+        for target_name in ("server.py", "venv_bootstrap.py"):
+            target = Path(next(c for c in copies if c.endswith(target_name)))
+            original = target.read_bytes()
+            target.write_bytes(original + b"\n# mutated\n")
+            self.assertNotEqual(
+                self.srv.compute_runner_identity(copies), base, target_name
+            )
+            target.write_bytes(original)
+        self.assertEqual(self.srv.compute_runner_identity(copies), base)
+
+    def test_stale_runner_detected_after_disk_change(self):
+        # AC-1: replacing server.py bytes on disk while the launched identity is
+        # still serving flips runner_stale to True with a restart-naming indication.
+        copies = self._copied_runner_files()
+        launch = self.srv.compute_runner_identity(copies)
+        self.srv.set_server_runner_version(launch, runner_files=copies)
+        result = self.srv.wf_server_info_response(self.root)
+        self.assertIs(result["data"]["runner_stale"], False)
+        self.assertEqual(result["diagnostics"], [])
+
+        server_copy = Path(next(c for c in copies if c.endswith("server.py")))
+        server_copy.write_bytes(server_copy.read_bytes() + b"\n# replaced by upgrade\n")
+        result = self.srv.wf_server_info_response(self.root)
+        self.assertIs(result["data"]["runner_stale"], True)
+        self.assertEqual(result["data"]["server_runner_version"], launch)
+        self.assertNotEqual(result["data"]["runner_disk_identity"], launch)
+        detail = result["data"]["runner_stale_detail"]
+        self.assertIn("restart", detail)
+        # Req 4: the indication reads sensibly for both the upgrade case and a
+        # self-host development edit.
+        self.assertIn("upgrade", detail)
+        self.assertIn("development", detail)
+        self.assertIn("runner_stale", [d["code"] for d in result["diagnostics"]])
+
+    def test_venv_bootstrap_change_also_flags_stale(self):
+        # AC-1 second file: the identity covers the whole un-reloadable runner set.
+        copies = self._copied_runner_files()
+        launch = self.srv.compute_runner_identity(copies)
+        self.srv.set_server_runner_version(launch, runner_files=copies)
+        vb_copy = Path(next(c for c in copies if c.endswith("venv_bootstrap.py")))
+        vb_copy.write_bytes(vb_copy.read_bytes() + b"\n# changed\n")
+        result = self.srv.wf_server_info_response(self.root)
+        self.assertIs(result["data"]["runner_stale"], True)
+
+    def test_fresh_launch_from_new_bytes_reports_current(self):
+        # AC-2 second half: a fresh process launch from the new bytes recaptures the
+        # identity at the new content, so it reports current with no stale indication.
+        copies = self._copied_runner_files()
+        server_copy = Path(next(c for c in copies if c.endswith("server.py")))
+        server_copy.write_bytes(server_copy.read_bytes() + b"\n# new runner bytes\n")
+        relaunched = self.srv.compute_runner_identity(copies)
+        self.srv.set_server_runner_version(relaunched, runner_files=copies)
+        result = self.srv.wf_server_info_response(self.root)
+        self.assertIs(result["data"]["runner_stale"], False)
+        self.assertNotIn("runner_stale_detail", result["data"])
+        self.assertEqual(result["diagnostics"], [])
+
+    def test_unreadable_disk_degrades_to_nulls_without_raising(self):
+        # AC-3: a missing/unreadable runner file (torn mid-upgrade copy) yields
+        # explicit nulls, never an exception.
+        copies = self._copied_runner_files()
+        launch = self.srv.compute_runner_identity(copies)
+        torn = copies[:1] + [str(Path(self.tmp.name) / "deleted-mid-upgrade.py")]
+        self.srv.set_server_runner_version(launch, runner_files=torn)
+        result = self.srv.wf_server_info_response(self.root)
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["data"]["server_runner_version"], launch)
+        self.assertIsNone(result["data"]["runner_disk_identity"])
+        self.assertIsNone(result["data"]["runner_stale"])
+        self.assertNotIn("runner_stale_detail", result["data"])
+
+    def test_standalone_impl_reports_null_identity(self):
+        # AC-4: a server_impl context with no runner process reports explicit nulls.
+        self.srv.set_server_runner_version("", runner_files=None)
+        result = self.srv.wf_server_info_response(self.root)
+        self.assertEqual(result["status"], "ok")
+        self.assertIsNone(result["data"]["server_runner_version"])
+        self.assertIsNone(result["data"]["runner_disk_identity"])
+        self.assertIsNone(result["data"]["runner_stale"])
+
+    def test_retired_literal_alias_is_gone(self):
+        # AC-4: no code path may silently serve the retired literal "1". server_impl
+        # must not define the alias at all; server.py's module __getattr__ re-export
+        # therefore finds only the runner's real hash attribute.
+        self.assertNotIn("SERVER_RUNNER_VERSION", vars(self.srv))
+        with self.assertRaises(AttributeError):
+            getattr(self.srv, "SERVER_RUNNER_VERSION")
+        self.assertRegex(
+            getattr(self.runner, "SERVER_RUNNER_VERSION"), r"^[0-9a-f]{12}$"
+        )
+
+    def test_identity_pattern_is_derived_from_the_length_constant(self):
+        # Wave 1u2b0 repair: a hardcoded repetition count would silently stop matching real
+        # identities (disabling every staleness comparison) if the length constant changed.
+        length = self.srv._RUNNER_IDENTITY_HEX_LEN
+        produced = self.srv.compute_runner_identity(self.runner.SERVER_RUNNER_FILES)
+        self.assertEqual(len(produced), length)
+        self.assertTrue(self.srv._RUNNER_IDENTITY_RE.match(produced))
+        self.assertEqual(
+            self.srv._RUNNER_IDENTITY_RE.pattern,
+            rf"^[0-9a-f]{{{length}}}$",
+            "the identity pattern must be generated from _RUNNER_IDENTITY_HEX_LEN",
+        )
+        self.assertIsNone(self.srv._RUNNER_IDENTITY_RE.match("0" * (length + 1)))
+
+    def test_import_survives_a_loader_without_a_venv_bootstrap_file(self):
+        # Wave 1u2b0 repair: the runner set is built from `__file__` attributes one statement
+        # before a deliberately defensive getattr. A loader that supplies no `__file__` must drop
+        # that member (identity still computes over what remains), never raise at import.
+        real_vb = sys.modules["venv_bootstrap"]
+        stub = types.ModuleType("venv_bootstrap")
+        stub.activate_tool_venv = real_vb.activate_tool_venv
+        stub.tool_venv_python = real_vb.tool_venv_python
+        self.assertFalse(hasattr(stub, "__file__"))
+        sys.modules["venv_bootstrap"] = stub
+        self.addCleanup(sys.modules.__setitem__, "venv_bootstrap", real_vb)
+        self.addCleanup(sys.modules.pop, "server_runner_file_probe", None)
+
+        spec = importlib.util.spec_from_file_location(
+            "server_runner_file_probe", SERVER_PATH
+        )
+        probe = importlib.util.module_from_spec(spec)
+        sys.modules["server_runner_file_probe"] = probe
+        spec.loader.exec_module(probe)
+
+        self.assertEqual(
+            [Path(f).name for f in probe.SERVER_RUNNER_FILES], ["server.py"]
+        )
+        self.assertRegex(probe.SERVER_RUNNER_VERSION, r"^[0-9a-f]+$")
+
+    def test_pre_hash_launch_identity_compares_null(self):
+        # An old runner that still injects the frozen "1" cannot be meaningfully
+        # compared against a disk hash; degrade to null rather than a false stale.
+        copies = self._copied_runner_files()
+        self.srv.set_server_runner_version("1", runner_files=copies)
+        result = self.srv.wf_server_info_response(self.root)
+        self.assertEqual(result["data"]["server_runner_version"], "1")
+        self.assertIsNotNone(result["data"]["runner_disk_identity"])
+        self.assertIsNone(result["data"]["runner_stale"])
+
+
+class RunnerIdentitySetterCompatibilityTests(unittest.TestCase):
+    """Wave 1u2b0 repair: a torn mid-upgrade tree (this runner + an OLDER server_impl whose
+    ``set_server_runner_version`` takes only the version argument) must keep serving.
+
+    Known bad this pins: the runner used to call the setter with the ``runner_files`` keyword at
+    both call sites. Against a one-argument impl that raises TypeError, ``build_server`` never
+    builds the MCP server, and ``perform_mcp_reload`` raised AFTER closing the old handler and
+    BEFORE installing the new one, leaving a CLOSED handler in a live process.
+    """
+
+    def setUp(self):
+        self.srv = load_server()
+        self.runner = load_thin_runner()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+        fw = self.root / ".wavefoundry" / "framework"
+        fw.mkdir(parents=True, exist_ok=True)
+        (fw / "VERSION").write_text("test-pack-version", encoding="utf-8")
+        self._saved_identity = (self.srv._runner_version, list(self.srv._runner_files))
+        self._real_setter = self.srv.set_server_runner_version
+        self._saved_handler = self.runner._handler
+        self._saved_root = self.runner._root
+        self._saved_mcp = self.runner._mcp
+
+    def tearDown(self):
+        # A simulated older impl replaces the module attribute; put the real one back first so a
+        # mid-test failure cannot leave a one-argument setter behind for other test classes.
+        self.srv.set_server_runner_version = self._real_setter
+        self.srv.set_server_runner_version(
+            self._saved_identity[0], runner_files=self._saved_identity[1]
+        )
+        self.runner._handler = self._saved_handler
+        self.runner._root = self._saved_root
+        self.runner._mcp = self._saved_mcp
+        self.tmp.cleanup()
+
+    @staticmethod
+    def _one_arg_setter(recorded: list[str]):
+        """An older impl's setter: version only, no ``runner_files`` keyword."""
+
+        def set_server_runner_version(v):  # noqa: ANN001; mirrors the older signature
+            recorded.append(v)
+
+        return set_server_runner_version
+
+    @staticmethod
+    def _raising_setter(exc: BaseException):
+        """A setter that fails with something OTHER than TypeError.
+
+        The single-argument fallback exists only for a signature mismatch; a validating
+        impl (ValueError), one that persists the identity (OSError), or a partially
+        initialised module (AttributeError) has no retry to offer. The never-raises
+        guarantee must still hold, because ``perform_mcp_reload`` calls the helper AFTER
+        closing the pre-reload handler.
+        """
+
+        def set_server_runner_version(v, runner_files=None):  # noqa: ANN001
+            raise exc
+
+        return set_server_runner_version
+
+    def test_non_typeerror_setter_failure_degrades_instead_of_raising(self):
+        # Known bad this pins: the first call used to catch only TypeError, so a setter
+        # raising anything else escaped and falsified the documented never-raises contract.
+        for exc in (
+            ValueError("rejected identity"),
+            OSError("identity store unwritable"),
+            AttributeError("module partially initialised"),
+        ):
+            with self.subTest(exc=type(exc).__name__):
+                with patch.object(
+                    self.srv, "set_server_runner_version", self._raising_setter(exc)
+                ):
+                    warning = self.runner._record_runner_identity()
+                self.assertIsNotNone(
+                    warning, "a setter failure must be reported, not silent"
+                )
+                self.assertIn(type(exc).__name__, warning)
+                self.assertIn("could not record the runner identity", warning)
+
+    def test_reload_survives_a_non_typeerror_setter_and_keeps_handler_usable(self):
+        # The failure shape that matters: the helper is called after the old handler is
+        # closed, so an escaping exception leaves the CLOSED handler installed in a live
+        # process. Assert the reload still completes and installs a usable handler.
+        try:
+            self.runner.build_server(self.root)
+        except ImportError:
+            self.skipTest("mcp package not installed")
+        closed_handler = self.runner._get_handler()
+
+        real_reload = self.runner.importlib.reload
+        real_setter = self.srv.set_server_runner_version
+        raising = self._raising_setter(ValueError("rejected identity"))
+
+        def reload_into_raising_impl(module):
+            reloaded = real_reload(module)
+            reloaded.set_server_runner_version = raising
+            return reloaded
+
+        with patch.object(self.runner.importlib, "reload", reload_into_raising_impl):
+            result = self.runner.perform_mcp_reload()
+        # Restore the real setter the simulated impl overwrote, then the launch identity.
+        self.srv.set_server_runner_version = real_setter
+        self.srv.set_server_runner_version(
+            self._saved_identity[0], runner_files=self._saved_identity[1]
+        )
+
+        self.assertEqual(result["status"], "ok", result)
+        self.assertTrue(result["data"]["ok"])
+        self.assertIn(
+            "runner_identity_unrecorded",
+            [item["code"] for item in result["diagnostics"]],
+            "the degraded identity recording must be surfaced as a diagnostic",
+        )
+        live_handler = self.runner._get_handler()
+        self.assertIsNot(live_handler, closed_handler)
+        self.assertEqual(live_handler.root, self.root.resolve())
+        second = self.runner.perform_mcp_reload()
+        self.assertEqual(second["status"], "ok", second)
+
+    def test_one_arg_impl_setter_does_not_raise_and_reports_degradation(self):
+        recorded: list[str] = []
+        with patch.object(
+            self.srv,
+            "set_server_runner_version",
+            self._one_arg_setter(recorded),
+        ):
+            warning = self.runner._record_runner_identity()
+        self.assertEqual(recorded, [self.runner.SERVER_RUNNER_VERSION])
+        self.assertIsNotNone(warning, "the degraded fallback must be reported, not silent")
+        self.assertIn("runner_files", warning)
+
+    def test_missing_impl_setter_degrades_instead_of_raising(self):
+        with patch.object(self.srv, "set_server_runner_version", None):
+            warning = self.runner._record_runner_identity()
+        self.assertIsNotNone(warning)
+        self.assertIn("unavailable", warning)
+
+    def test_build_server_survives_one_arg_impl_setter(self):
+        recorded: list[str] = []
+        with patch.object(
+            self.srv,
+            "set_server_runner_version",
+            self._one_arg_setter(recorded),
+        ):
+            try:
+                mcp = self.runner.build_server(self.root)
+            except ImportError:
+                self.skipTest("mcp package not installed")
+        self.assertIsNotNone(mcp)
+        self.assertEqual(recorded, [self.runner.SERVER_RUNNER_VERSION])
+        self.assertIsNotNone(self.runner._get_handler())
+
+    def test_reload_survives_one_arg_impl_setter_and_keeps_handler_usable(self):
+        try:
+            self.runner.build_server(self.root)
+        except ImportError:
+            self.skipTest("mcp package not installed")
+        closed_handler = self.runner._get_handler()
+
+        real_reload = self.runner.importlib.reload
+        real_setter = self.srv.set_server_runner_version
+        recorded: list[str] = []
+        one_arg = self._one_arg_setter(recorded)
+
+        def reload_into_older_impl(module):
+            """Simulate the reload picking up an older impl file: the freshly reloaded module
+            exposes only the single-argument setter."""
+            reloaded = real_reload(module)
+            reloaded.set_server_runner_version = one_arg
+            return reloaded
+
+        with patch.object(self.runner.importlib, "reload", reload_into_older_impl):
+            result = self.runner.perform_mcp_reload()
+        # Restore the real setter the simulated older impl overwrote, then the launch identity.
+        self.srv.set_server_runner_version = real_setter
+        self.srv.set_server_runner_version(
+            self._saved_identity[0], runner_files=self._saved_identity[1]
+        )
+
+        self.assertEqual(result["status"], "ok", result)
+        self.assertTrue(result["data"]["ok"])
+        self.assertEqual(recorded, [self.runner.SERVER_RUNNER_VERSION])
+        self.assertIn(
+            "runner_identity_unrecorded",
+            [item["code"] for item in result["diagnostics"]],
+            "the degraded identity recording must be surfaced as a diagnostic",
+        )
+        # The live process must NOT be left holding the closed pre-reload handler.
+        live_handler = self.runner._get_handler()
+        self.assertIsNot(live_handler, closed_handler)
+        self.assertEqual(live_handler.root, self.root.resolve())
+        # And the installed handler is genuinely usable: a second reload closes and rebuilds it.
+        second = self.runner.perform_mcp_reload()
+        self.assertEqual(second["status"], "ok", second)
+
+
 class WaveMcpReloadTests(unittest.TestCase):
     """12rb9: wf_reload_mcp and version fields."""
 
@@ -9077,6 +9471,65 @@ class WaveMcpReloadTests(unittest.TestCase):
         self.assertTrue(result["data"]["server_impl_version"])
         # impl_matches_disk is false when test root VERSION differs from installed pack VERSION
         self.assertIs(result["data"]["impl_matches_disk"], False)
+        # Wave 1u2b0 (AC-2): an in-process reload never changes the runner identity; with the
+        # on-disk runner files untouched the disk hash matches launch and staleness is False.
+        self.assertEqual(result["data"]["runner_disk_identity"], self.runner.SERVER_RUNNER_VERSION)
+        self.assertIs(result["data"]["runner_stale"], False)
+        self.assertNotIn(
+            "runner_stale", [item["code"] for item in result.get("diagnostics", [])]
+        )
+
+    def test_reload_reports_launch_identity_not_a_recomputed_one(self):
+        """Wave 1u2b0 (AC-2), falsifiable form: the reported identity is the one captured at
+        LAUNCH, so an implementation that recomputed it during the reload fails here.
+
+        The runner's launch constants are patched over temp COPIES of the real runner files, one
+        copy is then mutated (an upgrade replacing the tree under a live process), and the reload
+        must still report the pre-mutation launch value while flagging staleness. The weaker
+        unchanged-disk assertion above passes for a recompute-at-reload implementation too.
+        """
+        try:
+            self.runner.build_server(self.root)
+        except ImportError:
+            self.skipTest("mcp package not installed")
+        saved_identity = (self.srv._runner_version, list(self.srv._runner_files))
+        self.addCleanup(
+            self.srv.set_server_runner_version,
+            saved_identity[0],
+            runner_files=saved_identity[1],
+        )
+
+        copies: list[str] = []
+        for src in self.runner.SERVER_RUNNER_FILES:
+            dst = Path(self.tmp.name) / f"runner-copy-{Path(src).name}"
+            shutil.copyfile(src, dst)
+            copies.append(str(dst))
+        launch_identity = self.srv.compute_runner_identity(copies)
+        self.assertRegex(launch_identity, r"^[0-9a-f]+$")
+
+        with patch.object(self.runner, "SERVER_RUNNER_FILES", tuple(copies)), patch.object(
+            self.runner, "SERVER_RUNNER_VERSION", launch_identity
+        ):
+            mutated = Path(copies[0])
+            mutated.write_bytes(mutated.read_bytes() + b"\n# replaced by upgrade\n")
+            recomputed = self.srv.compute_runner_identity(copies)
+            self.assertNotEqual(recomputed, launch_identity)
+            result = self.runner.perform_mcp_reload()
+
+        self.assertEqual(result["status"], "ok", result)
+        self.assertEqual(
+            result["data"]["server_runner_version"],
+            launch_identity,
+            "a reload must never re-capture the runner identity from disk",
+        )
+        self.assertEqual(result["data"]["runner_disk_identity"], recomputed)
+        self.assertIs(result["data"]["runner_stale"], True)
+        # Wave 1u2b0 repair: runner_stale under status ok must carry its own diagnostic.
+        stale_diagnostics = [
+            item for item in result["diagnostics"] if item["code"] == "runner_stale"
+        ]
+        self.assertEqual(len(stale_diagnostics), 1, result["diagnostics"])
+        self.assertIn("restart", stale_diagnostics[0]["message"])
 
     def test_perform_mcp_reload_re_registers_tools_and_reports_count(self):
         """1319bt (131d8): perform_mcp_reload re-registers the FastMCP tool
@@ -23403,6 +23856,113 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
             str(self.root / ".wavefoundry/logs/upgrade.log"),
         )
 
+    def test_write_tier_permissions_delta_survives_bounding_with_counts(self):
+        """Wave 1u2b0 repair (F1): the operator's permissions consent point must survive the
+        summary bounder on the WRITE tier, which is the render that most needs consent.
+
+        Known bad this pins: as a single dict value the delta exceeded
+        UPGRADE_SUMMARY_VALUE_CAP_CHARS and came back as ``None`` with a truncated flag. As two
+        top-level LISTS plus a scalar count it routes through the collection bounder, which yields
+        total / returned / remaining / truncated instead of dropping the value. The rules come from
+        the canonical producer (``mcp_tool_roster.allow_rules``), not hand-written strings.
+        """
+        import mcp_tool_roster
+
+        added = list(mcp_tool_roster.allow_rules(include_write=True))
+        removed = [
+            "mcp__wavefoundry__wave_close",
+            "mcp__wavefoundry__wave_review",
+            "mcp__wavefoundry__wave_implement",
+        ]
+        self.assertEqual(len(added), 84, "write-tier roster size changed; re-measure this test")
+
+        # Non-vacuity control: the retired dict shape is still over the per-value cap, so this
+        # test would fail against the pre-repair producer/consumer pair.
+        legacy_value_chars = len(
+            json.dumps(
+                {
+                    "file": ".claude/settings.json",
+                    "added": added,
+                    "removed": removed,
+                    "changed": True,
+                },
+                ensure_ascii=False,
+            )
+        )
+        self.assertGreater(legacy_value_chars, self.srv.UPGRADE_SUMMARY_VALUE_CAP_CHARS)
+        legacy_bounded = self.srv._bounded_upgrade_summary(
+            {
+                "from_version": "1.14.0",
+                "to_version": "1.15.0",
+                "permissions_delta": {
+                    "file": ".claude/settings.json",
+                    "added": added,
+                    "removed": removed,
+                    "changed": True,
+                },
+            }
+        )
+        self.assertIsNone(legacy_bounded["permissions_delta"])
+        self.assertTrue(legacy_bounded["permissions_delta_truncated"])
+
+        summary = {
+            "from_version": "1.14.0",
+            "to_version": "1.15.0",
+            "docs_gate": "PASSED",
+            "failed_phase": None,
+            "permissions_file": ".claude/settings.json",
+            "permissions_added": added,
+            "permissions_removed": removed,
+            "permissions_changed": len(added) + len(removed),
+            "reconciliation": [],
+            "host_permission_flags": [],
+            "renderer_provenance_flags": [],
+        }
+        stdout = self.srv._upgrade_summary_sentinel() + json.dumps(summary) + "\n"
+        mock_proc = MagicMock(returncode=0, stdout=stdout, stderr="")
+        with patch("subprocess.run", return_value=mock_proc):
+            result = self.srv.wf_upgrade_response(self.root)
+
+        bounded = result["data"]["summary"]
+        self.assertEqual(bounded["permissions_added"], added)
+        self.assertEqual(bounded["permissions_added_total"], len(added))
+        self.assertEqual(bounded["permissions_added_returned"], len(added))
+        self.assertEqual(bounded["permissions_added_remaining"], 0)
+        self.assertFalse(bounded["permissions_added_truncated"])
+        self.assertEqual(bounded["permissions_removed"], removed)
+        self.assertEqual(bounded["permissions_removed_total"], len(removed))
+        self.assertFalse(bounded["permissions_removed_truncated"])
+        self.assertEqual(bounded["permissions_changed"], len(added) + len(removed))
+        self.assertEqual(bounded["permissions_file"], ".claude/settings.json")
+        self.assertLessEqual(
+            len(json.dumps(result, ensure_ascii=False)),
+            self.srv.UPGRADE_RESPONSE_CAP_CHARS,
+        )
+
+    def test_unchanged_permissions_delta_reports_zero_not_absent(self):
+        """A no-change render still names the consent field: empty lists plus a zero count, so
+        the operator can tell "nothing changed" from "the field was dropped"."""
+        summary = {
+            "from_version": "1.14.0",
+            "to_version": "1.15.0",
+            "docs_gate": "PASSED",
+            "failed_phase": None,
+            "permissions_added": [],
+            "permissions_removed": [],
+            "permissions_changed": 0,
+            "reconciliation": [],
+            "host_permission_flags": [],
+        }
+        stdout = self.srv._upgrade_summary_sentinel() + json.dumps(summary) + "\n"
+        mock_proc = MagicMock(returncode=0, stdout=stdout, stderr="")
+        with patch("subprocess.run", return_value=mock_proc):
+            result = self.srv.wf_upgrade_response(self.root)
+        bounded = result["data"]["summary"]
+        self.assertEqual(bounded["permissions_added"], [])
+        self.assertEqual(bounded["permissions_added_total"], 0)
+        self.assertFalse(bounded["permissions_added_truncated"])
+        self.assertEqual(bounded["permissions_changed"], 0)
+
     def test_oversized_summary_scalar_and_nested_detail_cannot_bypass_cap(self):
         summary = {
             "from_version": "1.14.0",
@@ -23917,7 +24477,9 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
         mock_proc.stderr = ""
         reload_payload = {
             "status": "ok",
-            "data": {"ok": True, "framework_version": "v1", "server_runner_version": "1",
+            "data": {"ok": True, "framework_version": "v1",
+                     "server_runner_version": "0a1b2c3d4e5f",
+                     "runner_disk_identity": "0a1b2c3d4e5f", "runner_stale": False,
                      "server_impl_version": "v1", "impl_matches_disk": True},
         }
         with patch("subprocess.run", return_value=mock_proc), \
@@ -23991,8 +24553,9 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
         reload_payload = {
             "status": "ok",
             "data": {"ok": True, "framework_version": "v1",
-                     "server_runner_version": "1", "server_impl_version": "v1",
-                     "impl_matches_disk": True},
+                     "server_runner_version": "0a1b2c3d4e5f",
+                     "runner_disk_identity": "0a1b2c3d4e5f", "runner_stale": False,
+                     "server_impl_version": "v1", "impl_matches_disk": True},
         }
         with patch("subprocess.run", return_value=mock_proc), \
              patch.object(_server_mod, "perform_mcp_reload",
@@ -24044,6 +24607,10 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
         summary = {
             "from_version": "1.5.0", "to_version": "1.6.0", "zip_applied": None,
             "pruned_count": 3, "docs_gate": "PASSED",
+            # 1u44n value domain: this is the SUCCESS value ("publication
+            # observed successful"); the failed domain value starts with
+            # "publication failed" and is exercised by
+            # test_failed_publication_summary_carries_index_health_diagnostic.
             "index_update": "docs layer complete, code layer running in background",
             "failed_phase": None, "is_major_or_minor": True,
             "reconciliation": [
@@ -24072,6 +24639,67 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
         # Back-compat: output + exit_code unchanged/present.
         self.assertEqual(result["data"]["exit_code"], 0)
         self.assertIn("Upgrade complete", result["data"]["output"])
+
+    def test_failed_publication_summary_carries_index_health_diagnostic(self):
+        """1u44n (AC-4): a zero-exit run whose summary reports a failed
+        publication carries a diagnostic naming index_health."""
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = self._summary_output(
+            index_update=(
+                "publication failed: semantic index epoch incomplete; run "
+                "index_build, then confirm with index_health"
+            ),
+        )
+        mock_proc.stderr = ""
+        with patch("subprocess.run", return_value=mock_proc):
+            result = self.srv.wf_upgrade_response(
+                self.root, phase="preflight_to_docs_gate"
+            )
+        self.assertEqual(result["status"], "ok")
+        codes = [d["code"] for d in result.get("diagnostics", [])]
+        self.assertIn("index_publication_failed", codes)
+        diag = next(
+            d for d in result["diagnostics"]
+            if d["code"] == "index_publication_failed"
+        )
+        self.assertIn("index_health", diag["message"])
+        self.assertIn("index_health", diag.get("recovery_tools", []))
+
+    def test_standalone_index_failure_not_mislabelled_as_docs_gate(self):
+        """1u44n (AC-4): the standalone index phases reuse exit 1; an observed
+        publication failure is labelled as such and carries the diagnostic."""
+        mock_proc = MagicMock()
+        mock_proc.returncode = 1
+        mock_proc.stdout = ""
+        mock_proc.stderr = (
+            "Index publication FAILED: Docs index update exited 7; the "
+            "semantic index epoch is incomplete. Recover with index_build, "
+            "then confirm with index_health.\n"
+        )
+        with patch("subprocess.run", return_value=mock_proc):
+            result = self.srv.wf_upgrade_response(self.root, phase="update_index")
+        self.assertEqual(result["status"], "error")
+        upgrade_failed = next(
+            d for d in result["diagnostics"] if d["code"] == "upgrade_failed"
+        )
+        self.assertIn("index publication failed", upgrade_failed["message"])
+        self.assertNotIn("docs gate", upgrade_failed["message"])
+        codes = [d["code"] for d in result["diagnostics"]]
+        self.assertIn("index_publication_failed", codes)
+
+    def test_successful_summary_carries_no_publication_diagnostic(self):
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = self._summary_output()
+        mock_proc.stderr = ""
+        with patch("subprocess.run", return_value=mock_proc):
+            result = self.srv.wf_upgrade_response(
+                self.root, phase="preflight_to_docs_gate"
+            )
+        self.assertEqual(result["status"], "ok")
+        codes = [d["code"] for d in result.get("diagnostics", [])]
+        self.assertNotIn("index_publication_failed", codes)
 
     def test_next_step_and_next_tools_present(self):
         """AC-2: a top-level next_step and a populated next_tools are added."""
@@ -30527,6 +31155,46 @@ class UpgradePublicationWrapperContractTests(unittest.TestCase):
                 ["upgrade_in_progress"],
             )
             self.assertEqual(calls, [])
+
+    def test_index_build_diagnostic_renders_the_composed_recovery_text(self):
+        """1u44n (AC-2): the MCP index_build refusal strips only the
+        `upgrade_in_progress: ` prefix, so the diagnostic renders the SAME
+        enriched zero-pending recovery text as the composition site (the
+        in-upgrade child raise renders the identical full string; asserted in
+        test_review_policy)."""
+        import publication_control
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / ".wavefoundry" / "upgrade-in-progress.json"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                json.dumps(
+                    {
+                        "current_phase": "awaiting_memory_validation",
+                        "memory_backfill_pending": 0,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            reason = publication_control.publication_checkpoint_reason(
+                root, "index_build"
+            )
+            mcp, tool = self._mcp(
+                "index_build", lambda **_kwargs: {"status": "ok"}
+            )
+            self.srv._wrap_upgrade_publication_guard(
+                mcp, lambda: types.SimpleNamespace(root=root)
+            )
+            result = tool.fn(content="docs")
+            self.assertEqual(result["status"], "error")
+            diag = result["diagnostics"][0]
+            self.assertEqual(diag["code"], "upgrade_in_progress")
+            self.assertEqual(
+                diag["message"], reason.removeprefix("upgrade_in_progress: ")
+            )
+            self.assertIn("resume_after_memory", diag["message"])
+            self.assertIn("index_health", diag["message"])
 
     def test_upgrade_guard_is_outermost_and_never_waits_on_lifecycle_lock(self):
         with tempfile.TemporaryDirectory() as tmp:

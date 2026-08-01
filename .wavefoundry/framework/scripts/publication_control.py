@@ -110,7 +110,38 @@ def publication_checkpoint_reason(
         return None
     return (
         f"upgrade_in_progress: publication by {producer} is blocked while "
-        f"Upgrade is at {phase}; retry or resume Upgrade to a terminal state"
+        f"Upgrade is at {phase}; " + _checkpoint_recovery_tail(checkpoint)
+    )
+
+
+def _checkpoint_recovery_tail(checkpoint: dict[str, Any]) -> str:
+    """Compose the refusal recovery guidance ONCE for every consumer (1u44n).
+
+    Both refusal surfaces (the MCP ``index_build`` diagnostic strip and the
+    in-upgrade child's ``begin_build_epoch`` raise) read this one string, so
+    they cannot diverge. Branch on the checkpoint's ``memory_backfill_pending``:
+    zero pending means historical memory is already complete and the ordered
+    recovery is safe to state; a non-zero, absent, or unreadable value is
+    treated as a genuine pause (fail safe), because emitting the zero-pending
+    sequence there would tell the operator to skip validation.
+    """
+    pending: int | None
+    try:
+        pending = int(checkpoint.get("memory_backfill_pending"))
+    except (TypeError, ValueError):
+        pending = None
+    if pending == 0:
+        return (
+            "historical memory is complete (0 pending); recover in order: "
+            "wf_upgrade(phase='resume_after_memory') first (it exits zero "
+            "while the upgrade is still non-terminal), then "
+            "wf_upgrade(phase='cleanup'), then index_build; confirm with "
+            "index_health"
+        )
+    return (
+        "retry or resume Upgrade to a terminal state; if the upgrade is "
+        "paused for historical memory, run memory_backfill and "
+        "memory_validate, then wf_upgrade(phase='resume_after_memory')"
     )
 
 

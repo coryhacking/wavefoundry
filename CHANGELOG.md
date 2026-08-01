@@ -8,6 +8,67 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [1.15.0] - unreleased
 
+### Upgrading to 1.15.0
+
+**This release changes the upgrade protocol, renames an MCP tool with no alias, and writes to a
+committed file. Read this section before upgrading.**
+
+**1. From 1.14.0 or earlier, the upgrade is a maintenance window, not a hot reload.** 1.14.0 runs
+protocol 1 and cannot extract a protocol-2 feature pack or replace itself in place. Use the same
+`wavefoundry-1.15.0.<build>.zip` you would use for any upgrade:
+
+1. Stop the dashboard (`Stop dashboard` or `wf_stop_dashboard`).
+2. Stop or disconnect **every** attached MCP and agent host for the repository, including the one
+   you are working in. `wf_upgrade` will refuse until host quiescence is confirmed.
+3. Let the agent execute the exact argv the refusal returns, through its ordinary shell. The
+   operator does not copy or type a command, and there is no second bridge asset to coordinate:
+   the one package verifies its embedded payloads, installs protocol 2 with rollback, and runs the
+   feature hop in a single invocation.
+4. **Fully restart every attached host** when it returns. An in-process reload is not sufficient
+   across this boundary: a pre-upgrade host keeps writing state the new implementation no longer
+   reads.
+5. Follow the returned recovery action. If the run pauses at the historical-memory gate, complete
+   the reported memory work and call `wf_upgrade(phase='resume_after_memory')`; if it reports the
+   primary phase complete, finish the reconciliation pass and call `wf_upgrade(phase='cleanup')`.
+   `resume_after_memory` exits successfully while the lifecycle is still non-terminal, so cleanup
+   must run before the index will publish.
+
+Already on protocol 2? The ordinary flow applies, but see item 3 below for the one case that still
+requires a full restart.
+
+**2. Update host permission allow rules for the renamed tool.** `wf_review_evidence` is now
+`wf_review_event` with **no alias**. Upgrades reconcile stale references in rendered surfaces
+automatically, but host permission files that pin exact tool names do not self-heal on this
+release. Every stale `mcp__wavefoundry__wave_*` or `mcp__wavefoundry__wf_review_evidence` rule in
+`.claude/settings.local.json` will prompt on every call until you update it; the upgrade's
+reconciliation output lists them in its operator-flags channel. From this release forward, rules in
+the committed `.claude/settings.json` that the renderer emitted are self-healing, so this is the
+last upgrade that needs the manual pass for that file.
+
+**3. Restart every attached host after a cutover-active run.** The events-only review-evidence
+cutover removes retired sidecars one way. `restart_required` is true only on runs that actually
+crossed the boundary; a rerun on a converged repository reports it false and keeps the normal
+in-process reload.
+
+**4. Callers of `wf_reopen_wave` must pass `purpose`.** `"review"` or `"implement"`, no default and
+no alias. Code written against the 1.14.0 signature will be rejected by the published schema.
+
+**5. Expect a diff in your committed `.claude/settings.json`.** The upgrade renders the read-only
+wavefoundry allowlist into `permissions.allow` and records what it emitted under
+`wavefoundryManagedAllow`. Operator-authored rules, deny and ask entries, and unknown keys are
+preserved; the mutating tier stays out unless you set `wavefoundryAllowWriteTools` yourself. The
+upgrade names the delta as an explicit consent line. Review it like any other committed change.
+
+**6. After upgrading, `wf_server_info` can tell you whether a restart is still owed.** The new
+tri-state `runner_stale` compares the runner your process launched from against what is on disk.
+`true` means restart; `null` means the comparison could not be made and, immediately after an
+upgrade, carries the same action as `true`.
+
+**7. A target already on a 1.15.0 prerelease build (`+pfxp`, `+pg1a`) will still hit the
+index-publication defect on the transition run under the old parent runner unless the pack's
+`pre_index_update` bridge applies.** If that run's publication is refused, recover with
+`resume_after_memory`, then `cleanup`, then `index_build`, and confirm with `index_health`.
+
 ### Added
 
 - **The one Wavefoundry package is also the protocol-bridge executable.** The release builder emits only `wavefoundry-<version>.zip`; after explicit dashboard and host shutdown, that same package verifies its embedded bridge and exact feature payload, installs protocol 2 with rollback, and runs the feature hop in one invocation. Native Windows, WSL2, macOS, and Linux share the structured argv contract; no special upgrade package or bridge composition files are operator-facing release assets. Wave 1tz6l / change 1txh7.
@@ -17,6 +78,8 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Verification now matches the events-only claims.** The residue census covers the tests tree with per-file load-bearing allowances (a stale allowance fails the census), and the crash matrix gains true-termination cuts: a spawned child process is killed at each named boundary around the ledger's atomic replace, with the parent asserting the surviving on-disk state, canonical parseability, and exact-replay convergence. The existing exception-injection cuts remain as fast equivalents.
 
 - **Memory-retrieval quality is measurable in any project.** The eval engine now ships with the framework instead of living in the test tree, and a new read-only `wf_memory_eval` tool runs the curated live-corpus pass over the repository's own memory records. It reports aggregate metrics, kind/status counts, a content fingerprint, and the fusion adoption verdict — never record bodies, summaries, or ids — and returns an explicit unavailable report rather than failing when the semantic backend or corpus is missing. The hermetic invariant pass remains a test, with its golden fixture as test-only scaffolding.
+
+- **The wavefoundry MCP allowlist in `.claude/settings.json` is now rendered and self-healing.** Install and upgrade merge the read-only tier of the canonical tool roster into `permissions.allow` and record exactly the entries they emitted under a top-level `wavefoundryManagedAllow` provenance key, so a tool rename no longer leaves a stale rule that prompts on every call. Ownership is never inferred from the `mcp__wavefoundry__` name prefix: operator-authored rules, including ones that happen to name a wavefoundry tool, plus all deny and ask entries and unknown keys, survive every render. The mutating tier (lifecycle writes, both edit gates, memory, index, dashboard, sensors, upgrade) renders only when the operator sets `wavefoundryAllowWriteTools` in the same file, and it is all or nothing. Because this mutates a committed file, the upgrade names the rendered delta as an explicit consent line. A fresh install and a protocol-bridge upgrade render the block immediately, and an ordinary upgrade renders it during the upgrade that installs this release. Wavefoundry rules a repo already hand-maintained are left unclaimed and reported as such: they get rename self-heal only after the operator deletes them and lets the renderer re-emit them. Wave 1u2b0 / change 1u2az.
 
 ### Changed
 
@@ -35,6 +98,8 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Phase 4 index publication is no longer refused by the upgrade's own checkpoint, and the summary no longer reports a failed publication as success.** The `setup_index.py` children spawned for the blocking docs and graph passes now hold value-bound authorized-publisher status (a `publisher_grant` token recorded in the upgrade checkpoint and matched against the child environment), on the primary phase and both standalone index phases; the detached background code child never carries a grant. The new pack's `pre_index_update` hook establishes the same grant when the upgrade is still driven by an old parent runner, so the fix takes effect on the upgrade that installs it. The summary's `index_update` field now derives from the observed publication outcome at every writer, a failed docs-layer child exit is reported instead of silently swallowed (the standalone index phases exit non-zero), the refusal message states the complete recovery branched on the actual pending count (`resume_after_memory`, then `cleanup`, then `index_build`, confirmed by `index_health`, at zero pending; backfill plus validation otherwise), and the MCP response carries an `index_publication_failed` diagnostic naming `index_health` whenever publication did not complete.
+
 - **The upgrade no longer extracts the release zip's installer members into the project root.** Phase 0b extraction is allowlist-filtered to `.wavefoundry/**` plus the transient bootstrap file, so the combined package's zipapp runner members (`payload/*`, `__main__.py`, `upgrade_bridge_bootstrap.py`, `subprocess_util.py`) never land in a target repository and can never overwrite same-named project files; the upgrade log records the withheld-member count. Manual install and upgrade instructions now use scoped extraction (`unzip -o <zip> '.wavefoundry/*' -d .`); never delete those member names from a project root to compensate. Wave 1tz6l / change 1u0cc.
 - **Gardener-only dates no longer stale review-policy receipts.** The admitted-change digest normalizes exactly one canonical top-level `Last verified` value while keeping every other byte significant. Evaluator version 2 gives non-closed waves one deterministic re-Prepare transition; closed Markdown and ledgers remain immutable. Wave 1tz6l / change 1tz6k.
 
@@ -43,6 +108,8 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Repair-chain guidance leads to the right call.** The lane-clearing recipe — in both the agent-harness prompt and the tool's own description — now names the `repair_start` prerequisite, states that `repair_start` and `reverification` are finding events rather than run events, and distinguishes the implementer who records the repair from the blocking reviewer lane that independently reverifies it. The two sequence errors are self-correcting: submitting a repair run kind as a run event, or a reverification with no preceding repair start, now names the corrective call instead of only restating the constraint.
 
 - **Memory candidates no longer target the test runner.** Decision-log drafting applied no verification-harness filter, so a decision whose rationale mentioned the test runner could be recorded against it instead of the module it governs. Runner entries are now excluded on both drafting paths, and illustrative placeholder tokens are rejected everywhere.
+
+- **`wf_server_info` can tell a stale MCP runner from a current one.** `server_runner_version` was a constant that never changed, including across releases that replaced the runner file, so the one field whose job is to say "a full host restart is needed" could never say it. It is now a content hash captured at process launch over the un-reloadable runner set (`server.py` plus `venv_bootstrap.py`) and compared against the same hash recomputed from disk at query time. `runner_stale` is tri-state: true with a recovery diagnostic and detail, false when the process matches disk, and null when either side is genuinely unknown (no runner process, an unreadable or torn tree mid-upgrade, or a pre-hash runner), never a fabricated value. An in-process reload deliberately leaves the launch identity untouched, because the runner is exactly the part a reload does not replace. Wave 1u2b0 / change 1u2ay.
 
 ## [1.14.0] - 2026-07-21
 

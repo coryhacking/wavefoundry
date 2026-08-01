@@ -965,11 +965,30 @@ class UpdateUpgradeLockTests(unittest.TestCase):
         self.assertIsNone(lock["pruned_count"])
 
     def test_index_rebuilt_at_recorded(self):
-        """--rebuild-index records index_rebuilt_at; --cleanup reads it as ran_index_rebuild=True."""
+        """1u44n outcome-derived contract (rewritten from the pre-fix
+        intent-derived pin): index_rebuilt_at is stamped only when the writer
+        OBSERVED a successful publication; an observed failure clears it and
+        records index_publication_failed, which --cleanup reads as the
+        "publication failed" index_update value instead of success."""
         self.lib.write_upgrade_lock(self.root, None, "2026-05-19a")
-        self.lib.update_upgrade_lock(self.root, index_rebuilt_at="2026-05-19T14:00:00+00:00")
+        mod = load_upgrade_module()
+        mod._record_index_publication_outcome(self.root, True)
         lock = self.lib.read_upgrade_lock(self.root)
         self.assertTrue(bool(lock.get("index_rebuilt_at")))
+        self.assertFalse(bool(lock.get("index_publication_failed")))
+        mod._record_index_publication_outcome(self.root, False)
+        lock = self.lib.read_upgrade_lock(self.root)
+        self.assertFalse(bool(lock.get("index_rebuilt_at")))
+        self.assertTrue(bool(lock.get("index_publication_failed")))
+        # A later observed success supersedes the failure marker.
+        mod._record_index_publication_outcome(self.root, True)
+        lock = self.lib.read_upgrade_lock(self.root)
+        self.assertTrue(bool(lock.get("index_rebuilt_at")))
+        self.assertFalse(bool(lock.get("index_publication_failed")))
+        # No lock present: recording is a safe no-op.
+        self.lib.remove_upgrade_lock(self.root)
+        mod._record_index_publication_outcome(self.root, True)
+        self.assertIsNone(self.lib.read_upgrade_lock(self.root))
 
 
 class FailureMarkerLockTests(unittest.TestCase):
@@ -1672,6 +1691,319 @@ class PreferredPythonTests(unittest.TestCase):
         graph_calls = [c for c in run_mock.call_args_list if "--graph-only" in c.args[0]]
         self.assertEqual(len(graph_calls), 1, f"expected one --graph-only rebuild call: {run_mock.call_args_list}")
         self.assertIn("--full", graph_calls[0].args[0], "rebuild path runs a full graph rebuild")
+
+
+class Phase4PublisherGrantTests(unittest.TestCase):
+    """Wave 1u44n (AC-1, AC-4): the blocking Phase 4 ``setup_index`` children
+    carry the value-bound publisher grant; the DETACHED background code child
+    never does; the docs-layer outcome is OBSERVED, not assumed."""
+
+    def setUp(self):
+        self.mod = load_upgrade_module()
+        self.lib = _load_upgrade_lib()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        (self.root / ".wavefoundry").mkdir()
+        (self.root / "setup_index.py").write_text("", encoding="utf-8")
+        env_guard = patch.dict(os.environ, {}, clear=False)
+        env_guard.start()
+        self.addCleanup(env_guard.stop)
+        os.environ.pop("WAVEFOUNDRY_UPGRADE_PUBLISHER_TOKEN", None)
+        os.environ.pop("WAVEFOUNDRY_UPGRADE_PARENT_FINALIZE_RECEIPT", None)
+        os.environ.pop("WAVEFOUNDRY_MEMORY_BACKFILL_RUN_ID", None)
+
+    def _run_phase(self, fn_name, returncode=0):
+        mock_proc = MagicMock(returncode=returncode)
+        with patch.object(self.mod, "SCRIPTS_DIR", self.root), \
+             patch("subprocess.run", return_value=mock_proc) as run_mock, \
+             patch("subprocess.Popen") as popen_mock, \
+             contextlib.redirect_stderr(io.StringIO()) as stderr:
+            result = getattr(self.mod, fn_name)(self.root)
+        return result, run_mock, popen_mock, stderr
+
+    def test_update_children_granted_and_detached_child_ungranted(self):
+        self.lib.write_upgrade_lock(self.root, "1.14.0", "1.15.0")
+        result, run_mock, popen_mock, _ = self._run_phase("phase_index_update")
+        self.assertTrue(result)
+        token = self.lib.read_upgrade_lock(self.root).get("publisher_grant")
+        self.assertTrue(token, "the runner must mint publisher_grant into the lock")
+        self.assertEqual(len(run_mock.call_args_list), 2)
+        for call in run_mock.call_args_list:  # docs child + graph child
+            self.assertEqual(
+                call.kwargs["env"]["WAVEFOUNDRY_UPGRADE_PUBLISHER_TOKEN"], token
+            )
+        # AC-1 executed assertion: the DETACHED background code child's
+        # environment carries NO publisher grant of either kind.
+        bg_env = popen_mock.call_args.kwargs["env"]
+        self.assertNotIn("WAVEFOUNDRY_UPGRADE_PUBLISHER_TOKEN", bg_env)
+        self.assertNotIn("WAVEFOUNDRY_UPGRADE_PARENT_FINALIZE_RECEIPT", bg_env)
+
+    def test_detached_child_ungranted_even_when_bridge_exported_token(self):
+        # The pre_index_update bridge exports the token into the PARENT env
+        # (children inherit); the new runner must still strip it from the
+        # detached background child's environment.
+        self.lib.write_upgrade_lock(self.root, "1.14.0", "1.15.0")
+        self.lib.update_upgrade_lock(self.root, publisher_grant="bridge-token")
+        os.environ["WAVEFOUNDRY_UPGRADE_PUBLISHER_TOKEN"] = "bridge-token"
+        result, run_mock, popen_mock, _ = self._run_phase("phase_index_update")
+        self.assertTrue(result)
+        for call in run_mock.call_args_list:
+            self.assertEqual(
+                call.kwargs["env"]["WAVEFOUNDRY_UPGRADE_PUBLISHER_TOKEN"],
+                "bridge-token",
+            )
+        self.assertNotIn(
+            "WAVEFOUNDRY_UPGRADE_PUBLISHER_TOKEN",
+            popen_mock.call_args.kwargs["env"],
+        )
+
+    def test_rebuild_children_granted_and_detached_child_ungranted(self):
+        self.lib.write_upgrade_lock(self.root, "1.14.0", "1.15.0")
+        result, run_mock, popen_mock, _ = self._run_phase("phase_index_rebuild")
+        self.assertTrue(result)
+        token = self.lib.read_upgrade_lock(self.root).get("publisher_grant")
+        self.assertTrue(token)
+        for call in run_mock.call_args_list:
+            self.assertEqual(
+                call.kwargs["env"]["WAVEFOUNDRY_UPGRADE_PUBLISHER_TOKEN"], token
+            )
+        self.assertNotIn(
+            "WAVEFOUNDRY_UPGRADE_PUBLISHER_TOKEN",
+            popen_mock.call_args.kwargs["env"],
+        )
+
+    def test_no_lock_means_no_grant_and_no_lock_creation(self):
+        result, run_mock, _popen, _ = self._run_phase("phase_index_update")
+        self.assertTrue(result)
+        self.assertIsNone(self.lib.read_upgrade_lock(self.root))
+        for call in run_mock.call_args_list:
+            self.assertNotIn(
+                "WAVEFOUNDRY_UPGRADE_PUBLISHER_TOKEN", call.kwargs["env"] or {}
+            )
+
+    def test_docs_child_failure_is_observed_not_swallowed(self):
+        # Requirement 7 end-to-end stub boundary: subprocess (isolated_run)
+        # exits non-zero; the observability chain reports False and the
+        # failure text names the recovery pair.
+        self.lib.write_upgrade_lock(self.root, "1.14.0", "1.15.0")
+        result, _run, _popen, stderr = self._run_phase(
+            "phase_index_update", returncode=7
+        )
+        self.assertFalse(result)
+        err_text = stderr.getvalue()
+        self.assertIn("Index publication FAILED", err_text)
+        self.assertIn("index_build", err_text)
+        self.assertIn("index_health", err_text)
+
+    def test_rebuild_docs_child_failure_is_observed_not_swallowed(self):
+        self.lib.write_upgrade_lock(self.root, "1.14.0", "1.15.0")
+        result, _run, _popen, stderr = self._run_phase(
+            "phase_index_rebuild", returncode=7
+        )
+        self.assertFalse(result)
+        self.assertIn("Index publication FAILED", stderr.getvalue())
+
+    def test_memory_bound_docs_child_failure_still_raises(self):
+        self.lib.write_upgrade_lock(self.root, "1.14.0", "1.15.0")
+        os.environ["WAVEFOUNDRY_MEMORY_BACKFILL_RUN_ID"] = "run-1"
+        mock_proc = MagicMock(returncode=7)
+        with patch.object(self.mod, "SCRIPTS_DIR", self.root), \
+             patch("subprocess.run", return_value=mock_proc), \
+             patch("subprocess.Popen"):
+            with self.assertRaisesRegex(RuntimeError, "retryable"):
+                self.mod.phase_index_update(self.root)
+
+    def test_failed_publication_reaches_primary_sentinel(self):
+        # End-to-end to the PRIMARY emit site: failing child exit -> observed
+        # False -> sentinel index_update says publication failed + recovery.
+        self.lib.write_upgrade_lock(self.root, "1.14.0", "1.15.0")
+        published, _run, _popen, _ = self._run_phase(
+            "phase_index_update", returncode=7
+        )
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            self.mod._emit_primary_phase_summary(
+                from_version="1.14.0", to_version="1.15.0", zip_path=None,
+                pruned_count=0, root=None, index_published=published,
+            )
+        sentinel = self.mod.WAVE_UPGRADE_SUMMARY_SENTINEL
+        summary = next(
+            json.loads(line[len(sentinel):])
+            for line in buf.getvalue().splitlines()
+            if line.startswith(sentinel)
+        )
+        self.assertTrue(summary["index_update"].startswith("publication failed"))
+        self.assertIn("index_health", summary["index_update"])
+
+    def test_failed_publication_reaches_cleanup_sentinel(self):
+        # End-to-end to the CLEANUP emit site: failing child exit -> observed
+        # False -> lock records the outcome -> the cleanup derivation renders
+        # the failed value (never success, never "not run").
+        self.lib.write_upgrade_lock(self.root, "1.14.0", "1.15.0")
+        published, _run, _popen, _ = self._run_phase(
+            "phase_index_update", returncode=7
+        )
+        self.mod._record_index_publication_outcome(self.root, published)
+        lock = self.lib.read_upgrade_lock(self.root)
+        rebuilt = bool(lock.get("index_rebuilt_at"))
+        failed = bool(lock.get("index_publication_failed"))
+        self.assertFalse(rebuilt)
+        self.assertTrue(failed)
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            self.mod._print_operator_summary(
+                from_version="1.14.0", to_version="1.15.0", zip_path=None,
+                pruned_count=0, ran_index_rebuild=rebuilt, failed_phase=None,
+                root=None, index_update_failed=failed,
+            )
+        sentinel = self.mod.WAVE_UPGRADE_SUMMARY_SENTINEL
+        summary = next(
+            json.loads(line[len(sentinel):])
+            for line in buf.getvalue().splitlines()
+            if line.startswith(sentinel)
+        )
+        self.assertTrue(summary["index_update"].startswith("publication failed"))
+        self.assertIn("index_health", summary["index_update"])
+
+    def test_cleanup_branch_derives_outcome_fields_from_lock(self):
+        # Structural pin (same shape as the 1rych/1ryce source assertions):
+        # the --cleanup handler derives _cl_index_failed from the lock and
+        # passes index_update_failed into phase_cleanup.
+        src = UPGRADE_PATH.read_text(encoding="utf-8")
+        self.assertIn('bool(lock.get("index_publication_failed")) if lock else False', src)
+        self.assertIn("index_update_failed=_cl_index_failed", src)
+        # And both standalone writers record the OBSERVED outcome.
+        self.assertIn("_record_index_publication_outcome(root, _ui_published)", src)
+        self.assertIn("_record_index_publication_outcome(root, _ri_published)", src)
+
+
+class PreIndexUpdateBridgeTests(unittest.TestCase):
+    """Wave 1u44n (AC-3): the new pack's ``pre_index_update`` hook makes the
+    fix effective on the upgrade that INSTALLS it, executing inside the old
+    parent runner via ``_load_extension_module`` from a real zip."""
+
+    def setUp(self):
+        self.mod = load_upgrade_module()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        (self.root / ".wavefoundry").mkdir()
+        self.lock_path = self.root / ".wavefoundry" / "upgrade-in-progress.json"
+        self.zip_path = self.root / "wavefoundry-1.15.0-test.zip"
+        with zipfile.ZipFile(self.zip_path, "w") as zf:
+            zf.write(
+                SCRIPTS_ROOT / "upgrade_extensions.py",
+                ".wavefoundry/framework/scripts/upgrade_extensions.py",
+            )
+        env_guard = patch.dict(os.environ, {}, clear=False)
+        env_guard.start()
+        self.addCleanup(env_guard.stop)
+        os.environ.pop("WAVEFOUNDRY_UPGRADE_PUBLISHER_TOKEN", None)
+        os.environ.pop("WAVEFOUNDRY_UPGRADE_PARENT_FINALIZE_RECEIPT", None)
+        os.environ.pop("WAVEFOUNDRY_MEMORY_BACKFILL_RUN_ID", None)
+        if str(SCRIPTS_ROOT) not in sys.path:
+            sys.path.insert(0, str(SCRIPTS_ROOT))
+
+    def _load_ext(self):
+        with contextlib.redirect_stdout(io.StringIO()):
+            ext = self.mod._load_extension_module(self.zip_path)
+        self.assertIsNotNone(ext, "the fixture zip must yield the extension module")
+        return ext
+
+    def _ctx(self):
+        return self.mod.UpgradeContext(
+            self.root, "1.15.0+pfxp", "1.15.0", self.zip_path, True
+        )
+
+    def test_bridge_authorizes_non_owner_child_with_no_memory_run(self):
+        # The pass/fail observable is post-hook ADMISSION at begin_build_epoch
+        # for a simulated non-owner child (checkpoint pid -1, child-inherited
+        # env), not merely that a flag or env var was set.
+        import index_state_store
+
+        self.lock_path.write_text(
+            json.dumps({"current_phase": "index_update", "pid": -1}),
+            encoding="utf-8",
+        )
+        ext = self._load_ext()
+        ext.pre_index_update(self._ctx())
+        lock = json.loads(self.lock_path.read_text(encoding="utf-8"))
+        token = lock.get("publisher_grant")
+        self.assertTrue(token, "the bridge must record publisher_grant in the checkpoint")
+        self.assertEqual(
+            os.environ.get("WAVEFOUNDRY_UPGRADE_PUBLISHER_TOKEN"), token
+        )
+        index_dir = self.root / ".wavefoundry" / "index"
+        attempt = index_state_store.begin_build_epoch(index_dir, "docs")
+        self.assertTrue(index_state_store.finalize_build_epoch(index_dir, attempt))
+
+    def test_bridge_is_idempotent_and_noop_when_authorized(self):
+        self.lock_path.write_text(
+            json.dumps({"current_phase": "index_update", "pid": -1}),
+            encoding="utf-8",
+        )
+        ext = self._load_ext()
+        ext.pre_index_update(self._ctx())
+        first_lock = self.lock_path.read_text(encoding="utf-8")
+        first_token = os.environ["WAVEFOUNDRY_UPGRADE_PUBLISHER_TOKEN"]
+        ext.pre_index_update(self._ctx())
+        self.assertEqual(self.lock_path.read_text(encoding="utf-8"), first_lock)
+        self.assertEqual(
+            os.environ["WAVEFOUNDRY_UPGRADE_PUBLISHER_TOKEN"], first_token
+        )
+
+    def test_bridge_noop_without_a_lock(self):
+        ext = self._load_ext()
+        ext.pre_index_update(self._ctx())
+        self.assertFalse(self.lock_path.exists())
+        self.assertNotIn("WAVEFOUNDRY_UPGRADE_PUBLISHER_TOKEN", os.environ)
+
+    def test_raising_bridge_is_absorbed_and_pause_branches_still_raise(self):
+        # Fail-safety lives INSIDE the hook body: an actually-raising bridge
+        # must not escape (the dispatcher would turn it into a fatal exit-3
+        # retained-lock failure), while the INTENTIONAL ACTION_REQUIRED_EXIT
+        # pause branches keep raising.
+        self.lock_path.write_text(
+            json.dumps({"current_phase": "index_update", "pid": -1}),
+            encoding="utf-8",
+        )
+        ext = self._load_ext()
+        with patch.object(
+            ext,
+            "_bridge_index_publisher_grant",
+            side_effect=RuntimeError("bridge boom"),
+        ):
+            # No memory run id: the hook must return normally.
+            ext.pre_index_update(self._ctx())
+        self.assertNotIn("WAVEFOUNDRY_UPGRADE_PUBLISHER_TOKEN", os.environ)
+        # With a memory run id and a genuinely paused run, the pause branch
+        # still raises even while the bridge is broken.
+        self.lock_path.write_text(
+            json.dumps(
+                {
+                    "current_phase": "awaiting_memory_validation",
+                    "pid": -1,
+                    "memory_backfill_run_id": "run-1",
+                }
+            ),
+            encoding="utf-8",
+        )
+        fake_backfill = MagicMock()
+        fake_backfill.ACTION_REQUIRED_EXIT = 4
+        fake_backfill.reconcile_index_publication.return_value = {
+            "state": "awaiting_validation"
+        }
+        with patch.object(
+            ext,
+            "_bridge_index_publisher_grant",
+            side_effect=RuntimeError("bridge boom"),
+        ), patch.object(
+            ext, "_installed_memory_backfill", return_value=fake_backfill
+        ):
+            with self.assertRaises(SystemExit) as raised:
+                ext.pre_index_update(self._ctx())
+        self.assertEqual(raised.exception.code, 4)
 
 
 class PublicUpgradeReviewProtocolIntegrationTests(unittest.TestCase):
@@ -4355,8 +4687,9 @@ class ReconciliationScanIntegrationTests(unittest.TestCase):
         self.assertIn("No stale retired-surface references found", out)
 
     def test_run_reconciliation_scan_is_fail_safe(self):
-        # A bad root must not raise — returns ([], []) (1p8o5: two channels).
-        self.assertEqual(self.mod._run_reconciliation_scan(None), ([], []))
+        # A bad root must not raise; returns ([], [], []) (1p8o5 two channels;
+        # 1u2az adds the renderer-provenance self-heal channel).
+        self.assertEqual(self.mod._run_reconciliation_scan(None), ([], [], []))
 
 
 class UpgradeSummarySentinelTests(unittest.TestCase):
@@ -4473,12 +4806,13 @@ class PrimaryPhaseSummaryTests(unittest.TestCase):
             sys.path.insert(0, str(SCRIPTS_ROOT))
         self.mod = load_upgrade_module()
 
-    def _emit_primary(self, root, from_v, to_v, pruned_count=0):
+    def _emit_primary(self, root, from_v, to_v, pruned_count=0, index_published=True):
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
             self.mod._emit_primary_phase_summary(
                 from_version=from_v, to_version=to_v, zip_path=None,
                 pruned_count=pruned_count, root=Path(root) if root is not None else None,
+                index_published=index_published,
             )
         return buf.getvalue()
 
@@ -4508,8 +4842,9 @@ class PrimaryPhaseSummaryTests(unittest.TestCase):
         # to return a finding must surface that finding in the primary-phase sentinel.
         finding = [{"file": "x.md", "line": 1, "retired_surface": "docs-lint",
                     "matched": ".wavefoundry/bin/docs-lint", "suggested": "wf docs-lint"}]
-        # 1p8o5: _run_reconciliation_scan now returns (reconciliation, host_permission_flags).
-        with patch.object(self.mod, "_run_reconciliation_scan", return_value=(finding, [])):
+        # 1p8o5/1u2az: _run_reconciliation_scan returns (reconciliation,
+        # host_permission_flags, renderer_provenance_flags).
+        with patch.object(self.mod, "_run_reconciliation_scan", return_value=(finding, [], [])):
             out = self._emit_primary("ignored-root-uses-stub", "1.8.0", "1.9.0")
         summary = self._parse_sentinel(out)[0]
         self.assertEqual(summary["reconciliation"], finding)
@@ -4532,8 +4867,8 @@ class PrimaryPhaseSummaryTests(unittest.TestCase):
         # its return value now flows into the patch-bump sentinel.
         finding = [{"file": "x.md", "line": 1, "retired_surface": "docs-lint",
                     "matched": ".wavefoundry/bin/docs-lint", "suggested": "wf docs-lint"}]
-        # 1p8o5: stub returns the (reconciliation, host_permission_flags) tuple.
-        with patch.object(self.mod, "_run_reconciliation_scan", return_value=(finding, [])) as scan:
+        # 1p8o5/1u2az: stub returns the three-channel tuple.
+        with patch.object(self.mod, "_run_reconciliation_scan", return_value=(finding, [], [])) as scan:
             out = self._emit_primary("some-root", "1.9.4", "1.9.5")
         summary = self._parse_sentinel(out)[0]
         scan.assert_called_once()
@@ -4551,11 +4886,22 @@ class PrimaryPhaseSummaryTests(unittest.TestCase):
             self.assertEqual(len(summary["reconciliation"]), 1)
             self.assertEqual(summary["reconciliation"][0]["retired_surface"], "wave-gate")
 
-    def test_index_update_reflects_running_on_primary_phase(self):
-        # Req-1: index_update reflects that phase 4 ran by the time the primary summary emits.
-        out = self._emit_primary(None, "1.8.0", "1.9.0")
+    def test_index_update_reflects_observed_publication_outcome(self):
+        # 1u44n (re-pointed from the pre-fix hardcoded-True pin): index_update derives from the
+        # OBSERVED Phase 4 publication result the caller passes in, never from the phase having
+        # been attempted.
+        out = self._emit_primary(None, "1.8.0", "1.9.0", index_published=True)
         summary = self._parse_sentinel(out)[0]
         self.assertIn("running in background", summary["index_update"])
+        failed_out = self._emit_primary(None, "1.8.0", "1.9.0", index_published=False)
+        failed_summary = self._parse_sentinel(failed_out)[0]
+        self.assertTrue(
+            failed_summary["index_update"].startswith("publication failed"),
+            failed_summary["index_update"],
+        )
+        self.assertIn("index_health", failed_summary["index_update"])
+        self.assertIn("index_build", failed_summary["index_update"])
+        self.assertNotIn("running in background", failed_summary["index_update"])
 
     def test_primary_and_prose_render_from_same_builder(self):
         # AC-2: the primary-phase sentinel and the cleanup-phase prose sentinel are produced from the
@@ -5495,6 +5841,7 @@ class HistoricalMemoryUpgradeGateTests(unittest.TestCase):
 
         def phase(_root):
             observed.append(self.backfill.run_summary(self.root, self.run_id)["state"])
+            return True  # 1u44n: the stubbed phase reports an observed successful publication
 
         def mark(root, run_id):
             observed.append("mark")
@@ -5817,10 +6164,54 @@ class HistoricalMemoryUpgradeGateTests(unittest.TestCase):
         )
 
     def test_update_index_cannot_bypass_ready_memory_gate(self):
-        with patch.object(self.mod, "phase_index_update") as phase:
+        with patch.object(self.mod, "phase_index_update") as phase, \
+             contextlib.redirect_stderr(io.StringIO()):
             result = self.mod.main(["--root", str(self.root), "--update-index"])
         self.assertEqual(result, self.backfill.ACTION_REQUIRED_EXIT)
         phase.assert_not_called()
+
+    def test_standalone_gate_zero_pending_refusal_states_ordered_recovery(self):
+        """1u44n (AC-2, third refusal surface): the zero-pending field
+        scenario no longer emits the false "validation is pending" statement;
+        it states the ordered resume/cleanup/index_build recovery and names
+        index_health. The refusal itself is unchanged."""
+        stderr = io.StringIO()
+        with patch.object(self.mod, "phase_index_update") as phase, \
+             contextlib.redirect_stderr(stderr):
+            result = self.mod.main(["--root", str(self.root), "--update-index"])
+        self.assertEqual(result, self.backfill.ACTION_REQUIRED_EXIT)
+        phase.assert_not_called()
+        text = stderr.getvalue()
+        self.assertNotIn("validation is pending", text)
+        self.assertIn("0 pending", text)
+        resume = text.index("--resume-after-memory")
+        cleanup = text.index("then --cleanup")
+        build = text.index("then index_build")
+        self.assertLess(resume, cleanup)
+        self.assertLess(cleanup, build)
+        self.assertIn("index_health", text)
+
+    def test_standalone_gate_pending_refusal_keeps_validation_routing(self):
+        """1u44n: with genuinely pending memory work the gate keeps routing to
+        backfill + validation (the ordered recovery would skip validation)."""
+        pending_summary = {
+            "state": "awaiting_validation",
+            "remaining_waves": 2,
+            "candidates_pending": 1,
+            "failures": 0,
+            "last_failure": None,
+        }
+        stderr = io.StringIO()
+        with patch.object(
+            self.backfill, "sync_inventory", return_value=pending_summary
+        ), patch.object(self.mod, "phase_index_update") as phase, \
+             contextlib.redirect_stderr(stderr):
+            result = self.mod.main(["--root", str(self.root), "--update-index"])
+        self.assertEqual(result, self.backfill.ACTION_REQUIRED_EXIT)
+        phase.assert_not_called()
+        text = stderr.getvalue()
+        self.assertIn("validation is pending", text)
+        self.assertNotIn("index_health", text)
 
     def test_resume_after_memory_cannot_bypass_failed_review_or_docs_gate(self):
         """The memory resume must not publish while the earlier typed gate is failed."""
@@ -6505,6 +6896,561 @@ class JournalMigrationTests(unittest.TestCase):
             self.ext.pre_docs_gate(MagicMock(root=self.root, from_version="1.15.0"))
         naming.assert_not_called()
         journals.assert_not_called()
+
+
+class PermissionsRenderConsentTests(unittest.TestCase):
+    """Wave 1u2b0 (1u2az): the upgrade render passes the permissions switch and
+    surfaces the rendered permissions delta as an explicit consent line."""
+
+    def setUp(self):
+        self.mod = load_upgrade_module()
+        # load_upgrade_module builds a FRESH module object per setUp, so assigning
+        # the delta global cannot bleed into a sibling test here. It CAN still
+        # escape this class: load_upgrade_module also rebinds
+        # sys.modules["upgrade_wavefoundry"], so a later plain
+        # `import upgrade_wavefoundry` anywhere in the same process resolves the
+        # polluted object (verified). Restore it explicitly.
+        _prior_delta = self.mod._PERMISSIONS_DELTA
+        self.addCleanup(setattr, self.mod, "_PERMISSIONS_DELTA", _prior_delta)
+        if str(SCRIPTS_ROOT) not in sys.path:
+            sys.path.insert(0, str(SCRIPTS_ROOT))
+        import venv_bootstrap
+        heal = patch.object(venv_bootstrap, "ensure_python_resolves", return_value="ok")
+        heal.start()
+        self.addCleanup(heal.stop)
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.addCleanup(self.tmp.cleanup)
+        # A stand-in renderer script so the phase does not skip.
+        (self.root / "render_platform_surfaces.py").write_text("", encoding="utf-8")
+        self.settings = self.root / ".claude" / "settings.json"
+        self.settings.parent.mkdir(parents=True)
+        self.settings.write_text(
+            json.dumps({"permissions": {"allow": ["Bash(npm test:*)"]}}, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+    def _run_phase(self, render_side_effect):
+        lines: list[str] = []
+
+        def fake_run(cmd, **kwargs):
+            render_side_effect(cmd)
+            return MagicMock(returncode=0)
+
+        with patch.object(self.mod, "SCRIPTS_DIR", self.root), \
+             patch.object(self.mod, "_log", side_effect=lines.append), \
+             patch("subprocess.run", side_effect=fake_run) as run_mock:
+            self.mod.phase_surface_rendering(self.root)
+        return lines, run_mock
+
+    def test_upgrade_render_passes_include_permissions_switch(self):
+        captured: list[list[str]] = []
+        lines, _ = self._run_phase(lambda cmd: captured.append(list(cmd)))
+        self.assertEqual(len(captured), 1)
+        self.assertIn("--include-permissions", captured[0])
+
+    def test_permissions_delta_consent_line_names_added_rules(self):
+        added_rule = "mcp__wavefoundry__code_search"
+
+        def render(cmd):
+            data = json.loads(self.settings.read_text(encoding="utf-8"))
+            data["permissions"]["allow"].append(added_rule)
+            self.settings.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+
+        lines, _ = self._run_phase(render)
+        joined = "\n".join(lines)
+        self.assertIn("Permissions delta", joined)
+        self.assertIn(f"+ {added_rule}", joined)
+        delta = self.mod._PERMISSIONS_DELTA
+        self.assertTrue(delta)
+        self.assertEqual(delta["added"], [added_rule])
+        self.assertEqual(delta["removed"], [])
+
+    def test_permissions_delta_reports_none_when_unchanged(self):
+        lines, _ = self._run_phase(lambda cmd: None)
+        joined = "\n".join(lines)
+        self.assertIn("Permissions delta: none", joined)
+        delta = self.mod._PERMISSIONS_DELTA
+        self.assertIsNotNone(delta)
+        self.assertEqual((delta["added"], delta["removed"]), ([], []))
+
+    def test_phase_persists_the_delta_into_the_upgrade_lock(self):
+        # F1 repair: the operator prose prints in the SEPARATE --cleanup process,
+        # where the module global is None — so the rendering process must persist
+        # the consent record for that process to adopt.
+        lib = _load_upgrade_lib()
+        lib.write_upgrade_lock(self.root, "1.14.0", "1.15.0")
+        added_rule = "mcp__wavefoundry__code_search"
+
+        def render(cmd):
+            data = json.loads(self.settings.read_text(encoding="utf-8"))
+            data["permissions"]["allow"].append(added_rule)
+            self.settings.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+
+        self._run_phase(render)
+        persisted = lib.read_upgrade_lock(self.root)["permissions_delta"]
+        self.assertEqual(persisted["added"], [added_rule])
+        self.assertEqual(persisted["file"], ".claude/settings.json")
+
+    def test_summary_flattens_the_delta_into_lists_and_scalars(self):
+        # F1 repair: the MCP response bounder treats a nested dict as ONE scalar
+        # value and drops it whole past the per-value char cap, which the
+        # write-tier delta exceeds. Lists + scalars are paged instead.
+        self.mod._PERMISSIONS_DELTA = {
+            "file": ".claude/settings.json",
+            "added": ["mcp__wavefoundry__code_search"],
+            "removed": ["mcp__wavefoundry__wave_close"],
+            "unmanaged_present": 3,
+        }
+        summary = self._summary(renderer_provenance_flags=[{"file": ".claude/settings.json"}])
+        self.assertNotIn(
+            "permissions_delta",
+            summary,
+            "the nested dict key must be gone, not merely supplemented",
+        )
+        self.assertEqual(summary["permissions_added"], ["mcp__wavefoundry__code_search"])
+        self.assertEqual(summary["permissions_removed"], ["mcp__wavefoundry__wave_close"])
+        self.assertEqual(summary["permissions_changed"], 2)
+        self.assertEqual(summary["permissions_file"], ".claude/settings.json")
+        self.assertEqual(summary["permissions_unmanaged_present"], 3)
+        self.assertEqual(summary["renderer_provenance_flags"], [{"file": ".claude/settings.json"}])
+        # Every emitted permissions field is a scalar or a list of strings — never
+        # a dict (the shape the bounder drops).
+        for key, value in summary.items():
+            if key.startswith("permissions_"):
+                self.assertNotIsInstance(value, dict, key)
+
+    def test_summary_changed_count_is_zero_when_render_changed_nothing(self):
+        self.mod._PERMISSIONS_DELTA = {
+            "file": ".claude/settings.json",
+            "added": [],
+            "removed": [],
+            "unmanaged_present": 0,
+        }
+        summary = self._summary()
+        self.assertEqual(summary["permissions_changed"], 0)
+        self.assertEqual(summary["permissions_added"], [])
+
+    def test_summary_changed_is_none_when_no_render_ran_in_this_upgrade(self):
+        # Preserves the pre-repair `delta is not None` semantics: no permissions
+        # render for this upgrade means NO consent claim at all (distinct from a
+        # render that changed nothing).
+        self.mod._PERMISSIONS_DELTA = None
+        summary = self._summary()
+        self.assertIsNone(summary["permissions_changed"])
+        self.assertIsNone(summary["permissions_file"])
+        self.assertEqual(summary["permissions_added"], [])
+        lines: list[str] = []
+        with patch.object(self.mod, "_log", side_effect=lines.append):
+            self.mod._print_operator_summary(
+                from_version="1.15.0",
+                to_version="1.16.0",
+                zip_path=None,
+                pruned_count=0,
+                ran_index_rebuild=True,
+                failed_phase=None,
+                root=None,
+            )
+        self.assertNotIn("Permissions:", "\n".join(str(x) for x in lines))
+
+    def _summary(self, **overrides):
+        kwargs = dict(
+            from_version="1.15.0",
+            to_version="1.16.0",
+            zip_path=None,
+            pruned_count=0,
+            ran_index_rebuild=True,
+            failed_phase=None,
+            reconciliation=[],
+            host_permission_flags=[],
+        )
+        kwargs.update(overrides)
+        return self.mod._build_upgrade_summary(**kwargs)
+
+    def test_operator_summary_names_unmanaged_present_rules(self):
+        # F8 repair: the merge deliberately never claims a desired rule that is
+        # already present; without this line the operator sees only
+        # "Permissions: unchanged" and cannot tell the feature is inert.
+        self.mod._PERMISSIONS_DELTA = {
+            "file": ".claude/settings.json",
+            "added": [],
+            "removed": [],
+            "unmanaged_present": 41,
+        }
+        lines: list[str] = []
+        with patch.object(self.mod, "_log", side_effect=lines.append):
+            self.mod._print_operator_summary(
+                from_version="1.15.0",
+                to_version="1.16.0",
+                zip_path=None,
+                pruned_count=0,
+                ran_index_rebuild=True,
+                failed_phase=None,
+                root=None,
+            )
+        joined = "\n".join(str(x) for x in lines)
+        self.assertIn("41 roster-desired rule(s)", joined)
+        self.assertIn("UNMANAGED", joined)
+        # And the count is genuinely computed from the real merge state.
+        self.settings.write_text(
+            json.dumps(
+                {
+                    "permissions": {
+                        "allow": [
+                            "mcp__wavefoundry__code_search",
+                            "mcp__wavefoundry__docs_search",
+                            "Bash(npm test:*)",
+                        ]
+                    }
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(self.mod._permissions_unmanaged_present(self.root), 2)
+        # Claimed rules are NOT unmanaged (the near-miss control).
+        self.settings.write_text(
+            json.dumps(
+                {
+                    "permissions": {"allow": ["mcp__wavefoundry__code_search"]},
+                    "wavefoundryManagedAllow": ["mcp__wavefoundry__code_search"],
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(self.mod._permissions_unmanaged_present(self.root), 0)
+
+    def test_operator_summary_prints_explicit_permissions_consent_line(self):
+        self.mod._PERMISSIONS_DELTA = {
+            "file": ".claude/settings.json",
+            "added": ["mcp__wavefoundry__code_search"],
+            "removed": ["mcp__wavefoundry__wave_close"],
+            "unmanaged_present": 0,
+        }
+        lines: list[str] = []
+        with patch.object(self.mod, "_log", side_effect=lines.append):
+            self.mod._print_operator_summary(
+                from_version="1.15.0",
+                to_version="1.16.0",
+                zip_path=None,
+                pruned_count=0,
+                ran_index_rebuild=True,
+                failed_phase=None,
+                root=None,
+            )
+        joined = "\n".join(str(x) for x in lines)
+        self.assertIn("Permissions:", joined)
+        self.assertIn("CHANGED", joined)
+        self.assertIn("+ mcp__wavefoundry__code_search", joined)
+        self.assertIn("- mcp__wavefoundry__wave_close", joined)
+        # Not folded into the generic surfaces-rendered line.
+        surfaces_line = next(l for l in lines if str(l).startswith("Surfaces rendered:"))
+        self.assertNotIn("permission", str(surfaces_line).lower())
+
+
+class PermissionsConsentCrossesTheProcessBoundaryTests(unittest.TestCase):
+    """Wave 1u2b0 F1 repair: the human consent prose prints from the SEPARATE
+    `--cleanup` process, whose module global is None. The rendering process
+    persists the delta into the upgrade lock and cleanup adopts it."""
+
+    def setUp(self):
+        self.mod = load_upgrade_module()
+        self.lib = _load_upgrade_lib()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        (self.root / ".wavefoundry").mkdir()
+        self.addCleanup(self.tmp.cleanup)
+
+    def _cleanup_output(self) -> str:
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            self.mod.phase_cleanup(
+                root=self.root,
+                from_version="1.14.0",
+                to_version="1.15.0",
+                zip_path=None,
+                pruned_count=0,
+                ran_index_rebuild=True,
+                failed_phase=None,
+                lock_present=True,
+            )
+        return buf.getvalue()
+
+    def test_cleanup_prints_the_persisted_consent_delta(self):
+        self.lib.write_upgrade_lock(self.root, "1.14.0", "1.15.0")
+        self.lib.update_upgrade_lock(
+            self.root,
+            permissions_delta={
+                "file": ".claude/settings.json",
+                "added": ["mcp__wavefoundry__code_search"],
+                "removed": ["mcp__wavefoundry__wave_close"],
+                "unmanaged_present": 0,
+            },
+        )
+        # The real cross-process condition: this process never rendered.
+        self.assertIsNone(self.mod._PERMISSIONS_DELTA)
+        out = self._cleanup_output()
+        self.assertIn("Permissions:", out)
+        self.assertIn("CHANGED", out)
+        self.assertIn("+ mcp__wavefoundry__code_search", out)
+        self.assertIn("- mcp__wavefoundry__wave_close", out)
+
+    def test_cleanup_makes_no_consent_claim_without_a_persisted_delta(self):
+        # Non-vacuity control (and the pre-repair behaviour): with nothing
+        # persisted there is no consent line at all, rather than a false
+        # "unchanged" claim about a render this upgrade never made.
+        self.lib.write_upgrade_lock(self.root, "1.14.0", "1.15.0")
+        out = self._cleanup_output()
+        self.assertIn("Upgrade complete", out)
+        self.assertNotIn("Permissions:", out)
+
+    def test_non_dict_persisted_delta_degrades_to_no_claim(self):
+        self.lib.write_upgrade_lock(self.root, "1.14.0", "1.15.0")
+        self.lib.update_upgrade_lock(self.root, permissions_delta="corrupt")
+        out = self._cleanup_output()
+        self.assertIn("Upgrade complete", out)
+        self.assertNotIn("Permissions:", out)
+
+
+class PermissionsRenderBackstopTests(unittest.TestCase):
+    """Wave 1u2b0 F5 repair: the upgrade that INSTALLS the permission surface runs
+    Phase 1 on the already-imported OLD orchestrator (no --include-permissions), so
+    a NEW-code backstop in the `--update-index` subprocess renders it instead."""
+
+    def setUp(self):
+        self.mod = load_upgrade_module()
+        _prior_delta = self.mod._PERMISSIONS_DELTA
+        self.addCleanup(setattr, self.mod, "_PERMISSIONS_DELTA", _prior_delta)
+        if str(SCRIPTS_ROOT) not in sys.path:
+            sys.path.insert(0, str(SCRIPTS_ROOT))
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.addCleanup(self.tmp.cleanup)
+        self.settings = self.root / ".claude" / "settings.json"
+
+    @staticmethod
+    def _main_guard_chains(callee: str) -> list[frozenset[str]]:
+        """Every call site of *callee* in main(), as the set of `args.<flag>` names
+        guarding it. An empty set means the call is on the unguarded default path."""
+        import ast as _ast
+
+        source = UPGRADE_PATH.read_text(encoding="utf-8")
+        main_fn = next(
+            node for node in _ast.parse(source).body
+            if isinstance(node, _ast.FunctionDef) and node.name == "main"
+        )
+        chains: list[frozenset[str]] = []
+
+        def walk(node, guards: frozenset[str]) -> None:
+            if isinstance(node, _ast.Call) and isinstance(node.func, _ast.Name):
+                if node.func.id == callee:
+                    chains.append(guards)
+            if isinstance(node, _ast.If):
+                extra: set[str] = set()
+                for sub in _ast.walk(node.test):
+                    if isinstance(sub, _ast.Attribute) and isinstance(sub.value, _ast.Name):
+                        if sub.value.id == "args":
+                            extra.add(sub.attr)
+                for child in node.body:
+                    walk(child, guards | extra)
+                for child in node.orelse:
+                    walk(child, guards)
+                return
+            for child in _ast.iter_child_nodes(node):
+                walk(child, guards)
+
+        for stmt in main_fn.body:
+            walk(stmt, frozenset())
+        return chains
+
+    def test_update_index_phase_calls_the_backstop(self):
+        # Source-level pin on the new-code place every MCP upgrade flow that runs the
+        # --update-index subprocess reaches post-extract, alongside the two established
+        # backstops. This is NOT the only site: an ordinary upgrade never runs
+        # --update-index, which is what
+        # test_default_upgrade_path_reaches_the_backstop covers.
+        import ast as _ast
+
+        source = UPGRADE_PATH.read_text(encoding="utf-8")
+        main_fn = next(
+            node for node in _ast.parse(source).body
+            if isinstance(node, _ast.FunctionDef) and node.name == "main"
+        )
+        branch = None
+        for node in _ast.walk(main_fn):
+            if (
+                isinstance(node, _ast.If)
+                and isinstance(node.test, _ast.Attribute)
+                and node.test.attr == "update_index"
+            ):
+                branch = node
+                break
+        self.assertIsNotNone(branch, "main() must have an `if args.update_index:` branch")
+        called = {
+            inner.func.id
+            for inner in _ast.walk(branch)
+            if isinstance(inner, _ast.Call) and isinstance(inner.func, _ast.Name)
+        }
+        self.assertIn("_ensure_rendered_permissions_backstop", called)
+        # Positive control: the established new-code backstops live in the same branch.
+        self.assertIn("_ensure_lifecycle_policy_backstop", called)
+
+    def test_default_upgrade_path_reaches_the_backstop(self):
+        """Wave 1u2b0 F5 re-repair: DEFAULT-PATH reachability, which the update_index
+        pin above cannot establish.
+
+        Known bad this pins: the backstop had exactly one call site, guarded by
+        `args.update_index`, a flag an ordinary `wf upgrade` never passes (its primary
+        phase renders surfaces and runs Phase 4 inline, then exits). Four shipped
+        surfaces claim an ordinary upgrade renders the block during that same upgrade,
+        so a backstop only the --update-index subprocess reaches makes them false.
+        """
+        chains = self._main_guard_chains("_ensure_rendered_permissions_backstop")
+        self.assertTrue(chains, "main() must call _ensure_rendered_permissions_backstop")
+        self.assertTrue(
+            any("update_index" not in guards for guards in chains),
+            "every backstop call site is behind args.update_index, which an ordinary "
+            f"upgrade never passes; guard chains: {[sorted(g) for g in chains]}",
+        )
+        # The default-path site is the cleanup phase, mirroring the two-site shape of the
+        # established lifecycle backstop (whose second site lives inside phase_cleanup,
+        # which main() calls only from the same `if args.cleanup:` branch).
+        self.assertTrue(
+            any(
+                "cleanup" in guards and "update_index" not in guards
+                for guards in chains
+            ),
+            f"expected a call site on the cleanup path; got {[sorted(g) for g in chains]}",
+        )
+        self.assertEqual(
+            [sorted(g) for g in self._main_guard_chains("phase_cleanup")],
+            [["cleanup"]],
+            "phase_cleanup is reached only from the cleanup branch, so a backstop there "
+            "is on the same path the lifecycle-policy precedent uses",
+        )
+
+    def test_cleanup_invocation_really_renders_the_block(self):
+        """Behavioural counterpart to the static pin: drive main() with `--cleanup` on a
+        repo whose settings carry no permission block, and require the block to exist
+        afterwards. phase_cleanup itself is patched out so this isolates the backstop."""
+        import memory_backfill
+
+        lib = _load_upgrade_lib()
+        (self.root / ".wavefoundry" / "index").mkdir(parents=True, exist_ok=True)
+        (self.root / "docs" / "waves").mkdir(parents=True, exist_ok=True)
+        run_id = memory_backfill.ensure_run(self.root, "upgrade")
+        memory_backfill.sync_inventory(self.root, run_id)
+        memory_backfill.mark_indexed(self.root, run_id)
+        lib.write_upgrade_lock(self.root, "1.14.0", "1.15.0")
+        lib.update_upgrade_lock(
+            self.root,
+            memory_backfill_run_id=run_id,
+            memory_backfill_state="indexed",
+        )
+        with patch.object(self.mod, "phase_cleanup") as cleanup, \
+             patch.object(self.mod, "_open_log"), patch.object(self.mod, "_close_log"), \
+             patch.object(self.mod, "_log"):
+            result = self.mod.main(["--root", str(self.root), "--cleanup"])
+        self.assertEqual(result, 0)
+        cleanup.assert_called_once()
+        self.assertTrue(self.settings.is_file(), "the cleanup phase must render the block")
+        data = json.loads(self.settings.read_text(encoding="utf-8"))
+        self.assertIn("mcp__wavefoundry__code_search", data["permissions"]["allow"])
+        # The delta is persisted BEFORE the lock is removed, so the operator consent line
+        # in the cleanup summary can still adopt it.
+        persisted = lib.read_upgrade_lock(self.root)["permissions_delta"]
+        self.assertIn("mcp__wavefoundry__code_search", persisted["added"])
+
+    def test_cleanup_without_an_upgrade_lock_renders_nothing(self):
+        """Non-vacuity control for the gate on the new site: with no upgrade in flight,
+        cleanup warns and returns, and the backstop must not silently mutate a committed
+        operator file outside an upgrade."""
+        (self.root / ".wavefoundry").mkdir(parents=True, exist_ok=True)
+        with patch.object(self.mod, "_open_log"), patch.object(self.mod, "_close_log"), \
+             patch.object(self.mod, "_log"):
+            result = self.mod.main(["--root", str(self.root), "--cleanup"])
+        self.assertEqual(result, 0)
+        self.assertFalse(
+            self.settings.exists(),
+            "no upgrade lock means no upgrade to back stop; nothing may be rendered",
+        )
+
+    def test_backstop_argv_is_permissions_only_and_gated_on_the_one_switch(self):
+        captured: list[list[str]] = []
+
+        def fake_run(cmd, **kwargs):
+            captured.append(list(cmd))
+            return MagicMock(returncode=0)
+
+        with patch("subprocess.run", side_effect=fake_run), \
+             patch.object(self.mod, "_log"):
+            self.mod._ensure_rendered_permissions_backstop(self.root)
+        self.assertEqual(len(captured), 1)
+        self.assertIn("--include-permissions", captured[0])
+        self.assertIn("--permissions-only", captured[0])
+
+    def test_backstop_renders_the_block_then_is_idempotent(self):
+        # Executes the REAL renderer subprocess: the backstop must produce the
+        # permission block on a repo that has none, and be a no-op afterwards.
+        lines: list[str] = []
+        with patch.object(self.mod, "_log", side_effect=lines.append):
+            self.mod._ensure_rendered_permissions_backstop(self.root)
+        self.assertTrue(self.settings.is_file(), "\n".join(str(x) for x in lines))
+        first = self.settings.read_bytes()
+        data = json.loads(first.decode("utf-8"))
+        self.assertIn("mcp__wavefoundry__code_search", data["permissions"]["allow"])
+        self.assertTrue(data["wavefoundryManagedAllow"])
+        delta = self.mod._PERMISSIONS_DELTA
+        self.assertIn("mcp__wavefoundry__code_search", delta["added"])
+        self.assertEqual(delta["removed"], [])
+        # Permissions ONLY: no other surface was rendered by this pass.
+        self.assertFalse((self.root / ".mcp.json").exists())
+        self.assertFalse((self.root / ".claude" / "hooks").exists())
+        self.assertFalse((self.root / ".wavefoundry" / "bin").exists())
+        # Idempotent: byte-stable, and the second pass claims no delta.
+        with patch.object(self.mod, "_log", side_effect=lines.append):
+            self.mod._ensure_rendered_permissions_backstop(self.root)
+        self.assertEqual(self.settings.read_bytes(), first)
+        repeat = self.mod._PERMISSIONS_DELTA
+        self.assertEqual((repeat["added"], repeat["removed"]), ([], []))
+
+    def test_backstop_never_launders_an_earlier_render_record(self):
+        # A new-code Phase 1 render already recorded the real delta; the
+        # backstop's own no-op pass must not overwrite it with "unchanged".
+        lib = _load_upgrade_lib()
+        lib.write_upgrade_lock(self.root, "1.14.0", "1.15.0")
+        recorded = {
+            "file": ".claude/settings.json",
+            "added": ["mcp__wavefoundry__code_search"],
+            "removed": [],
+            "unmanaged_present": 0,
+        }
+        lib.update_upgrade_lock(self.root, permissions_delta=recorded)
+        with patch("subprocess.run", return_value=MagicMock(returncode=0)), \
+             patch.object(self.mod, "_log"):
+            self.mod._ensure_rendered_permissions_backstop(self.root)
+        self.assertEqual(
+            lib.read_upgrade_lock(self.root)["permissions_delta"], recorded
+        )
+
+    def test_backstop_records_its_own_delta_when_nothing_was_recorded(self):
+        lib = _load_upgrade_lib()
+        lib.write_upgrade_lock(self.root, "1.14.0", "1.15.0")
+        with patch.object(self.mod, "_log"):
+            self.mod._ensure_rendered_permissions_backstop(self.root)
+        persisted = lib.read_upgrade_lock(self.root)["permissions_delta"]
+        self.assertIn("mcp__wavefoundry__code_search", persisted["added"])
+
+    def test_backstop_is_fail_safe_when_the_render_fails(self):
+        with patch("subprocess.run", return_value=MagicMock(returncode=3)), \
+             patch.object(self.mod, "_log") as log:
+            self.mod._ensure_rendered_permissions_backstop(self.root)
+        self.assertTrue(
+            any("backstop" in str(call.args[0]) for call in log.call_args_list)
+        )
 
 
 if __name__ == "__main__":

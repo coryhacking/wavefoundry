@@ -32,9 +32,6 @@ if not venv_bootstrap.tool_venv_python().exists():
     )
     sys.exit(2)
 
-# Thin-runner protocol version — bump when transport/stub wiring changes (requires client reconnect).
-SERVER_RUNNER_VERSION = "1"
-
 try:
     import server_impl
 except ImportError as exc:
@@ -43,6 +40,85 @@ except ImportError as exc:
         file=sys.stderr,
     )
     sys.exit(2)
+
+# Un-reloadable runner set (wave 1u2b0): server.py and venv_bootstrap.py both execute at process
+# launch and are never replaced by wf_reload_mcp; a change to either on disk requires a full host
+# restart. The UNRESOLVED launch paths are captured so a query-time re-read follows a swapped
+# symlink target (an upgrade replacing the install). The exec-vs-read launch race (an upgrade
+# swapping a file between process exec and this hash read) is an accepted milliseconds-wide window.
+# Each ``__file__`` is read defensively: an exotic loader that supplies no ``__file__`` must drop
+# that member from the set (identity then degrades to the sentinel below), never raise at import.
+SERVER_RUNNER_FILES: tuple[str, ...] = tuple(
+    str(Path(candidate))
+    for candidate in (
+        globals().get("__file__"),
+        getattr(venv_bootstrap, "__file__", None),
+    )
+    if candidate
+)
+
+# Capture-at-launch runner identity: a short content hash over the runner set, replacing the old
+# frozen "1" protocol constant that could never distinguish a stale runner from a current one.
+# This value changes whenever the on-disk runner changes, with no manual bump; wf_server_info
+# recomputes the disk-side hash at query time and reports the runner_stale comparison. The
+# getattr guard keeps a torn mid-upgrade tree (new runner, older impl without the hash helper)
+# launching with the "unavailable" sentinel instead of crashing; comparisons then read null.
+# _record_runner_identity below extends the same guarantee to the impl-side setter call.
+SERVER_RUNNER_VERSION: str = (
+    getattr(server_impl, "compute_runner_identity", lambda _files: None)(SERVER_RUNNER_FILES)
+    or "unavailable"
+)
+
+
+def _record_runner_identity() -> Optional[str]:
+    """Publish the capture-at-launch runner identity into the currently loaded impl module.
+
+    Returns ``None`` on success, or a short degradation reason. NEVER raises. Two callers depend
+    on that: ``build_server`` (a raise there means the MCP server never builds) and
+    ``perform_mcp_reload``, which calls this AFTER closing the old handler, where a raise would
+    leave a closed handler installed in a live process.
+
+    A torn mid-upgrade tree can pair this new runner with an older ``server_impl`` whose
+    ``set_server_runner_version`` accepts only the version argument; the keyword form then raises
+    TypeError. Falling back to the single-argument call keeps such a tree serving (the older impl
+    records no runner-file set, so the staleness comparison degrades to null), which is the same
+    "launch on the sentinel rather than crash" contract the identity-helper guard above provides.
+
+    The first call therefore catches ``Exception``, not just ``TypeError``, and branches on
+    ``TypeError`` for the single-argument retry. A setter that raises anything else (``ValueError``
+    from a validating impl, ``OSError`` from one that persists the identity, ``AttributeError``
+    from a partially initialised module) has no single-argument retry to offer, so it degrades to
+    the returned reason string. Catching only ``TypeError`` here would let those escape and falsify
+    the never-raises guarantee at the reload site, leaving the CLOSED pre-reload handler installed.
+    """
+    setter = getattr(server_impl, "set_server_runner_version", None)
+    if setter is None:
+        return (
+            "server_impl.set_server_runner_version is unavailable (torn mid-upgrade tree); "
+            "runner staleness reporting is disabled until the host restarts on a complete tree"
+        )
+    try:
+        setter(SERVER_RUNNER_VERSION, runner_files=SERVER_RUNNER_FILES)
+        return None
+    except TypeError:
+        pass
+    except Exception as exc:  # noqa: BLE001; recording identity must never break build or reload
+        return (
+            f"could not record the runner identity ({type(exc).__name__}: {exc}); runner "
+            "staleness reporting is disabled for this process"
+        )
+    try:
+        setter(SERVER_RUNNER_VERSION)
+        return (
+            "server_impl.set_server_runner_version does not accept runner_files (older impl on a "
+            "torn mid-upgrade tree); runner staleness reads null until the host restarts on a "
+            "complete tree"
+        )
+    except Exception as exc:  # noqa: BLE001; recording identity must never break build or reload
+        return (
+            f"could not record the runner identity ({type(exc).__name__}: {exc}); runner "
+            "staleness reporting is disabled for this process"
+        )
 
 
 def __getattr__(name: str) -> Any:
@@ -264,7 +340,11 @@ def perform_mcp_reload() -> dict[str, Any]:
             if _key.startswith("wave_lint_lib"):
                 del _sys.modules[_key]
         server_impl = importlib.reload(server_impl)
-        server_impl.set_server_runner_version(SERVER_RUNNER_VERSION)
+        identity_warning = _record_runner_identity()
+        if identity_warning:
+            close_warnings.append(
+                server_impl._diagnostic("runner_identity_unrecorded", identity_warning)
+            )
         try:
             new_handler = server_impl.build_handler(old.root)
         except Exception as exc:
@@ -326,6 +406,19 @@ def perform_mcp_reload() -> dict[str, Any]:
         payload["removed_tools"] = removed_tools
         payload["tool_list_changed_notification_sent"] = notification_sent
         diagnostics = close_warnings + refresh_warnings
+        # Wave 1u2b0: a reload cannot load new runner bytes, so when the runner set changed on
+        # disk the reload response must say so in its own voice rather than leaving a bare
+        # runner_stale flag under status ok. Same text wf_server_info attaches.
+        if payload.get("runner_stale") is True:
+            diagnostics.append(
+                server_impl._diagnostic(
+                    "runner_stale",
+                    str(
+                        payload.get("runner_stale_detail")
+                        or server_impl._runner_stale_detail()
+                    ),
+                )
+            )
         if tool_list_changed:
             change_summary = ", ".join(
                 part
@@ -382,7 +475,9 @@ def build_server(root: Path):
 
     global _root
     _root = root  # Wave 1p8kz: enable _get_handler lazy-build before/after the explicit _set_handler.
-    server_impl.set_server_runner_version(SERVER_RUNNER_VERSION)
+    identity_warning = _record_runner_identity()
+    if identity_warning:
+        print(f"wavefoundry: {identity_warning}", file=sys.stderr)
     _set_handler(server_impl.build_handler(root))
     mcp = FastMCP("wavefoundry_mcp")
     _set_mcp(mcp)  # Wave 131bt (131d8): expose for perform_mcp_reload tool refresh.
@@ -395,9 +490,11 @@ def build_server(root: Path):
     def wf_reload_mcp(**kwargs: Any) -> dict[str, Any]:
         """Reload MCP implementation module without restarting the stdio server.
 
-        Returns ``framework_version``, ``server_runner_version``, ``server_impl_version``,
-        and ``impl_matches_disk`` so callers can verify an upgrade was applied
-        in-process. Also returns ``tools_reregistered`` (count of FastMCP tool
+        Returns ``framework_version``, ``server_runner_version`` (the capture-at-launch
+        runner identity, which a reload never changes), ``runner_disk_identity``,
+        ``runner_stale``, ``server_impl_version``, and ``impl_matches_disk`` so callers
+        can verify an upgrade was applied in-process. ``runner_stale: true`` means the
+        un-reloadable runner files changed on disk and only a full host restart loads them, and the response then also carries a ``runner_stale`` diagnostic naming that restart. Also returns ``tools_reregistered`` (count of FastMCP tool
         callables refreshed against the freshly-reloaded server_impl) and three
         description-change-propagation fields (wave 131bt 131bu):
 

@@ -357,7 +357,7 @@ class HostPermissionChannelTests(unittest.TestCase):
             root = Path(td)
             self._write(root, ".claude/settings.local.json")  # host permission/allow-rule file
             self._write(root, "docs/runbook.md")              # editable repo doc
-            reconciliation, host_perm = self.scan.scan_repo_channels(root)
+            reconciliation, host_perm, _prov = self.scan.scan_repo_channels(root)
             recon_files = {f.file for f in reconciliation}
             host_files = {f.file for f in host_perm}
             self.assertNotIn(
@@ -460,7 +460,7 @@ class RenamedMcpToolScanTests(unittest.TestCase):
                 "Close the wave with `wave_close(mode='create')`.\n",
                 encoding="utf-8",
             )
-            reconciliation, host_flags = self.scan.scan_repo_channels(root)
+            reconciliation, host_flags, _prov = self.scan.scan_repo_channels(root)
         self.assertEqual(host_flags, [])
         self.assertEqual(len(reconciliation), 1)
         ref = reconciliation[0]
@@ -477,8 +477,9 @@ class RenamedMcpToolScanTests(unittest.TestCase):
                 '{"permissions": {"allow": ["mcp__wavefoundry__wave_validate"]}}\n',
                 encoding="utf-8",
             )
-            reconciliation, host_flags = self.scan.scan_repo_channels(root)
+            reconciliation, host_flags, prov_flags = self.scan.scan_repo_channels(root)
         self.assertEqual(reconciliation, [])
+        self.assertEqual(prov_flags, [], "settings.local.json is NEVER renderer-provenance")
         self.assertEqual(len(host_flags), 1)
         self.assertEqual(host_flags[0].retired_surface, "wave_validate")
         self.assertIn("wf_validate_docs", host_flags[0].suggested)
@@ -498,7 +499,7 @@ class RenamedMcpToolScanTests(unittest.TestCase):
                 "Run mcp__wavefoundry__wave_review then check wave_implement config.\n",
                 encoding="utf-8",
             )
-            reconciliation, host_flags = self.scan.scan_repo_channels(root)
+            reconciliation, host_flags, _prov = self.scan.scan_repo_channels(root)
         self.assertEqual(host_flags, [])
         self.assertEqual(
             [(r.file, r.retired_surface, r.matched) for r in reconciliation],
@@ -514,7 +515,7 @@ class RenamedMcpToolScanTests(unittest.TestCase):
             (root / "docs" / "ops.md").write_text(
                 "Poll wave_index_build_status until done.\n", encoding="utf-8"
             )
-            reconciliation, _ = self.scan.scan_repo_channels(root)
+            reconciliation, _host, _prov = self.scan.scan_repo_channels(root)
         self.assertEqual([r.retired_surface for r in reconciliation],
                          ["wave_index_build_status"])
         self.assertIn("index_build_status", reconciliation[0].suggested)
@@ -533,17 +534,337 @@ class RenamedMcpToolScanTests(unittest.TestCase):
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text("Used wave_close and mcp__wavefoundry__wave_validate.\n",
                                 encoding="utf-8")
-            reconciliation, host_flags = self.scan.scan_repo_channels(root)
+            reconciliation, host_flags, prov_flags = self.scan.scan_repo_channels(root)
         self.assertEqual(reconciliation, [])
         self.assertEqual(host_flags, [])
+        self.assertEqual(prov_flags, [])
 
     def test_live_self_repo_scan_is_clean_on_the_editable_channel(self):
         """AC-4 end-to-end oracle: this repository's own editable surfaces carry
         no stale tool names under the extended scan."""
-        reconciliation, _host = self.scan.scan_repo_channels(REPO_ROOT)
+        reconciliation, _host, _prov = self.scan.scan_repo_channels(REPO_ROOT)
         tool_refs = [r for r in reconciliation
                      if r.retired_surface in self.render._RENAMED_MCP_TOOLS]
         self.assertEqual(
             [(r.file, r.line, r.retired_surface) for r in tool_refs], [],
             "self-repo editable surfaces must be clean of old tool names",
+        )
+
+
+class RendererProvenanceChannelTests(unittest.TestCase):
+    """Wave 1u2az AC-4: stale allow rules inside the permissions renderer's
+    provenance route to a THIRD, self-healing channel; everything outside the
+    provenance (and all of settings.local.json) stays operator territory.
+
+    Fragile-file note (reconcile_scan.py, wave 1tz6l x2): every positive here
+    carries a near-miss negative control so the channel boundary cannot go
+    vacuous: same rule string outside the provenance, same string in a
+    different host file, and a corrupt provenance key all stay operator-side.
+    """
+
+    def setUp(self):
+        self.scan = _load("reconcile_scan", RECONCILE_PATH)
+
+    @staticmethod
+    def _settings(root: Path, rel: str, payload: str) -> None:
+        p = root / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(payload, encoding="utf-8")
+
+    def test_provenance_claimed_stale_rule_routes_to_self_heal_channel(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._settings(
+                root,
+                ".claude/settings.json",
+                '{"permissions": {"allow": ["mcp__wavefoundry__wave_close",\n'
+                ' "mcp__wavefoundry__wave_prepare"]},\n'
+                ' "wavefoundryManagedAllow": ["mcp__wavefoundry__wave_close"]}\n',
+            )
+            reconciliation, host_flags, prov_flags = self.scan.scan_repo_channels(root)
+        self.assertEqual(reconciliation, [])
+        # The claimed stale rule self-heals (both its allow occurrence and its
+        # provenance-list occurrence report on the self-heal channel).
+        self.assertTrue(prov_flags, "claimed stale rule must reach the provenance channel")
+        self.assertEqual(
+            {(f.file, f.matched) for f in prov_flags},
+            {(".claude/settings.json", "mcp__wavefoundry__wave_close")},
+        )
+        self.assertTrue(all(f.renderer_provenance for f in prov_flags))
+        # NEAR-MISS: the same-file stale rule OUTSIDE the provenance is
+        # operator territory, never reclassified by the name prefix.
+        self.assertEqual(
+            {(f.file, f.matched) for f in host_flags},
+            {(".claude/settings.json", "mcp__wavefoundry__wave_prepare")},
+            "non-provenance settings.json rules stay in the operator channel",
+        )
+        self.assertTrue(all(not f.renderer_provenance for f in host_flags))
+
+    def test_settings_local_never_routes_to_provenance_channel(self):
+        # NEAR-MISS: the exact rule string IS in settings.json's provenance,
+        # but the hit lives in settings.local.json; host-local files are
+        # always operator territory.
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._settings(
+                root,
+                ".claude/settings.json",
+                '{"wavefoundryManagedAllow": ["mcp__wavefoundry__wave_close"],\n'
+                ' "permissions": {"allow": []}}\n',
+            )
+            self._settings(
+                root,
+                ".claude/settings.local.json",
+                '{"permissions": {"allow": ["mcp__wavefoundry__wave_close"]}}\n',
+            )
+            _rec, host_flags, prov_flags = self.scan.scan_repo_channels(root)
+        local_hits = [f for f in host_flags if f.file == ".claude/settings.local.json"]
+        self.assertEqual(len(local_hits), 1)
+        self.assertFalse(local_hits[0].renderer_provenance)
+        self.assertEqual(
+            [f.file for f in prov_flags],
+            [".claude/settings.json"],
+            "only the committed settings.json provenance occurrence self-heals",
+        )
+
+    def test_corrupt_or_absent_provenance_degrades_to_operator_channel(self):
+        # Fail-safe: an unreadable provenance key must not silently claim
+        # ownership; every hit stays on the operator channel.
+        for payload in (
+            '{"permissions": {"allow": ["mcp__wavefoundry__wave_close"]},\n'
+            ' "wavefoundryManagedAllow": "not-a-list"}\n',
+            '{"permissions": {"allow": ["mcp__wavefoundry__wave_close"]}}\n',
+        ):
+            with tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                self._settings(root, ".claude/settings.json", payload)
+                _rec, host_flags, prov_flags = self.scan.scan_repo_channels(root)
+            self.assertEqual(prov_flags, [], payload)
+            self.assertEqual(len(host_flags), 1, payload)
+
+    def test_same_rule_string_in_a_hooks_command_stays_operator_side(self):
+        """Wave 1u2b0 F3: the LOCATION near-miss the three original controls never
+        varied. The existing controls change the rule or the file; this one keeps
+        both identical and moves the hit out of the allow/provenance arrays into a
+        hooks COMMAND in the same file. Nothing rewrites a hooks command, so
+        routing it to the "no edit needed" self-healing channel would guarantee it
+        is never fixed."""
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._settings(
+                root,
+                ".claude/settings.json",
+                '{"wavefoundryManagedAllow": ["mcp__wavefoundry__wave_close"],\n'
+                ' "permissions": {"allow": ["mcp__wavefoundry__wave_close"]},\n'
+                ' "hooks": {"PostToolUse": [{"hooks": [{"type": "command",\n'
+                '   "command": ".claude/hooks/check.py --tool '
+                'mcp__wavefoundry__wave_close"}]}]}}\n',
+            )
+            _rec, host_flags, prov_flags = self.scan.scan_repo_channels(root)
+        # The allow entry and its provenance record self-heal (2 occurrences).
+        self.assertEqual(len(prov_flags), 2, [f.matched for f in prov_flags])
+        self.assertTrue(all(f.renderer_provenance for f in prov_flags))
+        # The hooks-command occurrence is OPERATOR territory.
+        self.assertEqual(len(host_flags), 1, [f.matched for f in host_flags])
+        self.assertFalse(host_flags[0].renderer_provenance)
+        self.assertEqual(host_flags[0].file, ".claude/settings.json")
+
+    def test_bare_retired_token_is_never_claimed_by_a_longer_provenance_rule(self):
+        """Wave 1u2b0 F3(b): classification uses EXACT provenance membership, not
+        containment. A bare `wave_close` token is a substring of the provenance's
+        `mcp__wavefoundry__wave_close`, but it is not a rule the renderer emits or
+        prunes — in an allow entry or in a hooks command it stays operator-side."""
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._settings(
+                root,
+                ".claude/settings.json",
+                '{"wavefoundryManagedAllow": ["mcp__wavefoundry__wave_prepare"],\n'
+                ' "permissions": {"allow": ["Bash(wf wave_close)",\n'
+                '   "mcp__wavefoundry__wave_prepare"]},\n'
+                ' "hooks": {"Stop": [{"hooks": [{"command": "check.py wave_close"}]}]}}\n',
+            )
+            _rec, host_flags, prov_flags = self.scan.scan_repo_channels(root)
+        # Only the exact provenance rule (twice: allow entry + provenance record).
+        self.assertEqual(
+            {f.matched for f in prov_flags}, {"mcp__wavefoundry__wave_prepare"}
+        )
+        self.assertEqual(len(prov_flags), 2)
+        # Both bare `wave_close` occurrences stay operator-side, including the one
+        # INSIDE the allow array (a governed region, but not a governed rule).
+        self.assertEqual({f.matched for f in host_flags}, {"wave_close"})
+        self.assertEqual(len(host_flags), 2)
+
+    def test_foreign_array_named_allow_stays_operator_side(self):
+        """Wave 1u2b0 F3(c): the location near-miss narrowed to a FOREIGN array that
+        merely happens to be named `allow`. The rule string, the file, and the
+        provenance record are all held identical to the positive; only the array's
+        position moves, from `permissions.allow` to `somePlugin.config.allow`. No
+        render ever rewrites a plugin's own config, so routing it to the "no edit
+        needed" self-healing channel would guarantee it is never fixed."""
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._settings(
+                root,
+                ".claude/settings.json",
+                '{"wavefoundryManagedAllow": ["mcp__wavefoundry__wave_close"],\n'
+                ' "permissions": {"allow": ["mcp__wavefoundry__wave_close"]},\n'
+                ' "somePlugin": {"config": {"allow": '
+                '["mcp__wavefoundry__wave_close"]}}}\n',
+            )
+            _rec, host_flags, prov_flags = self.scan.scan_repo_channels(root)
+        # POSITIVE (unchanged): the permissions.allow entry and its provenance record.
+        self.assertEqual(len(prov_flags), 2, [f.matched for f in prov_flags])
+        self.assertTrue(all(f.renderer_provenance for f in prov_flags))
+        # NEAR-MISS: the foreign `allow` array is OPERATOR territory.
+        self.assertEqual(len(host_flags), 1, [f.matched for f in host_flags])
+        self.assertFalse(host_flags[0].renderer_provenance)
+        self.assertEqual(host_flags[0].matched, "mcp__wavefoundry__wave_close")
+
+    def test_governed_spans_are_positional_not_key_named(self):
+        """Direct unit pin on the span resolver behind the channel split. Each case
+        holds the rule string constant and varies only STRUCTURE, so the assertions
+        cannot pass on a scanner that keys on the name `allow` alone."""
+        rule = "mcp__wavefoundry__wave_close"
+        governed_cases = {
+            "permissions.allow": '{"permissions": {"allow": ["%s"]}}',
+            "top-level provenance": '{"wavefoundryManagedAllow": ["%s"]}',
+            "brackets inside a rule string": (
+                '{"permissions": {"allow": ["Bash(ls [a-z])", "%s"]}}'
+            ),
+            "nested array sibling": '{"permissions": {"allow": [["x"], "%s"]}}',
+            "whitespace between key and array": (
+                '{\n "permissions" :\n {\n "allow" :\n [\n "%s"\n ]\n }\n}'
+            ),
+            "string value equal to the key": (
+                '{"kind": "allow", "permissions": {"allow": ["%s"]}}'
+            ),
+        }
+        ungoverned_cases = {
+            "foreign nested allow": (
+                '{"somePlugin": {"config": {"allow": ["%s"]}}, '
+                '"permissions": {"allow": []}}'
+            ),
+            "foreign sibling allow": (
+                '{"somePlugin": {"allow": ["%s"]}, "permissions": {"allow": []}}'
+            ),
+            "permissions object nested under another key": (
+                '{"somePlugin": {"permissions": {"allow": ["%s"]}}}'
+            ),
+            "provenance key nested, not top level": (
+                '{"somePlugin": {"wavefoundryManagedAllow": ["%s"]}}'
+            ),
+            "the key inside a string literal": (
+                '{"hooks": {"cmd": "echo \\"allow\\": [\\"%s\\"]"}}'
+            ),
+            "deny entry": '{"permissions": {"allow": [], "deny": ["%s"]}}',
+            "allow value is not an array": '{"permissions": {"allow": "%s"}}',
+            "unclosed array degrades operator-side": '{"permissions": {"allow": ["%s"',
+        }
+        for label, template in governed_cases.items():
+            text = template % rule
+            offset = text.find(rule)
+            spans = self.scan.provenance_governed_spans(text)
+            self.assertTrue(
+                any(start <= offset < end for start, end in spans),
+                f"{label}: expected the rule offset inside a governed span, got {spans}",
+            )
+        for label, template in ungoverned_cases.items():
+            text = template % rule
+            offset = text.find(rule)
+            spans = self.scan.provenance_governed_spans(text)
+            self.assertFalse(
+                any(start <= offset < end for start, end in spans),
+                f"{label}: expected NO governed span over the rule offset, got {spans}",
+            )
+
+    def test_provenance_key_name_is_the_renderers(self):
+        # Anti-duplication: the scan resolves the provenance key from
+        # render_platform_surfaces (the one authority), not a local literal.
+        render = _load("render_platform_surfaces", RENDER_PATH)
+        self.assertEqual(render.PERMISSIONS_PROVENANCE_KEY, "wavefoundryManagedAllow")
+        text = RECONCILE_PATH.read_text(encoding="utf-8")
+        self.assertIn("PERMISSIONS_PROVENANCE_KEY", text)
+        self.assertNotIn('"wavefoundryManagedAllow"', text,
+                         "reconcile_scan must import the key, not re-author it")
+
+
+class UpgradeRenderBeforeScanOrderingTests(unittest.TestCase):
+    """Wave 1u2az AC-4: the upgrade renders surfaces (which self-heals the
+    renderer-provenance allow rules) BEFORE any reconciliation scan reports;
+    the seed-160 sequence becomes a tested invariant, not an accident."""
+
+    UPGRADE_PATH = SCRIPTS_ROOT / "upgrade_wavefoundry.py"
+
+    def test_main_renders_surfaces_before_any_scan_reporting(self):
+        import ast as _ast
+
+        source = self.UPGRADE_PATH.read_text(encoding="utf-8")
+        tree = _ast.parse(source)
+        main_fn = next(
+            node for node in tree.body
+            if isinstance(node, _ast.FunctionDef) and node.name == "main"
+        )
+        calls: list[tuple[str, int]] = []
+        for node in _ast.walk(main_fn):
+            if isinstance(node, _ast.Call):
+                fn = node.func
+                name = fn.id if isinstance(fn, _ast.Name) else getattr(fn, "attr", "")
+                calls.append((name, node.lineno))
+        def first(name: str) -> int:
+            linenos = [ln for n, ln in calls if n == name]
+            self.assertTrue(linenos, f"main() must call {name}")
+            return min(linenos)
+        render_line = first("phase_surface_rendering")
+        # In the primary invocation, scan reporting happens only through
+        # _emit_primary_phase_summary; it must come after the render.
+        self.assertLess(
+            render_line,
+            first("_emit_primary_phase_summary"),
+            "_emit_primary_phase_summary (which runs the reconciliation scan) "
+            "must follow phase_surface_rendering in upgrade main()",
+        )
+        # The other emitter, _print_operator_summary, runs only in the
+        # cleanup/failure paths (phase_cleanup), which the upgrade reaches
+        # after the primary phases, i.e. after the render already happened.
+        callers: set[str] = set()
+        for node in tree.body:
+            if not isinstance(node, _ast.FunctionDef):
+                continue
+            for inner in _ast.walk(node):
+                if (
+                    isinstance(inner, _ast.Call)
+                    and isinstance(inner.func, _ast.Name)
+                    and inner.func.id == "_print_operator_summary"
+                ):
+                    callers.add(node.name)
+        self.assertEqual(
+            callers,
+            {"phase_cleanup"},
+            "_print_operator_summary must only run from the post-render "
+            "cleanup path",
+        )
+
+    def test_scan_is_only_invoked_by_the_summary_emitters(self):
+        # The ordering pin above is only sound if _run_reconciliation_scan has
+        # no other call sites that could run before the render.
+        import ast as _ast
+
+        source = self.UPGRADE_PATH.read_text(encoding="utf-8")
+        tree = _ast.parse(source)
+        callers: set[str] = set()
+        for node in tree.body:
+            if not isinstance(node, _ast.FunctionDef):
+                continue
+            for inner in _ast.walk(node):
+                if (
+                    isinstance(inner, _ast.Call)
+                    and isinstance(inner.func, _ast.Name)
+                    and inner.func.id == "_run_reconciliation_scan"
+                ):
+                    callers.add(node.name)
+        self.assertEqual(
+            callers,
+            {"_emit_primary_phase_summary", "_print_operator_summary"},
+            "the reconciliation scan may only run from the summary emitters",
         )
