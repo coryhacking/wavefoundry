@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-31
+Last verified: 2026-08-01
 
 ## Primary Control Paths
 
@@ -477,3 +477,18 @@ retained under `.wavefoundry/upgrade-assets/` so the existing upgrade checkpoint
 never points at temporary bundle storage. The bundle returns one bounded result
 with restart and exact retained-checkpoint recovery guidance; missing, malformed,
 decreasing, unknown, import-failing, or mismatched protocol state fails closed.
+
+The primary-phase upgrade summary is built by the freshly extracted tree, not by
+the process that ran the upgrade: the pre-extraction parent spawns
+`upgrade_wavefoundry.py --emit-summary --root <root>` from the extracted tree
+(the pinned old-calls-new contract), persists its parent-only facts to the
+upgrade lock first, captures the child's single sentinel line, and re-emits the
+JSON payload byte-verbatim through its own logger under its own sentinel
+constant. The reconciliation scan therefore runs in the producer's process on
+its own module version, closing the in-process cross-version import skew. On
+any delegation failure the parent's in-process builder emits instead, carrying
+the `summary_source_degraded` marker and no schema token; exactly one sentinel
+is emitted per run. The cleanup-phase summary already runs in a fresh
+post-extract process and is unchanged. Server-resident response fields
+(`runner_stale`, diagnostics composition, the summary bounder) are still
+computed by the running server process and change only on host restart.

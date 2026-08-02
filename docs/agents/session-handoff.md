@@ -201,14 +201,69 @@ re-reviewed the rewritten plan in fresh contexts and wave 1u44n is now OPEN (imp
   CONFIRM on final bytes; approvals under receipt `review-policy-219dcc04148fe24a231d`;
   **1u5vl is READIED, not open.**
 
+## 1u5vl DELIVERED and delivery-reviewed (2026-08-01, later)
+
+- Commit precondition satisfied: waves 1u2b0 + 1u44n committed as `15723021` (operator-authorized).
+- 1u5vl implemented on top: `--emit-summary` delegation contract (schema token 1, timeout constant
+  300s, marker `summary_source_degraded` terminal-key registered), primary-emit-only, mutual
+  exclusion, lock-carried `skipped_scan_locations`, permanent `DelegatedSummaryContractTests`, all
+  doc surfaces incl. gated seed edit + ADR `1u49j-adr`. Implement-stage MCP retrieval healthy (no
+  posture gap this time).
+- Delivery review: five fresh-context lanes ALL PASS with executed verification. Findings, all
+  repaired (coordinator) + reverified (originating lane): shared P2 disclosure falsehood (the
+  transition run is UNMARKED; pre-mechanism runners have no marker code) fixed in CHANGELOG + ADR;
+  qa P2 surviving mutant D2 closed by a new nonempty `skipped_scan_locations` round-trip test
+  through the REAL child; code P3 pair folded as hardening (publisher-token pop for the summary
+  child; 40-char clamp on the unrecognized-token repr). Nine mutation checks total, zero final
+  survivors. Coordinator-executed final suite: 6691 across 61 files, OK.
+- Ledger: five lane approvals + `ev-approval-wave-council-delivery` under receipt
+  `review-policy-3429fda3782aa165656f`. ONLY `operator-signoff` outstanding; close is
+  operator-owned. Readiness-signoff re-affirmation under the final receipt will be needed at close
+  (same supersession pattern as 1u44n).
+
+**Operator-directed waiver (2026-08-01):** one-line formatting change outside wave scope, per
+explicit operator instruction ("one more small change I'd like you to just make"): the
+exploration-avoided projection table in `exploration_avoided.py` now renders its four numeric
+cells with comma separators (matching the Context Efficiency table convention). Covered by the
+full `test_memory_records` module (179 OK). Rides the next commit alongside the 1u5vl delivery.
+
+**Field validation (2026-08-01): pg5l to pg8h on a target repo.** Transition run behaved exactly
+as disclosed: unmarked old-schema summary (pre-delegation parent), no false report filed (the
+seed-160 sentence pre-empted it), reconciliation 34 with direct scan_repo_channels cross-check
+[34, 0, 0], runner_stale correctly false with unchanged runner files, root clean, lock cleared.
+Standing verification hook (operator-recorded): the FIRST upgrade initiated by a pg8h-era runner
+must carry `summary_schema: 1`; that run is the delegation's field proof.
+
+## Solaris downstream defect report triaged (2026-08-01)
+
+Five items. Item 1 (Phase 4 deadlock + false success) is the already-fixed 1u44m defect, exercised
+on pre-fix packs (report covers through pg1a; fixes shipped in pg5l and pg8h); their root-cause
+hypothesis (stale phase value) is the refuted lock-advance theory, and the probe-verified account
+(refusal on checkpoint presence; grant disjuncts) plus the recovery they found are already
+documented. Four NEW/unfiled items now have change docs in `docs/plans/`:
+
+- `1u725-bug aiignore-render-accumulates-blank-lines` (mechanism verified against tree; +2 blank
+  lines per render, field repo reached 189)
+- `1u8nz-bug index-removal-missed-when-path-leaves-scope-before-disk` (index-ignore-delete
+  ordering strands chunks/graph nodes; phantom map areas)
+- `1u8o0-bug doc-drift-classifier-fails-every-build-silently` (finally filed after repeated
+  in-house observation; taxonomy split + staleness surface + root-cause fix)
+- `1u8o1-bug coherence-scan-flags-pack-owned-migration-text` (checker-side fix; seed-160
+  wave_open_gate hits are migration instructions that must keep the retired name; includes the
+  transition-debris identification doc gap)
+
+CHANGELOG Upgrading item 5 gained the reporter's permission-posture sentence (docs-only edit).
+Positive field confirmations recorded: extraction allowlist held (pg1a), seed-160 transition
+caveat accurately predicted the final spill, permissions provenance clean (42/42/0).
+
 ## Next Steps
-1. **Operator decision pending: COMMIT the current tree before 1u5vl implementation** (binding
-   plan precondition; no rebase alternative). The tree carries closed waves 1u2b0 + 1u44n on top
-   of `3870201b`.
-2. After the commit: `wf_implement_wave(1u5vl)`, implement per the plan, delivery review
-   (five lanes + delivery council), operator signoff, close.
-3. Official 1.15.0 release: fresh `build_pack.py --release` after 1u5vl lands (pg5l predates it),
-   `gh release create` as `coryhacking`.
+1. Operator: signoff + close for 1u5vl.
+2. Release commit (operator-authorized): all modified files PLUS the untracked ADR
+   `docs/architecture/decisions/1u49j-adr fresh-code-summary-producer-contract.md`; date the
+   `## [1.15.0] - unreleased` heading in that commit (release-lane note).
+3. `build_pack.py --release` under gh account `coryhacking` (branch main, no v1.15 tag; changelog
+   gate passes as-is). pg5l predates 1u5vl and the hardening fixes; the release build is the ship
+   artifact.
 
 ## Current Session
 

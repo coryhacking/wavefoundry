@@ -57,7 +57,9 @@ no alias. Code written against the 1.14.0 signature will be rejected by the publ
 wavefoundry allowlist into `permissions.allow` and records what it emitted under
 `wavefoundryManagedAllow`. Operator-authored rules, deny and ask entries, and unknown keys are
 preserved; the mutating tier stays out unless you set `wavefoundryAllowWriteTools` yourself. The
-upgrade names the delta as an explicit consent line. Review it like any other committed change.
+upgrade names the delta as an explicit consent line. Review it like any other committed change,
+and not as routine post-upgrade churn: this particular diff changes agent permission posture, so a
+workflow that habitually commits upgrade output wholesale would absorb it unreviewed.
 
 **6. After upgrading, `wf_server_info` can tell you whether a restart is still owed.** The new
 tri-state `runner_stale` compares the runner your process launched from against what is on disk.
@@ -68,6 +70,21 @@ upgrade, carries the same action as `true`.
 index-publication defect on the transition run under the old parent runner unless the pack's
 `pre_index_update` bridge applies.** If that run's publication is refused, recover with
 `resume_after_memory`, then `cleanup`, then `index_build`, and confirm with `index_health`.
+
+**8. Upgrade reporting fixes now take effect on the upgrade that installs them; expect one
+last old-schema summary on this release's own installing upgrade.** From this release forward,
+sentinel-carried reporting changes (the fields the upgrade emits under its summary sentinel and
+`wf_upgrade` parses into `data.summary`) are produced by the freshly extracted code, so they are
+correct on the upgrade that ships them instead of one upgrade later. Two classes stay outside this
+mechanism: behavior-class fixes (what the upgrade DOES mid-run) still need a hook bridge in the
+pack to act on their installing upgrade, and server-resident response fields (`runner_stale`,
+diagnostics composition, response bounding) still require a full host restart on every release.
+One residual is expected by construction: the upgrade that installs THIS release is still driven
+by a parent runner that predates the mechanism, so that one transition run reports an old-schema
+summary with no `summary_source_degraded` marker (a pre-mechanism runner cannot emit one; the
+marker appears only when a NEW runner's delegation falls back). Do
+not report that single transition run's old-schema summary as the backstop failing to work; the
+mechanism protects the runs that come after it.
 
 ### Added
 
@@ -97,6 +114,8 @@ index-publication defect on the transition run under the old parent runner unles
 - **`wf_reopen_wave` now requires an explicit `purpose`.** Pass `"review"` or `"implement"` to select the context-efficiency stage the following work is attributed to. Omitting it previously defaulted to `implement`, which silently recorded pre-close reviews as implementation work; there is **no fallback and no alias**, so callers written against the 1.14.0 signature must pass the argument. An empty or unrecognized value returns a typed `invalid_purpose` error with recovery hints, and an omitted argument is rejected by the published schema before the tool body runs — both leave the wave status, the telemetry seal, and the focus stage untouched.
 
 ### Fixed
+
+- **The primary-phase upgrade summary is now produced by the freshly extracted code behind a pinned entry-point contract.** The pre-extraction parent spawns the extracted tree's `upgrade_wavefoundry.py --emit-summary` (pinned flag, argv, sentinel prefix, and `summary_schema` version token; upgrade lock as the old-schema-tolerant state carrier; pinned timeout; the pins guard against silent drift while deliberate versioned evolution bumps the token), captures the child's sentinel, and re-emits the payload byte-verbatim through its own logger, so the reconciliation scan runs on the producer's own module version and the silent empty-channel skew (a `[]` reconciliation report from an old orchestrator unpacking a newer scan module) cannot recur. Any delegation failure (entry point absent, non-zero exit, malformed or absent sentinel, timeout, unrecognized token) degrades to the parent's own in-process summary carrying a `summary_source_degraded` marker that bounding never drops, with exactly one sentinel per run and the upgrade's exit status unchanged; a fallback summary is never presented as new-schema output. A permanent contract test guards the surface for every fielded runner. Wave 1u5vl / change 1u44o.
 
 - **Phase 4 index publication is no longer refused by the upgrade's own checkpoint, and the summary no longer reports a failed publication as success.** The `setup_index.py` children spawned for the blocking docs and graph passes now hold value-bound authorized-publisher status (a `publisher_grant` token recorded in the upgrade checkpoint and matched against the child environment), on the primary phase and both standalone index phases; the detached background code child never carries a grant. The new pack's `pre_index_update` hook establishes the same grant when the upgrade is still driven by an old parent runner, so the fix takes effect on the upgrade that installs it. The summary's `index_update` field now derives from the observed publication outcome at every writer, a failed docs-layer child exit is reported instead of silently swallowed (the standalone index phases exit non-zero), the refusal message states the complete recovery branched on the actual pending count (`resume_after_memory`, then `cleanup`, then `index_build`, confirmed by `index_health`, at zero pending; backfill plus validation otherwise), and the MCP response carries an `index_publication_failed` diagnostic naming `index_health` whenever publication did not complete.
 

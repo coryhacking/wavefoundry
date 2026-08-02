@@ -2260,7 +2260,7 @@ class PublicUpgradeReviewProtocolIntegrationTests(unittest.TestCase):
                  patch.object(mod, "materialize_lifecycle_policy", return_value="ok"), \
                  patch.object(mod, "phase_docs_gate"), \
                  patch.object(mod, "phase_index_update", side_effect=assert_carriers_before_index), \
-                 patch.object(mod, "_emit_primary_phase_summary"), \
+                 patch.object(mod, "_emit_primary_summary_via_delegate_or_fallback"), \
                  patch.object(venv_bootstrap, "ensure_python_resolves", return_value="ok"), \
                  patch.dict(os.environ, {"WAVEFOUNDRY_SKIP_PYTHON_HEAL": "1"}, clear=False):
                 self.assertEqual(mod.main(["--root", str(root), "--yes"]), 0)
@@ -2400,7 +2400,7 @@ class PublicUpgradeReviewProtocolIntegrationTests(unittest.TestCase):
             ), patch.object(
                 mod, "phase_index_update"
             ), patch.object(
-                mod, "_emit_primary_phase_summary"
+                mod, "_emit_primary_summary_via_delegate_or_fallback"
             ):
                 self.assertEqual(mod.main(["--root", str(root), "--yes"]), 0)
 
@@ -4929,7 +4929,11 @@ class PrimaryPhaseSummaryTests(unittest.TestCase):
         # AC-1 (call-site, lighter harness per the task): the emit runs at the END of main()'s default
         # phases-0–4 path, BEFORE the "Phases 0–4 complete" log. Assert the call site via AST so a
         # refactor that drops it (re-stranding the summary to cleanup-only) fails — without driving a
-        # real upgrade. The behavioral coverage above proves _emit_primary_phase_summary itself.
+        # real upgrade. Wave 1u44o (deliberate re-point, not a deletion): main()'s single emit site
+        # is now `_emit_primary_summary_via_delegate_or_fallback`; the in-process
+        # `_emit_primary_phase_summary` survives only as the delegator's degradation fallback and
+        # must have NO direct call in main() (a second call would race the delegate under
+        # last-sentinel-wins parsing).
         import ast as _ast
         tree = _ast.parse(UPGRADE_PATH.read_text(encoding="utf-8"))
         main_fn = next(
@@ -4940,11 +4944,22 @@ class PrimaryPhaseSummaryTests(unittest.TestCase):
         calls = [
             n for n in _ast.walk(main_fn)
             if isinstance(n, _ast.Call) and isinstance(n.func, _ast.Name)
-            and n.func.id == "_emit_primary_phase_summary"
+            and n.func.id == "_emit_primary_summary_via_delegate_or_fallback"
         ]
         self.assertEqual(
             len(calls), 1,
-            "main() must call _emit_primary_phase_summary exactly once on the default phase path",
+            "main() must call _emit_primary_summary_via_delegate_or_fallback exactly once "
+            "on the default phase path",
+        )
+        direct_fallback_calls = [
+            n for n in _ast.walk(main_fn)
+            if isinstance(n, _ast.Call) and isinstance(n.func, _ast.Name)
+            and n.func.id == "_emit_primary_phase_summary"
+        ]
+        self.assertEqual(
+            direct_fallback_calls, [],
+            "main() must never call the in-process fallback directly; it emits only "
+            "through the mutually exclusive delegate-or-fallback site",
         )
         # And it must come BEFORE the "Phases 0–4 complete" log (the end of the default path).
         emit_line = calls[0].lineno
@@ -4955,6 +4970,609 @@ class PrimaryPhaseSummaryTests(unittest.TestCase):
         if complete_log_lines:
             self.assertLess(emit_line, min(complete_log_lines),
                             "the primary-phase summary must emit before the 'Phases 0–4 complete' log")
+
+    def test_fallback_emitter_is_called_only_from_the_delegator(self):
+        # Wave 1u44o mutual-exclusion structural pin: module-wide, the in-process
+        # fallback has exactly one caller; the single delegate-or-fallback emit
+        # site; so a delegate success can never be followed by a fallback emit
+        # from anywhere else (last-sentinel-wins hazard).
+        import ast as _ast
+        tree = _ast.parse(UPGRADE_PATH.read_text(encoding="utf-8"))
+        callers: set[str] = set()
+        for node in tree.body:
+            if not isinstance(node, _ast.FunctionDef):
+                continue
+            for inner in _ast.walk(node):
+                if (
+                    isinstance(inner, _ast.Call)
+                    and isinstance(inner.func, _ast.Name)
+                    and inner.func.id == "_emit_primary_phase_summary"
+                ):
+                    callers.add(node.name)
+        self.assertEqual(
+            callers,
+            {"_emit_primary_summary_via_delegate_or_fallback"},
+            "the in-process fallback may only be invoked from the single "
+            "mutually exclusive emit site",
+        )
+
+
+# ── Wave 1u44o: delegated primary-phase summary (post-extract subprocess backstop) ──
+
+_DELEGATE_CHILD_MODULES = (
+    "upgrade_wavefoundry.py",
+    "upgrade_lib.py",
+    "venv_bootstrap.py",
+    "subprocess_util.py",
+    "cli_stdio.py",
+    "reconcile_scan.py",
+    "render_platform_surfaces.py",
+    "check_version.py",
+)
+
+
+def _stage_extracted_tree(root: Path, scripts_source: Path = SCRIPTS_ROOT) -> Path:
+    """Copy the delegated-producer module set into *root*'s extracted-tree layout."""
+    scripts = root / ".wavefoundry" / "framework" / "scripts"
+    scripts.mkdir(parents=True, exist_ok=True)
+    for name in _DELEGATE_CHILD_MODULES:
+        shutil.copy2(scripts_source / name, scripts / name)
+    return scripts
+
+
+def _mismatched_reconcile_scan_stub(findings):
+    """A future-shape reconcile_scan whose channel arity the in-process caller
+    cannot unpack; the exact pg1a defect mechanism (old code calling a new
+    module's API and eating the skew via the blanket except)."""
+    import types as _types
+
+    stub = _types.ModuleType("reconcile_scan")
+
+    class _Ref:
+        def __init__(self, d):
+            self._d = d
+
+        def as_dict(self):
+            return dict(self._d)
+
+    def scan_repo_channels(root):  # noqa: ARG001 - contract shape only
+        # 4-tuple: a future channel arity the fixed 3-way unpack cannot take.
+        return ([_Ref(f) for f in findings], [], [], [])
+
+    stub.scan_repo_channels = scan_repo_channels
+    return stub
+
+
+class DelegatedSummaryPg1aReproductionTests(unittest.TestCase):
+    """Wave 1u44o AC-3: reproduce the pg1a silent-empty-channel mechanism against
+    the retained in-process path, then prove the delegated path repairs it."""
+
+    FINDING = {"file": "g.md", "line": 1, "retired_surface": "wave-gate",
+               "matched": ".wavefoundry/bin/wave-gate", "suggested": "wf gate"}
+
+    def setUp(self):
+        if str(SCRIPTS_ROOT) not in sys.path:
+            sys.path.insert(0, str(SCRIPTS_ROOT))
+        self.mod = load_upgrade_module()
+
+    def _parse_sentinel(self, out):
+        sentinel = self.mod.WAVE_UPGRADE_SUMMARY_SENTINEL
+        return [json.loads(line[len(sentinel):])
+                for line in out.splitlines() if line.startswith(sentinel)]
+
+    def test_mismatched_scan_shape_yields_silent_empty_channels_in_process(self):
+        # The pg1a mechanism, reproduced: the in-process caller unpacks a fixed
+        # channel arity from `reconcile_scan.scan_repo_channels`; a module with a
+        # DIFFERENT arity (here a future 4-channel shape) raises ValueError at the
+        # unpack, and the blanket except swallows it into empty channels. The
+        # findings the stub carries are silently lost; no error, no marker.
+        stub = _mismatched_reconcile_scan_stub([self.FINDING])
+        with patch.dict(sys.modules, {"reconcile_scan": stub}):
+            result = self.mod._run_reconciliation_scan(Path("."))
+        self.assertEqual(result, ([], [], []),
+                         "shape skew must reproduce the silent empty channels")
+        # And end to end through the retained in-process emitter: the sentinel
+        # reports [] although the scan module had a finding.
+        with patch.dict(sys.modules, {"reconcile_scan": stub}):
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                self.mod._emit_primary_phase_summary(
+                    from_version="1.14.0", to_version="1.15.0", zip_path=None,
+                    pruned_count=0, root=Path("."), index_published=True,
+                )
+        summary = self._parse_sentinel(buf.getvalue())[0]
+        self.assertEqual(summary["reconciliation"], [],
+                         "the in-process path swallows the skew into []")
+
+    def test_delegated_path_repairs_the_empty_channel(self):
+        # AC-3 repair: with the SAME mismatched module poisoning the parent's
+        # in-process import path, the parent's real emit site delegates to the
+        # extracted tree's producer, which computes the scan fresh in its own
+        # process; the finding flows into the sentinel end to end.
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "g.md").write_text(
+                "`.wavefoundry/bin/wave-gate`\n", encoding="utf-8"
+            )
+            _stage_extracted_tree(root)
+            lib = _load_upgrade_lib()
+            lib.write_upgrade_lock(root, from_version="1.14.0", to_version="1.15.0")
+            stub = _mismatched_reconcile_scan_stub([self.FINDING])
+            buf = io.StringIO()
+            with patch.dict(sys.modules, {"reconcile_scan": stub}), \
+                    patch.object(self.mod, "_preferred_python",
+                                 return_value=sys.executable), \
+                    contextlib.redirect_stdout(buf):
+                self.mod._emit_primary_summary_via_delegate_or_fallback(
+                    root=root, from_version="1.14.0", to_version="1.15.0",
+                    zip_path=None, pruned_count=0,
+                    review_sidecar_cleanup=None, index_published=True,
+                )
+            summaries = self._parse_sentinel(buf.getvalue())
+            self.assertEqual(len(summaries), 1, "exactly one sentinel per run")
+            summary = summaries[0]
+            self.assertEqual(len(summary["reconciliation"]), 1,
+                             "the delegated producer must carry the finding")
+            self.assertEqual(
+                summary["reconciliation"][0]["retired_surface"], "wave-gate"
+            )
+            self.assertNotIn("summary_source_degraded", summary)
+            self.assertEqual(summary["summary_schema"], 1)
+
+
+def _write_stub_producer(root: Path, body: str) -> Path:
+    """Write *body* as the fixture tree's upgrade_wavefoundry.py producer."""
+    scripts = root / ".wavefoundry" / "framework" / "scripts"
+    scripts.mkdir(parents=True, exist_ok=True)
+    script = scripts / "upgrade_wavefoundry.py"
+    script.write_text(body, encoding="utf-8")
+    return script
+
+
+class DelegatedSummaryContractTests(unittest.TestCase):
+    """Wave 1u44o requirement 5: PERMANENT contract test.
+
+    This test is the suite's standing guard for the entire fielded population of
+    old runners: every runner that ships wave 1u44o invokes this exact surface
+    on the freshly extracted tree of every future upgrade, forever. It locks the
+    entry-point name, argv shape, output envelope, sentinel prefix VALUE, and
+    version-token handling. The pins are a tripwire against ACCIDENTAL drift,
+    not a wall: additive evolution needs no ceremony, and deliberate breaking
+    evolution is supported by bumping SUMMARY_SCHEMA_VERSION (old parents then
+    route to marked degradation for their transition run instead of
+    mis-parsing) and updating these pins in the same change. If an edit makes
+    this test fail WITHOUT that versioned-compatibility decision, the edit
+    silently breaks fielded runners; that is the case this test exists to
+    catch."""
+
+    def setUp(self):
+        if str(SCRIPTS_ROOT) not in sys.path:
+            sys.path.insert(0, str(SCRIPTS_ROOT))
+        self.mod = load_upgrade_module()
+
+    def test_sentinel_prefix_value_is_frozen(self):
+        # The literal VALUE, not just the constant name: fielded parsers match
+        # this exact prefix.
+        self.assertEqual(
+            self.mod.WAVE_UPGRADE_SUMMARY_SENTINEL, "WAVE_UPGRADE_SUMMARY_JSON:"
+        )
+
+    def test_contract_constants_are_frozen(self):
+        self.assertEqual(self.mod.SUMMARY_SCHEMA_KEY, "summary_schema")
+        self.assertEqual(self.mod.SUMMARY_SCHEMA_VERSION, 1)
+        self.assertIn(
+            self.mod.SUMMARY_SCHEMA_VERSION, self.mod._RECOGNIZED_SUMMARY_SCHEMAS
+        )
+        self.assertEqual(
+            self.mod.SUMMARY_DEGRADATION_MARKER_KEY, "summary_source_degraded"
+        )
+        timeout = self.mod._SUMMARY_DELEGATE_TIMEOUT_S
+        self.assertIsInstance(timeout, (int, float))
+        self.assertGreater(timeout, 0)
+        # The entry-point flag literal exists in the module source (argparse
+        # registration); a rename breaks every fielded caller.
+        self.assertIn('"--emit-summary"', UPGRADE_PATH.read_text(encoding="utf-8"))
+
+    def test_spawned_argv_shape_is_frozen_and_payload_reemitted_verbatim(self):
+        payload = json.dumps(
+            {"summary_schema": 1, "probe": "argv-pin \u2713"}, ensure_ascii=False
+        )
+        captured: dict = {}
+
+        def fake_run(cmd, **kwargs):
+            captured["cmd"] = list(cmd)
+            captured["timeout"] = kwargs.get("timeout")
+            return subprocess.CompletedProcess(
+                cmd, 0,
+                stdout=self.mod.WAVE_UPGRADE_SUMMARY_SENTINEL + payload + "\n",
+                stderr="",
+            )
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            _write_stub_producer(root, "print('placeholder')\n")
+            buf = io.StringIO()
+            with patch.object(self.mod.subprocess_util, "isolated_run", fake_run), \
+                    contextlib.redirect_stdout(buf):
+                self.mod._emit_primary_summary_via_delegate_or_fallback(
+                    root=root, from_version="1.14.0", to_version="1.15.0",
+                    zip_path=None, pruned_count=0, index_published=True,
+                )
+            cmd = captured["cmd"]
+            # Frozen argv shape: [python, <extracted script>, --emit-summary, --root, <root>]
+            self.assertEqual(len(cmd), 5, cmd)
+            self.assertEqual(
+                Path(cmd[1]),
+                root / ".wavefoundry" / "framework" / "scripts" / "upgrade_wavefoundry.py",
+            )
+            self.assertEqual(cmd[2], "--emit-summary")
+            self.assertEqual(cmd[3], "--root")
+            self.assertEqual(cmd[4], str(root))
+            # The pinned timeout constant is what the spawn actually uses.
+            self.assertEqual(captured["timeout"], self.mod._SUMMARY_DELEGATE_TIMEOUT_S)
+            # Byte-verbatim re-emit under the parent's own sentinel constant.
+            lines = [
+                l for l in buf.getvalue().splitlines()
+                if l.startswith(self.mod.WAVE_UPGRADE_SUMMARY_SENTINEL)
+            ]
+            self.assertEqual(len(lines), 1)
+            self.assertEqual(
+                lines[0], self.mod.WAVE_UPGRADE_SUMMARY_SENTINEL + payload
+            )
+
+    def test_real_child_envelope_and_old_schema_lock_tolerance(self):
+        # The REAL producer, spawned as the contract argv, against a minimal
+        # OLD-SCHEMA lock (only the fields the oldest FROM runners write): it
+        # must exit 0 and emit exactly one sentinel line whose payload is a
+        # JSON dict carrying the schema token; the inverse-skew named case.
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            scripts = _stage_extracted_tree(root)
+            (root / ".wavefoundry" / "upgrade-in-progress.json").write_text(
+                json.dumps({"from_version": "1.9.0", "to_version": "1.15.0"}),
+                encoding="utf-8",
+            )
+            result = subprocess.run(
+                [sys.executable, str(scripts / "upgrade_wavefoundry.py"),
+                 "--emit-summary", "--root", str(root)],
+                capture_output=True, text=True, timeout=120, check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            lines = [
+                l for l in result.stdout.splitlines()
+                if l.startswith(self.mod.WAVE_UPGRADE_SUMMARY_SENTINEL)
+            ]
+            self.assertEqual(len(lines), 1, "exactly one sentinel line")
+            payload = json.loads(
+                lines[0][len(self.mod.WAVE_UPGRADE_SUMMARY_SENTINEL):]
+            )
+            self.assertIsInstance(payload, dict)
+            self.assertEqual(
+                payload[self.mod.SUMMARY_SCHEMA_KEY], self.mod.SUMMARY_SCHEMA_VERSION
+            )
+            self.assertEqual(payload["from_version"], "1.9.0")
+            self.assertEqual(payload["to_version"], "1.15.0")
+            # Old-schema defaults: absent newer lock fields degrade cleanly.
+            self.assertEqual(payload["pruned_count"], 0)
+            self.assertEqual(payload["skipped_scan_locations"], [])
+            self.assertNotIn(self.mod.SUMMARY_DEGRADATION_MARKER_KEY, payload)
+
+    def test_real_child_reads_nonempty_skipped_scan_locations_from_lock(self):
+        # Requirement 1 transport fidelity on the REAL producer: the parent-only
+        # fact must round-trip through the lock into the child's summary. The
+        # in-child module global is always empty, so a regression that drops the
+        # lock-read override leaves the key present-but-empty and only THIS
+        # assertion catches it (QA delivery lane, mutant D2).
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            scripts = _stage_extracted_tree(root)
+            (root / ".wavefoundry" / "upgrade-in-progress.json").write_text(
+                json.dumps({
+                    "from_version": "1.15.0",
+                    "to_version": "1.15.0",
+                    "skipped_scan_locations": ["/probe/Downloads"],
+                }),
+                encoding="utf-8",
+            )
+            result = subprocess.run(
+                [sys.executable, str(scripts / "upgrade_wavefoundry.py"),
+                 "--emit-summary", "--root", str(root)],
+                capture_output=True, text=True, timeout=120, check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            lines = [
+                l for l in result.stdout.splitlines()
+                if l.startswith(self.mod.WAVE_UPGRADE_SUMMARY_SENTINEL)
+            ]
+            self.assertEqual(len(lines), 1, "exactly one sentinel line")
+            payload = json.loads(
+                lines[0][len(self.mod.WAVE_UPGRADE_SUMMARY_SENTINEL):]
+            )
+            self.assertEqual(
+                payload["skipped_scan_locations"], ["/probe/Downloads"]
+            )
+
+    def test_unrecognized_version_token_routes_to_degradation(self):
+        # Requirement 5: an unrecognized token is the degradation path, NEVER
+        # new-schema output (closes the silent-drift case a launch-failure
+        # marker cannot see).
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            _write_stub_producer(
+                root,
+                "print('WAVE_UPGRADE_SUMMARY_JSON:'"
+                " + '{\"summary_schema\": 999, \"probe\": \"x\"}')\n",
+            )
+            buf = io.StringIO()
+            with patch.object(self.mod, "_preferred_python",
+                              return_value=sys.executable), \
+                    contextlib.redirect_stdout(buf):
+                self.mod._emit_primary_summary_via_delegate_or_fallback(
+                    root=root, from_version="1.14.0", to_version="1.15.0",
+                    zip_path=None, pruned_count=0, index_published=True,
+                )
+            lines = [
+                l for l in buf.getvalue().splitlines()
+                if l.startswith(self.mod.WAVE_UPGRADE_SUMMARY_SENTINEL)
+            ]
+            self.assertEqual(len(lines), 1)
+            summary = json.loads(
+                lines[0][len(self.mod.WAVE_UPGRADE_SUMMARY_SENTINEL):]
+            )
+            self.assertEqual(
+                summary[self.mod.SUMMARY_DEGRADATION_MARKER_KEY],
+                "unrecognized_schema_token_999",
+            )
+            self.assertNotIn(self.mod.SUMMARY_SCHEMA_KEY, summary)
+            self.assertNotIn("probe", summary, "unrecognized-token output must be discarded")
+
+
+class DelegatedSummaryDegradationTests(unittest.TestCase):
+    """Wave 1u44o AC-2: each named failure class degrades to the parent's own
+    in-process summary with the marker present, the exit status unchanged (the
+    emit site never raises), and the fallback never labeled as new-schema."""
+
+    def setUp(self):
+        if str(SCRIPTS_ROOT) not in sys.path:
+            sys.path.insert(0, str(SCRIPTS_ROOT))
+        self.mod = load_upgrade_module()
+
+    def _drive(self, root, timeout_s=None):
+        buf = io.StringIO()
+        kwargs = {} if timeout_s is None else {"timeout_s": timeout_s}
+        with patch.object(self.mod, "_preferred_python",
+                          return_value=sys.executable), \
+                contextlib.redirect_stdout(buf):
+            # Never raises; a delegation failure must not change the upgrade's
+            # exit status (main() returns 0 after this site on the default path).
+            self.mod._emit_primary_summary_via_delegate_or_fallback(
+                root=root, from_version="1.14.0", to_version="1.15.0",
+                zip_path=None, pruned_count=2, index_published=True, **kwargs
+            )
+        out = buf.getvalue()
+        sentinel = self.mod.WAVE_UPGRADE_SUMMARY_SENTINEL
+        summaries = [
+            json.loads(line[len(sentinel):])
+            for line in out.splitlines() if line.startswith(sentinel)
+        ]
+        return summaries, out
+
+    def _assert_marked_degradation(self, summaries, expected_marker):
+        self.assertEqual(len(summaries), 1, "exactly one sentinel per run")
+        summary = summaries[0]
+        marker = summary.get(self.mod.SUMMARY_DEGRADATION_MARKER_KEY)
+        self.assertEqual(marker, expected_marker)
+        # The marker must stay flat and small so it also survives the
+        # unknown-scalar budget path on a pre-registration server.
+        self.assertIsInstance(marker, str)
+        self.assertLess(len(marker), 120)
+        # The fallback is the parent's own old-schema summary; it must never
+        # present itself as new-schema output.
+        self.assertNotIn(self.mod.SUMMARY_SCHEMA_KEY, summary)
+        # And it is a real summary, not a stub: parent-known fields intact.
+        self.assertEqual(summary["from_version"], "1.14.0")
+        self.assertEqual(summary["pruned_count"], 2)
+        return summary
+
+    def test_entry_point_absent_is_marker_carrying_degradation(self):
+        # Class 1 (the realistic downgrade / pack-older-than-this-change case
+        # when the script itself is gone). The prior-art silent
+        # `if not script.exists(): return` shape is the anti-pattern: this MUST
+        # carry the marker.
+        with tempfile.TemporaryDirectory() as td:
+            summaries, _ = self._drive(Path(td))
+        self._assert_marked_degradation(summaries, "entry_point_absent")
+
+    def test_old_pack_rejecting_the_flag_degrades_with_exit_status(self):
+        # Class 1 variant: the extracted tree EXISTS but predates the flag -
+        # argparse rejects --emit-summary with exit 2.
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            _write_stub_producer(
+                root,
+                "import argparse\n"
+                "p = argparse.ArgumentParser()\n"
+                "p.add_argument('--root', default='.')\n"
+                "p.parse_args()\n",
+            )
+            summaries, _ = self._drive(root)
+        self._assert_marked_degradation(summaries, "exit_status_2")
+
+    def test_nonzero_child_exit_degrades(self):
+        # Class 2.
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            _write_stub_producer(root, "import sys\nsys.exit(7)\n")
+            summaries, _ = self._drive(root)
+        self._assert_marked_degradation(summaries, "exit_status_7")
+
+    def test_malformed_or_absent_sentinel_degrades(self):
+        # Class 3: absent sentinel, malformed JSON, and non-dict payload.
+        bodies = (
+            "print('no sentinel here')\n",
+            "print('WAVE_UPGRADE_SUMMARY_JSON:{not json')\n",
+            "print('WAVE_UPGRADE_SUMMARY_JSON:[1, 2]')\n",
+        )
+        for body in bodies:
+            with self.subTest(body=body):
+                with tempfile.TemporaryDirectory() as td:
+                    root = Path(td)
+                    _write_stub_producer(root, body)
+                    summaries, _ = self._drive(root)
+                self._assert_marked_degradation(
+                    summaries, "sentinel_missing_or_malformed"
+                )
+
+    def test_timeout_degrades_with_injected_deadline(self):
+        # Class 4: the timeout is injectable for the test; production uses the
+        # pinned _SUMMARY_DELEGATE_TIMEOUT_S constant (contract test asserts
+        # the spawn passes it).
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            _write_stub_producer(root, "import time\ntime.sleep(30)\n")
+            summaries, _ = self._drive(root, timeout_s=1)
+        self._assert_marked_degradation(summaries, "timeout_after_1s")
+
+    def test_successful_delegate_forbids_the_fallback(self):
+        # The delegate-succeeded-then-fallback-also-fires ordering hazard,
+        # driven and proven impossible: the fallback emitter is replaced by a
+        # canary that fails the test if invoked after a successful delegation,
+        # and exactly one sentinel reaches the output.
+        payload = json.dumps({"summary_schema": 1, "probe": "only-once"})
+
+        def canary(*args, **kwargs):
+            raise AssertionError(
+                "fallback fired after a successful delegation; the last-wins "
+                "sentinel hazard the single emit site exists to prevent"
+            )
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            _write_stub_producer(
+                root, f"print('WAVE_UPGRADE_SUMMARY_JSON:' + {payload!r})\n"
+            )
+            buf = io.StringIO()
+            with patch.object(self.mod, "_preferred_python",
+                              return_value=sys.executable), \
+                    patch.object(self.mod, "_emit_primary_phase_summary",
+                                 side_effect=canary), \
+                    contextlib.redirect_stdout(buf):
+                self.mod._emit_primary_summary_via_delegate_or_fallback(
+                    root=root, from_version="1.14.0", to_version="1.15.0",
+                    zip_path=None, pruned_count=0, index_published=True,
+                )
+            lines = [
+                l for l in buf.getvalue().splitlines()
+                if l.startswith(self.mod.WAVE_UPGRADE_SUMMARY_SENTINEL)
+            ]
+            self.assertEqual(len(lines), 1, "exactly one sentinel per run")
+            self.assertEqual(
+                json.loads(lines[0][len(self.mod.WAVE_UPGRADE_SUMMARY_SENTINEL):])["probe"],
+                "only-once",
+            )
+
+
+class DelegatedSummarySchemaDivergentTests(unittest.TestCase):
+    """Wave 1u44o AC-1: the anti-vacuity fixture: the extracted tree carries a
+    SCHEMA-DIVERGENT producer emitting a probe field the parent's own
+    `_build_upgrade_summary` cannot produce; only real delegation can transport
+    it. A same-schema fixture (extracting the current scripts) cannot satisfy
+    this test."""
+
+    PROBE_KEY = "probe_from_future_schema"
+    PROBE_VALUE = "delegation-transport-proof \u2713"
+
+    STUB = (
+        "import argparse, json\n"
+        "from pathlib import Path\n"
+        "p = argparse.ArgumentParser()\n"
+        "p.add_argument('--emit-summary', action='store_true')\n"
+        "p.add_argument('--root', required=True)\n"
+        "a = p.parse_args()\n"
+        "root = Path(a.root)\n"
+        "lock_path = root / '.wavefoundry' / 'upgrade-in-progress.json'\n"
+        "lock = json.loads(lock_path.read_text(encoding='utf-8')) if lock_path.exists() else {}\n"
+        "payload = {\n"
+        "    'summary_schema': 1,\n"
+        "    'from_version': lock.get('from_version'),\n"
+        "    'to_version': lock.get('to_version'),\n"
+        "    'probe_from_future_schema': 'delegation-transport-proof \\u2713',\n"
+        "    'producer_script_path': str(Path(__file__).resolve()),\n"
+        "    'skipped_scan_locations': lock.get('skipped_scan_locations') or [],\n"
+        "}\n"
+        "text = json.dumps(payload, ensure_ascii=False)\n"
+        "(root / 'child-payload.txt').write_text(text, encoding='utf-8')\n"
+        "print('WAVE_UPGRADE_SUMMARY_JSON:' + text)\n"
+    )
+
+    def setUp(self):
+        if str(SCRIPTS_ROOT) not in sys.path:
+            sys.path.insert(0, str(SCRIPTS_ROOT))
+        self.mod = load_upgrade_module()
+
+    def test_probe_field_transports_through_the_parents_real_emit_path(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            _write_stub_producer(root, self.STUB)
+            # An OLD-SCHEMA lock (fields absent that only newer runners write);
+            # the parent will persist the parent-only fact into it below.
+            (root / ".wavefoundry" / "upgrade-in-progress.json").write_text(
+                json.dumps({"from_version": "1.14.0", "to_version": "1.15.0"}),
+                encoding="utf-8",
+            )
+            buf = io.StringIO()
+            with patch.object(self.mod, "_preferred_python",
+                              return_value=sys.executable), \
+                    patch.object(self.mod, "_PACK_SCAN_SKIPPED",
+                                 ["/probe/Downloads"]), \
+                    contextlib.redirect_stdout(buf):
+                # The parent's REAL emit path (the single site main() calls) -
+                # not the producer function.
+                self.mod._emit_primary_summary_via_delegate_or_fallback(
+                    root=root, from_version="1.14.0", to_version="1.15.0",
+                    zip_path=None, pruned_count=0, index_published=True,
+                )
+            out = buf.getvalue()
+            sentinel = self.mod.WAVE_UPGRADE_SUMMARY_SENTINEL
+            lines = [l for l in out.splitlines() if l.startswith(sentinel)]
+            self.assertEqual(len(lines), 1, "exactly one sentinel per run")
+            emitted_payload = lines[0][len(sentinel):]
+            # Byte-verbatim transport: the parent re-emits the child's payload
+            # text unchanged (the child recorded its exact bytes to a side file).
+            self.assertEqual(
+                emitted_payload,
+                (root / "child-payload.txt").read_text(encoding="utf-8"),
+            )
+            summary = json.loads(emitted_payload)
+            # The probe can ONLY have come through delegation…
+            self.assertEqual(summary[self.PROBE_KEY], self.PROBE_VALUE)
+            # …because the parent's own builder cannot produce it.
+            parent_summary = self.mod._build_upgrade_summary(
+                from_version="1.14.0", to_version="1.15.0", zip_path=None,
+                pruned_count=0, ran_index_rebuild=True, failed_phase=None,
+                reconciliation=[],
+            )
+            self.assertNotIn(self.PROBE_KEY, parent_summary)
+            # The spawned argv resolved INSIDE the extracted fixture tree.
+            producer_path = Path(summary["producer_script_path"])
+            self.assertEqual(
+                producer_path,
+                (root / ".wavefoundry" / "framework" / "scripts"
+                 / "upgrade_wavefoundry.py").resolve(),
+            )
+            # Parent-only fact round-trip: persisted to the lock BEFORE the
+            # spawn, read back by the (old-schema-tolerant) producer.
+            self.assertEqual(summary["skipped_scan_locations"], ["/probe/Downloads"])
+            self.assertNotIn(self.mod.SUMMARY_DEGRADATION_MARKER_KEY, summary)
+            # Parser-side: the probe survives the old server's parse + bound
+            # layers (the wf_upgrade_response-level test lives in
+            # test_server_tools.py).
+            import server_impl
+
+            parsed = server_impl._parse_upgrade_summary(out)
+            self.assertIsNotNone(parsed)
+            bounded = server_impl._bounded_upgrade_summary(parsed)
+            self.assertEqual(bounded[self.PROBE_KEY], self.PROBE_VALUE)
 
 
 class DetectDashboardLivenessTests(unittest.TestCase):

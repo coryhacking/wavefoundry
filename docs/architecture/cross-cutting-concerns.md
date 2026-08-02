@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-27
+Last verified: 2026-08-01
 
 ## Configuration
 
@@ -61,6 +61,18 @@ lock):
   serialized. Lock order is fixed and never inverted: the outer advisory
   `lifecycle-mutation.lock` is acquired first, this inner blocking lock
   second. Memory writes additionally carry the memory-state fence.
+
+## Upgrade Remedy Classes (fresh-code reporting)
+
+Fixes to the upgrade itself are absent on the upgrade that installs them (the in-process
+orchestrator is pre-extraction code), and the remedy differs by defect class: behavior-class fixes
+ride a hook bridge, sentinel-carried reporting is produced by a subprocess running the freshly
+extracted tree's `upgrade_wavefoundry.py --emit-summary` behind a pinned old-calls-new contract
+(versioned envelope, four-class marked degradation, byte-verbatim re-emit through the parent's
+logger), and server-resident response fields are cured only by a host restart. Future summary
+fields must stay flat scalars or lists (the response bounder drops oversized nested values). The
+canonical record, including the rejected fresh-phase-emission alternative, is
+`docs/architecture/decisions/1u49j-adr fresh-code-summary-producer-contract.md`.
 
 ## Error Handling
 

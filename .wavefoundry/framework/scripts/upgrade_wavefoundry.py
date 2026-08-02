@@ -77,6 +77,23 @@ UPGRADE_LOG_FILENAME = "upgrade.log"
 # raw ``output``). Keep this string stable — it is the parse contract between the two modules.
 WAVE_UPGRADE_SUMMARY_SENTINEL = "WAVE_UPGRADE_SUMMARY_JSON:"
 
+# Wave 1u44o: the delegated primary-phase summary contract (old-calls-new). These pins are a
+# TRIPWIRE against SILENT drift, not an unpassable boundary: additive evolution needs no ceremony;
+# deliberate breaking evolution is supported by bumping SUMMARY_SCHEMA_VERSION (old runners route
+# to marked degradation for their transition run) and updating the contract test in the same
+# change; only a silent rename/reshape is blocked. The primary-phase summary is produced by a
+# subprocess running the FRESHLY EXTRACTED tree's `upgrade_wavefoundry.py --emit-summary --root
+# <root>` (see `_emit_delegated_summary` for the full pinned contract). The payload carries
+# `SUMMARY_SCHEMA_KEY: SUMMARY_SCHEMA_VERSION`; a FROM-side parent that does not recognize the
+# token degrades to its own in-process summary with the `SUMMARY_DEGRADATION_MARKER_KEY` marker;
+# an unrecognized token is NEVER treated as new-schema output. The timeout is pinned (precedent:
+# `_HOOK_TIMEOUT_S`) and injectable for tests only.
+SUMMARY_SCHEMA_KEY = "summary_schema"
+SUMMARY_SCHEMA_VERSION = 1
+_RECOGNIZED_SUMMARY_SCHEMAS = frozenset({SUMMARY_SCHEMA_VERSION})
+SUMMARY_DEGRADATION_MARKER_KEY = "summary_source_degraded"
+_SUMMARY_DELEGATE_TIMEOUT_S = 300  # 5 minutes: matches the _HOOK_TIMEOUT_S precedent
+
 # Wave 1p5do: the lowest installed version this pack still carries migrations for. Migrations for
 # transitions older than 1.4→1.5 have been pruned, so upgrading from below this floor may silently
 # skip an intermediate migration. Enforced as a loud WARNING (not an abort): all known projects are
@@ -2900,6 +2917,7 @@ def _emit_primary_phase_summary(
     review_sidecar_cleanup: dict | None = None,
     *,
     index_published: bool,
+    degradation_marker: str | None = None,
 ) -> None:
     """Wave 1p8kz — emit the structured summary sentinel at the end of the primary upgrade phase
     (phases 0–4, the default ``wf_upgrade()`` call) so agents get ``data['summary']`` — including
@@ -2908,7 +2926,15 @@ def _emit_primary_phase_summary(
     this emits the sentinel only, to avoid duplicating the prose. Wave 1p8kz (operator direction): the
     reconciliation scan runs on EVERY upgrade — not only major/minor — since a patch or same-version
     build-successor can change/retire a surface during testing (the rendered surfaces it needs are in
-    place by phase 1); fail-safe."""
+    place by phase 1); fail-safe.
+
+    Wave 1u44o: this in-process builder is now the marked DEGRADATION FALLBACK of the delegated
+    summary producer (`_emit_primary_summary_via_delegate_or_fallback`): it runs pre-extraction
+    (old) code, including the in-process ``import reconcile_scan`` whose cross-version shape skew
+    the delegation exists to close (the pg1a defect mechanism). ``degradation_marker`` names the
+    delegation failure class; when set, the summary carries ``SUMMARY_DEGRADATION_MARKER_KEY`` so
+    the degradation is disclosed, and it NEVER carries ``SUMMARY_SCHEMA_KEY``: a fallback summary
+    must not present itself as new-schema output."""
     reconciliation, host_permission_flags, renderer_provenance_flags = (
         _run_reconciliation_scan(root) if root is not None else ([], [], [])
     )
@@ -2930,7 +2956,242 @@ def _emit_primary_phase_summary(
         renderer_provenance_flags=renderer_provenance_flags,
         index_update_failed=not index_published,
     )
+    if degradation_marker is not None:
+        # 1u44o: disclose the degradation as a flat, small scalar so it survives
+        # the response bounder on both the terminal-key path and (for a stale
+        # server without the registration) the unknown-scalar budget path.
+        summary[SUMMARY_DEGRADATION_MARKER_KEY] = degradation_marker
     _emit_summary_line(summary)
+
+
+def _persist_skipped_scan_locations(root: Path) -> None:
+    """Wave 1u44o: persist the parent-only summary fact to the upgrade lock.
+
+    ``skipped_scan_locations`` (`_PACK_SCAN_SKIPPED`) is filled during the PARENT
+    process's pack search; per-process permission grants make it non-rescannable
+    from a child, so the delegated producer reads it from the lock. Fail-safe:
+    a missing lock is a no-op (the child then degrades to ``[]``, matching its
+    own empty module global)."""
+    try:
+        import upgrade_lib
+
+        upgrade_lib.update_upgrade_lock(
+            root, skipped_scan_locations=list(_PACK_SCAN_SKIPPED)
+        )
+    except Exception:  # noqa: BLE001 - a lock hiccup must never break the emit
+        pass
+
+
+def _delegated_summary_payload(
+    root: Path,
+    *,
+    timeout_s: float = _SUMMARY_DELEGATE_TIMEOUT_S,
+) -> tuple[str | None, str | None]:
+    """Wave 1u44o: run the extracted tree's summary producer; return its payload.
+
+    Spawns ``<tool-venv python> <root>/.wavefoundry/framework/scripts/upgrade_wavefoundry.py
+    --emit-summary --root <root>`` (the pinned requirement-5 contract; see
+    ``_emit_delegated_summary``), captures stdout, and returns
+    ``(payload_json, None)`` on success or ``(None, degradation_reason)`` on any
+    failure. ``payload_json`` is the BYTE-VERBATIM JSON payload text after the
+    child's sentinel prefix; the caller re-emits it unchanged under the
+    parent's own sentinel constant so the upgrade-log contract holds.
+
+    Failure classes (each returns a marker-carrying reason, never raises):
+
+    - ``entry_point_absent``: no producer script in the extracted tree;
+    - ``spawn_failed: ...``: the subprocess could not be launched;
+    - ``timeout_after_<N>s``: the pinned timeout expired;
+    - ``exit_status_<N>``: non-zero child exit (includes an older extracted
+      tree rejecting ``--emit-summary`` via argparse, exit 2; the realistic
+      downgrade/old-pack case);
+    - ``sentinel_missing_or_malformed``: no parseable sentinel dict in stdout;
+    - ``unrecognized_schema_token_<T>``: the payload's ``summary_schema`` is
+      not in ``_RECOGNIZED_SUMMARY_SCHEMAS`` (silent-drift guard: an unknown
+      token is degradation, never new-schema output).
+    """
+    script = root / ".wavefoundry" / "framework" / "scripts" / "upgrade_wavefoundry.py"
+    if not script.exists():
+        return None, "entry_point_absent"
+    cmd = [
+        _preferred_python(),
+        str(script),
+        "--emit-summary",
+        "--root",
+        str(root),
+    ]
+    summary_env = subprocess_util.utf8_child_env()
+    # The summary child reports; it never publishes. Same containment as the
+    # detached index children (1u44n): no publisher grant in a non-publishing
+    # child's environment.
+    summary_env.pop("WAVEFOUNDRY_UPGRADE_PUBLISHER_TOKEN", None)
+    try:
+        result = subprocess_util.isolated_run(
+            cmd,
+            env=summary_env,
+            cwd=str(root),
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=timeout_s,
+        )
+    except subprocess.TimeoutExpired:
+        return None, f"timeout_after_{int(timeout_s)}s"
+    except Exception as exc:  # noqa: BLE001 - spawn failure degrades, never raises
+        return None, f"spawn_failed: {type(exc).__name__}"
+    if result.returncode != 0:
+        return None, f"exit_status_{result.returncode}"
+    payload: str | None = None
+    for line in (result.stdout or "").splitlines():
+        if line.startswith(WAVE_UPGRADE_SUMMARY_SENTINEL):
+            payload = line[len(WAVE_UPGRADE_SUMMARY_SENTINEL):].strip()
+    if not payload:
+        return None, "sentinel_missing_or_malformed"
+    try:
+        parsed = json.loads(payload)
+    except Exception:  # noqa: BLE001 - malformed JSON degrades
+        return None, "sentinel_missing_or_malformed"
+    if not isinstance(parsed, dict):
+        return None, "sentinel_missing_or_malformed"
+    token = parsed.get(SUMMARY_SCHEMA_KEY)
+    if token not in _RECOGNIZED_SUMMARY_SCHEMAS:
+        # Clamp the child-controlled value so an oversized drifted token cannot
+        # push the marker past the server's per-value cap and silence the very
+        # disclosure this branch exists to make.
+        return None, f"unrecognized_schema_token_{token!r:.40}"
+    return payload, None
+
+
+def _emit_primary_summary_via_delegate_or_fallback(
+    root: Path,
+    from_version: str | None,
+    to_version: str | None,
+    zip_path: Path | None,
+    pruned_count: int,
+    review_sidecar_cleanup: dict | None = None,
+    *,
+    index_published: bool,
+    timeout_s: float = _SUMMARY_DELEGATE_TIMEOUT_S,
+) -> None:
+    """Wave 1u44o: the SINGLE primary-phase summary emit site (mutually exclusive).
+
+    Persists the parent-only facts to the upgrade lock, then either:
+
+    - re-emits the delegated producer's JSON payload byte-verbatim through
+      ``_log`` under the parent's own ``WAVE_UPGRADE_SUMMARY_SENTINEL`` (the
+      upgrade-log contract and the truncation hint pointing at ``log_path``
+      depend on the sentinel flowing through ``_log``), or
+    - falls back to the in-process ``_emit_primary_phase_summary`` with the
+      degradation marker naming the failure class.
+
+    Exactly one sentinel per run BY CONSTRUCTION: the two branches of one
+    if/else at one call site; the server parser is last-sentinel-wins, so a
+    successful delegate must never be followed by a fallback emit (and vice
+    versa). Never fails the upgrade."""
+    _persist_skipped_scan_locations(root)
+    payload, degradation = _delegated_summary_payload(root, timeout_s=timeout_s)
+    if payload is not None:
+        _log(WAVE_UPGRADE_SUMMARY_SENTINEL + payload)
+    else:
+        _emit_primary_phase_summary(
+            from_version,
+            to_version,
+            zip_path,
+            pruned_count,
+            root,
+            review_sidecar_cleanup=review_sidecar_cleanup,
+            index_published=index_published,
+            degradation_marker=degradation or "delegation_failed",
+        )
+
+
+def _emit_delegated_summary(root: Path) -> int:
+    """``--emit-summary``: the delegated primary-phase summary producer (wave 1u44o).
+
+    PINNED COMPATIBILITY CONTRACT (old-calls-new; pinned since 1.15.0). Every
+    fielded runner that ships wave 1u44o invokes this entry point on the
+    FRESHLY EXTRACTED tree on every future upgrade, forever. The pins are a
+    tripwire against SILENT drift, not an unpassable boundary: additive
+    evolution needs no ceremony; deliberate breaking evolution is supported by
+    bumping ``SUMMARY_SCHEMA_VERSION`` (old parents then route to marked
+    degradation for their transition run instead of mis-parsing) and updating
+    the permanent contract test in the same change. Only a SILENT rename or
+    reshape of the flag, argv, sentinel prefix, or token is blocked: the
+    contract test (`tests/test_upgrade_wavefoundry.py`
+    DelegatedSummaryContractTests) exists to catch accidental drift and fails
+    on any unversioned change.
+
+    - **Identity:** the fixed standalone flag ``--emit-summary`` on
+      ``upgrade_wavefoundry.py`` (precedent: ``--update-index`` / ``--cleanup``).
+      NOT a hook (hook failures abort the upgrade with exit 3) and NOT an
+      in-process import (the pg1a cross-version defect mechanism).
+    - **Input:** ``--root`` argv plus the upgrade lock as the state carrier.
+      Old-schema locks are tolerated: every read is a defaulted ``.get``, so a
+      FROM runner that predates any newer lock field still gets a valid summary.
+    - **Output:** exactly one stdout line
+      ``WAVE_UPGRADE_SUMMARY_JSON:{json}`` whose payload carries
+      ``summary_schema: SUMMARY_SCHEMA_VERSION``. The upgrade log is NOT written
+      here; the parent captures stdout and re-emits the payload through its own
+      ``_log``.
+    - **Failure semantics:** any error exits non-zero; the parent degrades to
+      its own in-process summary with a disclosure marker (never fails the
+      upgrade).
+    - **Import surface:** stdlib-only at module import time for this module and
+      everything it imports; runnable under the FROM version's tool venv against
+      a partially upgraded target; no dependence on post-upgrade state
+      (published index, completed docs gate, memory checkpoints).
+    """
+    import upgrade_lib
+
+    lock = upgrade_lib.read_upgrade_lock(root) or {}
+    from_version = lock.get("from_version")
+    to_version = lock.get("to_version")
+    recorded_zip = lock.get("zip_path")
+    pruned = lock.get("pruned_count")
+    review_sidecar = lock.get("review_sidecar_cleanup")
+    permissions_delta = lock.get(_PERMISSIONS_DELTA_LOCK_FIELD)
+    skipped = lock.get("skipped_scan_locations")
+    # The scan runs FRESH in this process: `import reconcile_scan` resolves in
+    # the extracted tree, same code version as this producer; no cross-version
+    # shape skew is possible here (requirement 2).
+    reconciliation, host_permission_flags, renderer_provenance_flags = (
+        _run_reconciliation_scan(root)
+    )
+    summary = _build_upgrade_summary(
+        from_version=from_version if isinstance(from_version, str) else None,
+        to_version=to_version if isinstance(to_version, str) else None,
+        zip_path=Path(str(recorded_zip)) if recorded_zip else None,
+        pruned_count=pruned if isinstance(pruned, int) else 0,
+        # Same observed-outcome semantics as the parent emit: the lock was
+        # stamped by _record_index_publication_outcome before the delegation.
+        ran_index_rebuild=bool(lock.get("index_rebuilt_at")),
+        # The primary emit site is unreachable on failure (main() raises past
+        # it); the audit-and-justify None matches _emit_primary_phase_summary.
+        failed_phase=None,
+        reconciliation=reconciliation,
+        host_permission_flags=host_permission_flags,
+        review_sidecar_cleanup=(
+            review_sidecar if isinstance(review_sidecar, dict) else None
+        ),
+        renderer_provenance_flags=renderer_provenance_flags,
+        permissions_delta=(
+            permissions_delta if isinstance(permissions_delta, dict) else None
+        ),
+        index_update_failed=bool(lock.get("index_publication_failed")),
+    )
+    # Parent-only fact: the pack-search skip list lives in the PARENT's memory
+    # (per-process permission grants make it non-rescannable here); the parent
+    # persisted it to the lock before delegating. An old-schema lock without
+    # the field degrades to []; matching this process's empty module global.
+    summary["skipped_scan_locations"] = (
+        [str(loc) for loc in skipped] if isinstance(skipped, list) else []
+    )
+    summary[SUMMARY_SCHEMA_KEY] = SUMMARY_SCHEMA_VERSION
+    print(
+        WAVE_UPGRADE_SUMMARY_SENTINEL + json.dumps(summary, ensure_ascii=False),
+        flush=True,
+    )
+    return 0
 
 
 def _print_operator_summary(
@@ -3421,6 +3682,23 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--emit-summary",
+        action="store_true",
+        dest="emit_summary",
+        help=(
+            "Emit the machine-readable primary-phase upgrade summary sentinel "
+            "(WAVE_UPGRADE_SUMMARY_JSON:) from THIS tree's code and exit. "
+            "PINNED old-calls-new contract (wave 1u44o): the pre-extraction "
+            "parent process of every future upgrade spawns this flag on the "
+            "freshly extracted tree so the summary and the reconciliation scan "
+            "are produced by new code. Input is --root plus the upgrade lock "
+            "(old-schema tolerant); output is one sentinel line whose payload "
+            "carries summary_schema. Never rename or reshape silently; "
+            "deliberate versioned evolution bumps the schema token (see "
+            "_emit_delegated_summary)."
+        ),
+    )
+    parser.add_argument(
         "--materialize-lifecycle-policy",
         action="store_true",
         dest="materialize_lifecycle_policy",
@@ -3453,6 +3731,16 @@ def main(argv: list[str] | None = None) -> int:
             print(f"upgrade: error: {exc}", file=sys.stderr)
             return 1
         return 0
+    if args.emit_summary:
+        # Wave 1u44o: delegated summary producer (see _emit_delegated_summary
+        # for the pinned contract). Read-only + report-only: no lock mutation,
+        # no log-file writes, no lifecycle transaction; the parent owns all of
+        # those. Any exception exits non-zero and the parent degrades.
+        try:
+            return _emit_delegated_summary(root)
+        except Exception as exc:  # noqa: BLE001 - non-zero exit IS the contract
+            print(f"emit-summary failed: {type(exc).__name__}: {exc}", file=sys.stderr)
+            return 1
     if args.detect_zip:
         z = _find_latest_release_zip(root)
         if z is None:
@@ -4506,13 +4794,16 @@ def main(argv: list[str] | None = None) -> int:
     # Wave 1p8kz — emit the structured summary sentinel now (end of the default primary phase) so the
     # wf_upgrade() call returns data['summary'] WITH the 1p8et reconciliation findings, instead of
     # only on the separate --cleanup phase (where the agent often isn't looking). Full operator prose
-    # still prints at cleanup.
-    _emit_primary_phase_summary(
+    # still prints at cleanup. Wave 1u44o: the summary is DELEGATED to the freshly extracted tree's
+    # producer (this process imported the OLD module before Phase 0b extraction, so its own builder
+    # is the one-cycle-late reporting window); the in-process builder survives only as the marked
+    # degradation fallback inside this single mutually exclusive emit site.
+    _emit_primary_summary_via_delegate_or_fallback(
+        root,
         from_version,
         to_version,
         zip_path,
         pruned_count,
-        root,
         review_sidecar_cleanup=sidecar_counts,
         index_published=index_published,
     )

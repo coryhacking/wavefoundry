@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-31
+Last verified: 2026-08-01
 
 ## Allowed Dependencies
 
@@ -25,6 +25,7 @@ Last verified: 2026-07-31
 | `review_policy.py` carrier registry → lifecycle reconciler | Reconciler writes only exact registered legacy markers or byte-known baseline sections after complete preflight; ambiguity or symlink escape writes nothing | Verified by reconciler mutation and containment tests |
 | `review_policy.py` carrier registry → direct docs | Direct-doc carriers are validation-only and never target-repository writers | Verified by owner-permission registry tests |
 | Upgrade → project publishers | Upgrade acquires lifecycle then publication ownership; registered publishers fail fast from the durable checkpoint, except the two memory-recovery writers at the exact memory pause | Verified by lock-order, checkpoint, and public-wrapper tests |
+| FROM-runner → TO-tree summary producer | The pre-extraction parent produces the primary-phase summary only through the pinned `--emit-summary` contract on the freshly extracted tree (argv, sentinel prefix, `summary_schema` token, pinned timeout; upgrade lock as the sole state carrier, old-schema tolerant); the surface never changes silently (deliberate versioned evolution bumps the schema token); any contract failure degrades to the parent's marked in-process fallback, never a second sentinel and never unlabeled old-schema output | Verified by the permanent `DelegatedSummaryContractTests` plus the degradation and mutual-exclusion tests |
 
 ## Violation Detection
 

@@ -2352,6 +2352,12 @@ UPGRADE_SUMMARY_TERMINAL_KEYS = {
     "index_update",
     "failed_phase",
     "is_major_or_minor",
+    # Wave 1u44o: the delegated-summary degradation marker must never be
+    # silently dropped by bounding; it is the field that DISCLOSES that the
+    # summary fell back to the pre-extraction in-process builder. Kept flat and
+    # small on the producer side so it also survives the unknown-scalar budget
+    # path on a server launched before this registration existed.
+    "summary_source_degraded",
 }
 
 

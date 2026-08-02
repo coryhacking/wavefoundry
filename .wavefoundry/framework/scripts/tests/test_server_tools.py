@@ -24783,6 +24783,116 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
         for key in ("index_update", "failed_phase", "reconciliation"):
             self.assertIn(key, parsed)
 
+    def test_round_trip_delegated_child_transport(self):
+        # Wave 1u44o: extend the emit↔parse round trip to the CHILD-TRANSPORT
+        # contract: the parent's single emit site re-emits a delegated payload
+        # byte-verbatim under its own sentinel, and the server parses it into
+        # the same fields plus the schema token.
+        import contextlib
+        import io as _io
+        import upgrade_wavefoundry as _uw
+        payload = json.dumps({
+            "summary_schema": _uw.SUMMARY_SCHEMA_VERSION,
+            "from_version": "1.14.0", "to_version": "1.15.0",
+            "pruned_count": 2, "docs_gate": "PASSED",
+            "reconciliation": [],
+        }, ensure_ascii=False)
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            scripts = root / ".wavefoundry" / "framework" / "scripts"
+            scripts.mkdir(parents=True)
+            (scripts / "upgrade_wavefoundry.py").write_text(
+                f"print('WAVE_UPGRADE_SUMMARY_JSON:' + {payload!r})\n",
+                encoding="utf-8",
+            )
+            buf = _io.StringIO()
+            with patch.object(_uw, "_preferred_python", return_value=sys.executable), \
+                    contextlib.redirect_stdout(buf):
+                _uw._emit_primary_summary_via_delegate_or_fallback(
+                    root=root, from_version="1.14.0", to_version="1.15.0",
+                    zip_path=None, pruned_count=2, index_published=True,
+                )
+        parsed = self.srv._parse_upgrade_summary(buf.getvalue())
+        self.assertIsNotNone(parsed, "the transported sentinel line must parse")
+        self.assertEqual(parsed["summary_schema"], _uw.SUMMARY_SCHEMA_VERSION)
+        self.assertEqual(parsed["from_version"], "1.14.0")
+        self.assertEqual(parsed["pruned_count"], 2)
+        self.assertNotIn("summary_source_degraded", parsed)
+
+    def test_new_schema_probe_field_survives_into_response_summary(self):
+        # Wave 1u44o AC-1 (parser-side end to end): a field the current server
+        # cannot itself produce must survive _parse_upgrade_summary +
+        # _bounded_upgrade_summary into wf_upgrade_response's data['summary'],
+        # not merely appear in the sentinel line.
+        stdout = self._summary_output(
+            summary_schema=1,
+            probe_from_future_schema="delegation-transport-proof",
+        )
+        mock_proc = MagicMock(returncode=0, stdout=stdout, stderr="")
+        with patch("subprocess.run", return_value=mock_proc):
+            result = self.srv.wf_upgrade_response(self.root, phase="update_index")
+        summary = result["data"]["summary"]
+        self.assertEqual(
+            summary["probe_from_future_schema"], "delegation-transport-proof"
+        )
+        self.assertEqual(summary["summary_schema"], 1)
+
+    def test_degradation_marker_is_terminal_and_survives_budget_pressure(self):
+        # Wave 1u44o AC-2: the marker is registered as a terminal key, so
+        # bounding can never silently drop the very field that discloses
+        # degradation; even when oversized unknown scalars exhaust the
+        # unknown-scalar budget.
+        self.assertIn(
+            "summary_source_degraded", self.srv.UPGRADE_SUMMARY_TERMINAL_KEYS
+        )
+        summary = {
+            "from_version": "1.14.0",
+            "to_version": "1.15.0",
+            "docs_gate": "PASSED",
+            "failed_phase": None,
+            "summary_source_degraded": "entry_point_absent",
+            **{
+                f"future_scalar_{index:03d}": "x" * 1_900
+                for index in range(80)
+            },
+            "reconciliation": [],
+        }
+        stdout = self.srv._upgrade_summary_sentinel() + json.dumps(summary) + "\n"
+        mock_proc = MagicMock(returncode=0, stdout=stdout, stderr="")
+        with patch("subprocess.run", return_value=mock_proc):
+            result = self.srv.wf_upgrade_response(self.root)
+        bounded = result["data"]["summary"]
+        self.assertTrue(bounded["summary_truncated"])
+        self.assertEqual(
+            bounded["summary_source_degraded"], "entry_point_absent",
+            "bounding must never drop the degradation disclosure",
+        )
+
+    def test_degradation_marker_survives_without_terminal_registration(self):
+        # Wave 1u44o AC-2 (stale-server corner): a server launched BEFORE this
+        # change can outlive multiple upgrades without restart; its terminal-key
+        # set lacks the marker, so the marker must be flat and small enough to
+        # survive the unknown-scalar budget path of a normal-size summary.
+        stale_terminal_keys = {
+            key
+            for key in self.srv.UPGRADE_SUMMARY_TERMINAL_KEYS
+            if key != "summary_source_degraded"
+        }
+        stdout = self._summary_output(
+            summary_source_degraded="exit_status_2",
+        )
+        mock_proc = MagicMock(returncode=0, stdout=stdout, stderr="")
+        with patch.object(
+            self.srv, "UPGRADE_SUMMARY_TERMINAL_KEYS", stale_terminal_keys
+        ), patch("subprocess.run", return_value=mock_proc):
+            result = self.srv.wf_upgrade_response(self.root)
+        bounded = result["data"]["summary"]
+        self.assertEqual(
+            bounded["summary_source_degraded"], "exit_status_2",
+            "the marker must survive the unknown-scalar budget path on a "
+            "pre-1u44o server",
+        )
+
     def test_failure_response_carries_next_step_and_next_tools(self):
         # F2: the primary error path must route a retained typed-gate failure
         # back through resume_after_gate rather than publication or cleanup.

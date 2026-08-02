@@ -816,13 +816,17 @@ class UpgradeRenderBeforeScanOrderingTests(unittest.TestCase):
             self.assertTrue(linenos, f"main() must call {name}")
             return min(linenos)
         render_line = first("phase_surface_rendering")
-        # In the primary invocation, scan reporting happens only through
-        # _emit_primary_phase_summary; it must come after the render.
+        # In the primary invocation, scan reporting happens only through the
+        # single delegate-or-fallback emit site (wave 1u44o re-point: main() no
+        # longer calls _emit_primary_phase_summary directly; it survives only
+        # as the delegator's in-process degradation fallback); it must come
+        # after the render.
         self.assertLess(
             render_line,
-            first("_emit_primary_phase_summary"),
-            "_emit_primary_phase_summary (which runs the reconciliation scan) "
-            "must follow phase_surface_rendering in upgrade main()",
+            first("_emit_primary_summary_via_delegate_or_fallback"),
+            "_emit_primary_summary_via_delegate_or_fallback (whose producer or "
+            "fallback runs the reconciliation scan) must follow "
+            "phase_surface_rendering in upgrade main()",
         )
         # The other emitter, _print_operator_summary, runs only in the
         # cleanup/failure paths (phase_cleanup), which the upgrade reaches
@@ -865,6 +869,15 @@ class UpgradeRenderBeforeScanOrderingTests(unittest.TestCase):
                     callers.add(node.name)
         self.assertEqual(
             callers,
-            {"_emit_primary_phase_summary", "_print_operator_summary"},
+            {
+                "_emit_primary_phase_summary",
+                "_print_operator_summary",
+                # Wave 1u44o (deliberate extension of the exhaustive emitter
+                # set): the delegated producer computes the scan FRESH in the
+                # extracted tree's own process; the requirement that closes
+                # the pg1a cross-version import skew. It runs post-render by
+                # construction (the parent spawns it at the primary emit).
+                "_emit_delegated_summary",
+            },
             "the reconciliation scan may only run from the summary emitters",
         )

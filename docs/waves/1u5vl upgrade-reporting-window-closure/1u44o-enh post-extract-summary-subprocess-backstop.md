@@ -1,9 +1,9 @@
 # Build Upgrade Summaries and Post-Extract Reporting on Freshly Extracted Code
 
 Change ID: `1u44o-enh post-extract-summary-subprocess-backstop`
-Change Status: `planned`
+Change Status: `implemented`
 Owner: Engineering
-Status: planned
+Status: implemented
 Last verified: 2026-08-01
 Wave: `1u5vl upgrade-reporting-window-closure`
 
@@ -144,9 +144,14 @@ it, instead of one upgrade later.
    "changelog template guidance" doc in this repo; durable authoring guidance lives in the design
    note.
 
-5. **The delegation entry point is a pinned, permanent, old-calls-new compatibility contract.**
-   Every fielded runner that ships this change will invoke the TO-tree entry point on all future
-   upgrades, forever. The contract, frozen at ship time and additive-only after:
+5. **The delegation entry point is a pinned, old-calls-new compatibility contract: a tripwire
+   against silent drift, not an unpassable wall (operator clarification, 2026-08-01).** Every
+   fielded runner that ships this change will invoke the TO-tree entry point on all future
+   upgrades. Additive evolution needs no ceremony. Breaking evolution is allowed deliberately: bump
+   the schema version token (old fielded runners then route to the marked degradation path for
+   their one transition run instead of consuming drifted output as-if-new) and update the contract
+   test in the same change. The only thing the contract hard-blocks is SILENT drift, the pg1a
+   defect mechanism. The contract, pinned at ship time:
 
    - **Identity:** a fixed standalone flag on `upgrade_wavefoundry.py` in the extracted tree
      (matching the `--update-index`/`--cleanup` precedent). NOT a hook (hook failure semantics
@@ -242,69 +247,132 @@ files this change edits; detection (AC-7's regression gates) is not restoration,
 
 ## Acceptance Criteria
 
-- [ ] AC-1: On an upgrade driven by the CURRENT (old) parent with a schema-divergent extracted
+- [x] AC-1: On an upgrade driven by the CURRENT (old) parent with a schema-divergent extracted
   tree, the delegated summary's probe field appears in the emitted sentinel AND survives into
   `wf_upgrade_response`'s `data['summary']`; the spawned argv resolves inside the extracted
   fixture tree; transport uses the parent's own sentinel constant; and the producer tolerates an
   old-schema upgrade lock. The test enters through the parent's real emit path; a same-schema
   fixture cannot satisfy this AC.
-- [ ] AC-2: Each of the four named failure classes (entry point absent, non-zero exit, malformed
+  (`DelegatedSummarySchemaDivergentTests.test_probe_field_transports_through_the_parents_real_emit_path`
+  plus `test_server_tools.test_new_schema_probe_field_survives_into_response_summary`;
+  old-schema lock tolerance of the real producer in
+  `DelegatedSummaryContractTests.test_real_child_envelope_and_old_schema_lock_tolerance`.)
+- [x] AC-2: Each of the four named failure classes (entry point absent, non-zero exit, malformed
   or absent sentinel, injected timeout) degrades to the parent's own summary with the degradation
   marker present, the upgrade's exit status unchanged, and the fallback never presented as
   new-schema. The marker survives `_bounded_upgrade_summary` (terminal-key registration PLUS the
   absent-from-terminal-set survival variant of requirement 3). The delegate-succeeded-then-fallback-ordering hazard is driven and
   proven impossible (single mutually exclusive emit site).
-- [ ] AC-3: The pg1a empty-channel scenario is reproduced (mismatched-shape scan module against
+  (`DelegatedSummaryDegradationTests` covers all four classes plus the old-pack flag-rejection
+  variant and the ordering-hazard canary; `test_server_tools` carries the terminal-key
+  budget-pressure survival test and the absent-from-terminal-set stale-server variant; the
+  structural mutual-exclusion pin is
+  `test_fallback_emitter_is_called_only_from_the_delegator`.)
+- [x] AC-3: The pg1a empty-channel scenario is reproduced (mismatched-shape scan module against
   the in-process fallback yields silent empty channels) and shown repaired through the delegated
   path; findings flow end to end into the summary and response.
-- [ ] AC-4: The disclosure carries all three elements of requirement 4 (sentinel-carried fixes now
+  (`DelegatedSummaryPg1aReproductionTests`: red-first; the repro test passed against the
+  pre-change tree while the delegated-path test failed with AttributeError; both green after
+  implementation. Response-side flow covered by the parser-side end-to-end test in
+  `test_server_tools.py`.)
+- [x] AC-4: The disclosure carries all three elements of requirement 4 (sentinel-carried fixes now
   install-effective; behavior-class and server-resident exclusions stated; this change's own
   installing upgrade named as the last reporting-class window firing, with the
   do-not-report-as-failure sentence) and lands on all three named surfaces: CHANGELOG
   `### Upgrading to 1.15.0`, seed-160 line ~81, and the ADR.
-- [ ] AC-5: The entry-point contract is documented (identity, input, output with version token,
+  (CHANGELOG numbered item 8 carries (a)/(b)/(c) including the do-not-report sentence; seed-160's
+  new reporting paragraph carries (a)/(b)/(c) with the same sentence; the ADR states the class
+  taxonomy in the Decision and the last-window residual with the not-a-defect framing in the
+  Consequences.)
+- [x] AC-5: The entry-point contract is documented (identity, input, output with version token,
   failure semantics, timeout constant, import-surface rule, additive-only evolution) and locked by
   a permanent contract test that fails on rename or reshape; an unrecognized version token routes
   to the AC-2 degradation path.
-- [ ] AC-6: The ADR exists under `docs/architecture/decisions/` with the cross-cutting-concerns
+  (Contract documented in the `_emit_delegated_summary` docstring plus the constants block beside
+  the sentinel; locked by `DelegatedSummaryContractTests`; token routing in
+  `test_unrecognized_version_token_routes_to_degradation`.)
+- [x] AC-6: The ADR exists under `docs/architecture/decisions/` with the cross-cutting-concerns
   pointer, records the three-way remedy taxonomy and the flat-scalar field rule, and
   `docs/architecture/layering-rules.md` (Boundary Invariants row for the FROM-runner to TO-tree
   producer edge) and `docs/architecture/data-and-control-flow.md` (which process builds the
   summary) are updated.
-- [ ] AC-7: The full framework suite passes; the wave 1u44n publication and bridge test clusters
+  (`1u49j-adr fresh-code-summary-producer-contract.md`, accepted; the rejected
+  fresh-phase-emission alternative is the first row of its Alternatives table; docs-lint passes
+  via `wf_validate_docs`.)
+- [x] AC-7: The full framework suite passes; the wave 1u44n publication and bridge test clusters
   stay green; every enumerated existing pin from requirement 7 is re-pointed rather than deleted
   (including the two AST pins); and the emit-path census with per-path process/version
   classification is recorded in this doc.
+  (Full suite `run_tests.py`: 6690 tests / 61 files OK; seam cluster together: 2131 OK;
+  `Phase4PublisherGrantTests` + `PreIndexUpdateBridgeTests`: 14 OK; re-point census in the
+  Progress Log; census table above.)
 
 ## Tasks
 
-- [ ] Census the emit paths and classify each by executing process and code version (primary emit:
+- [x] Census the emit paths and classify each by executing process and code version (primary emit:
       old in-process; cleanup emit: fresh post-extract process; standalone index phases: no
-      sentinel); record in this doc
-- [ ] Persist `skipped_scan_locations` to the upgrade lock (or the contract input channel) before
-      delegation
-- [ ] Design and document the entry-point contract per requirement 5 (identity flag, argv, lock
+      sentinel); record in this doc (see Emit-Path Census below)
+- [x] Persist `skipped_scan_locations` to the upgrade lock (or the contract input channel) before
+      delegation (`_persist_skipped_scan_locations`, called first inside the single emit site)
+- [x] Design and document the entry-point contract per requirement 5 (identity flag, argv, lock
       input with old-schema tolerance, sentinel JSON output with version token, timeout constant,
-      stdlib-only import surface, additive-only evolution rule)
-- [ ] Implement the delegation at the primary emit with capture-and-re-emit through `_log`, single
+      stdlib-only import surface, additive-only evolution rule) (contract constants block beside
+      `WAVE_UPGRADE_SUMMARY_SENTINEL`; full contract in the `_emit_delegated_summary` docstring)
+- [x] Implement the delegation at the primary emit with capture-and-re-emit through `_log`, single
       mutually exclusive emit site, and the four-class degradation with the surviving marker
-- [ ] Route the summary's reconciliation input through the delegated producer; retain the
-      in-process path only as the marked degradation fallback
-- [ ] Write the permanent entry-point contract test
-- [ ] Write the AC-1 schema-divergent fixture test, the parser-side end-to-end test, the AC-2
+      (`_emit_primary_summary_via_delegate_or_fallback` + `_delegated_summary_payload`)
+- [x] Route the summary's reconciliation input through the delegated producer; retain the
+      in-process path only as the marked degradation fallback (`_emit_delegated_summary` computes
+      the scan fresh; `_emit_primary_phase_summary` docstring marks the fallback)
+- [x] Write the permanent entry-point contract test (`DelegatedSummaryContractTests`: sentinel
+      value, flag literal, argv shape, pinned timeout in the spawn, real-child envelope with
+      old-schema lock, unrecognized-token degradation)
+- [x] Write the AC-1 schema-divergent fixture test, the parser-side end-to-end test, the AC-2
       failure-class tests, and the AC-3 pg1a reproduction
-- [ ] Re-point the enumerated existing pins (requirement 7 census), including the two AST pins
-- [ ] Author the ADR and the cross-cutting-concerns pointer; update layering-rules (Boundary
+      (`DelegatedSummarySchemaDivergentTests`, `test_server_tools` probe/marker tests,
+      `DelegatedSummaryDegradationTests`, `DelegatedSummaryPg1aReproductionTests`)
+- [x] Re-point the enumerated existing pins (requirement 7 census), including the two AST pins
+      (re-point census recorded in the Progress Log)
+- [x] Author the ADR and the cross-cutting-concerns pointer; update layering-rules (Boundary
       Invariants row) and data-and-control-flow
-- [ ] Update CHANGELOG `### Upgrading to 1.15.0` and seed-160 line ~81 with the requirement 4
+      (`docs/architecture/decisions/1u49j-adr fresh-code-summary-producer-contract.md`; pointer
+      section "Upgrade Remedy Classes (fresh-code reporting)"; FROM-runner to TO-tree producer
+      row; data-and-control-flow summary-process paragraph)
+- [x] Update CHANGELOG `### Upgrading to 1.15.0` and seed-160 line ~81 with the requirement 4
       disclosure (open `seed_edit_allowed` before the seed edit; close after); leave seed-160
       line ~91 untouched
-- [ ] Add a companion provenance sentence to the spec's structured-summary bullet
+      (CHANGELOG item 8 plus a `### Fixed` bullet; seed-160 gained the "Upgrade REPORTING no
+      longer waits a cycle" paragraph appended to the ~:81 old-code-window block, gate opened and
+      closed around the edit; the ~:91 allowlist transition sentence is untouched; the rendered
+      `docs/prompts/upgrade-wavefoundry.prompt.md` mirror carries the same paragraph so seed and
+      rendered surface do not drift)
+- [x] Add a companion provenance sentence to the spec's structured-summary bullet
       (`docs/specs/mcp-tool-surface.md` ~:919) so the 1u44n value-domain statement and the new
       subprocess-vs-fallback provenance do not drift
-- [ ] Note in passing (audit-only, no scope expansion): `HOOK_NAMES` omits
-      `pre/post_index_update` though `main()` dispatches them
-- [ ] Full suite plus the 1u44n test clusters
+- [x] Note in passing (audit-only, no scope expansion): `HOOK_NAMES` omits
+      `pre/post_index_update` though `main()` dispatches them (recorded in the Emit-Path Census
+      section of this doc)
+- [x] Full suite plus the 1u44n test clusters (full suite: 6690 tests across 61 files, OK;
+      phase-transition seam cluster run together per the fragile-file watchpoint: 2131 tests OK;
+      1u44n clusters `Phase4PublisherGrantTests` + `PreIndexUpdateBridgeTests`: 14 tests OK)
+
+## Emit-Path Census (task 1, recorded 2026-08-01)
+
+Every sentinel- or summary-producing path in `upgrade_wavefoundry.py`, classified by executing
+process and code version at emit time:
+
+| Path | Site | Executing process | Code version at emit | Classification |
+| ---- | ---- | ----------------- | -------------------- | -------------- |
+| Primary emit | `main()` end of default phases 0-4 (`_emit_primary_phase_summary`, call site formerly ~:4510) | The OLD parent process; the module was imported before Phase 0b extraction | FROM (old) code emitting against the freshly extracted TO tree | THE old-code reporting window; delegated by this change |
+| Cleanup emit (success) | `phase_cleanup` -> `_print_operator_summary` -> `_emit_summary_line` | Fresh `--cleanup` subprocess spawned after extraction (CLI `upgrade-wavefoundry --cleanup`; MCP `wf_upgrade(phase='cleanup')`) | TO (new) code by construction | Already fresh; NOT delegated (nested subprocess would add a failure mode for zero window closure) |
+| Cleanup emit (failed-phase branch) | `phase_cleanup` failure branch -> `_print_operator_summary` | Same fresh `--cleanup` subprocess | TO (new) code | Not delegated (same fresh-process argument) |
+| Standalone `--update-index` / `--rebuild-index` | No sentinel emit at all (publication outcome recorded in the lock; printed failure marker only) | Fresh subprocess | TO (new) code | No sentinel; out of scope |
+| Delegated producer (NEW, this change) | `--emit-summary` standalone flag | Fresh subprocess the old parent spawns from the extracted tree | TO (new) code | The requirement 1 delegation target |
+
+Audit-only note (no scope expansion): `HOOK_NAMES` (~:1077) omits `pre_index_update` /
+`post_index_update` even though `main()` dispatches both on the default path (~:4455, ~:4468) and
+the standalone `--update-index` branch dispatches them too (~:3814, ~:3843). Recorded here only;
+dry-run hook inventory therefore under-reports those two hook points.
 
 ## Agent Execution Graph
 
@@ -356,7 +424,11 @@ files this change edits; detection (AC-7's regression gates) is not restoration,
 | Date | Update | Evidence |
 | ---- | ------ | -------- |
 | 2026-08-01 | Filed from three field-confirmed instances of the old-code reporting window (pfxp extraction debris, pg1a runner_stale null, pg1a reconciliation []); the pg5l field run retracted the standing-regression theory for the third instance and proved both remedy classes. | Operator field reports 2026-07-31 and 2026-08-01; pg5l run: reconciliation 34/34, direct scan cross-check [34, 0, 0] |
-| 2026-08-01 | Six-lane prepare review (red-team seat, code, qa, architecture, docs-contract/rotating seat, release) of the first draft; consolidated repair pass folded. Red-team NOT-READY corrections: the covered class split honestly (sentinel-carried vs server-resident; runner_stale is server-resident and out of this remedy's reach), the entry-point stability contract promoted to requirement 5, parent-only-facts input carrier promoted into requirement 1, the last-wins sentinel hazard closed in requirement 1/AC-2, and the two refuted Decision Log absolutes rewritten (a pre-emit hook seam DOES exist and is rejected on fail-safety; the old parser is passthrough, field-proven by pg5l's new fields surfacing through the pg1a server). Code lane confirmed the pg1a mechanism structurally (2-tuple unpack vs 3-channel return, swallowed), the 18-key source census (only skipped_scan_locations is memory-only), the cleanup emit already running fresh-process new code, and the capture-and-re-emit transport requirement. QA lane: AC-1 schema-divergent vacuity guard, parser-side end-to-end coverage, marker bounder-survivability, four enumerated failure classes, and the full re-point census including two AST pins. Architecture lane: standalone-flag identity (not hook, not import), lock-as-input with old-schema tolerance, stdlib-only import surface, ADR as canonical home, layering-rules and data-and-control-flow additions. Docs lane: the phantom "changelog template guidance" surface re-pointed at the living CHANGELOG Upgrading section, AC-4 made congruent with the last-window residual, drafted disclosure adopted as the acceptance target. Release lane: commit-before-implement precondition (rebase alternative struck), the contract test as the standing guard for the fielded runner population, pack-contents and release-preflight checks clean. | Six lane reports 2026-08-01; approvals recorded to the sibling events.jsonl at readiness |
+| 2026-08-01 | Implementation complete; change marked implemented. All docs surfaces landed (ADR `1u49j`, cross-cutting pointer, layering-rules Boundary Invariants row, data-and-control-flow paragraph, mcp-tool-surface provenance sentence, CHANGELOG Upgrading item 8 + Fixed bullet, seed-160 disclosure with the gate opened and closed around both seed edits, rendered prompt mirror). Operator mid-implementation clarification (tripwire-not-wall contract framing) folded into ADR, module docstrings, argparse help, contract-test docstring, seed/prompt disclosure, layering row, CHANGELOG. Verification: docs-lint ok (`wf_validate_docs` twice, after each docs pass); seam cluster together (test_upgrade_wavefoundry, test_review_policy, test_index_state_store, test_upgrade_protocol, test_server_tools, test_reconcile_scan): 2131 tests OK; full suite: 6690 tests / 61 files OK; 1u44n clusters 14 tests OK. Em-dash rule enforced across every added line (scripted pass over diff-added lines; zero remaining in authored text). | Suite outputs recorded in this row; AC list above carries per-AC test names |
+| 2026-08-01 | Re-point census executed (requirement 7; re-point, never delete): `test_upgrade_wavefoundry.py` direct emit behavioral tests (:1826, :4812) KEPT unchanged (they now cover the retained fallback; signature stayed backward compatible); main-flow patch sites (:2263, :2403) re-pointed to patch `_emit_primary_summary_via_delegate_or_fallback`; `_print_operator_summary` scan-wiring cluster and monkeypatched-scan tests KEPT (cleanup emit untouched); shape-parity cluster KEPT; emit-call-count AST pin re-pointed to the delegator plus a new zero-direct-fallback-calls assertion and a new module-wide callers pin (`test_fallback_emitter_is_called_only_from_the_delegator`); `_build_upgrade_summary` field/permissions tests KEPT; `test_reconcile_scan.py` ordering pin re-pointed to the delegator and the EXHAUSTIVE emitter set deliberately extended with `_emit_delegated_summary`; `test_server_tools.py` sentinel round-trip (:24758 cluster) extended with `test_round_trip_delegated_child_transport`. Both target files green: 470 tests OK. | `unittest tests.test_upgrade_wavefoundry tests.test_reconcile_scan`: `Ran 470 tests ... OK` |
+| 2026-08-01 | AC-3 red-first cycle complete: mechanism-repro test (mismatched 4-channel `reconcile_scan` stub -> `_run_reconciliation_scan` returns `([], [], [])` silently; end-to-end sentinel reports `[]`) PASSED against the pre-change tree; the delegated-path test FAILED red (`AttributeError: module 'upgrade_wavefoundry' has no attribute '_emit_primary_summary_via_delegate_or_fallback'`); after implementing the delegation (constants, `--emit-summary` producer, `_delegated_summary_payload`, single emit site, marker registration in `server_impl.UPGRADE_SUMMARY_TERMINAL_KEYS`) both tests PASS. | `tests.test_upgrade_wavefoundry.DelegatedSummaryPg1aReproductionTests`: red run `FAILED (errors=1)`; green run `Ran 2 tests ... OK` |
+| 2026-08-01 | Implementation started (wave OPEN at HEAD 15723021, clean tree). Emit-path census recorded (task 1); contract frozen in the Decision Log (`--emit-summary`, `summary_schema: 1`, `_SUMMARY_DELEGATE_TIMEOUT_S`, marker `summary_source_degraded`). Gapfill note: after initial MCP retrieval (code_outline + code_keyword + code_read on the emit seam), remaining bulk-range exploration of `upgrade_wavefoundry.py` / `server_impl.py` / test pins used harness Read for context economy (repeated MCP advisory payloads); no semantic search was replaced by grep. | Census table in this doc; MCP calls: code_outline, code_keyword x2, code_read x4 |
+| 2026-08-01 | Six-lane prepare review (red-team seat, code, qa, architecture, docs-contract/rotating seat, release) of the first draft; consolidated repair pass folded. Red-team NOT-READY corrections: the covered class split honestly (sentinel-carried vs server-resident; runner_stale is server-resident and out of this remedy's reach), the entry-point stability contract promoted to requirement 5, parent-only-facts input carrier promoted into requirement 1, the last-wins sentinel hazard closed in requirement 1/AC-2, and the two refuted Decision Log absolutes rewritten (a pre-emit hook seam DOES exist and is rejected on fail-safety; the old parser is passthrough, field-proven by pg5l's new fields surfacing through the pg1a server). Code lane confirmed the pg1a mechanism structurally (2-tuple unpack vs 3-channel return, swallowed), the 18-key source census (only skipped_scan_locations is memory-only), the cleanup emit already running fresh-process new code, and the capture-and-re-emit transport requirement. QA lane: AC-1 schema-divergent vacuity guard, parser-side end-to-end coverage, marker bounder-survivability, four enumerated failure classes, and the full re-point census including two AST pins. Architecture lane: standalone-flag identity (not hook, not import), lock-as-input with old-schema tolerance, stdlib-only import surface, ADR as canonical home, layering-rules and data-and-control-flow additions. Docs lane: the phantom "changelog template guidance" surface re-pointed at the living CHANGELOG Upgrading section, AC-4 made congruent with the last-window residual, drafted disclosure adopted as the acceptance target. Release lane: commit-before-implement precondition (rebase alternative struck), the contract test as the standing guard for the fielded runner population, pack-contents and release-preflight checks clean. | Six lane reports 2026-08-01; approvals recorded to the sibling events.jsonl at readiness || 2026-08-01 | Delivery review cycle 1: five fresh-context lanes (code, qa, architecture, docs-contract, release) all PASS with executed verification; seven mutation checks across two lanes with the delivered tests killing all briefed mutants. Findings, all repaired by the coordinator and reverified by their originating lanes: docs/release P2 (the CHANGELOG and ADR disclosure wrongly attributed the degradation marker to the transition run; a pre-mechanism runner has no marker code, so both surfaces now state the transition summary is UNMARKED); code-lane P3 pair folded as hardening (the summary child's env now pops WAVEFOUNDRY_UPGRADE_PUBLISHER_TOKEN per the non-publisher-child precedent, and the unrecognized-token marker clamps the child-controlled repr to 40 chars so an oversized drifted token cannot bound away the disclosure); qa-lane P2 (its self-authored mutant D2 survived: nothing proved the real producer reads a NONEMPTY skipped_scan_locations from the lock; a new contract test round-trips a nonempty value through the real child and is confirmed to kill exactly that mutant). Lane highlights: architecture proved the producer runs under a venv-less Python 3.9.6 with zero third-party imports; release staged the REAL base-commit tree and proved the old argparse rejects the flag with exit 2 into marked degradation; code proved the sentinel lands in the upgrade log through _log and that partial or double child sentinels can never reach the server parser. | Five lane reports plus four reverification confirmations, 2026-08-01; ledger delivery records |
 
 
 ## Decision Log
@@ -371,6 +443,9 @@ files this change edits; detection (AC-7's regression gates) is not restoration,
 | 2026-08-01 | Delegate only the primary emit; the cleanup emit stays as-is | The cleanup phase already runs in a fresh post-extract process on new code (census-confirmed); a nested subprocess there adds a failure mode for zero window closure | Delegate both emit paths symmetrically (rejected: redundant machinery on the already-fresh path) |
 | 2026-08-01 | Authoritative-emission-from-a-fresh-phase rejected as the primary design | The default upgrade flow runs no post-extract phase that could own the primary report, and last-sentinel-wins parsing means a second authoritative emitter collides with the parent's; recorded in the ADR as the named alternative since the prior art's first-time success belongs to that topology | Move the authoritative summary into `--update-index`/`--cleanup` (rejected: not on the default path; ordering collision) |
 | 2026-08-01 | Commit the 1u44n-era tree before the first implementation edit | Two closed waves' delivery-verified state sits uncommitted in the same files this change edits; detection is not restoration, this repo has already lost uncommitted work to a subagent's git call once, and the release build refuses a dirty tree regardless | "Rebase deliberately" (struck: with delivered-but-uncommitted verified state there is no defensible rebase path) |
+| 2026-08-01 | Entry-point contract frozen (implementer): flag `--emit-summary`; argv `[<tool-venv python>, <root>/.wavefoundry/framework/scripts/upgrade_wavefoundry.py, --emit-summary, --root, <root>]`; input = `--root` plus the upgrade lock (old-schema tolerant); output = exactly one stdout line `WAVE_UPGRADE_SUMMARY_JSON:{json}` whose payload carries `summary_schema: 1` (`SUMMARY_SCHEMA_VERSION`); parent recognizes token set {1}, anything else degrades; timeout pinned by `_SUMMARY_DELEGATE_TIMEOUT_S = 300` (precedent `_HOOK_TIMEOUT_S`); degradation marker field `summary_source_degraded` (flat short string, terminal-key registered) | Matches the `--update-index`/`--cleanup` standalone-flag precedent; the sentinel prefix reuses the frozen `WAVE_UPGRADE_SUMMARY_SENTINEL` value the fielded server population already parses; the token travels inside the payload so it survives byte-verbatim re-emit; 300s matches the only existing pinned subprocess timeout precedent for upgrade-spawned work | `--summary` (rejected: reads as a human prose request); `--emit-primary-summary` (rejected: the contract is about WHERE the summary is produced, not which phase consumes it; shorter name survives additive evolution better); a second sentinel prefix for delegated output (rejected: the old-server parser only knows the frozen prefix; a new prefix would strand delegated output on every pre-restart server) |
+| 2026-08-01 | Contract framing per operator clarification (folded mid-implementation): the pins are a TRIPWIRE against silent drift, not an unpassable boundary; additive evolution needs no ceremony, deliberate breaking evolution bumps `SUMMARY_SCHEMA_VERSION` and updates the contract test in the same change, and only silent rename/reshape is hard-blocked. Mechanism unchanged (flag, token, timeout, degradation, contract test all as designed); the framing was carried into the ADR, the module contract docstring and constants comment, the argparse help, the contract-test docstring, the seed-160 disclosure (and its rendered mirror), the layering-rules row, and the CHANGELOG bullet | Freeze-forever wording (superseded: it misstates the evolution path and would deter legitimate versioned changes) |
+| 2026-08-01 | Delegation mechanics: parent persists `skipped_scan_locations` to the lock, then a single mutually exclusive emit site (`_emit_primary_summary_via_delegate_or_fallback`) either re-emits the child payload byte-verbatim through `_log` under the parent's own sentinel constant or calls `_emit_primary_phase_summary(degradation_marker=...)`; the fallback summary never carries `summary_schema` | One if/else at one call site makes the last-wins collision structurally impossible; the marker rides `_build_upgrade_summary` output so the fallback stays honest old-schema; token absent on fallback means a fallback can never be mistaken for new-schema output | Emit both and let last-wins pick (rejected: the exact ordering hazard requirement 1 names); child writes the upgrade log directly (rejected: the log contract requires the sentinel to flow through the parent's `_log`) |
 
 
 ## Risks

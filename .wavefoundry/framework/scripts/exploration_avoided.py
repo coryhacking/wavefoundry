@@ -319,8 +319,8 @@ def render_checkpoint_block(root: Path, wave_id: str) -> str:
         "",
         "| Advisory surfaces | Citations | Records credited | Estimated tokens avoided |",
         "| ---: | ---: | ---: | ---: |",
-        f"| {totals['surfaced_events']} | {totals['cited_events']} | "
-        f"{totals['credited_records']} | {totals['estimated_exploration_avoided']} |",
+        f"| {totals['surfaced_events']:,} | {totals['cited_events']:,} | "
+        f"{totals['credited_records']:,} | {totals['estimated_exploration_avoided']:,} |",
         "",
         CAVEAT,
         "",
