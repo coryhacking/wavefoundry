@@ -2,13 +2,16 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-31
+Last verified: 2026-08-03
 
 Shortcut: **`Package Wavefoundry`** | Legacy: **`Package wave framework`** / **`Package wave context`**
 
 ## Purpose
 
-Build the single semver Wavefoundry package. The same extractable zip also carries the executable protocol-bridge entry point used by **Upgrade Wavefoundry**.
+Build the semver Wavefoundry feature package and, when the model set has
+changed, its independently versioned model-set asset. The feature zip carries the executable
+protocol-bridge entry point used by **Upgrade Wavefoundry**; it remains the
+only automatically selectable framework-upgrade artifact.
 
 ## Run
 
@@ -16,6 +19,9 @@ From the repository root:
 
 ```bash
 python3 .wavefoundry/framework/scripts/build_pack.py --version MAJOR.MINOR.PATCH
+
+# Build the directly distributable model-set asset only when that set changed
+python3 .wavefoundry/framework/scripts/build_pack.py --version MAJOR.MINOR.PATCH --with-models
 ```
 
 ## Required Packaging Order
@@ -50,21 +56,24 @@ python3 -B .wavefoundry/framework/scripts/run_tests.py
    **Changelog completeness and amendments:** the entry must be COMPLETE — covering every landed change for the version — before the final pack that goes out for field testing, so the archive's internal changelog matches what ships. If the changelog is amended after a pack was built (late fixes, post-test additions), rebuild before publishing: a released zip must never carry a stale internal changelog. When only the changelog changed, the rebuild differs from the tested archive in that one file, which keeps ship-what-you-tested honest. For the actual publish, prefer `build_pack.py --release`: its preflight requires a clean tree on `main` with the matching changelog section and then builds fresh, so the uploaded archive cannot lag the repo.
 5. Ensure `docs/prompts/prompt-surface-manifest.json` `framework_revision` matches the packaged revision unless you intentionally use `--skip-manifest-check`.
 6. Run the packaging command once. It stamps `.wavefoundry/framework/VERSION` and creates one self-contained `wavefoundry-<version>.zip`: normally extractable as the feature pack and directly executable for protocol-1→2 upgrades. No framework index is built or shipped (framework seeds fold into each project's docs index at setup/upgrade).
-7. Review the one operator-facing artifact name and stamped `VERSION` for consistency. Spot-check that `CHANGELOG.md` is present (`unzip -l <zip> | grep CHANGELOG`), that the latest section matches the version just stamped, and that the same zip contains its executable entry point plus the exact hash-bound feature and bridge payloads. Internal bridge composition files must be removed from `dist/` after assembly.
+7. Review the feature ZIP, its model-set asset when requested, and stamped `VERSION` for consistency. Spot-check that `CHANGELOG.md` is present in the feature ZIP (`unzip -l <feature-zip> | grep CHANGELOG`), that the latest section matches the version just stamped, and that the model-set manifest declares the intended set version, fingerprint, component revisions, hashes, and licenses. Internal bridge composition files must be removed from `dist/` after assembly.
 8. Hand off diff + suggested commit message unless the operator explicitly asks to finalize the commit in this request.
 
 ## Output
 
-The command writes exactly one operator-facing package under `~/.wavefoundry/dist/` by default:
+The default command writes one operator-facing feature package. `--with-models`
+also writes the independently versioned model-set asset under `~/.wavefoundry/dist/`:
 
 ```text
 wavefoundry-MAJOR.MINOR.PATCH.<build>.zip
+wavefoundry-models-MODEL.SET.zip
 ```
 
 - `MAJOR.MINOR.PATCH` is the required semver release version passed via `--version`.
 - `<build>` is a standalone 4-character base36 pure-time build suffix (5-minute buckets on a pinned build epoch), computed automatically by `build_pack.py` — independent of the lifecycle-ID policy.
 - `VERSION` is stamped to `MAJOR.MINOR.PATCH+<build>` before zip creation, and manifest `framework_revision` must match unless `--skip-manifest-check` is used.
-- The zip is both the normal feature pack and the protocol-bridge executable. Release orchestration uploads only that file; the separately built bridge archive, bootstrap, and selection metadata are consumed during assembly and removed from `dist/`.
+- The feature zip is both the normal feature pack and the protocol-bridge executable. It is the sole `wavefoundry-*.zip` candidate selected by upgrade discovery.
+- The `wavefoundry-models-*` asset is never independently selected as a framework upgrade. It contains only validated model sources, provenance, hashes, attribution, and license notices. The selected feature ZIP declares the required model-set version; upgrade locates that exact asset in its standard distribution directories and setup rejects a set that does not match the declaration.
 
 ## Options
 
@@ -73,6 +82,7 @@ wavefoundry-MAJOR.MINOR.PATCH.<build>.zip
 - `--skip-manifest-check`: skip the `framework_revision` consistency check.
 - `--skip-docs-gate`: skip the docs-gardener / docs-lint pre-flight gate.
 - `--verbose` / `-v`: print index build progress.
+- `--with-models`: build the declared offline model-set asset from the warmed local model cache; use it only when the model-set version/fingerprint or its artifact bytes changed. It never downloads missing model files during packaging. `--release` publishes only the feature ZIP unless this flag is supplied.
 
 ## Upgrade Path Coverage
 

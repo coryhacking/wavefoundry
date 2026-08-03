@@ -555,6 +555,7 @@ def _run_release_orchestration(
     release_notes_body: str,
     *,
     dry_run: bool,
+    extra_assets: list[Path] | None = None,
 ) -> None:
     """Commit the build stamp, tag, push main + tag, and upload via `gh release create`.
 
@@ -578,6 +579,7 @@ def _run_release_orchestration(
     tag_message = _derive_tag_message(repo_root, version)
     stamp = (repo_root / FRAMEWORK_REL / "VERSION").read_text(encoding="utf-8").strip()
     stamp_message = f"Bump VERSION to {stamp} after release"
+    assets = [zip_path, *(extra_assets or [])]
 
     if dry_run:
         print(f"[--release-dry-run] would run: stamp README version badge -> {version}", file=sys.stderr)
@@ -588,7 +590,7 @@ def _run_release_orchestration(
         print(
             f"[--release-dry-run] would run: gh release create {tag} "
             f"--title {version!r} --notes-file <tmp> "
-            + str(zip_path),
+            + " ".join(str(asset) for asset in assets),
             file=sys.stderr,
         )
         print(
@@ -706,7 +708,7 @@ def _run_release_orchestration(
                 "gh", "release", "create", tag,
                 "--title", version,
                 "--notes-file", notes_path,
-                str(zip_path),
+                *[str(asset) for asset in assets],
             ],
             cwd=str(repo_root),
             check=False,
@@ -1050,10 +1052,23 @@ def _is_normal_release_zip(path: Path) -> bool:
     )
 
 
+def _is_model_companion_zip(path: Path) -> bool:
+    return bool(
+        re.fullmatch(
+            r"wavefoundry-models-(?:\d+(?:\.\d+)*|\d+\.\d+\.\d+\.[A-Za-z0-9]+)\.zip",
+            path.name,
+        )
+    )
+
+
+def _is_allowed_release_asset(path: Path) -> bool:
+    return _is_normal_release_zip(path) or _is_model_companion_zip(path)
+
+
 def _reject_stale_public_build_artifacts(
     before: Mapping[Path, tuple[int, str]],
 ) -> None:
-    stale = sorted(path.name for path in before if not _is_normal_release_zip(path))
+    stale = sorted(path.name for path in before if not _is_allowed_release_asset(path))
     if stale:
         raise RuntimeError(
             "remove stale public bridge/composition artifact(s) before building: "
@@ -1065,8 +1080,10 @@ def _enforce_single_public_package(
     output_dir: Path,
     expected_package: Path,
     before: Mapping[Path, tuple[int, str]],
+    *,
+    extra_expected: list[Path] | None = None,
 ) -> None:
-    """Require this invocation to leave exactly its normal zip as public output.
+    """Require this invocation to leave exactly its declared release assets.
 
     Older package files already present in ``output_dir`` are preserved and do
     not count against the current build. Any newly created or modified sibling
@@ -1075,17 +1092,19 @@ def _enforce_single_public_package(
     """
 
     after = _public_package_snapshot(output_dir)
-    expected = expected_package
-    if expected not in after or not _is_normal_release_zip(expected):
+    expected = {expected_package, *(extra_expected or [])}
+    if expected_package not in after or not _is_normal_release_zip(expected_package):
         raise RuntimeError(
-            f"release build did not produce the expected public zip: {expected}"
+            f"release build did not produce the expected feature zip: {expected_package}"
         )
+    if any(asset not in after or not _is_model_companion_zip(asset) for asset in (extra_expected or [])):
+        raise RuntimeError("release build did not produce the expected model companion")
     removed = sorted(path.name for path in before if path not in after)
     changed = {
         path for path, fingerprint in after.items()
         if before.get(path) != fingerprint
     }
-    unexpected = sorted(path.name for path in changed if path != expected)
+    unexpected = sorted(path.name for path in changed if path not in expected)
     if removed or unexpected:
         detail = []
         if unexpected:
@@ -1093,7 +1112,7 @@ def _enforce_single_public_package(
         if removed:
             detail.append("pre-existing package(s) removed: " + ", ".join(removed))
         raise RuntimeError(
-            "release build must leave one current-build public Wavefoundry zip; "
+            "release build must leave only its declared current-build public Wavefoundry assets; "
             + "; ".join(detail)
         )
 
@@ -1149,6 +1168,11 @@ def main():
         help="Skip the docs-gardener / docs-lint pre-flight gate.",
     )
     parser.add_argument("--verbose", "-v", action="store_true", help="Print index build progress")
+    parser.add_argument(
+        "--with-models",
+        action="store_true",
+        help="Also build the independently versioned offline model-set asset from a warmed local cache.",
+    )
     parser.add_argument(
         "--release",
         action="store_true",
@@ -1284,6 +1308,7 @@ def main():
         print(f"error: {exc}", file=sys.stderr)
         sys.exit(1)
 
+    model_zip: Path | None = None
     try:
         zip_path = build_zip(
             output_dir,
@@ -1317,10 +1342,15 @@ def main():
             raise RuntimeError(
                 "upgrade assembly must preserve the single public package path"
             )
+        if args.with_models:
+            import model_bundle
+            model_zip = model_bundle.build_bundle(output_dir)
+            print(f"Model companion: {model_zip}", file=sys.stderr)
         _enforce_single_public_package(
             output_dir,
             zip_path,
             public_packages_before,
+            extra_expected=[model_zip] if model_zip is not None else [],
         )
     except RuntimeError as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -1345,6 +1375,7 @@ def main():
                 zip_path,
                 release_notes_body,
                 dry_run=args.release_dry_run,
+                extra_assets=[model_zip] if model_zip is not None else [],
             )
         except RuntimeError as exc:
             print(f"error: release orchestration failed: {exc}", file=sys.stderr)

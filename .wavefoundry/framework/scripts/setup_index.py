@@ -2011,6 +2011,8 @@ def _terminate_and_reap(proc) -> None:
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Set up the Wavefoundry semantic index")
     p.add_argument("--root", default=None, help="Repository root (default: current directory)")
+    p.add_argument("--model-bundle", type=Path, help="Validate and materialize an offline model-set asset before setup")
+    p.add_argument("--model-bundle-model-set-version", help="Expected independently versioned model set")
     p.add_argument("--full", action="store_true", help="Force full rebuild")
     p.add_argument("--rechunk", action="store_true", help="Re-chunk every file but reuse embeddings by content hash (no version change; only new/changed chunks re-embed)")
     p.add_argument("--include-code", action="store_true", help="Build semantic code embeddings synchronously (default; kept for explicit CI/full-build callers)")
@@ -2035,6 +2037,43 @@ def main(argv: list[str] | None = None) -> int:
         _enable_timestamped_stdio()
     args = parse_args(argv)
     root = Path(args.root).expanduser().resolve() if args.root else Path.cwd().resolve()
+    import model_bundle
+    model_bundle_path = args.model_bundle or (Path(os.environ["WAVEFOUNDRY_MODEL_BUNDLE"]) if os.environ.get("WAVEFOUNDRY_MODEL_BUNDLE") else None)
+    if model_bundle_path is None:
+        model_bundle_path = model_bundle.find_local_bundle(
+            (root, Path.home(), Path("~/.wavefoundry").expanduser(),
+             Path("~/.wavefoundry/dist").expanduser(), Path("~/Downloads").expanduser())
+        )
+    if model_bundle_path is not None:
+        materialized = model_bundle.materialize_bundle(
+            model_bundle_path,
+            expected_model_set_version=(args.model_bundle_model_set_version
+                                        or os.environ.get("WAVEFOUNDRY_MODEL_BUNDLE_MODEL_SET_VERSION")
+                                        or model_bundle.MODEL_SET_VERSION),
+        )
+        print(f"Materialized model bundle {materialized['model_set_version']} ({materialized['published_components']} component(s) updated)", flush=True)
+    else:
+        model_status = model_bundle.local_model_set_status()
+        if model_status == "older":
+            print(
+                "A newer release-pinned model set is available, but this standard package carries no model bytes. "
+                "Retaining the verified local cache; place the matching independently versioned wavefoundry-models "
+                "asset in a standard distribution directory for the deterministic offline update path.",
+                flush=True,
+            )
+        elif model_status == "unmanaged":
+            print(
+                "Existing model cache is not release-pinned, so its model version cannot be verified. "
+                "Place the matching independently versioned wavefoundry-models asset in a standard distribution directory "
+                "to adopt the declared model set.",
+                flush=True,
+            )
+        elif model_status in {"mixed", "incompatible"}:
+            print(
+                "Managed model cache identity is mixed or incompatible; the semantic index will rebuild for the release policy. "
+                "Use the matching independently versioned wavefoundry-models asset to repair the declared model set.",
+                flush=True,
+            )
 
     print(f"Wavefoundry index setup: root={root}", flush=True)
     for ds in root.rglob(".DS_Store"):

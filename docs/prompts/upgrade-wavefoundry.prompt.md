@@ -17,9 +17,10 @@ Use this prompt when the repository is already seeded and you want it to adopt a
 The expected operator flow is:
 
 1. Put the new framework in reach of this repository.
-   - Usually this means building or placing `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` in the repository root, `~/.wavefoundry/`, `~/.wavefoundry/dist/`, or `~/Downloads/`.
+   - Usually this means building or placing `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` in the repository root, `~/.wavefoundry/`, `~/.wavefoundry/dist/`, or `~/Downloads/`. For offline model setup, place the feature ZIP and the model-set asset it declares (for example, `wavefoundry-models-1.zip`) in any of those standard distribution directories. Discovery ignores model assets as framework packs, selects the exact declared model-set version, and setup verifies its component hashes and licenses before indexing.
    - If the repository already has the desired newer `.wavefoundry/framework/` tree staged locally, the upgrade runs against that tree directly.
    - **Never `ls` for the pack to decide whether one exists.** It almost always lives in `~/.wavefoundry/dist/`, not the repo root, so an empty `ls wavefoundry-*.zip` at the repo root does **not** mean there's no pack. Determine it only via `wf upgrade --detect-zip` / `--list-zips` / `--dry-run` (see *Agent-safe zip discovery* below).
+   - A standard-only upgrade checks the managed model-set identity but does not replace a verified cache with an unpinned upstream revision. If its release-pinned policy is newer, it retains the working cache and names the matching companion as the deterministic update path; missing models still use the normal setup download path.
 2. Run **Upgrade Wavefoundry**.
    - If a root `wavefoundry-*.zip` is present, upgrade automatically unpacks the newest matching zip first.
    - It then regenerates tracked platform surfaces, reconciles docs/prompts/config, and validates drift.

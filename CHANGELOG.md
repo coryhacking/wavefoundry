@@ -108,6 +108,16 @@ next upgrade reports `summary_schema_version: 1` with no marker.
 
 ### Added
 
+- **Offline model assets are independently versioned.** The standard
+  `wavefoundry-<version>.<build>.zip` remains the sole feature-upgrade input.
+  When the pinned embedding/reranker set changes, `--with-models` additionally
+  publishes `wavefoundry-models-<set>.zip`; framework-only releases do not
+  duplicate model bytes. Upgrade and freshly extracted setup search the normal
+  distribution locations for the exact set declared by the selected feature,
+  validate its provenance, hashes, licenses, and compatibility fingerprint,
+  then materialize it atomically. This also works on the first upgrade from a
+  pre-model-bundle runner. Wave 1u95o / change 1uat8.
+
 - **Memory maintenance now has a deployable public shortcut.** **Review memories** (alias **Memory review**) runs the existing reviewed validation, bounded consolidation, history-worthy archive, and irreversible purge workflow with measurable before/after results; an explicit read-only branch performs no mutation. Consolidation preflights every source, caps each apply at five records with deterministic continuation metadata, creates the replacement through the normal forbidden-content checks, and restores its pre-apply snapshot after a caught multi-source failure. Purge is advertised as destructive and stores only SHA-256 source identities in the repo-visible, non-indexed `.wavefoundry/memory-purge-dispositions.json`, so deleted history cannot regenerate after an index reset or fresh clone. The compact archive register remains searchable while full archive bodies remain excluded. Setup and upgrade migrate the retired generated `memory/pointers/` directory into that register before indexing; index walks exclude any residue and lint rejects the old schema. Retired records have no bulk archival path—the archive-versus-purge judgment remains per record. Fresh setup and every upgrade backfill the missing prompt without replacing project-authored prompt prose, and upgrade may recommend the shortcut after a memory brief but never runs curation automatically. Wave 1u8r2 / changes 1u75c and 1u8r1.
 
 - **The one Wavefoundry package is also the protocol-bridge executable.** The release builder emits only `wavefoundry-<version>.zip`; after explicit dashboard and host shutdown, that same package verifies its embedded bridge and exact feature payload, installs protocol 2 with rollback, and runs the feature hop in one invocation. Native Windows, WSL2, macOS, and Linux share the structured argv contract; no special upgrade package or bridge composition files are operator-facing release assets. Wave 1tz6l / change 1txh7.

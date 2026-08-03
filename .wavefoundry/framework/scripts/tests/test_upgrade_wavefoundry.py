@@ -1725,6 +1725,27 @@ class PreferredPythonTests(unittest.TestCase):
         self.assertEqual(len(graph_calls), 1, f"expected one --graph-only update call: {run_mock.call_args_list}")
         self.assertNotIn("--full", graph_calls[0].args[0], "update path must be update-or-escalate, not forced --full")
 
+    def test_phase_index_update_passes_durable_model_companion_to_docs_child(self):
+        import upgrade_lib
+
+        upgrade_lib.write_upgrade_lock(self.root, "1.14.0", "1.15.0")
+        upgrade_lib.update_upgrade_lock(
+            self.root,
+            model_bundle_path="/tmp/wavefoundry-models-1.zip",
+            model_bundle_model_set_version="1",
+        )
+        setup_script = self.root / "setup_index.py"
+        setup_script.write_text("", encoding="utf-8")
+        result = MagicMock(returncode=0)
+        with patch.object(self.mod, "SCRIPTS_DIR", self.root), \
+             patch.object(self.mod.subprocess_util, "isolated_run", return_value=result) as run_mock, \
+             patch.object(self.mod.subprocess_util, "isolated_popen"):
+            self.mod.phase_index_update(self.root)
+        docs_call = next(call for call in run_mock.call_args_list if "--graph-only" not in call.args[0])
+        env = docs_call.kwargs["env"]
+        self.assertEqual(env["WAVEFOUNDRY_MODEL_BUNDLE"], "/tmp/wavefoundry-models-1.zip")
+        self.assertEqual(env["WAVEFOUNDRY_MODEL_BUNDLE_MODEL_SET_VERSION"], "1")
+
     def test_phase_index_rebuild_runs_graph_only_full(self):
         venv_python = self._make_venv_python()
         mock_proc = MagicMock(returncode=0)

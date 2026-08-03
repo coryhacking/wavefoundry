@@ -1,6 +1,6 @@
 # Wavefoundry
 
-[![Version](https://img.shields.io/badge/version-1.13.0-purple)](https://github.com/coryhacking/wavefoundry/releases)
+[![Version](https://img.shields.io/badge/version-1.15.0-purple)](https://github.com/coryhacking/wavefoundry/releases)
 [![MCP](https://img.shields.io/badge/MCP-local_server-0a7ea4)](https://modelcontextprotocol.io)
 [![Hosts](https://img.shields.io/badge/hosts-Claude_Code_%C2%B7_Codex_%C2%B7_Antigravity_%C2%B7_Cursor-blue)](https://github.com/coryhacking/wavefoundry)
 [![Python](https://img.shields.io/badge/python-%E2%89%A53.11-blue)](https://www.python.org/downloads/)
@@ -37,7 +37,7 @@ All exposed as MCP tools — `docs_search`, `code_search`, `code_ask`, `code_cal
 
 - **Local-first.** Operational state lives on disk in your repo and your home directory. No service, no account, no telemetry.
 - **Structural enforcement over policy.** Gates fire in the framework, not in seed-prompt language. An agent cannot talk its way past `wf_close_wave`.
-- **Framework as one deployable package.** Wavefoundry ships one extractable `wavefoundry-*.zip` for fresh installs and protocol-2 upgrades; that same zip is directly executable when a protocol-1 installation must cross to protocol 2. The framework evolves in Wavefoundry's own wave process, gets packaged, and propagates to downstream projects.
+- **Framework as one deployable feature package.** Wavefoundry ships one extractable `wavefoundry-*.zip` for fresh installs and protocol-2 upgrades; that same zip is directly executable when a protocol-1 installation must cross to protocol 2. An optional, independently versioned `wavefoundry-models-<set>.zip` supplies verified offline embedding and reranker sources for controlled environments. The framework evolves in Wavefoundry's own wave process, gets packaged, and propagates to downstream projects.
 - **Honest about scope.** What's required is required; what's optional is clearly labeled.
 
 ---
@@ -167,10 +167,11 @@ What each `docs/` subdirectory carries — the agent reads these to ground its w
 |---|---|
 | `~/.wavefoundry/venv/` | Shared tool venv (dependencies — LanceDB, ONNX, etc.) |
 | `~/.wavefoundry/cache/fastembed/` | Embedding + reranker model weights (FastEmbed-quantized ONNX), fetched from Hugging Face on first index build, cached thereafter |
+| `~/.wavefoundry/dist/` | Feature packages and, when published for a changed model set, `wavefoundry-models-<set>.zip` offline model assets |
 
 ### Network footprint
 
-**Zero at runtime to Wavefoundry-controlled endpoints.** Embedding model weights are fetched from Hugging Face on the first index build and cached locally thereafter. Dependencies are installed via `uv` (or `pip` fallback) during `wf setup` and during framework upgrades. No service, no account, no telemetry.
+**Zero at runtime to Wavefoundry-controlled endpoints.** Embedding model weights are normally fetched from Hugging Face on the first index build and cached locally thereafter. In controlled or air-gapped deployments, download the feature package and its exact declared `wavefoundry-models-<set>.zip` asset into a standard distribution directory; upgrade verifies and materializes that set without a model download. Dependencies are installed via `uv` (or `pip` fallback) during `wf setup` and during framework upgrades. No service, no account, no telemetry.
 
 ---
 
@@ -359,7 +360,9 @@ Upgrade wave framework
 For an ordinary protocol-2 upgrade, the agent detects framework drift, reconciles prompts and hook
 surfaces, runs the docs gate, reloads the MCP server in-process (release cutovers that require it
 instruct a full host restart instead), and updates the semantic index. The upgrader searches the
-project root, `~/.wavefoundry/`, and `~/.wavefoundry/dist/` for the highest semver feature zip.
+project root, `~/`, `~/.wavefoundry/`, `~/.wavefoundry/dist/`, and `~/Downloads/` for the highest
+semver feature zip. If that feature declares an offline model set, it looks in the same locations
+for the exact `wavefoundry-models-<set>.zip` asset; it does not select a model asset by "latest".
 
 When a 1.14 / protocol-1 installation is moving to 1.15, use that same matching
 `wavefoundry-<version>.zip` package. Fully stop the dashboard and every attached MCP/agent host,

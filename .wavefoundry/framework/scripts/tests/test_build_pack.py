@@ -1376,7 +1376,7 @@ class ReleaseOrchestrationOrderingTests(unittest.TestCase):
             [str(package)],
         )
 
-    def test_release_main_wires_only_single_wavefoundry_package(self):
+    def test_release_main_wires_feature_and_matching_model_assets(self):
         import tempfile
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -1384,6 +1384,8 @@ class ReleaseOrchestrationOrderingTests(unittest.TestCase):
             output = Path(tmp)
             feature = output / "wavefoundry-1.6.0.ptest.zip"
             feature.write_bytes(b"feature")
+            model = output / "wavefoundry-models-1.zip"
+            model.write_bytes(b"models")
             internal = {
                 "bridge": output / "internal-bridge.zip",
                 "selection": output / "internal-selection.json",
@@ -1395,6 +1397,7 @@ class ReleaseOrchestrationOrderingTests(unittest.TestCase):
                 "1.6.0",
                 "--output",
                 str(output),
+                "--with-models",
                 "--release-dry-run",
             ]
             with patch.object(sys, "argv", argv), patch.object(
@@ -1427,7 +1430,9 @@ class ReleaseOrchestrationOrderingTests(unittest.TestCase):
                 build_pack, "build_upgrade_bundle", return_value=feature
             ) as bundle_build, patch.object(
                 build_pack, "_run_release_orchestration", orchestration
-            ):
+            ), patch(
+                "model_bundle.build_bundle", return_value=model
+            ) as model_build:
                 build_pack.main()
 
             bridge_build.assert_called_once()
@@ -1437,15 +1442,19 @@ class ReleaseOrchestrationOrderingTests(unittest.TestCase):
                 version="1.6.0",
                 build_prefix="ptest",
             )
+            model_build.assert_called_once_with(
+                output,
+            )
             orchestration.assert_called_once_with(
                 root,
                 "1.6.0",
                 feature,
                 "assembled notes",
                 dry_run=True,
+                extra_assets=[model],
             )
             self.assertEqual(orchestration.call_args.args[2], feature)
-            self.assertNotIn("additional_assets", orchestration.call_args.kwargs)
+            self.assertEqual(orchestration.call_args.kwargs["extra_assets"], [model])
 
     def test_release_main_rejects_extra_current_build_public_package(self):
         import tempfile
@@ -1582,7 +1591,7 @@ class ReleaseOrchestrationOrderingTests(unittest.TestCase):
             build.assert_not_called()
             self.assertEqual(stale.read_bytes(), b"stale")
 
-    def test_release_main_real_build_leaves_one_new_public_package(self):
+    def test_release_main_real_build_leaves_only_feature_asset_without_with_models(self):
         import tempfile
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -1591,6 +1600,8 @@ class ReleaseOrchestrationOrderingTests(unittest.TestCase):
             output.mkdir()
             older = output / "wavefoundry-1.5.0.older.zip"
             older.write_bytes(b"older")
+            legacy_model = output / "wavefoundry-models-1.15.0.legacy.zip"
+            legacy_model.write_bytes(b"legacy-models")
             framework = root / build_pack.FRAMEWORK_REL
             (framework / "scripts").mkdir(parents=True, exist_ok=True)
             (framework / "scripts" / "placeholder.py").write_text(
@@ -1653,7 +1664,11 @@ class ReleaseOrchestrationOrderingTests(unittest.TestCase):
             )
             self.assertEqual(
                 packages,
-                ["wavefoundry-1.5.0.older.zip", "wavefoundry-1.6.0.ptest.zip"],
+                [
+                    "wavefoundry-1.5.0.older.zip",
+                    "wavefoundry-1.6.0.ptest.zip",
+                    "wavefoundry-models-1.15.0.legacy.zip",
+                ],
             )
             self.assertTrue(zipfile.is_zipfile(output / packages[1]))
 

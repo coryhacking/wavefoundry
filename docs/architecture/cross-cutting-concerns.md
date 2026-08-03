@@ -80,6 +80,21 @@ canonical record, including the rejected fresh-phase-emission alternative, is
 - MCP server: return structured error responses per MCP protocol; never silently ignore failures.
 - Dashboard server: fail fast when no configured port is available; browser renders an explicit unavailable state rather than fabricating data.
 
+## Offline Model Companion Boundary
+
+`wavefoundry-models-<model-set-version>.zip` is a separately named release
+asset, not a framework-upgrade input. Its manifest declares the complete model
+component allowlist, upstream revisions, file hashes, attribution,
+redistribution decision, and license notices. The selected feature ZIP declares
+the model-set version it supports; upgrade selects that exact asset from its
+standard distribution directories. Before a cache directory is published, setup
+verifies archive paths/links, manifest and payload equality, every file hash,
+and the selected model-set identity. It stages
+the complete set before publication, retains sibling backups while every cache
+directory is renamed, and restores all earlier directories if any later publish
+fails. An older verified set is replaced only by a newer declared model-set
+version, while an equal verified set is reused.
+
 ## Shared Utilities
 
 - `.wavefoundry/framework/scripts/wave_lint_lib/` — shared modules for docs_lint: `link_validators.py`, `metadata_validators.py`, `context.py`, `helpers.py`.

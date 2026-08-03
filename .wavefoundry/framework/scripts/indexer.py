@@ -25,6 +25,7 @@ if str(SCRIPTS_DIR) not in sys.path:
 import venv_bootstrap  # the single venv resolver (wave 1p7pl)
 import subprocess_util  # shared subprocess isolation (wave 1p8gu)
 import cli_stdio  # shared UTF-8 stdio reconfigure (wave 1p8gv)
+import model_bundle
 
 # Activate the shared tool venv IN-PROCESS before any heavy import (wave 1p7pl/1p802). No-op when
 # already in the venv or when it does not exist yet (fresh bootstrap).
@@ -62,6 +63,7 @@ TIMESTAMP_LOGS_ENV = "WAVEFOUNDRY_TIMESTAMP_LOGS"
 # docs-only re-embed (see ``build_index``); the code layer reuses its vectors.
 DOCS_MODEL = "Snowflake/snowflake-arctic-embed-xs"
 CODE_MODEL = "BAAI/bge-small-en-v1.5"
+EMBEDDING_MODEL_SET_FINGERPRINT = model_bundle.EMBEDDING_COMPATIBILITY_FINGERPRINT
 
 # Instruction prefixes required by asymmetric embedding models.
 # Values include a trailing space/separator so that ``prefix + text`` produces
@@ -3440,7 +3442,11 @@ def _precision_class_from_version(value: Optional[str]) -> str:
     (indexes built before this wave predate the precision split and are full-precision)."""
     if not value or "@" not in value:
         return "full"
-    return value.rsplit("@", 1)[1]
+    return value.split("@", 2)[1]
+
+
+def _model_set_fingerprint_from_version(value: Optional[str]) -> str:
+    return value.split("@", 2)[2] if value and value.count("@") >= 2 else ""
 
 
 def _predicted_precision_class(model_name: str, providers: list[str]) -> str:
@@ -4025,6 +4031,7 @@ def _build_index_locked(
         model_changed = model_changed or _precision_class_from_version(old_docs_value) != (
             _predicted_precision_class(DOCS_MODEL, _onnx_providers())
         )
+        model_changed = model_changed or _model_set_fingerprint_from_version(old_docs_value) != EMBEDDING_MODEL_SET_FINGERPRINT
         docs_index_exists = (
             (index_dir / "docs.lance").is_dir()
             or "docs" in previously_built_content
@@ -4039,6 +4046,7 @@ def _build_index_locked(
         model_changed = model_changed or _precision_class_from_version(old_code_value) != (
             _predicted_precision_class(CODE_MODEL, _onnx_providers())
         )
+        model_changed = model_changed or _model_set_fingerprint_from_version(old_code_value) != EMBEDDING_MODEL_SET_FINGERPRINT
         code_index_exists = (
             (index_dir / "code.lance").is_dir()
             or "code" in previously_built_content
@@ -5004,14 +5012,14 @@ def _build_index_locked(
             if docs_embedder is not None
             else _precision_class_from_version(old_model_versions.get("docs"))
         )
-        new_model_versions["docs"] = f"{DOCS_MODEL}@{docs_class}"
+        new_model_versions["docs"] = f"{DOCS_MODEL}@{docs_class}@{EMBEDDING_MODEL_SET_FINGERPRINT}"
     if build_code:
         code_class = (
             _predicted_precision_class(CODE_MODEL, build_providers)
             if code_embedder is not None
             else _precision_class_from_version(old_model_versions.get("code"))
         )
-        new_model_versions["code"] = f"{CODE_MODEL}@{code_class}"
+        new_model_versions["code"] = f"{CODE_MODEL}@{code_class}@{EMBEDDING_MODEL_SET_FINGERPRINT}"
     new_chunker_versions = dict(old_chunker_versions)
     if build_docs and current_chunker_version:
         new_chunker_versions["docs"] = current_chunker_version

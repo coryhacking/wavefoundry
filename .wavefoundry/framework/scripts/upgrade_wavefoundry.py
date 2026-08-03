@@ -283,8 +283,70 @@ def _detect_dashboard(root: Path) -> tuple[bool, int | None, str | None]:
 import re as _re
 
 _ZIP_NAME_RE = _re.compile(r"^wavefoundry-(\d+\.\d+\.\d+)\.([A-Za-z0-9]+)\.zip$")
+_MODEL_SET_VERSION_RE = _re.compile(
+    r'^MODEL_SET_VERSION\s*=\s*["\'](\d+(?:\.\d+)*)["\']\s*$', _re.MULTILINE
+)
 _HOME_DIR = Path("~")
 _HOME_WAVEFOUNDRY_DIR = Path("~/.wavefoundry")
+
+
+def _model_set_version_from_pack(feature_zip: Path) -> str | None:
+    """Read the target pack's declared model set without extracting it."""
+    try:
+        with zipfile.ZipFile(feature_zip) as archive:
+            source = archive.read(
+                ".wavefoundry/framework/scripts/model_bundle.py"
+            ).decode("utf-8")
+    except (KeyError, OSError, UnicodeDecodeError, zipfile.BadZipFile):
+        return None
+    match = _MODEL_SET_VERSION_RE.search(source)
+    return match.group(1) if match else None
+
+
+def _matching_model_bundle(feature_zip: Path) -> Path | None:
+    """Find the target pack's independently versioned model-set asset."""
+    model_set_version = _model_set_version_from_pack(feature_zip)
+    if model_set_version is None:
+        return None
+    name = f"wavefoundry-models-{model_set_version}.zip"
+    search_dirs = (
+        feature_zip.parent,
+        _HOME_DIR,
+        _HOME_WAVEFOUNDRY_DIR,
+        _DIST_DIR,
+        _DOWNLOADS_DIR,
+    )
+    seen: set[Path] = set()
+    for directory in search_dirs:
+        directory = directory.expanduser()
+        if directory in seen:
+            continue
+        seen.add(directory)
+        candidate = directory / name
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        for block in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _model_bundle_lock_fields(feature_zip: Path, companion: Path | None) -> dict[str, str | None]:
+    """Return durable companion handoff fields for an upgrade that may pause."""
+    if companion is None:
+        return {
+            "model_bundle_path": None,
+            "model_bundle_model_set_version": None,
+        }
+    return {
+        "model_bundle_path": str(companion),
+        "model_bundle_model_set_version": _model_set_version_from_pack(feature_zip),
+    }
 _DIST_DIR = Path("~/.wavefoundry/dist")
 _DOWNLOADS_DIR = Path("~/Downloads")  # 1p5dk: browser-downloaded packs commonly land here
 
@@ -1261,6 +1323,14 @@ def phase_dry_run(root: Path) -> int:
     # with a distinct filename from the real-run log so a subsequent real
     # run's report does not shadow it. Operators can review the planned
     # actions before committing.
+    model_bundle_path: Path | None = _matching_model_bundle(zip_path) if zip_path is not None else None
+    if model_bundle_path is not None:
+        os.environ["WAVEFOUNDRY_MODEL_BUNDLE"] = str(model_bundle_path)
+        os.environ["WAVEFOUNDRY_MODEL_BUNDLE_MODEL_SET_VERSION"] = _model_set_version_from_pack(zip_path) or ""
+        _log(f"  Matching offline model-set asset found: {model_bundle_path.name}")
+    else:
+        os.environ.pop("WAVEFOUNDRY_MODEL_BUNDLE", None)
+        os.environ.pop("WAVEFOUNDRY_MODEL_BUNDLE_MODEL_SET_VERSION", None)
     if zip_path is not None:
         ext_module = _load_extension_module(zip_path)
         if ext_module is not None and hasattr(ext_module, "post_extract"):
@@ -2130,6 +2200,11 @@ def phase_index_update(root: Path) -> bool:
     ).strip()
     grant_token = _index_child_publisher_grant(root)
     child_env = dict(os.environ)
+    import upgrade_lib
+    lock = upgrade_lib.read_upgrade_lock(root) or {}
+    if lock.get("model_bundle_path"):
+        child_env["WAVEFOUNDRY_MODEL_BUNDLE"] = str(lock["model_bundle_path"])
+        child_env["WAVEFOUNDRY_MODEL_BUNDLE_MODEL_SET_VERSION"] = str(lock.get("model_bundle_model_set_version") or "")
     if memory_run_id:
         child_env["WAVEFOUNDRY_MEMORY_BACKFILL_RUN_ID"] = str(memory_run_id)
     if grant_token:
@@ -4401,6 +4476,8 @@ def main(argv: list[str] | None = None) -> int:
         upgrade_transaction.__exit__(*sys.exc_info())
         raise
 
+    selected_feature_zip = zip_path
+    selected_model_bundle = _matching_model_bundle(selected_feature_zip) if selected_feature_zip is not None else None
     if zip_path is not None:
         try:
             zip_path = _stage_pack_for_consumption(
@@ -4462,6 +4539,13 @@ def main(argv: list[str] | None = None) -> int:
         runner_protocol=2,
         pack_protocol=pack_protocol,
     )
+    if selected_feature_zip is not None:
+        upgrade_lib.update_upgrade_lock(
+            root,
+            **_model_bundle_lock_fields(selected_feature_zip, selected_model_bundle),
+        )
+        if selected_model_bundle is not None:
+            _log(f"  Matching offline model-set asset found: {selected_model_bundle.name}")
     _log("  Upgrade lock written — dashboard will pause indexing.")
 
     # Open the upgrade log and tell the operator where to watch it.

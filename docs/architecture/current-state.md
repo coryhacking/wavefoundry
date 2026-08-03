@@ -14,7 +14,7 @@ Developer/agent
   ├── python3 .wavefoundry/framework/scripts/lifecycle_id.py  →  docs/workflow-config.json (read)
   ├── python3 .wavefoundry/framework/scripts/docs_lint.py      →  docs/ tree (read)
   ├── python3 .wavefoundry/framework/scripts/docs_gardener.py  →  docs/ tree (read/write metadata)
-  ├── python3 .wavefoundry/framework/scripts/build_pack.py     →  .wavefoundry/framework/VERSION (write), wavefoundry-*.zip (write, source-only)
+  ├── python3 .wavefoundry/framework/scripts/build_pack.py     →  .wavefoundry/framework/VERSION (write), source-only feature ZIP and optional independently versioned model-set asset (write)
   ├── python3 .wavefoundry/framework/scripts/render_platform_surfaces.py  →  .claude/, .cursor/, .github/hooks/, .junie/mcp/, .mcp.json, .wavefoundry/bin/register-codex-mcp (write)
   ├── python3 .wavefoundry/framework/scripts/setup_wavefoundry.py / setup_index.py  →  local model cache (write/verify), .wavefoundry/index/ (write)
   └── python3 .wavefoundry/framework/scripts/dashboard_server.py [--open]  →  docs/ tree + .wavefoundry/framework/VERSION (read), .wavefoundry/dashboard-server.json (write), browser loopback session (serve)
@@ -98,8 +98,10 @@ setup_wavefoundry.py --root .
 build_pack.py
   ├── stamps .wavefoundry/framework/VERSION
   ├── writes one wavefoundry-MAJOR.MINOR.PATCH.<build>.zip under ~/.wavefoundry/dist/
-  └── enriches that same zip with the executable protocol-1→2 entry point and verified payloads
-      (the package embeds the verified bridge plus exact feature payload; internal components are removed after assembly)
+  ├── `--with-models` optionally writes wavefoundry-models-MODEL.SET.zip from declared warmed source caches
+  │   (the asset validates every declared file/license, is selected by the target feature's declared model set, and is never a feature-pack candidate)
+  └── enriches the feature ZIP with the executable protocol-1→2 entry point and verified payloads
+      (the feature package embeds the verified bridge plus exact feature payload; internal components are removed after assembly)
 
 dashboard_server.py
   ├── reads docs/workflow-config.json dashboard settings

@@ -131,6 +131,46 @@ class VersionAwareDependencyTests(unittest.TestCase):
         self.assertEqual(rc, 0)
         mock_ensure.assert_called_once()
 
+    def test_standard_package_surfaces_unmanaged_model_cache(self):
+        """Pre-marker caches must still be told how to adopt the release-pinned model set."""
+        model_bundle = types.SimpleNamespace(
+            MODEL_SET_VERSION="1",
+            find_local_bundle=lambda _dirs: None,
+            local_model_set_status=lambda: "unmanaged",
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.dict(sys.modules, {"model_bundle": model_bundle}), \
+                 patch.object(self.mod, "ensure_deps"), \
+                 patch.object(self.mod, "_reexec_with_venv_if_needed"), \
+                 patch.object(self.mod, "_workflow_project_include_prefixes", return_value={}), \
+                 patch.object(self.mod, "_run_indexer"):
+                output = io.StringIO()
+                with redirect_stdout(output):
+                    rc = self.mod.main(["--root", tmp, "--graph-only"])
+        self.assertEqual(rc, 0)
+        self.assertIn("not release-pinned", output.getvalue())
+        self.assertIn("wavefoundry-models asset", output.getvalue())
+
+    def test_new_setup_materializes_discovered_model_set_for_first_upgrade(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            asset = Path(tmp) / "wavefoundry-models-1.zip"
+            model_bundle = types.SimpleNamespace(
+                MODEL_SET_VERSION="1",
+                find_local_bundle=MagicMock(return_value=asset),
+                materialize_bundle=MagicMock(
+                    return_value={"model_set_version": "1", "published_components": 5}
+                ),
+            )
+            with patch.dict(sys.modules, {"model_bundle": model_bundle}), \
+                 patch.object(self.mod, "ensure_deps"), \
+                 patch.object(self.mod, "_reexec_with_venv_if_needed"), \
+                 patch.object(self.mod, "_workflow_project_include_prefixes", return_value={}), \
+                 patch.object(self.mod, "_run_indexer"):
+                self.assertEqual(self.mod.main(["--root", tmp, "--graph-only"]), 0)
+        model_bundle.materialize_bundle.assert_called_once_with(
+            asset, expected_model_set_version="1"
+        )
+
 
 class VenvBootstrapTests(unittest.TestCase):
     def setUp(self):

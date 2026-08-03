@@ -2428,7 +2428,10 @@ class PrecisionClassVersionTests(unittest.TestCase):
         embedded = [t for batch in docs_calls for t in batch]
         self.assertTrue(any("Wave lifecycle" in t for t in embedded), "must re-embed on class change")
         meta = _read_meta_store(self.root / ".wavefoundry" / "index")
-        self.assertEqual(meta["model_versions"]["docs"], f"{self.bi.DOCS_MODEL}@full")
+        self.assertEqual(
+            meta["model_versions"]["docs"],
+            f"{self.bi.DOCS_MODEL}@full@{self.bi.EMBEDDING_MODEL_SET_FINGERPRINT}",
+        )
 
     def _make_docs_only_repo(self) -> None:
         # NOTE: deliberately NOT _make_repo — its docs/workflow-config.json drifts on a content=docs
@@ -2449,9 +2452,8 @@ class PrecisionClassVersionTests(unittest.TestCase):
             result = self.bi.build_index(self.root, full=False, content="docs", verbose=False)
         self.assertTrue(result.get("up_to_date", False), "same class + no changes must be a no-op")
 
-    def test_legacy_bare_name_index_not_rebuilt_when_full(self):
-        """AC-3: a legacy index whose model_versions has a bare name (no @class) is treated as
-        "full" and must NOT spuriously rebuild when the machine also predicts "full"."""
+    def test_legacy_bare_name_index_rebuilds_for_missing_model_set_identity(self):
+        """A legacy index lacks artifact provenance and must be re-embedded once."""
         self._make_docs_only_repo()
         docs_mock = _make_embedder_mock(dim=4)
         with patch.object(self.bi, "_predicted_precision_class", return_value="full"), \
@@ -2462,7 +2464,15 @@ class PrecisionClassVersionTests(unittest.TestCase):
             meta["model_versions"]["docs"] = self.bi.DOCS_MODEL  # legacy bare name, no @class
             _seed_meta_store(_idx, meta)
             result = self.bi.build_index(self.root, full=False, content="docs", verbose=False)
-        self.assertTrue(result.get("up_to_date", False), "legacy bare-name (== full) must not rebuild")
+        self.assertFalse(result.get("up_to_date", False), "missing model-set identity must rebuild")
+
+    def test_model_set_fingerprint_is_parsed_and_required(self):
+        fingerprint = self.bi.EMBEDDING_MODEL_SET_FINGERPRINT
+        self.assertEqual(
+            self.bi._model_set_fingerprint_from_version(f"MODEL@full@{fingerprint}"),
+            fingerprint,
+        )
+        self.assertEqual(self.bi._model_set_fingerprint_from_version("MODEL@full"), "")
 
 
 class WalkerVersionTests(unittest.TestCase):
