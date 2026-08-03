@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-31
+Last verified: 2026-08-03
 
 ## Runtime Topology
 
@@ -37,10 +37,13 @@ MCP client (Claude Code, Cursor, Copilot, etc.)
               ├── wf_get_handoff / wf_set_handoff
               │       └── docs/agents/session-handoff.md (read/write; wf_set_handoff triggers background refresh)
               │       [wf_close_wave/wf_pause_wave: targeted handoff update (Active wave line + Last verified only); close summary includes Owner/Status/Last verified metadata]
-              ├── memory_add / memory_search / memory_brief / memory_reconcile
-              │       └── docs/agents/memory/ (active records + compact pointers);
-              │           docs/agents/memory/archive/ (explicit history only);
-              │           .wavefoundry/index/memory-state.sqlite (cache-coherence fence)
+              ├── memory_add / memory_search / memory_brief / memory_reconcile / memory_consolidate / memory_purge
+              │       └── docs/agents/memory/ (active records);
+              │           docs/agents/memory-archive.md (indexed compact history register);
+              │           docs/agents/memory/archive/ (index-excluded history bodies);
+              │           .wavefoundry/index/memory-state.sqlite (rebuildable cache-coherence fence);
+              │           .wavefoundry/memory-purge-dispositions.json (repo-visible, hash-only purge finality)
+              │       [setup/upgrade migrate legacy docs/agents/memory/pointers/ into the compact register before indexing; walkers exclude any residue]
               ├── wf_open_gate / wf_close_gate / wf_gate_status
               │       └── .wavefoundry/guard-overrides.json (read/write); error on double-open, advisory on double-close; wf_gate_status is read-only
               │       [valid gates: seed_edit_allowed, framework_edit_allowed, design_system_edit_allowed; wf_pause_wave/wf_close_wave create: auto-close all open gates + gates_forced_closed advisory; wf_close_wave dry-run: advisory only, no write]

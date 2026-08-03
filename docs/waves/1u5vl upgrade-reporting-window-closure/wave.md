@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: closed
-Last verified: 2026-08-01
+Last verified: 2026-08-03
 review-evidence-source: events.jsonl
 
 review-policy-reprepare-required: false
@@ -102,7 +102,7 @@ This is a bounded estimate from exact-match memory advisories. It is not added t
 
 | Advisory surfaces | Citations | Records credited | Estimated tokens avoided |
 | ---: | ---: | ---: | ---: |
-| 4 | 0 | 1 | 3641306 |
+| 4 | 0 | 1 | 3,641,306 |
 
 estimated: a surfaced (or cited) advisory does not prove a re-exploration was avoided; this is grounded in the measured cost of the original exploration, scaled by a bounded exact-match attribution, and is NEVER summed into the measured Context Efficiency token total.
 

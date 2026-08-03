@@ -73,6 +73,7 @@ disk writes occur.
 from __future__ import annotations
 
 import json
+import hashlib
 import importlib.util
 import os
 import re
@@ -80,6 +81,7 @@ import shlex
 import subprocess
 import sys
 import traceback
+import uuid
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path, PureWindowsPath
@@ -92,6 +94,12 @@ _LEGACY_RUNTIME_LOCKS = (
 )
 
 _PROTOCOL_METADATA_ARC = ".wavefoundry/framework/UPGRADE-PROTOCOL.json"
+_GRAPH_BUILDER_DOC_CLAIM_RE = re.compile(r"graph builder version `([^`\r\n]+)`")
+_GRAPH_BUILDER_ASSIGNMENT_RE = re.compile(
+    r'^GRAPH_BUILDER_VERSION\s*=\s*["\']([^"\']+)["\']', re.MULTILINE
+)
+_GRAPH_BUILDER_DOC_SNAPSHOT_KEY = "graph_builder_doc_claim_pre_extract"
+_GRAPH_BUILDER_DOC_PACK_SHA_KEY = "graph_builder_doc_claim_pack_sha256"
 
 
 def _render_command(argv: list[str], *, platform_name: str | None = None) -> str:
@@ -356,9 +364,99 @@ def _cut_over_runtime_locks(root: Path) -> None:
     _update_upgrade_state(root, runtime_lock_cutover_complete=True)
 
 
-def pre_extract(ctx):
-    """Quiesce old dedicated lock carriers before installing canonical-only paths."""
+def _graph_builder_version(root: Path) -> str:
+    path = root / ".wavefoundry" / "framework" / "scripts" / "graph_indexer.py"
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    match = _GRAPH_BUILDER_ASSIGNMENT_RE.search(text)
+    return match.group(1) if match else ""
 
+
+def _pack_sha256(path: Path | None) -> str:
+    if not isinstance(path, Path) or not path.is_file():
+        return ""
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _snapshot_graph_builder_doc_claim(ctx) -> None:
+    """Remember an exact pre-extract code/doc version match."""
+
+    state = _read_json_object(ctx.root / ".wavefoundry" / "upgrade-in-progress.json")
+    persisted = state.get(_GRAPH_BUILDER_DOC_SNAPSHOT_KEY)
+    if isinstance(persisted, str) and persisted:
+        ctx.pre_extract_graph_builder_doc_claim = persisted
+        return
+    path = ctx.root / "docs" / "RELIABILITY.md"
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        ctx.pre_extract_graph_builder_doc_claim = ""
+        return
+    claims = list(_GRAPH_BUILDER_DOC_CLAIM_RE.finditer(text))
+    installed = _graph_builder_version(ctx.root)
+    ctx.pre_extract_graph_builder_doc_claim = (
+        installed
+        if len(claims) == 1 and installed and claims[0].group(1) == installed
+        else ""
+    )
+    _update_upgrade_state(
+        ctx.root,
+        **{
+            _GRAPH_BUILDER_DOC_SNAPSHOT_KEY: ctx.pre_extract_graph_builder_doc_claim,
+            _GRAPH_BUILDER_DOC_PACK_SHA_KEY: (
+                _pack_sha256(getattr(ctx, "zip_path", None))
+                if ctx.pre_extract_graph_builder_doc_claim
+                else ""
+            ),
+        },
+    )
+
+
+def _reconcile_graph_builder_doc_claim(ctx) -> bool:
+    """Advance only the exact code-matched claim captured before extraction."""
+
+    old = getattr(ctx, "pre_extract_graph_builder_doc_claim", "")
+    if not isinstance(old, str) or not old:
+        state = _read_json_object(ctx.root / ".wavefoundry" / "upgrade-in-progress.json")
+        old = state.get(_GRAPH_BUILDER_DOC_SNAPSHOT_KEY, "")
+    if not isinstance(old, str) or not old:
+        return False
+    new = _graph_builder_version(ctx.root)
+    if not new or new == old:
+        return False
+    path = ctx.root / "docs" / "RELIABILITY.md"
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return False
+    claims = list(_GRAPH_BUILDER_DOC_CLAIM_RE.finditer(text))
+    if len(claims) == 1 and claims[0].group(1) == new:
+        _update_upgrade_state(ctx.root, **{_GRAPH_BUILDER_DOC_SNAPSHOT_KEY: ""})
+        return False
+    if len(claims) != 1 or claims[0].group(1) != old:
+        return False
+    claim = claims[0]
+    updated = text[: claim.start(1)] + new + text[claim.end(1) :]
+    path.write_text(updated, encoding="utf-8")
+    ctx.pre_extract_graph_builder_doc_claim = ""
+    _update_upgrade_state(ctx.root, **{_GRAPH_BUILDER_DOC_SNAPSHOT_KEY: ""})
+    print(
+        f"upgrade docs reconciliation: graph builder version {old} -> {new}",
+        flush=True,
+    )
+    return True
+
+
+def pre_extract(ctx):
+    """Snapshot lint-bound facts, then quiesce old dedicated lock carriers."""
+
+    _snapshot_graph_builder_doc_claim(ctx)
     _cut_over_runtime_locks(ctx.root)
 
 
@@ -619,6 +717,12 @@ def pre_docs_gate(ctx):
     gives that runner the new one-way sidecar cleanup before docs-lint runs.
     """
 
+    # A graph extraction change may advance the framework-owned version while
+    # leaving an exact project-local reliability claim behind. The incoming
+    # extension captured a code/doc match before extraction, so this can repair
+    # the installing upgrade without overwriting a customized or ambiguous doc.
+    _reconcile_graph_builder_doc_claim(ctx)
+
     # Wave 1t9w7 — runs before docs-lint so renamed memory records are what
     # the gate validates. Version-gated as a cheap skip; the migration itself
     # is idempotent either way. Non-string from_version falls to the module's
@@ -668,17 +772,16 @@ def post_docs_gate(ctx):
     if int(getattr(ctx, "runner_protocol", 1) or 1) >= 2:
         return
     if summary["state"] == "awaiting_validation":
-        print(
-            "\nHistorical memory requires bounded extraction and agent validation "
-            "before index publication.\n"
-            + json.dumps(summary, sort_keys=True)
-            + "\nReload MCP, inspect wf_upgrade_status(), run "
-            "memory_backfill(mode='create', entry_path='upgrade') and "
-            "memory_validate for each validation_worklist item, then call "
-            "wf_upgrade(phase='resume_after_memory').",
-            flush=True,
+        _pause_for_memory_action(
+            ctx,
+            state="awaiting_memory_validation",
+            run_id=run_id,
+            message=(
+                "Historical memory requires bounded extraction and agent validation "
+                "before index publication. Reload MCP, run memory_backfill and "
+                "memory_validate, then call wf_upgrade(phase='resume_after_memory')."
+            ),
         )
-        raise SystemExit(backfill.ACTION_REQUIRED_EXIT)
 
 
 def _bridge_index_publisher_grant(root, lock) -> None:
@@ -709,6 +812,70 @@ def _bridge_index_publisher_grant(root, lock) -> None:
         os.environ["WAVEFOUNDRY_UPGRADE_PUBLISHER_TOKEN"] = token
 
 
+def _arm_memory_action_required(ctx, *, state: str, run_id: str) -> None:
+    """Persist an intentional memory pause and bridge only legacy finalizers.
+
+    The incoming extension is the sole new code running in pghn/pgi7 while
+    they own the outer ``SystemExit`` handler.  Their dashboards also retain a
+    dead-PID lock only when ``failed_phase`` is truthy, so that field is a
+    short-lived compatibility lease, not a public failure claim.
+    """
+    token = uuid.uuid4().hex
+    _update_upgrade_state(
+        ctx.root,
+        current_phase=state,
+        action_required={
+            "kind": "historical_memory",
+            "state": state,
+            "resume_phase": "resume_after_memory",
+            "run_id": run_id,
+            "token": token,
+        },
+        failed_phase="awaiting_memory_validation",
+        failed_at=None,
+    )
+    parent = sys.modules.get(type(ctx).__module__)
+    legacy_build = str(getattr(ctx, "from_version", "") or "")
+    if legacy_build not in {"1.15.0+pghn", "1.15.0+pgi7"}:
+        return
+    if parent is None or getattr(parent, "_wf_memory_action_bridge", False):
+        return
+    original = getattr(parent, "_finalize_failed_upgrade", None)
+    if not callable(original):
+        return
+
+    def _legacy_finalizer(root, tree_mutated, current_phase):
+        # Restore before inspecting state: any mismatch must use the original
+        # finalizer and no later failure may inherit this one-shot exception.
+        parent._finalize_failed_upgrade = original
+        parent._wf_memory_action_bridge = False
+        exc = sys.exc_info()[1]
+        lock = _read_json_object(root / ".wavefoundry" / "upgrade-in-progress.json")
+        action = lock.get("action_required") if isinstance(lock, dict) else None
+        if (
+            tree_mutated
+            and current_phase in {"index_update", "awaiting_memory_validation"}
+            and isinstance(exc, SystemExit)
+            and exc.code == 4
+            and root == ctx.root
+            and isinstance(action, dict)
+            and action.get("kind") == "historical_memory"
+            and action.get("token") == token
+            and action.get("run_id") == run_id
+        ):
+            return
+        return original(root, tree_mutated, current_phase)
+
+    parent._finalize_failed_upgrade = _legacy_finalizer
+    parent._wf_memory_action_bridge = True
+
+
+def _pause_for_memory_action(ctx, *, state: str, run_id: str, message: str) -> None:
+    _arm_memory_action_required(ctx, state=state, run_id=run_id)
+    print(message, flush=True)
+    raise SystemExit(4)
+
+
 def pre_index_update(ctx):
     """Keep candidate publication on the newly installed runner."""
 
@@ -733,18 +900,18 @@ def pre_index_update(ctx):
     backfill = _installed_memory_backfill(ctx.root)
     summary = backfill.reconcile_index_publication(ctx.root, run_id)
     if summary["state"] == "awaiting_validation":
-        raise SystemExit(backfill.ACTION_REQUIRED_EXIT)
+        _pause_for_memory_action(
+            ctx, state="awaiting_memory_validation", run_id=run_id,
+            message="Historical memory requires validation. Reload the installed MCP/runtime, run memory_validate, then call wf_upgrade(phase='resume_after_memory').",
+        )
     if (
         summary["state"] == "ready_for_index"
         and int(summary.get("candidates_drafted") or 0) > 0
     ):
-        print(
-            "\nHistorical memory is ready for receipt-owned publication. "
-            "Reload the installed MCP/runtime and call "
-            "wf_upgrade(phase='resume_after_memory').",
-            flush=True,
+        _pause_for_memory_action(
+            ctx, state="awaiting_memory_publication", run_id=run_id,
+            message="Historical memory is ready for receipt-owned publication. Reload the installed MCP/runtime and call wf_upgrade(phase='resume_after_memory').",
         )
-        raise SystemExit(backfill.ACTION_REQUIRED_EXIT)
     _update_upgrade_state(
         ctx.root,
         memory_backfill_state=summary["state"],

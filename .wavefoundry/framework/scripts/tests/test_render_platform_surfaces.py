@@ -1361,6 +1361,87 @@ class RenderGitignoreBlockTests(unittest.TestCase):
                       "main() must call render_gitignore_block so the block is enforced on every render")
 
 
+class RenderAiignoreIdempotencyTests(unittest.TestCase):
+    """Wave 1u8o2 (1u725): render_aiignore must be idempotent for every input composition.
+
+    Field defect: the meta-line filter recognized only the six non-blank index-block members,
+    so the block's interior blank plus the separator the function itself appends both survived
+    into the FRONT of ``rest`` while only trailing blanks were popped: plus two blank lines per
+    render whenever any project-owned pattern trails the index block, unbounded (one fielded
+    repo grew 189 blanks in four months)."""
+
+    # Interior blank BETWEEN two project-owned patterns: must survive every render
+    # (a blank-eating fix converges by render two but destroys this; AC-1 catches it).
+    _PROJECT_REGION = "# build artifacts\ndist/\n\n# deps\nnode_modules/\n"
+
+    def setUp(self):
+        self.mod = _load_render_module()
+
+    def _canonical_index_only(self) -> str:
+        """First render into an empty repo: the canonical index-block-only content."""
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d).resolve()
+            self.mod.render_aiignore(root)
+            return (root / ".aiignore").read_text(encoding="utf-8")
+
+    def test_trailing_pattern_first_render_exact_then_byte_stable(self):
+        # AC-1: exact expected content on the FIRST render (single canonical separator,
+        # interior project-owned blank preserved), then byte-stability across renders 2-4.
+        expected = self._canonical_index_only() + "\n" + self._PROJECT_REGION
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d).resolve()
+            self.mod.render_aiignore(root)
+            f = root / ".aiignore"
+            f.write_text(
+                f.read_text(encoding="utf-8") + "\n" + self._PROJECT_REGION,
+                encoding="utf-8",
+            )
+            self.mod.render_aiignore(root)
+            first = f.read_text(encoding="utf-8")
+            self.assertEqual(
+                first,
+                expected,
+                "first render must produce exactly one separator after the index block "
+                "and preserve the interior project-owned blank line",
+            )
+            renders = []
+            for _ in range(3):
+                self.mod.render_aiignore(root)
+                renders.append(f.read_text(encoding="utf-8"))
+        for i, text in enumerate(renders, start=2):
+            self.assertEqual(text, first, f"render {i} must be byte-identical to render 1")
+
+    def test_accumulated_blank_run_self_heals_in_one_render(self):
+        # AC-2: a file already carrying the accumulated head-of-rest blank run (the field
+        # shape) collapses to canonical form in a single render.
+        index_only = self._canonical_index_only()
+        accumulated = index_only + ("\n" * 10) + "node_modules/\n"
+        expected = index_only + "\n" + "node_modules/\n"
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d).resolve()
+            f = root / ".aiignore"
+            f.write_text(accumulated, encoding="utf-8")
+            self.mod.render_aiignore(root)
+            healed = f.read_text(encoding="utf-8")
+        self.assertEqual(
+            healed,
+            expected,
+            "one render must collapse the accumulated blank run to the single canonical separator",
+        )
+
+    def test_index_block_only_stays_byte_stable(self):
+        # AC-3: the previously-idempotent path (nothing below the index block) does not regress.
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d).resolve()
+            f = root / ".aiignore"
+            self.mod.render_aiignore(root)
+            first = f.read_text(encoding="utf-8")
+            for _ in range(2):
+                self.mod.render_aiignore(root)
+            final = f.read_text(encoding="utf-8")
+        self.assertEqual(final, first, "index-block-only renders must stay byte-identical")
+
+
 class RenderGitattributesBlockTests(unittest.TestCase):
     """Wave 1p9hm: the LF line-ending policy for Wavefoundry-rendered files is propagated to target
     repos programmatically + idempotently, self-healing on every render/upgrade (previously the 1p7pn

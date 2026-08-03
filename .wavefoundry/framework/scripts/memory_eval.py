@@ -268,7 +268,7 @@ def _case_records(srv, root: Path, case: dict) -> list[dict[str, Any]]:
     if not case.get("include_history") and (
         case.get("query") or case.get("target")
     ):
-        records.extend(mem.load_memory_pointers(root))
+        records.extend(mem.load_archive_register_entries(root))
     if case.get("target"):
         records = [
             record for record in records

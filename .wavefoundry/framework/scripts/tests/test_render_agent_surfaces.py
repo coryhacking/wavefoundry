@@ -19,7 +19,161 @@ GURU_STUB = "# Guru\n\nRole: guru\n"
 sys.path.insert(0, str(SCRIPTS_ROOT))
 import render_agent_surfaces as ras  # noqa: E402
 import render_platform_surfaces as rps  # noqa: E402
+import review_policy  # noqa: E402
+import review_policy_reconcile  # noqa: E402
 from wave_lint_lib.core_validators import check_review_policy_carriers  # noqa: E402
+
+
+def assert_memory_review_contract(test: unittest.TestCase, text: str) -> None:
+    for literal in (
+        "Source event:",
+        "Validation: pending",
+        "action_delta=...",
+        "rationale=...",
+        "evidence_verified=...",
+        "current_target_verified=...",
+        "canonical_overlap=...",
+        "Never send a hand-authored or already-finalized candidate",
+        'memory_reconcile(memory_id=...,\n     status="active"|"rejected")',
+        'memory_consolidate(mode="dry_run")',
+        "<one exact groups[].memory_ids>",
+        "does not\n   expose or accept a bulk retired-record cleanup list",
+        "retain_for_history=true",
+        "memory_purge(memory_id=..., reviewed=true",
+        'index_build(content="docs", mode="update")',
+        'index_build_status(layer="project")',
+        "`lock.held=false`",
+        '`state="finished"`',
+        '`state="idle"`',
+        '`epoch.status="complete"`',
+        "`epoch.interrupted=false`",
+        "`lock.ended_at`",
+        "`up_to_date=true`",
+        "stop and report it",
+        "index_health()",
+        "wf_memory_eval()",
+        "Do not record model names.",
+    ):
+        test.assertIn(literal, text)
+
+    ordered = [
+        'index_build(content="docs", mode="update")',
+        'index_build_status(layer="project")',
+        "index_health()",
+        "wf_memory_eval()",
+    ]
+    positions = [text.index(literal) for literal in ordered]
+    test.assertEqual(positions, sorted(positions))
+
+    read_only = text.split("## Read-only procedure", 1)[1].split("## Report", 1)[0]
+    calls = set(re.findall(r"\b([a-z][a-z0-9_]*)\(", read_only))
+    test.assertTrue(calls)
+    test.assertTrue(
+        calls.issubset(
+            {"memory_brief", "memory_search", "memory_consolidate", "wf_memory_eval"}
+        ),
+        calls,
+    )
+    test.assertIn('memory_consolidate(mode="dry_run")', read_only)
+
+
+class MemoryReviewPromptTests(unittest.TestCase):
+    def test_prompt_contract_and_known_bad_controls(self) -> None:
+        prompt = (
+            PROJECT_ROOT / "framework" / "install" / "lifecycle-prompts"
+            / "memory-review.prompt.md"
+        ).read_text(encoding="utf-8")
+        assert_memory_review_contract(self, prompt)
+
+        known_bad = (
+            prompt.replace("canonical_overlap=...,", "", 1),
+            prompt.replace(
+                "Never send a hand-authored or already-finalized candidate",
+                "Send a hand-authored or already-finalized candidate",
+                1,
+            ),
+            prompt.replace('index_build_status(layer="project")', "", 1),
+        )
+        for broken in known_bad:
+            with self.subTest():
+                with self.assertRaises(AssertionError):
+                    assert_memory_review_contract(self, broken)
+
+    def test_missing_only_baseline_materializes_and_preserves_existing_prompt(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            written = ras.render_agent_surfaces(root)
+            target = root / "docs" / "prompts" / "memory-review.prompt.md"
+            self.assertIn("docs/prompts/memory-review.prompt.md", written)
+            assert_memory_review_contract(self, target.read_text(encoding="utf-8"))
+            snapshot = target.read_bytes()
+            self.assertEqual(ras.render_agent_surfaces(root), [])
+            self.assertEqual(target.read_bytes(), snapshot)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            target = root / "docs" / "prompts" / "memory-review.prompt.md"
+            target.parent.mkdir(parents=True)
+            existing = b"# Project-owned memory review\n\nkeep exactly\n"
+            target.write_bytes(existing)
+            ras.render_agent_surfaces(root)
+            self.assertEqual(target.read_bytes(), existing)
+
+    def test_fresh_renderer_replays_only_upgrade_policy_marker(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            target = root / review_policy_reconcile.UPGRADE_POLICY_DESTINATION
+            target.parent.mkdir(parents=True)
+            stale = review_policy.UPGRADE_POLICY_BLOCK.replace(
+                "**Review memories**", "**Old memory command**"
+            )
+            prefix = "# Project upgrade\n\nproject-prefix\n\n"
+            suffix = "\n\n## Project suffix\n\nkeep me\n"
+            target.write_text(prefix + stale + suffix, encoding="utf-8")
+
+            written = ras.render_agent_surfaces(root)
+            self.assertIn(review_policy_reconcile.UPGRADE_POLICY_DESTINATION, written)
+            rendered = target.read_text(encoding="utf-8")
+            self.assertTrue(rendered.startswith(prefix))
+            self.assertTrue(rendered.endswith(suffix))
+            self.assertIn("**Review memories**", rendered)
+            self.assertNotIn("**Old memory command**", rendered)
+            first = target.read_bytes()
+            self.assertEqual(ras.render_agent_surfaces(root), [])
+            self.assertEqual(target.read_bytes(), first)
+
+    def test_upgrade_policy_symlink_escape_refuses_before_sibling_write(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir, tempfile.TemporaryDirectory() as outside:
+            root = Path(temp_dir)
+            outside_target = Path(outside) / "upgrade.md"
+            outside_target.write_text("outside\n", encoding="utf-8")
+            target = root / review_policy_reconcile.UPGRADE_POLICY_DESTINATION
+            target.parent.mkdir(parents=True)
+            target.symlink_to(outside_target)
+
+            with self.assertRaisesRegex(RuntimeError, "escapes the repository root"):
+                ras.render_agent_surfaces(root)
+            self.assertFalse((root / "docs/prompts/create-wave.prompt.md").exists())
+            self.assertEqual(outside_target.read_bytes(), b"outside\n")
+
+    def test_ambiguous_upgrade_policy_marker_fails_loudly(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            target = root / review_policy_reconcile.UPGRADE_POLICY_DESTINATION
+            target.parent.mkdir(parents=True)
+            target.write_text(
+                review_policy.UPGRADE_POLICY_MARKER_BEGIN
+                + "\n"
+                + review_policy.UPGRADE_POLICY_MARKER_BEGIN
+                + "\n"
+                + review_policy.UPGRADE_POLICY_MARKER_END
+                + "\n",
+                encoding="utf-8",
+            )
+            before = target.read_bytes()
+            with self.assertRaisesRegex(RuntimeError, "ambiguous review-policy upgrade markers"):
+                ras.render_agent_surfaces(root)
+            self.assertEqual(target.read_bytes(), before)
 
 
 class ReviewProtocolCarrierRegistryTests(unittest.TestCase):

@@ -44,6 +44,7 @@ import os
 import re
 import secrets
 import sqlite3
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -106,6 +107,15 @@ META_FRESHNESS_UPDATED_AT = "freshness_updated_at"
 DRIFT_COMMITS_THRESHOLD = 3
 META_DRIFT_FINGERPRINT = "drift_fingerprint"
 META_DRIFT_UPDATED_AT = "drift_updated_at"
+# --- 1u8o0: drift evaluation state (first-failure staleness surface) ---
+# A failed evaluation preserves the prior drift rows (fail-closed), so without
+# these keys a frozen state is indistinguishable from evaluated-clean. Recorded
+# from the FIRST failure; a threshold only ever escalates, never gates display.
+META_DRIFT_LAST_SUCCESS_AT = "drift_last_success_at"
+META_DRIFT_FAILURE_COUNT = "drift_failure_count"
+META_DRIFT_FAILURE_STAGE = "drift_failure_stage"
+META_DRIFT_FAILURE_REASON = "drift_failure_reason"
+META_DRIFT_FAILURE_SINCE = "drift_failure_since"
 
 # Verification stamp (1ro43 Req 10): a frontmatter-adjacent line recording the
 # commit a doc was deliberately reviewed against. Written only by an agentic
@@ -1764,6 +1774,99 @@ def registry_chunk_count(index_dir: Path, table_name: str) -> Optional[int]:
             pass
 
 
+def orphan_store_paths(index_dir: Path) -> dict[str, set[str]]:
+    """Read-only path manifest for the orphan-store reconciliation (1u8nz).
+
+    Returns the current path sets of the stores that lacked store-minus-
+    authority reconciliation on incremental builds: the ``file_freshness``
+    and ``secret_scan_cache`` sidecars, plus the graph state store's
+    ``files`` manifest (read directly at ``GRAPH_STATE_STORE_RELPATH``; the
+    same two-column peek as ``GraphStateStore.paths_with_hashes``, kept here
+    so the zero-change hot path never loads the graph module just to plan).
+    Absent or unreadable stores read as empty sets: the reconcile then has
+    no candidates and does nothing, which is the safe direction.
+    """
+    result: dict[str, set[str]] = {
+        "file_freshness": set(),
+        "secret_scan_cache": set(),
+        "graph": set(),
+    }
+    conn = open_read_only(index_dir)
+    if conn is not None:
+        try:
+            for table in ("file_freshness", "secret_scan_cache"):
+                rows = conn.execute(f"SELECT path FROM {table}").fetchall()
+                result[table] = {str(r[0]) for r in rows}
+        except sqlite3.Error:
+            pass
+        finally:
+            try:
+                conn.close()
+            except sqlite3.Error:
+                pass
+    graph_path = index_dir / GRAPH_STATE_STORE_RELPATH
+    if graph_path.exists():
+        try:
+            gconn = sqlite3.connect(
+                f"file:{graph_path.as_posix()}?mode=ro", uri=True, timeout=10.0
+            )
+            try:
+                gconn.execute("PRAGMA busy_timeout=10000")
+                rows = gconn.execute("SELECT path FROM files").fetchall()
+                result["graph"] = {str(r[0]) for r in rows}
+            finally:
+                try:
+                    gconn.close()
+                except sqlite3.Error:
+                    pass
+        except sqlite3.Error:
+            pass
+    return result
+
+
+def remove_sidecar_paths(
+    index_dir: Path,
+    *,
+    freshness_paths: Iterable[str] = (),
+    secret_scan_paths: Iterable[str] = (),
+) -> dict[str, int]:
+    """Delete freshness and secret-scan sidecar rows for retired paths (1u8nz).
+
+    Per-table path sets because the removal semantics differ: freshness rows
+    retire on scope departure too, while the secret-scan cache legitimately
+    holds tracked-but-not-indexed paths and retires only disk-absent ones.
+    ``file_commits`` rows pair with ``file_freshness`` and retire together.
+    One transaction; only ever called from the build-epoch reap seam in the
+    indexer (no store-side deletion entry point exists outside an epoch).
+    Returns per-table deleted-row counts.
+    """
+    fresh_list = [str(p) for p in freshness_paths]
+    secret_list = [str(p) for p in secret_scan_paths]
+    deleted = {"file_freshness": 0, "file_commits": 0, "secret_scan_cache": 0}
+    if not fresh_list and not secret_list:
+        return deleted
+    store = IndexStateStore(index_dir)
+    try:
+        store.ensure_current()
+        conn = store._conn
+        with conn:
+            for table, path_list in (
+                ("file_freshness", fresh_list),
+                ("file_commits", fresh_list),
+                ("secret_scan_cache", secret_list),
+            ):
+                for idx in range(0, len(path_list), 500):
+                    batch = path_list[idx:idx + 500]
+                    marks = ", ".join("?" for _ in batch)
+                    cur = conn.execute(
+                        f"DELETE FROM {table} WHERE path IN ({marks})", batch
+                    )
+                    deleted[table] += max(cur.rowcount, 0)
+    finally:
+        store.close()
+    return deleted
+
+
 def chunk_index_is_cold(index_dir: Path) -> bool:
     """Read-only probe of the cold-provisioning flag (1sbfj).
 
@@ -3151,19 +3254,55 @@ def parse_verification_stamp(text: str) -> tuple[Optional[str], bool]:
 _HEX40_RE = re.compile(r"^[0-9a-f]{40}$")
 
 
+class _DriftWalkFailure:
+    """Falsy ``ok``-slot carrier naming WHICH fail-closed return fired (1u8o0).
+
+    Preserves the ``(ok, payload)`` tuple contract: every existing truthiness
+    check and unpack keeps working, including legacy test stubs returning a
+    plain ``False``, while giving the caller a per-return-site reason to
+    thread into the skip log line (previously a static three-way parenthetical
+    over roughly fifteen distinct collapse sites). ``sample`` is bounded so a
+    hostile or garbage stream can never balloon the log.
+    """
+
+    __slots__ = ("reason",)
+
+    def __init__(self, reason: str, sample: str = "") -> None:
+        text = str(reason)
+        if sample:
+            text = f"{text}: {str(sample)[:120]}"
+        self.reason = text
+
+    def __bool__(self) -> bool:
+        return False
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging aid
+        return f"<drift-walk-failure {self.reason!r}>"
+
+
+def _drift_failure_reason(ok: Any) -> str:
+    """The reason carried by a failed walk result; 'unspecified' for a bare False."""
+    return getattr(ok, "reason", "") or "unspecified"
+
+
 def _collect_git_history(root: Path) -> tuple[bool, list[dict[str, Any]]]:
     """``(ok, commits)`` — one batched ``git log --name-only`` walk, newest→oldest.
 
     Each commit is ``{sha, ts, parents, subject, files}``. Build-path only.
 
-    ``ok`` is False (delivery-review finding: the walk must not fail open) on:
+    ``ok`` is falsy (delivery-review finding: the walk must not fail open) on:
     subprocess non-zero exit, timeout, exception, OR malformed output — a
     sentinel line whose ``%H``/``%P`` is not a 40-hex SHA, or non-empty stdout
-    that parsed to zero commits (garbage/truncation). An empty repository makes
-    ``git log`` exit non-zero → ``(False, [])``; that is harmless because the
-    build caller gates on ``_git_head`` (empty repo → no HEAD → skipped) before
-    ever reaching this walk.
+    that parsed to zero commits (garbage/truncation). Since 1u8o0 the falsy
+    value is a ``_DriftWalkFailure`` naming the exact return site so the skip
+    log can say WHICH cause fired. An empty repository makes ``git log`` exit
+    non-zero → failure; that is harmless because the build caller gates on
+    ``_git_head`` (empty repo → no HEAD → skipped) before ever reaching this
+    walk.
     """
+    def _fail(reason: str, sample: str = "") -> tuple[_DriftWalkFailure, list]:
+        return _DriftWalkFailure(reason, sample), []
+
     try:
         result = _run_git(
             [
@@ -3185,9 +3324,11 @@ def _collect_git_history(root: Path) -> tuple[bool, list[dict[str, Any]]]:
             capture_output=True, text=True, timeout=120, errors="replace",
         )
         if result.returncode != 0:
-            return False, []
-    except Exception:
-        return False, []
+            return _fail("subprocess_error", f"git log exited {result.returncode}")
+    except subprocess.TimeoutExpired:
+        return _fail("timeout", "git log exceeded its 120s budget")
+    except Exception as exc:
+        return _fail("subprocess_error", f"{type(exc).__name__}: {exc}")
     commits: list[dict[str, Any]] = []
     current: Optional[dict[str, Any]] = None
     seen_sha: set[str] = set()
@@ -3195,20 +3336,21 @@ def _collect_git_history(root: Path) -> tuple[bool, list[dict[str, Any]]]:
         if line.startswith("\x01"):
             parts = line[1:].split("\x02", 3)
             if len(parts) < 4:
-                return False, []  # truncated sentinel
+                return _fail("malformed_output", f"truncated sentinel {line[1:]}")
             sha = parts[0].strip()
             if not _HEX40_RE.match(sha):
-                return False, []  # malformed commit SHA
+                return _fail("malformed_output", f"bad commit sha {sha}")
             if sha in seen_sha:
-                return False, []  # duplicate SHA — malformed/truncated stream
+                return _fail("malformed_output", f"duplicate sha {sha}")
             seen_sha.add(sha)
             parents = parts[2].split() if parts[2] else []
             if any(not _HEX40_RE.match(p) for p in parents):
-                return False, []  # malformed parent SHA
+                return _fail("malformed_output", f"bad parent sha in {sha}")
             try:
                 ts = int(parts[1])
             except ValueError:
-                return False, []  # invalid timestamp — reject, do not coerce to 0
+                # invalid timestamp: reject, do not coerce to 0
+                return _fail("malformed_output", f"bad timestamp in {sha}")
             current = {
                 "sha": sha,
                 "ts": ts,
@@ -3220,10 +3362,10 @@ def _collect_git_history(root: Path) -> tuple[bool, list[dict[str, Any]]]:
             continue
         if line.strip():
             if current is None:
-                return False, []  # orphan content before any commit sentinel
+                return _fail("malformed_output", f"content before first sentinel {line}")
             current["files"].append(line.strip())
     if result.stdout.strip() and not commits:
-        return False, []  # non-empty stdout that yielded no commits — garbage
+        return _fail("malformed_output", "non-empty output parsed to zero commits")
     return True, commits
 
 
@@ -3310,9 +3452,18 @@ def _gardener_only_pairs(
        (its body date survives normalization → content differs). The `new`
        version must exist; a git failure there returns ``ok=False``.
 
-    ``ok`` is False on any subprocess non-zero exit, timeout, exception, or
+    ``ok`` is falsy on any subprocess non-zero exit, timeout, exception, or
     malformed output — never conflated with "success, no gardener commits".
+    Since 1u8o0 the falsy value is a ``_DriftWalkFailure`` naming the exact
+    return site, and DELETION frames (``+++ /dev/null``, including the
+    rename-as-deletion frames ``--no-renames`` produces) are handled instead
+    of failing the whole classification closed: a deleted living doc is a
+    material change by definition, so its frame validates structurally and is
+    simply never a gardener-only candidate.
     """
+    def _fail(reason: str, sample: str = "") -> tuple[_DriftWalkFailure, set]:
+        return _DriftWalkFailure(reason, sample), set()
+
     paths = sorted({str(p) for p in doc_paths})
     if not paths:
         return True, set()
@@ -3332,9 +3483,11 @@ def _gardener_only_pairs(
             capture_output=True, text=True, timeout=120, errors="replace",
         )
         if result.returncode != 0:
-            return False, set()
-    except Exception:
-        return False, set()
+            return _fail("subprocess_error", f"git log -p exited {result.returncode}")
+    except subprocess.TimeoutExpired:
+        return _fail("timeout", "git log -p exceeded its 120s budget")
+    except Exception as exc:
+        return _fail("subprocess_error", f"{type(exc).__name__}: {exc}")
 
     first_parent = {
         str(c["sha"]): (c.get("parents") or [None])[0] for c in commits
@@ -3347,8 +3500,12 @@ def _gardener_only_pairs(
     # Frame state — a commit frame is `diff --git`+ `+++` + (`@@` + content)+;
     # each commit must contain at least one COMPLETE such frame. Any partial
     # frame (delivery-review round 4: sentinel-only / diff-only / header-only
-    # truncation) fails closed.
+    # truncation) fails closed. `f_deletion` marks a `+++ /dev/null` frame:
+    # its content lines are structurally valid (1u8o0; previously they read
+    # as "content outside a well-formed hunk" and one deleted living doc
+    # poisoned EVERY build until the commit aged out of the log window).
     frame_open = f_plus = f_hunk = hunk_content = commit_has_frame = False
+    f_deletion = False
 
     def _frame_complete() -> bool:
         return (not frame_open) or (f_plus and f_hunk and hunk_content)
@@ -3356,48 +3513,72 @@ def _gardener_only_pairs(
     for line in result.stdout.splitlines():
         if line.startswith("\x01"):
             if not _frame_complete():
-                return False, set()
+                return _fail("malformed_patch", "truncated frame at commit boundary")
             if frame_open:
                 commit_has_frame = True
             if saw_sentinel and not commit_has_frame:
-                return False, set()  # previous commit carried no complete frame
+                # previous commit carried no complete frame
+                return _fail("malformed_patch", f"frameless commit before {line[1:][:40]}")
             sha = line[1:].strip()
             if not _HEX40_RE.match(sha):
-                return False, set()  # malformed commit sentinel
+                return _fail("malformed_patch", f"bad commit sentinel {sha}")
             saw_sentinel = True
             cur_file = None
             frame_open = f_plus = f_hunk = hunk_content = commit_has_frame = False
+            f_deletion = False
         elif line.startswith("diff --git"):
             if not sha:
-                return False, set()  # file diff before any commit
+                return _fail("malformed_patch", "file diff before any commit")
             if not _frame_complete():
-                return False, set()  # previous frame truncated
+                return _fail("malformed_patch", "truncated frame at file boundary")
             if frame_open:
                 commit_has_frame = True
             frame_open = True
             f_plus = f_hunk = hunk_content = False
+            f_deletion = False
             cur_file = None
         elif line.startswith("--- "):
             continue
         elif line.startswith("+++ "):
             if not frame_open:
-                return False, set()  # +++ with no diff --git
+                return _fail("malformed_patch", "+++ with no diff --git")
             target = line[4:]
-            cur_file = None if target == "/dev/null" else (
-                target[2:] if target.startswith("b/") else target)
+            # Git terminates an unquoted +++ path with TAB when it contains a
+            # space. Control characters force C-quoting even with
+            # core.quotepath=off, so the first TAB here cannot be path data.
+            # Quoted frames remain fail-closed rather than being misparsed.
+            if target.startswith('"'):
+                return _fail("quoted_path", target[:80])
+            target = target.split("\t", 1)[0]
+            if target == "/dev/null":
+                # Deletion frame: the doc is being deleted (or renamed away
+                # under --no-renames). Material by definition, so classify
+                # nothing, but the frame itself is structurally valid.
+                cur_file = None
+                f_deletion = True
+            else:
+                cur_file = target[2:] if target.startswith("b/") else target
+                f_deletion = False
             f_plus = True
         elif line.startswith("@@"):
             if not frame_open or not f_plus:
-                return False, set()  # hunk before its file header
+                return _fail("malformed_patch", "hunk before its file header")
             if not re.match(r"^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@", line):
-                return False, set()  # malformed hunk header
+                return _fail("malformed_patch", f"malformed hunk header {line[:40]}")
             if f_hunk and not hunk_content:
-                return False, set()  # previous hunk had no content
+                return _fail("malformed_patch", "hunk with no content")
             f_hunk = True
             hunk_content = False
         elif line and line[0] in "+-":
-            if not sha or cur_file is None or not f_hunk:
-                return False, set()  # content outside a well-formed hunk
+            if not sha or not f_hunk:
+                return _fail("malformed_patch", f"content outside a well-formed hunk {line[:40]}")
+            if cur_file is None:
+                if not f_deletion:
+                    return _fail("malformed_patch", f"content outside a well-formed hunk {line[:40]}")
+                # 1u8o0: deletion-frame content is structurally valid, never a
+                # gardener-only candidate (a deleted living doc is material).
+                hunk_content = True
+                continue
             hunk_content = True
             key = (sha, cur_file)
             changed[key] = True
@@ -3410,13 +3591,13 @@ def _gardener_only_pairs(
 
     # Close the final frame + commit (EOF).
     if not _frame_complete():
-        return False, set()
+        return _fail("malformed_patch", "truncated frame at EOF")
     if frame_open:
         commit_has_frame = True
     if saw_sentinel and not commit_has_frame:
-        return False, set()  # last commit carried no complete frame
+        return _fail("malformed_patch", "frameless final commit")
     if result.stdout.strip() and not saw_sentinel:
-        return False, set()
+        return _fail("malformed_patch", "non-empty output with no commit sentinel")
 
     candidates = [k for k in changed if all_date.get(k, False)]
     if not candidates:
@@ -3431,18 +3612,19 @@ def _gardener_only_pairs(
             specs.append(f"{parent}:{rel}")
     blobs = _batch_git_blobs(root, specs)
     if blobs is None:
-        return False, set()
+        return _fail("blob_fetch_failed", "git cat-file --batch failed")
     pairs: set[tuple[str, str]] = set()
     for c_sha, rel in candidates:
         new = blobs.get(f"{c_sha}:{rel}")
         if new is None or not new[0]:
-            return False, set()  # the changed version MUST exist
+            # the changed version MUST exist
+            return _fail("blob_fetch_failed", f"changed blob missing {c_sha[:12]}:{rel}")
         parent = first_parent.get(c_sha)
         old_text = ""
         if parent:
             old = blobs.get(f"{parent}:{rel}")
             if old is None:
-                return False, set()
+                return _fail("blob_fetch_failed", f"parent blob unread {parent[:12]}:{rel}")
             old_text = old[1]  # (False, "") for a legitimately-absent parent
         if _strip_gardener_field(old_text) == _strip_gardener_field(new[1]):
             pairs.add((c_sha, rel))
@@ -3806,6 +3988,118 @@ def reconcile_non_git_drift(
     return summary
 
 
+def _record_drift_failure(index_dir: Path, stage: str, reason: str) -> int:
+    """Persist one failed drift evaluation (1u8o0); returns the consecutive count.
+
+    Best-effort (the drift resident never fails a build): first failure stamps
+    ``META_DRIFT_FAILURE_SINCE``; each failure bumps the count and records the
+    stage plus per-return-site reason. Returns 0 when the store is unwritable.
+    """
+    try:
+        store = IndexStateStore(index_dir)
+    except Exception:
+        return 0
+    try:
+        store.ensure_current()
+        count = 0
+        try:
+            count = int(store.get_meta(META_DRIFT_FAILURE_COUNT) or 0)
+        except (TypeError, ValueError):
+            count = 0
+        count += 1
+        updates = {
+            META_DRIFT_FAILURE_COUNT: str(count),
+            META_DRIFT_FAILURE_STAGE: stage,
+            META_DRIFT_FAILURE_REASON: reason[:200],
+        }
+        if not store.get_meta(META_DRIFT_FAILURE_SINCE):
+            updates[META_DRIFT_FAILURE_SINCE] = str(int(time.time()))
+        store.set_meta(updates)
+        return count
+    except Exception:
+        return 0
+    finally:
+        try:
+            store.close()
+        except Exception:
+            pass
+
+
+def _record_drift_success(store: "IndexStateStore") -> None:
+    """Reset the failure state and stamp the last successful evaluation (1u8o0)."""
+    store.set_meta({
+        META_DRIFT_LAST_SUCCESS_AT: str(int(time.time())),
+        META_DRIFT_FAILURE_COUNT: "0",
+        META_DRIFT_FAILURE_STAGE: "",
+        META_DRIFT_FAILURE_REASON: "",
+        META_DRIFT_FAILURE_SINCE: "",
+    })
+
+
+def drift_evaluation_state(index_dir: Path) -> dict[str, Any]:
+    """Read-only drift evaluation state (1u8o0): evaluated vs stale vs never.
+
+    The consumer-facing truth behind ``wf_audit``'s additive ``doc_drift``
+    ``evaluation`` object. ``status``:
+
+    - ``"evaluated"``: the last evaluation succeeded (failure count 0 and a
+      success stamp exists; legacy stores fall back to
+      ``META_DRIFT_UPDATED_AT`` so a pre-1u8o0 healthy store reads evaluated).
+    - ``"stale"``: one or more evaluations have failed since the last
+      success; the served drift rows are frozen last-good state.
+    - ``"never_evaluated"``: no successful evaluation recorded (fresh store,
+      non-git repo, or store absent).
+
+    Surfaced from the FIRST failure, with age; never consulted by any
+    readiness computation (drift never blocks ``ready``).
+    """
+    state: dict[str, Any] = {
+        "status": "never_evaluated",
+        "consecutive_failures": 0,
+        "last_reason": "",
+        "last_stage": "",
+        "last_success_at": None,
+        "stale_since": None,
+        "age_seconds": None,
+    }
+    conn = open_read_only(index_dir)
+    if conn is None:
+        return state
+    try:
+        def _meta(key: str) -> str:
+            return IndexStateStore._get_meta(conn, key) or ""
+
+        def _int_or_none(raw: str) -> Optional[int]:
+            try:
+                return int(raw) if raw else None
+            except (TypeError, ValueError):
+                return None
+
+        count = _int_or_none(_meta(META_DRIFT_FAILURE_COUNT)) or 0
+        last_success = _int_or_none(_meta(META_DRIFT_LAST_SUCCESS_AT))
+        if last_success is None:
+            last_success = _int_or_none(_meta(META_DRIFT_UPDATED_AT))
+        state["consecutive_failures"] = count
+        state["last_reason"] = _meta(META_DRIFT_FAILURE_REASON)
+        state["last_stage"] = _meta(META_DRIFT_FAILURE_STAGE)
+        state["last_success_at"] = last_success
+        state["stale_since"] = _int_or_none(_meta(META_DRIFT_FAILURE_SINCE))
+        if last_success is not None:
+            state["age_seconds"] = max(int(time.time()) - last_success, 0)
+        if count > 0:
+            state["status"] = "stale"
+        elif last_success is not None:
+            state["status"] = "evaluated"
+        return state
+    except sqlite3.Error:
+        return state
+    finally:
+        try:
+            conn.close()
+        except sqlite3.Error:
+            pass
+
+
 def update_drift_from_build(
     root: Path,
     index_dir: Path,
@@ -3838,6 +4132,11 @@ def update_drift_from_build(
             # Authority UNKNOWN — preserve last-good drift, skip, retry next build.
             summary["skipped"] = True
             summary["git_probe_failed"] = True
+            # 1u8o0: a failed evaluation, recorded from the FIRST occurrence
+            # so the audit surface can distinguish frozen from evaluated-clean.
+            summary["drift_failure_stage"] = "git authority probe"
+            summary["drift_failure_reason"] = "git_probe_failed"
+            _record_drift_failure(index_dir, "git authority probe", "git_probe_failed")
             if verbose:
                 print(
                     "build_index: doc drift skipped — git authority probe failed "
@@ -3892,11 +4191,22 @@ def update_drift_from_build(
             if not hist_ok or not gardener_ok:
                 summary["skipped"] = True
                 summary["drift_detect_failed"] = True
+                # 1u8o0: per-return-site reason threaded from the failed walk
+                # (the static "(git error/timeout/malformed output)" three-way
+                # parenthetical collapsed ~15 distinct fail-closed sites); the
+                # `which` stage split is kept, and the failure state persists
+                # from the FIRST occurrence so the frozen drift rows can never
+                # read as evaluated-clean downstream.
                 which = "history walk" if not hist_ok else "gardener classifier"
+                reason = _drift_failure_reason(hist_ok if not hist_ok else gardener_ok)
+                summary["drift_failure_stage"] = which
+                summary["drift_failure_reason"] = reason
+                count = _record_drift_failure(index_dir, which, reason)
                 print(
                     f"build_index: doc drift update skipped — {which} failed "
-                    "(git error/timeout/malformed output); prior drift state "
-                    "preserved, will retry next build.",
+                    f"({reason}); prior drift state preserved, will retry next "
+                    f"build; drift evaluation is STALE ({count} consecutive "
+                    "failure(s) since the last success).",
                     file=sys.stderr,
                 )
                 return summary
@@ -3911,6 +4221,9 @@ def update_drift_from_build(
                 landings=landings, change_files=change_files,
                 entries=entries, fingerprint=fingerprint,
             )
+            # 1u8o0: a successful evaluation resets the failure state and
+            # stamps the last-success time the staleness age derives from.
+            _record_drift_success(store)
             summary["written"] = len(entries)
             summary["waves_attributed"] = len({w for w, _s, _t in landings})
             if verbose:
@@ -3929,6 +4242,11 @@ def update_drift_from_build(
             file=sys.stderr,
         )
         summary["error"] = str(exc)
+        # 1u8o0: an aborted evaluation is a failed evaluation; record it so
+        # the staleness surface never reads a crash loop as evaluated-clean.
+        summary["drift_failure_stage"] = "drift update"
+        summary["drift_failure_reason"] = f"exception: {exc}"[:200]
+        _record_drift_failure(index_dir, "drift update", f"exception: {exc}")
     return summary
 
 

@@ -72,6 +72,11 @@ _BODYLESS_DETAILS_RE = re.compile(
     r"<details class=\"wave(?:foundry)?-review-evidence\">\s*\n"
     r"<summary>(?P<summary>[^\n]*)</summary>\s*\n\s*</details>"
 )
+_LEGACY_REVIEW_SUMMARY_RE = re.compile(
+    r"Machine review evidence — \d+ records; \d+ runs; "
+    r"(?P<findings>\d+) findings; current: "
+    r"(?P<current>do_now \d+, maybe_later \d+, dont_do_later \d+, not_issue \d+)"
+)
 # The adoption-shaped basename is an opaque compatibility ABI: 1.14+ processes
 # coordinate on this exact path, so renaming it would silently break same-path
 # cross-process serialization during upgrade. The symbol describes what the
@@ -119,6 +124,13 @@ def _canonicalize_finding_synthesis_markers(text: str) -> str:
     text = _BODYLESS_DETAILS_RE.sub(
         lambda m: review_evidence_plain_summary(m.group("summary")), text
     )
+    # The former summary exposed record/run bookkeeping. It is equivalent to
+    # the current-state-only form when the derived finding/disposition values
+    # agree, so archived projections stay valid without a historical rewrite.
+    text = _LEGACY_REVIEW_SUMMARY_RE.sub(
+        lambda m: f"Machine review state — {m.group('findings')} findings; current: {m.group('current')}",
+        text,
+    )
     return text.replace(
         _LEGACY_REVIEW_EVIDENCE_DETAILS_BEGIN, REVIEW_EVIDENCE_DETAILS_BEGIN
     )
@@ -131,7 +143,7 @@ def review_evidence_plain_summary(summary_text: str) -> str:
 
 
 def canonicalize_finding_synthesis_markers(text: str) -> str:
-    """Normalize marker spelling for validation without rewriting historical files."""
+    """Normalize legacy presentation forms for validation without rewriting history."""
 
     return _canonicalize_finding_synthesis_markers(text)
 
@@ -965,10 +977,7 @@ def review_evidence_summary_line(records: Iterable[Mapping[str, Any]]) -> str:
     summary = review_evidence_summary(records)
     dispositions = summary["current_dispositions"]
     current = ", ".join(f"{name} {dispositions[name]}" for name in dispositions)
-    return (
-        f"Machine review evidence — {summary['records']} records; {summary['runs']} runs; "
-        f"{summary['findings']} findings; current: {current}"
-    )
+    return f"Machine review state — {summary['findings']} findings; current: {current}"
 
 
 def _markdown_cell(value: object) -> str:

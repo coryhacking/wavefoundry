@@ -37,7 +37,7 @@ class MemoryEvalTests(unittest.TestCase):
             cats,
             {
                 "exact_target", "paraphrase", "no_index", "decay",
-                "supersession", "archive_pointer", "archive_history",
+                "supersession", "archive_register_entry", "archive_history",
                 "old_authoritative", "new_low_confidence", "adaptive_cadence",
                 "fragile_reverification",
             },

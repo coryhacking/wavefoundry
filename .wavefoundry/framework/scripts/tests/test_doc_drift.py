@@ -11,7 +11,9 @@ assumptions).
 """
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
 import os
 import shutil
 import stat
@@ -699,13 +701,18 @@ class GardenerDetectorFailClosedTests(_DriftCase):
         self._write("docs/guide.md", "Status: active\nLast verified: 2026-07-14\n\nSee `src/a.py`.\n")
         _commit_all_at(self.root, "gardener bump", _T0 + 5000)
         real = self.iss._gardener_only_pairs
-        self.iss._gardener_only_pairs = lambda *a, **k: (False, set())
+        # 1u8o0 re-point: the failure contract now carries a per-return-site
+        # reason in the falsy ok slot; the stub honors it.
+        self.iss._gardener_only_pairs = lambda *a, **k: (
+            self.iss._DriftWalkFailure("injected_gardener_failure"), set())
         try:
             summary = self._update(["docs/guide.md"], ["docs/guide.md", "src/a.py"])
         finally:
             self.iss._gardener_only_pairs = real
         self.assertTrue(summary.get("drift_detect_failed"))
         self.assertTrue(summary.get("skipped"))
+        self.assertEqual(summary.get("drift_failure_stage"), "gardener classifier")
+        self.assertEqual(summary.get("drift_failure_reason"), "injected_gardener_failure")
         # Prior drift rows + fingerprint untouched — NOT reset to 0.
         drift = self.iss.doc_drift_for_path(self.index_dir, "docs/guide.md")
         self.assertEqual(drift["commits_since"], 3, "prior drift must be preserved")
@@ -873,13 +880,18 @@ class GitWalkFailClosedTests(_DriftCase):
         self._write("src/a.py", "x = 99\n")
         _commit_all_at(self.root, "new HEAD", _T0 + 9000)
         real = self.iss._collect_git_history
-        self.iss._collect_git_history = lambda *a, **k: (False, [])
+        # 1u8o0 re-point: the failure contract now carries a per-return-site
+        # reason in the falsy ok slot; the stub honors it.
+        self.iss._collect_git_history = lambda *a, **k: (
+            self.iss._DriftWalkFailure("injected_history_failure"), [])
         try:
             summary = self._update(["docs/guide.md"], ["docs/guide.md", "src/a.py"])
         finally:
             self.iss._collect_git_history = real
         self.assertTrue(summary.get("drift_detect_failed"))
         self.assertTrue(summary.get("skipped"))
+        self.assertEqual(summary.get("drift_failure_stage"), "history walk")
+        self.assertEqual(summary.get("drift_failure_reason"), "injected_history_failure")
         self.assertEqual(summary.get("written", 0), 0)
         self.assertEqual(
             self.iss.doc_drift_for_path(self.index_dir, "docs/guide.md")["commits_since"], 3,
@@ -986,6 +998,12 @@ class GardenerBatchAndFailClosedTests(_DriftCase):
         finally:
             self.iss._batch_git_blobs = real
         self.assertTrue(summary.get("drift_detect_failed"))
+        # 1u8o0 re-point: the blob-fetch collapse site now names itself.
+        self.assertEqual(summary.get("drift_failure_stage"), "gardener classifier")
+        self.assertTrue(
+            str(summary.get("drift_failure_reason", "")).startswith("blob_fetch_failed"),
+            summary.get("drift_failure_reason"),
+        )
         self.assertEqual(self.iss.doc_drift_for_path(self.index_dir, "docs/g.md")["commits_since"], 3,
                          "a real confirm error must preserve prior drift, not reset it")
 
@@ -1161,6 +1179,13 @@ class HistoryStrictFramingTests(_DriftCase):
             finally:
                 self.iss.subprocess_util.isolated_run = real
             self.assertTrue(summary.get("drift_detect_failed"), shape[:20])
+            # 1u8o0 re-point: each malformed shape fails the HISTORY stage
+            # with a malformed_output reason, never the static parenthetical.
+            self.assertEqual(summary.get("drift_failure_stage"), "history walk")
+            self.assertTrue(
+                str(summary.get("drift_failure_reason", "")).startswith("malformed_output"),
+                summary.get("drift_failure_reason"),
+            )
             self.assertEqual(
                 self.iss.doc_drift_for_path(self.index_dir, "docs/g.md")["commits_since"], 3,
                 f"malformed shape must preserve last-good: {shape[:20]!r}")
@@ -1180,6 +1205,12 @@ class NonGitProjectTests(_DriftCase):
         self.assertIsNone(summary.get("error"))
         self.assertFalse(summary.get("drift_detect_failed"),
                          "a non-git repo must SKIP, not fail-closed")
+        # 1u8o0 re-point: a confirmed non-git skip is NOT a failed evaluation;
+        # no failure fields, and the evaluation state does not read stale.
+        self.assertIsNone(summary.get("drift_failure_reason"))
+        state = self.iss.drift_evaluation_state(self.index_dir)
+        self.assertNotEqual(state["status"], "stale")
+        self.assertEqual(state["consecutive_failures"], 0)
         # No drift row is written (nothing to anchor against).
         self.assertIsNone(self.iss.doc_drift_for_path(self.index_dir, "docs/g.md"))
 
@@ -1801,6 +1832,251 @@ class GitSubprocessCensusTests(unittest.TestCase):
             offenders, [],
             f"process spawn(s) not routed through the sanitized wrapper "
             f"(allowed only in {sorted(self._ALLOWED)}): {offenders}")
+
+
+class DriftFailureTaxonomyTests(_DriftCase):
+    """Wave 1u8o2 (1u8o0) AC-2 + AC-3: one representative injection per
+    failure class (subprocess error, timeout, malformed output, deletion
+    frame) produces a distinct stage-plus-reason log line; the static
+    three-way parenthetical is gone; and the evaluation staleness surfaces
+    from the FIRST failure with age."""
+
+    _STATIC_PARENTHETICAL = "git error/timeout/malformed output"
+
+    def _seed_healthy(self):
+        _init_git_repo(self.root)
+        self._write("src/a.py", "x = 1\n")
+        self._write(
+            "docs/g.md",
+            "Status: active\nLast verified: 2026-07-01\n\nSee `src/a.py`.\n",
+        )
+        _commit_all_at(self.root, "seed", _T0)
+        summary = self._update(["docs/g.md"], ["docs/g.md", "src/a.py"])
+        self.assertFalse(summary.get("drift_detect_failed"))
+
+    def _churn(self, i: int):
+        self._write("src/a.py", f"x = {i}\n")
+        _commit_all_at(self.root, f"churn {i}", _T0 + i * 1000)
+
+    def _update_with_gardener_git(self, fake):
+        """Run an update with the gardener's -U0 git call replaced by ``fake``."""
+        real = self.iss.subprocess_util.isolated_run
+
+        def wrapper(cmd, _real=real, **k):
+            if "-U0" in cmd:
+                return fake(cmd)
+            return _real(cmd, **k)
+
+        self.iss.subprocess_util.isolated_run = wrapper
+        buf = io.StringIO()
+        try:
+            with contextlib.redirect_stderr(buf):
+                summary = self._update(["docs/g.md"], ["docs/g.md", "src/a.py"])
+        finally:
+            self.iss.subprocess_util.isolated_run = real
+        return summary, buf.getvalue()
+
+    def test_subprocess_error_class_names_itself(self):
+        self._seed_healthy()
+        self._churn(2)
+        summary, log = self._update_with_gardener_git(
+            lambda cmd: subprocess.CompletedProcess(cmd, 128, stdout="", stderr="boom")
+        )
+        self.assertTrue(summary.get("drift_detect_failed"))
+        self.assertIn("gardener classifier failed (subprocess_error", log)
+        self.assertIn("git log -p exited 128", log)
+        self.assertNotIn(self._STATIC_PARENTHETICAL, log)
+
+    def test_timeout_class_names_itself(self):
+        self._seed_healthy()
+        self._churn(2)
+
+        def raise_timeout(cmd):
+            raise subprocess.TimeoutExpired(cmd, 120)
+
+        summary, log = self._update_with_gardener_git(raise_timeout)
+        self.assertTrue(summary.get("drift_detect_failed"))
+        self.assertIn("gardener classifier failed (timeout", log)
+        self.assertNotIn(self._STATIC_PARENTHETICAL, log)
+
+    def test_malformed_output_class_names_itself(self):
+        self._seed_healthy()
+        self._churn(2)
+        summary, log = self._update_with_gardener_git(
+            lambda cmd: subprocess.CompletedProcess(
+                cmd, 0, stdout="garbage stream, no sentinel\n", stderr=""
+            )
+        )
+        self.assertTrue(summary.get("drift_detect_failed"))
+        self.assertIn("gardener classifier failed (malformed_patch", log)
+        self.assertNotIn(self._STATIC_PARENTHETICAL, log)
+
+    def test_deletion_frame_class_completes_without_skip_line(self):
+        # The fourth class: post-fix the reproduced trigger COMPLETES the
+        # classification, with no skip line at all (a three-cause test would pass
+        # while still hiding this trigger).
+        self._seed_healthy()
+        (self.root / "docs" / "g.md").unlink()
+        _commit_all_at(self.root, "delete doc", _T0 + 2000)
+        self._write(
+            "docs/g.md",
+            "Status: active\nLast verified: 2026-07-02\n\nSee `src/a.py`.\n",
+        )
+        _commit_all_at(self.root, "recreate doc", _T0 + 3000)
+        buf = io.StringIO()
+        with contextlib.redirect_stderr(buf):
+            summary = self._update(["docs/g.md"], ["docs/g.md", "src/a.py"])
+        self.assertFalse(summary.get("drift_detect_failed"))
+        self.assertGreater(summary.get("written", 0), 0)
+        self.assertNotIn("doc drift update skipped", buf.getvalue())
+
+    def test_staleness_surfaces_from_first_failure_with_age(self):
+        # AC-3: evaluated → stale on the FIRST failure (count, reason, stage,
+        # stale_since, age), escalating count on repeat, reset on success.
+        self._seed_healthy()
+        state = self.iss.drift_evaluation_state(self.index_dir)
+        self.assertEqual(state["status"], "evaluated")
+        self.assertEqual(state["consecutive_failures"], 0)
+        self.assertIsNotNone(state["last_success_at"])
+        self.assertIsNotNone(state["age_seconds"])
+        self._churn(2)
+        fail = lambda cmd: subprocess.CompletedProcess(cmd, 128, stdout="", stderr="")  # noqa: E731
+        self._update_with_gardener_git(fail)
+        state = self.iss.drift_evaluation_state(self.index_dir)
+        self.assertEqual(state["status"], "stale",
+                         "the FIRST failure must surface, no threshold gate")
+        self.assertEqual(state["consecutive_failures"], 1)
+        self.assertEqual(state["last_stage"], "gardener classifier")
+        self.assertTrue(state["last_reason"].startswith("subprocess_error"))
+        self.assertIsNotNone(state["stale_since"])
+        self.assertIsNotNone(state["age_seconds"])
+        self._update_with_gardener_git(fail)
+        state = self.iss.drift_evaluation_state(self.index_dir)
+        self.assertEqual(state["consecutive_failures"], 2)
+        # Recovery: a real evaluation resets the failure state.
+        summary = self._update(["docs/g.md"], ["docs/g.md", "src/a.py"])
+        self.assertFalse(summary.get("drift_detect_failed"))
+        state = self.iss.drift_evaluation_state(self.index_dir)
+        self.assertEqual(state["status"], "evaluated")
+        self.assertEqual(state["consecutive_failures"], 0)
+        self.assertEqual(state["last_reason"], "")
+
+    def test_never_evaluated_is_distinct(self):
+        state = self.iss.drift_evaluation_state(self.index_dir)
+        self.assertEqual(state["status"], "never_evaluated")
+        self.assertIsNone(state["last_success_at"])
+        self.assertIsNone(state["age_seconds"])
+
+
+class SpaceNamedPathClassificationTests(_DriftCase):
+    """Real git producer coverage for Git's TAB-terminated +++ path form."""
+
+    def test_gardener_only_space_named_doc_is_classified(self):
+        _init_git_repo(self.root)
+        path = "docs/plans/1abcd space named-plan.md"
+        self._write("src/a.py", "x = 1\n")
+        self._write(path, "Status: active\nLast verified: 2026-07-01\n\nSee `src/a.py`.\n")
+        _commit_all_at(self.root, "seed", _T0)
+        self._write(path, "Status: active\nLast verified: 2026-07-02\n\nSee `src/a.py`.\n")
+        _commit_all_at(self.root, "gardener", _T0 + 100)
+        ok, commits = self.iss._collect_git_history(self.root)
+        self.assertTrue(ok)
+        gok, pairs = self.iss._gardener_only_pairs(self.root, commits, [path])
+        self.assertTrue(gok)
+        self.assertTrue(any(rel == path for _sha, rel in pairs))
+
+    def test_quoted_plus_path_fails_closed(self):
+        _init_git_repo(self.root)
+        path = "docs/g\tquoted.md"
+        self._write(path, "Status: active\nLast verified: 2026-07-01\n")
+        _commit_all_at(self.root, "seed", _T0)
+        self._write(path, "Status: active\nLast verified: 2026-07-02\n")
+        _commit_all_at(self.root, "gardener", _T0 + 100)
+        ok, commits = self.iss._collect_git_history(self.root)
+        self.assertTrue(ok)
+        gok, _pairs = self.iss._gardener_only_pairs(self.root, commits, [path])
+        self.assertFalse(gok)
+        self.assertTrue(getattr(gok, "reason", "").startswith("quoted_path:"))
+
+
+class DeletionFrameClassificationTests(_DriftCase):
+    """Wave 1u8o2 (1u8o0) AC-1, red-first: a commit that deletes a living doc
+    emits a `+++ /dev/null` frame whose content lines previously read as
+    "content outside a well-formed hunk" and failed the WHOLE classification
+    closed for the lifetime of the commit window. The fixture encodes
+    DELETE-THEN-RECREATE: the production pathspec derives from the CURRENT
+    living corpus, so a plain delete-and-gone self-clears on the next build
+    and the test would go vacuously green; only a recreated (or reused-name)
+    path keeps the deletion frame inside the pathspec, which is also the
+    persistence condition matching the dozen-consecutive-builds field
+    signature."""
+
+    def _seed_delete_recreate(self):
+        _init_git_repo(self.root)
+        self._write("src/a.py", "x = 1\n")
+        self._write(
+            "docs/g.md",
+            "Status: active\nLast verified: 2026-07-01\n\nSee `src/a.py`.\n",
+        )
+        _commit_all_at(self.root, "seed", _T0)
+        self._write("src/a.py", "x = 2\n")
+        _commit_all_at(self.root, "churn 1", _T0 + 1000)
+        # DELETE the living doc (a deletion frame enters the history) ...
+        (self.root / "docs" / "g.md").unlink()
+        _commit_all_at(self.root, "delete doc", _T0 + 2000)
+        # ... then RECREATE it, so the path is back in the living corpus and
+        # the pathspec keeps matching the deletion frame.
+        self._write(
+            "docs/g.md",
+            "Status: active\nLast verified: 2026-07-02\n\nSee `src/a.py`.\n",
+        )
+        _commit_all_at(self.root, "recreate doc", _T0 + 3000)
+
+    def test_deletion_frame_completes_classification(self):
+        self._seed_delete_recreate()
+        ok, commits = self.iss._collect_git_history(self.root)
+        self.assertTrue(ok)
+        gok, _pairs = self.iss._gardener_only_pairs(
+            self.root, commits, ["docs/g.md"]
+        )
+        self.assertTrue(
+            gok,
+            "a living-doc deletion frame must not fail the classifier closed",
+        )
+
+    def test_rename_frame_completes_classification(self):
+        # Under --no-renames a rename emits a deletion frame for the old name
+        # plus a creation frame for the new one; when the OLD name is reused
+        # by a living doc the deletion frame stays inside the pathspec.
+        self._seed_delete_recreate()
+        subprocess.run(
+            ["git", "-C", str(self.root), "mv", "docs/g.md", "docs/h.md"],
+            check=True,
+        )
+        _commit_all_at(self.root, "rename doc", _T0 + 4000)
+        self._write(
+            "docs/g.md",
+            "Status: active\nLast verified: 2026-07-03\n\nSee `src/a.py`.\n",
+        )
+        _commit_all_at(self.root, "reuse old name", _T0 + 5000)
+        ok, commits = self.iss._collect_git_history(self.root)
+        self.assertTrue(ok)
+        gok, _pairs = self.iss._gardener_only_pairs(
+            self.root, commits, ["docs/g.md", "docs/h.md"]
+        )
+        self.assertTrue(
+            gok,
+            "a rename-as-deletion frame must not fail the classifier closed",
+        )
+
+    def test_update_completes_over_deletion_history(self):
+        self._seed_delete_recreate()
+        summary = self._update(["docs/g.md"], ["docs/g.md", "src/a.py"])
+        self.assertFalse(
+            summary.get("drift_detect_failed"),
+            "the build-path evaluation must complete over a deletion frame",
+        )
+        self.assertGreater(summary.get("written", 0), 0)
 
 
 if __name__ == "__main__":

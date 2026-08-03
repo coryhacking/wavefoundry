@@ -2,12 +2,12 @@
 
 Owner: Engineering
 Status: planned
-Last verified: 2026-07-27
+Last verified: 2026-08-03
 review-evidence-source: events.jsonl
 
 wave-id: `1tmtx test-suite-performance`
 Title: Test Suite Performance
-
+review-policy-reprepare-required: true
 ## Objective
 
 Reduce the canonical framework suite's measured critical-path wall time without
@@ -63,7 +63,7 @@ safety, cache, lock, and full-suite gate.
 | --- | --- | --- | --- | --- |
 | — | — | — | — | — |
 
-*Machine review evidence — 3 records; 1 runs; 0 findings; current: do_now 0, maybe_later 0, dont_do_later 0, not_issue 0*
+*Machine review state — 0 findings; current: do_now 0, maybe_later 0, dont_do_later 0, not_issue 0*
 <!-- wave:finding-synthesis end -->
 
 ## Review Evidence

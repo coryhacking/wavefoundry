@@ -17,6 +17,10 @@ from review_policy import (
     REVIEW_POLICY_SURFACE_MARKER_BEGIN,
     REVIEW_POLICY_SURFACE_MARKER_END,
 )
+from review_policy_reconcile import (
+    UPGRADE_POLICY_DESTINATION,
+    reconcile_upgrade_policy_surface,
+)
 
 try:
     from context_efficiency import (
@@ -140,6 +144,7 @@ CONTEXT_EFFICIENCY_DESTINATION = "docs/prompts/create-wave.prompt.md"
 LIFECYCLE_PROMPT_BASELINES: tuple[tuple[str, str], ...] = (
     ("docs/prompts/create-wave.prompt.md", "create-wave.prompt.md"),
     ("docs/prompts/implement-wave.prompt.md", "implement-wave.prompt.md"),
+    ("docs/prompts/memory-review.prompt.md", "memory-review.prompt.md"),
     *(
         (carrier.destination, carrier.source.removeprefix("lifecycle:"))
         for carrier in REVIEW_POLICY_CARRIER_REGISTRY
@@ -1110,6 +1115,7 @@ def preflight_agent_surface_paths(repo_root: Path) -> None:
     destinations = [
         *(carrier.destination for carrier in review_protocol_carriers(repo_root)),
         *(destination for destination, _template in LIFECYCLE_PROMPT_BASELINES),
+        UPGRADE_POLICY_DESTINATION,
         *_agent_surface_output_destinations(repo_root),
     ]
     for destination in dict.fromkeys(destinations):
@@ -1261,6 +1267,13 @@ def render_agent_surfaces(repo_root: Path) -> list[str]:
     # that intentionally do not expose Guru.
     preflight_agent_surface_paths(repo_root)
     lifecycle_written = reconcile_lifecycle_prompt_baselines(repo_root)
+    # The phase-0c in-process reconciler can still be old code on the upgrade
+    # that installs this release. Replay only its shared upgrade-policy marker
+    # from the extracted renderer so this one surface converges in that run.
+    try:
+        upgrade_policy_written = list(reconcile_upgrade_policy_surface(repo_root))
+    except ValueError as exc:
+        raise RuntimeError(str(exc)) from exc
     review_written = reconcile_review_protocol_surfaces(repo_root)
     # Policy companions include optional carriers materialized by the review
     # protocol pass (for example the agent and council review prompts). Run
@@ -1269,7 +1282,13 @@ def render_agent_surfaces(repo_root: Path) -> list[str]:
     context_written = reconcile_context_efficiency_surface(repo_root)
     framework_written = list(
         dict.fromkeys(
-            [*lifecycle_written, *review_written, *policy_written, *context_written]
+            [
+                *lifecycle_written,
+                *upgrade_policy_written,
+                *review_written,
+                *policy_written,
+                *context_written,
+            ]
         )
     )
     if not guru_available(repo_root):

@@ -13,6 +13,8 @@ or rewrites history.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 import sys
 import tempfile
@@ -28,7 +30,12 @@ if _scripts_dir not in sys.path:
 
 MEMORY_DIR = "docs/agents/memory"
 MEMORY_ARCHIVE_DIR = f"{MEMORY_DIR}/archive"
-MEMORY_POINTER_DIR = f"{MEMORY_DIR}/pointers"
+# Archive bodies stay under the memory root so explicit history can resolve
+# them. Ordinary discovery reads this compact on-disk register instead of a
+# file-per-record pointer directory; the register remains searchable while the
+# full archive bodies are excluded from semantic indexing.
+MEMORY_ARCHIVE_MANIFEST = "docs/agents/memory-archive.md"
+MEMORY_PURGE_DISPOSITIONS = ".wavefoundry/memory-purge-dispositions.json"
 
 # Memory-id grammar (security boundary, delivery-review finding 2026-07-13):
 # ids are PATH COMPONENTS (`docs/agents/memory/<id>.md`), and the MCP tools
@@ -91,6 +98,7 @@ ADAPTIVE_TIME_MAX_HALVING_DAYS = 365
 # exempt by council amendment: churn is ambiguous evidence there, so it sets
 # needs_reverification instead and never drops below inclusion.
 BRIEFING_CONFIDENCE_FLOOR = 0.2
+ACTIVE_MEMORY_CAP = 50
 
 MEMORY_KIND_POLICY_FAMILY = {
     "failed_attempt": "tactical",
@@ -395,39 +403,33 @@ def load_memory_records(
     return records
 
 
-def load_memory_pointers(root: Path) -> list[dict[str, Any]]:
-    """Parse compact active pointers without ever traversing archive bodies."""
-    memory_root = canonical_memory_root(root)
-    if memory_root is None:
-        return []
-    pointer_root = memory_root / "pointers"
+def load_archive_register_entries(root: Path) -> list[dict[str, Any]]:
+    """Load the compact archive register without scanning archived bodies."""
+    manifest = root / MEMORY_ARCHIVE_MANIFEST
     try:
-        if pointer_root.resolve() != root.resolve() / MEMORY_POINTER_DIR:
-            return []
+        text = manifest.read_text(encoding="utf-8")
     except OSError:
         return []
-    if not pointer_root.is_dir() or pointer_root.is_symlink():
-        return []
     records: list[dict[str, Any]] = []
-    for path in sorted(pointer_root.glob("*.md")):
-        try:
-            if path.is_symlink() or path.resolve().parent != pointer_root.resolve():
-                continue
-        except OSError:
+    for block in re.split(r"(?m)^## ", text)[1:]:
+        lines = block.splitlines()
+        if not lines:
             continue
-        record = parse_memory_record(path)
-        expected_archive = f"{MEMORY_ARCHIVE_DIR}/{path.stem}.md"
-        if (
-            record is None
-            or record["status"] != "archived"
-            or record.get("pointer_to") != record["memory_id"]
-            or record.get("archive_path") != expected_archive
-        ):
+        memory_id = lines[0].strip()
+        fields = dict(re.findall(r"^- ([A-Za-z ]+): `?([^`\n]+)`?$", block, re.M))
+        if (not MEMORY_ID_RE.fullmatch(memory_id)
+                or fields.get("Kind") not in MEMORY_KINDS
+                or not fields.get("Archive path", "").startswith(f"{MEMORY_ARCHIVE_DIR}/")):
             continue
-        record["record_type"] = "archive_pointer"
-        record["keywords"] = _BACKTICK_RE.findall(_section(
-            path.read_text(encoding="utf-8", errors="replace"), "## Keywords"
-        ))
+        targets = re.findall(r"`([^`]+)`", next((line for line in lines if line.startswith("- Targets:")), ""))
+        record = {
+            "memory_id": memory_id, "title": fields.get("Title", memory_id),
+            "kind": fields["Kind"], "status": "archived", "target_refs": targets,
+            "archived_at": fields.get("Archived"), "superseded_by": fields.get("Successor"),
+            "archive_path": fields["Archive path"], "summary": "", "evidence_refs": [],
+            "record_type": "archive_register_entry",
+        }
+        record["keywords"] = sorted({memory_id, record["title"], record["kind"], *targets})
         records.append(record)
     return records
 
@@ -789,6 +791,65 @@ def _contained_memory_subdir_path(root: Path, memory_id: str, subdir: str) -> Pa
     return path
 
 
+def _contained_purge_staging_path(root: Path, memory_id: str) -> Path:
+    """Resolve the index-excluded purge staging path without allowing escapes."""
+    memory_id = validate_memory_id(memory_id)
+    memory_root = canonical_memory_root(root)
+    if memory_root is None:
+        raise ValueError(
+            "memory root resolves outside its canonical repository location "
+            "(symlinked memory directory or ancestor) — refusing"
+        )
+    repo = root.resolve()
+    expected_parent = repo / MEMORY_ARCHIVE_DIR / ".purge-staging"
+    path = memory_root / "archive" / ".purge-staging" / f"{memory_id}.md"
+    resolved = path.resolve()
+    if resolved.parent != expected_parent or not resolved.is_relative_to(repo):
+        raise ValueError(f"memory id {memory_id!r} escapes the purge staging directory")
+    return path
+
+
+def resolve_purge_memory_source(
+    root: Path,
+    memory_id: str,
+    *,
+    eligibility_confirmed: bool = False,
+) -> tuple[Optional[Path], Optional[dict[str, Any]]]:
+    """Resolve and validate the sole body authoritative for a purge attempt."""
+    memory_id = validate_memory_id(memory_id)
+    paths = (
+        _contained_record_path(root, memory_id),
+        _contained_memory_subdir_path(root, memory_id, "archive"),
+        _contained_purge_staging_path(root, memory_id),
+    )
+    existing = [path for path in paths if path.exists() or path.is_symlink()]
+    if len(existing) > 1:
+        raise ValueError(
+            f"{memory_id}: multiple active, archived, or purge-staged bodies exist; "
+            "refusing to guess"
+        )
+    if not existing:
+        return None, None
+    path = existing[0]
+    if path.is_symlink():
+        raise ValueError(f"{memory_id}: purge source must not be a symlink")
+    if not path.is_file():
+        raise ValueError(f"{memory_id}: purge source is not a regular file")
+    record = parse_memory_record(path)
+    if record is None:
+        raise ValueError(f"{memory_id}: malformed memory record")
+    if record["status"] != "archived" and record["status"] not in ARCHIVE_ELIGIBLE_STATUSES:
+        raise ValueError(
+            f"{memory_id}: purge requires stale, superseded, rejected, or archived status"
+        )
+    if record["kind"] in ARCHIVE_PROTECTED_KINDS and not eligibility_confirmed:
+        raise ValueError(
+            f"{memory_id}: {record['kind']} is protected; set "
+            "eligibility_confirmed=true after review"
+        )
+    return path, record
+
+
 def render_memory_record(
     *,
     memory_id: str,
@@ -1060,57 +1121,20 @@ def archive_eligibility(record: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _render_archive_pointer(record: dict[str, Any]) -> str:
-    memory_id = record["memory_id"]
-    archived_at = record["archived_at"]
-    archive_path = f"{MEMORY_ARCHIVE_DIR}/{memory_id}.md"
-    summary = " ".join(str(record.get("summary") or "").split())
-    evidence = list(record.get("evidence_refs") or [])
-    targets = list(record.get("target_refs") or [])
-    keyword_values = sorted({
-        memory_id,
-        str(record.get("title") or memory_id),
-        str(record.get("kind") or ""),
-        *(str(value) for value in targets),
-    })
-    lines = [
-        f"# {record.get('title') or memory_id}",
-        "",
-        "Owner: Engineering",
-        "Status: archived",
-        f"Last verified: {archived_at}",
-        "",
-        f"Memory ID: `{memory_id}`",
-        f"Kind: `{record['kind']}`",
-        f"Confidence: {record.get('confidence', 0.0)}",
-        f"Created: {record['created_at']}",
-        f"Updated: {record['updated_at']}",
-        f"Archived: {archived_at}",
-        f"Archive reason: {record['archive_reason']}",
-        f"Archive path: `{archive_path}`",
-        f"Pointer to: `{memory_id}`",
-    ]
-    if record.get("superseded_by"):
-        lines.append(f"Superseded by: `{record['superseded_by']}`")
-    lines += [
-        "",
-        "## Summary",
-        "",
-        summary[:280],
-        "",
-        "## Evidence",
-        "",
-        *[f"- `{value}`" for value in evidence],
-        "",
-        "## Targets",
-        "",
-        *[f"- `{value}`" for value in targets],
-        "",
-        "## Keywords",
-        "",
-        *[f"- `{value}`" for value in keyword_values if value],
-    ]
-    return "\n".join(lines) + "\n"
+def _render_archive_manifest(records: Iterable[dict[str, Any]]) -> str:
+    """Render the sole ordinary-discovery view of archived memory."""
+    lines = ["# Memory archive", "", "Owner: Engineering", "Role: memory-archive", "Category: specialist", "Status: active",
+             f"Last verified: {time.strftime('%Y-%m-%d')}", "",
+             "Searchable compact register for history-worthy retired memory. Full bodies remain under",
+             "`docs/agents/memory/archive/` and are excluded from ordinary indexing; this register remains indexed.", ""]
+    for record in sorted(records, key=lambda item: item["memory_id"]):
+        targets = ", ".join(f"`{value}`" for value in record.get("target_refs") or []) or "—"
+        lines += [f"## {record['memory_id']}", "",
+                  f"- Title: `{record.get('title') or record['memory_id']}`", f"- Kind: `{record['kind']}`",
+                  f"- Targets: {targets}", f"- Archived: `{record.get('archived_at') or 'unknown'}`",
+                  f"- Successor: `{record.get('superseded_by') or 'none'}`",
+                  f"- Archive path: `{record.get('archive_path') or f'{MEMORY_ARCHIVE_DIR}/{record['memory_id']}.md'}`", ""]
+    return "\n".join(lines).rstrip() + "\n"
 
 
 def _atomic_replace_text(path: Path, content: str) -> None:
@@ -1138,6 +1162,138 @@ def _atomic_replace_text(path: Path, content: str) -> None:
             pass
 
 
+def source_event_digest(source_event: str) -> str:
+    """Return the non-reversible identity stored for a purged source event."""
+    return hashlib.sha256(str(source_event or "").encode("utf-8")).hexdigest()
+
+
+def _purge_disposition_path(root: Path) -> Path:
+    root_resolved = root.resolve()
+    path = root / MEMORY_PURGE_DISPOSITIONS
+    if path.is_symlink() or path.parent.is_symlink():
+        raise ValueError("memory purge disposition authority must not be a symlink")
+    try:
+        path.parent.resolve().relative_to(root_resolved)
+    except ValueError as exc:
+        raise ValueError("memory purge disposition authority escapes repository root") from exc
+    return path
+
+
+def load_purged_source_event_digests(root: Path) -> set[str]:
+    """Load the repo-visible, non-indexed finality authority for purged sources."""
+    path = _purge_disposition_path(root)
+    if not path.is_file():
+        return set()
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError("memory purge disposition authority is unreadable") from exc
+    schema_version = payload.get("schema_version") if isinstance(payload, dict) else None
+    if type(schema_version) is not int or schema_version != 1:
+        raise ValueError("memory purge disposition authority has an unsupported schema")
+    values = payload.get("source_event_sha256")
+    if not isinstance(values, list):
+        raise ValueError("memory purge disposition authority has invalid entries")
+    if any(not isinstance(value, str) for value in values):
+        raise ValueError("memory purge disposition authority has invalid entries")
+    digests = set(values)
+    if any(not re.fullmatch(r"[0-9a-f]{64}", value) for value in digests):
+        raise ValueError("memory purge disposition authority has invalid entries")
+    return digests
+
+
+def record_purged_source_event(root: Path, source_event: str) -> Path:
+    """Persist one hash-only source disposition before its memory body is deleted."""
+    source_event = str(source_event or "").strip()
+    if not source_event:
+        raise ValueError("source_event is required")
+    path = _purge_disposition_path(root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    digests = load_purged_source_event_digests(root)
+    digests.add(source_event_digest(source_event))
+    _atomic_replace_text(
+        path,
+        json.dumps(
+            {"schema_version": 1, "source_event_sha256": sorted(digests)},
+            indent=2,
+            sort_keys=True,
+        ) + "\n",
+    )
+    return path
+
+
+def rebuild_archive_manifest(root: Path) -> Path:
+    """Atomically derive the archive manifest and retire legacy pointers.
+
+    This is safe to retry after any interrupted archival: archive bodies are
+    the source of truth, so no in-run list is needed to reconstruct the view.
+    """
+    memory_root = canonical_memory_root(root)
+    if memory_root is None:
+        raise ValueError("memory root resolves outside its canonical repository location")
+    legacy_root = memory_root / "pointers"
+    legacy_files: list[Path] = []
+    if legacy_root.is_symlink():
+        raise ValueError("legacy memory pointer directory must not be a symlink")
+    if legacy_root.exists():
+        if not legacy_root.is_dir():
+            raise ValueError("legacy memory pointer path must be a directory")
+        for path in sorted(legacy_root.iterdir()):
+            if path.is_symlink() or not path.is_file() or path.suffix.lower() != ".md":
+                raise ValueError(
+                    f"unrecognized legacy memory pointer residue: {path.name}"
+                )
+            record = parse_memory_record(path)
+            expected_archive_path = f"{MEMORY_ARCHIVE_DIR}/{path.stem}.md"
+            if (
+                record is None
+                or record.get("status") != "archived"
+                or record.get("memory_id") != path.stem
+                or record.get("pointer_to") != path.stem
+                or record.get("archive_path") != expected_archive_path
+            ):
+                raise ValueError(
+                    f"unrecognized legacy memory pointer residue: {path.name}"
+                )
+            legacy_files.append(path)
+
+    records: list[dict[str, Any]] = []
+    for path in sorted((memory_root / "archive").glob("*.md")):
+        record = parse_memory_record(path)
+        if record is not None and record.get("status") == "archived":
+            records.append(record)
+    manifest_path = root / MEMORY_ARCHIVE_MANIFEST
+    _atomic_replace_text(manifest_path, _render_archive_manifest(records))
+    if legacy_root.is_dir():
+        for path in legacy_files:
+            path.unlink()
+        try:
+            legacy_root.rmdir()
+        except OSError:
+            pass
+    return manifest_path
+
+
+def migrate_legacy_memory_pointers(root: Path) -> Optional[Path]:
+    """Replace the retired per-record pointer directory when it is present.
+
+    Archive bodies are the authority, so setup and upgrade can safely derive
+    the compact register and remove only the old generated pointer copies.
+    Repositories without that exact real directory remain byte-untouched.
+    """
+    memory_root = canonical_memory_root(root)
+    if memory_root is None:
+        raise ValueError("memory root resolves outside its canonical repository location")
+    legacy_root = memory_root / "pointers"
+    if legacy_root.is_symlink():
+        raise ValueError("legacy memory pointer directory must not be a symlink")
+    if not legacy_root.exists():
+        return None
+    if not legacy_root.is_dir():
+        raise ValueError("legacy memory pointer path must be a directory")
+    return rebuild_archive_manifest(root)
+
+
 def archive_memory_record(
     root: Path,
     memory_id: str,
@@ -1147,11 +1303,11 @@ def archive_memory_record(
     date: Optional[str] = None,
     _interrupt_after: str = "",
 ) -> dict[str, Any]:
-    """State-derived rename + compact pointer publication.
+    """State-derived rename + compact archive-register publication.
 
     The caller serializes this transaction with the shared cross-process
     memory/review lock and holds a writer-owned memory fence. Every retry
-    re-derives progress from the active body, archive body, and pointer
+    re-derives progress from the active body, archive body, and register
     currently on disk. The body is renamed with ``Path.replace``; copy/delete
     is never used.
     """
@@ -1161,7 +1317,6 @@ def archive_memory_record(
         raise ValueError("archive_reason must be a non-empty single line")
     active_path = _contained_record_path(root, memory_id)
     archive_path = _contained_memory_subdir_path(root, memory_id, "archive")
-    pointer_path = _contained_memory_subdir_path(root, memory_id, "pointers")
 
     if active_path.exists() and archive_path.exists():
         raise ValueError(
@@ -1231,28 +1386,91 @@ def archive_memory_record(
             raise ValueError(f"{memory_id}: archived body failed schema validation")
 
     record["record_type"] = "archive_body"
-    pointer_text = _render_archive_pointer(record)
     no_op = not moved
-    try:
-        existing_pointer = pointer_path.read_text(encoding="utf-8")
-    except FileNotFoundError:
-        existing_pointer = ""
-    if existing_pointer != pointer_text:
-        _atomic_replace_text(pointer_path, pointer_text)
-        no_op = False
-        if _interrupt_after == "pointer_publish":
-            raise RuntimeError("injected interruption after pointer publication")
-    pointer = parse_memory_record(pointer_path)
-    if pointer is None or pointer.get("pointer_to") != memory_id:
-        raise ValueError(f"{memory_id}: archive pointer failed schema validation")
-    pointer["record_type"] = "archive_pointer"
+    manifest_path = rebuild_archive_manifest(root)
+    if _interrupt_after == "register_publish":
+        raise RuntimeError("injected interruption after manifest publication")
+    register_entry = dict(record)
+    register_entry["record_type"] = "archive_register_entry"
     return {
         "archive_path": archive_path,
-        "pointer_path": pointer_path,
+        "register_path": manifest_path,
         "record": record,
-        "pointer": pointer,
+        "register_entry": register_entry,
         "moved": moved,
         "no_op": no_op,
+    }
+
+
+def purge_memory_record(
+    root: Path,
+    memory_id: str,
+    *,
+    eligibility_confirmed: bool = False,
+    _interrupt_after: str = "",
+) -> dict[str, Any]:
+    """Permanently remove one reviewed, retired record and rebuild the register.
+
+    The body first moves to an index-excluded staging path. Register publication
+    either succeeds before deletion, or the move is rolled back. A retry can
+    complete either interruption window from the staged body alone.
+    """
+    memory_id = validate_memory_id(memory_id)
+    staging_path = _contained_purge_staging_path(root, memory_id)
+    path, _record = resolve_purge_memory_source(
+        root, memory_id, eligibility_confirmed=eligibility_confirmed
+    )
+    if path == staging_path:
+        manifest_path = rebuild_archive_manifest(root)
+        if _interrupt_after == "register_publish":
+            raise OSError("injected interruption after purge register publication")
+        staging_path.unlink()
+        try:
+            staging_path.parent.rmdir()
+        except OSError:
+            pass
+        return {
+            "purged": True,
+            "no_op": False,
+            "recovered": True,
+            "memory_id": memory_id,
+            "path": staging_path,
+            "manifest_path": manifest_path,
+        }
+
+    if path is None:
+        rebuild_archive_manifest(root)
+        return {"purged": False, "no_op": True, "memory_id": memory_id}
+    staging_path.parent.mkdir(parents=True, exist_ok=True)
+    path.replace(staging_path)
+    if _interrupt_after == "body_stage":
+        raise OSError("injected interruption after purge body staging")
+    try:
+        manifest_path = rebuild_archive_manifest(root)
+    except (OSError, ValueError):
+        try:
+            staging_path.replace(path)
+            staging_path.parent.rmdir()
+        except OSError as rollback_error:
+            raise OSError(
+                f"{memory_id}: archive-register publication failed and purge body "
+                f"rollback failed; recoverable body remains at {staging_path}"
+            ) from rollback_error
+        raise
+    if _interrupt_after == "register_publish":
+        raise OSError("injected interruption after purge register publication")
+    staging_path.unlink()
+    try:
+        staging_path.parent.rmdir()
+    except OSError:
+        pass
+    return {
+        "purged": True,
+        "no_op": False,
+        "recovered": False,
+        "memory_id": memory_id,
+        "path": path,
+        "manifest_path": manifest_path,
     }
 
 

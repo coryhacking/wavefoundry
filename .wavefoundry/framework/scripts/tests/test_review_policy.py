@@ -343,6 +343,23 @@ class ReviewPolicyUpgradeTests(unittest.TestCase):
     def test_evaluator_version_two_is_the_shipped_transition_boundary(self):
         self.assertEqual(review_policy.REVIEW_POLICY_EVALUATOR_VERSION, 2)
 
+    def test_upgrade_policy_guidance_matches_legacy_migration(self):
+        self.assertIn("delivery_mode=targeted", review_policy.UPGRADE_POLICY_BLOCK)
+        self.assertIn("selected delivery mode", review_policy.UPGRADE_POLICY_BLOCK)
+        self.assertNotIn("delivery_mode=universal", review_policy.UPGRADE_POLICY_BLOCK)
+        self.assertIn("**Review memories**", review_policy.UPGRADE_POLICY_BLOCK)
+        self.assertIn("curation_required=true", review_policy.UPGRADE_POLICY_BLOCK)
+        self.assertIn("consolidation candidates", review_policy.UPGRADE_POLICY_BLOCK)
+        self.assertIn("`AGENTS.md`", review_policy.UPGRADE_POLICY_BLOCK)
+        self.assertIn("`docs/prompts/index.md`", review_policy.UPGRADE_POLICY_BLOCK)
+        self.assertIn(
+            "`docs/prompts/prompt-surface-manifest.json`",
+            review_policy.UPGRADE_POLICY_BLOCK,
+        )
+        self.assertIn("never auto-curates or\npurges memory", review_policy.UPGRADE_POLICY_BLOCK)
+        self.assertNotIn("memory_purge(", review_policy.UPGRADE_POLICY_BLOCK)
+        self.assertNotIn('memory_consolidate(mode="create"', review_policy.UPGRADE_POLICY_BLOCK)
+
     def _repo(self, tmp: str, *, enabled: bool) -> tuple[Path, Path, Path]:
         root = Path(tmp)
         config = root / "docs/workflow-config.json"
@@ -377,7 +394,7 @@ class ReviewPolicyUpgradeTests(unittest.TestCase):
         return root, open_md, closed_md
 
     def test_legacy_policy_mapping_marks_open_waves_and_preserves_closed_bytes(self):
-        for enabled, expected in ((True, "universal"), (False, "disabled")):
+        for enabled, expected in ((True, "targeted"), (False, "disabled")):
             with self.subTest(enabled=enabled), tempfile.TemporaryDirectory() as tmp:
                 root, open_md, closed_md = self._repo(tmp, enabled=enabled)
                 closed_before = closed_md.read_bytes()
@@ -411,13 +428,38 @@ class ReviewPolicyUpgradeTests(unittest.TestCase):
 
 
 class ReviewPolicyAdoptionGateTests(unittest.TestCase):
-    def test_measured_baseline_keeps_universal_default(self):
-        self.assertEqual(review_policy.FRESH_INSTALL_DELIVERY_MODE, "universal")
+    def test_operator_direction_sets_targeted_default(self):
+        self.assertEqual(review_policy.FRESH_INSTALL_DELIVERY_MODE, "targeted")
         self.assertFalse(
             review_policy.targeted_default_adoption_allowed(
                 council_reduction=0.0,
                 specialist_lane_reduction=0.0,
                 omitted_required_lanes=0,
+            )
+        )
+
+    def test_targeted_delivery_escalates_only_for_boundary_triggers(self):
+        self.assertFalse(review_policy.delivery_council_required("targeted"))
+        self.assertTrue(
+            review_policy.delivery_council_required(
+                "targeted",
+                delivered_boundary_triggers=review_policy.extract_full_council_triggers(
+                    ["The feature must behave consistently on Windows, macOS, and Linux."]
+                ),
+            )
+        )
+        self.assertTrue(
+            review_policy.delivery_council_required(
+                "targeted",
+                delivered_boundary_triggers=review_policy.extract_full_council_triggers(
+                    ["This changes the release artifact distribution boundary."]
+                ),
+            )
+        )
+        self.assertTrue(
+            review_policy.delivery_council_required(
+                "targeted",
+                current_heads=[{"permission_boundary_changed": True}],
             )
         )
 

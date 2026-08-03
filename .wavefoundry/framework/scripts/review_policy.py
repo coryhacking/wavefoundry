@@ -18,7 +18,7 @@ from gardener_metadata import canonical_review_policy_body
 
 
 DELIVERY_MODES = ("disabled", "targeted", "universal")
-FRESH_INSTALL_DELIVERY_MODE = "universal"
+FRESH_INSTALL_DELIVERY_MODE = "targeted"
 TARGETED_DEFAULT_COUNCIL_REDUCTION_MIN = 0.20
 TARGETED_DEFAULT_LANE_REDUCTION_MIN = 0.15
 REVIEW_POLICY_SCHEMA_VERSION = 1
@@ -49,17 +49,23 @@ RISK_TRIGGER_LANES: tuple[tuple[str, tuple[str, ...]], ...] = (
 
 FULL_COUNCIL_TRIGGER_FIELDS = (
     "contract_or_required_ac_semantics_changed",
+    "release_or_upgrade_changed",
     "trust_boundary_changed",
+    "permission_boundary_changed",
     "architecture_or_ownership_changed",
     "cross_component_protocol_or_state_changed",
     "failure_or_readiness_semantics_changed",
+    "cross_platform_changed",
 )
 FULL_COUNCIL_TRIGGER_TOKENS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("contract_or_required_ac_semantics_changed", ("required ac semantics", "public contract", "contract semantics")),
+    ("release_or_upgrade_changed", ("upgrade boundary", "release boundary", "release artifact", "distribution boundary")),
     ("trust_boundary_changed", ("trust boundary", "security boundary", "privilege boundary")),
+    ("permission_boundary_changed", ("permission boundary", "permission model", "access control boundary")),
     ("architecture_or_ownership_changed", ("architecture ownership", "ownership change", "architecture boundary")),
     ("cross_component_protocol_or_state_changed", ("cross-component protocol", "cross component protocol", "shared state protocol")),
     ("failure_or_readiness_semantics_changed", ("failure semantics", "readiness semantics", "fail-open", "fail-closed")),
+    ("cross_platform_changed", ("cross-platform", "cross platform", "windows", "macos", "linux")),
 )
 
 RETIRED_LIFECYCLE_TOKENS = (
@@ -91,10 +97,25 @@ UPGRADE_POLICY_MARKER_END = "<!-- wavefoundry:review-policy-upgrade:end -->"
 UPGRADE_POLICY_BLOCK = f"""{UPGRADE_POLICY_MARKER_BEGIN}
 ## Versioned review-policy and bridge recovery
 
-Upgrade maps legacy review enablement without weakening it: enabled projects become
-`enabled=true, delivery_mode=universal`; disabled projects become
-`enabled=false, delivery_mode=disabled`. Every non-closed declared wave is marked
-for re-Prepare; closed wave Markdown and ledgers remain immutable. While
+Upgrade maps legacy review enablement to the current default: enabled projects become
+`enabled=true, delivery_mode=targeted`; disabled projects become
+`enabled=false, delivery_mode=disabled`. The structured upgrade result reports the
+selected delivery mode. Every non-closed declared wave is marked for re-Prepare;
+closed wave Markdown and ledgers remain immutable. After the upgrade reload—or a
+restart when `runner_stale` or cutover requires one—check from a fresh turn. If the
+catalog remains stale, reconnect MCP, then restart as the final fallback. Once current,
+use `wf_list_waves` for compact wave metrics and `memory_brief` for the active-memory
+budget and any consolidation candidates. If `memory_brief` reports
+`curation_required=true` or returns consolidation candidates, recommend the public
+**Review memories** shortcut (alias **Memory review**); Upgrade never auto-curates or
+purges memory.
+
+Every upgrade also reconciles shortcut discovery merge-safely: ensure the canonical
+**Review memories** entry exists in `AGENTS.md` and `docs/prompts/index.md`, and ensure
+`docs/prompts/prompt-surface-manifest.json` contains exactly the canonical shortcut
+`Review memories` for `docs/prompts/memory-review.prompt.md` (the alias stays in the
+human-readable surfaces). Preserve project-authored additions and prose outside the
+framework-owned regions; never replace an entire discovery surface to add this entry. While
 `.wavefoundry/upgrade-in-progress.json` exists, lifecycle, review-evidence,
 context-efficiency, memory, docs, and index publication is blocked except the named
 memory-recovery phase.
@@ -291,7 +312,7 @@ def normalize_wave_review_policy(
         return None, ("wave_review.enabled must be boolean",)
     mode = value.get("delivery_mode")
     if mode is None and allow_legacy_missing_mode:
-        mode = "universal" if enabled else "disabled"
+        mode = FRESH_INSTALL_DELIVERY_MODE if enabled else "disabled"
     errors: list[str] = []
     if mode not in DELIVERY_MODES:
         errors.append(

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-31
+Last verified: 2026-08-03
 
 Adapted from `.wavefoundry/framework/seeds/001-feature-wave-framework-overview.md` for Wavefoundry's specific reviewer roles, personas, and artifact paths.
 
@@ -63,7 +63,7 @@ Close wave / Finalize feature
 
 ## Wave Council
 
-The framework ships `wave_review.enabled: true` and `delivery_mode: universal` by default. Enabled review requires readiness Council; delivery Council follows the explicit `universal | targeted | disabled` mode:
+The framework ships `wave_review.enabled: true` and `delivery_mode: targeted` by default. Enabled review requires readiness Council; targeted delivery escalates to full Council only for upgrade/release, permission/trust-boundary, cross-platform, and other shared boundary triggers. The explicit `universal | targeted | disabled` mode remains available:
 
 - `wave-council-readiness` before implementation
 - `wave-council-delivery` before closure

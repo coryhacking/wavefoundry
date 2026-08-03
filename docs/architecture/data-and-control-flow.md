@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-01
+Last verified: 2026-08-03
 
 ## Primary Control Paths
 
@@ -35,7 +35,7 @@ The `scheme_version: "v2"` policy is provisioned by code, not agents: fresh inst
 1. Operator or init process runs `python3 .wavefoundry/framework/scripts/render_platform_surfaces.py`
 2. Before cleanup or the first write, the orchestration layer resolves every selected platform write root (`.claude`, `.cursor`, `.github`, `.junie`, `.windsurf`, `.agents` as applicable), unconditional launcher/ignore roots, every registered review carrier, and every enabled native/Guru destination against the resolved repository root. Any pre-existing/static final, parent, or common-ancestor symlink escape in the repository state presented to the command returns nonzero with no platform/agent mutation; fresh `wf setup` therefore stops before `setup_index.py`, and upgrade stops before pruning, the docs gate, and index update. Rendering assumes exclusive control of these path namespaces for the duration of the command; concurrent local filesystem substitution after preflight is outside the supported threat model and is not claimed race-safe
 3. After the complete preflight passes, the platform renderer generates enabled platform entrypoints and merged configuration, including `.claude/hooks/*`, `.cursor/hooks/*`, `.github/hooks/*`, `.claude/settings.json`, `.mcp.json`, and `.junie/mcp/mcp.json`
-4. It then calls `render_agent_surfaces`; before that function's Guru-availability guard, the agent renderer reconciles only the typed registry's framework-owned executable-review marker regions under `docs/agents/`, `docs/prompts/`, `docs/contributing/`, and explicitly enabled native role destinations under `.claude/agents/` and `.codex/skills/`. Missing required canonical carriers are materialized, absent optional/native roles stay disabled, malformed markers fail safe, and project-authored bytes outside the marker pair remain unchanged
+4. It then calls `render_agent_surfaces`; before that function's Guru-availability guard, the agent renderer materializes missing-only lifecycle prompt baselines and reconciles only the typed registry's framework-owned executable-review marker regions under `docs/agents/`, `docs/prompts/`, `docs/contributing/`, and explicitly enabled native role destinations under `.claude/agents/` and `.codex/skills/`. Missing required canonical carriers are materialized, absent optional/native roles stay disabled, malformed markers fail safe, and project-authored bytes outside the marker pair remain unchanged. The exact upgrade-prompt destination joins the complete preflight. After Phase 0c may have run the old in-process lifecycle reconciler, Phase 1's freshly extracted renderer replays only the shared `UPGRADE_POLICY_BLOCK` marker through `review_policy_reconcile.py`; the lifecycle reconciler remains primary owner, surrounding project prose is preserved, and no other lifecycle carrier moves into renderer ownership
 5. The renderer finishes the remaining bin-launcher, ignore/attributes, and cleanup work only after agent-surface reconciliation succeeds
 
 **State read:** `.wavefoundry/framework/scripts/` (templates), registered carrier seeds and enabled target files
@@ -69,6 +69,7 @@ The `scheme_version: "v2"` policy is provisioned by code, not agents: fresh inst
 12. **Build epoch (wave 1sed7):** every mutating pass — normal/scoped builds, zero-change reap/heal, standalone FTS rebuild, optimize/compact — holds the build lock AND the store's build epoch: a FULL-durable `building` fence commits before the first Lance/FTS mutation, and an attempt-ID compare-and-set completion transaction (the only generation advance) publishes readiness after all mandatory residents reconcile. A proven true no-op opens no epoch and leaves the generation unchanged. Readers fail closed between fence and finalize. Legacy convergence: a pre-1sed7 install (Lance + `meta.json`, no store) reads as all-stale and converges in one re-chunk pass with vector reuse — the JSON is never imported as authority and is removed after the first successful finalize.
 13. Index-state store passes (wave 1rsh9, all inside the build lock, all derived-only and fail-safe): (a) SQLite FTS5 lexical tables + chunk registry sync in one store transaction ordered **after** the Lance writes, with an end-of-build chunk-id reconciliation repairing any crash window from Lance; (b) per-path build bookkeeping written to the store — the sole state surface (wave 1sed7: a bookkeeping write failure is a structured build failure, never a silent fallback); (c) freshness/attribution refresh from one batched `git log` pass (zero-change builds skip on the git-HEAD + path-set fingerprint); (d) end-of-build store maintenance — `wal_checkpoint(TRUNCATE)` + `incremental_vacuum` — so the WAL stays bounded under the long-lived MCP server. The reconcile's Lance read is **schema-tolerant** (wave 1sbfk): it projects only columns present in the table's actual schema (required: `id`/`path`/`text`; everything else defaults empty), because production Lance tables carry no `tags` column and Lance raises on absent projections. Zero-change builds run a cheap coverage probe (registry count vs Lance `count_rows` per table) and fall through to the reconcile when the store is cold or materially under-covered, so an idle repo still heals. The store's one-time diagnostics (provisioning, crash-window, reconcile skips, legacy-FTS drops) persist to `.wavefoundry/logs/index-state.log` (bounded, best-effort) in addition to stdout/stderr
 14. The secrets scan consults the per-file scan cache (content hash + rules fingerprint) on the index-state store: matching files are skipped, scanned files' rows are upserted in one transaction; any cache problem fails toward a full scan (wave 1rsh9 / 1rsha)
+15. **Orphan-store reconciliation (wave 1u8o2):** every incremental build plans a read-only store-minus-authority pass over the stores that previously lacked one (the graph `files` manifest plus the `file_freshness` and `secret_scan_cache` sidecars), against the same registry/walk authority the Lance reap uses. Per candidate path, one `stat` classifies: absent removes, present-but-out-of-scope removes for freshness and graph (parity with the Lance eligibility reap) but is preserved for the secret-scan cache (its candidate set is all tracked files, wider than the index corpus by design), and unreadable always preserves. A mass-removal circuit breaker (over half the store's rows AND at least the floor count) defers a store's reconciliation loudly instead of cascading a transiently invisible subtree into wholesale retirement. Execution happens inside the build epoch at the existing reap seam on both the zero-change idle pass (previously the only pass that never touched these stores, so orphans survived it forever) and the ordinary build path; graph retirement routes through the normal merge (`retire_orphaned_graph_paths` delegating to `update_graph_index` with an empty changed set) so rows, edges, payload, and clusters stay consistent, and a removal-only pass opens and finalizes an epoch (the generation advance publishes the removals)
 
 **State read:** entire repository tree (excluding index, binaries, ignores); git history (one batched `git log` per build for freshness)
 **State written:** `.wavefoundry/index/` (gitignored), including `index-state.sqlite`
@@ -102,7 +103,7 @@ The `scheme_version: "v2"` policy is provisioned by code, not agents: fresh inst
 7. Runtime parsing and docs lint share one strict validator for marker uniqueness, schema, and canonical rendering. The human table has only stage, tool calls, and estimated token savings; detailed ledger components remain machine-readable. Legacy `wavefoundry:` markers migrate when touched.
 8. The store carries a random instance ID. Loss or replacement freezes active history as `credit_history_unavailable`; a closed validator-valid checkpoint may restore its sealed compact floor because no uncovered mutation is possible. This is the first shipped schema and has no versioned pre-release compatibility layer.
 9. A failed transaction durably writes `.wavefoundry/logs/context-efficiency.gap`, suppressing all positive publication. Exceptions before the normal event commit route through the same poison barrier. Only failure to persist both event and poison changes the public call, returning `telemetry_persistence_failed`.
-10. Fresh install, package install, public render, and upgrade deliver the implementation, scorer/schema, five missing-only lifecycle prompt baselines from packaged install templates, and `.wavefoundry/logs/` ignore rule without eagerly creating telemetry state or bulk-rewriting historical wave artifacts. Existing project prompt prose remains authoritative and is never replaced by a baseline.
+10. Fresh install, package install, public render, and upgrade deliver the implementation, scorer/schema, six missing-only lifecycle prompt baselines from packaged install templates (including `memory-review`), and `.wavefoundry/logs/` ignore rule without eagerly creating telemetry state or bulk-rewriting historical wave artifacts. Existing project prompt prose remains authoritative and is never replaced by a baseline.
 11. Exact-match memory-advisory events use a distinct
     `exploration_credit_event` table in the same SQLite authority. The event key
     is phase/context idempotent and all memories from one source wave share a
@@ -110,7 +111,7 @@ The `scheme_version: "v2"` policy is provisioned by code, not agents: fresh inst
     `## Estimated Exploration Avoided` block; these counterfactual estimates are
     never added to measured Context Efficiency.
 
-**State read:** current request/response, current/captured file-size and same-version metadata, five project-local lifecycle prompts, strict marker-owned checkpoint, and the SQLite authority when present; health is `absent | healthy | accounting_gap | failed`
+**State read:** current request/response, current/captured file-size and same-version metadata, six project-local lifecycle prompts, strict marker-owned checkpoint, and the SQLite authority when present; health is `absent | healthy | accounting_gap | failed`
 **State written:** write-through opaque event/source/evaluation accounting, producer lease files, sealed checkpoint floors and compact replay tombstones, plus separately labeled memory-advisory estimates in `.wavefoundry/logs/`; durable gap poison on failed transactions; marker-owned Context Efficiency and Estimated Exploration Avoided `wave.md` projections at lifecycle/reload/upgrade barriers and accounting-neutral turn-end/quiet-period opportunities. Monitor observations remain bounded process memory only.
 **Failure semantics:** ordinary measurement uncertainty undercounts; a durable accounting gap suppresses the headline; only the inability to persist both an event and the poison barrier fails the public tool call
 
@@ -348,22 +349,45 @@ fixed fallback for sparse/unreadable histories). The shared sort keeps exact
 target, base confidence, status, and kind-family policy ahead of adaptive
 freshness, optional semantic query rank, persisted-betweenness, and id.
 `memory_brief` is queryless and consumes the same policy/freshness order.
+It also exposes the fixed 50-record active-corpus budget and, only when that
+budget is reached, read-only same-file `fragile_file` consolidation candidates;
+it never archives, merges, or deletes memory automatically.
 Missing index/graph/freshness state degrades deterministically without changing
 those policy boundaries.
 `memory_reconcile` transitions status in place or explicitly archives an
 already-retired record. Archival holds the shared cross-process mutation lock
 and memory fence, renames the retired body into the index-excluded
 `docs/agents/memory/archive/`, atomically rewrites archive metadata there, and
-atomically publishes a compact pointer under `docs/agents/memory/pointers/`.
+atomically rebuilds the indexed compact register at
+`docs/agents/memory-archive.md`.
+Setup and upgrade run the same state-derived register rebuild only when the
+retired generated `docs/agents/memory/pointers/` directory exists, then remove
+those copies before index publication. Index walks exclude the legacy path
+independently, and docs lint rejects any residue.
 Every retry derives progress from those three filesystem states. Default record
 reads, advisories, semantic indexing, and
 graph extraction exclude archive bodies; targeted search may return the
-pointer, while an explicit history/status query returns the body. Hot read tools
+register entry, while an explicit history/status query returns the body. Hot read tools
 and lifecycle tools attach capped advisories from the same active record store.
 The rename-before-rewrite crash state is represented as a pending archive:
 unfiltered/history and source-disposition consumers retain the retired body,
 default-status consumers do not, and docs lint blocks with the exact reconcile
 retry rather than leaving recovery implicit.
+
+`memory_consolidate(dry_run)` groups only same-kind records with identical
+canonical targets and caps both returned groups and members per apply. A
+reviewed create revalidates every source under the lock, creates the replacement
+through the canonical forbidden-content seam, and archives the selected sources;
+failure restores the source and register snapshot so the same dry-run remains a
+valid retry. `memory_purge` accepts only individually reviewed retired records,
+uses the MCP destructive boundary, and writes only the SHA-256 identity of any
+evidence-derived source event to the repo-visible, non-indexed
+`.wavefoundry/memory-purge-dispositions.json` before staging the body under the
+index-excluded archive tree. Register publication precedes final deletion;
+publication failure rolls the body back and post-staging interruption converges
+on retry. That
+authority survives index rebuild and repository transfer; malformed authority
+fails proposal closed.
 
 Evidence-derived supply adds a semantic checkpoint without adding another event
 store: `memory_supply.draft_candidates` assigns each source a stable identity →

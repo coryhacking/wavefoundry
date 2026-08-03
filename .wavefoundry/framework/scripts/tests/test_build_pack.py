@@ -1747,9 +1747,14 @@ class InstallTemplateInjectionTests(unittest.TestCase):
                 "implement-wave.prompt.md",
                 "review-wave.prompt.md",
                 "close-wave.prompt.md",
+                "memory-review.prompt.md",
             )
         }
         self.assertTrue(expected.issubset(names), expected - names)
+        self.assertIn(
+            ".wavefoundry/framework/seeds/240-memory-review.prompt.md",
+            names,
+        )
 
     def test_install_md_no_longer_present(self):
         """AC-8: INSTALL.md is removed; not aliased."""

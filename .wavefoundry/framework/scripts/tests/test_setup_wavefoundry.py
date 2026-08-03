@@ -453,6 +453,7 @@ class PublicSetupReviewProtocolIntegrationTests(unittest.TestCase):
     def test_setup_root_adds_missing_protocol_preserves_extensions_and_is_idempotent(self):
         mod = load_setup_wavefoundry()
         import render_agent_surfaces as ras
+        import memory_records
         observed: list[bool] = []
         historical_snapshot: bytes | None = None
 
@@ -482,9 +483,23 @@ class PublicSetupReviewProtocolIntegrationTests(unittest.TestCase):
             historical_events = historical.parent / "events.jsonl"
             historical_events.write_bytes(b'{"historical":true,"opaque":"keep"}\n')
             historical_events_snapshot = historical_events.read_bytes()
+            memory_archive = root / "docs" / "agents" / "memory" / "archive" / "historic.md"
+            memory_archive.parent.mkdir(parents=True)
+            memory_archive.write_bytes(b"historical memory body\n")
+            memory_register = root / "docs" / "agents" / "memory-archive.md"
+            memory_register.write_bytes(b"# Memory Archive\n\nproject history\n")
+            purge_dispositions = root / ".wavefoundry" / "memory-purge-dispositions.json"
+            purge_dispositions.write_bytes(
+                b'{"schema_version":1,"source_event_sha256":["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]}\n'
+            )
+            memory_snapshot = {
+                memory_archive: memory_archive.read_bytes(),
+                memory_register: memory_register.read_bytes(),
+                purge_dispositions: purge_dispositions.read_bytes(),
+            }
             prompt_root = root / "docs" / "prompts"
             target = root / "docs" / "agents" / "code-reviewer.md"
-            target.parent.mkdir(parents=True)
+            target.parent.mkdir(parents=True, exist_ok=True)
             prefix = "# Project Code Reviewer\n\nproject-prefix\n\n"
             suffix = "\n\n## Project extension\n\n- preserve this exactly\n"
             target.write_text(
@@ -496,11 +511,18 @@ class PublicSetupReviewProtocolIntegrationTests(unittest.TestCase):
             with patch.object(mod, "_load_setup_index", return_value=FakeSetupIndex), \
                  patch.object(mod, "_run_mcp_server_dry_run", return_value=0), \
                  patch.object(mod.venv_bootstrap, "ensure_python_resolves", return_value="ok"), \
+                 patch.object(
+                     memory_records,
+                     "migrate_legacy_memory_pointers",
+                     wraps=memory_records.migrate_legacy_memory_pointers,
+                 ) as pointer_migration, \
                  patch.dict(os.environ, {"WAVEFOUNDRY_SKIP_PYTHON_HEAL": "1"}, clear=False), \
                  redirect_stdout(io.StringIO()):
                 self.assertEqual(mod.main(["--root", str(root)]), 0)
                 first = target.read_bytes()
                 self.assertEqual(mod.main(["--root", str(root)]), 0)
+
+            self.assertEqual(pointer_migration.call_count, 2)
 
             text = first.decode("utf-8")
             self.assertTrue(first.startswith(original), "project-authored bytes must remain an exact prefix")
@@ -570,6 +592,10 @@ class PublicSetupReviewProtocolIntegrationTests(unittest.TestCase):
             self.assertEqual(target.read_bytes(), first)
             self.assertEqual(historical.read_bytes(), historical_snapshot)
             self.assertEqual(historical_events.read_bytes(), historical_events_snapshot)
+            self.assertEqual(
+                {path: path.read_bytes() for path in memory_snapshot},
+                memory_snapshot,
+            )
             create_text = (
                 root / "docs" / "prompts" / "create-wave.prompt.md"
             ).read_text(encoding="utf-8")
@@ -589,6 +615,7 @@ class PublicSetupReviewProtocolIntegrationTests(unittest.TestCase):
                 "implement-wave.prompt.md",
                 "review-wave.prompt.md",
                 "close-wave.prompt.md",
+                "memory-review.prompt.md",
             ):
                 self.assertTrue(prompt_root.joinpath(prompt_name).is_file())
                 self.assertGreater(
@@ -602,6 +629,10 @@ class PublicSetupReviewProtocolIntegrationTests(unittest.TestCase):
             self.assertIn(
                 "memory_validate",
                 prompt_root.joinpath("close-wave.prompt.md").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "Review memories",
+                prompt_root.joinpath("memory-review.prompt.md").read_text(encoding="utf-8"),
             )
             self.assertIn(
                 ".wavefoundry/logs/",

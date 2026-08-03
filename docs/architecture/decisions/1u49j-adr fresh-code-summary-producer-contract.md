@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: accepted
-Last verified: 2026-08-01
+Last verified: 2026-08-03
 
 ## Context
 
@@ -33,7 +33,7 @@ Defect classes in upgrade fixes are remedied three ways, one per class:
    sentinel is emitted per run (the delegated output and the in-process fallback are mutually
    exclusive by construction). Delegation failures degrade to the parent's own in-process summary
    carrying the `summary_source_degraded` marker, never fail the upgrade, and are never labeled as
-   new-schema output. The payload carries a `summary_schema` version token; a parent that does not
+   new-schema output. The payload carries a `summary_schema_version` token; a parent that does not
    recognize the token degrades rather than mis-parsing. The contract (flag name, argv shape,
    sentinel prefix value, envelope, token handling, pinned timeout) is pinned at ship time and
    locked by a permanent contract test that stands guard for the entire fielded population of old

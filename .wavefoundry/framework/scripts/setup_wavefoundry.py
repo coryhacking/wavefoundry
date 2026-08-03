@@ -247,6 +247,21 @@ def main(argv: list[str] | None = None) -> int:
         )
         return rc
 
+    # Wave 1u8r2: older releases generated one archived-memory pointer per
+    # body. Migrate that exact generated directory before the first index walk;
+    # repositories without it remain untouched.
+    import memory_records
+    try:
+        migrated_manifest = memory_records.migrate_legacy_memory_pointers(repo_root)
+    except (OSError, ValueError) as exc:
+        print(
+            f"\nERROR: legacy memory pointer migration failed: {exc}",
+            file=sys.stderr,
+        )
+        return 1
+    if migrated_manifest is not None:
+        print(f"Migrated legacy memory pointers to {migrated_manifest}")
+
     # Step 2: provision dependencies first. Historical projects pause before
     # model warm/index publication so newly derived candidates are validated
     # before the first completed epoch includes them.

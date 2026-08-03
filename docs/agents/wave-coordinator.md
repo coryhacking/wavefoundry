@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: wave-coordinator
 Category: coordinate
-Last verified: 2026-07-22
+Last verified: 2026-08-03
 
 ## Operating Identity
 
@@ -200,7 +200,7 @@ wave-id: `12r09 automated-upgrade`
 - Planned 2026-05-19: scripted upgrade path — upgrade-wavefoundry bin, check_version.py, upgrade_lib.py, dashboard upgrade-awareness, wf_upgrade_status MCP tool, wf_restart_dashboard guard.
 
 wave-id: `12sg7 implementation-governance-upgrades`
-- Planned 2026-05-21: five implementation-governance changes — senior builder roles (`12sf9`), MCP-first code navigation defaults (`12sfb`), checkbox AC/task tracking with dashboard alignment (`12sfj`), a formal pre-implementation review gate (`12sg4`), and dashboard dialog width/AC ID presentation (`12s5r`).
+- Planned 2026-05-21: five implementation-governance changes — senior builder roles (`12sf9`), MCP-first code navigation defaults (`12sfb`), checkbox AC/task tracking with dashboard alignment (`12sfj`), a formal prepare-phase review gate (`12sg4`), and dashboard dialog width/AC ID presentation (`12s5r`).
 
 wave-id: `12qmg dashboard-ux`
 - Planned 2026-05-18: `wf_open_dashboard` MCP tool — opens browser to running dashboard or starts it; `wf_start_dashboard` gains `next_tools` hint when already running.

@@ -528,21 +528,30 @@ class ReconcileTests(_MemoryCase):
         with self.assertRaises(FileNotFoundError):
             self.mem.reconcile_memory_record(self.root, "mem-missing", "stale")
 
+    def test_renderer_has_blank_line_before_summary(self):
+        content = self.mem.render_memory_record(
+            memory_id="mem-format", kind="failed_attempt", title="Format",
+            summary="Body.", evidence=["evidence"], targets=["src/a.py"],
+        )
+        self.assertIn("Updated: ", content)
+        self.assertIn("\n\n## Summary\n", content)
+
 
 class MemoryArchiveTests(_MemoryCase):
     def _stale(self, memory_id="mem-archive", kind="failed_attempt") -> Path:
         return self._add(memory_id, kind, status="stale", targets=("src/locks.py",))
 
-    def test_archive_renames_body_creates_pointer_and_second_call_is_no_op(self):
+    def test_archive_renames_body_updates_manifest_and_second_call_is_no_op(self):
         active = self._stale()
         result = self.mem.archive_memory_record(
             self.root, "mem-archive", reason="Superseded tactical guidance."
         )
         archive = self.root / self.mem.MEMORY_ARCHIVE_DIR / "mem-archive.md"
-        pointer = self.root / self.mem.MEMORY_POINTER_DIR / "mem-archive.md"
+        manifest = self.root / self.mem.MEMORY_ARCHIVE_MANIFEST
         self.assertFalse(active.exists())
         self.assertTrue(archive.is_file())
-        self.assertTrue(pointer.is_file())
+        self.assertTrue(manifest.is_file())
+        self.assertFalse((self.root / self.mem.MEMORY_DIR / "pointers").exists())
         self.assertTrue(result["moved"])
         body = self.mem.parse_memory_record(archive)
         self.assertEqual(body["status"], "archived")
@@ -551,9 +560,9 @@ class MemoryArchiveTests(_MemoryCase):
             body["archive_path"],
             "docs/agents/memory/archive/mem-archive.md",
         )
-        pointers = self.mem.load_memory_pointers(self.root)
-        self.assertEqual([record["memory_id"] for record in pointers], ["mem-archive"])
-        self.assertEqual(pointers[0]["record_type"], "archive_pointer")
+        entries = self.mem.load_archive_register_entries(self.root)
+        self.assertEqual([record["memory_id"] for record in entries], ["mem-archive"])
+        self.assertEqual(entries[0]["record_type"], "archive_register_entry")
         self.assertEqual(
             self.mem.load_memory_records(
                 self.root, statuses=self.mem.DEFAULT_SURFACED_STATUSES
@@ -569,7 +578,81 @@ class MemoryArchiveTests(_MemoryCase):
         self.assertTrue(again["no_op"])
         self.assertFalse(again["moved"])
         self.assertEqual(len(list(archive.parent.glob("mem-archive.md"))), 1)
-        self.assertEqual(len(list(pointer.parent.glob("mem-archive.md"))), 1)
+
+    def test_legacy_pointer_migration_is_conditional_and_uses_archive_bodies(self):
+        self._stale()
+        self.mem.archive_memory_record(
+            self.root, "mem-archive", reason="Superseded tactical guidance."
+        )
+        manifest = self.root / self.mem.MEMORY_ARCHIVE_MANIFEST
+        before = manifest.read_bytes()
+        self.assertIsNone(self.mem.migrate_legacy_memory_pointers(self.root))
+        self.assertEqual(manifest.read_bytes(), before)
+
+        legacy_root = self.root / self.mem.MEMORY_DIR / "pointers"
+        legacy_root.mkdir()
+        archive = self.root / self.mem.MEMORY_ARCHIVE_DIR / "mem-archive.md"
+        legacy_text = archive.read_text(encoding="utf-8").replace(
+            "\n## Summary\n",
+            "\nPointer to: `mem-archive`\n\n## Summary\n",
+            1,
+        )
+        (legacy_root / "mem-archive.md").write_text(legacy_text, encoding="utf-8")
+        manifest.write_text("# stale generated register\n", encoding="utf-8")
+        migrated = self.mem.migrate_legacy_memory_pointers(self.root)
+        self.assertEqual(migrated, manifest)
+        self.assertFalse(legacy_root.exists())
+        self.assertEqual(manifest.read_bytes(), before)
+        self.assertIn("## mem-archive", manifest.read_text(encoding="utf-8"))
+
+    def test_legacy_pointer_migration_refuses_unknown_entries_without_mutation(self):
+        self._stale()
+        self.mem.archive_memory_record(
+            self.root, "mem-archive", reason="Superseded tactical guidance."
+        )
+        manifest = self.root / self.mem.MEMORY_ARCHIVE_MANIFEST
+        manifest_before = manifest.read_bytes()
+        archive = self.root / self.mem.MEMORY_ARCHIVE_DIR / "mem-archive.md"
+        legacy_root = self.root / self.mem.MEMORY_DIR / "pointers"
+        legacy_root.mkdir()
+        generated = legacy_root / "mem-archive.md"
+        generated.write_text(
+            archive.read_text(encoding="utf-8").replace(
+                "\n## Summary\n",
+                "\nPointer to: `mem-archive`\n\n## Summary\n",
+                1,
+            ),
+            encoding="utf-8",
+        )
+        notes = legacy_root / "operator-notes.md"
+        notes.write_text("# Keep this operator note\n", encoding="utf-8")
+        generated_before = generated.read_bytes()
+        notes_before = notes.read_bytes()
+
+        with self.assertRaisesRegex(ValueError, "unrecognized legacy memory pointer residue"):
+            self.mem.migrate_legacy_memory_pointers(self.root)
+
+        self.assertEqual(manifest.read_bytes(), manifest_before)
+        self.assertEqual(generated.read_bytes(), generated_before)
+        self.assertEqual(notes.read_bytes(), notes_before)
+
+    def test_legacy_pointer_migration_refuses_symlink_without_touching_target(self):
+        outside = self.root / "outside"
+        outside.mkdir()
+        sentinel = outside / "sentinel.txt"
+        sentinel.write_text("keep\n", encoding="utf-8")
+        legacy_root = self.root / self.mem.MEMORY_DIR / "pointers"
+        legacy_root.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            legacy_root.symlink_to(outside, target_is_directory=True)
+        except (OSError, NotImplementedError):
+            self.skipTest("directory symlinks are unavailable")
+
+        with self.assertRaisesRegex(ValueError, "must not be a symlink"):
+            self.mem.migrate_legacy_memory_pointers(self.root)
+
+        self.assertEqual(sentinel.read_text(encoding="utf-8"), "keep\n")
+        self.assertTrue(legacy_root.is_symlink())
 
     def test_archive_requires_retired_status_reason_and_protected_confirmation(self):
         self._add("mem-active", "failed_attempt", status="active")
@@ -596,7 +679,7 @@ class MemoryArchiveTests(_MemoryCase):
             )
 
     def test_each_interruption_window_converges_from_filesystem_state(self):
-        for transition in ("status_rewrite", "body_rename", "pointer_publish"):
+        for transition in ("status_rewrite", "body_rename", "register_publish"):
             memory_id = f"mem-{transition.replace('_', '-')}"
             self._stale(memory_id)
             with self.assertRaisesRegex(RuntimeError, "injected interruption"):
@@ -613,16 +696,14 @@ class MemoryArchiveTests(_MemoryCase):
             )
             active = self.root / self.mem.MEMORY_DIR / f"{memory_id}.md"
             archive = self.root / self.mem.MEMORY_ARCHIVE_DIR / f"{memory_id}.md"
-            pointer = self.root / self.mem.MEMORY_POINTER_DIR / f"{memory_id}.md"
+            manifest = self.root / self.mem.MEMORY_ARCHIVE_MANIFEST
             self.assertFalse(active.exists(), transition)
             self.assertTrue(archive.is_file(), transition)
-            self.assertTrue(pointer.is_file(), transition)
+            self.assertTrue(manifest.is_file(), transition)
             self.assertEqual(
                 self.mem.parse_memory_record(archive)["status"], "archived"
             )
-            self.assertEqual(
-                self.mem.parse_memory_record(pointer)["pointer_to"], memory_id
-            )
+            self.assertIn(f"## {memory_id}", manifest.read_text(encoding="utf-8"))
             self.assertIn(repaired["no_op"], (True, False))
 
     def test_both_active_and_archive_bodies_refuse_ambiguity(self):
@@ -638,6 +719,72 @@ class MemoryArchiveTests(_MemoryCase):
                 "mem-ambiguous",
                 reason="Must not guess which body wins.",
             )
+
+    def test_purge_removes_retired_body_and_register_entry(self):
+        self._stale("mem-purge")
+        self.mem.archive_memory_record(self.root, "mem-purge", reason="No longer needed.")
+        result = self.mem.purge_memory_record(self.root, "mem-purge")
+        self.assertTrue(result["purged"])
+        self.assertFalse((self.root / self.mem.MEMORY_ARCHIVE_DIR / "mem-purge.md").exists())
+        manifest = (self.root / self.mem.MEMORY_ARCHIVE_MANIFEST).read_text(encoding="utf-8")
+        self.assertIn("this register remains indexed", manifest)
+        self.assertIn("Full bodies", manifest)
+        self.assertNotIn("## mem-purge", manifest)
+        self.assertTrue(self.mem.purge_memory_record(self.root, "mem-purge")["no_op"])
+
+    def test_purge_register_failure_rolls_body_back_before_reporting_failure(self):
+        self._stale("mem-purge-rollback")
+        self.mem.archive_memory_record(
+            self.root, "mem-purge-rollback", reason="No longer needed."
+        )
+        archive = self.root / self.mem.MEMORY_ARCHIVE_DIR / "mem-purge-rollback.md"
+        manifest = self.root / self.mem.MEMORY_ARCHIVE_MANIFEST
+        manifest_before = manifest.read_bytes()
+
+        with patch.object(
+            self.mem, "rebuild_archive_manifest", side_effect=OSError("publish failed")
+        ):
+            with self.assertRaisesRegex(OSError, "publish failed"):
+                self.mem.purge_memory_record(self.root, "mem-purge-rollback")
+
+        self.assertTrue(archive.is_file())
+        self.assertEqual(manifest.read_bytes(), manifest_before)
+        self.assertFalse(
+            (
+                self.root
+                / self.mem.MEMORY_ARCHIVE_DIR
+                / ".purge-staging"
+                / "mem-purge-rollback.md"
+            ).exists()
+        )
+
+    def test_purge_interruption_windows_converge_from_staged_body(self):
+        for transition in ("body_stage", "register_publish"):
+            memory_id = f"mem-purge-{transition.replace('_', '-')}"
+            self._stale(memory_id)
+            self.mem.archive_memory_record(
+                self.root, memory_id, reason=f"Purge after {transition}."
+            )
+            with self.assertRaisesRegex(OSError, "injected interruption"):
+                self.mem.purge_memory_record(
+                    self.root, memory_id, _interrupt_after=transition
+                )
+            staging = (
+                self.root
+                / self.mem.MEMORY_ARCHIVE_DIR
+                / ".purge-staging"
+                / f"{memory_id}.md"
+            )
+            self.assertTrue(staging.is_file(), transition)
+
+            repaired = self.mem.purge_memory_record(self.root, memory_id)
+            self.assertTrue(repaired["purged"], transition)
+            self.assertTrue(repaired["recovered"], transition)
+            self.assertFalse(staging.exists(), transition)
+            manifest = (self.root / self.mem.MEMORY_ARCHIVE_MANIFEST).read_text(
+                encoding="utf-8"
+            )
+            self.assertNotIn(f"## {memory_id}", manifest, transition)
 
 
 class DecayTests(_MemoryCase):
@@ -788,6 +935,18 @@ class MemoryToolTests(_MemoryCase):
         self.srv = load_server()
         # The tool layer needs docs/ to exist (record dir is created on write).
 
+    def _stage_for_purge(self, memory_id: str) -> Path:
+        source = self.root / self.mem.MEMORY_DIR / f"{memory_id}.md"
+        staging = (
+            self.root
+            / self.mem.MEMORY_ARCHIVE_DIR
+            / ".purge-staging"
+            / f"{memory_id}.md"
+        )
+        staging.parent.mkdir(parents=True, exist_ok=True)
+        source.replace(staging)
+        return staging
+
     def test_add_search_brief_reconcile_flow(self):
         resp = self.srv.memory_add_response(
             self.root, "fragile_file",
@@ -855,7 +1014,7 @@ class MemoryToolTests(_MemoryCase):
         self.assertEqual(resp["data"]["count"], 1)  # text containment served
         self.assertFalse(resp["data"]["semantic_assist"])
 
-    def test_archive_pointer_is_searchable_but_brief_isolated_and_history_resolves_body(self):
+    def test_archive_register_entry_is_searchable_but_brief_isolated_and_history_resolves_body(self):
         self._add(
             "mem-lock-contention",
             "failed_attempt",
@@ -867,20 +1026,23 @@ class MemoryToolTests(_MemoryCase):
             "mem-lock-contention",
             "archived",
             archive_reason="Replaced by the current lock playbook.",
+            retain_for_history=True,
         )
         self.assertEqual(archived["status"], "ok", archived)
         self.assertTrue(archived["data"]["archived"])
         self.assertEqual(
-            archived["data"]["pointer"]["record_type"], "archive_pointer"
+            archived["data"]["register_entry"]["record_type"],
+            "archive_register_entry",
         )
         search = self.srv.memory_search_response(
             self.root, query="lock contention"
         )
         self.assertEqual(search["data"]["count"], 1)
         self.assertEqual(
-            search["data"]["records"][0]["record_type"], "archive_pointer"
+            search["data"]["records"][0]["record_type"],
+            "archive_register_entry",
         )
-        self.assertEqual(search["data"]["archive_pointer_count"], 1)
+        self.assertEqual(search["data"]["archive_register_entry_count"], 1)
         brief = self.srv.memory_brief_response(
             self.root, targets=["src/locks.py"]
         )
@@ -913,8 +1075,9 @@ class MemoryToolTests(_MemoryCase):
             result = self.srv.memory_reconcile_response(
                 self.root,
                 "mem-locked-archive",
-                "archived",
-                archive_reason="Retired after replacement.",
+            "archived",
+            archive_reason="Retired after replacement.",
+            retain_for_history=True,
             )
         self.assertEqual(result["status"], "ok", result)
         self.assertEqual(entered, ["enter", "exit"])
@@ -929,6 +1092,382 @@ class MemoryToolTests(_MemoryCase):
         self.assertEqual(brief["data"]["total_surfaceable"], 8)
         bad = self.srv.memory_brief_response(self.root, context="vibes")
         self.assertEqual(bad["status"], "error")
+
+    def test_brief_surfaces_budget_and_same_target_curation_without_mutation(self):
+        self._add("mem-fragile-one", "fragile_file", targets=("src/chunker.py",))
+        self._add("mem-fragile-two", "fragile_file", targets=("src/chunker.py",))
+        for index in range(48):
+            self._add(f"mem-decision-{index}", "decision", targets=(f"src/{index}.py",))
+        self._add("mem-retired", "decision", status="superseded")
+
+        brief = self.srv.memory_brief_response(self.root)
+
+        self.assertEqual(
+            brief["data"]["active_memory_budget"],
+            {"cap": 50, "active_count": 50, "remaining": 0},
+        )
+        self.assertTrue(brief["data"]["curation_required"])
+        self.assertEqual(
+            brief["data"]["consolidation_candidates"],
+            [{"target": "src/chunker.py", "memory_ids": ["mem-fragile-one", "mem-fragile-two"]}],
+        )
+        self.assertEqual(
+            self.mem.parse_memory_record(
+                self.root / self.mem.MEMORY_DIR / "mem-fragile-one.md"
+            )["status"],
+            "active",
+        )
+
+    def test_consolidation_forwards_protected_eligibility_to_source_archives(self):
+        targets = ("src/server.py", "tests/test_server.py")
+        self._add("mem-runner-capture", "decision", targets=targets)
+        self._add("mem-runner-hash", "decision", targets=targets)
+
+        preview = self.srv.memory_consolidate_response(self.root, mode="dry_run")
+        group = preview["data"]["groups"][0]
+        self.assertEqual(
+            group["memory_ids"], ["mem-runner-capture", "mem-runner-hash"]
+        )
+
+        applied = self.srv.memory_consolidate_response(
+            self.root,
+            mode="create",
+            memory_ids=group["memory_ids"],
+            title="Runner identity capture and testing contract",
+            summary=(
+                "Keep runner identity hashing in one implementation site and test "
+                "launch-captured state by injection."
+            ),
+            reviewed=True,
+            eligibility_confirmed=True,
+        )
+
+        self.assertEqual(applied["status"], "ok", applied)
+        self.assertEqual(
+            applied["data"]["archived_ids"],
+            ["mem-runner-capture", "mem-runner-hash"],
+        )
+        for memory_id in group["memory_ids"]:
+            archived = self.mem.parse_memory_record(
+                self.root / self.mem.MEMORY_ARCHIVE_DIR / f"{memory_id}.md"
+            )
+            self.assertEqual(archived["status"], "archived")
+            self.assertEqual(
+                archived["superseded_by"], applied["data"]["replacement_id"]
+            )
+
+    def test_consolidation_protected_refusal_is_byte_pure(self):
+        targets = ("src/server.py", "tests/test_server.py")
+        self._add("mem-runner-capture", "decision", targets=targets)
+        self._add("mem-runner-hash", "decision", targets=targets)
+        preview = self.srv.memory_consolidate_response(self.root, mode="dry_run")
+        group = preview["data"]["groups"][0]
+        before = {
+            path.name: path.read_bytes()
+            for path in (self.root / self.mem.MEMORY_DIR).glob("*.md")
+        }
+
+        refused = self.srv.memory_consolidate_response(
+            self.root,
+            mode="create",
+            memory_ids=group["memory_ids"],
+            title="Runner identity contract",
+            summary="Keep runner identity capture and hashing aligned.",
+            reviewed=True,
+        )
+
+        self.assertEqual(refused["status"], "error", refused)
+        after = {
+            path.name: path.read_bytes()
+            for path in (self.root / self.mem.MEMORY_DIR).glob("*.md")
+        }
+        self.assertEqual(after, before)
+        self.assertFalse((self.root / self.mem.MEMORY_ARCHIVE_DIR).exists())
+
+    def test_consolidation_does_not_offer_or_accept_bulk_retired_cleanup(self):
+        self._add("mem-retired-one", "failed_attempt", status="rejected")
+        self._add("mem-retired-two", "failed_attempt", status="rejected")
+
+        preview = self.srv.memory_consolidate_response(self.root, mode="dry_run")
+        self.assertNotIn("retired_cleanup_ids", preview["data"])
+        refused = self.srv.memory_consolidate_response(
+            self.root,
+            mode="create",
+            memory_ids=["mem-retired-one", "mem-retired-two"],
+            title="Retired cleanup",
+            summary="Bulk retention decisions are forbidden.",
+            reviewed=True,
+        )
+
+        self.assertEqual(refused["status"], "error", refused)
+        for memory_id in ("mem-retired-one", "mem-retired-two"):
+            record = self.mem.parse_memory_record(
+                self.root / self.mem.MEMORY_DIR / f"{memory_id}.md"
+            )
+            self.assertEqual(record["status"], "rejected")
+
+    def test_purge_response_requires_review_retirement_and_protected_confirmation(self):
+        self._add("mem-active-purge", "failed_attempt", status="active")
+        unreviewed = self.srv.memory_purge_response(
+            self.root, "mem-active-purge", reviewed=False
+        )
+        self.assertEqual(unreviewed["status"], "error")
+        self.assertIn("irreversible", json.dumps(unreviewed).lower())
+        active = self.srv.memory_purge_response(
+            self.root, "mem-active-purge", reviewed=True
+        )
+        self.assertEqual(active["status"], "error")
+        self.assertTrue(
+            (self.root / self.mem.MEMORY_DIR / "mem-active-purge.md").is_file()
+        )
+
+        self._add("mem-protected-purge", "decision", status="rejected")
+        protected = self.srv.memory_purge_response(
+            self.root, "mem-protected-purge", reviewed=True
+        )
+        self.assertEqual(protected["status"], "error")
+        confirmed = self.srv.memory_purge_response(
+            self.root,
+            "mem-protected-purge",
+            reviewed=True,
+            eligibility_confirmed=True,
+        )
+        self.assertEqual(confirmed["status"], "ok", confirmed)
+        self.assertTrue(confirmed["data"]["purged"])
+        self.assertTrue(confirmed["data"]["irreversible"])
+
+    def test_purge_response_failure_preserves_body_and_gives_retry_route(self):
+        self._add("mem-purge-safe-error", "failed_attempt", status="stale")
+        self.mem.archive_memory_record(
+            self.root, "mem-purge-safe-error", reason="No longer needed."
+        )
+        archive = self.root / self.mem.MEMORY_ARCHIVE_DIR / "mem-purge-safe-error.md"
+        with patch.object(self.srv, "_memory_mod", return_value=self.mem), patch.object(
+            self.mem, "rebuild_archive_manifest", side_effect=OSError("publish failed")
+        ):
+            response = self.srv.memory_purge_response(
+                self.root, "mem-purge-safe-error", reviewed=True
+            )
+
+        self.assertEqual(response["status"], "error", response)
+        self.assertFalse(response["data"]["purged"])
+        self.assertTrue(archive.is_file())
+        self.assertIn("memory_purge", json.dumps(response["diagnostics"]))
+
+    def test_purge_staged_retry_rechecks_status_and_protected_confirmation(self):
+        for status in ("active", "candidate"):
+            memory_id = f"mem-staged-{status}"
+            self._add(memory_id, "failed_attempt", status=status)
+            staging = self._stage_for_purge(memory_id)
+
+            response = self.srv.memory_purge_response(
+                self.root, memory_id, reviewed=True
+            )
+
+            self.assertEqual(response["status"], "error", response)
+            self.assertTrue(staging.is_file())
+
+        self._add("mem-staged-protected", "decision", status="rejected")
+        protected = self._stage_for_purge("mem-staged-protected")
+        refused = self.srv.memory_purge_response(
+            self.root, "mem-staged-protected", reviewed=True
+        )
+        self.assertEqual(refused["status"], "error", refused)
+        self.assertTrue(protected.is_file())
+        confirmed = self.srv.memory_purge_response(
+            self.root,
+            "mem-staged-protected",
+            reviewed=True,
+            eligibility_confirmed=True,
+        )
+        self.assertEqual(confirmed["status"], "ok", confirmed)
+        self.assertFalse(protected.exists())
+
+    def test_purge_staged_retry_persists_source_event_before_deletion(self):
+        memory_id = "mem-staged-evidence"
+        source_event = "decision-log:1zzzz-feat demo:abc123"
+        content = self.mem.render_memory_record(
+            memory_id=memory_id,
+            kind="failed_attempt",
+            summary="A retired evidence-derived lesson.",
+            evidence=["`1abcd-bug some-change` — observed"],
+            targets=["src/a.py"],
+            status="rejected",
+            source_event=source_event,
+            date="2026-07-13",
+        )
+        self.mem.write_memory_record(self.root, content, memory_id)
+        staging = self._stage_for_purge(memory_id)
+
+        response = self.srv.memory_purge_response(
+            self.root, memory_id, reviewed=True
+        )
+
+        self.assertEqual(response["status"], "ok", response)
+        self.assertFalse(staging.exists())
+        authority = self.root / self.mem.MEMORY_PURGE_DISPOSITIONS
+        payload = json.loads(authority.read_text(encoding="utf-8"))
+        self.assertIn(
+            self.mem.source_event_digest(source_event),
+            payload["source_event_sha256"],
+        )
+        self.assertEqual(
+            response["data"]["disposition_path"],
+            self.mem.MEMORY_PURGE_DISPOSITIONS,
+        )
+
+    def test_purge_staged_retry_refuses_malformed_body_and_symlink(self):
+        staging_root = (
+            self.root / self.mem.MEMORY_ARCHIVE_DIR / ".purge-staging"
+        )
+        staging_root.mkdir(parents=True, exist_ok=True)
+        malformed = staging_root / "mem-staged-malformed.md"
+        malformed.write_text("# not a memory record\n", encoding="utf-8")
+        malformed_response = self.srv.memory_purge_response(
+            self.root, "mem-staged-malformed", reviewed=True
+        )
+        self.assertEqual(malformed_response["status"], "error", malformed_response)
+        self.assertTrue(malformed.is_file())
+
+        sentinel = staging_root / "sentinel.md"
+        sentinel.write_text("keep\n", encoding="utf-8")
+        linked = staging_root / "mem-staged-symlink.md"
+        try:
+            linked.symlink_to(sentinel.name)
+        except (OSError, NotImplementedError):
+            self.skipTest("file symlinks are unavailable")
+        symlink_response = self.srv.memory_purge_response(
+            self.root, "mem-staged-symlink", reviewed=True
+        )
+        self.assertEqual(symlink_response["status"], "error", symlink_response)
+        self.assertTrue(linked.is_symlink())
+        self.assertEqual(sentinel.read_text(encoding="utf-8"), "keep\n")
+
+    def test_consolidation_preview_is_bounded_detailed_and_continuable(self):
+        for index in range(12):
+            self._add(
+                f"mem-related-{index:02d}",
+                "failed_attempt",
+                targets=("src/shared.py",),
+            )
+        self._add("mem-other-a", "failed_attempt", targets=("src/zz-other.py",))
+        self._add("mem-other-b", "failed_attempt", targets=("src/zz-other.py",))
+        self._add("mem-unrelated", "decision", targets=("src/singleton.py",))
+
+        preview = self.srv.memory_consolidate_response(
+            self.root, mode="dry_run", limit=1
+        )
+        self.assertEqual(preview["status"], "dry_run", preview)
+        self.assertEqual(preview["data"]["groups_total"], 2)
+        self.assertEqual(preview["data"]["groups_returned"], 1)
+        self.assertEqual(preview["data"]["groups_omitted"], 1)
+        group = preview["data"]["groups"][0]
+        self.assertEqual(len(group["memory_ids"]), self.srv.MEMORY_CONSOLIDATE_MEMBER_CAP)
+        self.assertEqual(group["total_members"], 12)
+        self.assertEqual(group["remaining_count"], 7)
+        self.assertTrue(group["truncated"])
+        self.assertEqual(len(group["sources"]), 5)
+        self.assertTrue(group["proposed_summary"])
+        self.assertIn(
+            "fewer_than_two_related_records",
+            {item["reason"] for item in preview["data"]["skipped_groups"]},
+        )
+
+        applied = self.srv.memory_consolidate_response(
+            self.root,
+            mode="create",
+            memory_ids=group["memory_ids"],
+            title="Shared failure playbook",
+            summary="Apply the combined shared-file failure lessons before editing.",
+            reviewed=True,
+        )
+        self.assertEqual(applied["status"], "ok", applied)
+        continued = self.srv.memory_consolidate_response(
+            self.root, mode="dry_run", limit=1
+        )
+        self.assertEqual(continued["data"]["groups_returned"], 1)
+        self.assertLessEqual(
+            len(continued["data"]["groups"][0]["memory_ids"]),
+            self.srv.MEMORY_CONSOLIDATE_MEMBER_CAP,
+        )
+
+    def test_consolidation_forbidden_replacement_is_non_echoing_and_byte_pure(self):
+        self._add("mem-secret-a", "failed_attempt", targets=("src/secret.py",))
+        self._add("mem-secret-b", "failed_attempt", targets=("src/secret.py",))
+        group = self.srv.memory_consolidate_response(
+            self.root, mode="dry_run"
+        )["data"]["groups"][0]
+        before = {
+            path.name: path.read_bytes()
+            for path in (self.root / self.mem.MEMORY_DIR).glob("*.md")
+        }
+        refused = self.srv.memory_consolidate_response(
+            self.root,
+            mode="create",
+            memory_ids=group["memory_ids"],
+            title="Secret replacement",
+            summary="Set api_key: sk-live-consolidation-secret in production.",
+            reviewed=True,
+        )
+        self.assertEqual(refused["status"], "error", refused)
+        self.assertNotIn("sk-live-consolidation-secret", json.dumps(refused))
+        after = {
+            path.name: path.read_bytes()
+            for path in (self.root / self.mem.MEMORY_DIR).glob("*.md")
+        }
+        self.assertEqual(after, before)
+        self.assertFalse((self.root / self.mem.MEMORY_ARCHIVE_DIR).exists())
+
+    def test_consolidation_second_archive_failure_rolls_back_and_retries(self):
+        self._add("mem-rollback-a", "failed_attempt", targets=("src/retry.py",))
+        self._add("mem-rollback-b", "failed_attempt", targets=("src/retry.py",))
+        group = self.srv.memory_consolidate_response(
+            self.root, mode="dry_run"
+        )["data"]["groups"][0]
+        before = {
+            path.name: path.read_bytes()
+            for path in (self.root / self.mem.MEMORY_DIR).glob("*.md")
+        }
+        memory_module = self.srv._memory_mod()
+        original_archive = memory_module.archive_memory_record
+        calls = 0
+
+        def fail_second(*args, **kwargs):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise OSError("injected second-source failure")
+            return original_archive(*args, **kwargs)
+
+        with patch.object(memory_module, "archive_memory_record", side_effect=fail_second):
+            failed = self.srv.memory_consolidate_response(
+                self.root,
+                mode="create",
+                memory_ids=group["memory_ids"],
+                title="Retry-safe playbook",
+                summary="Keep this consolidation retry-safe after partial failure.",
+                reviewed=True,
+            )
+        self.assertEqual(failed["status"], "error", failed)
+        self.assertTrue(failed["data"]["rollback_completed"])
+        after = {
+            path.name: path.read_bytes()
+            for path in (self.root / self.mem.MEMORY_DIR).glob("*.md")
+        }
+        self.assertEqual(after, before)
+        retried_group = self.srv.memory_consolidate_response(
+            self.root, mode="dry_run"
+        )["data"]["groups"][0]
+        self.assertEqual(retried_group["memory_ids"], group["memory_ids"])
+        retried = self.srv.memory_consolidate_response(
+            self.root,
+            mode="create",
+            memory_ids=retried_group["memory_ids"],
+            title="Retry-safe playbook",
+            summary="Keep this consolidation retry-safe after partial failure.",
+            reviewed=True,
+        )
+        self.assertEqual(retried["status"], "ok", retried)
 
     def test_community_scoped_records_group_separately(self):
         self.srv.memory_add_response(
@@ -3623,6 +4162,115 @@ class MemoryAgentValidationTests(_MemoryCase):
         self.assertEqual(rerun["data"]["records_proposed"], 0)
         self.assertEqual(rerun["data"]["skipped_dispositions"], 1)
 
+    def test_purged_source_disposition_is_not_regenerated(self):
+        wave = self.root / "docs" / "waves" / "1aaaa demo"
+        wave.mkdir(parents=True)
+        change_id = "1aaaak-feat demo"
+        (wave / f"{change_id}.md").write_text(
+            "# Demo\n\n"
+            f"Change ID: `{change_id}`\n\n## Decision Log\n\n"
+            "| Date | Decision | Reason | Alternatives |\n"
+            "| --- | --- | --- | --- |\n"
+            "| 2026-01-01 | Use `src/a.py` | grounded | none |\n",
+            encoding="utf-8",
+        )
+        (wave / "wave.md").write_text(
+            f"# Wave\n\nwave-id: `1aaaa demo`\n\nChange ID: `{change_id}`\n",
+            encoding="utf-8",
+        )
+        created = self.srv.memory_propose_response(
+            self.root, "1aaaa", "create"
+        )
+        mid = created["data"]["written"][0]["memory_id"]
+        source_event = self.mem.parse_memory_record(
+            self.root / self.mem.MEMORY_DIR / f"{mid}.md"
+        )["source_event"]
+        rejected = self._validate(
+            mid,
+            "reject",
+            evidence_verified=False,
+            current_target_verified=False,
+            canonical_overlap="duplicates",
+            action_delta="No durable action remains after canonicalization.",
+        )
+        self.assertEqual(rejected["status"], "ok", rejected)
+        purged = self.srv.memory_purge_response(
+            self.root,
+            mid,
+            reviewed=True,
+            eligibility_confirmed=True,
+        )
+        self.assertEqual(purged["status"], "ok", purged)
+        self.assertTrue(purged["data"]["purged"])
+        authority = self.root / self.mem.MEMORY_PURGE_DISPOSITIONS
+        authority_text = authority.read_text(encoding="utf-8")
+        self.assertNotIn(source_event, authority_text)
+        self.assertIn(self.mem.source_event_digest(source_event), authority_text)
+        state_db = self.root / ".wavefoundry" / "index" / "memory-state.sqlite"
+        state_db.unlink(missing_ok=True)
+        rerun = self.srv.memory_propose_response(
+            self.root, "1aaaa", "dry_run"
+        )
+        self.assertEqual(rerun["data"]["records_proposed"], 0)
+        self.assertEqual(rerun["data"]["skipped_dispositions"], 1)
+
+    def test_corrupt_purge_disposition_authority_fails_proposal_closed(self):
+        wave = self.root / "docs" / "waves" / "1aaaa demo"
+        wave.mkdir(parents=True)
+        (wave / "wave.md").write_text(
+            "# Wave\n\nwave-id: `1aaaa demo`\n", encoding="utf-8"
+        )
+        authority = self.root / self.mem.MEMORY_PURGE_DISPOSITIONS
+        authority.parent.mkdir(parents=True, exist_ok=True)
+        authority.write_text('{"schema_version":1,"source_event_sha256":["raw"]}\n', encoding="utf-8")
+        result = self.srv.memory_propose_response(self.root, "1aaaa", "dry_run")
+        self.assertEqual(result["status"], "error")
+        self.assertIn("memory_disposition_authority_unreadable", json.dumps(result))
+
+    def test_non_string_purge_disposition_authority_fails_proposal_closed(self):
+        wave = self.root / "docs" / "waves" / "1aaaa demo"
+        wave.mkdir(parents=True)
+        (wave / "wave.md").write_text(
+            "# Wave\n\nwave-id: `1aaaa demo`\n", encoding="utf-8"
+        )
+        authority = self.root / self.mem.MEMORY_PURGE_DISPOSITIONS
+        authority.parent.mkdir(parents=True, exist_ok=True)
+        authority.write_text(
+            '{"schema_version":1,"source_event_sha256":[' + ("1" * 64) + "]}\n",
+            encoding="utf-8",
+        )
+        result = self.srv.memory_propose_response(self.root, "1aaaa", "dry_run")
+        self.assertEqual(result["status"], "error")
+        self.assertIn("memory_disposition_authority_unreadable", json.dumps(result))
+
+    def test_non_integer_purge_disposition_schema_fails_proposal_closed(self):
+        wave = self.root / "docs" / "waves" / "1aaaa demo"
+        wave.mkdir(parents=True)
+        (wave / "wave.md").write_text(
+            "# Wave\n\nwave-id: `1aaaa demo`\n", encoding="utf-8"
+        )
+        authority = self.root / self.mem.MEMORY_PURGE_DISPOSITIONS
+        authority.parent.mkdir(parents=True, exist_ok=True)
+        digest = "1" * 64
+        for schema_version in (True, 1.0):
+            with self.subTest(schema_version=schema_version):
+                authority.write_text(
+                    json.dumps(
+                        {
+                            "schema_version": schema_version,
+                            "source_event_sha256": [digest],
+                        }
+                    ) + "\n",
+                    encoding="utf-8",
+                )
+                result = self.srv.memory_propose_response(
+                    self.root, "1aaaa", "dry_run"
+                )
+                self.assertEqual(result["status"], "error")
+                self.assertIn(
+                    "memory_disposition_authority_unreadable", json.dumps(result)
+                )
+
     def test_archived_source_disposition_is_not_regenerated(self):
         wave = self.root / "docs" / "waves" / "1aaaa demo"
         wave.mkdir(parents=True)
@@ -3658,6 +4306,7 @@ class MemoryAgentValidationTests(_MemoryCase):
             "archived",
             archive_reason="Rejected candidate retained only as history.",
             eligibility_confirmed=True,
+            retain_for_history=True,
         )
         self.assertEqual(archived["status"], "ok", archived)
         rerun = self.srv.memory_propose_response(

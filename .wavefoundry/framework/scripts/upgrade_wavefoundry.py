@@ -88,7 +88,7 @@ WAVE_UPGRADE_SUMMARY_SENTINEL = "WAVE_UPGRADE_SUMMARY_JSON:"
 # token degrades to its own in-process summary with the `SUMMARY_DEGRADATION_MARKER_KEY` marker;
 # an unrecognized token is NEVER treated as new-schema output. The timeout is pinned (precedent:
 # `_HOOK_TIMEOUT_S`) and injectable for tests only.
-SUMMARY_SCHEMA_KEY = "summary_schema"
+SUMMARY_SCHEMA_KEY = "summary_schema_version"
 SUMMARY_SCHEMA_VERSION = 1
 _RECOGNIZED_SUMMARY_SCHEMAS = frozenset({SUMMARY_SCHEMA_VERSION})
 SUMMARY_DEGRADATION_MARKER_KEY = "summary_source_degraded"
@@ -1307,6 +1307,14 @@ def _clear_stale_upgrade_lock_for_preflight(root: Path, upgrade_lib: Any) -> Non
         _log(
             "⚠  Failed upgrade lock detected (PID not running) — "
             "preserving dashboard restart intent for the recovery run."
+        )
+        return
+    if isinstance(existing_lock.get("graph_builder_doc_claim_pre_extract"), str) and existing_lock.get(
+        "graph_builder_doc_claim_pre_extract"
+    ):
+        _log(
+            "⚠  Stale upgrade lock contains pre-extract reconciliation evidence — "
+            "preserving it until the requested target is known."
         )
         return
     _log("⚠  Stale upgrade lock detected (PID not running) — clearing it.")
@@ -3006,7 +3014,7 @@ def _delegated_summary_payload(
       tree rejecting ``--emit-summary`` via argparse, exit 2; the realistic
       downgrade/old-pack case);
     - ``sentinel_missing_or_malformed``: no parseable sentinel dict in stdout;
-    - ``unrecognized_schema_token_<T>``: the payload's ``summary_schema`` is
+    - ``unrecognized_schema_token_<T>``: the payload's ``summary_schema_version`` is
       not in ``_RECOGNIZED_SUMMARY_SCHEMAS`` (silent-drift guard: an unknown
       token is degradation, never new-schema output).
     """
@@ -3130,7 +3138,7 @@ def _emit_delegated_summary(root: Path) -> int:
       FROM runner that predates any newer lock field still gets a valid summary.
     - **Output:** exactly one stdout line
       ``WAVE_UPGRADE_SUMMARY_JSON:{json}`` whose payload carries
-      ``summary_schema: SUMMARY_SCHEMA_VERSION``. The upgrade log is NOT written
+      ``summary_schema_version: SUMMARY_SCHEMA_VERSION``. The upgrade log is NOT written
       here; the parent captures stdout and re-emits the payload through its own
       ``_log``.
     - **Failure semantics:** any error exits non-zero; the parent degrades to
@@ -3693,7 +3701,7 @@ def main(argv: list[str] | None = None) -> int:
             "freshly extracted tree so the summary and the reconciliation scan "
             "are produced by new code. Input is --root plus the upgrade lock "
             "(old-schema tolerant); output is one sentinel line whose payload "
-            "carries summary_schema. Never rename or reshape silently; "
+            "carries summary_schema_version. Never rename or reshape silently; "
             "deliberate versioned evolution bumps the schema token (see "
             "_emit_delegated_summary)."
         ),
@@ -3909,6 +3917,7 @@ def main(argv: list[str] | None = None) -> int:
                 checkpoint_phase = "awaiting_memory_validation"
             if checkpoint_phase not in {
                 "awaiting_memory_validation",
+                "awaiting_memory_publication",
                 "memory_resume_preflight",
                 "index_complete",
             }:
@@ -4010,14 +4019,18 @@ def main(argv: list[str] | None = None) -> int:
                     if recovered["state"] == "awaiting_validation"
                     else 1
                 )
-            upgrade_lib.update_upgrade_lock(
-                root,
-                current_phase="index_complete",
-                memory_backfill_state="indexed",
-                index_rebuilt_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            completion_state = {
+                "current_phase": "index_complete",
+                "memory_backfill_state": "indexed",
+                "index_rebuilt_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
                 # 1u44n: this success supersedes any earlier observed failure.
-                index_publication_failed=False,
-            )
+                "index_publication_failed": False,
+            }
+            if lock.get("failed_phase") == "awaiting_memory_validation":
+                completion_state.update(
+                    action_required=None, failed_phase=None, failed_at=None
+                )
+            upgrade_lib.update_upgrade_lock(root, **completion_state)
             upgrade_lib.clear_failed_phase(root, "index_update")
             _log("Historical memory validated; Phase 4 index publication complete.")
             resume_transaction.__exit__(None, None, None)
@@ -4602,6 +4615,15 @@ def main(argv: list[str] | None = None) -> int:
         upgrade_lib.update_upgrade_lock(root, pruned_count=pruned_count)
         _run_hook("post_pruning", ctx, ext_mod)
 
+        # Wave 1u8r2: retire the old generated per-record memory pointers
+        # before docs lint and index publication. The archive bodies are the
+        # authority; projects without the exact legacy directory are untouched.
+        current_phase = "legacy_memory_pointer_migration"
+        import memory_records
+        migrated_manifest = memory_records.migrate_legacy_memory_pointers(root)
+        if migrated_manifest is not None:
+            _log(f"  Migrated legacy memory pointers to {migrated_manifest}")
+
         # Phase 2b — Wave 1p44z: materialize the committer-derived secrets policy
         # BEFORE the first docs gate (which runs the secrets scan), so a fresh
         # project is never blocked by the framework-default confirmation threshold.
@@ -4717,6 +4739,23 @@ def main(argv: list[str] | None = None) -> int:
             memory_backfill_last_failure=memory_summary["last_failure"],
         )
         if memory_summary["state"] == "awaiting_validation":
+            import uuid
+
+            upgrade_lib.update_upgrade_lock(
+                root,
+                current_phase="awaiting_memory_validation",
+                action_required={
+                    "kind": "historical_memory",
+                    "state": "awaiting_memory_validation",
+                    "resume_phase": "resume_after_memory",
+                    "run_id": memory_run_id,
+                    "token": uuid.uuid4().hex,
+                },
+                # Older dashboards retain a dead-PID lock only through this
+                # compatibility lease; new readers classify action_required.
+                failed_phase="awaiting_memory_validation",
+                failed_at=None,
+            )
             _log(
                 "\nHistorical memory requires bounded extraction and agent validation "
                 "before Phase 4.\n"

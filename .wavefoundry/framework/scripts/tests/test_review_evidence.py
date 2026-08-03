@@ -2219,7 +2219,7 @@ class ExternalReviewEventLedgerTests(unittest.TestCase):
         )
         rendered = subject.render_review_evidence_projection(base, [synthesis()])
         self.assertNotIn("```jsonl", rendered)
-        self.assertIn("Machine review evidence — 1 records", rendered)
+        self.assertIn("Machine review state — 1 findings", rendered)
         self.assertIn("## Notes\nkeep me", rendered)
 
     def test_external_projection_migrates_legacy_owned_markers(self) -> None:
@@ -2250,7 +2250,7 @@ class ExternalReviewEventLedgerTests(unittest.TestCase):
             + "\n## Notes\nkeep me\n"
         )
         rendered = subject.render_review_evidence_projection(base, [synthesis()])
-        self.assertIn("*Machine review evidence — 1 records", rendered)
+        self.assertIn("*Machine review state — 1 findings", rendered)
         self.assertNotIn("<details", rendered)
         self.assertNotIn("<summary>", rendered)
         self.assertNotIn("wavefoundry-review-evidence", rendered)

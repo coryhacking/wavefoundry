@@ -3488,7 +3488,7 @@ class MemoryRecordLintTests(DocsLintFixtureTests):
             shutil.rmtree(root)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
-    def test_archived_body_and_compact_pointer_schema(self):
+    def test_archived_body_passes_but_legacy_pointer_fails_with_migration_guidance(self):
         root = self.copy_fixture()
         memory_root = root / "docs" / "agents" / "memory"
         archive = memory_root / "archive" / "mem-old.md"
@@ -3523,7 +3523,23 @@ class MemoryRecordLintTests(DocsLintFixtureTests):
             result = self.run_docs_lint(root)
         finally:
             shutil.rmtree(root)
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("legacy memory pointer residue is retired", result.stderr)
+        self.assertIn("docs/agents/memory-archive.md", result.stderr)
+
+    def test_non_markdown_legacy_pointer_residue_also_fails(self):
+        root = self.copy_fixture()
+        legacy_root = root / "docs" / "agents" / "memory" / "pointers"
+        legacy_root.mkdir(parents=True, exist_ok=True)
+        (legacy_root / "operator-notes.txt").write_text(
+            "must not be ignored\n", encoding="utf-8"
+        )
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("legacy memory pointer residue is retired", result.stderr)
 
     def test_archived_status_outside_reserved_paths_fails(self):
         root = self.copy_fixture()

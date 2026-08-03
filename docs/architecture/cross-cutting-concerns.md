@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-01
+Last verified: 2026-08-03
 
 ## Configuration
 
@@ -88,4 +88,11 @@ canonical record, including the rejected fresh-phase-emission alternative, is
 ## Observability
 
 No external monitoring, alerting, or distributed tracing. The local dashboard is an operational read surface, not a telemetry pipeline.
+
+## Memory Curation
+
+The active memory corpus has a fixed budget of 50 active records. `memory_brief`
+reports the budget and, only at the cap, same-file `fragile_file` consolidation
+candidates. It is a review signal, not an eviction mechanism: supersession and
+archival stay explicit, retention-checked operations.
 MCP server and dashboard server may both want richer stderr request logging later; current behavior stays intentionally minimal.

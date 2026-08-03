@@ -1,10 +1,10 @@
 # .aiignore Render Accumulates Two Blank Lines Per Render, Unbounded
 
 Change ID: `1u725-bug aiignore-render-accumulates-blank-lines`
-Change Status: `planned`
+Change Status: `implemented`
 Owner: Engineering
-Status: planned
-Last verified: 2026-08-01
+Status: implemented
+Last verified: 2026-08-03
 Wave: `1u8o2 downstream-field-report-fixes`
 
 ## Rationale
@@ -61,22 +61,22 @@ tests in `test_render_platform_surfaces.py`.
 
 ## Acceptance Criteria
 
-- [ ] AC-1: Three consecutive renders over a file with a trailing project pattern are byte-stable
+- [x] AC-1: Three consecutive renders over a file with a trailing project pattern are byte-stable
   after the first render, AND the first render's output equals an exact expected byte string in
   which an interior project-owned blank line (placed between two patterns) survives.
-- [ ] AC-2: A file carrying an accumulated blank run (fixture reproducing the field shape)
+- [x] AC-2: A file carrying an accumulated blank run (fixture reproducing the field shape)
   collapses to canonical form in one render.
-- [ ] AC-3: The index-block-only case remains byte-stable (the previously-idempotent path does not
+- [x] AC-3: The index-block-only case remains byte-stable (the previously-idempotent path does not
   regress).
-- [ ] AC-4: Full framework suite passes.
+- [x] AC-4: Full framework suite passes.
 
 ## Tasks
 
-- [ ] Reproduce the plus-two-per-render growth with a failing test before fixing
-- [ ] Fix the separator handling in `render_aiignore` (record the chosen mechanism and why it
+- [x] Reproduce the plus-two-per-render growth with a failing test before fixing
+- [x] Fix the separator handling in `render_aiignore` (record the chosen mechanism and why it
       preserves interior blanks)
-- [ ] Add the three-render stability, self-heal, and index-only regression tests
-- [ ] Full suite
+- [x] Add the three-render stability, self-heal, and index-only regression tests
+- [x] Full suite
 
 ## Agent Execution Graph
 
@@ -97,12 +97,12 @@ CHANGELOG `### Fixed` bullet at the release that ships it.
 
 ## AC Priority
 
-(Populated at Prepare wave.)
-
-
 | AC   | Priority | Rationale |
 | ---- | -------- | --------- |
-| AC-1 | TBD      |           |
+| AC-1 | required | Idempotency plus the exact-content assertion is the defect fix and its anti-vacuity guard |
+| AC-2 | required | Fielded repos carry accumulated debris; without self-heal the fix only stops future growth |
+| AC-3 | required | The known-good path must not regress |
+| AC-4 | required | Suite green is the wave's regression floor |
 
 
 ## Progress Log
@@ -112,6 +112,8 @@ CHANGELOG `### Fixed` bullet at the release that ships it.
 | ---- | ------ | -------- |
 | 2026-08-01 | Filed from the Solaris downstream defect report; mechanism verified against this tree (`_is_index_meta_line` matches no blank line; trailing-only pop) before filing. | Field report 2026-08-01; `render_platform_surfaces.py` `render_aiignore` |
 | 2026-08-01 | Prepare cycle verified the mechanism by EXECUTION: five consecutive renders of the field shape grew blanks 4, 6, 8, 10, 12 (exactly plus two per render, accumulating at the front of the project region) while interior project-owned separators were preserved and the index-block-only shape stayed byte-stable, confirming both the defect and requirement 2's trap. Sole-writer census confirmed; requirements 4 to 6 folded from the lane findings (exact-content first-render assertion; writer census; head-blank self-heal residual). | Executed probe probe_a_aiignore.py, scratchpad 2026-08-01 |
+| 2026-08-01 | Red-first regression landed: `RenderAiignoreIdempotencyTests` (three tests) failed 2 of 3 against current code (first-render exact-content and one-render self-heal failed; index-only passed, matching the known-good path), then the head-blank-strip fix in `render_aiignore` turned all three green. Probe rerun post-fix: field shape stable at 2 blanks from render 1, interior-blank shape stable at 3 blanks with the interior separator preserved. Full `test_render_platform_surfaces` module: 90 tests OK. | tests/test_render_platform_surfaces.py `RenderAiignoreIdempotencyTests`; render_platform_surfaces.py `render_aiignore`; probe_a_aiignore.py rerun 2026-08-01 |
+| 2026-08-01 | AC-4 closed: full framework suite green (6720 tests across 61 files, OK) plus the wave's executable rerun list (seam modules 760 tests OK; test_server_tools/test_indexer/test_graph_indexer 2377 tests OK). Change implemented. | run_tests.py output 2026-08-01 |
 
 
 ## Decision Log
@@ -119,7 +121,7 @@ CHANGELOG `### Fixed` bullet at the release that ships it.
 
 | Date | Decision | Reason | Alternatives |
 | ---- | -------- | ------ | ------------ |
-|      |          |        |              |
+| 2026-08-01 | Separator handling: strip the leading blank run from `rest` (a head-bounded pop of exact-empty lines) before re-adding the single canonical separator; the trailing pop is kept | The head of `rest` holds exactly the block-adjacent separators (the index block's interior blank plus the appended separator) and any previously accumulated debris, so one pass both fixes idempotency and self-heals fielded files in one render; interior project-owned blanks are never at the head and survive untouched; whitespace-only lines (spaces) are treated as user content and preserved, matching the existing trailing pop's exact-empty comparison. Accepted residual (requirement 6): an intentional blank run at the very head of the project-owned region is indistinguishable from debris and collapses to the canonical single separator | Treat all blank lines as index-meta (rejected: strips intentional interior separators from project content, the field report's trap); absorb exactly two block-adjacent blanks (rejected: does not self-heal already-accumulated runs in one render) |
 
 
 ## Risks

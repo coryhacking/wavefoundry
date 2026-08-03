@@ -8753,7 +8753,8 @@ class GraphBuilderVersionTests(unittest.TestCase):
         # for docs/agents/memory/ records + typed `memory_targets` edges;
         # memory nodes exempt from the zero-edge doc prune. Node/edge shape
         # change. NO CLUSTER_BUILDER_VERSION bump).
-        self.assertEqual(load_graph_indexer().GRAPH_BUILDER_VERSION, "44")
+        # Wave 1u8r2: direct legacy-pointer inputs are now excluded.
+        self.assertEqual(load_graph_indexer().GRAPH_BUILDER_VERSION, "45")
 
 
 class OversizedTreeSitterGuardTests(unittest.TestCase):
@@ -11772,25 +11773,18 @@ class MemoryGraphExtractionTests(unittest.TestCase):
             "Archive reason: Replaced tactical guidance.\n"
             "Archive path: `docs/agents/memory/archive/mem-fragile-tools.md`",
         )
-        pointer = archived.replace(
-            "Archive path: `docs/agents/memory/archive/mem-fragile-tools.md`",
-            "Archive path: `docs/agents/memory/archive/mem-fragile-tools.md`\n"
-            "Pointer to: `mem-fragile-tools`",
-        )
         self._write(
             "docs/agents/memory/archive/mem-fragile-tools.md", archived
         )
-        self._write(
-            "docs/agents/memory/pointers/mem-fragile-tools.md", pointer
-        )
+        self._write("docs/agents/memory-archive.md", "# Memory archive\n\n## fragile\n")
         payload = self._update(
             {
                 "docs/agents/memory/archive/mem-fragile-tools.md": "h1",
-                "docs/agents/memory/pointers/mem-fragile-tools.md": "h2",
+                "docs/agents/memory-archive.md": "h2",
             },
             {
                 "docs/agents/memory/archive/mem-fragile-tools.md",
-                "docs/agents/memory/pointers/mem-fragile-tools.md",
+                "docs/agents/memory-archive.md",
             },
         )
         nodes, _edges = self._payload_parts(payload)
@@ -11798,8 +11792,15 @@ class MemoryGraphExtractionTests(unittest.TestCase):
             "docs/agents/memory/archive/mem-fragile-tools.md", nodes
         )
         self.assertIn(
-            "docs/agents/memory/pointers/mem-fragile-tools.md", nodes
+            "docs/agents/memory-archive.md", nodes
         )
+
+    def test_legacy_pointer_is_excluded_even_when_explicitly_passed(self):
+        pointer_path = "docs/agents/memory/pointers/mem-fragile-tools.md"
+        self._write(pointer_path, self.RECORD)
+        payload = self._update({pointer_path: "h1"}, {pointer_path})
+        nodes, _edges = self._payload_parts(payload)
+        self.assertNotIn(pointer_path, nodes)
 
     def test_memory_write_rides_the_incremental_delta_path(self):
         # Initial build: code only. Then ADD a record and update with ONLY the

@@ -237,17 +237,15 @@ def _refresh_mcp_tool_surface(
     Returns ``(tools_reregistered_count, description_changed_tools,
     added_tools, removed_tools, warnings)``.
     ``description_changed_tools`` lists tools whose docstring-derived description
-    differs between the pre-reload and post-reload FastMCP registry snapshots —
-    when non-empty, the operator's MCP host must perform a full restart to
-    surface the new descriptions in its tool-list display (the MCP protocol's
-    ``notifications/tools/list_changed`` propagation is host-implementation-
-    dependent and ``/mcp`` reconnect alone does not refresh descriptions in
-    Claude Code per field validation, wave 131bt 131bu).
+    differs between the pre-reload and post-reload FastMCP registry snapshots.
+    Server notification dispatch and client adoption are separate states: a
+    current model turn may retain its start-of-turn tool list even after the host
+    accepts ``notifications/tools/list_changed``.
 
     Server-side re-registration completes correctly — the FastMCP registry holds
     the freshly-introspected schemas. The propagation gap is between the server
-    and the host; the diagnostic surfaces honestly so the operator knows when a
-    full restart is required.
+    and the host; the diagnostic tells the operator to check a fresh turn before
+    escalating to reconnect and then a full host restart.
 
     Tools listed in ``_RELOAD_SURVIVOR_TOOLS`` (wf_reload_mcp itself) are
     NOT removed; they continue serving from the build_server closure.
@@ -310,9 +308,9 @@ def perform_mcp_reload() -> dict[str, Any]:
     Wave 131bt (131d8): after reloading ``server_impl`` for response-shape
     refresh, the FastMCP tool registry is also torn down and re-registered so
     parameter schema and tool description changes land without a server
-    restart. Clients still need to reconnect their MCP session (e.g. ``/mcp``
-    in Claude Code) to refetch the tool list — but the server-side stale
-    schema is resolved in-process.
+    restart. A tool-list notification asks clients to refetch, but adoption is
+    not observable here: check from a fresh model turn first, reconnect the MCP
+    session if it remains stale, and restart the host only as the final fallback.
     """
     global server_impl
     with _reload_lock:
@@ -375,6 +373,7 @@ def perform_mcp_reload() -> dict[str, Any]:
             refresh_warnings,
         ) = _refresh_mcp_tool_surface(_mcp)
         notification_sent = False
+        notification_dispatch = "not_needed"
         notification_send_error: str | None = None
         tool_list_changed = bool(description_changed or added_tools or removed_tools)
         if tool_list_changed:
@@ -386,15 +385,18 @@ def perform_mcp_reload() -> dict[str, Any]:
                 import asyncio
                 try:
                     loop = asyncio.get_running_loop()
-                    # We're inside an event loop (tool handler context) — use
-                    # ensure_future + a task; the notification is fire-and-forget.
+                    # A synchronous reload cannot await work on its own active
+                    # loop. Record this as queued, not completed delivery.
                     loop.create_task(session.send_tool_list_changed())
                     notification_sent = True
+                    notification_dispatch = "queued"
                 except RuntimeError:
                     # No running loop — synchronously run the coroutine.
                     asyncio.run(session.send_tool_list_changed())
                     notification_sent = True
+                    notification_dispatch = "completed"
             except Exception as exc:
+                notification_dispatch = "failed"
                 notification_send_error = f"{type(exc).__name__}: {exc}"
         payload = server_impl.version_payload(
             old.root, server_runner_version=SERVER_RUNNER_VERSION
@@ -405,6 +407,7 @@ def perform_mcp_reload() -> dict[str, Any]:
         payload["added_tools"] = added_tools
         payload["removed_tools"] = removed_tools
         payload["tool_list_changed_notification_sent"] = notification_sent
+        payload["tool_list_changed_notification_dispatch"] = notification_dispatch
         diagnostics = close_warnings + refresh_warnings
         # Wave 1u2b0: a reload cannot load new runner bytes, so when the runner set changed on
         # disk the reload response must say so in its own voice rather than leaving a bare
@@ -433,18 +436,29 @@ def perform_mcp_reload() -> dict[str, Any]:
                 )
                 if part
             )
-            if notification_sent:
+            if notification_dispatch == "completed":
                 diagnostics.append(
                     server_impl._diagnostic(
                         "tool_list_changed_notification_sent",
                         "The MCP tool list changed ({changes}). "
-                        "Sent `notifications/tools/list_changed` to the connected "
-                        "MCP client; spec-conformant clients re-fetch `tools/list` "
-                        "on receipt and surface the new descriptions without "
-                        "operator action. If the new descriptions are not visible "
-                        "after this reload, the client may not honor the "
-                        "notification — fall back to a full host restart "
-                        "(quit and relaunch Claude Code).".format(changes=change_summary),
+                        "Completed the server-side `notifications/tools/list_changed` "
+                        "send. Client adoption is not observable here, and the current "
+                        "model turn may retain its start-of-turn tool list. Check from "
+                        "a fresh turn first; if the list is still stale, reconnect the "
+                        "MCP server, then restart the host as the final fallback."
+                        .format(changes=change_summary),
+                    )
+                )
+            elif notification_dispatch == "queued":
+                diagnostics.append(
+                    server_impl._diagnostic(
+                        "tool_list_changed_notification_queued",
+                        "The MCP tool list changed ({changes}). Queued "
+                        "`notifications/tools/list_changed` on the active event loop; "
+                        "this response does not claim completed delivery or client "
+                        "adoption. Check from a fresh turn first; if the list is still "
+                        "stale, reconnect the MCP server, then restart the host as the "
+                        "final fallback.".format(changes=change_summary),
                     )
                 )
             else:
@@ -454,9 +468,8 @@ def perform_mcp_reload() -> dict[str, Any]:
                         "The MCP tool list changed ({changes}). "
                         "Attempted to send `notifications/tools/list_changed` but "
                         "could not reach the active session ({err}). The MCP host "
-                        "will not be told to re-fetch — fall back to a full host "
-                        "restart (quit and relaunch Claude Code) to surface the "
-                        "new tool list.".format(
+                        "will not be told to re-fetch. Reconnect the MCP server, then "
+                        "restart the host if the list remains stale.".format(
                             changes=change_summary,
                             err=notification_send_error or "unknown",
                         ),
@@ -502,19 +515,17 @@ def build_server(root: Path):
           derived description differs from the pre-reload snapshot.
         - ``added_tools`` / ``removed_tools`` (list[str]): callable tool-set
           changes detected across the reload.
-        - ``tool_list_changed_notification_sent`` (bool): ``True`` when the
-          server sent the MCP `notifications/tools/list_changed` protocol
-          notification to the connected client after detecting description
-          changes. Spec-conformant clients re-fetch ``tools/list`` on receipt
-          and surface the new descriptions without operator action — no
-          restart, no ``/mcp`` reconnect required.
+        - ``tool_list_changed_notification_sent`` (bool): compatibility signal
+          that dispatch was accepted synchronously or queued.
+        - ``tool_list_changed_notification_dispatch`` (str): ``not_needed``,
+          ``queued``, ``completed``, or ``failed``. Only ``completed`` means the
+          server-side send coroutine completed; no value proves client adoption.
 
         When descriptions or the callable tool set changed, the response also includes a
-        structured diagnostic (``tool_list_changed_notification_sent`` on
-        success or ``tool_list_changed_notification_failed`` on failure) with
-        actionable next steps. If the client does not honor the notification,
-        a full host restart (quit and relaunch Claude Code) remains the
-        fallback.
+        structured diagnostic with actionable next steps. A newly added tool may
+        remain absent from the current model turn's start-of-turn schema even
+        after client adoption, so check a fresh turn before reconnecting; a full
+        host restart remains the final fallback.
         """
         bad = server_impl._ensure_no_extra_args("wf_reload_mcp", kwargs)
         if bad is not None:

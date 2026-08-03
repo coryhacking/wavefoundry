@@ -5538,9 +5538,45 @@ def wf_list_waves_response(root: Path, limit: int = 50, cache: Optional[McpRepoC
     all_waves = cache.list_waves_cached() if cache else list_waves(root)
     has_more = len(all_waves) > n
     waves = all_waves[:n]
+    metrics: dict[str, dict[str, Any]] = {}
+    try:
+        exploration = _load_script("exploration_avoided")
+    except Exception:
+        exploration = None
+    for wave in waves:
+        wave_id = str(wave.get("wave_id") or wave.get("id") or "")
+        wave_md = _find_wave_md(root, wave_id)
+        if not wave_id or wave_md is None:
+            continue
+        metrics[wave_id] = {}
+        try:
+            snapshot = context_efficiency.read_wave_snapshot(root, wave_id)
+            totals = snapshot.get("totals", {})
+            metrics[wave_id]["context"] = {
+                "available": snapshot.get("measurement_status") != "failed",
+                "calls": int(totals.get("calls", 0)),
+                "estimated_tokens_saved": int(totals.get("estimated_tokens_saved", 0)),
+            }
+        except Exception:
+            metrics[wave_id]["context"] = {"available": False}
+        try:
+            records, ledger_errors = read_review_event_ledger(wave_md)
+            review = review_evidence_summary(records) if not ledger_errors else None
+            metrics[wave_id]["review"] = (
+                {"available": True, **review} if review is not None else {"available": False}
+            )
+        except Exception:
+            metrics[wave_id]["review"] = {"available": False}
+        try:
+            metrics[wave_id]["memory"] = (
+                {"available": True, **exploration.read_wave(root, wave_id)}
+                if exploration is not None else {"available": False}
+            )
+        except Exception:
+            metrics[wave_id]["memory"] = {"available": False}
     return _response(
         "ok",
-        {"waves": waves, "total": len(all_waves), "has_more": has_more},
+        {"waves": waves, "wave_metrics": metrics, "total": len(all_waves), "has_more": has_more},
         diagnostics=[] if waves else [_diagnostic("no_waves", "No waves found.")],
         next_tools=["wf_current_wave"] if waves else ["wf_list_plans"],
         usage="wf_current_wave()" if waves else "wf_list_plans()",
@@ -8118,6 +8154,8 @@ def index_health_response(
 MEMORY_BRIEF_CAP = 5
 MEMORY_SEARCH_CAP = 20
 MEMORY_PROPOSE_CAP = 20
+MEMORY_CONSOLIDATE_GROUP_CAP = 10
+MEMORY_CONSOLIDATE_MEMBER_CAP = 5
 MEMORY_SUMMARY_EXCERPT_CHARS = 280
 MEMORY_BRIEF_CONTEXTS = (
     "session_start", "pre_implementation", "review", "close", "setup", "file_edit",
@@ -8933,12 +8971,31 @@ def _memory_propose_response_locked(
         for record in accumulated
         if record.get("source_event")
     }
+    try:
+        purged_source_digests = mem.load_purged_source_event_digests(root)
+    except (ValueError, OSError):
+        return _response(
+            "error",
+            {"proposed": [], "records_proposed": 0, "records_promoted": 0,
+             "records_written": 0},
+            diagnostics=[_diagnostic(
+                "memory_disposition_authority_unreadable",
+                "Cannot read the repo-visible purged-source authority; proposal refused to avoid regenerating finalized history.",
+                recovery_tools=["memory_propose"],
+                recovery_usage="repair or restore .wavefoundry/memory-purge-dispositions.json, then retry",
+            )],
+            next_tools=["memory_propose"],
+            usage="",
+        )
     unique: list[dict[str, Any]] = []
     eligible_count = 0
     skipped_duplicates = 0
     skipped_dispositions = 0
     for d in drafts:
-        if d["source_event"] in disposition_sources:
+        if (
+            d["source_event"] in disposition_sources
+            or mem.source_event_digest(d["source_event"]) in purged_source_digests
+        ):
             skipped_dispositions += 1
             continue
         pseudo = {"memory_id": "", "kind": d["kind"], "summary": d["summary"],
@@ -9631,10 +9688,10 @@ def memory_search_response(
         else (None if include_history else list(mem.DEFAULT_SURFACED_STATUSES))
     )
     records = mem.load_memory_records(root, statuses=statuses)
-    pointer_records: list[dict[str, Any]] = []
+    register_records: list[dict[str, Any]] = []
     if not include_history and not status and (query or target or symbol):
-        pointer_records = mem.load_memory_pointers(root)
-        records.extend(pointer_records)
+        register_records = mem.load_archive_register_entries(root)
+        records.extend(register_records)
     if kind:
         records = [r for r in records if r["kind"] == kind]
     if target or symbol:
@@ -9689,9 +9746,9 @@ def memory_search_response(
         "ok",
         {"records": views, "count": len(views),
          "statuses_searched": statuses or list(mem.MEMORY_STATUSES),
-         "archive_pointer_count": sum(
+         "archive_register_entry_count": sum(
              1 for record in records
-             if record.get("record_type") == "archive_pointer"
+             if record.get("record_type") == "archive_register_entry"
          ),
          "archived_body_count": sum(
              1 for record in records
@@ -9738,13 +9795,36 @@ def memory_brief_response(
             community_scoped.append(view)
         else:
             advisories.append(view)
+    active_records = [record for record in records if record.get("status") == "active"]
+    fragile_by_target: dict[str, list[str]] = {}
+    for record in active_records:
+        if record.get("kind") != "fragile_file":
+            continue
+        for target in record.get("target_refs") or []:
+            target_s = mem._canonical_ref(str(target))
+            if target_s:
+                fragile_by_target.setdefault(target_s, []).append(str(record.get("memory_id") or ""))
+    consolidation_candidates = [
+        {"target": target, "memory_ids": ids}
+        for target, ids in sorted(fragile_by_target.items())
+        if len(ids) > 1
+    ]
+    active_count = len(active_records)
     data = {
         "context": context,
         "advisories": advisories,
         "count": len(advisories) + len(community_scoped),
         "cap": n,
         "total_surfaceable": len(ranked),
+        "active_memory_budget": {
+            "cap": mem.ACTIVE_MEMORY_CAP,
+            "active_count": active_count,
+            "remaining": max(0, mem.ACTIVE_MEMORY_CAP - active_count),
+        },
     }
+    if active_count >= mem.ACTIVE_MEMORY_CAP:
+        data["curation_required"] = True
+        data["consolidation_candidates"] = consolidation_candidates
     if community_scoped:
         data["community_scoped"] = community_scoped
     # 1svuk (telemetry-only, fail-isolated): accrue the SEPARATE estimated
@@ -9770,6 +9850,7 @@ def memory_reconcile_response(
     superseded_by: str = "",
     archive_reason: str = "",
     eligibility_confirmed: bool = False,
+    retain_for_history: bool = False,
 ) -> dict[str, Any]:
     """Serialize status/archive reconciliation across server processes."""
     with project_state_publication_lock(root):
@@ -9780,6 +9861,7 @@ def memory_reconcile_response(
             superseded_by=superseded_by,
             archive_reason=archive_reason,
             eligibility_confirmed=eligibility_confirmed,
+            retain_for_history=retain_for_history,
         )
 
 
@@ -9790,6 +9872,7 @@ def _memory_reconcile_response_locked(
     superseded_by: str = "",
     archive_reason: str = "",
     eligibility_confirmed: bool = False,
+    retain_for_history: bool = False,
 ) -> dict[str, Any]:
     mem = _memory_mod()
     # Fence BEFORE the status rewrite (delivery-review round 4): refuse if the
@@ -9809,6 +9892,12 @@ def _memory_reconcile_response_locked(
         try:
             normalized_status = (status or "").strip()
             if normalized_status == "archived":
+                if not retain_for_history:
+                    return _response("error", {"updated": False}, diagnostics=[_diagnostic(
+                        "memory_retention_decision_required",
+                        "Archival retains history. Set retain_for_history=true only after confirming this retired record remains historically important; otherwise use memory_purge.",
+                        recovery_tools=["memory_purge"], recovery_usage="memory_purge(memory_id=..., reviewed=true)")],
+                        next_tools=["memory_purge"], usage="")
                 archived = mem.archive_memory_record(
                     root,
                     (memory_id or "").strip(),
@@ -9836,7 +9925,7 @@ def _memory_reconcile_response_locked(
     if archived:
         changed_paths.extend([
             root / mem.MEMORY_DIR / f"{(memory_id or '').strip()}.md",
-            archived["pointer_path"],
+            archived["register_path"],
         ])
     _trigger_background_index_refresh_for_paths(root, changed_paths)
     record = mem.parse_memory_record(path)
@@ -9850,7 +9939,7 @@ def _memory_reconcile_response_locked(
             "archived": True,
             "moved": archived["moved"],
             "no_op": archived["no_op"],
-            "pointer": _memory_view(archived["pointer"], {}),
+            "register_entry": _memory_view(archived["register_entry"], {}),
         })
     return _response(
         "ok",
@@ -9859,6 +9948,252 @@ def _memory_reconcile_response_locked(
         next_tools=["memory_search"],
         usage="memory_search(include_history=True)",
     )
+
+
+def memory_purge_response(root: Path, memory_id: str, reviewed: bool = False,
+                          eligibility_confirmed: bool = False) -> dict[str, Any]:
+    """Permanently purge one reviewed, non-historic retired memory record."""
+    if not reviewed:
+        return _response("error", {"purged": False}, diagnostics=[_diagnostic(
+            "memory_purge_requires_review", "Purge is irreversible. Review the record and call again with reviewed=true.",
+            recovery_tools=["memory_search"], recovery_usage="memory_search(include_history=True)")],
+            next_tools=["memory_search"], usage="")
+    mem = _memory_mod()
+    with project_state_publication_lock(root):
+        fence = _memory_fence(root)
+        if fence is None:
+            return _response("error", {"purged": False}, diagnostics=[_diagnostic(
+                "memory_state_unwritable", "Cannot establish the memory-state fence.")],
+                next_tools=["memory_purge"], usage="")
+        try:
+            # Preserve source-event finality before removing its only corpus
+            # record. The compact hash-only disposition lives in one
+            # repo-visible file outside the indexed memory corpus, so it
+            # survives index rebuilds and fresh clones. Refuse purge if that
+            # write cannot be made: deletion must never make finalized history
+            # eligible for proposal again.
+            validated_id = mem.validate_memory_id(memory_id)
+            _source_path, source = mem.resolve_purge_memory_source(
+                root,
+                validated_id,
+                eligibility_confirmed=eligibility_confirmed,
+            )
+            if source is not None:
+                source_event = str(source.get("source_event") or "").strip()
+                if source_event:
+                    disposition_path = mem.record_purged_source_event(root, source_event)
+            result = mem.purge_memory_record(root, memory_id, eligibility_confirmed=eligibility_confirmed)
+        except (FileNotFoundError, ValueError, OSError) as exc:
+            return _response("error", {"purged": False}, diagnostics=[_diagnostic(
+                "memory_purge_failed", str(exc),
+                recovery_tools=["memory_purge", "memory_search"],
+                recovery_usage=(
+                    f"memory_purge(memory_id={memory_id!r}, reviewed=True)  # retry "
+                    "the state-derived purge; inspect with memory_search(include_history=True)"
+                ))], next_tools=["memory_purge", "memory_search"], usage="")
+        finally:
+            _memory_finalize(root, fence)
+    _trigger_background_index_refresh_for_paths(root, [root / mem.MEMORY_ARCHIVE_MANIFEST])
+    purge_data = {**result, "irreversible": True}
+    if source is not None and source.get("source_event"):
+        purge_data["disposition_path"] = str(disposition_path.relative_to(root).as_posix())
+    return _response("ok", purge_data, diagnostics=[],
+        next_tools=["memory_search"], usage="memory_search(include_history=True)")
+
+
+def memory_consolidate_response(
+    root: Path,
+    mode: str = "dry_run",
+    memory_ids: Optional[list[str]] = None,
+    title: str = "",
+    summary: str = "",
+    reviewed: bool = False,
+    eligibility_confirmed: bool = False,
+    limit: int = 10,
+) -> dict[str, Any]:
+    """Preview or apply one small, explicitly reviewed memory consolidation."""
+    mem = _memory_mod()
+    mode = str(mode or "dry_run").strip().lower()
+    if mode not in {"dry_run", "create"}:
+        return _response("error", {"mode": mode}, diagnostics=[_diagnostic(
+            "invalid_arguments", "mode must be dry_run or create")],
+            next_tools=["memory_consolidate"], usage="")
+    try:
+        group_limit = max(1, min(int(limit), MEMORY_CONSOLIDATE_GROUP_CAP))
+    except (TypeError, ValueError):
+        group_limit = MEMORY_CONSOLIDATE_GROUP_CAP
+    records = mem.load_memory_records(root, statuses=("active", "candidate"))
+    groups: dict[tuple[str, tuple[str, ...]], list[dict[str, Any]]] = {}
+    for record in records:
+        targets = tuple(sorted(set(record.get("target_refs") or [])))
+        if targets:
+            groups.setdefault((str(record.get("kind") or ""), targets), []).append(record)
+    proposals: list[dict[str, Any]] = []
+    skipped_groups: list[dict[str, Any]] = []
+    for (kind, targets), members in sorted(groups.items()):
+        members.sort(key=lambda item: item["memory_id"])
+        if len(members) < 2:
+            if len(skipped_groups) < group_limit:
+                skipped_groups.append({
+                    "kind": kind,
+                    "targets": list(targets),
+                    "memory_ids": [item["memory_id"] for item in members],
+                    "reason": "fewer_than_two_related_records",
+                })
+            continue
+        selected_members = members[:MEMORY_CONSOLIDATE_MEMBER_CAP]
+        source_views = []
+        for item in selected_members:
+            source_summary = str(item.get("summary") or "")
+            source_views.append({
+                "memory_id": item["memory_id"],
+                "title": item.get("title"),
+                "kind": item.get("kind"),
+                "status": item.get("status"),
+                "summary": source_summary[:MEMORY_SUMMARY_EXCERPT_CHARS],
+                "summary_truncated": len(source_summary) > MEMORY_SUMMARY_EXCERPT_CHARS,
+                "evidence_refs": list(item.get("evidence_refs") or []),
+                "target_refs": list(item.get("target_refs") or []),
+            })
+        proposed_summary = " ".join(
+            str(item.get("summary") or "").strip() for item in selected_members
+        ).strip()[:MEMORY_SUMMARY_EXCERPT_CHARS]
+        proposals.append({
+            "memory_ids": [item["memory_id"] for item in selected_members],
+            "kind": kind, "targets": list(targets),
+            "sources": source_views,
+            "proposed_title": f"Consolidated {kind.replace('_', ' ')} playbook",
+            "proposed_summary": proposed_summary,
+            "total_members": len(members),
+            "remaining_count": max(0, len(members) - len(selected_members)),
+            "truncated": len(members) > len(selected_members),
+            "requires_reviewed_apply": True,
+        })
+    groups_total = len(proposals)
+    proposals = proposals[:group_limit]
+    preview_data = {
+        "mode": mode,
+        "groups": proposals,
+        "groups_total": groups_total,
+        "groups_returned": len(proposals),
+        "groups_omitted": max(0, groups_total - len(proposals)),
+        "member_cap": MEMORY_CONSOLIDATE_MEMBER_CAP,
+        "skipped_groups": skipped_groups,
+        "skipped": "Only same-kind records with identical canonical targets are grouped.",
+    }
+    if mode == "dry_run":
+        return _response("dry_run", preview_data,
+            diagnostics=[], next_tools=["memory_consolidate"],
+            usage="memory_consolidate(mode='create', memory_ids=[...], title=..., summary=..., reviewed=True)")
+    selected = [str(item or "").strip() for item in (memory_ids or [])]
+    match = next((item for item in proposals if item["memory_ids"] == sorted(selected)), None)
+    if match is None or not reviewed or not title.strip() or not summary.strip():
+        return _response("error", preview_data, diagnostics=[_diagnostic(
+            "memory_consolidation_requires_review", "Select one previewed group and supply title, summary, and reviewed=true.",
+            recovery_tools=["memory_consolidate"], recovery_usage="memory_consolidate(mode='dry_run')")],
+            next_tools=["memory_consolidate"], usage="memory_consolidate(mode='dry_run')")
+    source_snapshots: dict[str, bytes] = {}
+    manifest_path = root / mem.MEMORY_ARCHIVE_MANIFEST
+    manifest_before: Optional[bytes] = None
+    replacement_path: Optional[Path] = None
+    replacement_id = ""
+    archived: list[dict[str, Any]] = []
+    rollback_completed = False
+    with project_state_publication_lock(root):
+        fence = _memory_fence(root)
+        if fence is None:
+            return _response("error", {"updated": False}, diagnostics=[_diagnostic(
+                "memory_state_unwritable", "Cannot establish the memory-state fence." )],
+                next_tools=["memory_consolidate"], usage="")
+        try:
+            # Re-check the previewed group under the mutation lock before the
+            # replacement or any source status changes. In particular, a
+            # protected-kind refusal must be byte-pure instead of leaving a
+            # replacement plus a partially superseded group.
+            for memory_id in match["memory_ids"]:
+                source_path = root / mem.MEMORY_DIR / f"{memory_id}.md"
+                source = mem.parse_memory_record(source_path)
+                if source is None:
+                    raise ValueError(f"{memory_id}: memory record is missing or malformed")
+                if source.get("status") not in {"active", "candidate"}:
+                    raise ValueError(f"{memory_id}: source status changed; preview again")
+                if str(source.get("kind") or "") != match["kind"] or sorted(
+                    set(source.get("target_refs") or [])
+                ) != match["targets"]:
+                    raise ValueError(f"{memory_id}: consolidation group changed; preview again")
+                archive_path = root / mem.MEMORY_ARCHIVE_DIR / f"{memory_id}.md"
+                if archive_path.exists():
+                    raise ValueError(f"{memory_id}: archive body already exists")
+                if source.get("kind") in mem.ARCHIVE_PROTECTED_KINDS and not eligibility_confirmed:
+                    raise ValueError(
+                        f"{memory_id}: {source['kind']} is protected; set "
+                        "eligibility_confirmed=true only after current review"
+                    )
+                source_snapshots[memory_id] = source_path.read_bytes()
+            manifest_before = manifest_path.read_bytes() if manifest_path.is_file() else None
+            evidence = [f"consolidated from {item}" for item in match["memory_ids"]]
+            added = _memory_add_response_locked(
+                root,
+                match["kind"],
+                summary.strip(),
+                evidence,
+                match["targets"],
+                title=title.strip(),
+                status="active",
+                supersedes=match["memory_ids"][0],
+                _lock_held=True,
+                _defer_index_refresh=True,
+            )
+            if added.get("status") != "ok":
+                return _response(
+                    "error",
+                    {"updated": False},
+                    diagnostics=list(added.get("diagnostics") or []),
+                    next_tools=["memory_consolidate"],
+                    usage="memory_consolidate(mode='dry_run')",
+                )
+            replacement_id = str(added["data"]["record"]["memory_id"])
+            replacement_path = root / mem.MEMORY_DIR / f"{replacement_id}.md"
+            for memory_id in match["memory_ids"]:
+                mem.reconcile_memory_record(root, memory_id, "superseded", superseded_by=replacement_id)
+                archived.append(mem.archive_memory_record(root, memory_id,
+                    reason=f"consolidated into {replacement_id}",
+                    eligibility_confirmed=eligibility_confirmed))
+        except (ValueError, FileNotFoundError, FileExistsError, OSError, RuntimeError) as exc:
+            rollback_error = ""
+            try:
+                if replacement_path is not None and replacement_path.exists():
+                    replacement_path.unlink()
+                for source_id, content in source_snapshots.items():
+                    archive_path = root / mem.MEMORY_ARCHIVE_DIR / f"{source_id}.md"
+                    if archive_path.exists():
+                        archive_path.unlink()
+                    active_path = root / mem.MEMORY_DIR / f"{source_id}.md"
+                    active_path.parent.mkdir(parents=True, exist_ok=True)
+                    active_path.write_bytes(content)
+                if manifest_before is None:
+                    if manifest_path.exists():
+                        manifest_path.unlink()
+                else:
+                    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+                    manifest_path.write_bytes(manifest_before)
+                rollback_completed = True
+            except OSError as rollback_exc:
+                rollback_error = f"; rollback incomplete: {rollback_exc}"
+            return _response("error", {
+                "updated": False,
+                "rollback_completed": rollback_completed,
+                "replacement_id": replacement_id or None,
+            }, diagnostics=[_diagnostic(
+                "memory_consolidation_failed", f"{exc}{rollback_error}", recovery_tools=["memory_consolidate"], recovery_usage="memory_consolidate(mode='dry_run')")],
+                next_tools=["memory_consolidate"], usage="")
+        finally:
+            _memory_finalize(root, fence)
+    changed = [replacement_path, *(item["archive_path"] for item in archived), manifest_path]
+    _trigger_background_index_refresh_for_paths(root, changed)
+    return _response("ok", {"updated": True, "replacement_id": replacement_id,
+        "archived_ids": match["memory_ids"]}, diagnostics=[], next_tools=["memory_search"],
+        usage="memory_search(include_history=True)")
 
 
 def wf_audit_response(
@@ -9954,6 +10289,26 @@ def wf_audit_response(
         )
     except Exception:
         doc_drift_data = {"available": False, "flagged_count": 0, "entries": []}
+    # 1u8o2 (1u8o0): additive `evaluation` object; a failed drift evaluation
+    # preserves last-good rows (fail-closed), so `available: true` alone can
+    # describe FROZEN state. `evaluation.status` distinguishes evaluated-clean
+    # from stale (rows served, evaluation failing since `stale_since`) from
+    # never_evaluated, with age and the per-return-site failure reason.
+    # Existing keys keep their meaning; drift still never blocks `ready`.
+    try:
+        doc_drift_data["evaluation"] = _load_script(
+            "index_state_store"
+        ).drift_evaluation_state(root / ".wavefoundry" / "index")
+    except Exception:
+        doc_drift_data["evaluation"] = {
+            "status": "never_evaluated",
+            "consecutive_failures": 0,
+            "last_reason": "",
+            "last_stage": "",
+            "last_success_at": None,
+            "stale_since": None,
+            "age_seconds": None,
+        }
 
     # --- ready ---
     ready = wave_ok and lint_ok and index_ok
@@ -10124,6 +10479,24 @@ def wf_audit_response(
             ),
             recovery_tools=["docs_search", "code_read"],
             recovery_usage="code_read(path=<flagged doc path>)",
+        ))
+    # 1u8o2 (1u8o0): advisory (never ready-gating) staleness signal; a frozen
+    # drift evaluation must not read as an evaluated-clean zero.
+    _drift_eval = doc_drift_data.get("evaluation") or {}
+    if _drift_eval.get("status") == "stale":
+        _age = _drift_eval.get("age_seconds")
+        _age_note = f" (last success {int(_age // 3600)}h ago)" if isinstance(_age, (int, float)) else ""
+        diagnostics.append(_diagnostic(
+            "doc_drift_evaluation_stale",
+            (
+                "The doc-drift evaluation has been failing since its last success"
+                f"{_age_note}: {_drift_eval.get('consecutive_failures', 0)} consecutive "
+                f"failure(s), stage {_drift_eval.get('last_stage') or 'unknown'!r}, reason "
+                f"{_drift_eval.get('last_reason') or 'unspecified'!r}. The served drift "
+                "entries are frozen last-good state, not a fresh evaluation."
+            ),
+            recovery_tools=["index_build"],
+            recovery_usage="index_build(content='docs')",
         ))
 
     # 1p8gy AC-6: memory advisories relevant to the audited wave.
@@ -12542,6 +12915,7 @@ def wf_upgrade_response(
 
     if result.returncode == 4:
         memory_gate: dict[str, Any] = {}
+        action_required: dict[str, Any] = {}
         try:
             _ulib = _load_upgrade_lib()
             lock = _ulib.read_upgrade_lock(root) if _ulib is not None else None
@@ -12556,24 +12930,57 @@ def wf_upgrade_response(
                     **backfill.run_summary(root, run_id),
                     **backfill.validation_worklist(root, run_id),
                 }
+            if isinstance(lock, dict) and isinstance(lock.get("action_required"), dict):
+                action_required = dict(lock["action_required"])
         except (OSError, RuntimeError, ValueError) as exc:
             memory_gate = {"status_error": str(exc)}
-        action = _response(
+        action_valid = (
+            action_required.get("kind") == "historical_memory"
+            and action_required.get("resume_phase") == "resume_after_memory"
+            and bool(action_required.get("token"))
+            and bool(action_required.get("run_id"))
+            and action_required.get("run_id") == run_id
+            and action_required.get("state") in {
+                "awaiting_memory_validation", "awaiting_memory_publication"
+            }
+        )
+        if not action_valid:
+            # A code-4 child exit without the durable, self-identifying memory
+            # checkpoint is not a normal pause.  Fall through to generic error
+            # handling so malformed bridges and real Phase-4 failures stay
+            # visible rather than being relabelled as validation work.
+            result.returncode = 1
+        if result.returncode != 4:
+            pass
+        else:
+            publication_ready = action_required.get("state") == "awaiting_memory_publication"
+            state = "awaiting_memory_publication" if publication_ready else "awaiting_memory_validation"
+            next_tools = (
+            ["wf_reload_mcp", "wf_upgrade_status", "wf_upgrade"]
+            if publication_ready
+            else ["wf_reload_mcp", "memory_backfill", "memory_validate"]
+            )
+            action = _response(
             "ok",
             {
                 **data,
-                "state": "awaiting_memory_validation",
+                "state": state,
                 "memory_backfill": memory_gate,
+                "action_required": action_required,
+                "failed_phase": None,
             },
             diagnostics=[],
-            next_tools=["wf_reload_mcp", "memory_backfill", "memory_validate"],
-        )
-        action["next_step"] = (
+            next_tools=next_tools,
+            )
+            action["next_step"] = (
+            "Reload the newly installed MCP implementation, then call "
+            "wf_upgrade(phase='resume_after_memory') to publish the prepared historical memory."
+            if publication_ready else
             "Reload the newly installed MCP implementation, run bounded historical "
             "memory backfill and focused validation, then call "
             "wf_upgrade(phase='resume_after_memory')."
-        )
-        return _bounded_upgrade_response_envelope(action)
+            )
+            return _bounded_upgrade_response_envelope(action)
     if result.returncode != 0:
         bridge_handoff = _parse_bridge_release_required(output)
         if bridge_handoff is not None:
@@ -12664,6 +13071,9 @@ def wf_upgrade_response(
                 reload_resp = _srv.perform_mcp_reload()
                 if reload_resp.get("status") == "ok":
                     resp.setdefault("data", {})["mcp_reload"] = reload_resp.get("data", {})
+                    resp.setdefault("diagnostics", []).extend(
+                        reload_resp.get("diagnostics", [])
+                    )
                 else:
                     resp.setdefault("diagnostics", []).extend(reload_resp.get("diagnostics", []))
             except Exception as exc:
@@ -12696,6 +13106,10 @@ def wf_upgrade_status_response(root: Path) -> dict[str, Any]:
             "from_version": lock.get("from_version"),
             "to_version": lock.get("to_version"),
             "pid": lock.get("pid"),
+            "current_phase": lock.get("current_phase"),
+            "failed_phase": None if isinstance(lock.get("action_required"), dict) else lock.get("failed_phase"),
+            "failed_at": None if isinstance(lock.get("action_required"), dict) else lock.get("failed_at"),
+            "action_required": lock.get("action_required"),
         }
         run_id = str(lock.get("memory_backfill_run_id") or "").strip()
         if run_id:
@@ -13396,10 +13810,29 @@ def _audit_harness_coherence(root: Path) -> dict[str, Any]:
     NON_TOOL_IDENTIFIERS = {
         "wave_id",        # parameter name in wf_pause_wave/wf_reopen_wave, URI {wave_id}, briefing field
         "wave_lint_lib",  # Python module under framework/scripts/wave_lint_lib/
+        # 1u8o2 (1u8o1): Python module wf_cli.py; every seed mention is
+        # already module-path form (`wf_cli.py`) and the regex substring-
+        # matches the stem, so a seed rewrite cannot silence it; the checker
+        # must know the module name (the wave_lint_lib precedent).
+        "wf_cli",
+    }
+
+    # 1u8o2 (1u8o1): retired tool names that seed MIGRATION text must keep
+    # using by design (upgrade instructions and verification checklists tell
+    # agents to replace the OLD name; deleting it from the text would break
+    # the migration). Both retired gate names are covered symmetrically:
+    # `wf_close_wave_gate` previously escaped only via the legacy
+    # `wf_close_wave_gate_response` shim still existing, so removing that shim
+    # would have minted new findings overnight. A name leaves this set only
+    # when the migration instructions that cite it are themselves retired.
+    RETIRED_TOOL_NAMES = {
+        "wave_open_gate",
+        "wf_close_wave_gate",
     }
 
     findings = []
     scanned_files = 0
+    pack_prefix = ".wavefoundry/framework/seeds/"
 
     for seed_dir in seed_dirs:
         if not seed_dir.is_dir():
@@ -13442,6 +13875,9 @@ def _audit_harness_coherence(root: Path) -> dict[str, Any]:
                     continue
                 if clean in NON_TOOL_IDENTIFIERS:
                     continue
+                if clean in RETIRED_TOOL_NAMES:
+                    # Documented migration text keeps the retired name on purpose.
+                    continue
                 # Skip kind-specific dispatcher prefixes that always have a kind suffix
                 # (e.g. `wf_new_X`, `wf_list_X`, `wf_get_X`, `wf_set_X`).
                 if any(clean.startswith(p) for p in ("wf_new_", "wf_list_", "wf_get_", "wf_set_")):
@@ -13450,6 +13886,16 @@ def _audit_harness_coherence(root: Path) -> dict[str, Any]:
                     "file": rel,
                     "type": "stale_tool_reference",
                     "detail": f"Tool '{clean}' mentioned but not found in live MCP surface",
+                    # 1u8o2 (1u8o1): pack-owned findings are explicitly
+                    # classified so a downstream project can ignore what it
+                    # cannot fix, while the framework source repo keeps its
+                    # only automated stale-seed-text audit. Chosen over a
+                    # conditional pack exclusion because no reliable
+                    # self-host discriminator exists (the vendored pack
+                    # layout is byte-identical to the source layout).
+                    "classification": (
+                        "pack_internal" if rel.startswith(pack_prefix) else "project"
+                    ),
                 })
 
             # Bypass-pattern detection deliberately omitted — see docstring.
@@ -13458,6 +13904,15 @@ def _audit_harness_coherence(root: Path) -> dict[str, Any]:
         "scanned_files": scanned_files,
         "findings": findings[:50],  # cap at 50 to avoid overwhelming response
         "findings_count": len(findings),
+        # 1u8o2 (1u8o1): additive split of findings_count by classification.
+        # `pack_internal` findings are non-blocking for downstream projects
+        # (pack-owned text only the framework source repo can change).
+        "pack_internal_count": sum(
+            1 for f in findings if f.get("classification") == "pack_internal"
+        ),
+        "project_findings_count": sum(
+            1 for f in findings if f.get("classification") != "pack_internal"
+        ),
     }
 
 
@@ -27780,8 +28235,10 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         - ``map`` — regenerate **only the codebase map** (``docs/references/codebase-map.md``)
           from the existing graph/cluster artifacts (wave 1p601). The ~0.09 s map-only refresh;
           no full index rebuild, fail-safe, and change-only (a no-op when nothing changed).
-          The map also regenerates automatically on every other rebuild path. New MCP
-          resources/tool options require a **server reconnect** to appear (FastMCP limitation).
+          The map also regenerates automatically on every other rebuild path. Newly registered
+          MCP resources are startup-bound and require reconnect/restart. For new tools or tool
+          options, start a fresh turn first; reconnect only if the schema is still stale, and
+          restart the host last. The server cannot observe whether a client adopted the change.
         - ``fts`` — rebuild **only the derived lexical layer** (the index-state store's FTS5
           tables + chunk registry) from scratch off the authoritative Lance tables (wave 1sc7c).
           Embedding-free and in-process — seconds. The clean recovery when
@@ -28319,7 +28776,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         Ranking is kind-aware-decayed confidence with centrality tie-breaks;
         stale/superseded/rejected/archived bodies are excluded unless
         ``include_history`` or an explicit ``status`` asks for them. A targeted
-        normal search may return a compact archive pointer, never the body.
+        normal search may return a compact archive-register entry, never the body.
 
         Args:
             query: Free-text query (semantic assist + text containment).
@@ -28367,13 +28824,14 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
     def memory_reconcile(memory_id: str, status: str, superseded_by: str = "",
                               archive_reason: str = "",
                               eligibility_confirmed: bool = False,
+                              retain_for_history: bool = False,
                               **kwargs: Any) -> dict[str, Any]:
         """Transition status or explicitly archive a retired memory record.
 
         A ``superseded`` transition requires ``superseded_by``. An
         ``archived`` transition requires a stale/superseded/rejected record and
-        ``archive_reason``; it renames the body into memory/archive and publishes
-        a compact searchable pointer under memory/pointers. Decisions, operator
+        ``archive_reason`` and ``retain_for_history=true``; it renames the body into memory/archive and rebuilds
+        the compact lookup `memory-archive.md` register. Decisions, operator
         preferences, and fragile-file records additionally require an explicit
         ``eligibility_confirmed`` review judgment.
 
@@ -28384,6 +28842,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             archive_reason: Required non-empty reason when status is "archived".
             eligibility_confirmed: Required for protected memory kinds after
                 verifying the knowledge is no longer operational.
+            retain_for_history: Required confirmation that the retired record merits archival.
         """
         bad = _ensure_no_extra_args("memory_reconcile", kwargs)
         if bad is not None:
@@ -28392,7 +28851,37 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             get_handler().root, memory_id, status, superseded_by=superseded_by,
             archive_reason=archive_reason,
             eligibility_confirmed=eligibility_confirmed,
+            retain_for_history=retain_for_history,
         )
+
+    @mcp.tool(annotations=_DESTRUCTIVE_TOOL)
+    def memory_purge(memory_id: str, reviewed: bool = False,
+                     eligibility_confirmed: bool = False, **kwargs: Any) -> dict[str, Any]:
+        """Irreversibly remove a reviewed retired memory that is not history-worthy."""
+        bad = _ensure_no_extra_args("memory_purge", kwargs)
+        if bad is not None:
+            return bad
+        return memory_purge_response(get_handler().root, memory_id, reviewed=reviewed,
+                                     eligibility_confirmed=eligibility_confirmed)
+
+    @mcp.tool(annotations=_MUTATING_TOOL)
+    def memory_consolidate(mode: str = "dry_run", memory_ids: Optional[list] = None,
+                           title: str = "", summary: str = "", reviewed: bool = False,
+                           eligibility_confirmed: bool = False, limit: int = 10, **kwargs: Any) -> dict[str, Any]:
+        """Preview or apply one bounded consolidation of related active memory.
+
+        Dry-run groups only records of the same kind with identical canonical
+        targets. Apply requires selecting one returned group plus an explicit
+        reviewed replacement title and summary; it preflights every source
+        before creating the replacement, then supersedes and archives the
+        selected group. Retired records are never bulk archived here.
+        """
+        bad = _ensure_no_extra_args("memory_consolidate", kwargs)
+        if bad is not None:
+            return bad
+        return memory_consolidate_response(get_handler().root, mode=mode,
+            memory_ids=memory_ids, title=title, summary=summary,
+            reviewed=reviewed, eligibility_confirmed=eligibility_confirmed, limit=limit)
 
     # --- Code navigation tools ---
 

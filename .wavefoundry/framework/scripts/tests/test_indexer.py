@@ -132,20 +132,31 @@ class FileWalkerTests(unittest.TestCase):
         self.assertIn("foo.py", names)
         self.assertIn("guide.md", names)
 
-    def test_memory_archive_bodies_are_excluded_but_pointers_are_indexable(self):
+    def test_memory_archive_bodies_are_excluded_but_register_is_indexable(self):
         _make_repo(self.root, {
             "docs/agents/memory/archive/mem-old.md": "# Archived full body\n",
-            "docs/agents/memory/pointers/mem-old.md": "# Compact archive pointer\n",
+            "docs/agents/memory/pointers/mem-old.md": "# Retired pointer\n",
+            "docs/agents/memory-archive.md": "# Memory archive\n",
+            ".wavefoundry/memory-purge-dispositions.json": (
+                '{"schema_version":1,"source_event_sha256":[]}\n'
+            ),
         })
         rels = {
             str(path.relative_to(self.root)).replace("\\", "/")
             for path in self.bi.walk_repo(self.root)
         }
         self.assertNotIn("docs/agents/memory/archive/mem-old.md", rels)
-        self.assertIn("docs/agents/memory/pointers/mem-old.md", rels)
+        self.assertNotIn("docs/agents/memory/pointers/mem-old.md", rels)
+        self.assertIn("docs/agents/memory-archive.md", rels)
+        self.assertNotIn(".wavefoundry/memory-purge-dispositions.json", rels)
         self.assertTrue(
             self.bi._is_memory_archive_body_path(
                 r"docs\agents\memory\archive\mem-old.md"
+            )
+        )
+        self.assertTrue(
+            self.bi._is_legacy_memory_pointer_path(
+                r"docs\agents\memory\pointers\mem-old.md"
             )
         )
 
@@ -1178,6 +1189,41 @@ class IncrementalBuildTests(unittest.TestCase):
         self.assertIn(projection, chunk_paths)
         self.assertIn(unrelated, meta_paths)
         self.assertIn(unrelated_wave_note, meta_paths)
+
+    def test_explicit_full_build_excludes_archive_bodies_and_legacy_pointers(self):
+        """Caller-supplied files cannot bypass either memory-history boundary."""
+        archive = "docs/agents/memory/archive/mem-old.md"
+        legacy_pointer = "docs/agents/memory/pointers/mem-old.md"
+        register = "docs/agents/memory-archive.md"
+        _make_repo(self.root, {
+            archive: "# Archived full body\n",
+            legacy_pointer: "# Retired generated pointer\n",
+            register: "# Memory archive\n\n## mem-old\n",
+        })
+
+        docs_mock = _make_embedder_mock(dim=4)
+        with patch.object(self.bi, "_get_embedder", return_value=docs_mock):
+            self.bi.build_index(
+                self.root,
+                full=True,
+                content="docs",
+                files=[
+                    self.root / archive,
+                    self.root / legacy_pointer,
+                    self.root / register,
+                ],
+                verbose=False,
+            )
+
+        index_dir = self.root / ".wavefoundry" / "index"
+        meta_paths = set((_read_meta_store(index_dir).get("file_meta") or {}).keys())
+        chunk_paths = {row["path"] for row in _read_index_chunks(index_dir, "docs")}
+        self.assertNotIn(archive, meta_paths)
+        self.assertNotIn(archive, chunk_paths)
+        self.assertNotIn(legacy_pointer, meta_paths)
+        self.assertNotIn(legacy_pointer, chunk_paths)
+        self.assertIn(register, meta_paths)
+        self.assertIn(register, chunk_paths)
 
     def test_incremental_exclusion_reaps_previously_indexed_canonical_ledger(self):
         """A pre-cutover row becomes a removal and is evicted from metadata and Lance."""
@@ -5441,6 +5487,478 @@ class AmbientGitEnvBuildIsolationTests(unittest.TestCase):
                          "freshness must match the clean control under GIT_CONFIG_GLOBAL")
         self.assertEqual(amb_row["commits_since"], clean_row["commits_since"])
         self.assertEqual(amb_row["drifted"], clean_row["drifted"])
+
+
+class _OrphanStoreCase(_EpochBuildCase):
+    """Shared harness for the 1u8o2 (1u8nz) orphan-store fixtures.
+
+    Orphan state = store rows present, registry (build_file_meta) rows absent,
+    files gone from disk: the fielded corpus shape after out-of-band cleanup or
+    an older pack's bug. Constructed through the canonical producers (a real
+    full build) and then poisoned, because no current producer can mint it."""
+
+    _FILES = {
+        "src/app.py": "def app():\n    return 1\n",
+        "src/payload_mod.py": "def debris():\n    return 42\n",
+        "docs/guide.md": "## Guide\n\nKeep me around.\n",
+        "docs/debris_note.md": "## Debris\n\nPhantom transition-run note.\n",
+    }
+    _NEEDLES = ("debris_note", "payload_mod")
+
+    def _seed_and_poison(self):
+        _make_repo(self.root, self._FILES)
+        self._run_build(full=True)
+        meta = _read_meta_store(self.index_dir)
+        fm = meta.get("file_meta") or {}
+        for k in list(fm):
+            if any(n in k for n in self._NEEDLES):
+                del fm[k]
+        meta["file_meta"] = fm
+        _seed_meta_store(self.index_dir, meta)
+        (self.root / "docs" / "debris_note.md").unlink()
+        (self.root / "src" / "payload_mod.py").unlink()
+
+    def _sqlite_paths(self, db_file: Path, table: str) -> set[str]:
+        import sqlite3
+        if not db_file.exists():
+            return set()
+        conn = sqlite3.connect(str(db_file))
+        try:
+            return {str(r[0]) for r in conn.execute(f"SELECT DISTINCT path FROM {table}")}
+        finally:
+            conn.close()
+
+    def _state_db(self) -> Path:
+        return self.index_dir / "index-state.sqlite"
+
+    def _graph_db(self) -> Path:
+        return self.index_dir / "graph" / "project-graph-state.sqlite"
+
+    def _store_needle_map(self) -> dict[str, set[str]]:
+        return {
+            "file_freshness": self._sqlite_paths(self._state_db(), "file_freshness"),
+            "secret_scan_cache": self._sqlite_paths(self._state_db(), "secret_scan_cache"),
+            "graph_files": self._sqlite_paths(self._graph_db(), "files"),
+        }
+
+    def _needles_in(self, paths: set[str]) -> list[str]:
+        return sorted(p for p in paths if any(n in p for n in self._NEEDLES))
+
+
+class OrphanStoreReconcileTests(_OrphanStoreCase):
+    """Wave 1u8o2 (1u8nz) AC-1/AC-4: one incremental build reconciles orphaned
+    graph and sidecar rows, inside the build epoch, driving the real stores.
+    Red-first: pre-fix, the zero-change incremental left all three stores
+    holding the orphans (probe-proven; see the change doc's Progress Log)."""
+
+    def test_one_incremental_reconciles_graph_and_sidecar_orphans(self):
+        # AC-1: red against pre-fix code (orphans survive), green post-fix.
+        self._seed_and_poison()
+        before = self._store_needle_map()
+        for store, paths in before.items():
+            self.assertTrue(
+                self._needles_in(paths),
+                f"precondition: poisoned fixture must hold orphans in {store}",
+            )
+        result = self._run_build(full=False)
+        self.assertNotIn("error", result, result.get("error", ""))
+        after = self._store_needle_map()
+        for store, paths in after.items():
+            self.assertEqual(
+                self._needles_in(paths), [],
+                f"one incremental must reconcile orphaned rows out of {store}",
+            )
+        # Pin: the Lance/registry self-heal path stays intact alongside.
+        docs = {row["path"] for row in _read_index_chunks(self.index_dir, "docs")}
+        code = {row["path"] for row in _read_index_chunks(self.index_dir, "code")}
+        self.assertEqual(self._needles_in(docs | code), [])
+        # Surviving corpus is untouched.
+        self.assertIn("docs/guide.md", after["file_freshness"])
+        self.assertIn("src/app.py", after["graph_files"])
+
+    def test_build_path_with_real_change_reconciles_sidecar_orphan(self):
+        # Delivery-review repair (QA P2-1): pin the BUILD-path reap seam
+        # wiring (indexer.py, the reconcile after the Lance reap), not just
+        # the zero-change idle pass. A genuine file change forces build_index
+        # down the changed/build path, where the idle-pass reconcile never
+        # runs; only the build-path seam can reap the sidecar orphan. Kills
+        # the mutant that disables the build-path invocation (`if any(...)`
+        # replaced with `if False`), which no prior test caught.
+        import sqlite3
+        _make_repo(self.root, {
+            "src/app.py": self._FILES["src/app.py"],
+            "docs/guide.md": self._FILES["docs/guide.md"],
+        })
+        self._run_build(full=True)
+        # Sidecar orphan: a secret_scan_cache row whose path is absent from
+        # BOTH the registry and disk (inserted directly; older-pack residue
+        # is unreachable through current producers by definition).
+        conn = sqlite3.connect(str(self._state_db()))
+        try:
+            with conn:
+                conn.execute(
+                    "INSERT OR REPLACE INTO secret_scan_cache "
+                    "(path, content_hash, rules_fingerprint, scanned_at, clean, finding_refs) "
+                    "VALUES ('docs/phantom_note.md', 'x', 'y', 0, 1, '[]')"
+                )
+        finally:
+            conn.close()
+        # GENUINE change: the incremental must take the changed/build path.
+        (self.root / "docs" / "guide.md").write_text(
+            "## Guide\n\nKeep me around. Edited for the build path.\n",
+            encoding="utf-8",
+        )
+        result = self._run_build(full=False)
+        self.assertNotIn("error", result, result.get("error", ""))
+        self.assertIsNot(
+            result.get("up_to_date"), True,
+            "precondition: the build must take the changed path, not the idle pass",
+        )
+        self.assertNotIn(
+            "docs/phantom_note.md",
+            self._sqlite_paths(self._state_db(), "secret_scan_cache"),
+            "one changed-path build must reap the sidecar orphan at the "
+            "build-path reconcile seam",
+        )
+        # Surviving corpus is untouched.
+        self.assertIn(
+            "docs/guide.md", self._sqlite_paths(self._state_db(), "file_freshness"))
+
+    def test_removal_only_pass_opens_and_finalizes_epoch(self):
+        # AC-4: a reconcile with ONLY sidecar orphan work (Lance already clean)
+        # opens and finalizes a build epoch: the generation advances and the
+        # published state is complete.
+        import sqlite3
+        _make_repo(self.root, {
+            "src/app.py": self._FILES["src/app.py"],
+            "docs/guide.md": self._FILES["docs/guide.md"],
+        })
+        self._run_build(full=True)
+        # Sidecar-only orphans, inserted directly: this state is unreachable
+        # through current producers by definition (it is older-pack residue),
+        # and inserting only sidecar rows keeps Lance/registry/graph clean so
+        # the reconcile is the ONLY work in the pass.
+        conn = sqlite3.connect(str(self._state_db()))
+        try:
+            with conn:
+                conn.execute(
+                    "INSERT OR REPLACE INTO file_freshness "
+                    "(path, last_modified, churn_score, commit_count, source, updated_at) "
+                    "VALUES ('docs/phantom_note.md', 0, 0.0, 0, 'git', 0)"
+                )
+                conn.execute(
+                    "INSERT OR REPLACE INTO secret_scan_cache "
+                    "(path, content_hash, rules_fingerprint, scanned_at, clean, finding_refs) "
+                    "VALUES ('docs/phantom_note.md', 'x', 'y', 0, 1, '[]')"
+                )
+        finally:
+            conn.close()
+        gen_before = self._generation()
+        result = self._run_build(full=False)
+        self.assertIs(result.get("up_to_date"), True)
+        self.assertGreater(
+            self._generation(), gen_before,
+            "a removal-only reconcile pass must open and finalize a build epoch",
+        )
+        state = self.iss.read_build_state(self.index_dir)
+        self.assertEqual((state or {}).get("status"), "complete")
+        self.assertNotIn(
+            "docs/phantom_note.md",
+            self._sqlite_paths(self._state_db(), "file_freshness"),
+        )
+        self.assertNotIn(
+            "docs/phantom_note.md",
+            self._sqlite_paths(self._state_db(), "secret_scan_cache"),
+        )
+        # And the pass converges: the NEXT build is a true no-op (no epoch churn).
+        gen_after = self._generation()
+        self._run_build(full=False)
+        self.assertEqual(self._generation(), gen_after,
+                         "a clean follow-up build must not reopen the epoch")
+
+
+class LanceSelfHealOrderingPinTests(_OrphanStoreCase):
+    """Wave 1u8o2 (1u8nz) AC-2: the four healing orderings verified by the
+    prepare-cycle probes stay green: Lance/FTS/registry self-heal and
+    scope-departure retirement are pinned, not modified."""
+
+    _IGNORE_RULES = "debris_note.md\npayload_mod.py\n"
+
+    def _needle_state(self):
+        meta = set((_read_meta_store(self.index_dir).get("file_meta") or {}).keys())
+        docs = {row["path"] for row in _read_index_chunks(self.index_dir, "docs")}
+        code = {row["path"] for row in _read_index_chunks(self.index_dir, "code")}
+        return meta, docs, code
+
+    def _assert_needles_gone(self, label: str):
+        meta, docs, code = self._needle_state()
+        self.assertEqual(self._needles_in(meta), [], f"{label}: meta")
+        self.assertEqual(self._needles_in(docs), [], f"{label}: docs table")
+        self.assertEqual(self._needles_in(code), [], f"{label}: code table")
+
+    def _seed(self):
+        _make_repo(self.root, self._FILES)
+        self._run_build(full=True)
+
+    def test_ordering_ignore_and_delete_then_update(self):
+        # Field ordering: ignore + delete with no build between, then update.
+        self._seed()
+        (self.root / ".gitignore").write_text(self._IGNORE_RULES, encoding="utf-8")
+        (self.root / "docs" / "debris_note.md").unlink()
+        (self.root / "src" / "payload_mod.py").unlink()
+        self._run_build(full=False)
+        self._assert_needles_gone("ignore+delete+update")
+
+    def test_ordering_long_with_intermediate_build(self):
+        # Long ordering: ignore, build, delete, build.
+        self._seed()
+        (self.root / ".gitignore").write_text(self._IGNORE_RULES, encoding="utf-8")
+        self._run_build(full=False)
+        (self.root / "docs" / "debris_note.md").unlink()
+        (self.root / "src" / "payload_mod.py").unlink()
+        self._run_build(full=False)
+        self._assert_needles_gone("ignore, build, delete, build")
+
+    def test_ordering_scoped_docs_then_code_updates(self):
+        # Scoped ordering: docs-only then code-only updates after ignore+delete.
+        self._seed()
+        (self.root / ".gitignore").write_text(self._IGNORE_RULES, encoding="utf-8")
+        (self.root / "docs" / "debris_note.md").unlink()
+        (self.root / "src" / "payload_mod.py").unlink()
+        self._run_build(full=False, content="docs")
+        self._run_build(full=False, content="code")
+        self._assert_needles_gone("scoped docs-only then code-only updates")
+
+    def test_ordering_ignored_but_present_retires(self):
+        # Ignored-but-present: scope departure retires rows while files stay on
+        # disk (shipped Lance behavior; the graph aligns to it per the parity
+        # decision in the change doc).
+        self._seed()
+        (self.root / ".gitignore").write_text(self._IGNORE_RULES, encoding="utf-8")
+        self._run_build(full=False)
+        _meta, docs, code = self._needle_state()
+        self.assertEqual(self._needles_in(docs), [], "ignored-but-present: docs table")
+        self.assertEqual(self._needles_in(code), [], "ignored-but-present: code table")
+
+
+class OrphanReconcilePlanUnitTests(_OrphanStoreCase):
+    """Wave 1u8o2 (1u8nz) AC-3 + AC-6: absence classification via error
+    injection at the stat seam (never chmod), the mass-removal circuit
+    breaker, and the structural perf properties (one stat per unique
+    candidate; no directory traversal)."""
+
+    def _authority(self) -> set[str]:
+        return set((_read_meta_store(self.index_dir).get("file_meta") or {}).keys())
+
+    def test_enoent_removes_unreadable_preserves(self):
+        # AC-3: ENOENT (debris paths, really deleted) plans removal; an
+        # injected EACCES at the stat seam preserves the row in every store.
+        self._seed_and_poison()
+        real_stat = os.stat
+
+        def inject(path):
+            if "payload_mod" in str(path):
+                raise PermissionError(13, "injected EACCES", str(path))
+            return real_stat(path)
+
+        with patch.object(self.bi, "_orphan_path_stat", side_effect=inject):
+            plan = self.bi._plan_orphan_store_reconcile(
+                self.root, self.index_dir, self._authority()
+            )
+        for store in ("file_freshness", "secret_scan_cache", "graph"):
+            self.assertFalse(
+                any("payload_mod" in p for p in plan[store]),
+                f"unreadable path must be preserved in {store}",
+            )
+        for store in ("file_freshness", "secret_scan_cache", "graph"):
+            self.assertTrue(
+                any("debris_note" in p for p in plan[store]),
+                f"ENOENT path must plan removal in {store}",
+            )
+
+    def test_present_but_out_of_scope_parity(self):
+        # Decision (recorded in the change doc): freshness and graph rows for
+        # present-but-out-of-scope paths retire (parity with the shipped Lance
+        # eligibility reap); the secret-scan cache keeps them (its candidate
+        # set is all tracked files, wider than the index corpus by design).
+        import sqlite3
+        _make_repo(self.root, {
+            "src/app.py": self._FILES["src/app.py"],
+            "docs/guide.md": self._FILES["docs/guide.md"],
+        })
+        self._run_build(full=True)
+        extra = "docs/present_extra.md"
+        (self.root / extra).write_text("## Present\n\nStill on disk.\n", encoding="utf-8")
+        conn = sqlite3.connect(str(self._state_db()))
+        try:
+            with conn:
+                conn.execute(
+                    "INSERT OR REPLACE INTO file_freshness "
+                    "(path, last_modified, churn_score, commit_count, source, updated_at) "
+                    "VALUES (?, 0, 0.0, 0, 'git', 0)",
+                    (extra,),
+                )
+                conn.execute(
+                    "INSERT OR REPLACE INTO secret_scan_cache "
+                    "(path, content_hash, rules_fingerprint, scanned_at, clean, finding_refs) "
+                    "VALUES (?, 'x', 'y', 0, 1, '[]')",
+                    (extra,),
+                )
+        finally:
+            conn.close()
+        authority = self._authority() - {extra}
+        plan = self.bi._plan_orphan_store_reconcile(self.root, self.index_dir, authority)
+        self.assertIn(extra, plan["file_freshness"],
+                      "present-but-out-of-scope freshness row must retire (parity)")
+        self.assertNotIn(extra, plan["secret_scan_cache"],
+                         "present tracked file must keep its secret-scan cache row")
+
+    def test_mass_removal_circuit_breaker_defers_with_log(self):
+        # AC-3: a would-remove count over the threshold defers the store's
+        # reconciliation with an explicit log line.
+        import sqlite3
+        _make_repo(self.root, {
+            "src/app.py": self._FILES["src/app.py"],
+            "docs/guide.md": self._FILES["docs/guide.md"],
+        })
+        self._run_build(full=True)
+        phantoms = [f"docs/phantom_{i}.md" for i in range(9)]
+        conn = sqlite3.connect(str(self._state_db()))
+        try:
+            with conn:
+                for p in phantoms:
+                    conn.execute(
+                        "INSERT OR REPLACE INTO file_freshness "
+                        "(path, last_modified, churn_score, commit_count, source, updated_at) "
+                        "VALUES (?, 0, 0.0, 0, 'git', 0)",
+                        (p,),
+                    )
+        finally:
+            conn.close()
+        # Non-vacuity: 9 phantoms over a small store trips BOTH breaker legs
+        # (9 >= min-rows floor of 8, and 9 > half the store rows).
+        buf = io.StringIO()
+        with redirect_stderr(buf):
+            plan = self.bi._plan_orphan_store_reconcile(
+                self.root, self.index_dir, self._authority()
+            )
+        self.assertEqual(plan["file_freshness"], set(),
+                         "deferred store must plan zero removals")
+        self.assertIn("file_freshness", plan["deferred"])
+        self.assertEqual(plan["deferred"]["file_freshness"]["would_remove"], 9)
+        self.assertIn("orphan reconcile DEFERRED", buf.getvalue())
+        self.assertIn("file_freshness", buf.getvalue())
+
+    def test_at_most_one_stat_per_unique_candidate(self):
+        # AC-6: the classification cache is shared across stores, so a candidate
+        # present in all three stores is statted exactly once, and rows the
+        # authority knows are never statted at all.
+        self._seed_and_poison()
+        calls: list[str] = []
+        real_stat = os.stat
+
+        def spy(path):
+            calls.append(str(path))
+            return real_stat(path)
+
+        with patch.object(self.bi, "_orphan_path_stat", side_effect=spy):
+            plan = self.bi._plan_orphan_store_reconcile(
+                self.root, self.index_dir, self._authority()
+            )
+        self.assertEqual(len(calls), len(set(calls)),
+                         "each unique candidate is statted at most once")
+        authority = self._authority()
+        store_paths = _store_mod().orphan_store_paths(self.index_dir)
+        expected_candidates = (
+            (store_paths["file_freshness"] | store_paths["secret_scan_cache"]
+             | store_paths["graph"]) - authority
+        )
+        self.assertEqual(
+            len(calls), len(expected_candidates),
+            "exactly the unique out-of-authority candidates are statted (the "
+            "needles appear in all three stores yet are statted once each)",
+        )
+        self.assertEqual(plan["stat_calls"], len(calls))
+        for needle in self._NEEDLES:
+            self.assertEqual(
+                sum(1 for p in calls if needle in p), 1,
+                f"cross-store candidate {needle} must be statted exactly once",
+            )
+        for p in calls:
+            rel = str(Path(p).relative_to(self.root)).replace("\\", "/")
+            self.assertNotIn(rel, authority,
+                             f"in-authority path must never be statted: {rel}")
+
+    def test_reconcile_never_descends_directories(self):
+        # AC-6 poisoned-tree spy: plan + sidecar execution never call any
+        # directory-iteration primitive, so an ignored tree (or any tree) is
+        # never descended (per-row stats only).
+        self._seed_and_poison()
+        ignored = self.root / "node_modules" / "pkg"
+        ignored.mkdir(parents=True)
+        (ignored / "index.js").write_text("// ignored\n", encoding="utf-8")
+        (self.root / ".gitignore").write_text("node_modules/\n", encoding="utf-8")
+
+        def boom(*_a, **_k):
+            raise AssertionError("orphan reconcile must not iterate directories")
+
+        with patch("os.scandir", side_effect=boom), patch("os.walk", side_effect=boom), \
+                patch("os.listdir", side_effect=boom):
+            plan = self.bi._plan_orphan_store_reconcile(
+                self.root, self.index_dir, self._authority()
+            )
+            plan["graph"] = set()  # sidecar-only execute: the graph merge is
+            # shipped machinery exercised end to end elsewhere (AC-1).
+            self.bi._execute_orphan_store_reconcile(self.root, self.index_dir, plan)
+        self.assertTrue(plan["file_freshness"],
+                        "non-vacuity: the poisoned run still planned real work")
+
+
+class OrphanRetirementCallerCensusTests(unittest.TestCase):
+    """Wave 1u8o2 (1u8nz) AC-4: the no-out-of-epoch-deletion clause. The new
+    deletion APIs are reachable only from the build-epoch reap seam, pinned
+    by a reference census over the framework scripts (the universal negative
+    is census-verified; the recorded census lives in the change doc)."""
+
+    def _script_sources(self) -> dict[str, str]:
+        return {
+            p.name: p.read_text(encoding="utf-8")
+            for p in SCRIPTS_ROOT.glob("*.py")
+        }
+
+    def test_retire_orphaned_graph_paths_single_production_caller(self):
+        sources = self._script_sources()
+        referencing = {
+            name for name, src in sources.items()
+            if "retire_orphaned_graph_paths" in src
+        }
+        self.assertEqual(
+            referencing, {"graph_indexer.py", "indexer.py"},
+            "the graph retirement API must have no callers beyond the reap seam",
+        )
+        indexer_src = sources["indexer.py"]
+        self.assertEqual(
+            indexer_src.count("retire_orphaned_graph_paths"), 1,
+            "indexer.py references the retirement API exactly once (the epoch seam)",
+        )
+        seam_start = indexer_src.index("def _execute_orphan_store_reconcile")
+        seam_end = indexer_src.index("\ndef ", seam_start + 10)
+        self.assertIn(
+            "retire_orphaned_graph_paths",
+            indexer_src[seam_start:seam_end],
+            "the single reference lives inside _execute_orphan_store_reconcile",
+        )
+
+    def test_remove_sidecar_paths_single_production_caller(self):
+        sources = self._script_sources()
+        referencing = {
+            name for name, src in sources.items()
+            if "remove_sidecar_paths" in src
+        }
+        self.assertEqual(
+            referencing, {"index_state_store.py", "indexer.py"},
+            "the sidecar deletion API must have no callers beyond the reap seam",
+        )
 
 
 if __name__ == "__main__":

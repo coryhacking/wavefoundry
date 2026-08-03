@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-25
+Last verified: 2026-08-03
 
 ## The Problem
 
@@ -411,9 +411,9 @@ RRF candidate was rejected by the 1tbt5 adoption gate, so search retains the
 shipped semantic tie-break and no dormant fusion branch or flag.
 Physical archive bodies under `docs/agents/memory/archive/` are a historical
 storage class and are excluded by both repository walking and explicit-file
-index seams; graph extraction applies the same boundary. Compact pointers under
-`docs/agents/memory/pointers/` remain indexable and searchable. Normal targeted
-memory search may return a pointer, while `include_history=true` or
+index seams; graph extraction applies the same boundary. The compact register at
+`docs/agents/memory-archive.md` remains indexable and searchable. Normal targeted
+memory search may return a register entry, while `include_history=true` or
 `status="archived"` reads the archived body directly from the record store.
 
 ## Index Readiness: Two Surfaces (wave 1t59p)

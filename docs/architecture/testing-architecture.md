@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-27
+Last verified: 2026-08-03
 
 ## Test Tiers
 
@@ -23,7 +23,7 @@ Last verified: 2026-07-27
 | Memory supply and exploration-estimate integrity (waves 1stwm/1sxj7) | Real compact review-event repair chains, admitted-change Decision Logs, escaped pipes, implementation-only anchors, Unicode/evidence identity, concurrent add/propose idempotency, SQLite event replay and origin budgets, exact-match passive/explicit surfaces, current source-cost authority, lazy schema extension, and lifecycle/reload/upgrade projection | `test_memory_records.py`, `test_context_efficiency.py` | Same runner |
 | Commit provenance integrity (waves 1sufq/1sxj7) | Canonical local commit identity, anchored landing grammar, explicit metadata authority, mixed blame coverage, conflict propagation, file-relevance labeling, exact public input union, and read-only/traversal controls | `test_commit_provenance.py`, `test_server_context_efficiency.py` | Same runner |
 | Memory-retrieval eval (waves 1sufo / 1tbt5) | Hermetic golden set over a synthetic memory corpus scoring the shipped search path and an evaluation-only BM25+semantic RRF candidate: recall@k / MRR, 11 policy/archive/adaptive-freshness invariants, deterministic single-stream controls, and an explicit adoption decision. An optional bounded live pass freezes its sample before scoring and emits aggregate metrics, kind/status counts, and a fingerprint only. The registered 1,000-record lexical budget guards its single-pass cost. See `docs/references/memory-retrieval-eval.md`. | `memory_eval.py` (shipped engine), `tests/eval/memory_golden.json` (test-only fixture), `test_memory_eval.py`, `tests/perf_budget_policy.py` | Same engine; the live pass is the `wf_memory_eval` MCP tool (CLI fallback `--curated-root <repo>`) |
-| Memory archival lifecycle (wave 1t8la) | Rename-only body migration, compact-pointer schema, protected-kind eligibility, cross-process serialization, interruption/retry convergence at every transition, proposal disposition suppression, default/history retrieval isolation, and semantic/graph explicit-file corpus boundaries | `test_memory_records.py`, `test_indexer.py`, `test_graph_indexer.py`, `test_docs_lint.py` | Same runner |
+| Memory archival lifecycle and curation (waves 1t8la/1u7uy/1u8r2) | Rename-only body migration, indexed compact-register schema with index-excluded bodies, setup/upgrade retirement of legacy pointer copies plus hard index exclusion and lint refusal, protected-kind eligibility, destructive purge metadata/refusals, purge staging with register-failure rollback and interruption/retry convergence, repo-visible hash-only purged-source suppression across index reset/setup/upgrade, cross-process serialization, consolidation rollback, forbidden-content refusal, bounded detailed consolidation previews, default/history retrieval isolation, semantic/graph explicit-file corpus boundaries, and fixed active-budget signals | `test_memory_records.py`, `test_server_tools.py`, `test_indexer.py`, `test_graph_indexer.py`, `test_setup_wavefoundry.py`, `test_upgrade_wavefoundry.py`, `test_docs_lint.py` | Same runner |
 | Manual docs gate | MCP **`wf_validate_docs`** succeeds, **or** `wf docs-lint` passes | MCP / repo root | `wf_validate_docs` / `wf docs-lint` |
 | Manual gardener | MCP **`wf_garden_docs`**, **or** `wf docs-gardener` | MCP / repo root | `wf_garden_docs` / `wf docs-gardener` |
 
@@ -110,14 +110,18 @@ The telemetry suite treats efficiency reporting as a closed accounting contract:
   at least five completed quality-equivalent pairs, conservative minimum
   residual, authoritative phase-ledger direct-net equality, idempotent replay,
   explicit replacement, and revocation.
-- Fresh setup and full upgrade fixtures begin without any of the five lifecycle
+- Fresh setup and full upgrade fixtures begin without any of the six lifecycle
   prompts, exercise the public renderer, and prove packaged missing-only
-  templates materialize all five while leaving historical wave/event bytes and
+  templates materialize all six, including `memory-review`, while leaving historical wave/event bytes and
   existing project prompt prose unchanged.
+- Upgrade transition fixtures run an old in-process policy block followed by the
+  freshly extracted renderer, then prove that only the shared upgrade-policy marker
+  changes, outside prose is byte-preserved, the destination was preflighted before
+  sibling writes, and memory curation/purge was never invoked.
 - Direct SQL checks assert that query text, responses, prompts, source paths,
   secrets, and conversations are absent.
 - Fresh setup, packaged install, public render, and full upgrade fixtures deliver
-  the implementation, five prompt baselines, and managed `.wavefoundry/logs/`
+  the implementation, six prompt baselines, and managed `.wavefoundry/logs/`
   ignore without eager sidecar creation. Historical `wave.md` and `events.jsonl`
   byte sentinels remain unchanged until a later mutating lifecycle boundary.
 

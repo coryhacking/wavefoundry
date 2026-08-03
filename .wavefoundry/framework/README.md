@@ -23,6 +23,7 @@ Use these public phrases in a target project's repository:
 - `Implement feature`
 - `Pause wave`
 - `Review wave`
+- `Review memories` (alias: `Memory review`)
 - `Close wave`
 - `Finalize feature`
 
@@ -139,6 +140,11 @@ For the canonical package-local explanation of how the framework operates from f
 For the canonical package-local explanation of how seeding works, how init differs from upgrade, what `wave-0` means, and what gets generated into a project's repository, see `framework/seeds/002-wave-framework-seeding-overview.md`.
 
 For the maintainer-facing package structure and hardening contracts, see `framework/seeds/008-framework-map.md` and `framework/seeds/009-framework-maintenance-contract.md`.
+
+Memory maintenance uses `framework/seeds/240-memory-review.prompt.md`. Fresh setup and
+every upgrade deploy its missing-only project prompt from
+`framework/install/lifecycle-prompts/memory-review.prompt.md`; upgrades may recommend the
+shortcut after a memory brief, but never run curation or purge automatically.
 
 Those overview docs also define the requirement for seeded repo-local orientation docs such as `docs/references/project-overview.md` and a repo-specific lifecycle companion at `docs/contributing/feature-wave-lifecycle-overview.md`, which should explain the local workflow, reviewer roles, synthesized personas, and artifact paths.
 

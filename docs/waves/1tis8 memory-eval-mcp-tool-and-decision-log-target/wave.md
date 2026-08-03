@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: closed
-Last verified: 2026-07-24
+Last verified: 2026-08-03
 review-evidence-source: events.jsonl
 
 wave-id: `1tis8 memory-eval-mcp-tool-and-decision-log-target`
@@ -129,7 +129,7 @@ This is a bounded estimate from exact-match memory advisories. It is not added t
 
 | Advisory surfaces | Citations | Records credited | Estimated tokens avoided |
 | ---: | ---: | ---: | ---: |
-| 6 | 0 | 2 | 539240 |
+| 6 | 0 | 2 | 539,240 |
 
 estimated: a surfaced (or cited) advisory does not prove a re-exploration was avoided; this is grounded in the measured cost of the original exploration, scaled by a bounded exact-match attribution, and is NEVER summed into the measured Context Efficiency token total.
 

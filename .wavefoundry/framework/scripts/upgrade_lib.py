@@ -9,6 +9,7 @@ dashboard restarts and is inspectable by humans and scripts.
 from __future__ import annotations
 
 import datetime
+import hashlib
 import json
 import os
 import tempfile
@@ -112,6 +113,28 @@ def write_upgrade_lock(
         port = prior.get("dashboard_restart_port")
         if isinstance(port, int):
             data["dashboard_restart_port"] = port
+    prior_snapshot = prior.get("graph_builder_doc_claim_pre_extract")
+    prior_pack_sha = prior.get("graph_builder_doc_claim_pack_sha256")
+    requested_pack_sha = ""
+    if isinstance(prior_pack_sha, str) and prior_pack_sha and zip_path is not None:
+        digest = hashlib.sha256()
+        try:
+            with zip_path.open("rb") as handle:
+                for block in iter(lambda: handle.read(1024 * 1024), b""):
+                    digest.update(block)
+            requested_pack_sha = digest.hexdigest()
+        except OSError:
+            requested_pack_sha = ""
+    if (
+        isinstance(prior_snapshot, str)
+        and prior_snapshot
+        and prior.get("to_version") == to_version
+        and isinstance(prior_pack_sha, str)
+        and prior_pack_sha
+        and prior_pack_sha == requested_pack_sha
+    ):
+        data["graph_builder_doc_claim_pre_extract"] = prior_snapshot
+        data["graph_builder_doc_claim_pack_sha256"] = prior_pack_sha
     _durable_json_replace(p, data)
     return p
 

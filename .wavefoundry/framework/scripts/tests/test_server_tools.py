@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import ast
+import asyncio
+import contextlib
 import hashlib
 import hashlib
 import importlib.util
@@ -1556,6 +1558,36 @@ class ListWavesTests(unittest.TestCase):
         ids = [w["wave_id"] for w in waves]
         self.assertEqual(ids[0], "00000 wave-zero")
         self.assertEqual(ids[1], "1200a normal")
+
+    def test_list_response_exposes_page_bounded_scalar_metrics(self):
+        _make_wave(self.root, "1200a first", "active", [])
+        _make_wave(self.root, "1200b second", "closed", [])
+
+        response = self.srv.wf_list_waves_response(self.root, limit=1)
+
+        self.assertEqual([wave["wave_id"] for wave in response["data"]["waves"]], ["1200a first"])
+        metrics = response["data"]["wave_metrics"]
+        self.assertEqual(set(metrics), {"1200a first"})
+        metric = metrics["1200a first"]
+        self.assertEqual(set(metric), {"context", "review", "memory"})
+        self.assertEqual(metric["context"]["estimated_tokens_saved"], 0)
+        self.assertEqual(metric["memory"]["estimated_exploration_avoided"], 0)
+        self.assertFalse(metric["review"]["available"])
+
+    def test_list_response_isolates_an_unavailable_metric_group(self):
+        _make_wave(self.root, "1200a first", "active", [])
+
+        with patch.object(
+            self.srv.context_efficiency,
+            "read_wave_snapshot",
+            side_effect=RuntimeError("unavailable snapshot"),
+        ):
+            response = self.srv.wf_list_waves_response(self.root)
+
+        metric = response["data"]["wave_metrics"]["1200a first"]
+        self.assertEqual(metric["context"], {"available": False})
+        self.assertIn("memory", metric)
+        self.assertIn("review", metric)
 
 
 class ListPlansTests(unittest.TestCase):
@@ -3510,7 +3542,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         )
         self.assertEqual(written["status"], "ok", written)
         text = wave_md.read_text(encoding="utf-8")
-        match = re.search(r"^\*(Machine review evidence[^\n]*)\*$", text, re.MULTILINE)
+        match = re.search(r"^\*(Machine review state[^\n]*)\*$", text, re.MULTILINE)
         self.assertIsNotNone(match)
         legacy = (
             text[: match.start()]
@@ -3526,7 +3558,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         rendered = json.dumps(diagnostics)
         self.assertNotIn("stale", rendered, diagnostics)
         # A genuinely stale projection is still detected through the same path.
-        broken = legacy.replace("Machine review evidence", "Machine review evidence TAMPERED", 1)
+        broken = legacy.replace("Machine review state", "Machine review state TAMPERED", 1)
         wave_md.write_text(broken, encoding="utf-8")
         diagnostics = self.srv._review_evidence_diagnostics(
             broken, root=self.root, wave_key=wave_id
@@ -3588,7 +3620,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         text = wave_md.read_text(encoding="utf-8")
         # Wave 1tb4z: external-ledger projections carry a plain italic summary
         # line, no HTML details wrapper.
-        self.assertIn("*Machine review evidence", text)
+        self.assertIn("*Machine review state", text)
         self.assertNotIn("<details", text)
         self.assertIn("| Current finding | Disposition | Open block |", text)
         self.assertTrue(self.srv.validate_external_review_evidence(wave_md).ok)
@@ -3804,19 +3836,29 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         self.assertEqual(wave_md.read_text(encoding="utf-8"), before)
         self.assertNotEqual(events_path.read_bytes(), b"")
         committed = events_path.read_bytes()
-        replay = self.srv.wf_review_event_response(
-            self.root,
-            wave_id,
-            "run",
-            "wave-council",
-            "rollback-run",
-            mode="create",
-            run_kind="initial_delivery",
-        )
+        with patch.object(
+            self.srv, "_atomic_replace_text", wraps=real_replace
+        ) as replay_replace:
+            replay = self.srv.wf_review_event_response(
+                self.root,
+                wave_id,
+                "run",
+                "wave-council",
+                "rollback-run",
+                mode="create",
+                run_kind="initial_delivery",
+            )
         self.assertEqual(replay["status"], "ok", replay)
         self.assertTrue(replay["data"]["replayed"])
         self.assertEqual(events_path.read_bytes(), committed)
-        self.assertNotEqual(wave_md.read_text(encoding="utf-8"), before)
+        replay_replace.assert_called_once()
+        self.assertEqual(
+            wave_md.read_text(encoding="utf-8"), replay_replace.call_args.args[1]
+        )
+        # A run-only event changes ledger history but no current finding or
+        # approval state, so the simplified current-state projection may be
+        # byte-identical. The replace call above is the repair oracle.
+        self.assertEqual(wave_md.read_text(encoding="utf-8"), before)
 
     def test_typed_review_event_replay_conflict_new_context_and_concurrency(self):
         created = self.srv.wf_create_wave_response(
@@ -9678,6 +9720,85 @@ class WaveMcpReloadTests(unittest.TestCase):
             f"Expected tool-list notification diagnostic; got: {diag_codes}",
         )
 
+    def test_reload_reports_completed_notification_when_send_finishes(self):
+        """A no-loop dispatch runs the send coroutine to completion."""
+        try:
+            mcp = self.runner.build_server(self.root)
+        except ImportError:
+            self.skipTest("mcp package not installed")
+
+        class Session:
+            completed = False
+
+            async def send_tool_list_changed(self):
+                self.completed = True
+
+        session = Session()
+        context = types.SimpleNamespace(
+            request_context=types.SimpleNamespace(session=session)
+        )
+        with patch.object(mcp, "get_context", return_value=context), patch.object(
+            self.runner,
+            "_refresh_mcp_tool_surface",
+            return_value=(1, [], ["memory_consolidate"], [], []),
+        ):
+            result = self.runner.perform_mcp_reload()
+
+        self.assertTrue(session.completed)
+        self.assertIs(result["data"]["tool_list_changed_notification_sent"], True)
+        self.assertEqual(
+            result["data"]["tool_list_changed_notification_dispatch"], "completed"
+        )
+        self.assertIn(
+            "tool_list_changed_notification_sent",
+            [item["code"] for item in result["diagnostics"]],
+        )
+
+    def test_reload_reports_queued_notification_on_active_event_loop(self):
+        """An active-loop create_task is queued, not completed delivery."""
+        try:
+            mcp = self.runner.build_server(self.root)
+        except ImportError:
+            self.skipTest("mcp package not installed")
+
+        class Session:
+            completed = False
+
+            async def send_tool_list_changed(self):
+                await asyncio.sleep(0)
+                self.completed = True
+
+        session = Session()
+        context = types.SimpleNamespace(
+            request_context=types.SimpleNamespace(session=session)
+        )
+
+        async def exercise():
+            with patch.object(mcp, "get_context", return_value=context), patch.object(
+                self.runner,
+                "_refresh_mcp_tool_surface",
+                return_value=(1, [], ["memory_purge"], [], []),
+            ):
+                result = self.runner.perform_mcp_reload()
+            self.assertFalse(
+                session.completed,
+                "the reload response must not claim an active-loop task already completed",
+            )
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+            return result
+
+        result = asyncio.run(exercise())
+        self.assertTrue(session.completed)
+        self.assertIs(result["data"]["tool_list_changed_notification_sent"], True)
+        self.assertEqual(
+            result["data"]["tool_list_changed_notification_dispatch"], "queued"
+        )
+        self.assertIn(
+            "tool_list_changed_notification_queued",
+            [item["code"] for item in result["diagnostics"]],
+        )
+
     def test_reload_keeps_resource_callback_behavior_current(self):
         """Retained FastMCP resource wrappers resolve freshly reloaded globals.
 
@@ -11210,11 +11331,11 @@ class McpResourceReadTests(unittest.TestCase):
         wave_id = wave_result["data"]["wave_id"]
         wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
         text = wave_md.read_text(encoding="utf-8").replace("Status: planned", "Status: active")
-        text = text.replace("Machine review evidence — 0 records", "Machine review evidence — 999 records")
+        text = text.replace("Machine review state — 0 findings", "Machine review state — 999 findings")
         wave_md.write_text(text, encoding="utf-8")
 
         stale = self._read_resource("wavefoundry://wave/current")
-        self.assertIn("Machine review evidence — 0 records", stale)
+        self.assertIn("Machine review state — 0 findings", stale)
         self.assertIn("<!-- wave:review-status begin -->", stale)
         self.assertIn("projection is stale", stale)
         self.assertNotIn("999 records", stale)
@@ -11243,7 +11364,7 @@ class McpResourceReadTests(unittest.TestCase):
         derived = self._read_resource("wavefoundry://wave/current")
 
         self.assertNotIn("Wave Review Evidence Unavailable", derived)
-        self.assertIn("Machine review evidence — 0 records", derived)
+        self.assertIn("Machine review state — 0 findings", derived)
         self.assertIn("<!-- wave:review-status begin -->", derived)
         self.assertIn("projection is missing", derived)
 
@@ -22724,10 +22845,10 @@ class TestMcpWrapperParameterExposure(unittest.TestCase):
         names = sorted(self.srv._registered_mcp_tool_names(mcp))
 
         def assert_tool_registry(candidate: list[str]) -> None:
-            self.assertEqual(len(candidate), 84)
+            self.assertEqual(len(candidate), 86)
             self.assertEqual(
                 hashlib.sha256("\n".join(candidate).encode("utf-8")).hexdigest(),
-                "eb0c3f2ff184be9154113649f8318ce586a53a66a9d6ba219e0edf8592afc52c",
+                "b45a61caedd6de0e9ef6f9c89db627d644390a49c7c7e02fd25e41dfff22176b",
             )
 
         assert_tool_registry(names)
@@ -22868,6 +22989,17 @@ class TestMcpWrapperParameterExposure(unittest.TestCase):
             self.assertNotIn("kwargs", schema.get("properties", {}), tool_name)
             self.assertNotIn("kwargs", schema.get("required", []), tool_name)
             self.assertFalse(schema.get("additionalProperties", True), tool_name)
+
+    def test_memory_purge_is_registered_as_destructive(self):
+        """An irreversible memory deletion must cross the MCP destructive boundary."""
+        mcp = self._build_thin_runner.build_server(self.root)
+        annotations = mcp._tool_manager._tools["memory_purge"].annotations
+        destructive = (
+            annotations.get("destructiveHint")
+            if isinstance(annotations, dict)
+            else getattr(annotations, "destructiveHint", None)
+        )
+        self.assertIs(destructive, True)
 
     def test_hot_reload_reapplies_exact_argument_schema_to_whole_registry(self):
         """1tmaz: re-registration must not restore FastMCP's raw kwargs field."""
@@ -23664,6 +23796,37 @@ class WaveUpgradeStatusTests(unittest.TestCase):
         self.assertEqual(gate["last_failure"], "one source unreadable")
         self.assertEqual(gate["validation_worklist"][0]["memory_id"], "1abc-memory")
 
+    def test_publication_action_status_hides_legacy_failure_lease(self):
+        self._write_lock(memory_run_id="run-publication")
+        path = self._lock_path()
+        lock = json.loads(path.read_text(encoding="utf-8"))
+        action_required = {
+            "kind": "historical_memory",
+            "state": "awaiting_memory_publication",
+            "resume_phase": "resume_after_memory",
+            "run_id": "run-publication",
+            "token": "publication-token",
+        }
+        lock.update({
+            "current_phase": "awaiting_memory_publication",
+            "failed_phase": "awaiting_memory_validation",
+            "failed_at": None,
+            "action_required": action_required,
+        })
+        path.write_text(json.dumps(lock), encoding="utf-8")
+        backfill = MagicMock()
+        backfill.run_summary.return_value = {
+            "run_id": "run-publication", "state": "ready_for_index",
+        }
+        backfill.validation_worklist.return_value = {"validation_worklist": []}
+        with patch.object(self.srv, "_load_script", return_value=backfill):
+            result = self.srv.wf_upgrade_status_response(self.root)
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["data"]["current_phase"], "awaiting_memory_publication")
+        self.assertIsNone(result["data"]["failed_phase"])
+        self.assertIsNone(result["data"]["failed_at"])
+        self.assertEqual(result["data"]["action_required"], action_required)
+
 
 class WaveDashboardRestartUpgradeGuardTests(unittest.TestCase):
     """Tests for wf_restart_dashboard upgrade guard (AC-4 / R7)."""
@@ -23874,7 +24037,7 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
             "mcp__wavefoundry__wave_review",
             "mcp__wavefoundry__wave_implement",
         ]
-        self.assertEqual(len(added), 84, "write-tier roster size changed; re-measure this test")
+        self.assertEqual(len(added), 86, "write-tier roster size changed; re-measure this test")
 
         # Non-vacuity control: the retired dict shape is still over the per-value cap, so this
         # test would fail against the pre-repair producer/consumer pair.
@@ -24343,7 +24506,16 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
             "validation_worklist_count": 1,
             "validation_worklist_remaining": 0,
         }
-        lock = {"memory_backfill_run_id": "run-2"}
+        lock = {
+            "memory_backfill_run_id": "run-2",
+            "action_required": {
+                "kind": "historical_memory",
+                "state": "awaiting_memory_validation",
+                "resume_phase": "resume_after_memory",
+                "run_id": "run-2",
+                "token": "test-token",
+            },
+        }
         upgrade_lib = types.SimpleNamespace(read_upgrade_lock=lambda _root: lock)
         with patch("subprocess.run", return_value=mock_proc), \
              patch.object(self.srv, "_load_upgrade_lib", return_value=upgrade_lib), \
@@ -24354,6 +24526,57 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
         self.assertEqual(gate["run_id"], "run-2")
         self.assertEqual(gate["candidates_pending"], 1)
         self.assertEqual(gate["validation_worklist"][0]["memory_id"], "1abd-memory")
+
+    def test_publication_ready_exit_exposes_post_reload_recovery_contract(self):
+        mock_proc = MagicMock(returncode=4, stdout="publication checkpoint\n", stderr="")
+        backfill = MagicMock()
+        backfill.run_summary.return_value = {
+            "run_id": "run-publication", "state": "ready_for_index",
+            "candidates_pending": 0, "promoted": 2, "last_failure": "",
+        }
+        backfill.validation_worklist.return_value = {
+            "validation_worklist": [], "validation_worklist_count": 0,
+            "validation_worklist_remaining": 0,
+        }
+        action_required = {
+            "kind": "historical_memory",
+            "state": "awaiting_memory_publication",
+            "resume_phase": "resume_after_memory",
+            "run_id": "run-publication",
+            "token": "publication-token",
+        }
+        lock = {
+            "memory_backfill_run_id": "run-publication",
+            "current_phase": "awaiting_memory_publication",
+            "failed_phase": "awaiting_memory_validation",
+            "action_required": action_required,
+        }
+        upgrade_lib = types.SimpleNamespace(read_upgrade_lock=lambda _root: lock)
+        with patch("subprocess.run", return_value=mock_proc), \
+             patch.object(self.srv, "_load_upgrade_lib", return_value=upgrade_lib), \
+             patch.object(self.srv, "_load_script", return_value=backfill):
+            result = self.srv.wf_upgrade_response(self.root)
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["data"]["state"], "awaiting_memory_publication")
+        self.assertEqual(result["data"]["failed_phase"], None)
+        self.assertEqual(result["data"]["action_required"], action_required)
+        self.assertEqual(
+            result["next_tools"], ["wf_reload_mcp", "wf_upgrade_status", "wf_upgrade"]
+        )
+        self.assertIn("resume_after_memory", result["next_step"])
+        self.assertIn("publish", result["next_step"])
+        self.assertIn("publication checkpoint", result["data"]["output"])
+
+    def test_action_required_exit_without_action_record_is_error(self):
+        mock_proc = MagicMock(returncode=4, stdout="failed\n", stderr="")
+        upgrade_lib = types.SimpleNamespace(
+            read_upgrade_lock=lambda _root: {"memory_backfill_run_id": "run-2"}
+        )
+        with patch("subprocess.run", return_value=mock_proc), \
+             patch.object(self.srv, "_load_upgrade_lib", return_value=upgrade_lib):
+            result = self.srv.wf_upgrade_response(self.root)
+        self.assertEqual(result["status"], "error")
+        self.assertNotEqual(result.get("data", {}).get("state"), "awaiting_memory_validation")
 
     def test_update_index_phase_passes_flag(self):
         """AC-3a: update_index phase passes --update-index (incremental)."""
@@ -24480,7 +24703,12 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
             "data": {"ok": True, "framework_version": "v1",
                      "server_runner_version": "0a1b2c3d4e5f",
                      "runner_disk_identity": "0a1b2c3d4e5f", "runner_stale": False,
-                     "server_impl_version": "v1", "impl_matches_disk": True},
+                     "server_impl_version": "v1", "impl_matches_disk": True,
+                     "tool_list_changed_notification_dispatch": "queued"},
+            "diagnostics": [{
+                "code": "tool_list_changed_notification_queued",
+                "message": "Check from a fresh turn, reconnect, then restart.",
+            }],
         }
         with patch("subprocess.run", return_value=mock_proc), \
              patch.object(_server_mod, "perform_mcp_reload", return_value=reload_payload) as mock_reload:
@@ -24489,6 +24717,10 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
         mock_reload.assert_called_once()
         self.assertIn("mcp_reload", result["data"])
         self.assertTrue(result["data"]["mcp_reload"]["ok"])
+        self.assertIn(
+            "tool_list_changed_notification_queued",
+            [item["code"] for item in result.get("diagnostics", [])],
+        )
 
     # ── Wave 1to78 — cutover-scoped reload suppression (AC-3) ─────────────────
 
@@ -24792,7 +25024,7 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
         import io as _io
         import upgrade_wavefoundry as _uw
         payload = json.dumps({
-            "summary_schema": _uw.SUMMARY_SCHEMA_VERSION,
+            "summary_schema_version": _uw.SUMMARY_SCHEMA_VERSION,
             "from_version": "1.14.0", "to_version": "1.15.0",
             "pruned_count": 2, "docs_gate": "PASSED",
             "reconciliation": [],
@@ -24814,7 +25046,7 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
                 )
         parsed = self.srv._parse_upgrade_summary(buf.getvalue())
         self.assertIsNotNone(parsed, "the transported sentinel line must parse")
-        self.assertEqual(parsed["summary_schema"], _uw.SUMMARY_SCHEMA_VERSION)
+        self.assertEqual(parsed["summary_schema_version"], _uw.SUMMARY_SCHEMA_VERSION)
         self.assertEqual(parsed["from_version"], "1.14.0")
         self.assertEqual(parsed["pruned_count"], 2)
         self.assertNotIn("summary_source_degraded", parsed)
@@ -24825,7 +25057,7 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
         # _bounded_upgrade_summary into wf_upgrade_response's data['summary'],
         # not merely appear in the sentinel line.
         stdout = self._summary_output(
-            summary_schema=1,
+            summary_schema_version=1,
             probe_from_future_schema="delegation-transport-proof",
         )
         mock_proc = MagicMock(returncode=0, stdout=stdout, stderr="")
@@ -24835,7 +25067,7 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
         self.assertEqual(
             summary["probe_from_future_schema"], "delegation-transport-proof"
         )
-        self.assertEqual(summary["summary_schema"], 1)
+        self.assertEqual(summary["summary_schema_version"], 1)
 
     def test_degradation_marker_is_terminal_and_survives_budget_pressure(self):
         # Wave 1u44o AC-2: the marker is registered as a terminal key, so
@@ -30715,8 +30947,189 @@ class DriftWorklistAuditSurfaceTests(unittest.TestCase):
         drift = resp["data"]["doc_drift"]
         self.assertFalse(drift["available"])
         self.assertEqual(drift["entries"], [])
+        # 1u8o2 (1u8o0): even the degraded shape carries the evaluation object,
+        # and an unevaluated store is field-distinguishable from clean.
+        self.assertEqual(drift["evaluation"]["status"], "never_evaluated")
         codes = [d.get("code") for d in resp["diagnostics"]]
         self.assertNotIn("doc_code_drift_flagged", codes)
+
+    def test_evaluation_stale_is_field_distinguishable_and_never_blocks_ready(self):
+        # 1u8o2 (1u8o0) AC-3 + AC-4: the additive `evaluation` object makes a
+        # frozen (failing) evaluation distinguishable from evaluated-clean on
+        # response FIELDS alone; `available` true + status "stale" is a real
+        # state (last-good rows served); and the new state never gates `ready`.
+        # Delivery-review repair (QA P2-2): the bare fixture is never audit-
+        # ready (ready False before AND after injection, so the never-blocks
+        # assertion compared False to False). Patch the three ready legs to
+        # pass (same trio as WaveAuditTests) so ready is True pre-injection
+        # and the stale evaluation must LEAVE it True to satisfy the pin.
+        store = self.iss.IndexStateStore(self.index_dir)
+        try:
+            store.upsert_doc_drift({
+                "docs/badly-drifted.md": {"drifted": True, "drift_refs": ["src/a.py"],
+                                          "commits_since": 12, "anchor_kind": "content"},
+            })
+            # The real success producer stamps last-success and zeroes failures.
+            self.iss._record_drift_success(store)
+        finally:
+            store.close()
+        wave_record = {"id": "w1", "status": "active", "changes": [],
+                       "title": "Wave", "path": "docs/waves/w1/wave.md"}
+        healthy_snapshot = {
+            "metadata_ready": True, "epoch_complete": True, "docs_present": True,
+            "code_present": True, "code_sources_in_scope": True,
+            "code_layer_missing": False, "indexed_chunker_versions": {},
+            "current_chunker_version": "1", "chunker_version_mismatch": False,
+            "readiness_overview": "ready", "freshness_checked": False,
+            "freshness": "unknown", "freshness_verification_tool": "index_health",
+        }
+        passing_validate = {"passed": True, "errors": [], "warnings": [], "output": ""}
+
+        def _with_audit_ready():
+            stack = contextlib.ExitStack()
+            stack.enter_context(patch.object(self.srv, "current_wave", return_value=wave_record))
+            stack.enter_context(patch.object(self.srv, "run_validate", return_value=passing_validate))
+            stack.enter_context(patch.object(
+                self.srv, "_audit_index_snapshot", return_value=healthy_snapshot))
+            return stack
+
+        with _with_audit_ready():
+            resp = self.srv.wf_audit_response(self.root)
+        drift = resp["data"]["doc_drift"]
+        self.assertTrue(drift["available"])
+        ev = drift["evaluation"]
+        self.assertEqual(ev["status"], "evaluated")
+        self.assertEqual(ev["consecutive_failures"], 0)
+        self.assertIsNotNone(ev["last_success_at"])
+        ready_before = resp["data"]["ready"]
+        self.assertIs(ready_before, True,
+                      "non-vacuity precondition: the fixture must be audit-ready")
+        # Now the real failure producer: two consecutive failed evaluations.
+        self.iss._record_drift_failure(
+            self.index_dir, "gardener classifier", "malformed_patch: probe")
+        self.iss._record_drift_failure(
+            self.index_dir, "gardener classifier", "malformed_patch: probe")
+        with _with_audit_ready():
+            resp2 = self.srv.wf_audit_response(self.root)
+        drift2 = resp2["data"]["doc_drift"]
+        self.assertTrue(drift2["available"],
+                        "available-true-but-stale is a real state: last-good rows served")
+        ev2 = drift2["evaluation"]
+        self.assertEqual(ev2["status"], "stale")
+        self.assertEqual(ev2["consecutive_failures"], 2)
+        self.assertEqual(ev2["last_stage"], "gardener classifier")
+        self.assertTrue(ev2["last_reason"].startswith("malformed_patch"))
+        self.assertIsNotNone(ev2["stale_since"])
+        self.assertIsNotNone(ev2["age_seconds"])
+        # Drift never blocks ready: the stale evaluation changes nothing.
+        self.assertEqual(resp2["data"]["ready"], ready_before)
+        codes = [d.get("code") for d in resp2["diagnostics"]]
+        self.assertIn("doc_drift_evaluation_stale", codes)
+
+
+class HarnessCoherencePackTextTests(unittest.TestCase):
+    """Wave 1u8o2 (1u8o1): pack-owned migration text and the wf_cli module
+    reference no longer flag as stale tool references; a genuinely stale name
+    still flags, with pack-owned findings classified `pack_internal`.
+
+    Fixture text is COPIED from the real seed lines (fixtures-from-canonical-
+    producers); the live-tools collector reads the RUNNING server's scripts
+    directory, not the fixture root, so retired names stay non-live here."""
+
+    # Copied verbatim from seed-160 lines 182 and 459 (migration instruction +
+    # verification checklist: the retired names MUST stay in this text). The
+    # wf_cli line is copied and abridged from seed-080 line 28 (truncated
+    # mid-sentence; the module-path form `wf_cli.py` is preserved intact).
+    _SEED_MIGRATION_TEXT = (
+        "# Upgrade Wavefoundry\n\n"
+        " - `AGENTS.md` and `CLAUDE.md` gate-tool references — when either file "
+        "references `wave_open_gate` or `wf_close_wave_gate`, update to "
+        "`wf_open_gate`, `wf_close_gate`, and add `wf_gate_status` as the "
+        "read-only gate inspection tool; reconcile against current `seed-050` "
+        "wording. These surfaces are not regenerated automatically by "
+        "`render_platform_surfaces.py` so they must be updated explicitly.\n"
+        "- `AGENTS.md` and `CLAUDE.md` reference `wf_open_gate`, "
+        "`wf_close_gate`, and `wf_gate_status` in any gate-usage guidance — "
+        "not the retired `wave_open_gate` / `wf_close_wave_gate` names; "
+        "reconcile when the old names are still present\n"
+        "- The single cross-OS `wf` shim pair (`.wavefoundry/bin/wf` + "
+        "`wf.cmd`) dispatches to `wf_cli.py`, which routes `wf docs-lint` to "
+        "`.wavefoundry/framework/scripts/docs_lint.py`\n"
+    )
+    _MIRROR_TEXT = (
+        "# Upgrade Wavefoundry (rendered mirror)\n\n"
+        "- The `wf` shim pair dispatches to `wf_cli.py`, which routes "
+        "subcommands to their backing scripts.\n"
+    )
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.seeds = self.root / ".wavefoundry" / "framework" / "seeds"
+        self.prompts = self.root / "docs" / "prompts"
+        self.seeds.mkdir(parents=True)
+        self.prompts.mkdir(parents=True)
+
+    def test_downstream_shaped_fixture_reports_zero_pack_findings(self):
+        # AC-1: the migration text (both retired gate names) plus module-path
+        # wf_cli mentions, in the pack AND the rendered mirror, report zero
+        # stale_tool_reference findings under the checker-side resolution.
+        (self.seeds / "160-upgrade-wavefoundry.prompt.md").write_text(
+            self._SEED_MIGRATION_TEXT, encoding="utf-8")
+        (self.prompts / "upgrade-wavefoundry.prompt.md").write_text(
+            self._MIRROR_TEXT, encoding="utf-8")
+        result = self.srv._audit_harness_coherence(self.root)
+        self.assertEqual(result["scanned_files"], 2)
+        self.assertEqual(result["findings_count"], 0, result["findings"])
+        self.assertEqual(result["pack_internal_count"], 0)
+        self.assertEqual(result["project_findings_count"], 0)
+
+    def test_positive_control_stale_name_still_flags_with_classification(self):
+        # AC-4 positive control + the requirement 2 mechanism (b): a real
+        # stale tool name in non-migration prose still flags on both sides,
+        # pack-owned findings classified `pack_internal`, project-owned
+        # findings `project`.
+        (self.seeds / "999-example.prompt.md").write_text(
+            "Run `wf_totally_retired_tool` before closing the wave.\n",
+            encoding="utf-8")
+        (self.prompts / "example.prompt.md").write_text(
+            "Call `wave_frobnicate` to frobnicate the index.\n",
+            encoding="utf-8")
+        result = self.srv._audit_harness_coherence(self.root)
+        self.assertEqual(result["findings_count"], 2, result["findings"])
+        by_file = {f["file"]: f for f in result["findings"]}
+        pack = by_file[".wavefoundry/framework/seeds/999-example.prompt.md"]
+        self.assertEqual(pack["type"], "stale_tool_reference")
+        self.assertEqual(pack["classification"], "pack_internal")
+        project = by_file["docs/prompts/example.prompt.md"]
+        self.assertEqual(project["classification"], "project")
+        self.assertEqual(result["pack_internal_count"], 1)
+        self.assertEqual(result["project_findings_count"], 1)
+
+    def test_real_surfaces_keep_retired_names_and_scan_clean_of_them(self):
+        # AC-3 + AC-4: the canonical seed still carries BOTH retired names at
+        # the instruction lines (a checker fix that "fixed" the seed instead
+        # trips this), the rendered mirror still carries the wf_cli mention it
+        # renders (the retired gate names live only in the canonical seed's
+        # migration sections, which the mirror does not render), and the real
+        # scan reports no wf_cli or retired-gate-name findings anywhere.
+        repo_root = Path(__file__).resolve().parents[4]
+        seed = repo_root / ".wavefoundry" / "framework" / "seeds" / "160-upgrade-wavefoundry.prompt.md"
+        mirror = repo_root / "docs" / "prompts" / "upgrade-wavefoundry.prompt.md"
+        seed_text = seed.read_text(encoding="utf-8")
+        self.assertIn("wave_open_gate", seed_text)
+        self.assertIn("wf_close_wave_gate", seed_text)
+        self.assertIn("wf_cli", mirror.read_text(encoding="utf-8"))
+        result = self.srv._audit_harness_coherence(repo_root)
+        details = [f["detail"] for f in result["findings"]]
+        self.assertFalse(
+            any("'wf_cli'" in d for d in details),
+            "wf_cli must never flag (module reference, not a tool)")
+        self.assertFalse(
+            any("'wave_open_gate'" in d or "'wf_close_wave_gate'" in d for d in details),
+            "retired gate names in migration text must never flag")
 
 
 def _typed_event_race_worker(
@@ -31176,11 +31589,22 @@ class TrueTerminationCrashCutTests(unittest.TestCase):
         )
         # Exact replay converges WITHOUT another append: it repairs only the
         # projection (same oracle as the injection cut above).
-        replay = self._replay_event()
+        real_replace = self.srv._atomic_replace_text
+        with patch.object(
+            self.srv, "_atomic_replace_text", wraps=real_replace
+        ) as replay_replace:
+            replay = self._replay_event()
         self.assertEqual(replay["status"], "ok", replay)
         self.assertTrue(replay["data"]["replayed"])
         self.assertEqual(self.events_path.read_bytes(), committed)
-        self.assertNotEqual(self.wave_md.read_text(encoding="utf-8"), before_wave)
+        replay_replace.assert_called_once()
+        self.assertEqual(
+            self.wave_md.read_text(encoding="utf-8"),
+            replay_replace.call_args.args[1],
+        )
+        # Run bookkeeping lives only in the ledger; the current-state-only
+        # projection is legitimately byte-identical after this repair.
+        self.assertEqual(self.wave_md.read_text(encoding="utf-8"), before_wave)
         records, errors = self.srv.read_review_event_ledger(self.wave_md)
         self.assertFalse(errors)
         self.assertEqual(len(records), 1)

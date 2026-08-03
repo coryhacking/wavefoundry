@@ -536,6 +536,9 @@ HARDCODED_EXCLUDE_PREFIXES = (
 )
 HARDCODED_EXCLUDE_PATHS = frozenset({
     ".wavefoundry/guard-overrides.json",
+    # Hash-only repository authority for purged-source finality. It must be
+    # committed and preserved, but never become retrieval content.
+    ".wavefoundry/memory-purge-dispositions.json",
 })
 # Wave 1p2q3 (1p2qd): consumer project indexes exclude `.wavefoundry/` blanket.
 # Framework infrastructure (framework/, bin/, dist/, logs/, CHANGELOG.md, etc.)
@@ -645,9 +648,15 @@ _DOT_DIR_ALLOWLIST_PREFIX = ".wavefoundry/"
 # ledgers are machine authority, not retrieval content.  Generated ``wave.md``
 # projections remain indexable; unrelated same-named JSONL files remain eligible.
 # 7 -> 8 (1t8la): physical memory archive bodies are historical storage, not
-# default docs/graph retrieval content. Compact pointers remain indexable.
-WALKER_VERSION = "8"
+# default docs/graph retrieval content. The compact archive register remains
+# searchable so it can route an explicit history lookup without indexing bodies.
+# 8 -> 9 (1u8r2): one compact archive register replaces per-record pointers.
+# 9 -> 10 (1u8r2): exclude the repo-visible hash-only purge disposition authority.
+# 10 -> 11 (1u8r2): exclude retired per-record memory pointers during upgrade
+# transition, even before the lifecycle migration removes their directory.
+WALKER_VERSION = "11"
 _MEMORY_ARCHIVE_PREFIX = "docs/agents/memory/archive/"
+_MEMORY_LEGACY_POINTER_PREFIX = "docs/agents/memory/pointers/"
 
 # Environment variable used by the MCP server to tell the background indexer
 # which state file to remove once the process exits.
@@ -743,13 +752,28 @@ def _filter_canonical_wave_event_ledgers(files: list[Path], root: Path) -> list[
 
 
 def _is_memory_archive_body_path(rel_path: str) -> bool:
-    return rel_path.replace("\\", "/").startswith(_MEMORY_ARCHIVE_PREFIX)
+    normalized = rel_path.replace("\\", "/")
+    return normalized.startswith(_MEMORY_ARCHIVE_PREFIX)
+
+
+def _is_legacy_memory_pointer_path(rel_path: str) -> bool:
+    normalized = rel_path.replace("\\", "/")
+    return normalized.startswith(_MEMORY_LEGACY_POINTER_PREFIX)
 
 
 def _filter_memory_archive_bodies(files: list[Path], root: Path) -> list[Path]:
     return [
         path for path in files
         if not _is_memory_archive_body_path(
+            str(path.relative_to(root)).replace("\\", "/")
+        )
+    ]
+
+
+def _filter_legacy_memory_pointers(files: list[Path], root: Path) -> list[Path]:
+    return [
+        path for path in files
+        if not _is_legacy_memory_pointer_path(
             str(path.relative_to(root)).replace("\\", "/")
         )
     ]
@@ -817,6 +841,8 @@ def walk_repo(root: Path, *, respect_ignore: bool = True) -> list[Path]:
             if _is_canonical_wave_events_path(rel_str, root):
                 continue
             if _is_memory_archive_body_path(rel_str):
+                continue
+            if _is_legacy_memory_pointer_path(rel_str):
                 continue
 
             # Check hardcoded prefix excludes
@@ -2402,6 +2428,229 @@ def _cleanup_layer_state_for_reaped(index_dir: Path, reaped_paths: "dict[str, se
             pass
 
 
+# --- 1u8nz: orphan-store reconciliation at the reap seam ---
+# Store rows orphaned from the registry (out-of-band deletions, older-pack
+# residue) were never reconciled on incremental builds for the graph store and
+# the file_freshness / secret_scan_cache sidecars: graph removal only ran when
+# a build had real merge work, and the sidecars had no store-minus-authority
+# pass at all. The reconciliation below runs inside the build epoch at the
+# existing reap seam (read-only plan first, mutations only under the epoch).
+#
+# Mass-removal circuit breaker: a reconcile defers (does nothing, loudly) when
+# it would remove MORE than ORPHAN_RECONCILE_BREAKER_FRACTION of a store's
+# rows AND at least ORPHAN_RECONCILE_BREAKER_MIN_ROWS rows, because a transiently
+# invisible subtree (unmounted volume, torn walk) must not cascade into
+# wholesale retirement. Small stores stay under the floor so ordinary
+# deletions on small repos reconcile normally.
+ORPHAN_RECONCILE_BREAKER_FRACTION = 0.5
+ORPHAN_RECONCILE_BREAKER_MIN_ROWS = 8
+
+_ORPHAN_RECONCILE_STORES = ("file_freshness", "secret_scan_cache", "graph")
+
+
+def _orphan_path_stat(path: Path):
+    """The stat seam for orphan classification.
+
+    A discrete injection point: tests exercise the EACCES/EIO preservation
+    branch by patching this function (error injection at the stat seam), never
+    by filesystem chmod, which is vacuous under root and flaky across
+    platforms.
+    """
+    return os.stat(path)
+
+
+def _classify_orphan_path(root: Path, rel: str) -> str:
+    """Classify one candidate orphan path: 'present' | 'absent' | 'unreadable'.
+
+    ENOENT (and ENOTDIR, its path-prefix variant) is positive evidence of
+    deletion; every other OSError (EACCES, EIO, ...) reads as 'unreadable'
+    and PRESERVES the row (conservative on IO errors).
+    """
+    try:
+        _orphan_path_stat(root / rel)
+        return "present"
+    except (FileNotFoundError, NotADirectoryError):
+        return "absent"
+    except OSError:
+        return "unreadable"
+
+
+def _plan_orphan_store_reconcile(
+    root: Path,
+    index_dir: Path,
+    authority: set[str],
+    *,
+    verbose: bool = False,
+) -> dict:
+    """Read-only reconciliation plan (no epoch, no mutation) for the orphan stores.
+
+    ``authority`` is the same registry/walk state the Lance reap uses
+    (``current_file_meta`` keys: on-disk AND in-scope). Removal semantics per
+    store:
+
+    - ``file_freshness`` and ``graph``: rows exist only for corpus paths, so a
+      row outside the authority retires whether the file is deleted OR still
+      present but scope-departed, parity with the shipped Lance eligibility
+      reap (scope-narrowing config changes then delete on the next build,
+      which is the documented corpus-membership semantics).
+    - ``secret_scan_cache``: the standalone secrets scanner's candidate set is
+      ALL tracked files, intentionally wider than the index corpus, so a
+      present-but-out-of-index-scope row is a LEGITIMATE cache entry. Only
+      disk-absent ('absent') rows retire.
+    - 'unreadable' always preserves.
+
+    Structural cost: one set-membership check per store row, then at most ONE
+    ``os.stat`` per unique candidate (shared classification cache across
+    stores); no directory traversal of any kind.
+    """
+    plan: dict = {
+        "file_freshness": set(),
+        "secret_scan_cache": set(),
+        "graph": set(),
+        "deferred": {},
+        "stat_calls": 0,
+    }
+    iss = _get_index_state_store()
+    if iss is None or not hasattr(iss, "orphan_store_paths"):
+        return plan
+    try:
+        store_paths = iss.orphan_store_paths(index_dir)
+    except Exception:  # noqa: BLE001 - unreadable store means no candidates
+        return plan
+    candidates_by_store = {
+        store: set(store_paths.get(store) or set()) - authority
+        for store in _ORPHAN_RECONCILE_STORES
+    }
+    classification: dict[str, str] = {}
+    for store, candidates in candidates_by_store.items():
+        for rel in candidates:
+            if rel not in classification:
+                classification[rel] = _classify_orphan_path(root, rel)
+                plan["stat_calls"] += 1
+    for store, candidates in candidates_by_store.items():
+        allowed = ("absent",) if store == "secret_scan_cache" else ("absent", "present")
+        removable = {rel for rel in candidates if classification[rel] in allowed}
+        if not removable:
+            continue
+        store_rows = len(store_paths.get(store) or set())
+        would_remove = len(removable)
+        if (
+            would_remove >= ORPHAN_RECONCILE_BREAKER_MIN_ROWS
+            and would_remove > ORPHAN_RECONCILE_BREAKER_FRACTION * store_rows
+        ):
+            plan["deferred"][store] = {
+                "would_remove": would_remove,
+                "store_rows": store_rows,
+            }
+            # Operator consequence (accepted, recorded in the 1u8nz change
+            # doc): secret_scan_cache has no alternative healer, so a
+            # mass-orphaned cache defers indefinitely on a static corpus;
+            # deferral is loud and has no silent data effect.
+            msg = (
+                f"build_index: orphan reconcile DEFERRED for {store}: would remove "
+                f"{would_remove} of {store_rows} row(s), over the mass-removal "
+                f"circuit breaker (>{ORPHAN_RECONCILE_BREAKER_FRACTION:.0%} and "
+                f">={ORPHAN_RECONCILE_BREAKER_MIN_ROWS}); leaving the store "
+                "untouched this build; this deferral repeats each build until "
+                "newly indexed files dilute the would-remove fraction under the "
+                "breaker, and for secret_scan_cache (no alternative healer) a "
+                "mass-orphaned cache defers indefinitely on a static corpus"
+            )
+            print(msg, file=sys.stderr, flush=True)
+            _store_log_safe(index_dir, msg)
+            continue
+        plan[store] = removable
+    return plan
+
+
+def _execute_orphan_store_reconcile(
+    root: Path,
+    index_dir: Path,
+    plan: dict,
+    *,
+    files_for_graph: "list[Path] | None" = None,
+    current_file_meta: "dict[str, dict] | None" = None,
+    graph_layer: str = "project",
+    chunker_version: str = "",
+    verbose: bool = False,
+) -> dict:
+    """Execute a previously planned orphan-store reconciliation.
+
+    MUST run inside an open build epoch (both call sites in
+    ``_build_index_locked`` are after ``begin_build_epoch``). Best-effort per
+    store, same posture as the freshness resident: a failed removal logs and
+    leaves the orphans for the next build's plan to re-detect.
+    """
+    stats = {"file_freshness": 0, "secret_scan_cache": 0, "graph": 0}
+    iss = _get_index_state_store()
+    fresh = set(plan.get("file_freshness") or set())
+    secret = set(plan.get("secret_scan_cache") or set())
+    if iss is not None and (fresh or secret):
+        try:
+            deleted = iss.remove_sidecar_paths(index_dir, freshness_paths=fresh, secret_scan_paths=secret)
+            stats["file_freshness"] = deleted.get("file_freshness", 0)
+            stats["secret_scan_cache"] = deleted.get("secret_scan_cache", 0)
+            removed_total = stats["file_freshness"] + stats["secret_scan_cache"]
+            if removed_total:
+                msg = (
+                    "build_index: orphan reconcile removed sidecar rows: "
+                    f"file_freshness={stats['file_freshness']} "
+                    f"secret_scan_cache={stats['secret_scan_cache']}"
+                )
+                if verbose:
+                    print(msg, flush=True)
+                _store_log_safe(index_dir, msg)
+        except Exception as exc:  # noqa: BLE001 - next build's plan re-detects
+            print(
+                f"build_index: orphan reconcile sidecar removal failed ({exc}); "
+                "rows preserved; the next build re-plans",
+                file=sys.stderr,
+                flush=True,
+            )
+    graph_orphans = set(plan.get("graph") or set())
+    if graph_orphans and files_for_graph is not None and current_file_meta is not None:
+        try:
+            graph_indexer = _get_graph_indexer()
+            graph_cluster = _get_graph_cluster()
+            payload = graph_indexer.retire_orphaned_graph_paths(
+                root=root,
+                index_dir=index_dir,
+                layer=graph_layer,
+                files=files_for_graph,
+                current_file_meta=current_file_meta,
+                walker_version=WALKER_VERSION,
+                chunker_version=chunker_version,
+                verbose=verbose,
+            )
+            if isinstance(payload, dict):
+                payload.pop("merge_stats", None)
+                graph_cluster.update_graph_clusters(
+                    root=root,
+                    index_dir=index_dir,
+                    layer=graph_layer,
+                    graph_payload=payload,
+                    verbose=verbose,
+                )
+            # stats["graph"] reports the PLANNED count (the plan's graph set);
+            # the walk-parity merge may prune more store-minus-walk paths.
+            stats["graph"] = len(graph_orphans)
+            msg = (
+                f"build_index: orphan reconcile retired {len(graph_orphans)} planned "
+                "graph path(s) through the merge (the walk-parity merge may prune more)"
+            )
+            if verbose:
+                print(msg, flush=True)
+            _store_log_safe(index_dir, msg)
+        except Exception as exc:  # noqa: BLE001 - next build's plan re-detects
+            print(
+                f"build_index: orphan reconcile graph retirement failed ({exc}); "
+                "rows preserved; the next build re-plans",
+                file=sys.stderr,
+                flush=True,
+            )
+    return stats
+
+
 def _embed_chunks_for_incremental(label: str, chunks: list[dict], embedder) -> "Optional[np.ndarray]":
     """Embed only the chunks that changed during the incremental path."""
     if not chunks:
@@ -3908,6 +4157,7 @@ def _build_index_locked(
         # and bypasses walk_repo(), so enforce the same corpus boundary here.
         files = _filter_canonical_wave_event_ledgers(files, root)
         files = _filter_memory_archive_bodies(files, root)
+        files = _filter_legacy_memory_pointers(files, root)
         if str(index_dir).replace("\\", "/").endswith("/.wavefoundry/framework/index"):
             files = _filter_framework_pack_artifacts(files, root)
         graph_layer = _graph_layer_for_index_dir(index_dir)
@@ -4192,6 +4442,18 @@ def _build_index_locked(
         # on zero-change builds — the field-retest scenario is upgrade-then-
         # idle. Cheap probe; the reconcile only runs on a detected gap.
         _needs_heal = _chunk_index_needs_heal(index_dir)
+        # 1u8nz: read-only orphan-store plan for graph/file_freshness/
+        # secret_scan_cache rows whose path the current authority no longer
+        # knows. Zero-change builds are the ONLY builds that never ran the
+        # graph merge, so this seam is where orphaned graph rows previously
+        # survived forever (sidecars additionally leak on ordinary builds and
+        # are reconciled at the build-path reap seam too).
+        _orphan_plan = _plan_orphan_store_reconcile(
+            root, index_dir, set(current_file_meta.keys()), verbose=verbose
+        )
+        _needs_orphan_reconcile = any(
+            _orphan_plan.get(k) for k in _ORPHAN_RECONCILE_STORES
+        )
         # Review fix (dirty-epoch unchanged-retry lockout): a true no-op may
         # short-circuit ONLY over a completed epoch. If a prior builder died
         # between fence and finalize, the walk can legitimately see zero
@@ -4233,7 +4495,7 @@ def _build_index_locked(
             return _build_failed_result(
                 files, f"no-op drift reconcile failed: {_exc}"
             )
-        if not _needs_reap and not _needs_heal and not _epoch_dirty:
+        if not _needs_reap and not _needs_heal and not _epoch_dirty and not _needs_orphan_reconcile:
             if verbose:
                 print("build_index: index is up to date", flush=True)
             return {
@@ -4242,6 +4504,7 @@ def _build_index_locked(
                 "up_to_date": True,
                 "stranded_rows_reaped": 0,
                 "stranded_rows_reaped_by_table": {"docs": 0, "code": 0, "total": 0},
+                "orphan_rows_reconciled": {"file_freshness": 0, "secret_scan_cache": 0, "graph": 0},
             }
         if _epoch_dirty:
             print(
@@ -4298,6 +4561,21 @@ def _build_index_locked(
             )
             _reap_idle_paths = reap_idle.pop("paths_by_table", {})
             _cleanup_layer_state_for_reaped(index_dir, _reap_idle_paths)
+        # 1u8nz: execute the orphan-store reconciliation INSIDE the epoch. A
+        # removal-only pass is not a no-op: it opens and finalizes this epoch
+        # (the generation advance is what publishes the removals to readers).
+        _orphan_stats = {"file_freshness": 0, "secret_scan_cache": 0, "graph": 0}
+        if _needs_orphan_reconcile:
+            _orphan_stats = _execute_orphan_store_reconcile(
+                root,
+                index_dir,
+                _orphan_plan,
+                files_for_graph=files_for_graph,
+                current_file_meta=current_file_meta,
+                graph_layer=graph_layer,
+                chunker_version=current_chunker_version,
+                verbose=verbose,
+            )
         _idle_heal_stats: dict = {}
         if _needs_heal or _epoch_dirty or reap_idle.get("total", 0):
             _idle_heal_stats = _sync_chunk_derived_state(
@@ -4335,6 +4613,7 @@ def _build_index_locked(
             "up_to_date": True,
             "stranded_rows_reaped": reap_idle.get("total", 0),
             "stranded_rows_reaped_by_table": reap_idle,
+            "orphan_rows_reconciled": _orphan_stats,
         }
 
     if dry_run:
@@ -4780,6 +5059,7 @@ def _build_index_locked(
     # so the FTS/registry never retain reaped (excluded) content between builds.
     stranded_rows_reaped = 0
     stranded_rows_reaped_by_table: dict[str, int] = {"docs": 0, "code": 0, "total": 0}
+    orphan_rows_reconciled: dict[str, int] = {"file_freshness": 0, "secret_scan_cache": 0, "graph": 0}
     if not full:
         reap_result = _reap_stranded_lance_rows(
             lance_db_path,
@@ -4792,6 +5072,25 @@ def _build_index_locked(
         stranded_rows_reaped_by_table = reap_result
         stranded_rows_reaped = reap_result.get("total", 0)
         _cleanup_layer_state_for_reaped(index_dir, _reap_paths_by_table)
+        # 1u8nz: orphan-store reconciliation at the build-path reap seam (same
+        # epoch). By this point the ordinary graph merge above already pruned
+        # store-minus-walk, so the plan's graph set is normally empty here;
+        # the sidecars (file_freshness / secret_scan_cache) are the stores
+        # that leak on ordinary incrementals and get reconciled now.
+        _orphan_plan_build = _plan_orphan_store_reconcile(
+            root, index_dir, set(current_file_meta.keys()), verbose=verbose
+        )
+        if any(_orphan_plan_build.get(k) for k in _ORPHAN_RECONCILE_STORES):
+            orphan_rows_reconciled = _execute_orphan_store_reconcile(
+                root,
+                index_dir,
+                _orphan_plan_build,
+                files_for_graph=files_for_graph,
+                current_file_meta=current_file_meta,
+                graph_layer=graph_layer,
+                chunker_version=current_chunker_version,
+                verbose=verbose,
+            )
 
     # --- 1sek8: commit each layer's last-embedded hashes ---
     # Ordered AFTER the Lance writes (same posture as the chunk deltas): a
@@ -4917,6 +5216,7 @@ def _build_index_locked(
         "up_to_date": False,
         "stranded_rows_reaped": stranded_rows_reaped,
         "stranded_rows_reaped_by_table": stranded_rows_reaped_by_table,
+        "orphan_rows_reconciled": orphan_rows_reconciled,
     }
     files_summary = f"{len(added)} added, {len(updated)} updated, {len(removed)} removed"
     if build_docs:

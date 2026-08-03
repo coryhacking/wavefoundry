@@ -227,14 +227,7 @@ PREIMPLEMENTATION_ROOT_SURFACES = (
 # hidden by it. Every entry also carries its required written justification.
 PREIMPLEMENTATION_GATE_ALLOWANCES: dict[
     str, dict[str, tuple[int, str]]
-] = {
-    "pre-implementation review gate": {
-        "docs/agents/wave-coordinator.md": (
-            1,
-            "dated planning-history entry recording the gate's original introduction",
-        ),
-    },
-}
+] = {}
 
 
 def _normalized_preimplementation_text(text: str) -> str:

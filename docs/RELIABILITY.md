@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-21
+Last verified: 2026-08-03
 
 ## Reliability Posture
 
@@ -39,7 +39,7 @@ modes explicitly instead of guessing.
   the build epoch, and per-file state, so an interrupted build is detected
   and superseded on the next pass, never trusted.
 - **Per-layer freshness and the heal:** each layer records its builder
-  version (graph builder version `44` currently); a version advance triggers
+  version (graph builder version `45` currently); a version advance triggers
   re-extraction, and read-side heals repair false-stale verdicts without a
   rebuild.
 - **Secrets-scan cache posture:** the secrets scan runs inside index builds

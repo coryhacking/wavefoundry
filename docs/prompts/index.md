@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-31
+Last verified: 2026-08-03
 
 The public catalog of shortcut phrases you can say to your agent. Each phrase routes to the documented prompt body for that command. See `AGENTS.md` for the agent-side routing table.
 
@@ -37,6 +37,7 @@ The behavioral rules below apply to every command in this catalog. They are summ
 | **Implement feature** | Single-change docs-first implementation | `docs/prompts/implement-feature.prompt.md` |
 | **Pause wave** | Park session state in handoff artifact | `docs/prompts/pause-wave.prompt.md` |
 | **Review wave** | Run required review lanes with AC reconciliation | `docs/prompts/review-wave.prompt.md` |
+| **Review memories** / **Memory review** | Review and apply eligible memory consolidation, archival, and purge | `docs/prompts/memory-review.prompt.md` |
 | **Reopen wave** | Reopen a prematurely closed or paused wave | MCP: `wf_reopen_wave(wave_id, purpose="review"\|"implement")` — `purpose` is required: it selects the context-efficiency stage the following work is attributed to. A missing or unrecognized value is rejected before anything changes. |
 | **Index build status** | Poll background index refresh progress | MCP: `index_build_status(layer?)` — use after `wf setup --background-code`, `wf setup --background-docs`, or any detached refresh |
 | **GPU doctor** | Embedding-provider / GPU capability diagnostic (platform, ONNX providers, selected provider, CUDA ABI-gap) | MCP: `wf_gpu_doctor()`; CLI: `wf gpu-doctor` (same report; also `wf setup --check-gpu`) |
@@ -72,12 +73,12 @@ The following phrases are accepted for backwards compatibility but redirect to p
 ## Usage Notes
 
 - **Full lifecycle required before code:** Every non-trivial code change needs a change doc, wave admission, and a clean **Prepare wave** before implementation. See `AGENTS.md` **Stage Gate (repository code)**.
-- **Wave Council:** when `docs/workflow-config.json` `wave_review.enabled` is true, every wave requires a council readiness pass during **Prepare wave**. Delivery Council during **Review wave** / before **Close wave** follows `delivery_mode`: universal, targeted by the Prepare receipt/current boundary, or disabled with review disabled. These meta-review checkpoints do not replace the persisted specialist roster.
+- **Wave Council:** when `docs/workflow-config.json` `wave_review.enabled` is true, every wave requires a council readiness pass during **Prepare wave**. Delivery Council during **Review wave** / before **Close wave** follows `delivery_mode`: `targeted` is the default and escalates full Council for upgrade/release, permission/trust-boundary, cross-platform, and other shared boundary triggers; `universal` applies it to every wave; `disabled` requires review disabled. These meta-review checkpoints do not replace the persisted specialist roster.
 - **Implement wave vs Implement feature:** Use **Implement wave** for multiple admitted changes; use **Implement feature** for a single docs-first change.
 - **Concurrency and protected surfaces:** See `docs/prompts/agent-routing-concurrency.prompt.md` for read-only vs write-owning lane rules.
 - **Stress-testing plans:** After **Plan feature**, use **Interrogate this plan** to walk unresolved decision branches before admission.
 - **MCP freshness workflow:** Use `wf_audit` for a combined read-only post-change check; `wf_validate_docs` for docs lint; `wf_garden_docs` for metadata-only refresh; `index_health` to decide whether search is ready, stale, missing, or degraded; `index_build_status` only to poll a detached refresh; `index_build` when you need a deterministic update or rebuild.
-- **Codebase map (MCP surface):** Read the generated orientation map via the resource `wavefoundry://codebase-map` (served fresh from `docs/references/codebase-map.md`; regenerated fail-safe if missing). Refresh just the map — without a full index rebuild — with `index_build(content="map")` (runs the ~0.09 s generator only; change-only/idempotent, so an unchanged codebase is a no-op; fail-safe). The map is also regenerated automatically on **every** index rebuild path. **Reconnect caveat:** a newly added MCP resource or tool option only appears after the MCP client **reconnects** to the server (FastMCP limitation) — restart/reconnect if `wavefoundry://codebase-map` or `content="map"` is not yet visible.
+- **Codebase map (MCP surface):** Read the generated orientation map via the resource `wavefoundry://codebase-map` (served fresh from `docs/references/codebase-map.md`; regenerated fail-safe if missing). Refresh just the map — without a full index rebuild — with `index_build(content="map")` (runs the ~0.09 s generator only; change-only/idempotent, so an unchanged codebase is a no-op; fail-safe). The map is also regenerated automatically on **every** index rebuild path. **Adoption caveat:** a newly registered MCP resource such as `wavefoundry://codebase-map` is startup-bound and requires reconnect/restart. For a new tool or option such as `content="map"`, start a fresh turn first; if it is still absent, reconnect the MCP client, then restart the host only if reconnect does not refresh it.
 - **Guru output:** `code_ask` citations preserve the reranker `score`, but `final_rank` reflects the post-partition order. When `demoted: true` is present, the citation was intentionally pushed behind stronger implementation evidence. Do not treat score order and output order as the same thing.
 - **Wavefoundry self-hosting:** When editing framework seeds, use **Package Wavefoundry** to produce a distribution and **Upgrade Wavefoundry** in a target repo to consume it.
 

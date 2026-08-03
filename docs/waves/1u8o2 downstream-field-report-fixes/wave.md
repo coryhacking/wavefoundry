@@ -1,8 +1,8 @@
 # Wave Record
 
 Owner: Engineering
-Status: planned
-Last verified: 2026-08-01
+Status: closed
+Last verified: 2026-08-03
 review-evidence-source: events.jsonl
 
 review-policy-reprepare-required: false
@@ -16,16 +16,16 @@ Repair the four defects from the Solaris downstream field report (2026-08-01) th
 ## Changes
 
 Change ID: `1u725-bug aiignore-render-accumulates-blank-lines`
-Change Status: `planned`
+Change Status: `implemented`
 
 Change ID: `1u8nz-bug index-removal-missed-when-path-leaves-scope-before-disk`
-Change Status: `planned`
+Change Status: `implemented`
 
 Change ID: `1u8o0-bug doc-drift-classifier-fails-every-build-silently`
-Change Status: `planned`
+Change Status: `implemented`
 
 Change ID: `1u8o1-bug coherence-scan-flags-pack-owned-migration-text`
-Change Status: `planned`
+Change Status: `implemented`
 
 ## Participants
 
@@ -34,10 +34,18 @@ Change Status: `planned`
 - Requested review lanes: none
 - Required review lanes: code-reviewer, qa-reviewer, architecture-reviewer, docs-contract-reviewer
 
+Completed At: 2026-08-01
+
 ## Wave Summary
 
-Four-change bug wave filed from one downstream field report, then substantially corrected by the prepare cycle's executed grounding: a renderer idempotency fix (`render_aiignore`); an orphan-store reconciliation at the existing reap seam inside the build epoch (graph plus freshness and secret-scan sidecars; the filed registry-minus-disk design was refuted, since Lance already self-heals); a red-first fix for the reproduced deletion-frame classifier trigger plus per-return-site reason taxonomy and a first-failure staleness surface (Required additive spec update); and checker-side name resolution for pack-owned seed text with seed-160's debris identification extended in place (gated).
+Wave `1u8o2` (Downstream Field Report Fixes) delivered 4 changes: .aiignore Render Accumulates Two Blank Lines Per Render, Unbounded, Orphaned Graph and Sidecar Rows Survive Every Incremental Build, Doc-Drift Classifier Fails Closed on Deletion Frames and Reports Stale State as Clean, and Coherence Scan Flags Pack-Owned Migration Text as Stale Tool References. Notable adjustments during implementation: Orphaned Graph and Sidecar Rows Survive Every Incremental Build: Filed from the Solaris downstream defect report with the reporter's scope-exclusion hypothesis and a "verify at prepare" hedge.; Orphaned Graph and Sidecar Rows Survive Every Incremental Build: Prepare cycle REFUTED the filed root cause by two independent executed reproductions (red-team seat and code lane, six probe scripts, real build_index in scratch fixtures): all four deletion orderings heal every store on the current tree; removal detection diffs the unfiltered registry; the Lance eligibility reaper already retires scope-departed paths every incremental. The verified defect is orphaned STORE rows: graph file rows and the freshness/secret-scan sidecars survive every incremental (only a full graph rebuild heals them on the current tree, which itself contradicts the reporter's zero-removals and opens the pack-lineage question of requirement 4). Plan rewritten around the verified defect: reap-seam extension inside the build epoch, absence classification with a mass-removal circuit breaker, parity decision for ignored-but-present, per-store red-first tests, and the discrepancy-closure requirement.; Orphaned Graph and Sidecar Rows Survive Every Incremental Build: Verification closed: seam cluster reruns green (seam modules incl. test_index_state_store and test_reconcile_scan, 760 tests OK; test_server_tools, test_indexer, test_graph_indexer, 2377 tests OK), full framework suite green (6720 tests across 61 files, OK). data-and-control-flow.md item 15 and the graph-index-system.md orphan-retirement paragraph document the new pass; CHANGELOG bullet added. Change implemented.
 
+**Changes delivered:**
+
+- **.aiignore Render Accumulates Two Blank Lines Per Render, Unbounded** (`1u725-bug aiignore-render-accumulates-blank-lines`) — 4 ACs completed. Key decisions: Separator handling: strip the leading blank run from `rest` (a head-bounded pop of exact-empty lines) before re-adding the single canonical separator; the trailing pop is kept
+- **Orphaned Graph and Sidecar Rows Survive Every Incremental Build** (`1u8nz-bug index-removal-missed-when-path-leaves-scope-before-disk`) — 6 ACs completed. Key decisions: Fix target is orphan-store reconciliation (graph plus sidecars), not scope-departure detection; Reconciliation extends the existing reap seam inside the build epoch
+- **Doc-Drift Classifier Fails Closed on Deletion Frames and Reports Stale State as Clean** (`1u8o0-bug doc-drift-classifier-fails-every-build-silently`) — 5 ACs completed. Key decisions: Fix the reproduced deletion-frame trigger rather than hunting the unconfirmed field cause first; Staleness surfaces from the first failure with age; thresholds only escalate
+- **Coherence Scan Flags Pack-Owned Migration Text as Stale Tool References** (`1u8o1-bug coherence-scan-flags-pack-owned-migration-text`) — 5 ACs completed. Key decisions: The wf_cli fix is checker-side exemption, required; Requirement 2 scope mechanism: (b) non-blocking `pack_internal` classification, with per-class counts
 ## Watchpoints
 
 - RESOLVED at prepare (2026-08-01): both reporter hypotheses were code-grounded by two independent executing reviewers and BOTH failed. 1u8nz's scope-exclusion root cause is refuted (all deletion orderings heal on the current tree; the verified defect is orphaned graph and sidecar rows, and the plan was rewritten around it). 1u8o0's never-succeeds premise is refuted (the classifier succeeds on this repo and environment); the reproduced trigger is the living-doc deletion frame failing the parser closed, now the plan's red-first target.
@@ -59,7 +67,7 @@ Four-change bug wave filed from one downstream field report, then substantially 
 | --- | --- | --- | --- | --- |
 | — | — | — | — | — |
 
-*Machine review evidence — 7 records; 1 runs; 0 findings; current: do_now 0, maybe_later 0, dont_do_later 0, not_issue 0*
+*Machine review evidence — 17 records; 2 runs; 0 findings; current: do_now 0, maybe_later 0, dont_do_later 0, not_issue 0*
 <!-- wave:finding-synthesis end -->
 
 ## Review Evidence
@@ -68,12 +76,12 @@ Four-change bug wave filed from one downstream field report, then substantially 
 | Signoff | State | Why | Next action |
 | --- | --- | --- | --- |
 | wave-council-readiness | approved | current executed approval follows every affected repair | none |
-| wave-council-delivery | pending | no current executed approval | record approval evidence for wave-council-delivery |
-| code-reviewer | pending | no current executed approval | record approval evidence for code-reviewer |
-| qa-reviewer | pending | no current executed approval | record approval evidence for qa-reviewer |
-| architecture-reviewer | pending | no current executed approval | record approval evidence for architecture-reviewer |
-| docs-contract-reviewer | pending | no current executed approval | record approval evidence for docs-contract-reviewer |
-| operator-signoff | pending | no current executed approval | record approval evidence for operator-signoff |
+| wave-council-delivery | approved | current executed approval follows every affected repair | none |
+| code-reviewer | approved | current executed approval follows every affected repair | none |
+| qa-reviewer | approved | current executed approval follows every affected repair | none |
+| architecture-reviewer | approved | current executed approval follows every affected repair | none |
+| docs-contract-reviewer | approved | current executed approval follows every affected repair | none |
+| operator-signoff | approved | current executed approval follows every affected repair | none |
 <!-- wave:review-status end -->
 
 - operator-signoff: <approved when operator confirms closure>
@@ -89,12 +97,25 @@ Estimated token savings use phase-unique returned source versions and mapped wor
 
 | Stage | Tool calls | Estimated token savings |
 | --- | ---: | ---: |
-| plan | 124 | 1,619,752 |
-| **Total** | **124** | **1,619,752** |
+| plan | 126 | 1,617,436 |
+| implement | 46 | 739,833 |
+| review | 12 | 69,305 |
+| **Total** | **184** | **2,426,574** |
 
-<!-- wave:context-efficiency-state {"generation":124,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"plan":{"calls":124,"content_source_credit":1854052,"derived_artifact_credit":1416,"direct_net":1619752,"estimated_tokens_saved":1619752,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":7727,"response_debit":231354,"source_credit_count":75,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":3365}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":124,"content_source_credit":1854052,"derived_artifact_credit":1416,"direct_net":1619752,"estimated_tokens_saved":1619752,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":7727,"response_debit":231354,"source_credit_count":75,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":3365},"wave_id":"1u8o2 downstream-field-report-fixes"} -->
+<!-- wave:context-efficiency-state {"generation":189,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"implement":{"calls":46,"content_source_credit":809529,"derived_artifact_credit":1056,"direct_net":739833,"estimated_tokens_saved":739833,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":1002,"response_debit":71181,"source_credit_count":8,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":1431},"plan":{"calls":126,"content_source_credit":1854052,"derived_artifact_credit":1416,"direct_net":1617436,"estimated_tokens_saved":1617436,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":7745,"response_debit":233652,"source_credit_count":75,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":3365},"review":{"calls":12,"content_source_credit":87645,"derived_artifact_credit":1564,"direct_net":69305,"estimated_tokens_saved":69305,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":5529,"response_debit":15721,"source_credit_count":16,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":1346}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":184,"content_source_credit":2751226,"derived_artifact_credit":4036,"direct_net":2426574,"estimated_tokens_saved":2426574,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":14276,"response_debit":320554,"source_credit_count":99,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":6142},"wave_id":"1u8o2 downstream-field-report-fixes"} -->
 <!-- wave:context-efficiency end -->
 
+## Estimated Exploration Avoided
+
 <!-- wave:exploration-avoided begin -->
-<!-- wave:exploration-avoided-state {"cited_events":0,"credited_records":0,"estimated_exploration_avoided":0,"surfaced_events":0} -->
+
+This is a bounded estimate from exact-match memory advisories. It is not added to measured Context Efficiency.
+
+| Advisory surfaces | Citations | Records credited | Estimated tokens avoided |
+| ---: | ---: | ---: | ---: |
+| 8 | 0 | 6 | 4,383,655 |
+
+estimated: a surfaced (or cited) advisory does not prove a re-exploration was avoided; this is grounded in the measured cost of the original exploration, scaled by a bounded exact-match attribution, and is NEVER summed into the measured Context Efficiency token total.
+
+<!-- wave:exploration-avoided-state {"cited_events":0,"credited_records":6,"estimated_exploration_avoided":4383655,"surfaced_events":8} -->
 <!-- wave:exploration-avoided end -->

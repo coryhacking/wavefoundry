@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-25
+Last verified: 2026-08-03
 
 ## Purpose
 
@@ -56,7 +56,7 @@ The golden set covers 11 categories:
 | `no_index` | text containment plus policy order remains deterministic |
 | `decay` | an old time-sensitive record ranks below a fresh comparable one |
 | `supersession` | superseded history is absent from default surfacing |
-| `archive_pointer` | normal targeted search returns the compact pointer |
+| `archive_register_entry` | normal targeted search returns the compact register entry |
 | `archive_history` | history opt-in resolves the archived body |
 | `old_authoritative` | tactical recency cannot cross the protected family boundary |
 | `new_low_confidence` | recency cannot cross a base-confidence band |

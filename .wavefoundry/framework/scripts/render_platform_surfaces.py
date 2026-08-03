@@ -1901,6 +1901,17 @@ def render_aiignore(repo_root: Path) -> None:
         )
 
     rest = [ln for ln in lines if not _is_index_meta_line(ln)]
+    # 1u8o2: the filter above drops the index block's non-blank members but recognizes
+    # neither the block's interior blank line nor the separator this function itself
+    # appends; both land at the FRONT of ``rest`` and previously accumulated forever
+    # (plus two blanks per render). Strip the leading blank run: it holds exactly the
+    # block-adjacent separators plus any accumulated debris (which self-heals here in
+    # one render), while intentional blank lines INSIDE project-owned content are never
+    # at the head and are preserved. Residual, accepted: an intentional blank run at the
+    # very head of the project-owned region is indistinguishable from debris and
+    # collapses to the single canonical separator re-added below.
+    while rest and rest[0] == "":
+        rest.pop(0)
     while rest and rest[-1] == "":
         rest.pop()
     lines_out = list(index_block)

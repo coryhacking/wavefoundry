@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-31
+Last verified: 2026-08-03
 
 ## Review Lane Summary
 
@@ -87,7 +87,7 @@ Before implementation begins, the wave-coordinator confirms:
 
 ## Wave Council
 
-The framework ships `wave_review.enabled: true` and `delivery_mode: universal` by default. Readiness Council is required whenever review is enabled. Delivery Council follows the explicit mode: `universal` requires it for every wave, `targeted` requires it only when the Prepare receipt or current boundary triggers select it, and `disabled` is valid only with `enabled: false`.
+The framework ships `wave_review.enabled: true` and `delivery_mode: targeted` by default. Readiness Council is required whenever review is enabled. Delivery Council follows the explicit mode: `universal` requires it for every wave, `targeted` requires it only when the Prepare receipt or current boundary triggers select it (including upgrade/release, permission/trust-boundary, and cross-platform work), and `disabled` is valid only with `enabled: false`.
 
 - `wave-council-readiness` before implementation
 - `wave-council-delivery` before closure when the selected delivery mode requires it

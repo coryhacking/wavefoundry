@@ -432,7 +432,9 @@ class SnapshotStore:
             # would otherwise look "stale" below — auto-clearing it would resume the
             # watcher and force-reindex a gate-failed tree. Treat a failure-marked
             # lock as a live pause and do NOT clear it.
-            if isinstance(lock, dict) and lock.get("failed_phase"):
+            if isinstance(lock, dict) and (
+                lock.get("failed_phase") or lock.get("action_required")
+            ):
                 return True
             # Stale lock (crashed upgrade, PID gone) — auto-clear and treat as not locked.
             if _ulib.is_lock_stale(self._root):

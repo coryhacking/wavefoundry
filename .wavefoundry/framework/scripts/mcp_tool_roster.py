@@ -127,7 +127,9 @@ TOOL_TIERS: dict[str, str] = {
     # ── Memory writes ────────────────────────────────────────────────────
     "memory_add": TIER_WRITE,
     "memory_backfill": TIER_WRITE,
+    "memory_consolidate": TIER_WRITE,
     "memory_propose": TIER_WRITE,
+    "memory_purge": TIER_WRITE,
     "memory_reconcile": TIER_WRITE,
     "memory_validate": TIER_WRITE,
     # ── Index / surfaces / docs mutation ─────────────────────────────────

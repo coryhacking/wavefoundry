@@ -1,10 +1,10 @@
 # Coherence Scan Flags Pack-Owned Migration Text as Stale Tool References
 
 Change ID: `1u8o1-bug coherence-scan-flags-pack-owned-migration-text`
-Change Status: `planned`
+Change Status: `implemented`
 Owner: Engineering
-Status: planned
-Last verified: 2026-08-01
+Status: implemented
+Last verified: 2026-08-03
 Wave: `1u8o2 downstream-field-report-fixes`
 
 ## Rationale
@@ -84,35 +84,39 @@ watchpoint).
 
 ## Acceptance Criteria
 
-- [ ] AC-1: The executed scan against a downstream-shaped fixture (fixture text COPIED from the
+- [x] AC-1: The executed scan against a downstream-shaped fixture (fixture text COPIED from the
   real seed-160 lines and a rendered `docs/prompts` mirror included, per the
   fixtures-from-canonical-producers rule; live-tools note: the collector reads the RUNNING
   server's scripts directory, not the fixture root) reports zero pack-owned
   `stale_tool_reference` findings under the chosen requirement 2 mechanism; if mechanism (a) is
   chosen, a framework-source-shaped fixture still reports them; if (b), the classification field
   is asserted. The mechanism and its coverage tradeoff are recorded in the Decision Log.
-- [ ] AC-2: Seed-160:93's identification is extended in place (manifest criterion plus
+- [x] AC-2: Seed-160:93's identification is extended in place (manifest criterion plus
   removal-safe statement), stays generic, passes docs-lint, and the re-rendered mirror reports no
   drift; the never-delete caution and the anti-false-report sentence are intact.
-- [ ] AC-3: Post-fix, the migration text still contains BOTH retired names (`wave_open_gate` and
+- [x] AC-3: Post-fix, the migration text still contains BOTH retired names (`wave_open_gate` and
   `wf_close_wave_gate`) at the instruction lines, asserted on the canonical seed and the rendered
-  mirror (a checker fix that "fixed" the seed instead trips this).
-- [ ] AC-4: `wf_cli` no longer flags anywhere (seeds or mirrors); the scan still catches a
+  mirror (a checker fix that "fixed" the seed instead trips this). Status note: the mirror is a
+  parallel-maintained self-hosted surface that renders the seed's wf_cli guidance but not its
+  migration-instruction sections, so the retired-name assertions bind on the canonical seed and
+  the mirror assertion binds on the `wf_cli` mention it actually carries (the twelfth-finding
+  surface); the test states this scope inline.
+- [x] AC-4: `wf_cli` no longer flags anywhere (seeds or mirrors); the scan still catches a
   genuinely stale tool reference (a positive-control fixture with a real retired tool name in
   non-migration prose still flags).
-- [ ] AC-5: Full suite and docs-lint pass.
+- [x] AC-5: Full suite and docs-lint pass.
 
 ## Tasks
 
-- [ ] Add `wf_cli` to `NON_TOOL_IDENTIFIERS`; implement the retired-name handling covering both
+- [x] Add `wf_cli` to `NON_TOOL_IDENTIFIERS`; implement the retired-name handling covering both
       retired gate names; record the mechanism
-- [ ] Decide and implement the requirement 2 scope mechanism; record the choice and coverage
+- [x] Decide and implement the requirement 2 scope mechanism; record the choice and coverage
       tradeoff in the Decision Log
-- [ ] Build the fixture tests per AC-1 and AC-4 (copied seed text; mirror included; positive
+- [x] Build the fixture tests per AC-1 and AC-4 (copied seed text; mirror included; positive
       control)
-- [ ] Extend seed-160:93 (open `seed_edit_allowed`, edit, close); re-render the mirror; AC-3
+- [x] Extend seed-160:93 (open `seed_edit_allowed`, edit, close); re-render the mirror; AC-3
       assertions
-- [ ] Full suite plus docs-lint
+- [x] Full suite plus docs-lint
 
 ## Agent Execution Graph
 
@@ -139,12 +143,13 @@ watchpoint).
 
 ## AC Priority
 
-(Populated at Prepare wave.)
-
-
 | AC   | Priority | Rationale |
 | ---- | -------- | --------- |
-| AC-1 | TBD      |           |
+| AC-1 | required | Zero pack-owned noise is the reported defect; the recorded mechanism choice is its honesty condition |
+| AC-2 | required | The seed extension completes the debris procedure without duplicating canonical guidance |
+| AC-3 | required | A checker fix that vandalized the migration instructions would break every target's upgrade path |
+| AC-4 | required | The over-exemption positive control is what keeps the allowlist from hiding real staleness |
+| AC-5 | required | Suite and docs-lint green are the wave's regression floor |
 
 
 ## Progress Log
@@ -154,6 +159,9 @@ watchpoint).
 | ---- | ------ | -------- |
 | 2026-08-01 | Filed from the Solaris downstream defect report (11 pack-owned findings). Pre-filing verification established the migration-instruction nuance (retired names must stay in seed text; fix is checker-side). | Field report 2026-08-01; seed-160 lines 182, 356, 459 |
 | 2026-08-01 | Prepare cycle grounded and extended the plan by execution: the real scan reproduces the 11 findings PLUS a twelfth in the rendered docs/prompts mirror (so pack-path exclusion alone cannot deliver zero); the seed-rewrite branch for wf_cli is proven vacuous (text already module-path form, regex substring-matches; checker exemption is required, NON_TOOL_IDENTIFIERS precedent at server_impl.py:13396-13399); the inventory fragility around wf_close_wave_gate's legacy-shim escape is recorded and both retired names enter AC-3; the "upstream still audits seeds" risk claim is corrected (no such surface; the scan is the only stale-seed-text detector, driving requirement 2's honest choice); and the debris-guidance premise is corrected as stale (seed-160:93 already carries partial identification from the 1tz6l work postdating the Solaris pack; requirement 3 reframed as extend-in-place). | Executed probe of _audit_harness_coherence (92 files, 12 findings), 2026-08-01; server_impl.py:13356-13439, :7648; reconcile_scan.py:130; seed-160:93 |
+| 2026-08-01 | Checker-side fixes landed: `wf_cli` joined NON_TOOL_IDENTIFIERS, a `RETIRED_TOOL_NAMES` allowlist covers `wave_open_gate` and `wf_close_wave_gate` symmetrically (the `wf_close_wave_gate_response` shim is no longer load-bearing for the scan), and findings carry the mechanism (b) `classification` field (`pack_internal` for `.wavefoundry/framework/seeds/` paths, `project` otherwise) with additive `pack_internal_count`/`project_findings_count`. Executed against THIS repo the scan now reports 0 findings over 92 files (was 12). Fixture tests landed (`HarnessCoherencePackTextTests`): copied-seed-text fixture with mirror scans clean; positive control (`wf_totally_retired_tool` in a pack seed, `wave_frobnicate` in docs/prompts) still flags with the classification split; real-surface test pins both retired names in the canonical seed, the mirror's wf_cli mention, and a scan clean of wf_cli/retired-name findings. | server_impl.py `_audit_harness_coherence`; tests/test_server_tools.py `HarnessCoherencePackTextTests`; executed scan 2026-08-01 |
+| 2026-08-01 | Seed-160:93 extended in place under the gate (`seed_edit_allowed` opened, edited, closed immediately): the identification parenthetical promoted to standalone sentences carrying the `payload/*.json` manifest criterion (names sibling payload archives with sha256 hashes, verified against a shipped pack zip) and the explicit removal-is-then-safe statement; the never-delete caution and the anti-false-report sentence are intact; wording generic. The parallel-maintained mirror's condensed debris guidance updated with the same criteria; `render_agent_surfaces.py` rerun reports no drift (rc 0, no mirror rewrite); test_shipped_reference_docs and test_review_policy green (42 tests); docs-lint clean. Spec: `harness_coherence` documented in the wf_audit section (previously undocumented; decided to document since `classification` is now a downstream consumer contract) in the same pass as 1u8o0's doc_drift spec edit per the wave serialization watchpoint. | seed-160:93; docs/prompts/upgrade-wavefoundry.prompt.md:71; docs/specs/mcp-tool-surface.md; gate open/close events 2026-08-01 |
+| 2026-08-01 | AC-5 closed: full framework suite green (6720 tests across 61 files, OK); docs-lint clean after every doc edit. Change implemented. | run_tests.py output 2026-08-01; wf_validate_docs 2026-08-01 |
 
 
 ## Decision Log
@@ -162,6 +170,9 @@ watchpoint).
 | Date | Decision | Reason | Alternatives |
 | ---- | -------- | ------ | ------------ |
 | 2026-08-01 | The wf_cli fix is checker-side exemption, required | The seed text is already module-path form and the regex substring-matches it; rewriting seeds cannot silence the finding, and the mirror finding proves path exclusion alone is insufficient | Seed rewrite (rejected: proven vacuous by executed regex check); path exclusion only (rejected: leaves the docs/prompts mirror finding, demonstrated on this repo) |
+| 2026-08-01 | Requirement 2 scope mechanism: (b) non-blocking `pack_internal` classification, with per-class counts | The architecture lane's finding drives the choice: no reliable self-host discriminator exists and the vendored pack layout is byte-identical to the source layout, so mechanism (a)'s upstream carve-out would rest on a heuristic that could silently silence this repository's ONLY automated stale-seed-text audit (the historical 52-finding sweep would have been hidden). Classification preserves detection on BOTH sides. Coverage tradeoff, stated honestly: downstream audits still SEE pack-internal findings (labeled ignorable and non-blocking, with `pack_internal_count` split out) rather than losing them entirely; the field's twelve concrete findings are silenced by the requirement 1 name-resolution fixes, not by classification | Mechanism (a) conditional pack exclusion with an upstream carve-out (rejected: no discriminator to key the carve-out on; a wrong guess hides the only seed-text audit); unconditional pack exclusion (rejected at prepare) |
+| 2026-08-01 | Retired-name mechanism: a `RETIRED_TOOL_NAMES` allowlist inside the checker, covering both retired gate names | Migration instructions and verification checklists MUST keep citing the retired names, and the three seed-160 hits do not share one phrasing shape (:459 is a checklist line), so a remediation-context phrase heuristic would be fragile; a named allowlist is exact, symmetric for both names (closing the wf_close_wave_gate shim fragility), and self-documenting about when a name may leave the set | Remediation-context exemption (rejected: no shared phrasing shape to key on); relying on the `_response` shim check (rejected: the recorded inventory fragility, removing the shim would mint findings) |
+| 2026-08-01 | AC-4 positive-control over-exemption bound | The allowlist is name-exact, so a genuinely stale tool name still flags in ANY prose, including migration-shaped prose; the positive-control fixture pins this with a fake retired name on both the pack and project sides. Residual, accepted: a future genuinely-stale reference to `wave_open_gate` or `wf_close_wave_gate` themselves would not flag while they remain in the allowlist, which is exactly the documented tradeoff of keeping migration text citable | Per-line context matching to distinguish migration prose from stale prose for the two names (rejected: fragile, and the two names are retired precisely because migration text must cite them) |
 
 
 ## Risks

@@ -1292,6 +1292,16 @@ def check_memory_docs(root: Path, only: set[Path] | None = None, skip: set[Path]
     archived_line = re.compile(r"^Archived:\s*(\d{4}-\d{2}-\d{2})\s*$", re.MULTILINE)
     archive_reason_line = re.compile(r"^Archive reason:\s*(\S[^\r\n]*)$", re.MULTILINE)
     archive_path_line = re.compile(r"^Archive path:\s*`([^`\r\n]+)`\s*$", re.MULTILINE)
+    legacy_pointer_root = memory_root / "pointers"
+    legacy_pointer_residue = (
+        legacy_pointer_root.exists() or legacy_pointer_root.is_symlink()
+    )
+    if legacy_pointer_residue:
+        failures.append(
+            "docs/agents/memory/pointers: legacy memory pointer residue is retired; "
+            "run setup/upgrade or `Review memories` to rebuild "
+            "`docs/agents/memory-archive.md` and remove the generated directory"
+        )
     for path in sorted(memory_root.rglob("*.md")):
         rel = relative_to_root(root, path)
         if path.name == "README.md":
@@ -1304,6 +1314,8 @@ def check_memory_docs(root: Path, only: set[Path] | None = None, skip: set[Path]
         memory_rel = path.relative_to(memory_root)
         is_archive_body = bool(memory_rel.parts and memory_rel.parts[0] == "archive")
         is_pointer = bool(memory_rel.parts and memory_rel.parts[0] == "pointers")
+        if is_pointer:
+            continue
         mem_id = MEMORY_ID_PATTERN.search(text)
         if not mem_id:
             failures.append(f"{rel}: missing backticked `Memory ID:` line")
@@ -1332,9 +1344,9 @@ def check_memory_docs(root: Path, only: set[Path] | None = None, skip: set[Path]
                 f"(got {status.group(1)!r})"
             )
         elif status.group(1) == "archived":
-            if not (is_archive_body or is_pointer):
+            if not is_archive_body:
                 failures.append(
-                    f"{rel}: archived records must live under memory/archive or memory/pointers"
+                    f"{rel}: archived records must live under memory/archive"
                 )
         elif (
             is_archive_body
@@ -1344,11 +1356,11 @@ def check_memory_docs(root: Path, only: set[Path] | None = None, skip: set[Path]
                 f"{rel}: pending memory archive detected after the body rename; "
                 "retry "
                 f"`memory_reconcile(memory_id='{path.stem}', status='archived', "
-                "archive_reason='<reason>')` to finish metadata and pointer publication"
+                "archive_reason='<reason>')` to finish metadata and archive-register publication"
             )
-        elif is_archive_body or is_pointer:
+        elif is_archive_body:
             failures.append(
-                f"{rel}: memory/archive and memory/pointers records require `Status: archived`"
+                f"{rel}: memory/archive records require `Status: archived`"
             )
         source_event = source_event_line.search(text)
         validation = validation_line.search(text)
@@ -1459,15 +1471,11 @@ def check_memory_docs(root: Path, only: set[Path] | None = None, skip: set[Path]
                     f"{rel}: `Archive path` must be `{expected_archive_path}`"
                 )
             pointer_to = MEMORY_POINTER_TO_PATTERN.search(text)
-            if is_pointer:
-                if not pointer_to or pointer_to.group(1) != path.stem:
-                    failures.append(
-                        f"{rel}: archive pointers require `Pointer to: `{path.stem}``"
-                    )
-                if "## Keywords" not in text:
-                    failures.append(f"{rel}: archive pointers require `## Keywords`")
-            elif pointer_to:
-                failures.append(f"{rel}: only archive pointers may carry `Pointer to:`")
+            if pointer_to:
+                failures.append(
+                    f"{rel}: archived bodies must not carry `Pointer to:`; ordinary "
+                    "discovery uses `docs/agents/memory-archive.md`"
+                )
         sections = _extract_sections(text)
         for section in MEMORY_REQUIRED_SECTIONS:
             if section not in text:

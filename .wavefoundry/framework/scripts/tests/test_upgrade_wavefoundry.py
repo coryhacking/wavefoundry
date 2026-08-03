@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import contextlib
+import datetime
+import hashlib
 import importlib.util
 import io
 import json
@@ -13,6 +15,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import types
 import unittest
 import zipfile
 from pathlib import Path
@@ -1261,6 +1264,50 @@ class PhaseCleanupLockStateTests(unittest.TestCase):
         self.assertTrue(state["dashboard_restart_pending"])
         self.assertEqual(state["dashboard_restart_port"], 43210)
 
+    def test_lock_reinitialization_carries_graph_doc_snapshot_only_for_same_target(self):
+        packs = self.root / "packs"
+        packs.mkdir()
+        pack = packs / "wavefoundry-first.zip"
+        retry_pack = packs / "wavefoundry-retry.zip"
+        other_pack = packs / "wavefoundry-other.zip"
+        pack.write_bytes(b"same verified pack")
+        retry_pack.write_bytes(pack.read_bytes())
+        other_pack.write_bytes(b"different pack")
+        pack_sha = hashlib.sha256(pack.read_bytes()).hexdigest()
+        self.lib.write_upgrade_lock(self.root, "1.14.0", "1.15.0+pgi2", pack)
+        self.lib.update_upgrade_lock(
+            self.root,
+            graph_builder_doc_claim_pre_extract="44",
+            graph_builder_doc_claim_pack_sha256=pack_sha,
+        )
+        with patch.object(self.lib, "is_lock_stale", return_value=True):
+            self.mod._clear_stale_upgrade_lock_for_preflight(self.root, self.lib)
+        self.assertIsNotNone(self.lib.read_upgrade_lock(self.root))
+
+        self.lib.write_upgrade_lock(
+            self.root, "1.15.0+pgi2", "1.15.0+pgi2", retry_pack
+        )
+        state = self.lib.read_upgrade_lock(self.root) or {}
+        self.assertEqual(state["graph_builder_doc_claim_pre_extract"], "44")
+
+        self.lib.write_upgrade_lock(
+            self.root, "1.15.0+pgi2", "1.15.0+pgi3", retry_pack
+        )
+        state = self.lib.read_upgrade_lock(self.root) or {}
+        self.assertNotIn("graph_builder_doc_claim_pre_extract", state)
+
+        self.lib.update_upgrade_lock(
+            self.root,
+            to_version="1.15.0+pgi2",
+            graph_builder_doc_claim_pre_extract="44",
+            graph_builder_doc_claim_pack_sha256=pack_sha,
+        )
+        self.lib.write_upgrade_lock(
+            self.root, "1.15.0+pgi2", "1.15.0+pgi2", other_pack
+        )
+        state = self.lib.read_upgrade_lock(self.root) or {}
+        self.assertNotIn("graph_builder_doc_claim_pre_extract", state)
+
     def test_successful_cleanup_restarts_dashboard_before_removing_upgrade_state(self):
         self.lib.write_upgrade_lock(self.root, "1.12.0", "1.13.0")
         self.lib.update_upgrade_lock(
@@ -2082,6 +2129,7 @@ class PublicUpgradeReviewProtocolIntegrationTests(unittest.TestCase):
     def test_surface_phase_reconciles_stale_carrier_preserves_extensions_and_is_idempotent(self):
         mod = load_upgrade_module()
         import render_agent_surfaces as ras
+        import review_policy
         import venv_bootstrap
 
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -2220,6 +2268,8 @@ class PublicUpgradeReviewProtocolIntegrationTests(unittest.TestCase):
 
         mod = load_upgrade_module()
         import render_agent_surfaces as ras
+        import memory_records
+        import review_policy
         import venv_bootstrap
 
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -2237,7 +2287,32 @@ class PublicUpgradeReviewProtocolIntegrationTests(unittest.TestCase):
             historical_events = historical.parent / "events.jsonl"
             historical_events.write_bytes(b'{"historical":true,"opaque":"keep"}\n')
             historical_events_snapshot = historical_events.read_bytes()
+            memory_archive = root / "docs" / "agents" / "memory" / "archive" / "historic.md"
+            memory_archive.parent.mkdir(parents=True)
+            memory_archive.write_bytes(b"historical memory body\n")
+            memory_register = root / "docs" / "agents" / "memory-archive.md"
+            memory_register.write_bytes(b"# Memory Archive\n\nproject history\n")
+            purge_dispositions = root / ".wavefoundry" / "memory-purge-dispositions.json"
+            purge_dispositions.write_bytes(
+                b'{"schema_version":1,"source_event_sha256":["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]}\n'
+            )
+            memory_snapshot = {
+                memory_archive: memory_archive.read_bytes(),
+                memory_register: memory_register.read_bytes(),
+                purge_dispositions: purge_dispositions.read_bytes(),
+            }
             prompt_root = root / "docs" / "prompts"
+            upgrade_prompt = prompt_root / "upgrade-wavefoundry.prompt.md"
+            upgrade_prompt.parent.mkdir(parents=True, exist_ok=True)
+            upgrade_prefix = "# Project Upgrade\n\nproject prefix\n\n"
+            upgrade_suffix = "\n\n## Project extension\n\nkeep exactly\n"
+            old_policy_block = review_policy.UPGRADE_POLICY_BLOCK.replace(
+                "**Review memories**", "**Old memory command**"
+            )
+            upgrade_prompt.write_text(
+                upgrade_prefix + old_policy_block + upgrade_suffix,
+                encoding="utf-8",
+            )
 
             def assert_carriers_before_index(_root):
                 self.assertEqual(_root, root)
@@ -2256,6 +2331,11 @@ class PublicUpgradeReviewProtocolIntegrationTests(unittest.TestCase):
                  patch.object(mod, "_snapshot_pre_extract_versions", return_value={}), \
                  patch.object(mod, "_stamp_manifest_revision", return_value=False), \
                  patch.object(mod, "phase_pruning", return_value=0), \
+                 patch.object(
+                     memory_records,
+                     "migrate_legacy_memory_pointers",
+                     wraps=memory_records.migrate_legacy_memory_pointers,
+                 ) as pointer_migration, \
                  patch.object(mod, "materialize_secrets_policy", return_value="ok"), \
                  patch.object(mod, "materialize_lifecycle_policy", return_value="ok"), \
                  patch.object(mod, "phase_docs_gate"), \
@@ -2264,6 +2344,8 @@ class PublicUpgradeReviewProtocolIntegrationTests(unittest.TestCase):
                  patch.object(venv_bootstrap, "ensure_python_resolves", return_value="ok"), \
                  patch.dict(os.environ, {"WAVEFOUNDRY_SKIP_PYTHON_HEAL": "1"}, clear=False):
                 self.assertEqual(mod.main(["--root", str(root), "--yes"]), 0)
+
+            self.assertEqual(pointer_migration.call_count, 1)
 
             for rel in (
                 "docs/agents/code-reviewer.md",
@@ -2294,12 +2376,22 @@ class PublicUpgradeReviewProtocolIntegrationTests(unittest.TestCase):
             self.assertNotIn("```jsonl", create_text)
             self.assertEqual(historical.read_bytes(), historical_snapshot)
             self.assertEqual(historical_events.read_bytes(), historical_events_snapshot)
+            self.assertEqual(
+                {path: path.read_bytes() for path in memory_snapshot},
+                memory_snapshot,
+            )
+            upgraded_policy = upgrade_prompt.read_text(encoding="utf-8")
+            self.assertTrue(upgraded_policy.startswith(upgrade_prefix))
+            self.assertTrue(upgraded_policy.endswith(upgrade_suffix))
+            self.assertIn("**Review memories**", upgraded_policy)
+            self.assertNotIn("**Old memory command**", upgraded_policy)
             for prompt_name in (
                 "create-wave.prompt.md",
                 "prepare-wave.prompt.md",
                 "implement-wave.prompt.md",
                 "review-wave.prompt.md",
                 "close-wave.prompt.md",
+                "memory-review.prompt.md",
             ):
                 self.assertTrue(prompt_root.joinpath(prompt_name).is_file())
                 self.assertGreater(
@@ -5117,7 +5209,7 @@ class DelegatedSummaryPg1aReproductionTests(unittest.TestCase):
                 summary["reconciliation"][0]["retired_surface"], "wave-gate"
             )
             self.assertNotIn("summary_source_degraded", summary)
-            self.assertEqual(summary["summary_schema"], 1)
+            self.assertEqual(summary["summary_schema_version"], 1)
 
 
 def _write_stub_producer(root: Path, body: str) -> Path:
@@ -5158,7 +5250,7 @@ class DelegatedSummaryContractTests(unittest.TestCase):
         )
 
     def test_contract_constants_are_frozen(self):
-        self.assertEqual(self.mod.SUMMARY_SCHEMA_KEY, "summary_schema")
+        self.assertEqual(self.mod.SUMMARY_SCHEMA_KEY, "summary_schema_version")
         self.assertEqual(self.mod.SUMMARY_SCHEMA_VERSION, 1)
         self.assertIn(
             self.mod.SUMMARY_SCHEMA_VERSION, self.mod._RECOGNIZED_SUMMARY_SCHEMAS
@@ -5175,7 +5267,7 @@ class DelegatedSummaryContractTests(unittest.TestCase):
 
     def test_spawned_argv_shape_is_frozen_and_payload_reemitted_verbatim(self):
         payload = json.dumps(
-            {"summary_schema": 1, "probe": "argv-pin \u2713"}, ensure_ascii=False
+            {"summary_schema_version": 1, "probe": "argv-pin \u2713"}, ensure_ascii=False
         )
         captured: dict = {}
 
@@ -5256,6 +5348,11 @@ class DelegatedSummaryContractTests(unittest.TestCase):
             self.assertEqual(payload["pruned_count"], 0)
             self.assertEqual(payload["skipped_scan_locations"], [])
             self.assertNotIn(self.mod.SUMMARY_DEGRADATION_MARKER_KEY, payload)
+            # Half-rename guard (wave 1u8o5): the REAL spawned producer's
+            # payload must not carry the retired key. RAW literal on purpose:
+            # post-rename SUMMARY_SCHEMA_KEY IS the new key, so the constant
+            # form would assert the wrong thing.
+            self.assertNotIn("summary_schema", payload)
 
     def test_real_child_reads_nonempty_skipped_scan_locations_from_lock(self):
         # Requirement 1 transport fidelity on the REAL producer: the parent-only
@@ -5301,7 +5398,7 @@ class DelegatedSummaryContractTests(unittest.TestCase):
             _write_stub_producer(
                 root,
                 "print('WAVE_UPGRADE_SUMMARY_JSON:'"
-                " + '{\"summary_schema\": 999, \"probe\": \"x\"}')\n",
+                " + '{\"summary_schema_version\": 999, \"probe\": \"x\"}')\n",
             )
             buf = io.StringIO()
             with patch.object(self.mod, "_preferred_python",
@@ -5433,12 +5530,61 @@ class DelegatedSummaryDegradationTests(unittest.TestCase):
             summaries, _ = self._drive(root, timeout_s=1)
         self._assert_marked_degradation(summaries, "timeout_after_1s")
 
+    def test_old_key_parent_against_new_key_payload_degrades_marked(self):
+        # Cross-version transition (wave 1u8o5): a fielded parent that still
+        # recognizes the OLD key ("summary_schema") receives the real NEW-key
+        # payload and must take exactly one MARKED degradation run - the
+        # disclosed one-run cost for the pg8h/pg9m runners. Simulating the old
+        # recognizer by patching SUMMARY_SCHEMA_KEY back to the old literal is
+        # faithful because the census proved every functional lookup (producer
+        # emission and parent recognition alike) routes through
+        # SUMMARY_SCHEMA_KEY; no functional code path names the key literally.
+        payload = json.dumps(
+            {"summary_schema_version": 1, "probe": "cross-version"}
+        )
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            _write_stub_producer(
+                root, f"print('WAVE_UPGRADE_SUMMARY_JSON:' + {payload!r})\n"
+            )
+            buf = io.StringIO()
+            with patch.object(self.mod, "SUMMARY_SCHEMA_KEY",
+                              "summary_schema"), \
+                    patch.object(self.mod, "_preferred_python",
+                                 return_value=sys.executable), \
+                    contextlib.redirect_stdout(buf):
+                self.mod._emit_primary_summary_via_delegate_or_fallback(
+                    root=root, from_version="1.14.0", to_version="1.15.0",
+                    zip_path=None, pruned_count=2, index_published=True,
+                )
+        sentinel = self.mod.WAVE_UPGRADE_SUMMARY_SENTINEL
+        summaries = [
+            json.loads(line[len(sentinel):])
+            for line in buf.getvalue().splitlines()
+            if line.startswith(sentinel)
+        ]
+        self.assertEqual(len(summaries), 1, "exactly one sentinel per run")
+        summary = summaries[0]
+        # Exact equality: the old recognizer's .get on its old key yields None,
+        # so the marker is the None-clamp token, nothing else.
+        self.assertEqual(
+            summary["summary_source_degraded"],
+            "unrecognized_schema_token_None",
+        )
+        # The fallback is the parent's REAL summary, not a stub.
+        self.assertEqual(summary["from_version"], "1.14.0")
+        self.assertEqual(summary["pruned_count"], 2)
+        # And it carries no schema key under either name: a fallback summary
+        # is never presented as schema-versioned output.
+        self.assertNotIn("summary_schema", summary)
+        self.assertNotIn("summary_schema_version", summary)
+
     def test_successful_delegate_forbids_the_fallback(self):
         # The delegate-succeeded-then-fallback-also-fires ordering hazard,
         # driven and proven impossible: the fallback emitter is replaced by a
         # canary that fails the test if invoked after a successful delegation,
         # and exactly one sentinel reaches the output.
-        payload = json.dumps({"summary_schema": 1, "probe": "only-once"})
+        payload = json.dumps({"summary_schema_version": 1, "probe": "only-once"})
 
         def canary(*args, **kwargs):
             raise AssertionError(
@@ -5493,7 +5639,7 @@ class DelegatedSummarySchemaDivergentTests(unittest.TestCase):
         "lock_path = root / '.wavefoundry' / 'upgrade-in-progress.json'\n"
         "lock = json.loads(lock_path.read_text(encoding='utf-8')) if lock_path.exists() else {}\n"
         "payload = {\n"
-        "    'summary_schema': 1,\n"
+        "    'summary_schema_version': 1,\n"
         "    'from_version': lock.get('from_version'),\n"
         "    'to_version': lock.get('to_version'),\n"
         "    'probe_from_future_schema': 'delegation-transport-proof \\u2713',\n"
@@ -6483,6 +6629,31 @@ class HistoricalMemoryUpgradeGateTests(unittest.TestCase):
         self.assertEqual(second, 0)
         phase_again.assert_not_called()
 
+    def test_resume_accepts_publication_checkpoint_and_clears_compatibility_lease(self):
+        self.upgrade_lib.update_upgrade_lock(
+            self.root,
+            current_phase="awaiting_memory_publication",
+            action_required={
+                "kind": "historical_memory",
+                "state": "awaiting_memory_publication",
+                "resume_phase": "resume_after_memory",
+                "run_id": self.run_id,
+                "token": "test-token",
+            },
+            failed_phase="awaiting_memory_validation",
+            failed_at=None,
+        )
+        with patch.object(self.mod, "phase_index_update", return_value=True) as phase:
+            result = self.mod.main(["--root", str(self.root), "--resume-after-memory"])
+
+        self.assertEqual(result, 0)
+        phase.assert_called_once_with(self.root.resolve())
+        checkpoint = self.upgrade_lib.read_upgrade_lock(self.root)
+        self.assertEqual(checkpoint.get("current_phase"), "index_complete")
+        self.assertIsNone(checkpoint.get("action_required"))
+        self.assertIsNone(checkpoint.get("failed_phase"))
+        self.assertIsNone(checkpoint.get("failed_at"))
+
     def test_docs_gate_resume_establishes_memory_checkpoint_and_composes(self):
         """External pfq6 reproduction: the successful docs recovery used to
         retain ``review_sidecar_cleanup_complete``, making the immediately
@@ -7070,6 +7241,408 @@ class HistoricalMemoryUpgradeGateTests(unittest.TestCase):
         self.assertLess(batch, action_return)
 
 
+class ArchivedLegacyMemoryCheckpointCompatibilityTests(unittest.TestCase):
+    """Exercise the incoming hook under the exact pghn/pgi7 parent runners.
+
+    The parent owns the broad ``except SystemExit`` handler while the new
+    extension is loaded from the incoming pack.  Keeping these as archive
+    fixtures prevents a current-runner mock from silently widening the bridge.
+    """
+
+    ARCHIVE_DIR = Path(os.environ.get(
+        "WAVEFOUNDRY_LEGACY_COMPAT_ARCHIVE_DIR",
+        "/Users/coryhacking/.wavefoundry/dist",
+    ))
+    LEGACY_BUILDS = ("pghn", "pgi7")
+    EXTENSION_MEMBER = ".wavefoundry/framework/scripts/upgrade_extensions.py"
+    RUNNER_MEMBER = ".wavefoundry/framework/scripts/upgrade_wavefoundry.py"
+    SERVER_MEMBER = ".wavefoundry/framework/scripts/server_impl.py"
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name).resolve()
+        (self.root / ".wavefoundry").mkdir()
+        if str(SCRIPTS_ROOT) not in sys.path:
+            sys.path.insert(0, str(SCRIPTS_ROOT))
+        import upgrade_lib
+
+        self.upgrade_lib = upgrade_lib
+
+    def _archive(self, build: str) -> Path | None:
+        path = self.ARCHIVE_DIR / f"wavefoundry-1.15.0.{build}.zip"
+        return path if path.is_file() else None
+
+    def _legacy_parent_seam_fixture(self, build: str):
+        """Repository-controlled minimal pghn/pgi7 finalizer ABI fixture.
+
+        Release verification prefers the actual archived packs when available.
+        The committed seam keeps the exact old-parent contract executable in
+        ordinary test runs without embedding multi-megabyte historical packs.
+        """
+        name = f"legacy_parent_seam_{build}_{id(self)}"
+        parent = types.ModuleType(name)
+        parent.__file__ = f"fixture://wavefoundry-1.15.0+{build}/upgrade_wavefoundry.py"
+
+        class UpgradeContext:
+            def __init__(self, root, from_version, to_version, zip_path, yes):
+                self.root = root
+                self.from_version = from_version
+                self.to_version = to_version
+                self.zip_path = zip_path
+                self.yes = yes
+
+        def _load_extension_module(zip_path):
+            if zip_path is None:
+                return None
+            with zipfile.ZipFile(zip_path) as zf:
+                source = zf.read(self.EXTENSION_MEMBER).decode("utf-8")
+            module = types.ModuleType("upgrade_extensions")
+            module.__file__ = self.EXTENSION_MEMBER
+            exec(compile(source, module.__file__, "exec"), module.__dict__)
+            return module
+
+        def _finalize_failed_upgrade(root, tree_mutated, current_phase):
+            import upgrade_lib
+
+            if tree_mutated:
+                upgrade_lib.update_upgrade_lock(
+                    root,
+                    failed_phase=current_phase,
+                    failed_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                )
+                print(
+                    f"ERROR: Upgrade failed during phase '{current_phase}'.",
+                    file=sys.stderr,
+                )
+            else:
+                upgrade_lib.remove_upgrade_lock(root)
+
+        def _run_hook(name, ctx, ext_mod):
+            hook = getattr(ext_mod, name, None)
+            if callable(hook):
+                try:
+                    hook(ctx)
+                except SystemExit:
+                    raise
+                except Exception as exc:
+                    print(f"ERROR: Extension hook '{name}' raised: {exc}", file=sys.stderr)
+                    raise SystemExit(3)
+
+        UpgradeContext.__module__ = name
+        parent.UpgradeContext = UpgradeContext
+        parent._load_extension_module = _load_extension_module
+        parent._finalize_failed_upgrade = _finalize_failed_upgrade
+        parent._run_hook = _run_hook
+        sys.modules[name] = parent
+        self.addCleanup(lambda: sys.modules.pop(name, None))
+        return parent
+
+    def _load_archived_parent(self, build: str):
+        archive = self._archive(build)
+        if archive is None:
+            return self._legacy_parent_seam_fixture(build)
+        with zipfile.ZipFile(archive) as zf:
+            source = zf.read(self.RUNNER_MEMBER).decode("utf-8")
+        name = f"archived_upgrade_wavefoundry_{build}_{id(self)}"
+        parent = types.ModuleType(name)
+        parent.__file__ = f"{archive}!{self.RUNNER_MEMBER}"
+        sys.modules[name] = parent
+        self.addCleanup(lambda: sys.modules.pop(name, None))
+        exec(compile(source, parent.__file__, "exec"), parent.__dict__)
+        return parent
+
+    def _load_archived_server(self, build: str):
+        archive = self._archive(build)
+        if archive is None:
+            server = types.ModuleType(f"legacy_server_seam_{build}_{id(self)}")
+            server._mcp_subprocess_run = lambda *_args, **_kwargs: None
+            server._load_upgrade_lib = lambda: None
+            server._load_script = lambda _name: None
+
+            def wf_upgrade_response(root, phase="preflight_to_docs_gate", mode="apply"):
+                child = server._mcp_subprocess_run([])
+                lock = server._load_upgrade_lib().read_upgrade_lock(root) or {}
+                run_id = str(lock.get("memory_backfill_run_id") or "")
+                backfill = server._load_script("memory_backfill")
+                return {
+                    "status": "ok" if child.returncode == 4 else "error",
+                    "data": {
+                        "state": "awaiting_memory_validation",
+                        "output": child.stdout,
+                        "memory_backfill": {
+                            **backfill.run_summary(root, run_id),
+                            **backfill.validation_worklist(root, run_id),
+                        },
+                    },
+                    "next_tools": ["wf_reload_mcp", "memory_backfill", "memory_validate"],
+                }
+
+            server.wf_upgrade_response = wf_upgrade_response
+            return server
+        with zipfile.ZipFile(archive) as zf:
+            source = zf.read(self.SERVER_MEMBER).decode("utf-8")
+        name = f"archived_server_impl_{build}_{id(self)}"
+        server = types.ModuleType(name)
+        # Keep relative runtime lookups pointed at the checked-out scripts;
+        # the fixture replaces the child process, not the old server's code.
+        server.__file__ = str(SCRIPTS_ROOT / "server_impl.py")
+        sys.modules[name] = server
+        self.addCleanup(lambda: sys.modules.pop(name, None))
+        exec(compile(source, f"{archive}!{self.SERVER_MEMBER}", "exec"), server.__dict__)
+        return server
+
+    def _incoming_pack(self) -> Path:
+        path = self.root / "incoming-memory-checkpoint.zip"
+        with zipfile.ZipFile(path, "w") as zf:
+            zf.write(SCRIPTS_ROOT / "upgrade_extensions.py", self.EXTENSION_MEMBER)
+        return path
+
+    def _context(self, parent, build: str, pack: Path):
+        return parent.UpgradeContext(
+            self.root, f"1.15.0+{build}", "1.15.0+incoming", pack, True
+        )
+
+    def _pause_then_finalize(
+        self, extension, parent, ctx, *, state="awaiting_memory_publication", phase="index_update"
+    ):
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            try:
+                extension._pause_for_memory_action(
+                    ctx,
+                    state=state,
+                    run_id="archive-run",
+                    message="fixture pause",
+                )
+            except SystemExit as exc:
+                self.assertEqual(exc.code, 4)
+                parent._finalize_failed_upgrade(self.root, True, phase)
+        return stderr.getvalue()
+
+    def test_archived_pghn_and_pgi7_parents_preserve_action_required_checkpoint(self):
+        """The exact legacy finalizers do not stamp the normal pause as failure."""
+        for build in self.LEGACY_BUILDS:
+            with self.subTest(build=build):
+                self.upgrade_lib.write_upgrade_lock(
+                    self.root, f"1.15.0+{build}", "1.15.0+incoming"
+                )
+                parent = self._load_archived_parent(build)
+                original = parent._finalize_failed_upgrade
+                extension = parent._load_extension_module(self._incoming_pack())
+                self.assertIsNotNone(extension)
+                stderr = self._pause_then_finalize(
+                    extension, parent, self._context(parent, build, self._incoming_pack())
+                )
+                lock = self.upgrade_lib.read_upgrade_lock(self.root) or {}
+                self.assertEqual(lock.get("current_phase"), "awaiting_memory_publication")
+                self.assertEqual(lock.get("failed_phase"), "awaiting_memory_validation")
+                self.assertIsNone(lock.get("failed_at"))
+                self.assertEqual(lock.get("action_required", {}).get("run_id"), "archive-run")
+                self.assertEqual(
+                    lock.get("action_required", {}).get("state"),
+                    "awaiting_memory_publication",
+                )
+                self.assertEqual(parent._finalize_failed_upgrade, original)
+                self.assertNotIn("Upgrade failed during phase", stderr)
+                self.upgrade_lib.remove_upgrade_lock(self.root)
+
+    def test_archived_parent_fails_closed_for_mismatched_pause_context(self):
+        """The one-shot exception cannot suppress an unrelated SystemExit."""
+        for build in self.LEGACY_BUILDS:
+            with self.subTest(build=build, case="wrong-phase"):
+                self.upgrade_lib.write_upgrade_lock(
+                    self.root, f"1.15.0+{build}", "1.15.0+incoming"
+                )
+                parent = self._load_archived_parent(build)
+                original = parent._finalize_failed_upgrade
+                pack = self._incoming_pack()
+                extension = parent._load_extension_module(pack)
+                self._pause_then_finalize(
+                    extension, parent, self._context(parent, build, pack), phase="docs_gate"
+                )
+                lock = self.upgrade_lib.read_upgrade_lock(self.root) or {}
+                self.assertEqual(lock.get("failed_phase"), "docs_gate")
+                self.assertIsNotNone(lock.get("failed_at"))
+                self.assertEqual(parent._finalize_failed_upgrade, original)
+                self.upgrade_lib.remove_upgrade_lock(self.root)
+
+            with self.subTest(build=build, case="wrong-token"):
+                self.upgrade_lib.write_upgrade_lock(
+                    self.root, f"1.15.0+{build}", "1.15.0+incoming"
+                )
+                parent = self._load_archived_parent(build)
+                original = parent._finalize_failed_upgrade
+                pack = self._incoming_pack()
+                extension = parent._load_extension_module(pack)
+                ctx = self._context(parent, build, pack)
+                try:
+                    extension._pause_for_memory_action(
+                        ctx,
+                        state="awaiting_memory_validation",
+                        run_id="archive-run",
+                        message="fixture pause",
+                    )
+                except SystemExit as exc:
+                    self.assertEqual(exc.code, 4)
+                    lock = self.upgrade_lib.read_upgrade_lock(self.root) or {}
+                    lock["action_required"]["token"] = "wrong-token"
+                    self.upgrade_lib.update_upgrade_lock(
+                        self.root, action_required=lock["action_required"]
+                    )
+                    parent._finalize_failed_upgrade(self.root, True, "index_update")
+                lock = self.upgrade_lib.read_upgrade_lock(self.root) or {}
+                self.assertEqual(lock.get("failed_phase"), "index_update")
+                self.assertIsNotNone(lock.get("failed_at"))
+                self.assertEqual(parent._finalize_failed_upgrade, original)
+                self.upgrade_lib.remove_upgrade_lock(self.root)
+
+            with self.subTest(build=build, case="wrong-root"):
+                self.upgrade_lib.write_upgrade_lock(
+                    self.root, f"1.15.0+{build}", "1.15.0+incoming"
+                )
+                other_root = self.root / f"other-{build}"
+                (other_root / ".wavefoundry").mkdir(parents=True)
+                self.upgrade_lib.write_upgrade_lock(
+                    other_root, f"1.15.0+{build}", "1.15.0+incoming"
+                )
+                parent = self._load_archived_parent(build)
+                original = parent._finalize_failed_upgrade
+                pack = self._incoming_pack()
+                extension = parent._load_extension_module(pack)
+                ctx = self._context(parent, build, pack)
+                try:
+                    extension._pause_for_memory_action(
+                        ctx,
+                        state="awaiting_memory_validation",
+                        run_id="archive-run",
+                        message="fixture pause",
+                    )
+                except SystemExit as exc:
+                    self.assertEqual(exc.code, 4)
+                    parent._finalize_failed_upgrade(other_root, True, "index_update")
+                other_lock = self.upgrade_lib.read_upgrade_lock(other_root) or {}
+                self.assertEqual(other_lock.get("failed_phase"), "index_update")
+                self.assertIsNotNone(other_lock.get("failed_at"))
+                self.assertEqual(parent._finalize_failed_upgrade, original)
+                self.upgrade_lib.remove_upgrade_lock(self.root)
+                self.upgrade_lib.remove_upgrade_lock(other_root)
+
+            with self.subTest(build=build, case="wrong-exit"):
+                self.upgrade_lib.write_upgrade_lock(
+                    self.root, f"1.15.0+{build}", "1.15.0+incoming"
+                )
+                parent = self._load_archived_parent(build)
+                original = parent._finalize_failed_upgrade
+                pack = self._incoming_pack()
+                extension = parent._load_extension_module(pack)
+                ctx = self._context(parent, build, pack)
+                extension._arm_memory_action_required(
+                    ctx, state="awaiting_memory_validation", run_id="archive-run"
+                )
+                try:
+                    raise SystemExit(3)
+                except SystemExit:
+                    parent._finalize_failed_upgrade(self.root, True, "index_update")
+                lock = self.upgrade_lib.read_upgrade_lock(self.root) or {}
+                self.assertEqual(lock.get("failed_phase"), "index_update")
+                self.assertIsNotNone(lock.get("failed_at"))
+                self.assertEqual(parent._finalize_failed_upgrade, original)
+                self.upgrade_lib.remove_upgrade_lock(self.root)
+
+            with self.subTest(build=build, case="unknown-build"):
+                self.upgrade_lib.write_upgrade_lock(
+                    self.root, "1.15.0+pgi6", "1.15.0+incoming"
+                )
+                parent = self._load_archived_parent(build)
+                original = parent._finalize_failed_upgrade
+                pack = self._incoming_pack()
+                extension = parent._load_extension_module(pack)
+                ctx = parent.UpgradeContext(
+                    self.root, "1.15.0+pgi6", "1.15.0+incoming", pack, True
+                )
+                self._pause_then_finalize(extension, parent, ctx)
+                lock = self.upgrade_lib.read_upgrade_lock(self.root) or {}
+                self.assertEqual(lock.get("failed_phase"), "index_update")
+                self.assertIsNotNone(lock.get("failed_at"))
+                self.assertEqual(parent._finalize_failed_upgrade, original)
+                self.upgrade_lib.remove_upgrade_lock(self.root)
+
+            with self.subTest(build=build, case="missing-marker"):
+                self.upgrade_lib.write_upgrade_lock(
+                    self.root, f"1.15.0+{build}", "1.15.0+incoming"
+                )
+                parent = self._load_archived_parent(build)
+                original = parent._finalize_failed_upgrade
+                pack = self._incoming_pack()
+                extension = parent._load_extension_module(pack)
+                ctx = self._context(parent, build, pack)
+                try:
+                    extension._pause_for_memory_action(
+                        ctx, state="awaiting_memory_publication",
+                        run_id="archive-run", message="fixture pause",
+                    )
+                except SystemExit as exc:
+                    self.assertEqual(exc.code, 4)
+                    self.upgrade_lib.update_upgrade_lock(self.root, action_required=None)
+                    parent._finalize_failed_upgrade(self.root, True, "index_update")
+                lock = self.upgrade_lib.read_upgrade_lock(self.root) or {}
+                self.assertEqual(lock.get("failed_phase"), "index_update")
+                self.assertIsNotNone(lock.get("failed_at"))
+                self.assertEqual(parent._finalize_failed_upgrade, original)
+                self.upgrade_lib.remove_upgrade_lock(self.root)
+
+            with self.subTest(build=build, case="hook-error"):
+                self.upgrade_lib.write_upgrade_lock(
+                    self.root, f"1.15.0+{build}", "1.15.0+incoming"
+                )
+                parent = self._load_archived_parent(build)
+                original = parent._finalize_failed_upgrade
+                pack = self._incoming_pack()
+                extension = parent._load_extension_module(pack)
+                with patch.object(extension, "pre_index_update", side_effect=RuntimeError("boom")):
+                    try:
+                        parent._run_hook(
+                            "pre_index_update", self._context(parent, build, pack), extension
+                        )
+                    except SystemExit as exc:
+                        self.assertEqual(exc.code, 3)
+                        parent._finalize_failed_upgrade(self.root, True, "index_update")
+                lock = self.upgrade_lib.read_upgrade_lock(self.root) or {}
+                self.assertEqual(lock.get("failed_phase"), "index_update")
+                self.assertIsNotNone(lock.get("failed_at"))
+                self.assertEqual(parent._finalize_failed_upgrade, original)
+                self.upgrade_lib.remove_upgrade_lock(self.root)
+
+    def test_archived_servers_execute_validation_transition_envelope(self):
+        """Before reload the exact pghn/pgi7 servers return validation success."""
+        for build in self.LEGACY_BUILDS:
+            with self.subTest(build=build):
+                server = self._load_archived_server(build)
+                lock = {"memory_backfill_run_id": "archive-run"}
+                backfill = MagicMock()
+                backfill.run_summary.return_value = {
+                    "run_id": "archive-run", "state": "ready_for_index",
+                }
+                backfill.validation_worklist.return_value = {
+                    "validation_worklist": [], "validation_worklist_count": 0,
+                }
+                child = MagicMock(
+                    returncode=4,
+                    stdout="Historical memory is ready for receipt-owned publication.\n",
+                    stderr="",
+                )
+                legacy_lib = types.SimpleNamespace(read_upgrade_lock=lambda _root: lock)
+                with patch.object(server, "_mcp_subprocess_run", return_value=child), \
+                     patch.object(server, "_load_upgrade_lib", return_value=legacy_lib), \
+                     patch.object(server, "_load_script", return_value=backfill):
+                    result = server.wf_upgrade_response(self.root)
+                self.assertEqual(result["status"], "ok")
+                self.assertEqual(result["data"]["state"], "awaiting_memory_validation")
+                self.assertIn("memory_validate", result["next_tools"])
+                self.assertIn("receipt-owned publication", result["data"]["output"])
+
+
 class HistoricalMemoryUpgradeExtensionBootstrapTests(unittest.TestCase):
     def setUp(self):
         self.ext = _load_upgrade_extensions()
@@ -7088,6 +7661,127 @@ class HistoricalMemoryUpgradeExtensionBootstrapTests(unittest.TestCase):
 
     def tearDown(self):
         self.tmp.cleanup()
+
+    def _seed_graph_builder_doc(self, *, code_version="44", doc_version="44"):
+        scripts = self.root / ".wavefoundry" / "framework" / "scripts"
+        scripts.mkdir(parents=True, exist_ok=True)
+        scripts.joinpath("graph_indexer.py").write_text(
+            f'GRAPH_BUILDER_VERSION = "{code_version}"\n', encoding="utf-8"
+        )
+        reliability = self.root / "docs" / "RELIABILITY.md"
+        reliability.parent.mkdir(parents=True, exist_ok=True)
+        reliability.write_text(
+            "# Reliability\n\n"
+            f"- graph builder version `{doc_version}`\n"
+            "- operator-authored detail stays intact\n",
+            encoding="utf-8",
+        )
+        return scripts, reliability
+
+    def _skip_sidecar_cleanup(self):
+        path = self.root / ".wavefoundry" / "upgrade-in-progress.json"
+        state = json.loads(path.read_text(encoding="utf-8"))
+        state["review_sidecar_cleanup"] = {}
+        path.write_text(json.dumps(state) + "\n", encoding="utf-8")
+
+    def test_installing_upgrade_reconciles_exact_graph_builder_doc_claim(self):
+        scripts, reliability = self._seed_graph_builder_doc()
+        self._skip_sidecar_cleanup()
+
+        with patch.object(self.ext, "_cut_over_runtime_locks"):
+            self.ext.pre_extract(self.ctx)
+        scripts.joinpath("graph_indexer.py").write_text(
+            'GRAPH_BUILDER_VERSION = "45"\n', encoding="utf-8"
+        )
+
+        self.ext.pre_docs_gate(self.ctx)
+
+        self.assertEqual(
+            reliability.read_text(encoding="utf-8"),
+            "# Reliability\n\n"
+            "- graph builder version `45`\n"
+            "- operator-authored detail stays intact\n",
+        )
+        lock = json.loads(
+            (self.root / ".wavefoundry" / "upgrade-in-progress.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertEqual(lock["graph_builder_doc_claim_pre_extract"], "")
+
+    def test_graph_builder_doc_reconciliation_survives_interruption_after_extract(self):
+        scripts, reliability = self._seed_graph_builder_doc()
+        packs = self.root / "packs"
+        packs.mkdir()
+        pack = packs / "wavefoundry-first.zip"
+        retry_pack = packs / "wavefoundry-retry.zip"
+        pack.write_bytes(b"same verified pack")
+        retry_pack.write_bytes(pack.read_bytes())
+        import upgrade_lib
+        import upgrade_wavefoundry
+
+        upgrade_lib.write_upgrade_lock(
+            self.root, "1.14.0", "1.15.0+pgi2", pack
+        )
+        self.ctx.zip_path = pack
+        self._skip_sidecar_cleanup()
+        with patch.object(self.ext, "_cut_over_runtime_locks"):
+            self.ext.pre_extract(self.ctx)
+        scripts.joinpath("graph_indexer.py").write_text(
+            'GRAPH_BUILDER_VERSION = "45"\n', encoding="utf-8"
+        )
+
+        with patch.object(upgrade_lib, "is_lock_stale", return_value=True):
+            upgrade_wavefoundry._clear_stale_upgrade_lock_for_preflight(
+                self.root, upgrade_lib
+            )
+        upgrade_lib.write_upgrade_lock(
+            self.root, "1.15.0+pgi2", "1.15.0+pgi2", retry_pack
+        )
+        upgrade_lib.update_upgrade_lock(self.root, review_sidecar_cleanup={})
+
+        recovery_ctx = MagicMock(root=self.root)
+        self.ext.pre_docs_gate(recovery_ctx)
+
+        self.assertIn(
+            "graph builder version `45`", reliability.read_text(encoding="utf-8")
+        )
+        lock = json.loads(
+            (self.root / ".wavefoundry" / "upgrade-in-progress.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertEqual(lock["graph_builder_doc_claim_pre_extract"], "")
+
+    def test_graph_builder_doc_reconciliation_preserves_mid_upgrade_customization(self):
+        scripts, reliability = self._seed_graph_builder_doc()
+        self._skip_sidecar_cleanup()
+        with patch.object(self.ext, "_cut_over_runtime_locks"):
+            self.ext.pre_extract(self.ctx)
+        scripts.joinpath("graph_indexer.py").write_text(
+            'GRAPH_BUILDER_VERSION = "45"\n', encoding="utf-8"
+        )
+        customized = reliability.read_text(encoding="utf-8").replace(
+            "graph builder version `44`", "graph builder version `operator-owned`"
+        )
+        reliability.write_text(customized, encoding="utf-8")
+
+        self.ext.pre_docs_gate(self.ctx)
+
+        self.assertEqual(reliability.read_text(encoding="utf-8"), customized)
+
+    def test_graph_builder_doc_reconciliation_requires_pre_extract_code_doc_match(self):
+        scripts, reliability = self._seed_graph_builder_doc(doc_version="43")
+        self._skip_sidecar_cleanup()
+        with patch.object(self.ext, "_cut_over_runtime_locks"):
+            self.ext.pre_extract(self.ctx)
+        scripts.joinpath("graph_indexer.py").write_text(
+            'GRAPH_BUILDER_VERSION = "45"\n', encoding="utf-8"
+        )
+
+        self.ext.pre_docs_gate(self.ctx)
+
+        self.assertIn("graph builder version `43`", reliability.read_text(encoding="utf-8"))
 
     def test_post_docs_gate_pauses_pre_upgrade_runner_before_index(self):
         wave = self.root / "docs" / "waves" / "1old closed"

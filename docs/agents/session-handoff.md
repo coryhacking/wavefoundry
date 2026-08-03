@@ -2,9 +2,22 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-01
+Last verified: 2026-08-03
 
-## Current State (2026-07-31, end of session)
+## Current State (2026-08-03, idle)
+
+- **Last closed wave:** `1ua8t memory-checkpoint-reporting` — normal historical-memory checkpoints now report as action-required rather than as `index_update` failures, including across the legacy-parent installing-upgrade boundary.
+- **No wave is OPEN.** The remaining planned waves are not activated; inspect the wave catalog before selecting follow-up work.
+- **Release follow-up:** `wavefoundry-1.15.0.pgl2.zip` predates the final `runner_stale: null` clarification. Rebuild and re-verify a package before publication.
+
+## Open questions / Deferred decisions
+
+- Should the next package carry only the runner-freshness clarification or be grouped with another release-ready change?
+- The close transaction did not automatically finalize admitted change statuses; this wave was corrected during closure. Consider a separate lifecycle-tool fix if that behavior recurs.
+
+## Historical session notes (superseded)
+
+### Current State (2026-07-31, end of session)
 
 - **Wave 1tz6l release-upgrade-hardening: CLOSED + COMMITTED `3870201b`.**
 - **Wave 1u2b0 host-surface-hardening: CLOSED, NOT committed.** Two changes (1u2ay runner-staleness
@@ -231,8 +244,29 @@ full `test_memory_records` module (179 OK). Rides the next commit alongside the 
 as disclosed: unmarked old-schema summary (pre-delegation parent), no false report filed (the
 seed-160 sentence pre-empted it), reconciliation 34 with direct scan_repo_channels cross-check
 [34, 0, 0], runner_stale correctly false with unchanged runner files, root clean, lock cleared.
-Standing verification hook (operator-recorded): the FIRST upgrade initiated by a pg8h-era runner
-must carry `summary_schema: 1`; that run is the delegation's field proof.
+Standing verification hook (operator-recorded; updated by wave 1u8o5 after the envelope key
+renamed to `summary_schema_version`): the NEXT upgrade initiated by a pg8h/pg9m-era runner takes
+exactly one MARKED degraded run (`summary_source_degraded: unrecognized_schema_token_None`, no
+schema key on the fallback summary); the upgrade after that must carry
+`summary_schema_version: 1` unmarked, and that run is the renamed contract's field proof.
+**First half OBSERVED in the field (2026-08-02, pg9m to pgf6 on a target repo):** the pg9m
+parent delegated to the fresh pgf6 child, did not recognize the renamed key, and degraded with
+exactly `summary_source_degraded: unrecognized_schema_token_None`; the fallback was the parent's
+own correct summary (reconciliation 34, independent scan_repo_channels cross-check [34, 0, 0]);
+no false bug report filed. Remaining: the next upgrade on that repo must report
+`summary_schema_version: 1` unmarked.
+
+## Solaris field report 2 (2026-08-02): drift diff-parser tab bug, FILED as 1u91n
+
+Solaris's pgf6 upgrade root-caused a new framework defect, verified against this tree and
+filed as `docs/plans/1u91n-bug drift-diff-parser-drops-tab-terminated-paths.md` (unwaved):
+`_gardener_only_pairs` keeps git's TAB terminator on `+++` filenames containing spaces
+(`index_state_store.py:3545/:3553`), so the blob spec fails at :3614 and doc-drift evaluation
+is dead on every repo following the framework's own space-containing naming convention,
+including this one. The 1u8o0 staleness diagnostic is what made the field diagnosis possible
+(the reporter confirmed both 1u8o2-era improvements: honest exit 4 with retained lock, and
+cause-naming drift failures). Same report also confirmed the 1u44n/1u44o fixes working
+(clean pause before Phase 4, documented recovery succeeded, clean publication).
 
 ## Solaris downstream defect report triaged (2026-08-01)
 
@@ -256,13 +290,56 @@ CHANGELOG Upgrading item 5 gained the reporter's permission-posture sentence (do
 Positive field confirmations recorded: extraction allowlist held (pg1a), seed-160 transition
 caveat accurately predicted the final spill, permissions provenance clean (42/42/0).
 
+## 1u5vl CLOSED + COMMITTED 1b646e8e; wave 1u8o2 OPEN and implementing (2026-08-01)
+
+- 1u5vl closed on explicit operator direction (signoff + readiness re-affirmation recorded);
+  committed as `1b646e8e` with the release-prep edits and the four filed plans.
+- Wave `1u8o2 downstream-field-report-fixes` (four Solaris bugs) went through a five-reviewer
+  prepare cycle that REFUTED both reporter root causes by independent executed reproduction:
+  1u8nz rewritten to orphaned graph/sidecar store rows (Lance already self-heals; all deletion
+  orderings heal; pack-lineage discrepancy is now a requirement); 1u8o0 rewritten to the
+  reproduced living-doc deletion-frame trigger (delete-then-recreate persistence condition pinned
+  into the fixture; classifier succeeds locally otherwise). Also: 1u8o1's wf_cli fix is
+  checker-side REQUIRED (seed rewrite proven vacuous; twelfth mirror finding), seed-160 debris
+  guidance is extend-in-place (premise was stale), 1u725 gained anti-vacuity assertions. All five
+  reviewers CONFIRM on final bytes; five signoffs under receipt `review-policy-ece50807cc434b4322df`;
+  READIED then OPENED; implementer running all four changes in serialization order
+  (1u725, 1u8nz, 1u8o0, 1u8o1; index_state_store shared by 1u8nz+1u8o0; server_impl wf_audit
+  shape shared by 1u8o0+1u8o1, landed against the spec in one pass).
+- Close-time follow-ups recorded by lanes: the shipped eligibility reap's mass-removal hazard
+  (disclosed, out of 1u8nz scope) needs its own entry; operator-signoff placeholder line; fresh
+  unreleased CHANGELOG section contingency if 1.15.0 ships before this wave.
+
+## 1u8o2 DELIVERED, delivery-reviewed, repairs reverified (2026-08-01, late)
+
+- All four changes implemented and delivery-reviewed: four lanes PASS with executed verification,
+  then a seven-item repair pass (two qa P2 test gaps from probing mutants: the untested build-path
+  reap seam, now pinned; the vacuous never-blocks-ready pin, de-vacuated; five accuracy P3s incl.
+  the secrets-cache breaker-starvation record and the walk-parity doc clause), every repair
+  reverified by its originating lane with mutant kills re-established from scratch. Twelve
+  mutation checks total, zero final survivors.
+- Coordinator-executed final suite: 6721 across 61 files, OK. Tracking verified (all boxes,
+  statuses synced, gates closed). Ledger: four lane approvals + `ev-approval-wave-council-delivery`
+  under receipt `review-policy-03e6ca8f46d892ce20a4`. ONLY `operator-signoff` outstanding; close
+  is operator-owned. Readiness re-affirmation under the final receipt will be needed at close
+  (standard supersession pattern).
+- Durable follow-up filed: `docs/plans/1u8o3-debt eligibility-reap-mass-removal-hazard.md`
+  (symbol-anchored) so the disclosed shipped-reap hazard survives close.
+
+**Field validation (2026-08-01, late): pg8h to pg9m on a target repo.** The delegation's first
+live proof: the schema token at value 1 (observed under the pre-rename key spelling; wave 1u8o5
+has since renamed the key to `summary_schema_version`, so the next pg8h/pg9m-initiated upgrade
+takes one marked degraded run and the run after reports `summary_schema_version: 1` unmarked, per
+the standing hook above), no `summary_source_degraded`, on the upgrade that shipped its own
+seed change; the class-(a) reporting lag is empirically closed (transition run pg5l-to-pg8h had
+correctly shown absent, per the disclosure). runner_stale false, impl_matches_disk true,
+reconciliation 34 with independent cross-check [34, 0, 0], root clean, permissions unchanged.
+
 ## Next Steps
-1. Operator: signoff + close for 1u5vl.
-2. Release commit (operator-authorized): all modified files PLUS the untracked ADR
-   `docs/architecture/decisions/1u49j-adr fresh-code-summary-producer-contract.md`; date the
-   `## [1.15.0] - unreleased` heading in that commit (release-lane note).
-3. `build_pack.py --release` under gh account `coryhacking` (branch main, no v1.15 tag; changelog
-   gate passes as-is). pg5l predates 1u5vl and the hardening fixes; the release build is the ship
+1. Operator: signoff + close for 1u8o2.
+2. Release commit (operator-authorized), dating the `## [1.15.0] - unreleased` heading.
+3. `build_pack.py --release` under gh account `coryhacking` (branch main, no v1.15 tag), then
+   `gh release create` as `coryhacking`. pg8h predates wave 1u8o2; the release build is the ship
    artifact.
 
 ## Current Session

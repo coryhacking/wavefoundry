@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-25
+Last verified: 2026-08-03
 
 Typed, evidence-backed memory records for the agent memory layer: prior failed
 attempts, operator preferences, fragile files, review findings, environment
@@ -55,10 +55,10 @@ Required sections:
 
 Optional: `## Notes`.
 
-## Physical archive and active pointers
+## Physical archive and searchable register
 
 Retired records may be archived only through
-`memory_reconcile(memory_id, status="archived", archive_reason=...)`. Eligible
+`memory_reconcile(memory_id, status="archived", archive_reason=..., retain_for_history=true)`. Eligible
 statuses are `stale`, `superseded`, and `rejected`; decisions, operator
 preferences, and fragile-file records additionally require
 `eligibility_confirmed=true` after a current review confirms the knowledge is no
@@ -67,24 +67,51 @@ longer operational.
 The operation first renames the retired body into the index-excluded
 `docs/agents/memory/archive/`, then atomically marks it with `Archived:`,
 `Archive reason:`, and `Archive path:`. It leaves a compact record-shaped
-pointer in `docs/agents/memory/pointers/` with `Pointer to:` and `## Keywords`.
-The rename, metadata rewrite, and pointer publication are
+entry in `docs/agents/memory-archive.md`. The register carries only stable ID,
+title, kind, targets, archive date, successor, and archive path. Full archive
+bodies are excluded from ordinary semantic indexing; the compact register
+remains indexed and searchable.
+Setup and upgrade detect the retired generated `memory/pointers/` directory,
+derive this register from archive bodies, and remove the pointer copies before
+index publication. The index walker also excludes that legacy path during the
+transition, so an interrupted or older repository cannot keep indexing it.
+
+Archive only material that remains important to project history. For a reviewed
+retired record that is not history-worthy, use `memory_purge(memory_id=..., reviewed=true)`;
+it permanently removes the body and register entry and cannot be undone by Wavefoundry.
+The body is first renamed into an index-excluded purge-staging path. Register
+publication must succeed before final deletion; a publication failure rolls the
+body back, while an interruption after staging is completed by retrying the same
+`memory_purge` call.
+For evidence-derived memories, purge first records only the SHA-256 source-event
+identity in `.wavefoundry/memory-purge-dispositions.json`. This compact,
+repo-visible authority is outside the indexed memory corpus and survives index
+rebuilds and fresh clones, so removal cannot regenerate the same proposal.
+Setup and upgrade preserve an existing authority file byte-for-byte.
+The rename, metadata rewrite, and manifest publication are
 state-derived and retry-safe under the cross-process mutation lock and memory
 fence; no copy/delete move is used.
 
 Archive bodies are excluded from ordinary semantic indexing, graph extraction,
 briefings, and action-time advisories. A targeted normal `memory_search` may
-return the compact pointer. Use `memory_search(include_history=true)` or
+return the compact register entry. Use `memory_search(include_history=true)` or
 `memory_search(status="archived")` to retrieve the archived body. Archived
 source-event dispositions remain part of proposal/backfill duplicate history,
 so archival never regenerates old candidates.
 
-If a process stops after the rename but before metadata/pointer publication, the
+If a process stops after the rename but before metadata/manifest publication, the
 retired-status body is a **pending archive**. It stays excluded from every
 default advisory and index path, but unfiltered/history reads retain it so its
 source disposition cannot be regenerated. Docs lint fails loudly with the exact
 `memory_reconcile(memory_id=..., status="archived", archive_reason=...)` retry
 needed to finish the transaction.
+
+For related active lessons, use `memory_consolidate(mode="dry_run")` first.
+It only proposes same-kind records with identical canonical targets. Applying
+one returned group requires an explicit reviewed title and summary; the new
+playbook is created only after every source passes a locked read-only preflight,
+then every source is superseded and archived. Consolidation has no bulk retired-
+record cleanup path; age alone never authorizes archival.
 
 ## Kinds and decay
 

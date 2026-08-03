@@ -21,6 +21,7 @@ from review_policy import (
 RECONCILER_VERSION = 1
 MANAGED_BEGIN = "<!-- wavefoundry:review-lifecycle:begin -->"
 MANAGED_END = "<!-- wavefoundry:review-lifecycle:end -->"
+UPGRADE_POLICY_DESTINATION = "docs/prompts/upgrade-wavefoundry.prompt.md"
 
 
 KNOWN_SECTION_REPLACEMENTS: dict[str, tuple[tuple[str, str], ...]] = {
@@ -381,9 +382,34 @@ def reconcile_lifecycle_sections(root: Path) -> tuple[str, ...]:
     return apply_reconciliation(root, plan_reconciliation(root))
 
 
+def reconcile_upgrade_policy_surface(root: Path) -> tuple[str, ...]:
+    """Refresh only the upgrade-policy marker from freshly extracted code.
+
+    The in-process lifecycle reconciler remains the primary owner. This bounded
+    helper exists for the installing-upgrade old-code window: the fresh renderer
+    may replay the shared marker without adopting any other lifecycle carrier.
+    """
+
+    path = contained_relative_path(root, UPGRADE_POLICY_DESTINATION)
+    if not path.is_file():
+        return ()
+    try:
+        before = path.read_bytes()
+        text = before.decode("utf-8")
+        after = _reconcile_upgrade_policy_region(text).encode("utf-8")
+    except (OSError, UnicodeError, ValueError) as exc:
+        raise ValueError(
+            f"{UPGRADE_POLICY_DESTINATION}: upgrade-policy reconciliation failed: {exc}"
+        ) from exc
+    if after == before:
+        return ()
+    _atomic_replace(path, after)
+    return (UPGRADE_POLICY_DESTINATION,)
+
+
 __all__ = [
     "CarrierEdit", "KNOWN_SECTION_REPLACEMENTS", "MANAGED_BEGIN", "MANAGED_END",
-    "RECONCILER_VERSION", "_live_markdown_retired_errors",
+    "RECONCILER_VERSION", "UPGRADE_POLICY_DESTINATION", "_live_markdown_retired_errors",
     "apply_reconciliation", "plan_reconciliation",
-    "reconcile_lifecycle_sections",
+    "reconcile_lifecycle_sections", "reconcile_upgrade_policy_surface",
 ]

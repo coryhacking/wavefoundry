@@ -14,7 +14,7 @@ Explain the shared Wave Framework review model: what review is for, how it fits 
 
 ## Wave Council Meta-Review
 
-Projects may enable **Wave Council** as a phase-specific meta-review. Wave Council does **not** replace specialist review lanes. Readiness Council is required whenever review is enabled; delivery Council follows `wave_review.delivery_mode` (`universal`, risk-selected `targeted`, or the valid review-disabled `disabled` pairing):
+Projects may enable **Wave Council** as a phase-specific meta-review. Wave Council does **not** replace specialist review lanes. Readiness Council is required whenever review is enabled; delivery Council follows `wave_review.delivery_mode` (`universal`, risk-selected `targeted`, or the valid review-disabled `disabled` pairing). `targeted` is the default: it escalates to full Council for upgrade/release, permission or trust boundaries, cross-platform behavior, and the other shared boundary triggers; ordinary work keeps its required specialist lanes:
 
 - **`wave-council-readiness`** — before implementation begins; declared waves record this authority as a typed approval event in `events.jsonl`, while legacy waves retain the structured prose verdict gate. A declared wave may keep a structured checkpoint as narrative, but it is not machine authority.
 - **`wave-council-delivery`** — after implementation and before closure only when selected by the current Prepare receipt
@@ -145,7 +145,7 @@ Projects that enable Wave Council should also declare an explicit council policy
 {
   "wave_review": {
     "enabled": true,
-    "delivery_mode": "universal",
+    "delivery_mode": "targeted",
     "evidence_section": "## Review Evidence",
     "transition_policy": "applies-from-next-prepare",
     "phases": {
