@@ -169,6 +169,17 @@ class ModelBundleTests(unittest.TestCase):
         self.assertEqual(model_bundle.find_local_bundle((dist,), "2"), expected)
         self.assertIsNone(model_bundle.find_local_bundle((dist,), "1"))
 
+    def test_manual_recovery_guidance_uses_exact_asset_and_standard_locations(self):
+        guidance = model_bundle.manual_recovery_guidance("2")
+        self.assertIn("wavefoundry-models-2.zip", guidance)
+        self.assertIn("same Wavefoundry release", guidance)
+        self.assertIn("target repository root, ~/", guidance)
+        self.assertIn("~/.wavefoundry/", guidance)
+        self.assertIn("~/.wavefoundry/dist/", guidance)
+        self.assertIn("~/Downloads/", guidance)
+        self.assertIn("leave it zipped", guidance)
+        self.assertIn("leaves the verified cache unchanged", guidance)
+
 
 if __name__ == "__main__":
     unittest.main()

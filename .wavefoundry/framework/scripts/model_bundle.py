@@ -81,6 +81,18 @@ def bundle_name(model_set_version: str = MODEL_SET_VERSION) -> str:
     return f"{BUNDLE_PREFIX}{model_set_version}.zip"
 
 
+def manual_recovery_guidance(model_set_version: str = MODEL_SET_VERSION) -> str:
+    """Return the operator recovery path when an online model warm cannot complete."""
+    asset = bundle_name(model_set_version)
+    return (
+        f"To recover without a model download, manually download '{asset}' from the same Wavefoundry release "
+        "(or an approved internal distribution), leave it zipped, and place it in the target repository root, "
+        "~/, ~/.wavefoundry/, ~/.wavefoundry/dist/, or ~/Downloads/. Then rerun 'wf setup'. Setup validates the "
+        "model set, component hashes, and licenses before replacing the cache; an invalid bundle leaves the verified "
+        "cache unchanged."
+    )
+
+
 def find_local_bundle(search_dirs: tuple[Path, ...], model_set_version: str = MODEL_SET_VERSION) -> Path | None:
     """Find the exact model-set asset in ordered, operator-controlled locations."""
     name = bundle_name(model_set_version)

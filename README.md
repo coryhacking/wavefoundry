@@ -173,6 +173,8 @@ What each `docs/` subdirectory carries — the agent reads these to ground its w
 
 **Zero at runtime to Wavefoundry-controlled endpoints.** Embedding model weights are normally fetched from Hugging Face on the first index build and cached locally thereafter. In controlled or air-gapped deployments, download the feature package and its exact declared `wavefoundry-models-<set>.zip` asset into a standard distribution directory; upgrade verifies and materializes that set without a model download. Dependencies are installed via `uv` (or `pip` fallback) during `wf setup` and during framework upgrades. No service, no account, no telemetry.
 
+If a required model cannot download, first retry `wf setup` when network access is available. If that is not possible, manually download the exact `wavefoundry-models-<set>.zip` asset from the same [release](https://github.com/coryhacking/wavefoundry/releases) (or your approved internal distribution), leave it zipped, and put it in the target repository root, `~/`, `~/.wavefoundry/`, `~/.wavefoundry/dist/`, or `~/Downloads/`. Run `wf setup` again. Wavefoundry validates the model set, component hashes, and licenses before replacing the cache; an invalid archive leaves a verified cache unchanged.
+
 ---
 
 ## Your first wave

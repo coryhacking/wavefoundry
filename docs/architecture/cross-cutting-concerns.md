@@ -93,7 +93,11 @@ and the selected model-set identity. It stages
 the complete set before publication, retains sibling backups while every cache
 directory is renamed, and restores all earlier directories if any later publish
 fails. An older verified set is replaced only by a newer declared model-set
-version, while an equal verified set is reused.
+version, while an equal verified set is reused. When an online model warm cannot
+complete, the failure path names the exact companion asset and the existing
+discovery directories; operators obtain that asset from the matching release or
+approved internal distribution, leave it zipped, and rerun canonical setup.
+This recovery reporting adds no downloader, cache location, or selection path.
 
 ## Shared Utilities
 

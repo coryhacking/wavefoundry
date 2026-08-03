@@ -84,6 +84,10 @@ wavefoundry-models-MODEL.SET.zip
 - `--verbose` / `-v`: print index build progress.
 - `--with-models`: build the declared offline model-set asset from the warmed local model cache; use it only when the model-set version/fingerprint or its artifact bytes changed. It never downloads missing model files during packaging. `--release` publishes only the feature ZIP unless this flag is supplied.
 
+## Operator Recovery When Model Download Is Unavailable
+
+If `wf setup` cannot download a required model, first retry the same command when network access is available. When that is not possible, the operator can manually obtain the exact `wavefoundry-models-<set>.zip` asset from the same release (or an approved internal distribution), leave it zipped, and place it in the target repository root, `~/`, `~/.wavefoundry/`, `~/.wavefoundry/dist/`, or `~/Downloads/`. Rerun `wf setup`; it discovers only the exact declared model-set asset and validates the model set, component hashes, and licenses before replacing the cache. An invalid archive does not replace a verified cache.
+
 ## Upgrade Path Coverage
 
 After packaging, target repositories should consume the pack via **Upgrade Wavefoundry** so the upgrade flow can:

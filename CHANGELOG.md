@@ -6,7 +6,7 @@ the individual wave records under [`docs/waves/`](docs/waves/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.15.0] - unreleased
+## [1.15.0] - 2026-08-03
 
 ### Fixed
 
@@ -117,6 +117,11 @@ next upgrade reports `summary_schema_version: 1` with no marker.
   validate its provenance, hashes, licenses, and compatibility fingerprint,
   then materialize it atomically. This also works on the first upgrade from a
   pre-model-bundle runner. Wave 1u95o / change 1uat8.
+
+- **Model warm failures print the manual recovery path.** When setup cannot download a required
+  model, the failure message now names the exact `wavefoundry-models-<set>.zip` asset and the
+  standard placement locations, so an offline operator can recover without guessing; setup still
+  validates hashes and licenses before replacing a verified cache. Wave 1ua8v / change 1ua8u.
 
 - **Memory maintenance now has a deployable public shortcut.** **Review memories** (alias **Memory review**) runs the existing reviewed validation, bounded consolidation, history-worthy archive, and irreversible purge workflow with measurable before/after results; an explicit read-only branch performs no mutation. Consolidation preflights every source, caps each apply at five records with deterministic continuation metadata, creates the replacement through the normal forbidden-content checks, and restores its pre-apply snapshot after a caught multi-source failure. Purge is advertised as destructive and stores only SHA-256 source identities in the repo-visible, non-indexed `.wavefoundry/memory-purge-dispositions.json`, so deleted history cannot regenerate after an index reset or fresh clone. The compact archive register remains searchable while full archive bodies remain excluded. Setup and upgrade migrate the retired generated `memory/pointers/` directory into that register before indexing; index walks exclude any residue and lint rejects the old schema. Retired records have no bulk archival path—the archive-versus-purge judgment remains per record. Fresh setup and every upgrade backfill the missing prompt without replacing project-authored prompt prose, and upgrade may recommend the shortcut after a memory brief but never runs curation automatically. Wave 1u8r2 / changes 1u75c and 1u8r1.
 

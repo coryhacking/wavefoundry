@@ -1465,6 +1465,8 @@ def _model_failure_message(
         "Retry setup when network access is available. If the issue persists, inspect the FastEmbed cache under "
         f"{_fastembed_cache_dir()}."
     )
+    import model_bundle
+    details.append(model_bundle.manual_recovery_guidance())
     return " ".join(details)
 
 

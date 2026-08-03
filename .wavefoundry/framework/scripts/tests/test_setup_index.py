@@ -732,6 +732,10 @@ class SetupIndexTests(unittest.TestCase):
         self.assertIn("Required embedding model 'model-a' could not be prepared", message)
         self.assertIn("network or download host unavailable", message)
         self.assertIn("Underlying error:", message)
+        self.assertIn("wavefoundry-models-1.zip", message)
+        self.assertIn("target repository root, ~/, ~/.wavefoundry/, ~/.wavefoundry/dist/, or ~/Downloads/", message)
+        self.assertIn("leave it zipped", message)
+        self.assertIn("leaves the verified cache unchanged", message)
 
     def test_main_returns_2_on_model_prewarm_error(self):
         with patch.object(self.mod, "_reexec_with_venv_if_needed"):
