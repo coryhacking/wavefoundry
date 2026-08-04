@@ -25,6 +25,7 @@ _FASTEMBED_DEFAULT = _HOME / "cache" / "fastembed"
 _ONNX_DEFAULT = _HOME / "cache" / "onnx-src"
 _MANIFEST_NAME = "model-bundle-manifest.json"
 _MARKER_NAME = ".wavefoundry-model-bundle.json"
+_VERIFICATION_MANIFEST_NAME = "model-set-verification-manifest.json"
 
 # Cache directory names are deliberately exact.  Updating a model requires a
 # new policy/version, provenance review, and an index compatibility decision.
@@ -108,19 +109,17 @@ def find_local_bundle(search_dirs: tuple[Path, ...], model_set_version: str = MO
     return None
 
 
-def build_bundle(
-    output_dir: Path,
-    *,
-    cache_root: Path | None = None,
-) -> Path:
-    """Create an independently versioned model-set archive from a warmed cache."""
-    root = cache_root.expanduser() if cache_root else _HOME / "cache"
-    payload: list[tuple[str, bytes]] = []
+def canonical_verification_manifest_path() -> Path:
+    """Return the installed framework-root verification authority."""
+    return Path(__file__).resolve().parent.parent / _VERIFICATION_MANIFEST_NAME
+
+
+def _manifest_from_cache(root: Path) -> dict[str, Any]:
+    """Describe the complete declared cache set (used to verify a companion build)."""
     components: list[dict[str, Any]] = []
     for component_id, target, directory, license_id, upstream in COMPONENTS:
         source = root / target / directory
-        snapshots = source / "snapshots"
-        refs = source / "refs"
+        snapshots, refs = source / "snapshots", source / "refs"
         if not snapshots.is_dir() or not refs.is_dir():
             raise RuntimeError(f"required warmed model cache is missing: {source}")
         files: list[dict[str, str]] = []
@@ -130,24 +129,58 @@ def build_bundle(
             relative = candidate.relative_to(source).as_posix()
             if relative.startswith("/") or ".." in Path(relative).parts:
                 raise RuntimeError(f"unsafe cache path: {candidate}")
-            data = candidate.read_bytes()  # dereference only trusted local cache links
-            arc = f"models/{target}/{directory}/{relative}"
-            payload.append((arc, data))
-            files.append({"path": arc, "sha256": _sha256(data)})
+            files.append({"path": f"models/{target}/{directory}/{relative}", "sha256": _file_sha256(candidate)})
         if not files:
             raise RuntimeError(f"required warmed model cache is empty: {source}")
         components.append({"id": component_id, "target": target, "directory": directory,
                            "upstream": upstream, "revision": (refs / "main").read_text(encoding="utf-8").strip(),
-                           "license": license_id,
-                           "attribution": f"Model artifact from {upstream}.",
-                           "redistribution_decision": "approved-direct-distribution",
-                           "files": files})
-    manifest = {"schema_version": BUNDLE_SCHEMA, "model_set_version": MODEL_SET_VERSION,
-                "embedding_compatibility_fingerprint": EMBEDDING_COMPATIBILITY_FINGERPRINT,
-                "components": components}
+                           "license": license_id, "attribution": f"Model artifact from {upstream}.",
+                           "redistribution_decision": "approved-direct-distribution", "files": files})
+    return {"schema_version": BUNDLE_SCHEMA, "model_set_version": MODEL_SET_VERSION,
+            "embedding_compatibility_fingerprint": EMBEDDING_COMPATIBILITY_FINGERPRINT,
+            "components": components}
+
+
+def load_canonical_verification_manifest(manifest_path: Path | None = None) -> dict[str, Any]:
+    """Load and validate the checked-in, release-pinned model-set authority."""
+    source = manifest_path or canonical_verification_manifest_path()
+    manifest = json.loads(source.read_text(encoding="utf-8"))
+    if not isinstance(manifest, dict):
+        raise RuntimeError("canonical model verification manifest is invalid")
+    _validate_manifest_contract(manifest)
+    return manifest
+
+
+def build_bundle(
+    output_dir: Path,
+    *,
+    cache_root: Path | None = None,
+) -> Path:
+    """Create an independently versioned model-set archive from a warmed cache."""
+    root = cache_root.expanduser() if cache_root else _HOME / "cache"
+    canonical_manifest = load_canonical_verification_manifest()
+    built_manifest = _manifest_from_cache(root)
+    if built_manifest != canonical_manifest:
+        raise RuntimeError("warmed model cache does not match the canonical verification manifest")
+    payload: list[tuple[str, bytes]] = []
+    for component_id, target, directory, license_id, upstream in COMPONENTS:
+        source = root / target / directory
+        snapshots = source / "snapshots"
+        refs = source / "refs"
+        if not snapshots.is_dir() or not refs.is_dir():
+            raise RuntimeError(f"required warmed model cache is missing: {source}")
+        for candidate in sorted([*refs.rglob("*"), *snapshots.rglob("*")]):
+            if not candidate.is_file():
+                continue
+            relative = candidate.relative_to(source).as_posix()
+            if relative.startswith("/") or ".." in Path(relative).parts:
+                raise RuntimeError(f"unsafe cache path: {candidate}")
+            data = candidate.read_bytes()  # dereference only trusted local cache links
+            arc = f"models/{target}/{directory}/{relative}"
+            payload.append((arc, data))
     out = output_dir / bundle_name()
     with zipfile.ZipFile(out, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr(_MANIFEST_NAME, json.dumps(manifest, sort_keys=True, indent=2) + "\n")
+        archive.writestr(_MANIFEST_NAME, json.dumps(canonical_manifest, sort_keys=True, indent=2) + "\n")
         for license_id in ("Apache-2.0", "MIT"):
             archive.writestr(f"THIRD_PARTY_LICENSES/{license_id}.txt", _license_text(license_id))
         for arc, data in payload:
@@ -175,6 +208,122 @@ def _component_file_map(component: dict[str, Any]) -> dict[str, str]:
     if not file_map:
         raise RuntimeError("model bundle component has no declared files")
     return file_map
+
+
+def _validate_manifest_contract(manifest: dict[str, Any]) -> list[dict[str, Any]]:
+    """Validate the shared model-set identity contract without requiring payload bytes."""
+    if manifest.get("schema_version") != BUNDLE_SCHEMA:
+        raise RuntimeError("unsupported model bundle schema")
+    _version_key(manifest.get("model_set_version"))
+    if manifest.get("embedding_compatibility_fingerprint") != EMBEDDING_COMPATIBILITY_FINGERPRINT:
+        raise RuntimeError("model bundle does not match the installed model compatibility policy")
+    expected_components = {(item[0], item[1], item[2], item[3], item[4]) for item in COMPONENTS}
+    declared_components: set[tuple[str, str, str, str, str]] = set()
+    components = manifest.get("components")
+    if not isinstance(components, list):
+        raise RuntimeError("model bundle has no component list")
+    for component in components:
+        if not isinstance(component, dict):
+            raise RuntimeError("model bundle has an invalid component")
+        identity = tuple(component.get(key) for key in ("id", "target", "directory", "license", "upstream"))
+        if identity not in expected_components:
+            raise RuntimeError("model bundle declares an unsupported component")
+        if identity in declared_components:
+            raise RuntimeError("model bundle declares a duplicate component")
+        declared_components.add(identity)
+        if component.get("redistribution_decision") != "approved-direct-distribution" or not component.get("attribution"):
+            raise RuntimeError("model bundle component lacks redistribution provenance")
+        if not isinstance(component.get("revision"), str) or not component["revision"].strip():
+            raise RuntimeError("model bundle component lacks an upstream revision")
+        file_map = _component_file_map(component)
+        if "refs/main" not in file_map:
+            raise RuntimeError("model bundle component lacks its main revision reference")
+    if declared_components != expected_components:
+        raise RuntimeError("model bundle component set is incomplete")
+    return components
+
+
+def _cached_component_file_map(destination: Path) -> dict[str, str] | None:
+    """Hash the snapshot and ref files that define a cache component identity."""
+    files: dict[str, str] = {}
+    for root_name in ("refs", "snapshots"):
+        root = destination / root_name
+        if not root.is_dir():
+            return None
+        for candidate in sorted(root.rglob("*")):
+            if candidate.is_file():
+                files[candidate.relative_to(destination).as_posix()] = _file_sha256(candidate)
+    return files
+
+
+def attest_online_cache(manifest_path: Path | None = None) -> bool:
+    """Mark a fully verified, normally downloaded cache as the declared model set.
+
+    Missing, unreadable, or mismatched verification data is deliberately a
+    non-fatal no-op: online setup retains its existing acquisition behavior and
+    only complete release-identical caches receive markers.
+    """
+    try:
+        manifest = load_canonical_verification_manifest(manifest_path)
+        components = manifest["components"]
+    except (OSError, ValueError, RuntimeError):
+        return False
+
+    incoming_version = _version_key(manifest["model_set_version"])
+    pending: list[tuple[Path, dict[str, Any]]] = []
+    for component in components:
+        destination = _target_root(component["target"]) / component["directory"]
+        files = _component_file_map(component)
+        if _cached_component_file_map(destination) != files:
+            return False
+        try:
+            if (destination / "refs" / "main").read_text(encoding="utf-8").strip() != component["revision"].strip():
+                return False
+        except OSError:
+            return False
+        expected = {
+            "model_set_version": manifest["model_set_version"],
+            "fingerprint": manifest["embedding_compatibility_fingerprint"],
+            "files": files,
+        }
+        marker = destination / _MARKER_NAME
+        installed = _verified_marker(destination, marker) if marker.is_file() else None
+        if installed is not None:
+            installed_version = _version_key(installed["model_set_version"])
+            if installed_version > incoming_version:
+                return False
+            if installed_version == incoming_version and installed != expected:
+                return False
+        pending.append((marker, expected))
+
+    written: list[tuple[Path, bytes | None]] = []
+    try:
+        for marker, expected in pending:
+            if marker.is_file() and _verified_marker(marker.parent, marker) == expected:
+                continue
+            original = marker.read_bytes() if marker.exists() else None
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=marker.parent,
+                prefix=f".{_MARKER_NAME}.",
+                delete=False,
+            ) as staged:
+                staged.write(json.dumps(expected, sort_keys=True) + "\n")
+                staged_path = Path(staged.name)
+            staged_path.replace(marker)
+            written.append((marker, original))
+    except OSError:
+        for marker, original in reversed(written):
+            try:
+                if original is None:
+                    marker.unlink(missing_ok=True)
+                else:
+                    marker.write_bytes(original)
+            except OSError:
+                pass
+        return False
+    return True
 
 
 def _verified_marker(destination: Path, marker: Path) -> dict[str, Any] | None:
@@ -220,38 +369,13 @@ def local_model_set_status() -> str:
 
 
 def _validate_manifest(manifest: dict[str, Any], infos: dict[str, zipfile.ZipInfo]) -> list[dict[str, Any]]:
-    if manifest.get("schema_version") != BUNDLE_SCHEMA:
-        raise RuntimeError("unsupported model bundle schema")
-    _version_key(manifest.get("model_set_version"))
-    if manifest.get("embedding_compatibility_fingerprint") != EMBEDDING_COMPATIBILITY_FINGERPRINT:
-        raise RuntimeError("model bundle does not match the installed model compatibility policy")
+    components = _validate_manifest_contract(manifest)
     expected_components = {(item[0], item[1], item[2], item[3], item[4]) for item in COMPONENTS}
-    declared_components: set[tuple[str, str, str, str, str]] = set()
     declared: dict[str, str] = {}
-    components = manifest.get("components")
-    if not isinstance(components, list):
-        raise RuntimeError("model bundle has no component list")
     for component in components:
-        if not isinstance(component, dict):
-            raise RuntimeError("model bundle has an invalid component")
-        identity = tuple(component.get(key) for key in ("id", "target", "directory", "license", "upstream"))
-        if identity not in expected_components:
-            raise RuntimeError("model bundle declares an unsupported component")
-        if identity in declared_components:
-            raise RuntimeError("model bundle declares a duplicate component")
-        declared_components.add(identity)
-        if component.get("redistribution_decision") != "approved-direct-distribution" or not component.get("attribution"):
-            raise RuntimeError("model bundle component lacks redistribution provenance")
-        if not isinstance(component.get("revision"), str) or not component["revision"].strip():
-            raise RuntimeError("model bundle component lacks an upstream revision")
         file_map = _component_file_map(component)
-        revision_path = "refs/main"
-        if revision_path not in file_map:
-            raise RuntimeError("model bundle component lacks its main revision reference")
         declared.update({f"models/{component['target']}/{component['directory']}/{relative}": digest
                          for relative, digest in file_map.items()})
-    if declared_components != expected_components:
-        raise RuntimeError("model bundle component set is incomplete")
     for license_id in {component[3] for component in expected_components}:
         if f"THIRD_PARTY_LICENSES/{license_id}.txt" not in infos:
             raise RuntimeError("model bundle lacks a required license notice")

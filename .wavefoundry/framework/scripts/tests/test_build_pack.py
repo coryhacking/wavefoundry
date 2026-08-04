@@ -49,6 +49,19 @@ class BuildPackTests(unittest.TestCase):
         path = self._build(version="1.0.0", build_prefix="2abc")
         self.assertEqual(path.name, "wavefoundry-1.0.0.2abc.zip")
 
+    def test_standard_feature_package_contains_verification_manifest_without_model_payload(self):
+        path = self._build()
+        names = self._zip_names(path)
+        manifest = ".wavefoundry/framework/model-set-verification-manifest.json"
+        self.assertIn(manifest, names)
+        self.assertIn(".wavefoundry/framework/MANIFEST", names)
+        self.assertFalse(any(name.startswith("models/") for name in names))
+        with zipfile.ZipFile(path) as archive:
+            payload = json.loads(archive.read(manifest))
+            package_manifest = archive.read(".wavefoundry/framework/MANIFEST").decode("utf-8")
+        self.assertEqual(payload["model_set_version"], "1")
+        self.assertIn("model-set-verification-manifest.json", package_manifest)
+
     def test_build_suffix_uses_rightmost_four_characters(self):
         self.assertEqual(build_pack._build_suffix("12tm5"), "2tm5")
         self.assertEqual(build_pack._build_suffix("abcd"), "abcd")

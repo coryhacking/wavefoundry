@@ -30,13 +30,34 @@ class ModelBundleTests(unittest.TestCase):
         self.old_fast, self.old_onnx = os.environ.get("FASTEMBED_CACHE_PATH"), os.environ.get("WAVEFOUNDRY_ONNX_SRC_CACHE")
         os.environ["FASTEMBED_CACHE_PATH"] = str(self.fast)
         os.environ["WAVEFOUNDRY_ONNX_SRC_CACHE"] = str(self.onnx)
+        self._real_load_manifest = model_bundle.load_canonical_verification_manifest
+        self._test_manifest = model_bundle._manifest_from_cache(self.cache)
+        self._manifest_patch = patch.object(
+            model_bundle,
+            "load_canonical_verification_manifest",
+            side_effect=lambda path=None: self._test_manifest if path is None else self._real_load_manifest(path),
+        )
+        self._manifest_patch.start()
 
     def tearDown(self):
+        self._manifest_patch.stop()
         if self.old_fast is None: os.environ.pop("FASTEMBED_CACHE_PATH", None)
         else: os.environ["FASTEMBED_CACHE_PATH"] = self.old_fast
         if self.old_onnx is None: os.environ.pop("WAVEFOUNDRY_ONNX_SRC_CACHE", None)
         else: os.environ["WAVEFOUNDRY_ONNX_SRC_CACHE"] = self.old_onnx
         shutil.rmtree(self.tmp)
+
+    def test_checked_in_canonical_manifest_is_valid(self):
+        self._manifest_patch.stop()
+        manifest = model_bundle.load_canonical_verification_manifest()
+        self.assertEqual(manifest["model_set_version"], model_bundle.MODEL_SET_VERSION)
+        self.assertEqual(len(manifest["components"]), len(model_bundle.COMPONENTS))
+
+    def test_bundle_refuses_cache_that_drifts_from_its_manifest_authority(self):
+        source = self.cache / "fastembed" / "models--snowflake--snowflake-arctic-embed-xs" / "snapshots" / "rev" / "onnx" / "model.onnx"
+        source.write_bytes(b"drifted")
+        with self.assertRaisesRegex(RuntimeError, "does not match the canonical"):
+            model_bundle.build_bundle(self.out, cache_root=self.cache)
 
     def test_build_materialize_and_reuse(self):
         bundle = model_bundle.build_bundle(self.out, cache_root=self.cache)
@@ -179,6 +200,35 @@ class ModelBundleTests(unittest.TestCase):
         self.assertIn("~/Downloads/", guidance)
         self.assertIn("leave it zipped", guidance)
         self.assertIn("leaves the verified cache unchanged", guidance)
+
+    def test_attests_complete_online_cache_from_verification_manifest(self):
+        bundle = model_bundle.build_bundle(self.out, cache_root=self.cache)
+        with zipfile.ZipFile(bundle) as archive:
+            manifest_path = self.out / "verification.json"
+            manifest_path.write_bytes(archive.read("model-bundle-manifest.json"))
+        for _id, target, directory, _license, _upstream in model_bundle.COMPONENTS:
+            shutil.copytree(self.cache / target / directory, model_bundle._target_root(target) / directory)
+
+        self.assertTrue(model_bundle.attest_online_cache(manifest_path))
+        self.assertEqual(model_bundle.local_model_set_status(), "current")
+        for _id, target, directory, _license, _upstream in model_bundle.COMPONENTS:
+            self.assertTrue((model_bundle._target_root(target) / directory / ".wavefoundry-model-bundle.json").is_file())
+
+    def test_refuses_incomplete_or_extra_online_cache_without_markers(self):
+        bundle = model_bundle.build_bundle(self.out, cache_root=self.cache)
+        with zipfile.ZipFile(bundle) as archive:
+            manifest_path = self.out / "verification.json"
+            manifest_path.write_bytes(archive.read("model-bundle-manifest.json"))
+        for _id, target, directory, _license, _upstream in model_bundle.COMPONENTS:
+            shutil.copytree(self.cache / target / directory, model_bundle._target_root(target) / directory)
+        extra = self.fast / "models--snowflake--snowflake-arctic-embed-xs" / "snapshots" / "rev" / "extra.bin"
+        extra.write_bytes(b"unexpected")
+
+        self.assertFalse(model_bundle.attest_online_cache(manifest_path))
+        self.assertEqual(model_bundle.local_model_set_status(), "unmanaged")
+
+    def test_missing_verification_manifest_is_a_nonfatal_noop(self):
+        self.assertFalse(model_bundle.attest_online_cache(self.out / "missing.json"))
 
 
 if __name__ == "__main__":

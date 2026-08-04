@@ -1,0 +1,175 @@
+{
+  "components": [
+    {
+      "attribution": "Model artifact from Snowflake/snowflake-arctic-embed-xs.",
+      "directory": "models--snowflake--snowflake-arctic-embed-xs",
+      "files": [
+        {
+          "path": "models/fastembed/models--snowflake--snowflake-arctic-embed-xs/refs/main",
+          "sha256": "4036ef92d988415938d2526ab7d8e0dc8a65c9ea55ffe36948fe60c030cf746e"
+        },
+        {
+          "path": "models/fastembed/models--snowflake--snowflake-arctic-embed-xs/snapshots/d8c86521100d3556476a063fc2342036d45c106f/config.json",
+          "sha256": "d7d071046ab952af96b7abad788db7ab3fc997b465e1b9914ff39707092254ec"
+        },
+        {
+          "path": "models/fastembed/models--snowflake--snowflake-arctic-embed-xs/snapshots/d8c86521100d3556476a063fc2342036d45c106f/onnx/model.onnx",
+          "sha256": "cf2698d30ff05da02c70a088313bad56e5c2f401d734cb24a8390d446111936c"
+        },
+        {
+          "path": "models/fastembed/models--snowflake--snowflake-arctic-embed-xs/snapshots/d8c86521100d3556476a063fc2342036d45c106f/special_tokens_map.json",
+          "sha256": "5d5b662e421ea9fac075174bb0688ee0d9431699900b90662acd44b2a350503a"
+        },
+        {
+          "path": "models/fastembed/models--snowflake--snowflake-arctic-embed-xs/snapshots/d8c86521100d3556476a063fc2342036d45c106f/tokenizer.json",
+          "sha256": "91f1def9b9391fdabe028cd3f3fcc4efd34e5d1f08c3bf2de513ebb5911a1854"
+        },
+        {
+          "path": "models/fastembed/models--snowflake--snowflake-arctic-embed-xs/snapshots/d8c86521100d3556476a063fc2342036d45c106f/tokenizer_config.json",
+          "sha256": "9ca59277519f6e3692c8685e26b94d4afca2d5438deff66483db495e48735810"
+        }
+      ],
+      "id": "docs-fastembed",
+      "license": "Apache-2.0",
+      "redistribution_decision": "approved-direct-distribution",
+      "revision": "d8c86521100d3556476a063fc2342036d45c106f",
+      "target": "fastembed",
+      "upstream": "Snowflake/snowflake-arctic-embed-xs"
+    },
+    {
+      "attribution": "Model artifact from BAAI/bge-small-en-v1.5.",
+      "directory": "models--qdrant--bge-small-en-v1.5-onnx-q",
+      "files": [
+        {
+          "path": "models/fastembed/models--qdrant--bge-small-en-v1.5-onnx-q/refs/main",
+          "sha256": "89a5786cc0fad0c4d18ddfb01fa32db81d29f681681fcbc290fe68e9c2db87ca"
+        },
+        {
+          "path": "models/fastembed/models--qdrant--bge-small-en-v1.5-onnx-q/snapshots/52398278842ec682c6f32300af41344b1c0b0bb2/config.json",
+          "sha256": "13582bcf2effc85b7bf3d3f5532e686bc1c9ce86bb009d10f0ec33cbe92299dd"
+        },
+        {
+          "path": "models/fastembed/models--qdrant--bge-small-en-v1.5-onnx-q/snapshots/52398278842ec682c6f32300af41344b1c0b0bb2/model_optimized.onnx",
+          "sha256": "51f1bd0addd6e859e42c2c8021a5e5461385bb676a649f4b269aa445449f2431"
+        },
+        {
+          "path": "models/fastembed/models--qdrant--bge-small-en-v1.5-onnx-q/snapshots/52398278842ec682c6f32300af41344b1c0b0bb2/special_tokens_map.json",
+          "sha256": "5d5b662e421ea9fac075174bb0688ee0d9431699900b90662acd44b2a350503a"
+        },
+        {
+          "path": "models/fastembed/models--qdrant--bge-small-en-v1.5-onnx-q/snapshots/52398278842ec682c6f32300af41344b1c0b0bb2/tokenizer.json",
+          "sha256": "d241a60d5e8f04cc1b2b3e9ef7a4921b27bf526d9f6050ab90f9267a1f9e5c66"
+        },
+        {
+          "path": "models/fastembed/models--qdrant--bge-small-en-v1.5-onnx-q/snapshots/52398278842ec682c6f32300af41344b1c0b0bb2/tokenizer_config.json",
+          "sha256": "0b29c7bfc889e53b36d9dd3e686dd4300f6525110eaa98c76a5dafceb2029f53"
+        }
+      ],
+      "id": "code-fastembed",
+      "license": "MIT",
+      "redistribution_decision": "approved-direct-distribution",
+      "revision": "52398278842ec682c6f32300af41344b1c0b0bb2",
+      "target": "fastembed",
+      "upstream": "BAAI/bge-small-en-v1.5"
+    },
+    {
+      "attribution": "Model artifact from Snowflake/snowflake-arctic-embed-xs.",
+      "directory": "models--Snowflake--snowflake-arctic-embed-xs",
+      "files": [
+        {
+          "path": "models/onnx-src/models--Snowflake--snowflake-arctic-embed-xs/refs/main",
+          "sha256": "4036ef92d988415938d2526ab7d8e0dc8a65c9ea55ffe36948fe60c030cf746e"
+        },
+        {
+          "path": "models/onnx-src/models--Snowflake--snowflake-arctic-embed-xs/snapshots/d8c86521100d3556476a063fc2342036d45c106f/onnx/model.onnx",
+          "sha256": "cf2698d30ff05da02c70a088313bad56e5c2f401d734cb24a8390d446111936c"
+        },
+        {
+          "path": "models/onnx-src/models--Snowflake--snowflake-arctic-embed-xs/snapshots/d8c86521100d3556476a063fc2342036d45c106f/onnx/model_fp16.onnx",
+          "sha256": "7ada3139e0a5af010c5e810cbb1dcda277d30fe969fe98231943b84fb0704172"
+        },
+        {
+          "path": "models/onnx-src/models--Snowflake--snowflake-arctic-embed-xs/snapshots/d8c86521100d3556476a063fc2342036d45c106f/onnx/model_int8.onnx",
+          "sha256": "e6aa5e656466a73d7c3111e9a3378bd13e5b93af30eaac2b3f13fd56692589a1"
+        },
+        {
+          "path": "models/onnx-src/models--Snowflake--snowflake-arctic-embed-xs/snapshots/d8c86521100d3556476a063fc2342036d45c106f/tokenizer.json",
+          "sha256": "91f1def9b9391fdabe028cd3f3fcc4efd34e5d1f08c3bf2de513ebb5911a1854"
+        }
+      ],
+      "id": "docs-clean-onnx",
+      "license": "Apache-2.0",
+      "redistribution_decision": "approved-direct-distribution",
+      "revision": "d8c86521100d3556476a063fc2342036d45c106f",
+      "target": "onnx-src",
+      "upstream": "Snowflake/snowflake-arctic-embed-xs"
+    },
+    {
+      "attribution": "Model artifact from Xenova/bge-small-en-v1.5.",
+      "directory": "models--Xenova--bge-small-en-v1.5",
+      "files": [
+        {
+          "path": "models/onnx-src/models--Xenova--bge-small-en-v1.5/refs/main",
+          "sha256": "cd8fbac16f7a06191eea8f95fd13050aa8401d3244ece0455b5e6549a7e58d4e"
+        },
+        {
+          "path": "models/onnx-src/models--Xenova--bge-small-en-v1.5/snapshots/ea104dacec62c0de699686887e3f920caeb4f3e3/onnx/model.onnx",
+          "sha256": "828e1496d7fabb79cfa4dcd84fa38625c0d3d21da474a00f08db0f559940cf35"
+        },
+        {
+          "path": "models/onnx-src/models--Xenova--bge-small-en-v1.5/snapshots/ea104dacec62c0de699686887e3f920caeb4f3e3/onnx/model_fp16.onnx",
+          "sha256": "4d76223b73a3fd708f009a93a830a6ed5e536b07c77d3c812ba7b35a4988d767"
+        },
+        {
+          "path": "models/onnx-src/models--Xenova--bge-small-en-v1.5/snapshots/ea104dacec62c0de699686887e3f920caeb4f3e3/onnx/model_int8.onnx",
+          "sha256": "bf64d05457cb391fa88d045faf5927a15ea36d96228ddf23ea970087afdc1197"
+        },
+        {
+          "path": "models/onnx-src/models--Xenova--bge-small-en-v1.5/snapshots/ea104dacec62c0de699686887e3f920caeb4f3e3/tokenizer.json",
+          "sha256": "d241a60d5e8f04cc1b2b3e9ef7a4921b27bf526d9f6050ab90f9267a1f9e5c66"
+        }
+      ],
+      "id": "code-clean-onnx",
+      "license": "MIT",
+      "redistribution_decision": "approved-direct-distribution",
+      "revision": "ea104dacec62c0de699686887e3f920caeb4f3e3",
+      "target": "onnx-src",
+      "upstream": "Xenova/bge-small-en-v1.5"
+    },
+    {
+      "attribution": "Model artifact from Xenova/ms-marco-MiniLM-L-6-v2.",
+      "directory": "models--Xenova--ms-marco-MiniLM-L-6-v2",
+      "files": [
+        {
+          "path": "models/onnx-src/models--Xenova--ms-marco-MiniLM-L-6-v2/refs/main",
+          "sha256": "4faaba8f0059093430b4ab43db6d96f08ed033b49ede1006e3be4f83bac328e9"
+        },
+        {
+          "path": "models/onnx-src/models--Xenova--ms-marco-MiniLM-L-6-v2/snapshots/a09144355adeed5f58c8ed011d209bf8ee5a1fec/onnx/model.onnx",
+          "sha256": "c623d0bcb99f4622beb413eaef00cfbe5db20df9f1dd982da4b4f26022881870"
+        },
+        {
+          "path": "models/onnx-src/models--Xenova--ms-marco-MiniLM-L-6-v2/snapshots/a09144355adeed5f58c8ed011d209bf8ee5a1fec/onnx/model_fp16.onnx",
+          "sha256": "a8b79f5c22bc717c0082cb30424365f59d6689b86cfa0c4b293832acf158c66f"
+        },
+        {
+          "path": "models/onnx-src/models--Xenova--ms-marco-MiniLM-L-6-v2/snapshots/a09144355adeed5f58c8ed011d209bf8ee5a1fec/onnx/model_int8.onnx",
+          "sha256": "a13ec391ca99f49886694e12d3e800521f36d4267d7d448c34421c541a2baf50"
+        },
+        {
+          "path": "models/onnx-src/models--Xenova--ms-marco-MiniLM-L-6-v2/snapshots/a09144355adeed5f58c8ed011d209bf8ee5a1fec/tokenizer.json",
+          "sha256": "d241a60d5e8f04cc1b2b3e9ef7a4921b27bf526d9f6050ab90f9267a1f9e5c66"
+        }
+      ],
+      "id": "reranker-clean-onnx",
+      "license": "Apache-2.0",
+      "redistribution_decision": "approved-direct-distribution",
+      "revision": "a09144355adeed5f58c8ed011d209bf8ee5a1fec",
+      "target": "onnx-src",
+      "upstream": "Xenova/ms-marco-MiniLM-L-6-v2"
+    }
+  ],
+  "embedding_compatibility_fingerprint": "wf-model-set-1-20260803",
+  "model_set_version": "1",
+  "schema_version": 1
+}

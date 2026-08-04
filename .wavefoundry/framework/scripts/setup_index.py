@@ -2164,6 +2164,8 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     report_embedding_provider_decision()
     _prewarm_gpu_accel(_indexer_models(include_code=_include_code, code_only=_code_only))
+    if model_bundle_path is None and model_bundle.attest_online_cache():
+        print("Verified downloaded model cache matches the declared model set.", flush=True)
     try:
         build_index(
             root,

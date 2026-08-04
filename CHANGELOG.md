@@ -6,6 +6,16 @@ the individual wave records under [`docs/waves/`](docs/waves/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.15.1] - 2026-08-03
+
+### Added
+
+- **Verified online model downloads now converge with the offline model-set identity.** Every
+  feature package carries the release-pinned verification manifest (without model bytes). After a
+  normal download, setup writes the same v1 identity marker as offline materialization only when
+  every declared file hash and revision matches; incomplete, altered, mixed, or incompatible
+  caches remain unmanaged. Wave 1uas8 / change 1uas7.
+
 ## [1.15.0] - 2026-08-03
 
 ### Fixed

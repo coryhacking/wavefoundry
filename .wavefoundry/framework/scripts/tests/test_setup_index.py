@@ -748,6 +748,26 @@ class SetupIndexTests(unittest.TestCase):
         self.assertEqual(rc, 2)
         build_index.assert_not_called()
 
+    def test_main_attests_after_accel_prewarm_before_build(self):
+        events: list[str] = []
+        model_bundle = types.SimpleNamespace(
+            find_local_bundle=lambda _dirs: None,
+            local_model_set_status=lambda: "unmanaged",
+            attest_online_cache=lambda: events.append("attest") or True,
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.dict(sys.modules, {"model_bundle": model_bundle}), \
+                 patch.object(self.mod, "ensure_deps"), \
+                 patch.object(self.mod, "_reexec_with_venv_if_needed"), \
+                 patch.object(self.mod, "_workflow_project_include_prefixes", return_value={}), \
+                 patch.object(self.mod, "_indexer_models", return_value=["model-a"]), \
+                 patch.object(self.mod, "prewarm_models", side_effect=lambda **_kwargs: events.append("models")), \
+                 patch.object(self.mod, "report_embedding_provider_decision"), \
+                 patch.object(self.mod, "_prewarm_gpu_accel", side_effect=lambda _models: events.append("accel")), \
+                 patch.object(self.mod, "build_index", side_effect=lambda *_args, **_kwargs: events.append("build")):
+                self.assertEqual(self.mod.main(["--root", tmp]), 0)
+        self.assertEqual(events, ["models", "accel", "attest", "build"])
+
     def test_model_cache_corruption_reason_detects_incomplete_blob_symlink(self):
         with tempfile.TemporaryDirectory() as tmp:
             cache_root = Path(tmp)

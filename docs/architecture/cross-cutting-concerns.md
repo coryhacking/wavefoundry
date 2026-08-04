@@ -93,7 +93,11 @@ and the selected model-set identity. It stages
 the complete set before publication, retains sibling backups while every cache
 directory is renamed, and restores all earlier directories if any later publish
 fails. An older verified set is replaced only by a newer declared model-set
-version, while an equal verified set is reused. When an online model warm cannot
+version, while an equal verified set is reused. The standard feature package
+also carries the same release-pinned manifest without model bytes: after an
+online warm, setup writes the identical v1 marker only when the complete local
+file map and component revisions match it. A partial, altered, mixed, or
+incompatible cache remains unmanaged. When an online model warm cannot
 complete, the failure path names the exact companion asset and the existing
 discovery directories; operators obtain that asset from the matching release or
 approved internal distribution, leave it zipped, and rerun canonical setup.
