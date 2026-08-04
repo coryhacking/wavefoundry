@@ -59,6 +59,17 @@ Three hard prerequisites. Do not run any install command until all three resolve
 
 3. **An MCP-aware agent host.** **Claude Code** or **Codex CLI** is recommended for first install — both auto-load MCP from on-disk config (`.mcp.json` / `.codex/config.toml`), so the install flow runs with no manual UI step. **Cursor**, **Junie**, and **Antigravity** also auto-load MCP from a rendered config; **GitHub Copilot**, **Windsurf**, **Air**, and **Warp** attach by pasting the stdio entry into the host's own MCP settings — see [Host support](#host-support).
 
+### Model downloads (offline / controlled environments only)
+
+Normal installs need nothing here: `wf setup` downloads the embedding and reranker models from
+Hugging Face on the first index build and verifies them against the release-pinned manifest. If
+your environment cannot reach Hugging Face, download the offline model asset from the permanent
+[**Model Assets** release](https://github.com/coryhacking/wavefoundry/releases/tag/models),
+leave it zipped next to the feature package (repo root, `~/`, `~/.wavefoundry/`,
+`~/.wavefoundry/dist/`, or `~/Downloads/`), and run `wf setup`. Assets are versioned by model
+set, not by release — `wavefoundry-models-1.zip` serves every framework version until the pinned
+model set changes, so there is exactly one download per set, ever.
+
 ---
 
 ## Quick start
@@ -173,7 +184,7 @@ What each `docs/` subdirectory carries — the agent reads these to ground its w
 
 **Zero at runtime to Wavefoundry-controlled endpoints.** Embedding model weights are normally fetched from Hugging Face on the first index build and cached locally thereafter. The standard feature package verifies a complete matching download against its release-pinned manifest and records the same v1 model-set identity as the offline companion; incomplete, altered, mixed, or incompatible caches remain unmanaged. In controlled or air-gapped deployments, download the feature package and its exact declared `wavefoundry-models-<set>.zip` asset into a standard distribution directory; upgrade verifies and materializes that set without a model download. Dependencies are installed via `uv` (or `pip` fallback) during `wf setup` and during framework upgrades. No service, no account, no telemetry.
 
-If a required model cannot download, first retry `wf setup` when network access is available. If that is not possible, manually download the exact `wavefoundry-models-<set>.zip` asset from the same [release](https://github.com/coryhacking/wavefoundry/releases) (or your approved internal distribution), leave it zipped, and put it in the target repository root, `~/`, `~/.wavefoundry/`, `~/.wavefoundry/dist/`, or `~/Downloads/`. Run `wf setup` again. Wavefoundry validates the model set, component hashes, and licenses before replacing the cache; an invalid archive leaves a verified cache unchanged.
+If a required model cannot download, first retry `wf setup` when network access is available. If that is not possible, manually download the exact `wavefoundry-models-<set>.zip` asset from the permanent [Model Assets release](https://github.com/coryhacking/wavefoundry/releases/tag/models) (or your approved internal distribution), leave it zipped, and put it in the target repository root, `~/`, `~/.wavefoundry/`, `~/.wavefoundry/dist/`, or `~/Downloads/`. Run `wf setup` again. Wavefoundry validates the model set, component hashes, and licenses before replacing the cache; an invalid archive leaves a verified cache unchanged.
 
 ---
 
