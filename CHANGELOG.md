@@ -16,6 +16,11 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   every declared file hash and revision matches; incomplete, altered, mixed, or incompatible
   caches remain unmanaged. Wave 1uas8 / change 1uas7.
 
+### Changed
+
+- **The 1.15.0 upgrade notes are simplified to the essentials.** Same steps and expectations,
+  shorter read; the 1.15.0 change lists are unchanged.
+
 ## [1.15.0] - 2026-08-03
 
 ### Fixed
@@ -28,93 +33,41 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Upgrading to 1.15.0
 
-**This release changes the upgrade protocol, renames an MCP tool with no alias, and writes to a
-committed file. Read this section before upgrading.**
+**From 1.14.0 or earlier** (protocol change — treat it as a short maintenance window):
 
-**1. From 1.14.0 or earlier, the upgrade is a maintenance window, not a hot reload.** 1.14.0 runs
-protocol 1 and cannot extract a protocol-2 feature pack or replace itself in place. Use the same
-`wavefoundry-1.15.0.<build>.zip` you would use for any upgrade:
+1. Stop the dashboard and disconnect every attached MCP/agent host for the repository, including
+   the one you are working in.
+2. Run the upgrade with `wavefoundry-1.15.0.<build>.zip` as usual. If `wf_upgrade` refuses, let
+   the agent execute the exact argv the refusal returns; the single package handles verification,
+   install, and rollback on its own.
+3. When it finishes, **fully restart every attached host**, then follow the returned recovery
+   action (complete any reported memory work via `wf_upgrade(phase='resume_after_memory')`, then
+   `wf_upgrade(phase='cleanup')`).
 
-1. Stop the dashboard (`Stop dashboard` or `wf_stop_dashboard`).
-2. Stop or disconnect **every** attached MCP and agent host for the repository, including the one
-   you are working in. `wf_upgrade` will refuse until host quiescence is confirmed.
-3. Let the agent execute the exact argv the refusal returns, through its ordinary shell. The
-   operator does not copy or type a command, and there is no second bridge asset to coordinate:
-   the one package verifies its embedded payloads, installs protocol 2 with rollback, and runs the
-   feature hop in a single invocation.
-4. **Fully restart every attached host** when it returns. An in-process reload is not sufficient
-   across this boundary: a pre-upgrade host keeps writing state the new implementation no longer
-   reads.
-5. Follow the returned recovery action. If the run pauses at the historical-memory gate, complete
-   the reported memory work and call `wf_upgrade(phase='resume_after_memory')`; if it reports the
-   primary phase complete, finish the reconciliation pass and call `wf_upgrade(phase='cleanup')`.
-   `resume_after_memory` exits successfully while the lifecycle is still non-terminal, so cleanup
-   must run before the index will publish.
+**Already on a 1.15.0 prerelease:** run the ordinary upgrade. Fully restart hosts when the
+response says a cutover-active run occurred.
 
-Already on protocol 2? The ordinary flow applies, but see item 3 below for the one case that still
-requires a full restart.
+**What changes for you after upgrading:**
 
-**2. Update host permission allow rules for the renamed tool.** `wf_review_evidence` is now
-`wf_review_event` with **no alias**. Upgrades reconcile stale references in rendered surfaces
-automatically, but host permission files that pin exact tool names do not self-heal on this
-release. Every stale `mcp__wavefoundry__wave_*` or `mcp__wavefoundry__wf_review_evidence` rule in
-`.claude/settings.local.json` will prompt on every call until you update it; the upgrade's
-reconciliation output lists them in its operator-flags channel. From this release forward, rules in
-the committed `.claude/settings.json` that the renderer emitted are self-healing, so this is the
-last upgrade that needs the manual pass for that file.
-
-**3. Restart every attached host after a cutover-active run.** The events-only review-evidence
-cutover removes retired sidecars one way. `restart_required` is true only on runs that actually
-crossed the boundary; a rerun on a converged repository reports it false and keeps the normal
-in-process reload.
-
-**4. Callers of `wf_reopen_wave` must pass `purpose`.** `"review"` or `"implement"`, no default and
-no alias. Code written against the 1.14.0 signature will be rejected by the published schema.
-
-**5. Expect a diff in your committed `.claude/settings.json`.** The upgrade renders the read-only
-wavefoundry allowlist into `permissions.allow` and records what it emitted under
-`wavefoundryManagedAllow`. Operator-authored rules, deny and ask entries, and unknown keys are
-preserved; the mutating tier stays out unless you set `wavefoundryAllowWriteTools` yourself. The
-upgrade names the delta as an explicit consent line. Review it like any other committed change,
-and not as routine post-upgrade churn: this particular diff changes agent permission posture, so a
-workflow that habitually commits upgrade output wholesale would absorb it unreviewed.
-
-**6. After upgrading, `wf_server_info` can tell you whether a restart is still owed.** The new
-tri-state `runner_stale` compares the runner your process launched from against what is on disk.
-`true` means restart; `null` means the comparison could not be made and, immediately after an
-upgrade, carries the same action as `true`.
-
-**7. A target already on a 1.15.0 prerelease build (`+pfxp`, `+pg1a`) will still hit the
-index-publication defect on the transition run under the old parent runner unless the pack's
-`pre_index_update` bridge applies.** If that run's publication is refused, recover with
-`resume_after_memory`, then `cleanup`, then `index_build`, and confirm with `index_health`.
-
-**8. Upgrade reporting fixes now take effect on the upgrade that installs them; expect one
-last old-schema summary on this release's own installing upgrade.** From this release forward,
-sentinel-carried reporting changes (the fields the upgrade emits under its summary sentinel and
-`wf_upgrade` parses into `data.summary`) are produced by the freshly extracted code, so they are
-correct on the upgrade that ships them instead of one upgrade later. Two classes stay outside this
-mechanism: behavior-class fixes (what the upgrade DOES mid-run) still need a hook bridge in the
-pack to act on their installing upgrade, and server-resident response fields (`runner_stale`,
-diagnostics composition, response bounding) still require a full host restart on every release.
-One residual is expected by construction: the upgrade that installs THIS release is still driven
-by a parent runner that predates the mechanism, so that one transition run reports an old-schema
-summary with no `summary_source_degraded` marker (a pre-mechanism runner cannot emit one; the
-marker appears only when a NEW runner's delegation falls back). Do
-not report that single transition run's old-schema summary as the backstop failing to work; the
-mechanism protects the runs that come after it.
-
-Two transition populations exist for this release, with two different one-run signatures. Targets
-upgrading from a pre-mechanism parent (the pfxp, pg1a, and pg5l era prerelease builds and every
-earlier release) take the one UNMARKED old-schema run described above. Targets whose parent
-already carries the delegation mechanism from a later 1.15.0 prerelease build (pg8h, pg9m)
-instead take exactly one MARKED run: this release renamed the delegation envelope key to
-`summary_schema_version` before the contract's public freeze, so the old parent's recognizer does
-not find the key it knows and falls back to its own summary carrying
-`summary_source_degraded: unrecognized_schema_token_None`. That marked run is the disclosed,
-designed one-run cost of the pre-release rename: the fallback summary is real and the upgrade
-succeeds normally. Do not report that one marked run as the delegation failing to work; the very
-next upgrade reports `summary_schema_version: 1` with no marker.
+- `wf_review_evidence` is renamed **`wf_review_event`** (no alias), and `wf_reopen_wave` now
+  requires `purpose` (`"review"` or `"implement"`). Update host permission rules that pin old
+  `wave_*`/`wf_review_evidence` names (notably `.claude/settings.local.json`); the upgrade's
+  reconciliation output lists them. Renderer-managed rules in the committed `.claude/settings.json`
+  self-heal from this release forward.
+- The upgrade writes a read-only wavefoundry allowlist into your committed `.claude/settings.json`
+  and names the delta. Review that diff deliberately — it changes agent permission posture. The
+  mutating tool tier stays off unless you set `wavefoundryAllowWriteTools` yourself.
+- After upgrading, check `wf_server_info`: `runner_stale: true` (or `null` right after an
+  upgrade) means a full host restart is still owed.
+- The transition run itself may show one benign, one-time summary quirk: an unmarked old-schema
+  summary (coming from 1.14.0 or early prereleases), or a single
+  `summary_source_degraded: unrecognized_schema_token_None` run (coming from the pg8h/pg9m
+  prereleases, due to the pre-freeze rename of the summary envelope key to
+  `summary_schema_version`). Neither is a failure; the next upgrade reports normally. If index
+  publication is refused on a prerelease transition run, recover with `resume_after_memory`, then
+  `cleanup`, then `index_build`.
+- Offline model assets ship separately as `wavefoundry-models-<set>.zip` (attached to this
+  release), downloaded once per model set; setup validates hashes and licenses before use.
 
 ### Added
 
