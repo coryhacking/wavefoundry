@@ -16,11 +16,6 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   every declared file hash and revision matches; incomplete, altered, mixed, or incompatible
   caches remain unmanaged. Wave 1uas8 / change 1uas7.
 
-### Changed
-
-- **The 1.15.0 upgrade notes are simplified to the essentials.** Same steps and expectations,
-  shorter read; the 1.15.0 change lists are unchanged.
-
 ## [1.15.0] - 2026-08-03
 
 ### Fixed
