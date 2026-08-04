@@ -1,6 +1,7 @@
 """Wave 1seax (1seau): docs-vs-code constants lint + scaffolding integrity."""
 from __future__ import annotations
 
+import re
 import sys
 import tempfile
 import unittest
@@ -148,6 +149,100 @@ class DocsConstantsLintTests(unittest.TestCase):
             failures = check_docs_constants(root)
             self.assertTrue(any("index_freshness states" in f and "missing" in f
                                for f in failures), failures)
+
+    def _live_docs(self) -> tuple[str, str]:
+        perf = (REPO_ROOT / "docs" / "architecture" / "performance-budget.md").read_text(encoding="utf-8")
+        rel = (REPO_ROOT / "docs" / "RELIABILITY.md").read_text(encoding="utf-8")
+        return perf, rel
+
+    def test_mismatched_claim_names_the_one_line_fix_and_fix_passes(self):
+        """1uf66 mismatch branch: a GRAPH_BUILDER_VERSION bump over a stale doc
+        claim (covers the no-snapshot, pre-existing-mismatch, absorbing-state,
+        and non-upgrade-drift miss shapes, which all present as this doc state)
+        produces a message naming file, line, both values, and the exact
+        one-line fix; applying the stated fix verbatim passes the gate. The
+        multiple-claims shape is the duplicate-claim subtest."""
+        expected = _module_constant("graph_indexer.py", "GRAPH_BUILDER_VERSION")
+        live_perf, live_rel = self._live_docs()
+        drifted = live_rel.replace(
+            f"graph builder version `{expected}`",
+            "graph builder version `stale-claim`",
+        )
+        self.assertNotEqual(drifted, live_rel, "seed must actually drift")
+        shapes = (
+            ("stale-claim", drifted),
+            ("duplicate-claim", drifted + "\ngraph builder version `stale-claim`\n"),
+        )
+        for shape, seeded in shapes:
+            with self.subTest(shape=shape), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                self._seed(root, live_perf, seeded)
+                failures = [
+                    f for f in check_docs_constants(root)
+                    if "graph builder version" in f
+                ]
+                self.assertEqual(len(failures), 1, failures)
+                message = failures[0]
+                located = re.match(r"ERROR: docs/RELIABILITY\.md:(\d+): ", message)
+                self.assertIsNotNone(located, message)
+                fix = re.search(
+                    r"fix: change `([^`]*)` to `([^`]*)` on that line", message
+                )
+                self.assertIsNotNone(fix, message)
+                self.assertEqual(fix.group(1), "stale-claim")
+                self.assertEqual(fix.group(2), expected)
+                # Apply the stated fix verbatim: on the named line, change the
+                # current value to the expected value.
+                doc = root / "docs" / "RELIABILITY.md"
+                lines = doc.read_text(encoding="utf-8").splitlines(keepends=True)
+                idx = int(located.group(1)) - 1
+                self.assertIn(f"`{fix.group(1)}`", lines[idx], message)
+                lines[idx] = lines[idx].replace(
+                    f"`{fix.group(1)}`", f"`{fix.group(2)}`"
+                )
+                doc.write_text("".join(lines), encoding="utf-8")
+                self.assertEqual(
+                    [f for f in check_docs_constants(root)
+                     if "graph builder version" in f],
+                    [],
+                )
+
+    def test_dropped_claim_names_the_line_to_add_and_fix_passes(self):
+        """1uf66 missing branch: a dropped graph-builder claim produces a
+        message naming the expected value and the exact line to add; adding
+        the stated line verbatim passes the gate."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            expected = _module_constant("graph_indexer.py", "GRAPH_BUILDER_VERSION")
+            live_perf, live_rel = self._live_docs()
+            dropped = "\n".join(
+                line for line in live_rel.splitlines()
+                if "graph builder version" not in line
+            ) + "\n"
+            self.assertNotEqual(dropped, live_rel, "seed must actually drop the claim")
+            self._seed(root, live_perf, dropped)
+            failures = [
+                f for f in check_docs_constants(root)
+                if "graph builder version" in f
+            ]
+            self.assertEqual(len(failures), 1, failures)
+            message = failures[0]
+            self.assertIn(f"`{expected}`", message)
+            self.assertIn("to docs/RELIABILITY.md", message)
+            fix = re.search(r'fix: add a line containing "([^"]+)"', message)
+            self.assertIsNotNone(fix, message)
+            self.assertEqual(fix.group(1), f"graph builder version `{expected}`")
+            # Apply the stated fix verbatim: add exactly the named line.
+            doc = root / "docs" / "RELIABILITY.md"
+            doc.write_text(
+                doc.read_text(encoding="utf-8") + fix.group(1) + "\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                [f for f in check_docs_constants(root)
+                 if "graph builder version" in f],
+                [],
+            )
 
     def test_absent_docs_are_out_of_scope(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -6,6 +6,54 @@ the individual wave records under [`docs/waves/`](docs/waves/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.15.2] - 2026-08-04
+
+### Fixed
+
+- **The five `integrity_checks` booleans now have defined phase-aware semantics.** Seed 209's
+  Executable Evidence Record table gives each boolean a distinct plain-language definition, one
+  readiness/delivery phase rule (a readiness approval attests to the review of the current tree,
+  plan, census, or feasibility probe, not unimplemented product behavior; a non-executed finding
+  may honestly carry `false`), and a readiness-safe known-bad control. Both validator messages
+  now teach the attestation contract (affirm honestly, or do not record the claim as executed)
+  instead of demanding `=true`; validator semantics are unchanged. The `wf_review_event`
+  description and MCP tool spec carry the same phase-aware meaning. Wave 1uf65 / change 1uf64.
+
+- **The docs-constants lint now states the exact one-line fix, unstranding docs gates after a
+  `GRAPH_BUILDER_VERSION` bump.** When a documented fact does not match its code constant, the
+  failure names the file, line, both values, and the instruction to change the current value to
+  the expected value on that line; when the claim line is missing, the failure names the exact
+  line to add (with the expected value) and where. Every conservative-advancer precondition miss
+  now resolves through the gate message; the advancer itself is unchanged. Wave 1uf65 / change
+  1uf66.
+
+- **A routine memory-checkpoint pause no longer prints `Upgrade failed` prose or stamps a
+  failure marker over its checkpoint state.** The upgrade runner's exit handling recognizes the
+  typed action-required pause (action-required exit code plus a token/run-id-bearing
+  `action_required` block in the lock), keeps `failed_phase`/`failed_at` untouched, and prints
+  checkpoint wording naming the memory work and `wf_upgrade(phase='resume_after_memory')`.
+  Genuine failures keep the existing retained-lock failure report. One transition-run residue:
+  the upgrade that INSTALLS this fix still runs the pre-fix parent, so if that one run pauses at
+  the memory checkpoint it may print the old failure prose a final time; the typed state and
+  `resume_after_memory` are unaffected, so do not report that one run as this fix failing. Every
+  later upgrade prints the corrected wording. Wave 1uf65 / change 1uf67.
+
+- **A no-op review-policy migration no longer marks every readied wave for re-Prepare.** When the
+  migrated `wave_review` config is byte-identical to the existing config and the carrier
+  reconciliation plans zero edits, the upgrade's wave sweep skips the re-Prepare marker, the
+  reprojection, and every wave write, and the structured result reports an empty
+  `waves_marked_for_reprepare`. A genuine policy delta still marks and reprojects every
+  non-closed declared wave; the plan-phase validation walk (unreadable waves and ledger errors
+  failing preflight) is unchanged, so both resume paths keep their preflight. One transition-run
+  residue: the wave sweep is planned and applied from the pre-extraction module, so the upgrade
+  that INSTALLS this fix still marks each readied wave one final time. That same run re-renders
+  the target's surfaces from the new code, so `docs/prompts/upgrade-wavefoundry.prompt.md` will
+  already state that a no-op migration marks nothing while the marker that run just wrote is
+  still on the wave; the new prose is correct from the next upgrade onward, not for the run that
+  wrote it. Recovery is unchanged: `wf_prepare_wave(mode='ready')` re-readies the wave and the
+  typed `wave-council-readiness` approval survives, so no re-review is needed. Do not report that
+  one run as this fix failing; every later upgrade honors the guard. Wave 1uf65 / change 1uf69.
+
 ## [1.15.1] - 2026-08-03
 
 ### Added

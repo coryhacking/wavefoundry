@@ -2945,7 +2945,9 @@ def _validated_integrity_checks(
             errors.append(f"{label} integrity_checks.{field} must be boolean")
         elif executed and field_value is not True:
             errors.append(
-                f"executed {label} requires integrity_checks.{field}=true"
+                f"executed {label} cannot carry integrity_checks.{field}=false: "
+                "affirm it honestly, or do not record the claim as executed "
+                "(for an approval: do not approve; record a finding or repair first)"
             )
     method = value.get(INTEGRITY_CHECK_METHOD_FIELD)
     if not _nonempty_string(method):
@@ -3197,7 +3199,10 @@ def _validate_evidence_shape(record: Mapping[str, Any], index: int) -> list[str]
         record.get(field) is not True for field in integrity_fields
     ):
         errors.append(
-            f"{label}: executed evidence requires all five evidence-integrity checks"
+            f"{label}: executed evidence cannot carry a false evidence-integrity "
+            "check: affirm all five honestly, or do not record the claim as "
+            "executed (for an approval: do not approve; record a finding or "
+            "repair first)"
         )
     if record.get("claim_kind") == "lane_reassessment":
         if record.get("execution_status") != "executed":

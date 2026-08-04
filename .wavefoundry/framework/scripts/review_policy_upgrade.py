@@ -72,6 +72,13 @@ def plan_review_policy_upgrade(root: Path) -> ReviewPolicyUpgradePlan:
     config_after = (json.dumps(config, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
 
     carriers = plan_reconciliation(root)
+    # A no-op migration marks nothing. When the migrated config is byte-identical to
+    # the live config and the carrier reconciliation plans zero edits, the policy did
+    # not move, so marking readied waves for re-Prepare would be pure churn. The walk
+    # below still reads and validates every wave (unreadable waves and ledger errors
+    # must keep failing preflight, because both resume paths call this planner purely
+    # for that validation); only the marker, reprojection, and wave writes are skipped.
+    policy_unchanged = config_after == config_before and not carriers
     waves: list[WaveMigration] = []
     errors: list[str] = []
     waves_root = root / "docs" / "waves"
@@ -87,6 +94,8 @@ def plan_review_policy_upgrade(root: Path) -> ReviewPolicyUpgradePlan:
         records, ledger_errors = review_evidence.read_review_event_ledger(wave_md)
         if ledger_errors:
             errors.extend(f"{wave_md}: {error}" for error in ledger_errors)
+            continue
+        if policy_unchanged:
             continue
         try:
             marked_text = set_reprepare_marker(text, True)

@@ -403,6 +403,10 @@ class ReviewPolicyUpgradeTests(unittest.TestCase):
                 plan = review_policy_upgrade.plan_review_policy_upgrade(root)
                 result = review_policy_upgrade.apply_review_policy_upgrade(root, plan)
                 self.assertEqual(result["delivery_mode"], expected)
+                self.assertEqual(
+                    result["waves_marked_for_reprepare"],
+                    ["docs/waves/open-wave/wave.md"],
+                )
                 self.assertIn("review-policy-reprepare-required: true", open_md.read_text("utf-8"))
                 self.assertEqual(closed_md.read_bytes(), closed_before)
                 self.assertEqual(closed_events.read_bytes(), closed_events_before)
@@ -412,6 +416,107 @@ class ReviewPolicyUpgradeTests(unittest.TestCase):
                     "wave-council-delivery" in projected,
                     enabled,
                 )
+
+    def test_noop_policy_migration_leaves_readied_waves_untouched(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root, open_md, _closed_md = self._repo(tmp, enabled=True)
+            config = root / "docs/workflow-config.json"
+            first = review_policy_upgrade.apply_review_policy_upgrade(
+                root, review_policy_upgrade.plan_review_policy_upgrade(root)
+            )
+            self.assertEqual(
+                first["waves_marked_for_reprepare"], ["docs/waves/open-wave/wave.md"]
+            )
+            # The operator re-readies the wave, exactly as `wf_prepare_wave(mode='ready')`
+            # does; the migrated config is now canonical, so a second pack adoption is a
+            # true no-op and must not invalidate that prepare state again.
+            open_md.write_text(
+                review_policy.set_reprepare_marker(open_md.read_text("utf-8"), False),
+                encoding="utf-8",
+            )
+            config_before = config.read_bytes()
+            wave_before = open_md.read_bytes()
+            plan = review_policy_upgrade.plan_review_policy_upgrade(root)
+            second = review_policy_upgrade.apply_review_policy_upgrade(root, plan)
+            self.assertEqual(second["waves_marked_for_reprepare"], [])
+            self.assertEqual(open_md.read_bytes(), wave_before)
+            self.assertEqual(config.read_bytes(), config_before)
+            self.assertEqual(plan.config_after, plan.config_before)
+            self.assertEqual(plan.carriers, ())
+            self.assertEqual(plan.waves, ())
+
+    def test_carrier_only_delta_still_marks_readied_waves(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root, open_md, _closed_md = self._repo(tmp, enabled=True)
+            config = root / "docs/workflow-config.json"
+            review_policy_upgrade.apply_review_policy_upgrade(
+                root, review_policy_upgrade.plan_review_policy_upgrade(root)
+            )
+            # The operator re-readies the wave, exactly as the no-op test does, so the
+            # migrated config is now canonical and cannot contribute a delta.
+            open_md.write_text(
+                review_policy.set_reprepare_marker(open_md.read_text("utf-8"), False),
+                encoding="utf-8",
+            )
+            # Only the carrier half of the guard can see this delta: one registered legacy
+            # section that reconciliation rewrites while the config stays byte-identical.
+            relative = "docs/prompts/implement-wave.prompt.md"
+            legacy = "Required review lanes from readiness must participate during execution."
+            self.assertIn(
+                legacy,
+                [
+                    entry[0]
+                    for entry in review_policy_reconcile.KNOWN_SECTION_REPLACEMENTS[relative]
+                ],
+            )
+            carrier = root / relative
+            carrier.parent.mkdir(parents=True, exist_ok=True)
+            carrier.write_text(f"# Implement wave\n\n{legacy}\n", encoding="utf-8")
+            config_before = config.read_bytes()
+            wave_before = open_md.read_bytes()
+            plan = review_policy_upgrade.plan_review_policy_upgrade(root)
+            self.assertEqual(plan.config_after, plan.config_before)
+            self.assertGreaterEqual(len(plan.carriers), 1)
+            result = review_policy_upgrade.apply_review_policy_upgrade(root, plan)
+            self.assertEqual(
+                result["waves_marked_for_reprepare"],
+                ["docs/waves/open-wave/wave.md"],
+            )
+            self.assertNotEqual(open_md.read_bytes(), wave_before)
+            self.assertIn("review-policy-reprepare-required: true", open_md.read_text("utf-8"))
+            self.assertEqual(config.read_bytes(), config_before)
+
+    def test_noop_migration_still_fails_preflight_on_an_unreadable_wave(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root, _open_md, _closed_md = self._repo(tmp, enabled=True)
+            review_policy_upgrade.apply_review_policy_upgrade(
+                root, review_policy_upgrade.plan_review_policy_upgrade(root)
+            )
+            # The migrated config is now canonical, so this rerun is a true no-op:
+            # the guard suppresses marking, never the validation walk.
+            self.assertEqual(
+                review_policy_upgrade.plan_review_policy_upgrade(root).waves, ()
+            )
+            broken = root / "docs/waves/broken-wave/wave.md"
+            broken.parent.mkdir(parents=True)
+            broken.write_bytes(b"# Wave\n\nStatus: implementing\n\xff\xfe\n")
+            with self.assertRaisesRegex(ValueError, "preflight failed.*unreadable wave"):
+                review_policy_upgrade.plan_review_policy_upgrade(root)
+
+    def test_noop_migration_still_fails_preflight_on_a_ledger_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root, open_md, _closed_md = self._repo(tmp, enabled=True)
+            review_policy_upgrade.apply_review_policy_upgrade(
+                root, review_policy_upgrade.plan_review_policy_upgrade(root)
+            )
+            self.assertEqual(
+                review_policy_upgrade.plan_review_policy_upgrade(root).waves, ()
+            )
+            review_evidence.review_event_path(open_md).write_bytes(b"not json\n")
+            with self.assertRaisesRegex(
+                ValueError, "review-policy upgrade preflight failed"
+            ):
+                review_policy_upgrade.plan_review_policy_upgrade(root)
 
     def test_preflight_failure_leaves_config_carriers_and_waves_unchanged(self):
         with tempfile.TemporaryDirectory() as tmp:

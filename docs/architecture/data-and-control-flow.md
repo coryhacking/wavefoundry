@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-03
+Last verified: 2026-08-04
 
 ## Primary Control Paths
 
@@ -263,9 +263,11 @@ runner never forwards publication authority into its older index-child
 choreography. Before the old runner reaches its docs gate, the newly extracted
 `upgrade_extensions.pre_docs_gate` loads the newly installed upgrader by file
 path under a unique module name and runs the same retired-sidecar cleanup.
-Protocol-2 upgrade additionally migrates review policy and reprojects every
-non-closed declared wave behind a re-Prepare marker; closed waves and prior
-event rows remain byte-immutable. The upgrade lock records that cleanup, so a resumed current runner does not
+Protocol-2 upgrade additionally migrates review policy and, when that migration
+changes the policy, reprojects every non-closed declared wave behind a re-Prepare
+marker; a no-op migration (byte-identical config, zero carrier edits) marks
+nothing and rewrites no wave, and closed waves and prior event rows remain
+byte-immutable. The upgrade lock records that cleanup, so a resumed current runner does not
 repeat it. This bridge deliberately executes new code rather than falling
 back to the old in-memory implementation. A refused cleanup retains
 `failed_phase=review_sidecar_cleanup` (stop every attached host, re-run the

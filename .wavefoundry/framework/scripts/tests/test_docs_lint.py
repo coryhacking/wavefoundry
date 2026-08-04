@@ -2669,10 +2669,11 @@ class CouncilSeedVerificationContractTests(unittest.TestCase):
         # counterpart.  Pin its load-bearing sentence so a material weakening
         # (e.g. "would fail" -> "should plausibly fail") breaks the suite.
         self.assertIn(
-            "Before accepting a claimed test, confirm that it runs with zero "
-            "unintended skips, reaches the claimed production/public path, uses "
-            "realistic boundary return shapes, contains non-vacuous assertions, "
-            "and would fail against the known-bad behavior.",
+            "Before accepting a claimed check in either phase, confirm that it "
+            "ran with zero unintended skips, reached the claimed public path or "
+            "faithful boundary for its phase, used realistic boundary return "
+            "shapes, made non-vacuous assertions, and would fail against the "
+            "known-bad behavior",
             seed_209,
         )
 

@@ -100,8 +100,9 @@ UPGRADE_POLICY_BLOCK = f"""{UPGRADE_POLICY_MARKER_BEGIN}
 Upgrade maps legacy review enablement to the current default: enabled projects become
 `enabled=true, delivery_mode=targeted`; disabled projects become
 `enabled=false, delivery_mode=disabled`. The structured upgrade result reports the
-selected delivery mode. Every non-closed declared wave is marked for re-Prepare;
-closed wave Markdown and ledgers remain immutable. After the upgrade reload—or a
+selected delivery mode. Every non-closed declared wave is marked for re-Prepare when
+the migration changes the policy (a no-op migration marks nothing); closed wave
+Markdown and ledgers remain immutable. After the upgrade reload—or a
 restart when `runner_stale` or cutover requires one—check from a fresh turn. If the
 catalog remains stale, reconnect MCP, then restart as the final fallback. Once current,
 use `wf_list_waves` for compact wave metrics and `memory_brief` for the active-memory

@@ -3464,6 +3464,52 @@ def _finalize_failed_upgrade(root: Path, tree_mutated: bool, current_phase: str)
         upgrade_lib.remove_upgrade_lock(root)
 
 
+def _memory_action_required_pause(root: Path, exc: BaseException) -> dict | None:
+    """Return the lock's typed ``action_required`` block when *exc* is the
+    designed memory-checkpoint pause, else ``None``.
+
+    Wave 1uf67: the historical-memory checkpoint arms a typed
+    ``action_required`` block (kind, state, resume_phase, run_id, token) in
+    the upgrade lock and raises the action-required exit code. That pause is
+    designed behavior, not a failure; recognizing it here keeps ``main``'s
+    ``except SystemExit`` from stamping ``failed_phase``/``failed_at`` over
+    correct checkpoint state and from printing failure prose for a routine
+    pause. The check mirrors the legacy pghn/pgi7 bridge's recipe: exit-code
+    check plus token/run-id presence in the typed block. Any other exit
+    (different code, no lock, untyped or incomplete block) is a genuine
+    failure and keeps ``_finalize_failed_upgrade`` unchanged.
+    """
+    import memory_backfill
+    import upgrade_lib
+
+    if not isinstance(exc, SystemExit):
+        return None
+    if exc.code != memory_backfill.ACTION_REQUIRED_EXIT:
+        return None
+    lock = upgrade_lib.read_upgrade_lock(root) or {}
+    action = lock.get("action_required")
+    if not isinstance(action, dict):
+        return None
+    if not str(action.get("token") or "").strip():
+        return None
+    if not str(action.get("run_id") or "").strip():
+        return None
+    return action
+
+
+def _report_action_required_pause(action: dict) -> None:
+    """Checkpoint wording for a designed action-required pause (never failure prose)."""
+    state = str(action.get("state") or "action required")
+    resume_phase = str(action.get("resume_phase") or "resume_after_memory")
+    _log(
+        f"\nUpgrade paused at the designed checkpoint '{state}': agent memory "
+        "work is required before index publication. This is not a failure; "
+        "the upgrade lock keeps the checkpoint state for resume. Complete "
+        "the reported memory work, then call "
+        f"wf_upgrade(phase='{resume_phase}') to continue the upgrade."
+    )
+
+
 # ── Wave 1p44z — secrets policy materialization (pre-gate) ────────────────────
 
 def _count_committers(root: Path) -> int:
@@ -4888,7 +4934,7 @@ def main(argv: list[str] | None = None) -> int:
                 memory_backfill_state="indexed",
             )
 
-    except SystemExit:
+    except SystemExit as exc:
         # A phase or hook failed (phase_docs_gate raises sys.exit(1) on a docs
         # gate failure; hooks may sys.exit too). Clean up the temp manifest in
         # case pruning hadn't reached it yet.
@@ -4896,9 +4942,19 @@ def main(argv: list[str] | None = None) -> int:
             OLD_MANIFEST_TMP.unlink(missing_ok=True)
         except OSError:
             pass
-        # Wave 1p44o — retain the lock with a failure marker on a post-mutation
-        # failure (half-replaced tree); remove it only on a pre-mutation failure.
-        _finalize_failed_upgrade(root, tree_mutated, current_phase)
+        # Wave 1uf67: the typed action-required memory checkpoint (exit code 4
+        # with a token/run-id-bearing action_required block in the lock) is a
+        # designed pause, not a failure. Skip failure finalization so the
+        # checkpoint's lock state stays untouched, and print checkpoint
+        # wording instead of failure prose.
+        action_required = _memory_action_required_pause(root, exc)
+        if action_required is not None:
+            _report_action_required_pause(action_required)
+        else:
+            # Wave 1p44o — retain the lock with a failure marker on a
+            # post-mutation failure (half-replaced tree); remove it only on a
+            # pre-mutation failure.
+            _finalize_failed_upgrade(root, tree_mutated, current_phase)
         upgrade_transaction.__exit__(*sys.exc_info())
         _close_log()
         raise

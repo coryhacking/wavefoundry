@@ -2,13 +2,40 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-03
+Last verified: 2026-08-04
 
-## Current State (2026-08-03, idle)
+## Current State (2026-08-04)
 
-- **Last closed wave:** `1ua8t memory-checkpoint-reporting` — normal historical-memory checkpoints now report as action-required rather than as `index_update` failures, including across the legacy-parent installing-upgrade boundary.
-- **No wave is OPEN.** The remaining planned waves are not activated; inspect the wave catalog before selecting follow-up work.
-- **Release follow-up:** `wavefoundry-1.15.0.pgl2.zip` predates the final `runner_stale: null` clarification. Rebuild and re-verify a package before publication.
+- **Wave `1uf65 integrity-checks-guidance` is OPEN (implementing) with THREE delivered changes,
+  five-lane delivery-approved under receipt `review-policy-8d1ab111859fdc73107a`; the close
+  dry-run blocks ONLY on operator-signoff.** The operator deferred signoff twice ("Not yet",
+  2026-08-04, both before and after the expanded scope); do not close without their explicit
+  word. Delivered: 1uf64 (seed-209 integrity-check phase semantics, field-confirmed on
+  1.15.2+pgt9), 1uf66 (docs-constants lint one-line-fix messages, advancer byte-unchanged,
+  messages-only decision), 1uf67 (checkpoint pause no longer prints failure prose or stamps the
+  lock; fix at main's except-SystemExit; class-b transition-run residue DISCLOSED in the
+  CHANGELOG bullet). Full suite 6805 OK; mutants a/b/c caught; one disclosed survivor (token/
+  run-id presence checks unpinned, recorded in the qa-reviewer approval as a future test).
+- Filed and still UNWAVED: `docs/plans/1uf68-bug summary-schema-token-unobservable-on-non-nominal-runs.md`
+  (the schema token is phase-scoped; checkpoint-paused runs emit no token-bearing summary) and
+  `docs/plans/1uf69-bug noop-policy-migration-invalidates-readied-waves.md` (the review-policy
+  migration's wave sweep lacks the no-op guard its config write has, so every upgrade marks
+  every readied wave for re-Prepare; field-observed on two consecutive upgrades incl. a no-seed
+  build successor). The rename's second-half field proof is POSITIVELY CLOSED: FOUR consecutive
+  unmarked `summary_schema_version: 1` runs (pgkv, pgl2, pgmv, pgto), zero degradation markers.
+- **1.15.2+pgto field-tested CLEAN (2026-08-04):** pgt9 to pgto upgraded exit 0, single call,
+  phases 0-4, docs gate passed, zero reconciliation findings; the 1uf66/1uf67 deliveries are in
+  the fielded pack.
+- **Releases:** 1.15.0 and 1.15.1 published 2026-08-03 with the models asset hosted at the
+  permanent `models` release tag.
+- **1.15.2+pgt9 local pack field-tested (2026-08-04):** the target repo confirmed the 1uf64
+  seed-209 fix addresses their integrity-checks feedback exactly (their own prepare pass used
+  the newly sanctioned readiness-safe controls). Two remaining upstream items from their report
+  are FILED as `docs/plans/1uf66-bug reliability-doc-claim-strands-docs-gate-on-version-bump.md`
+  (recurring; conservative advancer vs hard-fail lint asymmetry) and
+  `docs/plans/1uf67-bug checkpoint-pause-prose-still-reports-upgrade-failed.md` (typed state
+  correct, console prose wrong), both unwaved. The CHANGELOG heading now reads
+  `## [1.15.2] - unreleased` for the pack gate; VERSION is 1.15.2+pgt9 (uncommitted).
 
 ## Open questions / Deferred decisions
 

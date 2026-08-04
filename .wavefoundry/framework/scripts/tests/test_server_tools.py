@@ -22959,6 +22959,44 @@ class TestMcpWrapperParameterExposure(unittest.TestCase):
         with self.assertRaises(AssertionError):
             assert_contract_fields((*registry_fields, "fabricated_attestation"))
 
+        # 1uf64: the five integrity booleans carry DISTINCT plain-language
+        # definitions in the canonical seed table, plus one phase rule.
+        # Anchored on short field-specific fragments, not full-sentence
+        # byte-pins, so wording may evolve without losing the semantics.
+        boolean_fields = tuple(review_evidence.INTEGRITY_CHECK_BOOLEAN_FIELDS)
+        definitions: dict[str, str] = {}
+        for line in seed.splitlines():
+            cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+            if len(cells) == 3 and cells[0].strip("`") in boolean_fields:
+                definitions[cells[0].strip("`")] = cells[2]
+        self.assertEqual(sorted(definitions), sorted(boolean_fields))
+        self.assertEqual(
+            len(set(definitions.values())),
+            len(boolean_fields),
+            "integrity boolean definition cells must be pairwise distinct",
+        )
+        semantic_anchors = {
+            "test_ran_without_unintended_skip": "unintended skip",
+            "public_path_reached": "faithful boundary",
+            "boundary_values_realistic": "realistic",
+            "assertions_non_vacuous": "could fail",
+            "known_bad_detected": "known-bad",
+        }
+        for field, anchor in semantic_anchors.items():
+            self.assertIn(anchor, definitions[field], field)
+        # One phase rule: readiness approvals attest to the review itself,
+        # never unimplemented product behavior; the retired contentless gloss
+        # must not return on any public carrier.
+        for surface_name, surface in surfaces.items():
+            self.assertIn(
+                "not unimplemented product behavior", surface,
+                f"phase-rule anchor missing from {surface_name}",
+            )
+            self.assertNotIn(
+                "Boolean evidence-integrity result", surface,
+                f"retired execution-only gloss returned on {surface_name}",
+            )
+
         builder_source = inspect.getsource(
             review_evidence.build_compact_review_event
         )

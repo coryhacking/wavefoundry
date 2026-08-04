@@ -858,7 +858,107 @@ class ReviewEvidenceStateMachineTests(unittest.TestCase):
         for field in integrity_fields:
             evidence = executable_evidence("integrity-1", field, **{field: False})
             result = validate_records([evidence])
-            self.assertIn("all five evidence-integrity checks", "\n".join(result.errors), field)
+            self.assertIn(
+                "executed evidence cannot carry a false evidence-integrity check",
+                "\n".join(result.errors),
+                field,
+            )
+
+    def _compact_integrity_finding_event(self, **overrides: object) -> dict[str, object]:
+        event: dict[str, object] = {
+            "event": "finding",
+            "actor": "qa-reviewer",
+            "context_id": "integrity-finding-context",
+            "finding_id": "integrity-attestation-finding",
+            "run_kind": "initial_delivery",
+            "cycle": 0,
+            "judgment": {
+                "validation_status": "real",
+                "scope_relation": "admitted",
+                "introduced_or_worsened_by_wave": True,
+                "contract_relevance": "public_contract",
+                "supported_reachability": True,
+                "attacker_reachability": False,
+                "authority_domain": "integrity",
+                "authority_delta": "low",
+                "observable_impact": "material",
+                "containment": "none",
+            },
+            "proposition": "the public path rejects the invalid state",
+            "failure_condition": "the public path returns success",
+            "public_path": "wf_review_event",
+            "command_or_fixture": "integrity attestation fixture",
+            "expected": "error",
+            "observed": "success reproduced before repair",
+            "artifact_or_test_id": "test:integrity-attestation",
+            "known_bad_detection_method": "injected the pre-fix branch",
+            "limitations": "temporary local wave",
+            "safety_and_authorization": "local disposable fixture",
+            "disposition_rationale": "introduced public-contract regression is actionable now",
+            "integrity_checks": integrity_checks(),
+            "review_boundaries_changed": [],
+            "source_lanes": ["qa-reviewer"],
+            "blocking_required_lanes": ["qa-reviewer"],
+            "approval_recheck_lanes": ["qa-reviewer"],
+        }
+        event.update(overrides)
+        return event
+
+    def test_executed_approval_cannot_carry_false_integrity_check(self) -> None:
+        """1uf64: the per-field message reads as the attestation contract on
+        the approval label; an honest false still fails an executed approval."""
+        rows, errors = subject.build_compact_review_event(
+            [],
+            {
+                "event": "approval",
+                "actor": "qa-reviewer",
+                "context_id": "integrity-approval-context",
+                "signoff_key": "qa-reviewer",
+                "approval_phase": "delivery",
+                "observed": "independent recheck passed",
+                "artifact_or_test_id": "qa:integrity-approval",
+                "fresh_context": True,
+                "independent": True,
+                "integrity_checks": integrity_checks(assertions_non_vacuous=False),
+            },
+        )
+        self.assertEqual(rows, ())
+        self.assertIn(
+            "executed approval event cannot carry "
+            "integrity_checks.assertions_non_vacuous=false: affirm it honestly, "
+            "or do not record the claim as executed (for an approval: do not "
+            "approve; record a finding or repair first)",
+            "\n".join(errors),
+        )
+
+    def test_executed_finding_cannot_carry_false_integrity_check(self) -> None:
+        """1uf64: the same label-parameterized message fires for an executed
+        finding, so the wording must read correctly beyond approvals."""
+        event = self._compact_integrity_finding_event(
+            integrity_checks=integrity_checks(known_bad_detected=False),
+        )
+        rows, errors = subject.build_compact_review_event([], event)
+        self.assertEqual(rows, ())
+        self.assertIn(
+            "executed finding event cannot carry "
+            "integrity_checks.known_bad_detected=false: affirm it honestly, "
+            "or do not record the claim as executed (for an approval: do not "
+            "approve; record a finding or repair first)",
+            "\n".join(errors),
+        )
+
+    def test_non_executed_finding_may_honestly_carry_false_integrity_check(self) -> None:
+        """1uf64: the honest-false path stays open for non-executed findings;
+        the attestation gate applies only to executed claims."""
+        event = self._compact_integrity_finding_event(
+            execution_status="unverified",
+            integrity_checks=integrity_checks(known_bad_detected=False),
+        )
+        rows, errors = subject.build_compact_review_event([], event)
+        self.assertEqual(errors, ())
+        evidence_row = rows[0]
+        self.assertEqual(evidence_row["execution_status"], "unverified")
+        self.assertIs(evidence_row["known_bad_detected"], False)
 
     def test_publication_lock_is_cross_process_exclusive(self) -> None:
         # Wave 1tomw: two spawned OS processes contend on the real physical

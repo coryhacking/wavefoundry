@@ -27609,8 +27609,11 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         field explicitly in ``judgment``; the tool derives only IDs, actionability, blocking,
         review depth, supersession, cycle linkage, and record ordering. ``evidence`` carries the
         falsifiable proposition and executed observation fields. An executed claim also requires
-        the exact caller-supplied ``integrity_checks`` object with all five
-        booleans true and a non-empty ``known_bad_detection_method``.
+        the exact caller-supplied ``integrity_checks`` object: five booleans
+        the recording actor honestly affirms about its own evidence for its
+        phase (a readiness approval attests to the review of the current tree
+        or plan, not unimplemented product behavior; the seed-209 field table
+        defines each boolean) plus a non-empty ``known_bad_detection_method``.
         The exact caller vocabularies are owned by the exported
         ``review_evidence.py`` registries and contract tests compare this
         description with those registries. Field placement at a glance —
@@ -27711,7 +27714,10 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             integrity_checks: Exact evidence-integrity object. It must contain
                 only test_ran_without_unintended_skip, public_path_reached,
                 boundary_values_realistic, assertions_non_vacuous,
-                known_bad_detected, and known_bad_detection_method.
+                known_bad_detected, and known_bad_detection_method. Affirm each
+                boolean honestly for the recording phase per the seed-209 field
+                table; a claim that cannot affirm one is not recorded as
+                executed.
             record_type: list only — filter rows to one record type
                 (``executable_evidence``, ``review_run``, ``finding_synthesis``).
             verbose: list only — return full records instead of the compact index.

@@ -127,17 +127,23 @@ def check_docs_constants(root: Path) -> list[str]:
             continue
         m = pattern.search(text)
         if not m:
+            # 1uf66: name the exact line to add so a stranded target repo can
+            # self-heal from the message alone.
+            claim = pattern.pattern.replace("([^`]+)", expected)
             failures.append(
                 f"ERROR: {rel}: expected the documented fact '{label}' "
                 f"(pattern {pattern.pattern!r}); the claim is missing — documented "
-                "facts bound to code constants must not be silently dropped"
+                "facts bound to code constants must not be silently dropped; "
+                f'fix: add a line containing "{claim}" (expected value '
+                f"`{expected}`) to {rel}"
             )
             continue
         if m.group(1) != expected:
             line = text.count("\n", 0, m.start()) + 1
             failures.append(
                 f"ERROR: {rel}:{line}: documented {label} `{m.group(1)}` does not "
-                f"match the code constant `{expected}`"
+                f"match the code constant `{expected}`; "
+                f"fix: change `{m.group(1)}` to `{expected}` on that line"
             )
     return failures
 

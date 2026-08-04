@@ -7664,6 +7664,104 @@ class ArchivedLegacyMemoryCheckpointCompatibilityTests(unittest.TestCase):
                 self.assertIn("receipt-owned publication", result["data"]["output"])
 
 
+class CurrentLineageMemoryCheckpointPauseTests(unittest.TestCase):
+    """Wave 1uf67: main's own ``except SystemExit`` handling must not report the
+    designed memory-checkpoint pause as an upgrade failure or stamp a failure
+    marker over the checkpoint's lock state.
+
+    The archived pghn/pgi7 bridge class above covers only legacy parents; this
+    class drives the CURRENT runner's full-upgrade path to the
+    ``pre_index_update`` pause (typed ``action_required`` block, exit 4).
+    """
+
+    def _drive_main_to_index_update_exit(self, pause):
+        mod = load_upgrade_module()
+        import upgrade_extensions
+        import upgrade_lib
+        import venv_bootstrap
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir).resolve()
+            (root / ".wavefoundry").mkdir()
+            _stage_review_protocol_seeds(root)
+            (root / "docs" / "waves").mkdir(parents=True)
+            (root / "docs" / "workflow-config.json").write_text(
+                "{}\n", encoding="utf-8"
+            )
+
+            def hook(name, ctx, ext_mod):
+                if name == "pre_index_update":
+                    pause(root)
+
+            stdout, stderr = io.StringIO(), io.StringIO()
+            with patch.object(mod, "phase_preflight", return_value=(None, None, None)), \
+                 patch.object(mod, "_load_extension_module", return_value=None), \
+                 patch.object(mod, "_run_hook", side_effect=hook), \
+                 patch.object(upgrade_extensions, "pre_extract"), \
+                 patch.object(mod, "_snapshot_pre_extract_chunker_versions", return_value={}), \
+                 patch.object(mod, "_snapshot_pre_extract_versions", return_value={}), \
+                 patch.object(mod, "phase_surface_rendering"), \
+                 patch.object(mod, "_stamp_manifest_revision", return_value=False), \
+                 patch.object(mod, "phase_pruning", return_value=0), \
+                 patch.object(mod, "materialize_secrets_policy", return_value="ok"), \
+                 patch.object(mod, "materialize_lifecycle_policy", return_value="ok"), \
+                 patch.object(mod, "phase_docs_gate"), \
+                 patch.object(mod, "phase_index_update", return_value=True), \
+                 patch.object(mod, "_emit_primary_summary_via_delegate_or_fallback"), \
+                 patch.object(venv_bootstrap, "ensure_python_resolves", return_value="ok"), \
+                 patch.dict(os.environ, {"WAVEFOUNDRY_SKIP_PYTHON_HEAL": "1"}, clear=False), \
+                 contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                with self.assertRaises(SystemExit) as raised:
+                    mod.main(["--root", str(root), "--yes"])
+                lock = upgrade_lib.read_upgrade_lock(root) or {}
+        return raised.exception, stdout.getvalue() + stderr.getvalue(), lock
+
+    def test_typed_checkpoint_pause_is_not_finalized_as_failure(self):
+        """Red-first for 1uf67: no failure prose AND no failure lock stamp."""
+        import memory_backfill
+        import upgrade_lib
+
+        def pause(root):
+            upgrade_lib.update_upgrade_lock(
+                root,
+                current_phase="awaiting_memory_publication",
+                action_required={
+                    "kind": "historical_memory",
+                    "state": "awaiting_memory_publication",
+                    "resume_phase": "resume_after_memory",
+                    "run_id": "field-run",
+                    "token": "field-token",
+                },
+                failed_phase=None,
+                failed_at=None,
+            )
+            raise SystemExit(memory_backfill.ACTION_REQUIRED_EXIT)
+
+        exc, output, lock = self._drive_main_to_index_update_exit(pause)
+        self.assertEqual(exc.code, memory_backfill.ACTION_REQUIRED_EXIT)
+        self.assertNotIn("Upgrade failed", output)
+        self.assertIn("resume_after_memory", output)
+        self.assertEqual(
+            (lock.get("action_required") or {}).get("run_id"), "field-run"
+        )
+        self.assertIsNone(lock.get("failed_phase"))
+        self.assertIsNone(lock.get("failed_at"))
+
+    def test_untyped_exit_four_still_finalizes_as_failure(self):
+        """Over-suppression guard: exit 4 WITHOUT a typed action_required block
+        is a genuine failure and keeps the retained-lock failure report."""
+        import memory_backfill
+
+        def pause(root):
+            raise SystemExit(memory_backfill.ACTION_REQUIRED_EXIT)
+
+        exc, output, lock = self._drive_main_to_index_update_exit(pause)
+        self.assertEqual(exc.code, memory_backfill.ACTION_REQUIRED_EXIT)
+        self.assertIn("Upgrade failed during phase 'index_update'", output)
+        self.assertEqual(lock.get("failed_phase"), "index_update")
+        self.assertIsNotNone(lock.get("failed_at"))
+
+
 class HistoricalMemoryUpgradeExtensionBootstrapTests(unittest.TestCase):
     def setUp(self):
         self.ext = _load_upgrade_extensions()
