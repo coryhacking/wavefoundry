@@ -526,7 +526,7 @@ HARDCODED_EXCLUDE_DIRS = {
     ".git", ".hg", ".svn",
     "node_modules", "__pycache__", ".pytest_cache", ".mypy_cache",
     ".tox", ".venv", "venv", ".env", "env",
-    "dist", "build", "target", "out", ".next", ".nuxt",
+    "dist", "build", "target", "out", "graphify-out", ".next", ".nuxt",
 }
 
 # Path prefixes (relative to repo root, forward slashes) that are always excluded.

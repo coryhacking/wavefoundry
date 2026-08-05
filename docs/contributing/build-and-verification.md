@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-31
+Last verified: 2026-08-04
 
 ## Verification Commands
 
@@ -178,7 +178,7 @@ When a new framework version is available, upgrade using this procedure:
 
 Option A (single release package): A protocol-2 installation may select `wavefoundry-<version>.zip` directly with `--pack`. A protocol-1 installation uses that same file, stops the dashboard and every attached agent/MCP host, and runs `python <package>.zip --root <repo> --confirm-hosts-stopped`. The package contains and verifies the exact bridge and feature payload bytes, performs both hops, and returns the restart or retained-checkpoint recovery action. The internal bridge zip/bootstrap/selection remain builder composition inputs and are removed from `dist/` after assembly. The upgrade seed (`seed-160`) carries the complete recovery flow.
 
-The upgrade also migrates the review policy explicitly: legacy enabled projects become `wave_review.delivery_mode=universal`, while legacy disabled projects become `delivery_mode=disabled`.
+The upgrade also migrates the review policy explicitly: legacy enabled projects become `wave_review.enabled=true, delivery_mode=targeted`, while legacy disabled projects become `enabled=false, delivery_mode=disabled`.
 
 Option B (direct merge): Merge or copy into `.wavefoundry/framework/` then run **Upgrade wave framework**.
 

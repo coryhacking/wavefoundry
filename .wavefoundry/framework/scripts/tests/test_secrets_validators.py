@@ -644,13 +644,15 @@ class TestShippedFrameworkSelfExclusions(unittest.TestCase):
     """
 
     def _shipped_allowlist_paths(self) -> list[str]:
+        return list(self._shipped_ruleset().get("allowlist", {}).get("paths", []))
+
+    def _shipped_ruleset(self) -> dict:
         repo_root = SCRIPTS_ROOT.parents[2]
         fw_path = repo_root / SCAN_RULES_FRAMEWORK_PATH
         if not fw_path.exists():
             self.skipTest(f"shipped ruleset not present at {fw_path}")
         with open(fw_path, "rb") as f:
-            data = tomllib.load(f)
-        return list(data.get("allowlist", {}).get("paths", []))
+            return tomllib.load(f)
 
     def test_findings_ledger_excluded_by_default(self) -> None:
         paths = self._shipped_allowlist_paths()
@@ -695,10 +697,31 @@ class TestShippedFrameworkSelfExclusions(unittest.TestCase):
                 f"generated artifact {rel} must be excluded by the shipped allowlist",
             )
 
+    def test_windows_venv_and_graphify_output_exclusions_are_pre_read_and_mirrored(self) -> None:
+        """Wave 1uhfx — Windows venv and Graphify defaults stay out of the scan."""
+        ruleset = self._shipped_ruleset()
+        paths = list(ruleset.get("allowlist", {}).get("paths", []))
+        expected_patterns = (
+            r"(?i)(?:^|/)\.?(?:v?env|virtualenv)/lib(?:64)?(?:/.*)?$",
+            r"(?:^|/)graphify-out(?:/.*)?$",
+        )
+        for pattern in expected_patterns:
+            self.assertIn(pattern, ruleset.get("prefilter", ""))
+            self.assertIn(pattern, paths)
+        for rel in (
+            ".venv/Lib/site-packages/package/module.py",
+            "venv/lib/python3.11/site-packages/package/module.py",
+            "graphify-out/graph.json",
+            "graphify-out/GRAPH_REPORT.md",
+        ):
+            self.assertTrue(_path_matches_allowlist(rel, paths), rel)
+            with patch.object(Path, "stat", side_effect=AssertionError("allowlisted path was statted")):
+                self.assertEqual(scan_file_raw(Path("unused"), rel, [], paths, set()), ([], None, []))
+
     def test_normal_source_not_excluded(self) -> None:
         """Wave 1p44t — the generic rules must not over-match real source files."""
         paths = self._shipped_allowlist_paths()
-        for rel in ("config.js", "src/app.ts", "main.css", "index.mjs"):
+        for rel in ("config.js", "src/app.ts", "src/graphify-output.ts", "main.css", "index.mjs"):
             self.assertFalse(
                 _path_matches_allowlist(rel, paths),
                 f"normal source file {rel} must NOT be allowlisted",

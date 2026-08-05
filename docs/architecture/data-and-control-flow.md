@@ -515,6 +515,10 @@ its own module version, closing the in-process cross-version import skew. On
 any delegation failure the parent's in-process builder emits instead, carrying
 the `summary_source_degraded` marker and no schema token; exactly one sentinel
 is emitted per run. The cleanup-phase summary already runs in a fresh
-post-extract process and is unchanged. Server-resident response fields
+post-extract process, and since wave 1uf68 its emit site sets the schema token
+onto the finished builder dict on both cleanup branches, so the token is no
+longer delegation-exclusive: it witnesses that post-extraction code rendered the
+summary, which is true at both emit sites. The shared builder still never
+carries it, which is what keeps the sentence above true. Server-resident response fields
 (`runner_stale`, diagnostics composition, the summary bounder) are still
 computed by the running server process and change only on host restart.

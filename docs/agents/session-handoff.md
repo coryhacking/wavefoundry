@@ -16,9 +16,14 @@ Last verified: 2026-08-04
   lock; fix at main's except-SystemExit; class-b transition-run residue DISCLOSED in the
   CHANGELOG bullet). Full suite 6805 OK; mutants a/b/c caught; one disclosed survivor (token/
   run-id presence checks unpinned, recorded in the qa-reviewer approval as a future test).
-- Filed and still UNWAVED: `docs/plans/1uf68-bug summary-schema-token-unobservable-on-non-nominal-runs.md`
-  (the schema token is phase-scoped; checkpoint-paused runs emit no token-bearing summary) and
-  `docs/plans/1uf69-bug noop-policy-migration-invalidates-readied-waves.md` (the review-policy
+- `1uf68-bug summary-schema-token-unobservable-on-non-nominal-runs` is ADMITTED into wave
+  `1ugk8 upgrade-reporting-and-doc-accuracy` and lives at
+  `docs/waves/1ugk8 upgrade-reporting-and-doc-accuracy/1uf68-bug summary-schema-token-unobservable-on-non-nominal-runs.md`.
+  **Superseded fact:** the schema token is no longer phase-scoped. The cleanup emit site
+  (`_print_operator_summary`) now carries `summary_schema_version` on BOTH cleanup branches, so a
+  checkpoint-paused run reaches a token-bearing summary at its recovery `--cleanup`. What remains
+  true is that the pause and `--resume-after-memory` emit no sentinel at all in their own process.
+  Still filed and UNWAVED: `docs/plans/1uf69-bug noop-policy-migration-invalidates-readied-waves.md` (the review-policy
   migration's wave sweep lacks the no-op guard its config write has, so every upgrade marks
   every readied wave for re-Prepare; field-observed on two consecutive upgrades incl. a no-seed
   build successor). The rename's second-half field proof is POSITIVELY CLOSED: FOUR consecutive
@@ -34,8 +39,10 @@ Last verified: 2026-08-04
   are FILED as `docs/plans/1uf66-bug reliability-doc-claim-strands-docs-gate-on-version-bump.md`
   (recurring; conservative advancer vs hard-fail lint asymmetry) and
   `docs/plans/1uf67-bug checkpoint-pause-prose-still-reports-upgrade-failed.md` (typed state
-  correct, console prose wrong), both unwaved. The CHANGELOG heading now reads
-  `## [1.15.2] - unreleased` for the pack gate; VERSION is 1.15.2+pgt9 (uncommitted).
+  correct, console prose wrong), both unwaved. `CHANGELOG.md:41` now reads the RELEASED heading
+  `## [1.15.2] - 2026-08-04`, and wave 1ugk8 opened a fresh `## [Unreleased]` section above it;
+  the release runner must rename that heading to `## [1.15.3] - <date>` before
+  `build_pack --version` or `--release` will pass its changelog-first gate.
 
 ## Open questions / Deferred decisions
 
@@ -283,6 +290,20 @@ own correct summary (reconciliation 34, independent scan_repo_channels cross-che
 no false bug report filed. Remaining: the next upgrade on that repo must report
 `summary_schema_version: 1` unmarked.
 
+**Hook updated by wave 1uf68 (which summary satisfies the proof, and how to report absence).**
+The token is no longer delegation-exclusive: the cleanup emit site carries it too, on both cleanup
+branches. So the PRIMARY-phase sentinel is the one that proves the delegation contract, and a
+cleanup sentinel carrying the token proves only that post-extraction code rendered that summary.
+Future reports must distinguish two observations that the pgt9 report collapsed into one `<ABSENT>`
+string, which is the reporting half of the 1uf68 defect:
+
+- **No sentinel was emitted at all.** What a memory-checkpoint pause and `--resume-after-memory`
+  do in their own process. Report it as "no sentinel emitted", name the phase, and read the token
+  from the recovery `--cleanup` instead.
+- **A sentinel was emitted without the token.** Either the in-process degradation fallback (always
+  accompanied by `summary_source_degraded`) or a runner predating the contract (distinguished by
+  `to_version`). Report which.
+
 ## Solaris field report 2 (2026-08-02): drift diff-parser tab bug, FILED as 1u91n
 
 Solaris's pgf6 upgrade root-caused a new framework defect, verified against this tree and
@@ -357,7 +378,9 @@ caveat accurately predicted the final spill, permissions provenance clean (42/42
 live proof: the schema token at value 1 (observed under the pre-rename key spelling; wave 1u8o5
 has since renamed the key to `summary_schema_version`, so the next pg8h/pg9m-initiated upgrade
 takes one marked degraded run and the run after reports `summary_schema_version: 1` unmarked, per
-the standing hook above), no `summary_source_degraded`, on the upgrade that shipped its own
+the standing hook above, including its wave 1uf68 update naming the PRIMARY-phase sentinel as the
+one that satisfies this proof now that cleanup also carries the token), no
+`summary_source_degraded`, on the upgrade that shipped its own
 seed change; the class-(a) reporting lag is empirically closed (transition run pg5l-to-pg8h had
 correctly shown absent, per the disclosure). runner_stale false, impl_matches_disk true,
 reconciliation 34 with independent cross-check [34, 0, 0], root clean, permissions unchanged.

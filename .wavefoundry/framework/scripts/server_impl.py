@@ -2358,6 +2358,13 @@ UPGRADE_SUMMARY_TERMINAL_KEYS = {
     # small on the producer side so it also survives the unknown-scalar budget
     # path on a server launched before this registration existed.
     "summary_source_degraded",
+    # Wave 1uf68: the summary-schema freshness token. A dropped token yields
+    # None, which reads as ABSENT to any consumer not also checking the
+    # truncation flag, exactly the ambiguity between "no token" and "old code"
+    # that carrying the token at the cleanup emit site exists to remove. This
+    # registration lives in the MCP server's in-process module, so it takes
+    # effect only after a full host restart; emission is unaffected by that.
+    "summary_schema_version",
 }
 
 

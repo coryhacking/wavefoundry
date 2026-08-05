@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-31
+Last verified: 2026-08-04
 
 ## What Wavefoundry Is
 
@@ -99,7 +99,7 @@ Wavefoundry uses the standard Wave Framework generic roles:
 
 Role docs live under `docs/agents/`. Factor-review agents for applicable factors live under `.claude/agents/`.
 
-The framework ships `wave_review.enabled: true` and `delivery_mode: universal` by default. Enabled review always requires readiness Council before implementation. Delivery Council is mode-specific: every wave in `universal`, risk/receipt-selected waves in `targeted`, and none in the valid `enabled: false` / `disabled` pair. The wave-council owns those verdicts; the wave-coordinator still owns lifecycle routing.
+The framework ships `wave_review.enabled: true` and `delivery_mode: targeted` by default. Enabled review always requires readiness Council before implementation. Delivery Council is mode-specific: every wave in `universal`, risk/receipt-selected waves in `targeted`, and none in the valid `enabled: false` / `disabled` pair. The wave-council owns those verdicts; the wave-coordinator still owns lifecycle routing.
 
 ## Project Personas
 

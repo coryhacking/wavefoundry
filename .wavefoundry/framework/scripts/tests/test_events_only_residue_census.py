@@ -230,6 +230,35 @@ PREIMPLEMENTATION_GATE_ALLOWANCES: dict[
 ] = {}
 
 
+# Wave 1ug7o: the delivered mapping is `enabled -> targeted` and the
+# fresh-install default is `targeted` (`review_policy.FRESH_INSTALL_DELIVERY_MODE`,
+# and the canonical `UPGRADE_POLICY_BLOCK` sentence). Four living doc surfaces
+# drifted into claiming `universal` on that axis after wave 1u7dq flipped the
+# default, promising downstream operators a heavier review posture than the
+# upgrade configures.
+#
+# The pin keys on the CLAIM, never on the bare word: `universal` is a live legal
+# enum value with dozens of legitimate occurrences in scope (mode enumerations
+# such as "every wave in `universal`", `server_impl.py`'s fail-closed
+# `"delivery_mode": "universal"` default on malformed policy, and unrelated
+# English uses like "universal specialist"). A bare-token sweep would be red on
+# contact against correct prose, then loosened, then rotted, which is the exact
+# failure this pin exists to prevent.
+#
+# There is deliberately NO allowance table for these patterns. The expected
+# count for every pattern, in every file the census reads, is zero, so an
+# allowance could exempt nothing: any entry admitting an occurrence would
+# immediately fail `test_universal_delivery_mode_claim_count_is_zero_across_scope`,
+# which is the stronger pin. If a future carrier ever needs a genuine exemption,
+# add the table then, with a real entry and a written justification, in the
+# shape PREIMPLEMENTATION_GATE_ALLOWANCES already establishes.
+DELIVERY_MODE_CLAIM_TOKENS = (
+    "delivery_mode=universal",
+    "delivery_mode: universal",
+    "enabled review to `universal`",
+)
+
+
 def _normalized_preimplementation_text(text: str) -> str:
     """Case-fold and collapse layout whitespace so line wrapping cannot evade a token."""
     return " ".join(text.casefold().split())
@@ -331,11 +360,15 @@ def _census_files() -> list[Path]:
         for path in sorted(base.rglob("*")):
             if path.is_file() and path.suffix in TEXT_SUFFIXES:
                 files.append(path)
-    # Current rendered carriers and hand-authored current docs.
+    # Current rendered carriers and hand-authored current docs. `docs/references/`
+    # joined the scope in wave 1ug7o: `project-overview.md` is the Tier-1
+    # startup doc AGENTS.md lists as read-first, and it carried the drifted
+    # delivery-mode claim while sitting outside every executable census.
     for base in (
         REPO_ROOT / "docs" / "prompts",
         REPO_ROOT / "docs" / "specs",
         REPO_ROOT / "docs" / "contributing",
+        REPO_ROOT / "docs" / "references",
     ):
         files.extend(sorted(base.rglob("*.md")))
     for path in sorted((REPO_ROOT / "docs" / "architecture").glob("*.md")):
@@ -347,6 +380,30 @@ def _census_files() -> list[Path]:
         if candidate.is_file():
             files.append(candidate)
     return files
+
+
+def _scan_delivery_mode_claim(files: list[Path], root: Path) -> list[str]:
+    """Flag any live claim that upgrade or fresh install selects `universal`.
+
+    No occurrence is exempt (see the DELIVERY_MODE_CLAIM_TOKENS note), and the
+    text is normalized the same way as the retired-gate scan so a line wrap or a
+    capitalization change cannot carry the claim past the pin.
+    """
+    violations: list[str] = []
+    for path in files:
+        try:
+            text = _normalized_preimplementation_text(
+                path.read_text(encoding="utf-8")
+            )
+        except (OSError, UnicodeDecodeError):
+            continue
+        rel = str(path.relative_to(root)).replace("\\", "/")
+        for token in DELIVERY_MODE_CLAIM_TOKENS:
+            count = text.count(token)
+            if count == 0:
+                continue
+            violations.append(f"{rel}: {token} ({count} occurrence(s))")
+    return violations
 
 
 def _scan_forbidden(files: list[Path], root: Path) -> list[str]:
@@ -459,6 +516,15 @@ class EventsOnlyResidueCensusTests(unittest.TestCase):
         self.assertIn(".wavefoundry/framework/scripts/upgrade_wavefoundry.py", rels)
         self.assertIn("docs/architecture/data-and-control-flow.md", rels)
         self.assertIn("docs/specs/mcp-tool-surface.md", rels)
+        # Wave 1ug7o: the Tier-1 startup doc is inside the scope, and the ADR
+        # archive stays outside it (1tsbu-adr keeps its original decision text
+        # under an amendment note, so the census must never read it).
+        self.assertIn("docs/references/project-overview.md", rels)
+        self.assertNotIn(
+            "docs/architecture/decisions/"
+            "1tsbu-adr review-policy-and-upgrade-protocol.md",
+            rels,
+        )
 
     def test_preimplementation_carrier_scope_is_non_vacuous(self):
         files = _preimplementation_carrier_files()
@@ -740,6 +806,84 @@ class EventsOnlyResidueCensusTests(unittest.TestCase):
         # module's legacy branch; server_impl.py and every other shipped
         # surface must derive review evidence through resolve_review_authority.
         self.assertEqual(_scan_outside_facade(_census_files(), REPO_ROOT), [])
+
+    def test_no_live_surface_claims_the_universal_delivery_mode(self):
+        # Wave 1ug7o (AC-3/AC-4): no live carrier may say the upgrade maps
+        # enabled review to `universal`, or that `universal` is the shipped
+        # default. Both are false: the mapping is `enabled -> targeted`.
+        self.maxDiff = None
+        self.assertEqual(
+            _scan_delivery_mode_claim(_census_files(), REPO_ROOT), []
+        )
+
+    def test_universal_delivery_mode_claim_count_is_zero_across_scope(self):
+        # The expected count for every claim pattern is zero everywhere in
+        # scope, so no allowance can hide an occurrence behind a matching count.
+        counts = {token: 0 for token in DELIVERY_MODE_CLAIM_TOKENS}
+        for path in _census_files():
+            try:
+                text = _normalized_preimplementation_text(
+                    path.read_text(encoding="utf-8")
+                )
+            except (OSError, UnicodeDecodeError):
+                continue
+            for token in DELIVERY_MODE_CLAIM_TOKENS:
+                counts[token] += text.count(token)
+        self.assertEqual(counts, {token: 0 for token in DELIVERY_MODE_CLAIM_TOKENS})
+
+    def test_each_planted_universal_delivery_mode_claim_is_detected(self):
+        # Wave 1ug7o (AC-4 known-bad control): each claim pattern is caught
+        # individually, so a carrier cannot survive by reformatting one of the
+        # three spellings, and a wrapped claim is caught too.
+        import tempfile
+
+        planted = {
+            "legacy enabled projects become `wave_review.delivery_mode=universal`":
+                "delivery_mode=universal",
+            "the framework ships `delivery_mode: universal` by default":
+                "delivery_mode: universal",
+            "it maps legacy enabled review to `universal` and disabled review to "
+            "`disabled`":
+                "enabled review to `universal`",
+            "the framework ships `delivery_mode:\nuniversal` by default":
+                "delivery_mode: universal",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            probe = root / "docs" / "references" / "probe.md"
+            probe.parent.mkdir(parents=True)
+            for body, expected_token in planted.items():
+                with self.subTest(body=body):
+                    probe.write_text(body + "\n", encoding="utf-8")
+                    self.assertEqual(
+                        _scan_delivery_mode_claim([probe], root),
+                        [
+                            "docs/references/probe.md: "
+                            f"{expected_token} (1 occurrence(s))"
+                        ],
+                    )
+
+    def test_legitimate_universal_mode_uses_do_not_trip_the_claim_pin(self):
+        # The negative controls: the fail-closed default shape shipped in
+        # server_impl.py, a correct mode enumeration, and unrelated English.
+        # None of them asserts the false mapping, so none may be flagged.
+        import tempfile
+
+        allowed = (
+            '        return {"enabled": True, "delivery_mode": "universal"}',
+            "Delivery Council is mode-specific: every wave in `universal`, "
+            "risk/receipt-selected waves in `targeted`.",
+            "`delivery_mode` is exactly `disabled | targeted | universal`.",
+            "The universal specialist lane owns the universal fallback.",
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            probe = root / "docs" / "references" / "probe.md"
+            probe.parent.mkdir(parents=True)
+            for body in allowed:
+                with self.subTest(body=body):
+                    probe.write_text(body + "\n", encoding="utf-8")
+                    self.assertEqual(_scan_delivery_mode_claim([probe], root), [])
 
     def test_tests_tree_scope_is_non_vacuous(self):
         files = _test_files()

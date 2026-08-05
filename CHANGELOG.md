@@ -6,6 +6,53 @@ the individual wave records under [`docs/waves/`](docs/waves/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.15.3] - 2026-08-04
+
+### Fixed
+
+- **Every upgrade summary the cleanup phase prints now carries the `summary_schema_version`
+  freshness token, so a missing token means something specific.** The token used to be emitted only
+  by the delegated primary-phase producer, which left the runs that deviated (a memory-checkpoint
+  pause, `--resume-after-memory`, and every ordinary cleanup) indistinguishable from a run whose
+  token had drifted or been dropped. The cleanup emit site now sets it on both the success and the
+  failure branch, so a paused run reaches a token-bearing summary at its recovery `--cleanup`. The
+  token is a claim about the code that rendered the summary, not about whether the upgrade
+  succeeded; `failed_phase` remains the success discriminator and `summary_source_degraded` remains
+  the sole degradation discriminator, which the in-process fallback still carries without a token.
+  The seed-160 upgrade prompt and the session-handoff reporting hook now state the three causes of
+  token absence so a report names the right one instead of a bare "absent". `summary_schema_version`
+  is also registered as a terminal summary key so response bounding can never make a present token
+  read as absent; that half is server-resident and takes effect after a full host restart, while
+  emission takes effect on the upgrade that installs it.
+
+- **Four documentation surfaces no longer promise a heavier review posture than the upgrade
+  actually configures.** The upgrade prompt, the build-and-verification guide, and the project
+  overview each claimed that enabled review maps to `delivery_mode=universal` (full Council on
+  every wave) when it has mapped to `targeted` since delivery review became risk-tiered; the
+  overview also named `universal` as the shipped fresh-install default. All three now state the
+  delivered modes in the same wording the upgrade itself reports, and the review-policy decision
+  record carries an inline amendment naming the wave that superseded its original default while
+  preserving that original text as history. An executable census pins the corrected claim so the
+  drift cannot silently return: it keys on the three claim-shaped phrasings rather than the word
+  `universal`, which remains a legal delivery mode with legitimate uses everywhere, and it now
+  reads `docs/references/` where one of the drifted surfaces had been sitting outside every
+  automated check.
+
+- **The secrets scan no longer walks native Windows virtual environments, and neither the scan nor
+  the index walks Graphify's default output directory.** The shipped virtual-environment exclusion
+  matched only `venv/lib/...` after path normalization, so a native Windows
+  `.venv/Lib/site-packages` tree was selected and read: an entire dependency tree scanned, with the
+  worker processes to match. The path pattern now accepts the dot-prefixed layout, in both the
+  active Python allowlist and the Betterleaks prefilter, which are kept in step so they cannot
+  drift apart. The same two rules now also exclude `graphify-out/`, the directory Graphify
+  documents as its generated-artifact home, and the shared semantic-and-graph repository walker
+  prunes that directory before descending into it. Existing indexes do not need a rebuild: one
+  ordinary incremental update detects the former Graphify paths as removed and reaps them from both
+  semantic and graph state. The exclusions stay narrow by design. Only virtual-environment library
+  trees and the exact default `graphify-out` directory segment are skipped, so an ordinary source
+  file such as `src/graphify-output.ts` remains scannable, and custom `GRAPHIFY_OUT` locations stay
+  project-owned configuration.
+
 ## [1.15.2] - 2026-08-04
 
 ### Fixed

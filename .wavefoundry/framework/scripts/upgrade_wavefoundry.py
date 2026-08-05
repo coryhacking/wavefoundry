@@ -3394,6 +3394,10 @@ def _print_operator_summary(
             renderer_provenance_flags,
         ):
             _log(line)
+    # Set here, at the emit site, and never in `_build_upgrade_summary` or
+    # `_emit_summary_line`: both are shared with the primary-phase degradation
+    # fallback, whose invariant is that it carries NO token.
+    summary[SUMMARY_SCHEMA_KEY] = SUMMARY_SCHEMA_VERSION
     # Wave 1p8eu/1p8kz — emit the summary machine-readably so wf_upgrade_response parses it into
     # data['summary'] (fail-safe). Rendered from the SAME dict as the prose above (one source).
     _emit_summary_line(summary)

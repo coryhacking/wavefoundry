@@ -25163,6 +25163,75 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
             "pre-1u44o server",
         )
 
+    def test_schema_token_is_terminal_and_survives_cleanup_budget_pressure(self):
+        # Wave 1uf68 requirement 6(d) / AC-4: the cleanup emit site now carries
+        # summary_schema_version, so the bounder must never be able to make a
+        # PRESENT token look absent. Unregistered, the token competes in the
+        # unknown-scalar budget and a drop yields None, which reads as absent to
+        # any consumer not also checking the truncation flag, reintroducing the
+        # exact ambiguity this change removes. Budget pressure is load-bearing:
+        # without it the token survives even unregistered and the test proves
+        # nothing, which is why the same summary is also driven through a
+        # terminal-key set with the token filtered out.
+        self.assertIn(
+            "summary_schema_version", self.srv.UPGRADE_SUMMARY_TERMINAL_KEYS
+        )
+        # A cleanup-shaped summary: token present, failed_phase null (success
+        # branch), plus enough unknown scalars to exhaust the budget.
+        #
+        # Two fixture properties are load-bearing and were both established by
+        # execution, not assumed:
+        #  - Key ORDER mirrors the real emit site: `_print_operator_summary`
+        #    assigns the token onto the finished builder dict, so on the wire the
+        #    token is the LAST key and every unknown scalar is budgeted first.
+        #  - The fillers are sized to the token's own entry cost (a 24-char key
+        #    plus a 1-char value = 25 chars). A handful of OVERSIZED fillers does
+        #    not exhaust the budget: `_bounded_upgrade_summary` decrements it only
+        #    for ADMITTED fields, so oversized fillers leave hundreds of
+        #    characters of slack and a 25-char entry still fits even unregistered.
+        #    Same-size fillers drive the residual budget strictly below 25, which
+        #    is the only state in which the terminal registration is what keeps
+        #    the token on the wire.
+        summary = {
+            "from_version": "1.15.2",
+            "to_version": "1.15.3",
+            "docs_gate": "PASSED",
+            "failed_phase": None,
+            **{f"u{index:04d}": "x" * 16 for index in range(1_200)},
+            "reconciliation": [],
+            "summary_schema_version": 1,
+        }
+        stdout = self.srv._upgrade_summary_sentinel() + json.dumps(summary) + "\n"
+        mock_proc = MagicMock(returncode=0, stdout=stdout, stderr="")
+        with patch("subprocess.run", return_value=mock_proc):
+            result = self.srv.wf_upgrade_response(self.root, phase="cleanup")
+        bounded = result["data"]["summary"]
+        self.assertTrue(
+            bounded["summary_truncated"],
+            "the fixture must actually exhaust the budget or it proves nothing",
+        )
+        self.assertEqual(
+            bounded["summary_schema_version"], 1,
+            "bounding must never drop the freshness token from a cleanup summary",
+        )
+        # Anti-vacuity control (the pre-registration behaviour this pins
+        # against): with the token filtered out of the terminal-key set it loses
+        # the guarantee and the bounder is free to drop it.
+        stale_terminal_keys = {
+            key
+            for key in self.srv.UPGRADE_SUMMARY_TERMINAL_KEYS
+            if key != "summary_schema_version"
+        }
+        with patch.object(
+            self.srv, "UPGRADE_SUMMARY_TERMINAL_KEYS", stale_terminal_keys
+        ), patch("subprocess.run", return_value=mock_proc):
+            unregistered = self.srv.wf_upgrade_response(self.root, phase="cleanup")
+        self.assertIsNone(
+            unregistered["data"]["summary"].get("summary_schema_version"),
+            "control: without the registration the token is droppable, which is "
+            "what the registration exists to prevent",
+        )
+
     def test_failure_response_carries_next_step_and_next_tools(self):
         # F2: the primary error path must route a retained typed-gate failure
         # back through resume_after_gate rather than publication or cleanup.

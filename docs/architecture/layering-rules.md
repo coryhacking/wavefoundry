@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-03
+Last verified: 2026-08-04
 
 ## Allowed Dependencies
 
@@ -26,7 +26,7 @@ Last verified: 2026-08-03
 | Fresh agent renderer → lifecycle reconciler | The lifecycle reconciler remains primary owner; after all-path containment preflight, the freshly extracted renderer may replay only the shared `UPGRADE_POLICY_BLOCK` marker in `docs/prompts/upgrade-wavefoundry.prompt.md` to close the installing-upgrade old-code window, preserving every byte outside that marker and adopting no other lifecycle carriers | Verified by transition, preservation, idempotence, and symlink-refusal tests |
 | `review_policy.py` carrier registry → direct docs | Direct-doc carriers are validation-only and never target-repository writers | Verified by owner-permission registry tests |
 | Upgrade → project publishers | Upgrade acquires lifecycle then publication ownership; registered publishers fail fast from the durable checkpoint, except the two memory-recovery writers at the exact memory pause | Verified by lock-order, checkpoint, and public-wrapper tests |
-| FROM-runner → TO-tree summary producer | The pre-extraction parent produces the primary-phase summary only through the pinned `--emit-summary` contract on the freshly extracted tree (argv, sentinel prefix, `summary_schema_version` token, pinned timeout; upgrade lock as the sole state carrier, old-schema tolerant); the surface never changes silently (deliberate versioned evolution bumps the schema token); any contract failure degrades to the parent's marked in-process fallback, never a second sentinel and never unlabeled old-schema output | Verified by the permanent `DelegatedSummaryContractTests` plus the degradation and mutual-exclusion tests |
+| FROM-runner → TO-tree summary producer | The pre-extraction parent produces the primary-phase summary only through the pinned `--emit-summary` contract on the freshly extracted tree (argv, sentinel prefix, `summary_schema_version` token, pinned timeout; upgrade lock as the sole state carrier, old-schema tolerant); the surface never changes silently (deliberate versioned evolution bumps the schema token); any contract failure degrades to the parent's marked in-process fallback, never a second sentinel and never unlabeled old-schema output. This boundary governs the PRIMARY-phase producer only; wave 1uf68 additionally has the separate cleanup process carry the same token at its own emit site, which is not a second sentinel in this stream (each subprocess invocation's stdout is parsed on its own) and does not make the token exclusive to this boundary | Verified by the permanent `DelegatedSummaryContractTests` plus the degradation and mutual-exclusion tests |
 
 ## Violation Detection
 

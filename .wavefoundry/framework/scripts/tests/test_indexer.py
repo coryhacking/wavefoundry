@@ -358,6 +358,20 @@ class FileWalkerTests(unittest.TestCase):
         files = self.bi.walk_repo(self.root)
         self.assertFalse(any("node_modules" in str(f) for f in files))
 
+    def test_excludes_graphify_output_without_excluding_similarly_named_source(self):
+        _make_repo(self.root, {
+            "graphify-out/graph.json": '{"nodes": []}\n',
+            "graphify-out/GRAPH_REPORT.md": "# Generated report\n",
+            "src/graphify-output.ts": "export const source = true;\n",
+        })
+        rels = {
+            str(path.relative_to(self.root)).replace("\\", "/")
+            for path in self.bi.walk_repo(self.root)
+        }
+        self.assertNotIn("graphify-out/graph.json", rels)
+        self.assertNotIn("graphify-out/GRAPH_REPORT.md", rels)
+        self.assertIn("src/graphify-output.ts", rels)
+
     def test_prunes_excluded_directories_without_rglob(self):
         _make_repo(self.root, {
             "src/foo.py": "x = 1\n",
@@ -1286,6 +1300,41 @@ class IncrementalBuildTests(unittest.TestCase):
         self.assertIn(projection, after_chunks)
         self.assertIn(unrelated, after_meta)
         self.assertIn(unrelated_wave_note, after_meta)
+
+    def test_incremental_exclusion_reaps_previously_indexed_graphify_output(self):
+        """The default Graphify output is removed without a full index rebuild."""
+        graphify_output = "graphify-out/GRAPH_REPORT.md"
+        source_control = "src/graphify-output.ts"
+        _make_repo(self.root, {
+            graphify_output: "# Generated Graphify report\n",
+            source_control: "export const source = true;\n",
+        })
+
+        old_excludes = self.bi.HARDCODED_EXCLUDE_DIRS - {"graphify-out"}
+        with patch.object(self.bi, "HARDCODED_EXCLUDE_DIRS", old_excludes):
+            self._run_build(full=True)
+
+        index_dir = self.root / ".wavefoundry" / "index"
+        before_meta = set((_read_meta_store(index_dir).get("file_meta") or {}).keys())
+        import sqlite3
+        graph_db = index_dir / "graph" / "project-graph-state.sqlite"
+        with sqlite3.connect(str(graph_db)) as conn:
+            before_graph_paths = {str(row[0]) for row in conn.execute("SELECT path FROM files")}
+        self.assertIn(graphify_output, before_meta, "fixture must seed an old indexed Graphify file")
+        self.assertIn(graphify_output, before_graph_paths, "fixture must seed an old graph file")
+
+        result = self._run_build(full=False)
+
+        after_meta = set((_read_meta_store(index_dir).get("file_meta") or {}).keys())
+        doc_paths = {row["path"] for row in _read_index_chunks(index_dir, "docs")}
+        with sqlite3.connect(str(graph_db)) as conn:
+            after_graph_paths = {str(row[0]) for row in conn.execute("SELECT path FROM files")}
+        self.assertFalse(result["up_to_date"])
+        self.assertNotIn(graphify_output, after_meta)
+        self.assertNotIn(graphify_output, doc_paths)
+        self.assertNotIn(graphify_output, after_graph_paths)
+        self.assertIn(source_control, after_meta)
+        self.assertIn(source_control, after_graph_paths)
 
     def test_incremental_ledger_add_modify_delete_are_semantic_noops(self):
         """Canonical machine-state churn never enters incremental docs/code state."""

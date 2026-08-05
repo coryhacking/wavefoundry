@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: accepted
-Last verified: 2026-07-28
+Last verified: 2026-08-04
 
 ## Context
 
@@ -11,6 +11,9 @@ Review readiness, delivery review, and close independently re-derived overlappin
 ## Decision
 
 1. `wave_review.enabled` controls readiness and `delivery_mode` is exactly `disabled | targeted | universal`. Fresh and legacy-enabled installs remain `universal`; legacy-disabled installs become `disabled`.
+
+   > **Amendment (wave 1u7dq):** the `universal` install default recorded above is superseded by change `1u8jb-enh risk-tiered-delivery-review`, which made delivery review risk-tiered. Fresh installs now ship `delivery_mode: targeted`, and upgrade maps legacy enabled review to `enabled=true, delivery_mode=targeted`. Legacy-disabled installs still become `enabled=false, delivery_mode=disabled`, and the rest of this item stands unchanged: `wave_review.enabled` controls readiness, and `delivery_mode` is still exactly `disabled | targeted | universal`, with `universal` remaining a legal explicit opt-in. The original sentence is preserved above as the point-in-time decision record.
+
 2. Prepare alone derives the ordered specialist roster and appends a parent-bound `review_policy_receipt` to the canonical wave ledger. Readiness approval binds that receipt. Review and Close consume it without selecting a different roster.
 3. Review and Close use one shared delivery evaluator. Close adds only a finite registered closure-only diagnostic set.
 4. Executed review evidence carries caller-authored integrity facts, and approvals carry explicit readiness/delivery phase currency.

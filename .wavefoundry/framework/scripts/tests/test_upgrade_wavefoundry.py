@@ -5032,8 +5032,22 @@ class PrimaryPhaseSummaryTests(unittest.TestCase):
             if l.startswith(self.mod.WAVE_UPGRADE_SUMMARY_SENTINEL)
         ]
         prose = json.loads(prose_lines[0][len(self.mod.WAVE_UPGRADE_SUMMARY_SENTINEL):])
-        self.assertEqual(set(primary.keys()), set(prose.keys()),
-                         "primary + cleanup summaries must share one _build_upgrade_summary shape")
+        # Wave 1uf68 NARROWING (deliberate, not a weakening): the cleanup emit site
+        # now sets SUMMARY_SCHEMA_KEY on the finished builder dict, so the two key
+        # sets are no longer equal. The one-builder property this test exists to
+        # protect survives as a SUPERSET assertion that names the schema token as
+        # the ONLY permitted difference. Any other divergence still fails, which
+        # is the drift hole that deleting the test would have opened.
+        self.assertEqual(
+            set(prose.keys()) - set(primary.keys()),
+            {self.mod.SUMMARY_SCHEMA_KEY},
+            "the cleanup summary may differ from the primary one in the schema "
+            "token and nothing else",
+        )
+        self.assertEqual(
+            set(primary.keys()) - set(prose.keys()), set(),
+            "primary + cleanup summaries must share one _build_upgrade_summary shape",
+        )
         # Same load-bearing values for the same inputs (one source, no drift).
         for k in ("from_version", "to_version", "pruned_count", "docs_gate", "is_major_or_minor"):
             self.assertEqual(primary[k], prose[k], f"key {k} drifted between the two emissions")
@@ -5443,6 +5457,183 @@ class DelegatedSummaryContractTests(unittest.TestCase):
             )
             self.assertNotIn(self.mod.SUMMARY_SCHEMA_KEY, summary)
             self.assertNotIn("probe", summary, "unrecognized-token output must be discarded")
+
+    # ── Wave 1uf68: the cleanup emit site carries the schema token ─────────
+    #
+    # The token used to be delegation-exclusive, so on every run that emits a
+    # summary WITHOUT the delegated producer (the checkpoint pause's recovery
+    # cleanup, --resume-after-memory's, and every ordinary cleanup) "token
+    # absent" and "token dropped or drifted" were indistinguishable, so the drift
+    # tripwire was unobservable on exactly the runs that deviated.
+    # `_print_operator_summary` is reachable ONLY through main()'s
+    # `if args.cleanup:` branch (upgrade_wavefoundry.py:4350), so these pins
+    # drive `main(["--cleanup"])` rather than calling the emitter directly: that
+    # reachability IS the mechanism by which one insertion covers all three
+    # token-less windows, and asserting it is what makes the fix real.
+
+    def _cleanup_ready_root(self, **lock_fields):
+        """A temp repo whose upgrade lock passes main()'s pre-cleanup gates.
+
+        main() refuses `--cleanup` BEFORE `phase_cleanup` unless historical
+        memory is `indexed` (upgrade_wavefoundry.py:4189-4219). That refusal
+        emits no summary at all (exit 4, zero sentinels) and is censused out of
+        scope for wave 1uf68, so the fixture satisfies it with a real indexed
+        backfill run and the pins stay on the emit contract.
+
+        Disclosure for the failure-branch caller: marking memory indexed while
+        also setting `failed_phase="awaiting_memory_validation"` is a SYNTHETIC
+        lock combination. A real pause-without-resume run has memory unmarked
+        and is refused by the gate above, so it never reaches `phase_cleanup`;
+        its documented recovery (`--resume-after-memory` then `--cleanup`)
+        clears `failed_phase` and takes the SUCCESS branch. The failure branch
+        is independently reachable from any other `failed_phase` value; this
+        fixture just lets the pin use the pause's own value.
+        """
+        import memory_backfill
+
+        lib = _load_upgrade_lib()
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        (root / ".wavefoundry" / "index").mkdir(parents=True, exist_ok=True)
+        (root / "docs" / "waves").mkdir(parents=True, exist_ok=True)
+        run_id = memory_backfill.ensure_run(root, "upgrade")
+        memory_backfill.sync_inventory(root, run_id)
+        memory_backfill.mark_indexed(root, run_id)
+        lib.write_upgrade_lock(root, "1.15.2", "1.15.3")
+        lib.update_upgrade_lock(
+            root,
+            memory_backfill_run_id=run_id,
+            memory_backfill_state="indexed",
+            **lock_fields,
+        )
+        return root
+
+    def _drive_cleanup(self, root, *, expect_exit=False):
+        """Run `main(["--root", root, "--cleanup"])` and return (stdout, code).
+
+        Only the rendered-permissions backstop is patched out: it spawns the
+        real renderer subprocess and has nothing to do with the emit seam. The
+        summary sentinel is read from real captured stdout.
+        """
+        buf = io.StringIO()
+        with patch.object(self.mod, "_ensure_rendered_permissions_backstop"), \
+                contextlib.redirect_stdout(buf):
+            if expect_exit:
+                with self.assertRaises(SystemExit) as caught:
+                    self.mod.main(["--root", str(root), "--cleanup"])
+                code = caught.exception.code
+            else:
+                code = self.mod.main(["--root", str(root), "--cleanup"])
+        return buf.getvalue(), code
+
+    def _cleanup_sentinels(self, out):
+        sentinel = self.mod.WAVE_UPGRADE_SUMMARY_SENTINEL
+        return [
+            json.loads(line[len(sentinel):])
+            for line in out.splitlines()
+            if line.startswith(sentinel)
+        ]
+
+    def test_checkpoint_pause_recovery_cleanup_carries_the_schema_token(self):
+        """Wave 1uf68 requirement 6(a) / AC-1: the FAILURE branch of
+        `phase_cleanup` (`:2489`) carries the token too. The token is a
+        SELF-WITNESSING claim about the code that RENDERED the summary, not a
+        claim that the upgrade succeeded; `failed_phase` remains the success
+        discriminator, and cleanup reads it at `:4326`.
+
+        The `failed_phase` used here is the value the memory checkpoint stamps
+        (`:4890`), but see `_cleanup_ready_root`: a real pause-without-resume
+        run is refused by the pre-cleanup memory gate with exit 4 and no
+        sentinel, and its documented recovery takes the SUCCESS branch. This
+        fixture force-marks memory indexed so the failure branch is reachable
+        with that value; the branch itself is reachable from any other
+        `failed_phase` too."""
+        root = self._cleanup_ready_root(
+            failed_phase="awaiting_memory_validation",
+            failed_at=None,
+            action_required={
+                "kind": "historical_memory",
+                "state": "awaiting_memory_validation",
+                "resume_phase": "resume_after_memory",
+                "run_id": "probe-run",
+                "token": "probe-token",
+            },
+        )
+        out, code = self._drive_cleanup(root, expect_exit=True)
+        self.assertEqual(code, 1, out)
+        summaries = self._cleanup_sentinels(out)
+        self.assertEqual(len(summaries), 1, out)
+        summary = summaries[0]
+        self.assertEqual(
+            summary.get(self.mod.SUMMARY_SCHEMA_KEY),
+            self.mod.SUMMARY_SCHEMA_VERSION,
+            "the recovery cleanup summary must carry the schema token",
+        )
+        # Non-vacuity: this really is the failure branch, and the token is not
+        # riding in on a degradation disclosure.
+        self.assertEqual(summary["failed_phase"], "awaiting_memory_validation")
+        self.assertNotIn(self.mod.SUMMARY_DEGRADATION_MARKER_KEY, summary)
+
+    def test_nominal_cleanup_carries_the_schema_token_on_both_lock_shapes(self):
+        """Wave 1uf68 requirement 6(b) / AC-1: the ordinary success branch
+        (`:2558`). The post-resume lock shape is a lock-shape parameterization
+        of THIS case, not a separate window: `--resume-after-memory` clears
+        `failed_phase` (`:4154-4157`) and stamps `index_rebuilt_at` (`:4150`),
+        which cleanup reads as `ran_index_rebuild=True` (`:4320`); with
+        `failed_phase=None` the path is identical, so it is a subTest rather
+        than independent coverage. Parsing the REAL sentinel out of captured
+        stdout is load-bearing: patching `_emit_summary_line` or asserting on
+        `_build_upgrade_summary`'s return value would bypass the emit seam and
+        be vacuous."""
+        shapes = (
+            ("fresh cleanup", {}, "not run"),
+            (
+                "post-resume",
+                {
+                    "index_rebuilt_at": "2026-08-04T00:00:00+00:00",
+                    "action_required": None,
+                    "failed_phase": None,
+                },
+                "docs layer complete",
+            ),
+        )
+        for label, lock_fields, expected_index_update in shapes:
+            with self.subTest(lock_shape=label):
+                root = self._cleanup_ready_root(**lock_fields)
+                out, code = self._drive_cleanup(root)
+                self.assertEqual(code, 0, out)
+                summaries = self._cleanup_sentinels(out)
+                self.assertEqual(len(summaries), 1, out)
+                summary = summaries[0]
+                self.assertEqual(
+                    summary.get(self.mod.SUMMARY_SCHEMA_KEY),
+                    self.mod.SUMMARY_SCHEMA_VERSION,
+                    "the nominal cleanup summary must carry the schema token",
+                )
+                self.assertIsNone(summary["failed_phase"])
+                # The two lock shapes really do reach the emitter differently,
+                # so the subTest is not decorative.
+                self.assertIn(expected_index_update, summary["index_update"])
+
+    def test_shared_builder_never_carries_the_schema_token(self):
+        """Wave 1uf68 requirement 6(c) / AC-2: the token lives at the EMIT site,
+        never in the shared builder. `_build_upgrade_summary` also produces the
+        primary-phase degradation fallback, whose documented invariant (`:3019`)
+        is that it never carries the token (pinned at `:5600-5601`); a token in
+        the builder would make the fallback claim fresh-code provenance it does
+        not have, the opposite of this fix."""
+        summary = self.mod._build_upgrade_summary(
+            from_version="1.15.2",
+            to_version="1.15.3",
+            zip_path=None,
+            pruned_count=0,
+            ran_index_rebuild=True,
+            failed_phase=None,
+            reconciliation=[],
+        )
+        self.assertNotIn(self.mod.SUMMARY_SCHEMA_KEY, summary)
+        self.assertNotIn("summary_schema_version", summary)
 
 
 class DelegatedSummaryDegradationTests(unittest.TestCase):

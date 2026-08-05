@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: accepted
-Last verified: 2026-08-03
+Last verified: 2026-08-04
 
 ## Context
 
@@ -34,7 +34,16 @@ Defect classes in upgrade fixes are remedied three ways, one per class:
    exclusive by construction). Delegation failures degrade to the parent's own in-process summary
    carrying the `summary_source_degraded` marker, never fail the upgrade, and are never labeled as
    new-schema output. The payload carries a `summary_schema_version` token; a parent that does not
-   recognize the token degrades rather than mis-parsing. The contract (flag name, argv shape,
+   recognize the token degrades rather than mis-parsing. **Carrier set widened (wave 1uf68):** the
+   token is no longer delegation-exclusive. The cleanup phase's emit site
+   (`_print_operator_summary`) sets it unconditionally on both cleanup branches, because cleanup runs
+   in a separate post-extraction process and the token is a self-witnessing claim about the code that
+   RENDERED the summary, not a claim about which emitter produced it or whether the upgrade
+   succeeded. The invariant that the in-process degradation fallback carries NO token is restated
+   here unweakened, and the shared `_build_upgrade_summary` / `_emit_summary_line` helpers still never
+   set it, which is what keeps that invariant true. The token is additionally registered as a
+   terminal summary key so response bounding cannot make a present token read as absent; that
+   registration is server-resident (class 3) while emission is class 2. The contract (flag name, argv shape,
    sentinel prefix value, envelope, token handling, pinned timeout) is pinned at ship time and
    locked by a permanent contract test that stands guard for the entire fielded population of old
    runners. The pins are a tripwire against silent drift, not an unpassable boundary: additive
@@ -97,7 +106,7 @@ registration.
 
 | Alternative | Reason rejected |
 |-------------|----------------|
-| Authoritative emission from an already-fresh spawned phase (`--update-index` / `--cleanup`), the topology whose first-time success the permissions-rendering prior art actually proves | The default upgrade flow runs no such phase (the primary emit is the old parent's final act), and last-sentinel-wins parsing means a second authoritative emitter collides with the parent's own emit |
+| Authoritative emission from an already-fresh spawned phase (`--update-index` / `--cleanup`), the topology whose first-time success the permissions-rendering prior art actually proves | The default upgrade flow runs no such phase (the primary emit is the old parent's final act), and last-sentinel-wins parsing means a second authoritative emitter collides with the parent's own emit. **Amendment (wave 1uf68):** the collision limb of the rejection above does not hold, and it no longer stands in the way of the cleanup emit site ALSO carrying the schema token. `_parse_upgrade_summary` (`server_impl.py:12099`) is the sole sentinel consumer and is called once per subprocess invocation on that invocation's own stdout (`:12879`), never on the accumulated `log_path`, so the primary and cleanup sentinels never share a parsed stream; the only other token reader (`upgrade_wavefoundry.py:3139`) parses the `--emit-summary` child alone, which routes to `_emit_delegated_summary` and never to `_print_operator_summary`. The no-such-phase limb still stands, so the primary emit stays delegated: wave 1uf68 adds the token at the cleanup emit site rather than moving the authoritative emission there, so the record does not ship a rejection of what was built. The original rejection text is preserved above as the point-in-time decision record |
 | Per-fix hook bridges for reporting changes | Hook failure semantics abort the upgrade with exit 3, the opposite of the required degrade-with-marker posture; each bridge is a new transition surface needing its own fail-safety |
 | In-process import of the new module by the old parent | This is the pg1a defect mechanism itself: an unpinned cross-version call whose skew gets swallowed |
 | Bridging the parser side too | No mechanism exists to replace running-server code without a restart, and none is needed for sentinel-carried content: the bounder is passthrough-with-caps, field-proven by an old server surfacing a newer pack's summary fields |
