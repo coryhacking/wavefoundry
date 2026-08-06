@@ -3033,7 +3033,8 @@ class GuidedReviewAuthorityProjectionTests(unittest.TestCase):
         }
         expected_action_fields = (
             "action_id", "action_kind", "actor_role", "phase", "state_args",
-            "required_caller_inputs", "legal_alternatives", "reinspect_after_success",
+            "required_caller_inputs", "input_schema_ref", "judgment_template",
+            "blocking_constraint", "legal_alternatives", "reinspect_after_success",
         )
         self.assertEqual(subject.REVIEW_EVENT_TYPES, expected_events)
         self.assertEqual(subject.RUN_KINDS, expected_runs)
@@ -3899,6 +3900,106 @@ class RepairReverificationIndependenceTests(unittest.TestCase):
         )
         self.assertIn(f"`{subject.REVERIFICATION_ACTOR_NOT_DISTINCT}`", qa_seed)
         self.assertIn("without claiming caller identity", qa_seed)
+
+    def test_guided_reverification_template_writes_while_softening_is_refused(self):
+        """1ug68 AC-1: paired positive control and the real RED case.
+
+        (a) is GREEN on the pre-change tree and must stay green: the guided
+        action's own `state_args` plus the finding's original judgment write
+        cleanly. It is asserted first precisely so (b) cannot be mistaken for a
+        test that could never have failed.
+
+        (b) is the observed failure: the same `state_args` with a SOFTENED
+        judgment, the natural "it is repaired now" move. It must stay refused,
+        and the refusal must name the coupling and point at `judgment_template`
+        rather than only naming the field.
+        """
+
+        # Two blocking lanes, which is wave 1uhcb's actual shape. With only one
+        # lane the reverification empties the list, so the retention rule cannot
+        # fire and a softened judgment would legitimately terminalize the
+        # finding as not_issue; the coupling is only reachable while a lane
+        # remains outstanding.
+        both = ["code-reviewer", "qa-reviewer"]
+        records = self._append(
+            [], self._finding_event(source_lanes=both, blocking_required_lanes=both)
+        )
+        records = self._append(
+            records,
+            self._finding_event(
+                actor="implementer", context_id="ctx-repair", run_kind="repair_start",
+                cycle=1, source_lanes=both, blocking_required_lanes=both,
+                observed="repair_start recorded before the mutation",
+            ),
+        )
+        projection = subject.review_authority_projection(
+            records, (*both, "operator-signoff"), approval_phase="delivery"
+        )
+        action = next(
+            a for a in projection["next_actions"]
+            if a["action_kind"] == "reverification"
+            and a["actor_role"] == "code-reviewer"
+        )
+        self.assertEqual(
+            action["state_args"]["blocking_required_lanes"], ["qa-reviewer"],
+            "code-reviewer clears only itself, leaving qa-reviewer outstanding",
+        )
+        self.assertEqual(action["input_schema_ref"], "review_event_inputs")
+        self.assertEqual(
+            action["blocking_constraint"]["must_derive_blocking"], True,
+            "the action must state that its lanes require a blocking judgment",
+        )
+        template = action["judgment_template"]
+        self.assertEqual(
+            template["validation_status"], "real",
+            "the template must carry the finding's ORIGINAL judgment",
+        )
+
+        def event_with(judgment: dict[str, object]) -> dict[str, object]:
+            return self._finding_event(
+                actor="code-reviewer",
+                context_id="ctx-reverify-paired",
+                run_kind="reverification",
+                cycle=1,
+                judgment=judgment,
+                source_lanes=both,
+                blocking_required_lanes=list(
+                    action["state_args"]["blocking_required_lanes"]
+                ),
+                observed="repair reverified from the guided action",
+            )
+
+        def build_and_validate(judgment: dict[str, object]) -> tuple[str, ...]:
+            """Produce, then validate the resulting ledger.
+
+            The coupling is enforced by `validate_review_evidence_records`, not
+            by the compact producer, so a test that stops at
+            `build_compact_review_event` would see the softened judgment
+            "succeed" and prove nothing.
+            """
+
+            rows, errors = subject.build_compact_review_event(
+                records, event_with(judgment)
+            )
+            if errors:
+                return tuple(errors)
+            return tuple(
+                subject.validate_review_evidence_records(tuple([*records, *rows]))
+            )
+
+        # (a) positive control: the template writes and validates cleanly.
+        errors = build_and_validate(dict(template))
+        self.assertEqual(errors, (), "guided template must write: " + "\n".join(errors))
+
+        # (b) softening the judgment is still refused, now with the coupling named.
+        softened = dict(template)
+        softened["validation_status"] = "conforming"
+        softened_errors = build_and_validate(softened)
+        self.assertTrue(softened_errors, "a softened judgment must not write")
+        joined = "\n".join(softened_errors)
+        self.assertIn("blocking_required_lanes", joined)
+        self.assertIn("judgment_template", joined)
+        self.assertIn("DERIVED", joined)
 
 
 class RealCorpusRegressionTests(unittest.TestCase):

@@ -11,7 +11,12 @@ from pathlib import Path
 from typing import Any, Callable
 
 import review_evidence
-from review_policy import migrate_wave_review_policy, set_reprepare_marker
+from review_policy import (
+    REVIEW_POLICY_EVALUATOR_VERSION,
+    current_policy_receipt,
+    migrate_wave_review_policy,
+    set_reprepare_marker,
+)
 from review_policy_reconcile import CarrierEdit, apply_reconciliation, plan_reconciliation
 
 
@@ -95,7 +100,13 @@ def plan_review_policy_upgrade(root: Path) -> ReviewPolicyUpgradePlan:
         if ledger_errors:
             errors.extend(f"{wave_md}: {error}" for error in ledger_errors)
             continue
-        if policy_unchanged:
+        receipt = current_policy_receipt(records)
+        stale_evaluator = bool(
+            receipt
+            and int(receipt.get("evaluator_version", -1))
+            != REVIEW_POLICY_EVALUATOR_VERSION
+        )
+        if policy_unchanged and not stale_evaluator:
             continue
         try:
             marked_text = set_reprepare_marker(text, True)

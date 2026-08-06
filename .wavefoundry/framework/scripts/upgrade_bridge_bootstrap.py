@@ -20,7 +20,7 @@ from pathlib import Path, PurePosixPath
 
 
 PROTOCOL = 2
-SUPPORTED_SOURCE_VERSION = "1.14.0"
+MINIMUM_SOURCE_VERSION = "1.8.0"
 FRAMEWORK_PREFIX = ".wavefoundry/framework/"
 PROTOCOL_ARC = FRAMEWORK_PREFIX + "UPGRADE-PROTOCOL.json"
 VERSION_ARC = FRAMEWORK_PREFIX + "VERSION"
@@ -145,7 +145,7 @@ def _load_selection(path: Path) -> dict:
     required = {
         "schema_version", "bridge_build_id", "upgrade_protocol_version",
         "minimum_runner_protocol", "bridge_archive", "bridge_sha256",
-        "feature_archive", "feature_sha256", "supported_source_version",
+        "feature_archive", "feature_sha256", "minimum_source_version",
         "supported_source_protocol", "feature_release_version",
     }
     if not isinstance(value, dict) or set(value) != required:
@@ -154,8 +154,8 @@ def _load_selection(path: Path) -> dict:
         raise BridgeError("upgrade_protocol_invalid: unsupported bridge protocol")
     if value["minimum_runner_protocol"] != PROTOCOL:
         raise BridgeError("upgrade_protocol_invalid: decreasing or malformed protocol floor")
-    if value["supported_source_version"] != SUPPORTED_SOURCE_VERSION:
-        raise BridgeError("upgrade_protocol_invalid: unsupported bridge source version")
+    if value["minimum_source_version"] != MINIMUM_SOURCE_VERSION:
+        raise BridgeError("upgrade_protocol_invalid: unsupported bridge minimum source version")
     if value["supported_source_protocol"] != 1:
         raise BridgeError("upgrade_protocol_invalid: unsupported bridge source protocol")
     build_id = value["bridge_build_id"]
@@ -187,16 +187,17 @@ def _validate_installed_source(current: Path, selection: dict) -> bytes:
             f"upgrade_protocol_invalid: installed source version is unavailable: {exc}"
         ) from exc
     installed = _version_tuple(installed_version, field="installed source")
-    supported = _version_tuple(
-        selection["supported_source_version"], field="supported source"
+    minimum = _version_tuple(
+        selection["minimum_source_version"], field="minimum source"
     )
     feature = _version_tuple(
         selection["feature_release_version"], field="feature release"
     )
-    if installed != supported:
+    if installed < minimum:
         raise BridgeError(
-            "upgrade_protocol_invalid: bridge requires installed source version "
-            f"{selection['supported_source_version']}, found {installed_version}"
+            "upgrade_protocol_invalid: bridge requires installed source version at least "
+            f"{selection['minimum_source_version']}, found {installed_version}; "
+            "upgrade to the minimum supported release first"
         )
     if feature <= installed:
         raise BridgeError("upgrade_protocol_invalid: feature release must advance the source")
@@ -436,7 +437,7 @@ def install(
         "bridge_build_id": selection["bridge_build_id"],
         "rollback": str(rollback),
         "hosts_stopped_confirmed": True,
-        "source_version": selection["supported_source_version"],
+        "source_version": current_version.decode("utf-8").strip(),
         "source_protocol": selection["supported_source_protocol"],
         "target_version": selection["feature_release_version"],
         "target_protocol": selection["upgrade_protocol_version"],

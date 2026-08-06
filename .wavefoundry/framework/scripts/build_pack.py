@@ -938,7 +938,7 @@ def build_protocol_bridge_artifacts(
         "bridge_build_id": bridge_build_id,
         "upgrade_protocol_version": 2,
         "minimum_runner_protocol": 2,
-        "supported_source_version": "1.14.0",
+        "minimum_source_version": "1.8.0",
         "supported_source_protocol": 1,
         "feature_release_version": version,
         "bridge_archive": bridge_zip.name,

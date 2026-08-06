@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-31
+Last verified: 2026-08-06
 
 Shortcut: **`Review wave`**
 
@@ -24,7 +24,7 @@ All review, repair, and reverification investigation follows the run contract's 
 4. **AC scope gap check:** after confirming required ACs are met, surface important/nice-to-have items not in admitted scope; confirm not-this-scope deferrals.
 5. **AC priority reconciliation:** reconcile the `## AC priority` table against delivered behavior; update if scope shifted; `qa-reviewer` must attest every required row has verification evidence or a recorded deferral. **`[~]` AC verification:** for every AC marked `[~]` (intentionally not met), `qa-reviewer` confirms the inline status note is present and legitimate (names when / who / why). A silent `[~]` with no recorded rationale is a finding — surface it as a review-pass blocker. See `170-plan-feature.prompt.md` "AC and task checkbox states — the `[~]` marker" for the canonical convention.
 6. Record all findings in the wave record `## Review checkpoints`.
-7. Blocking findings open a recorded repair cycle; the implementer repairs the affected boundary and each blocking lane independently reverifies it before delivery approval is restored.
+7. Blocking findings open a recorded repair cycle. The implementer repairs the affected boundary and each blocking lane independently reverifies it before delivery approval is restored. After the first delivery cycle, an editorial-only finding (wording that is true but imprecise, drifted citations, formatting) is repaired inline in the current cycle and recorded in the Progress Log; it does not by itself open another repair cycle. Every finding that needs verification, a boundary repair, or escalation retains its existing action-matrix route. An editorial finding that makes a shipped claim FALSE is a correctness defect. A scope, requirement, or AC change is recorded in the section that owns it, and the Progress Log row points at that edit rather than substituting for it.
 
 ## Code Review Specifics (Wavefoundry)
 

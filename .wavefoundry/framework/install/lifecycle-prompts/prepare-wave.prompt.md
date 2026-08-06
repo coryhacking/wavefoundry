@@ -16,8 +16,19 @@ only one wave may be open for implementation.
    explicit dependencies.
 4. Classify each acceptance criterion as required, important, nice-to-have, or
    not-this-scope, with rationale.
-5. Select reviewer and builder lanes from repository evidence. Include QA for
-   bug fixes and any additional lanes required by local policy.
+5. Select reviewer and builder lanes. Automatic lanes are derived from the
+   explicit repo-relative paths each change doc declares in
+   `## Serialization Points`, never from Scope or other narrative; a change doc
+   that declares no path keeps legacy whole-document scoring so coverage is
+   never silently lost. That derivation is a FLOOR, not the whole answer:
+   add any lane your own judgment calls for to the wave record's
+   `Requested review lanes`, which is always honored and costs no receipt
+   churn because `wave.md` is not part of the review-policy digest. Architecture,
+   security and performance risk in particular are usually judgment calls that
+   no file path expresses — an ownership shift or a protocol change can live
+   entirely in files that recruit only the code lane. Include QA for bug fixes
+   and any additional lanes required by local policy, and never read an empty
+   automatic roster as evidence that no review is warranted.
 6. Run the configured readiness council when enabled and record its actual
    seats, evidence, disagreements, and verdict.
 7. Record product-owner acknowledgment when the change affects product

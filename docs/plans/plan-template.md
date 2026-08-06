@@ -4,7 +4,7 @@ Change ID: `<id-prefix>-<kind> <slug>` — **mint via the MCP `wf_new_*` tool** 
 Change Status: `planned`
 Owner: [role or person]
 Status: planned
-Last verified: 2026-07-20
+Last verified: 2026-08-06
 Wave: [wave-id or TBD]
 
 ## Rationale
@@ -49,7 +49,9 @@ Why this change is needed. State a specific motivation a reviewer can understand
 
 ## Serialization Points
 
-- [Shared file or integration gate that requires coordination before parallel work proceeds]
+- [Explicit repo-relative file or integration path that this change will touch]
+
+List real repository-relative paths here. Prepare uses these paths—not Scope, Rationale, or other narrative—to select automatic review lanes. Path scoring is a floor, not a ceiling: ANY lane may also be requested by judgment through the wave's `Requested review lanes` field, and the coordinator is expected to use it. Architecture review especially is usually a judgment call, since an ownership shift or a protocol change can live entirely in files whose paths recruit only the code lane. A requested lane is always honored and costs no receipt churn.
 
 ## Affected Architecture Docs
 
@@ -57,7 +59,7 @@ Which of `docs/ARCHITECTURE.md`, `docs/architecture/{current-state,domain-map,la
 
 ## AC Priority
 
-(Populated at Prepare wave.)
+(Populate one row per AC at plan time, before the prepare council runs. Filling this table after readiness is recorded supersedes the review-policy receipt and lapses the approvals it just collected. The `ac_priority_unpopulated` advisory at Prepare is the backstop, not the schedule.)
 
 
 | AC   | Priority                                             | Rationale |

@@ -2447,6 +2447,8 @@ class AutoLintAtMcpGatesTests(unittest.TestCase):
         change_id = change["data"]["change_id"]
         admitted = self.srv.wf_add_change_response(self.root, wave_id, change_id, mode="create")
         self.assertEqual(admitted["status"], "ok")
+        admitted_doc = self.root / admitted["data"]["target_path"]
+        self.assertIn(f"Wave: {wave_id}", admitted_doc.read_text(encoding="utf-8"))
         lint = admitted["data"]["lint"]
         self.assertEqual(lint["error_count"], 0, lint["first_errors"])
 
@@ -9090,6 +9092,227 @@ class ServerToolRegistrationTests(unittest.TestCase):
         )
 
 
+class MarkChangeItemRecoveryTests(unittest.TestCase):
+    """1ug66: narrow marking errors must guide a safe retry, never a guess."""
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.wave_id = "1200w-mark-recovery"
+        self.wave_dir = self.root / "docs" / "waves" / self.wave_id
+        self.wave_dir.mkdir(parents=True)
+        (self.wave_dir / "wave.md").write_text(
+            f"# Wave\n\nWave ID: `{self.wave_id}`\nStatus: implementing\n",
+            encoding="utf-8",
+        )
+
+    def _write_change(self, body):
+        (self.wave_dir / "1200c-mark-sample.md").write_text(body, encoding="utf-8")
+
+    @staticmethod
+    def _diagnostic(response):
+        return response["diagnostics"][0]
+
+    def test_ambiguous_task_returns_candidates_and_safe_recovery(self):
+        self._write_change(
+            "# Sample\n\n## Tasks\n\n- [ ] Implement\n- [ ] Implement\n"
+        )
+        response = self.srv._mark_change_item_response(
+            self.root, self.wave_id, "1200c-mark-sample", "Implement", "x", target_section="Tasks",
+        )
+        diagnostic = self._diagnostic(response)
+        self.assertEqual(response["status"], "error")
+        self.assertEqual(diagnostic["code"], "ambiguous_mark_target")
+        self.assertEqual(response["data"]["candidate_labels"], ["Implement", "Implement"])
+        self.assertIn("Do not choose arbitrarily", diagnostic["message"])
+        self.assertEqual(diagnostic["recovery_tools"], ["wf_get_change"])
+
+    def test_missing_target_and_non_checkbox_text_return_a_structured_retry(self):
+        self._write_change(
+            "# Sample\n\n## Tasks\n\nA prose line that is not a checkbox.\n- [ ] Implement\n"
+        )
+        response = self.srv._mark_change_item_response(
+            self.root, self.wave_id, "1200c-mark-sample", "Missing", "x", target_section="Tasks",
+        )
+        diagnostic = self._diagnostic(response)
+        self.assertEqual(response["status"], "error")
+        self.assertEqual(diagnostic["code"], "mark_target_not_found")
+        self.assertIn("current exact label", diagnostic["message"])
+        self.assertEqual(diagnostic["recovery_tools"], ["wf_get_change"])
+
+    def test_required_ac_deferral_explains_how_to_supply_its_rationale(self):
+        self._write_change(
+            "# Sample\n\n## Acceptance Criteria\n\n- [ ] AC-1: Do it.\n\n"
+            "## AC Priority\n\n| AC | Priority | Rationale |\n| --- | --- | --- |\n"
+            "| AC-1 | required | Core |\n"
+        )
+        response = self.srv._mark_change_item_response(
+            self.root, self.wave_id, "1200c-mark-sample", "AC-1", "~", target_section="Acceptance Criteria",
+        )
+        diagnostic = self._diagnostic(response)
+        self.assertEqual(response["status"], "error")
+        self.assertEqual(diagnostic["code"], "tilde_rationale_required")
+        self.assertIn("wf_mark_ac", diagnostic["message"])
+        self.assertIn("reason", diagnostic["message"])
+
+
+class MarkAcReceiptRefreshTests(unittest.TestCase):
+    """1ulnu: an AC deferral refreshes policy provenance without approvals."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        self.srv = type(self).srv
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+        (self.root / "docs" / "workflow-config.json").write_text(
+            json.dumps({"wave_review": {"enabled": True, "delivery_mode": "targeted"}}),
+            encoding="utf-8",
+        )
+        created = self.srv.wf_create_wave_response(
+            self.root, "receipt-refresh", mode="create"
+        )
+        self.wave_id = created["data"]["wave_id"]
+        self.change_id = "1200a-enh receipt-refresh"
+        staged = self.root / "docs" / "plans" / f"{self.change_id}.md"
+        staged.parent.mkdir(parents=True, exist_ok=True)
+        staged.write_text(
+            "# Receipt refresh\n\n"
+            f"Change ID: `{self.change_id}`\n"
+            "Change Status: `planned`\n"
+            "Owner: Engineering\nStatus: planned\nLast verified: 2026-08-05\n"
+            "Wave: TBD\n\n## Rationale\n\nTest receipt refresh.\n\n"
+            "## Requirements\n\n1. Keep the policy receipt current.\n\n"
+            "## Scope\n\nIn scope.\n\n"
+            "## Acceptance Criteria\n\n"
+            "- [ ] AC-1: Defer only with a reason.\n"
+            "- [ ] AC-2: Preserve ordinary completion tracking.\n\n"
+            "## Tasks\n\n- [ ] Implement receipt refresh.\n\n"
+            "## Serialization Points\n\n"
+            "- `.wavefoundry/framework/scripts/server_impl.py`\n\n"
+            "## Affected Architecture Docs\n\nN/A\n\n"
+            "## AC Priority\n\n"
+            "| AC | Priority | Rationale |\n| --- | --- | --- |\n"
+            "| AC-1 | required | Contract change. |\n"
+            "| AC-2 | important | Tracking stays cheap. |\n\n"
+            "## Progress Log\n\n| Date | Update | Evidence |\n| --- | --- | --- |\n\n"
+            "## Decision Log\n\n| Date | Decision | Reason | Alternatives |\n| --- | --- | --- | --- |\n\n"
+            "## Risks\n\n| Risk | Mitigation |\n| --- | --- |\n\n"
+            "## Session Handoff\n\nSee `docs/agents/session-handoff.md` for current session state.\n",
+            encoding="utf-8",
+        )
+        added = self.srv.wf_add_change_response(
+            self.root, self.wave_id, self.change_id, mode="create"
+        )
+        self.assertEqual(added["status"], "ok", added)
+        self.wave_md = self.root / "docs" / "waves" / self.wave_id / "wave.md"
+        self.change_path = self.wave_md.parent / f"{self.change_id}.md"
+        _append_review_run(self.root, self.wave_id, kind="readiness")
+        wave_text = self.wave_md.read_text(encoding="utf-8")
+        state, errors = self.srv._prepare_policy_state(
+            self.root,
+            self.wave_md,
+            wave_text,
+            [self.change_id],
+            self.srv._build_prepare_council_brief(self.wave_id, wave_text, [self.change_id]),
+        )
+        self.assertEqual(errors, ())
+        self.assertIsNotNone(state)
+        self.srv._publish_prepare_policy_state(
+            self.root, self.wave_md, wave_text, state
+        )
+        self.review = sys.modules["review_evidence"]
+        approved = self.srv.wf_review_event_response(
+            self.root,
+            self.wave_id,
+            "approval",
+            "wave-council",
+            "receipt-refresh-before-deferral",
+            mode="create",
+            signoff_key="wave-council-readiness",
+            approval_phase="readiness",
+            fresh_context=True,
+            independent=True,
+            integrity_checks=integrity_checks(),
+            evidence={
+                "observed": "approved the current receipt before the contract changed",
+                "artifact_or_test_id": "test:receipt-refresh-before-deferral",
+            },
+        )
+        self.assertEqual(approved["status"], "ok", approved)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _receipt_id(self):
+        records, errors = self.review.read_review_event_ledger(self.wave_md)
+        self.assertEqual(errors, ())
+        return sys.modules["review_policy"].current_policy_receipt(records)["receipt_id"]
+
+    def test_deferral_refreshes_receipt_and_returns_fresh_actions(self):
+        previous = self._receipt_id()
+        response = self.srv._mark_change_item_response(
+            self.root, self.wave_id, self.change_id, "AC-1", "~",
+            target_section="Acceptance Criteria",
+            reason="requires an operator-run compatibility project",
+            mode="create",
+        )
+        self.assertEqual(response["status"], "ok", response)
+        refreshed = response["data"]["review_receipt_refreshed"]
+        self.assertNotEqual(refreshed["receipt_id"], previous)
+        self.assertTrue(refreshed["review_actions"]["available"])
+        self.assertGreater(refreshed["review_actions"]["total_current_actions"], 0)
+        self.assertEqual(
+            refreshed["review_actions"]["next_actions"][0]["state_args"]["signoff_key"],
+            "wave-council-readiness",
+        )
+        self.assertIn("[~] AC-1: Defer only with a reason.", self.change_path.read_text(encoding="utf-8"))
+        self.assertIn("requires an operator-run compatibility project", self.change_path.read_text(encoding="utf-8"))
+
+    def test_completion_and_task_marks_do_not_publish_receipts(self):
+        before = self.review.review_event_path(self.wave_md).read_bytes()
+        completed = self.srv._mark_change_item_response(
+            self.root, self.wave_id, self.change_id, "AC-2", "x",
+            target_section="Acceptance Criteria", mode="create",
+        )
+        self.assertEqual(completed["status"], "ok", completed)
+        self.assertNotIn("review_receipt_refreshed", completed["data"])
+        self.assertEqual(self.review.review_event_path(self.wave_md).read_bytes(), before)
+        tasked = self.srv._mark_change_item_response(
+            self.root, self.wave_id, self.change_id, "Implement receipt refresh.", "x",
+            target_section="Tasks", mode="create",
+        )
+        self.assertEqual(tasked["status"], "ok", tasked)
+        self.assertEqual(self.review.review_event_path(self.wave_md).read_bytes(), before)
+
+    def test_receipt_write_failure_rolls_back_the_deferred_ac_and_ledger(self):
+        change_before = self.change_path.read_bytes()
+        ledger_before = self.review.review_event_path(self.wave_md).read_bytes()
+        wave_before = self.wave_md.read_bytes()
+        original_replace = self.srv._atomic_replace_bytes
+
+        def fail_change_write(path, payload, purpose):
+            if purpose == "receipt-change":
+                raise OSError("injected change-write failure")
+            return original_replace(path, payload, purpose)
+
+        with patch.object(self.srv, "_atomic_replace_bytes", side_effect=fail_change_write):
+            response = self.srv._mark_change_item_response(
+                self.root, self.wave_id, self.change_id, "AC-1", "~",
+                target_section="Acceptance Criteria", reason="external validation pending",
+                mode="create",
+            )
+        self.assertEqual(response["status"], "error", response)
+        self.assertEqual(response["diagnostics"][0]["code"], "review_receipt_refresh_failed")
+        self.assertEqual(self.change_path.read_bytes(), change_before)
+        self.assertEqual(self.review.review_event_path(self.wave_md).read_bytes(), ledger_before)
+        self.assertEqual(self.wave_md.read_bytes(), wave_before)
+
+
 class RunnerIdentityTests(unittest.TestCase):
     """Wave 1u2b0 (1u2ay): capture-at-launch runner identity plus tri-state staleness.
 
@@ -12040,6 +12263,28 @@ class WavePrepareACPriorityWarningTests(unittest.TestCase):
             resp = self.srv.wf_prepare_wave_response(self.root, wave_id="ac-wave", mode="dry_run")
         # Must not be an error (advisory only)
         self.assertNotEqual(resp["status"], "error")
+        codes = [d.get("code") for d in (resp.get("diagnostics") or [])]
+        self.assertIn("ac_priority_unpopulated", codes)
+
+    def test_scaffold_directs_a_plan_time_fill_and_keeps_the_backstop(self):
+        """AC-8: the placeholder no longer instructs a Prepare-time fill.
+
+        The advisory keys on the placeholder priority ROW, not on this prose, so
+        the second half proves the instruction change did not trade one churn
+        source for a missing gate.
+        """
+
+        template = self.srv._default_template()
+        self.assertIn("## AC Priority", template)
+        self.assertNotIn("Populated at Prepare wave", template)
+        self.assertIn("at plan time", template)
+        self.assertIn("before the prepare council runs", template)
+
+        self._make_wave_with_change(
+            "| AC-1 | required / important / nice-to-have / not-this-scope | placeholder |"
+        )
+        with patch.object(self.srv, "run_validate", return_value=self._VALID_LINT):
+            resp = self.srv.wf_prepare_wave_response(self.root, wave_id="ac-wave", mode="dry_run")
         codes = [d.get("code") for d in (resp.get("diagnostics") or [])]
         self.assertIn("ac_priority_unpopulated", codes)
 
@@ -22839,16 +23084,16 @@ class TestMcpWrapperParameterExposure(unittest.TestCase):
                 f"{required} missing from wf_review_event MCP schema; got {props}",
             )
 
-    def test_review_ergonomics_adds_no_tool_or_parameter_surface(self):
-        """1tvbs exact census: additive responses, no tool/event/list mode."""
+    def test_review_ergonomics_preserves_review_event_schema_and_tool_roster(self):
+        """1tvbs schema guard, updated for 1ug66's two narrow mark tools."""
         mcp = self._build_thin_runner.build_server(self.root)
         names = sorted(self.srv._registered_mcp_tool_names(mcp))
 
         def assert_tool_registry(candidate: list[str]) -> None:
-            self.assertEqual(len(candidate), 86)
+            self.assertEqual(len(candidate), 88)
             self.assertEqual(
                 hashlib.sha256("\n".join(candidate).encode("utf-8")).hexdigest(),
-                "b45a61caedd6de0e9ef6f9c89db627d644390a49c7c7e02fd25e41dfff22176b",
+                "1534b270fb83577cc060303b72dcf921ba3cba60e967a395974d749c25b4a223",
             )
 
         assert_tool_registry(names)
@@ -24075,7 +24320,7 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
             "mcp__wavefoundry__wave_review",
             "mcp__wavefoundry__wave_implement",
         ]
-        self.assertEqual(len(added), 86, "write-tier roster size changed; re-measure this test")
+        self.assertEqual(len(added), 88, "write-tier roster size changed; re-measure this test")
 
         # Non-vacuity control: the retired dict shape is still over the per-value cap, so this
         # test would fail against the pre-repair producer/consumer pair.
@@ -27353,7 +27598,9 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
         # the preflight correctly refuses to mint a receipt from a stale
         # carrier.
         self._set_records(())
-        # Admit one completed change through the canonical producer.
+        # Admit one completed change through the canonical producer. The lane
+        # selector reads only this declared section, so name a Python target to
+        # recruit code-reviewer.
         (self.root / "docs" / "plans").mkdir(exist_ok=True)
         (self.root / "docs" / "plans" / "1200a-feat sample.md").write_text(
             "# Sample\n\n"
@@ -27365,6 +27612,7 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
             "## Scope\n\nIn scope.\n\n"
             "## Acceptance Criteria\n\n- [x] AC-1: Criterion met.\n\n"
             "## Tasks\n\n- [x] Implement.\n\n"
+            "## Serialization Points\n\n- .wavefoundry/framework/scripts/server_impl.py\n\n"
             "## AC Priority\n\n| AC | Priority | Rationale |\n| --- | --- | --- |\n| AC-1 | required | Core. |\n",
             encoding="utf-8",
         )
@@ -27910,7 +28158,91 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
             self.assertNotIn("review_policy_receipt_stale", self._codes(response), response)
         self.assertEqual(surfaces[-1]["status"], "dry_run", surfaces[-1])
 
-    def test_public_prepare_converges_once_from_evaluator_v1_to_v2(self):
+    def test_progress_log_repair_note_keeps_the_readiness_roster_current(self):
+        """AC-4: logging a mandated repair supersedes nothing and lapses nothing.
+
+        Readiness-phase specifically: `policy_receipt_id` is legal only on a
+        readiness approval, so a delivery-lane version of this test passes on the
+        unmodified tree and proves nothing.
+        """
+
+        def receipts():
+            return tuple(
+                record
+                for record in self._records()
+                if record.get("record_type") == "review_policy_receipt"
+            )
+
+        change = self.wave_md.parent / "1200a-feat sample.md"
+        # Give the admitted change the mandated repair-tracking section, then
+        # re-earn readiness against those bytes: adding a whole section IS a
+        # substantive edit and must still supersede.
+        change.write_text(
+            change.read_text(encoding="utf-8")
+            + "\n## Progress Log\n\n"
+            "| Date | Update | Evidence |\n| ---- | ------ | -------- |\n"
+            "| 2026-08-05 | Implemented the change. | test:impl |\n",
+            encoding="utf-8",
+        )
+        superseded = self._run(
+            self.srv.wf_prepare_wave_response, self.root, self.wave_id, mode="ready"
+        )
+        self.assertEqual(superseded["status"], "error", superseded)
+        self.assertIn("missing_wave_council_signoff", self._codes(superseded))
+        for signoff_key, actor in (
+            ("wave-council-readiness", "wave-council"),
+            ("code-reviewer", "code-reviewer"),
+        ):
+            approved = self.srv.wf_review_event_response(
+                self.root,
+                self.wave_id,
+                "approval",
+                actor,
+                f"repair-note-{signoff_key}",
+                mode="create",
+                signoff_key=signoff_key,
+                approval_phase="readiness",
+                fresh_context=True,
+                independent=True,
+                integrity_checks=integrity_checks(),
+                evidence={
+                    "observed": "approved the change carrying its Progress Log",
+                    "artifact_or_test_id": f"test:repair-note-{signoff_key}",
+                },
+            )
+            self.assertEqual(approved["status"], "ok", approved)
+        settled = len(receipts())
+
+        # The act AGENTS.md mandates of every repairer: one appended row.
+        change.write_text(
+            change.read_text(encoding="utf-8")
+            + "| 2026-08-05 | Repaired a drifted line citation in place. | test:repair |\n",
+            encoding="utf-8",
+        )
+        prepared = self._run(
+            self.srv.wf_prepare_wave_response, self.root, self.wave_id, mode="ready"
+        )
+        self.assertEqual(
+            len(receipts()),
+            settled,
+            "a Progress-Log-only append must mint no new receipt",
+        )
+        self.assertNotIn("review_policy_receipt_stale", self._codes(prepared))
+        self.assertNotIn("missing_wave_council_signoff", self._codes(prepared))
+
+        review_prepare = self._run(
+            self.srv.wf_review_wave_response, self.root, self.wave_id, phase="prepare"
+        )
+        self.assertEqual(review_prepare["status"], "ok", review_prepare)
+        self.assertNotIn("review_policy_receipt_stale", self._codes(review_prepare))
+        self.assertEqual(
+            review_prepare["data"]["lane_results"],
+            [{"lane": "code-reviewer", "recorded_signoff": True}],
+        )
+
+    def test_public_prepare_converged_once_from_evaluator_v1_to_v2(self):
+        """The retired v1-to-v2 boundary, still pinned after the v3 bump."""
+
         review_policy = sys.modules["review_policy"]
 
         def receipts():
@@ -27936,6 +28268,62 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
         self.assertEqual(len(receipts()), initial_count + 1)
         self.assertEqual(receipts()[-1]["evaluator_version"], 1)
 
+        with patch.object(
+            review_policy, "REVIEW_POLICY_EVALUATOR_VERSION", 2
+        ), patch.object(
+            self.srv, "REVIEW_POLICY_EVALUATOR_VERSION", 2
+        ):
+            upgraded = self._run(
+                self.srv.wf_prepare_wave_response,
+                self.root,
+                self.wave_id,
+                mode="ready",
+            )
+            self.assertEqual(upgraded["status"], "error", upgraded)
+            self.assertEqual(len(receipts()), initial_count + 2)
+            self.assertEqual(receipts()[-1]["evaluator_version"], 2)
+
+            repeated = self._run(
+                self.srv.wf_prepare_wave_response,
+                self.root,
+                self.wave_id,
+                mode="ready",
+            )
+            self.assertEqual(repeated["status"], "error", repeated)
+            self.assertEqual(
+                len(receipts()),
+                initial_count + 2,
+                "a current evaluator-v2 receipt must make repeated Prepare idempotent",
+            )
+
+    def test_public_prepare_converges_once_from_evaluator_v3_to_v4(self):
+        """Wave 1ui1d: the live boundary, proven to converge exactly once."""
+
+        review_policy = sys.modules["review_policy"]
+
+        def receipts():
+            return tuple(
+                record
+                for record in self._records()
+                if record.get("record_type") == "review_policy_receipt"
+            )
+
+        initial_count = len(receipts())
+        with patch.object(
+            review_policy, "REVIEW_POLICY_EVALUATOR_VERSION", 3
+        ), patch.object(
+            self.srv, "REVIEW_POLICY_EVALUATOR_VERSION", 3
+        ):
+            legacy = self._run(
+                self.srv.wf_prepare_wave_response,
+                self.root,
+                self.wave_id,
+                mode="ready",
+            )
+        self.assertEqual(legacy["status"], "error", legacy)
+        self.assertEqual(len(receipts()), initial_count + 1)
+        self.assertEqual(receipts()[-1]["evaluator_version"], 3)
+
         upgraded = self._run(
             self.srv.wf_prepare_wave_response,
             self.root,
@@ -27944,7 +28332,7 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
         )
         self.assertEqual(upgraded["status"], "error", upgraded)
         self.assertEqual(len(receipts()), initial_count + 2)
-        self.assertEqual(receipts()[-1]["evaluator_version"], 2)
+        self.assertEqual(receipts()[-1]["evaluator_version"], 4)
 
         repeated = self._run(
             self.srv.wf_prepare_wave_response,
@@ -27956,7 +28344,7 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
         self.assertEqual(
             len(receipts()),
             initial_count + 2,
-            "a current evaluator-v2 receipt must make repeated Prepare idempotent",
+            "a current evaluator-v4 receipt must make repeated Prepare idempotent",
         )
 
     def test_failed_docs_gate_publishes_no_new_roster_receipt_or_projection(self):

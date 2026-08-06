@@ -103,6 +103,7 @@ from review_evidence import (
     review_event_path,
     review_event_request_digest,
     review_authority_projection,
+    review_action_input_schema,
     review_evidence_summary,
     review_status_rows,
     review_status_signoff_keys,
@@ -6129,6 +6130,217 @@ def _wave_change_doc_path(root: Path, wave_md: Path, change_id: str) -> Path:
     return wave_md.parent / f"{change_id}.md"
 
 
+def _mark_change_item_response(
+    root: Path, wave_id: str, change_id: str, item_label: str, state: str,
+    *, target_section: str, reason: str = "", mode: str = "dry_run",
+) -> dict[str, Any]:
+    """Mark one exact AC or task without providing a generic document editor."""
+
+    state = state.strip().lower()
+    if state not in {"x", "~"}:
+        return _response(
+            "error",
+            {},
+            diagnostics=[_diagnostic(
+                "invalid_arguments",
+                "state must be 'x' or '~'. Retry with `x` to mark complete or `~` to mark intentionally deferred.",
+            )],
+        )
+    wave_md = _find_wave_md(root, wave_id)
+    if wave_md is None:
+        return _response(
+            "error",
+            {},
+            diagnostics=[_diagnostic(
+                "wave_not_found",
+                f"No wave found matching '{wave_id}'. Identify the active wave, then retry with its exact ID.",
+                recovery_tools=["wf_current_wave", "wf_list_waves"],
+                recovery_usage="wf_current_wave()",
+            )],
+        )
+    path = _wave_change_doc_path(root, wave_md, change_id)
+    if not path.is_file():
+        return _response(
+            "error",
+            {},
+            diagnostics=[_diagnostic(
+                "change_not_found",
+                f"No admitted change `{change_id}` in this wave. Read the wave's admitted changes, then retry with an exact change ID.",
+                recovery_tools=["wf_get_change"],
+                recovery_usage=f"wf_get_change(change_id='{change_id}')",
+            )],
+        )
+    text = path.read_text(encoding="utf-8")
+    section = ""
+    candidates: list[tuple[int, re.Match[str], str]] = []
+    for index, line in enumerate(text.splitlines(keepends=True)):
+        heading = re.fullmatch(r"##\s+(.+?)\s*\r?\n?", line)
+        if heading:
+            section = heading.group(1).strip()
+            continue
+        match = re.match(r"(?P<prefix>\s*-\s*\[)[ x~X](?P<suffix>\]\s+)(?P<label>.*?)(?:\r?\n)?$", line)
+        if match and section == target_section:
+            label = match.group("label").strip().lower()
+            requested = item_label.strip().lower()
+            if label == requested or label.startswith(requested + ":"):
+                candidates.append((index, match, section))
+    if len(candidates) != 1:
+        code = "ambiguous_mark_target" if candidates else "mark_target_not_found"
+        candidate_labels = [candidate.group("label").strip() for _, candidate, _ in candidates]
+        if candidates:
+            message = (
+                f"Expected exactly one {target_section} item matching `{item_label}`; found {len(candidates)}. "
+                "Do not choose arbitrarily. Read the admitted change and retry with the exact full label; "
+                "if the labels are identical, make them distinct in the change document before retrying."
+            )
+        else:
+            message = (
+                f"Expected exactly one {target_section} item matching `{item_label}`; found 0. "
+                "Read the admitted change and retry with its current exact label."
+            )
+        return _response(
+            "error",
+            {"target_section": target_section, "requested_label": item_label, "candidate_labels": candidate_labels},
+            diagnostics=[_diagnostic(
+                code,
+                message,
+                recovery_tools=["wf_get_change"],
+                recovery_usage=f"wf_get_change(change_id='{change_id}')",
+            )],
+        )
+    lines = text.splitlines(keepends=True)
+    index, match, target_section = candidates[0]
+    if state == "~" and target_section == "Acceptance Criteria" and reason.strip():
+        suffix = match.group("suffix") + match.group("label").rstrip("\r\n") + f" *{reason.strip()}*"
+    else:
+        suffix = match.group("suffix") + match.group("label").rstrip("\r\n")
+    ending = "\r\n" if lines[index].endswith("\r\n") else "\n" if lines[index].endswith("\n") else ""
+    lines[index] = f"{match.group('prefix')}{state}{suffix}{ending}"
+    updated = "".join(lines)
+    if state == "~":
+        from wave_lint_lib.wave_validators import _check_tilde_required_ac_has_inline_note
+        failures = _check_tilde_required_ac_has_inline_note(updated, _repo_rel(root, path))
+        if failures:
+            return _response(
+                "error",
+                {},
+                diagnostics=[_diagnostic(
+                    "tilde_rationale_required",
+                    f"{failures[0]} Retry wf_mark_ac with a concise `reason` explaining the required-priority deferral.",
+                )],
+            )
+    # Report the FULL item block — the bullet plus every continuation line — not
+    # just the line the pattern matched. An equivalent hand edit has to process
+    # the whole item: carry it in context, reproduce it as the string to find,
+    # and reproduce it again as the replacement. A first-line-only measure
+    # undercounts a wrapped acceptance criterion several times over, and
+    # acceptance criteria are exactly where the saving concentrates.
+    block_end = index + 1
+    for probe in range(index + 1, len(lines)):
+        nxt = lines[probe]
+        if not nxt.strip():
+            break
+        if re.match(r"\s*-\s*\[[ x~X]\]", nxt) or nxt.lstrip().startswith("#"):
+            break
+        if not nxt.startswith((" ", "\t")):
+            break
+        block_end = probe + 1
+    matched_text = "".join(lines[index:block_end])
+    data = {"wave_id": wave_md.parent.name, "change_id": change_id, "item_label": item_label, "state": state, "path": _repo_rel(root, path), "matched_text": matched_text}
+    mode_s = mode.strip().lower()
+    if mode_s not in {"create", "apply"}:
+        return _response("ok", {**data, "changed": updated != text})
+    if updated == text:
+        return _response("ok", {**data, "changed": False})
+
+    # Completion and task tracking are receipt-neutral. An AC deferral is
+    # different: its `[~]` marker changes the approved contract, so publish the
+    # new receipt and projections with the document update or write nothing.
+    refresh_receipt = (
+        state == "~"
+        and target_section == "Acceptance Criteria"
+        and _wave_uses_external_review_evidence(root, wave_md)
+        and _read_workflow_config(root).get("wave_review") is not None
+    )
+    if not refresh_receipt:
+        _atomic_replace_text(path, updated, "wf-mark")
+        return _response("ok", {**data, "changed": True})
+
+    try:
+        with project_state_publication_lock(root):
+            live_wave = wave_md.read_text(encoding="utf-8")
+            change_ids = _extract_change_ids_from_wave_text(live_wave)
+            if change_id not in change_ids:
+                raise ValueError(
+                    f"admitted change `{change_id}` is no longer listed by the wave; retry after reading the current wave"
+                )
+            council_brief = _build_prepare_council_brief(
+                wave_md.parent.name, live_wave, change_ids
+            )
+            policy_state, policy_errors = _prepare_policy_state(
+                root,
+                wave_md,
+                live_wave,
+                change_ids,
+                council_brief,
+                change_text_overrides={change_id: updated},
+            )
+            if policy_errors or policy_state is None:
+                detail = "; ".join(policy_errors) or "review-policy selection is unavailable"
+                raise ValueError(detail)
+            if not policy_state["receipt_append_required"]:
+                raise ValueError(
+                    "the deferred AC did not produce a new review-policy receipt; retry after repairing the policy state"
+                )
+            final_wave = _publish_prepare_policy_state(
+                root,
+                wave_md,
+                live_wave,
+                policy_state,
+                change_updates=((path, text, updated),),
+            )
+    except (OSError, ValueError) as exc:
+        return _response(
+            "error",
+            {**data, "changed": False, "review_receipt_refreshed": False},
+            diagnostics=[_diagnostic(
+                "review_receipt_refresh_failed",
+                "The AC was not deferred because its review receipt could not be refreshed: "
+                f"{exc}. Fix the stated wave or review-evidence problem, then retry the same wf_mark_ac call; do not edit the checkbox or receipt manually.",
+                recovery_tools=["wf_review_wave", "wf_mark_ac"],
+                recovery_usage=(
+                    f"wf_review_wave(wave_id={wave_md.parent.name!r}, phase='prepare')"
+                ),
+            )],
+        )
+
+    receipt = dict(policy_state["receipt"])
+    action_keys = _guided_review_signoff_keys(
+        root, wave_md, final_wave, approval_phase="readiness"
+    )
+    review_actions, action_diagnostics = _guided_review_actions(
+        (*policy_state["records"], receipt),
+        action_keys,
+        approval_phase="readiness",
+        required_run_kind="readiness",
+    )
+    return _response(
+        "ok",
+        {
+            **data,
+            "changed": True,
+            "review_receipt_refreshed": {
+                "receipt_id": receipt["receipt_id"],
+                "policy_input_digest": receipt["policy_input_digest"],
+                "evaluator_version": receipt["evaluator_version"],
+                "review_actions": review_actions,
+            },
+        },
+        diagnostics=action_diagnostics,
+        next_tools=["wf_review_event", "wf_review_wave"],
+    )
+
+
 def _plan_change_doc_path(root: Path, change_id: str) -> Path:
     return root / "docs" / "plans" / f"{change_id}.md"
 
@@ -6833,6 +7045,8 @@ def _prepare_policy_state(
     wave_text: str,
     change_ids: list[str],
     council_brief: Mapping[str, Any],
+    *,
+    change_text_overrides: Mapping[str, str] | None = None,
 ) -> tuple[dict[str, Any] | None, tuple[str, ...]]:
     config = _read_workflow_config(root)
     policy, policy_errors = normalize_wave_review_policy(config.get("wave_review"))
@@ -6846,8 +7060,13 @@ def _prepare_policy_state(
     for change_id in change_ids:
         path = _wave_change_doc_path(root, wave_md, change_id)
         try:
-            body = path.read_bytes()
-            text = body.decode("utf-8")
+            override = (change_text_overrides or {}).get(change_id)
+            if override is None:
+                body = path.read_bytes()
+                text = body.decode("utf-8")
+            else:
+                text = override
+                body = text.encode("utf-8")
         except (OSError, UnicodeError) as exc:
             errors.append(f"cannot read admitted change `{change_id}` for policy selection: {exc}")
             continue
@@ -6915,13 +7134,57 @@ def _prepare_policy_state(
     }, ()
 
 
+def _replace_artifacts_transactionally(
+    replacements: Iterable[tuple[Path, bytes, str]],
+) -> None:
+    """Publish a small fixed artifact set, restoring earlier writes on failure.
+
+    Filesystem rename is atomic only per file.  Receipt publication sometimes
+    changes the event authority, its wave projection, and (for a tracked AC
+    deferral) the admitted change.  Keep those artifacts coherent for ordinary
+    write failures rather than exposing a half-published contract.
+    """
+
+    staged = [
+        (path, payload, purpose)
+        for path, payload, purpose in replacements
+        if not path.exists() or path.read_bytes() != payload
+    ]
+    originals = {
+        path: path.read_bytes() if path.exists() else None
+        for path, _payload, _purpose in staged
+    }
+    written: list[Path] = []
+    try:
+        for path, payload, purpose in staged:
+            _atomic_replace_bytes(path, payload, purpose)
+            written.append(path)
+    except OSError as exc:
+        rollback_errors: list[str] = []
+        for path in reversed(written):
+            original = originals[path]
+            try:
+                if original is None:
+                    path.unlink(missing_ok=True)
+                else:
+                    _atomic_replace_bytes(path, original, "receipt-rollback")
+            except OSError as rollback_exc:
+                rollback_errors.append(f"{path}: {rollback_exc}")
+        detail = f"receipt publication failed: {exc}"
+        if rollback_errors:
+            detail += "; rollback incomplete: " + "; ".join(rollback_errors)
+        raise OSError(detail) from exc
+
+
 def _publish_prepare_policy_state(
     root: Path,
     wave_md: Path,
     wave_text: str,
     state: Mapping[str, Any],
+    *,
+    change_updates: Iterable[tuple[Path, str, str]] = (),
 ) -> str:
-    """Publish roster -> receipt -> projection -> marker, in fixed order."""
+    """Publish a receipt transition and its projections as one recoverable unit."""
 
     roster_text = _replace_required_review_lanes(
         wave_text, state["required_lanes"]
@@ -6934,7 +7197,12 @@ def _publish_prepare_policy_state(
         if live != wave_text:
             raise ValueError("wave changed during Prepare policy publication; retry")
         _replace_required_review_lanes(live, state["required_lanes"])
-        _atomic_replace_text(contained_wave, roster_text, "prepare-roster")
+        normalized_updates = tuple(change_updates)
+        for path, expected, _updated in normalized_updates:
+            if path.read_text(encoding="utf-8") != expected:
+                raise ValueError(
+                    f"admitted change `{path.name}` changed during receipt publication; retry"
+                )
 
         records = tuple(state["records"])
         if state["receipt_append_required"]:
@@ -6942,11 +7210,6 @@ def _publish_prepare_policy_state(
             errors = validate_review_evidence_records(records)
             if errors:
                 raise ValueError("; ".join(errors))
-            _atomic_replace_bytes(
-                events_path,
-                canonical_review_events_bytes(records),
-                "prepare-receipt",
-            )
 
         projected = render_review_evidence_projection(roster_text, records)
         projected = render_review_status_projection(
@@ -6954,10 +7217,18 @@ def _publish_prepare_policy_state(
             records,
             _review_status_signoff_keys(root, projected, records),
         )
-        _atomic_replace_text(contained_wave, projected, "prepare-projection")
         final = set_reprepare_marker(projected, False)
-        if final != projected:
-            _atomic_replace_text(contained_wave, final, "prepare-marker")
+        replacements: list[tuple[Path, bytes, str]] = []
+        if state["receipt_append_required"]:
+            replacements.append(
+                (events_path, canonical_review_events_bytes(records), "prepare-receipt")
+            )
+        replacements.append((contained_wave, final.encode("utf-8"), "prepare-projection"))
+        replacements.extend(
+            (path, updated.encode("utf-8"), "receipt-change")
+            for path, _expected, updated in normalized_updates
+        )
+        _replace_artifacts_transactionally(replacements)
         return final
 
 
@@ -7334,6 +7605,21 @@ def wf_add_change_response(
                     usage=f"wf_get_change(change_id={canonical_change_id!r})",
                 )
             relocated = True
+        try:
+            admitted_text = target_path.read_text(encoding="utf-8")
+            repaired_admitted_text = re.sub(
+                r"(?m)^Wave: (?:\[wave-id or TBD\]|TBD)$",
+                f"Wave: {wave_md.parent.name}",
+                admitted_text,
+            )
+            if repaired_admitted_text != admitted_text:
+                target_path.write_text(repaired_admitted_text, encoding="utf-8")
+        except OSError as exc:
+            return _response(
+                "error",
+                {"wave_id": wave_id, "change_id": canonical_change_id, "mode": mode_s},
+                diagnostics=[_diagnostic("change_metadata_repair_failed", f"Failed to update admitted change metadata: {exc}")],
+            )
         text = _insert_change_block_into_changes_section(text, canonical_change_id)
         wave_md.write_text(text, encoding="utf-8")
         if cache:
@@ -14338,6 +14624,7 @@ def _guided_review_actions(
         "omitted_current_actions": projection["omitted_current_actions"],
         "truncated": projection["truncated"],
         "action_cap": projection["action_cap"],
+        "caller_input_schema": review_action_input_schema(),
     }
     diagnostics: list[dict[str, Any]] = []
     if projection["truncated"]:
@@ -16738,11 +17025,25 @@ Wave: TBD
 - [ ]
 - [ ]
 
+## Serialization Points
+
+- [Explicit repo-relative path this change touches, e.g. `src/app/handler.py`]
+
+(List real repo-relative paths. Prepare selects automatic review lanes from
+these paths and from nothing else — never from Scope, Rationale, or other
+narrative. A change doc that declares no path keeps legacy whole-document
+scoring, so coverage is never silently lost, but it forfeits the precision.
+Path scoring is a floor, not a ceiling: ANY lane may also be requested by
+judgment in the wave record's `Requested review lanes`, and architecture,
+security and performance risk are usually judgment calls that no path expresses.)
+
 ## Affected Architecture Docs
 
 ## AC Priority
 
-(Populated at Prepare wave.)
+(Populate one row per AC at plan time, before the prepare council runs. Filling
+this table after readiness is recorded supersedes the review-policy receipt and
+lapses the approvals it just collected.)
 
 | AC | Priority | Rationale |
 |----|----------|-----------|
@@ -23931,7 +24232,16 @@ _LIFECYCLE_CONTEXT_STAGES = {
     "wf_implement_wave": "implement",
     "wf_review_wave": "review",
     "wf_close_wave": "review",
+    # Tracking tools are attributed to IMPLEMENT: marking an acceptance
+    # criterion or task is work done while implementing, and the wave record
+    # should show that cost and saving against the implement stage rather than
+    # against plan or review. They record workflow context only — no lifecycle
+    # focus move and no checkpoint publication — because a checkbox flip is not
+    # a lifecycle transition.
+    "wf_mark_ac": "implement",
+    "wf_mark_task": "implement",
 }
+_TRACKING_CONTEXT_TOOLS = frozenset({"wf_mark_ac", "wf_mark_task"})
 
 
 def _context_data(response: dict[str, Any]) -> dict[str, Any]:
@@ -24368,6 +24678,61 @@ def _poisoned_or_fatal_telemetry_failure(
     return payload
 
 
+def _record_tracking_context(
+    handler: "ImplHandler",
+    tool_name: str,
+    wave_id: str,
+    response: dict[str, Any],
+    *,
+    request_arguments: Any = None,
+    mode: str,
+) -> dict[str, Any]:
+    """Attribute an exact-item tracking tool to the implement stage.
+
+    Deliberately narrower than ``_lifecycle_context_result``: a checkbox flip is
+    not a lifecycle transition, so this moves no context-efficiency focus and
+    publishes no checkpoint. It records the workflow-instruction proxy only, and
+    credits it as a milestone only when the mark was actually written, so a dry
+    run and a failed target resolution carry their debit without earning credit. Telemetry must never change the caller's result: a recording failure
+    that is not fatal leaves the mark response exactly as produced.
+    """
+
+    if tool_name not in _TRACKING_CONTEXT_TOOLS:
+        return response
+    wave_md = _find_wave_md(handler.root, wave_id)
+    resolved = wave_md.parent.name if wave_md is not None else str(wave_id)
+    # A dry run also returns status "ok" with `changed`, so the write mode is
+    # part of the milestone test; otherwise previewing a mark would earn credit
+    # for work that never happened.
+    data = _context_data(response)
+    written = (
+        response.get("status") == "ok"
+        and str(mode).strip().lower() in {"create", "apply"}
+        and bool(data.get("changed"))
+    )
+    # Every write is credited, because every write saves. Doing this by hand
+    # means emitting the matched item's full text TWICE — the string to find and
+    # the string to replace it with — so the saving recurs per call and scales
+    # with the item's length. Measured across wave 1ui1d's own 41 items:
+    # hand-editing 4,084 tokens versus 791 for the tool calls, with acceptance
+    # criteria saving 121 tokens each and short task lines 16. A once-per-wave
+    # credit would have booked one flat number and lost that entirely.
+    avoided = None
+    if written:
+        matched = str(data.get("matched_text") or "")
+        if matched:
+            avoided = 2 * context_efficiency.estimate_tokens_utf8(matched)
+    return _record_workflow_context(
+        handler,
+        tool_name,
+        resolved,
+        response,
+        request_arguments=request_arguments,
+        milestone_completed=written,
+        avoided_authoring_tokens=avoided,
+    )
+
+
 def _record_workflow_context(
     handler: "ImplHandler",
     tool_name: str,
@@ -24376,6 +24741,7 @@ def _record_workflow_context(
     *,
     request_arguments: Any = None,
     milestone_completed: bool,
+    avoided_authoring_tokens: int | None = None,
 ) -> dict[str, Any]:
     """Persist debits for every reached handler; credit only a milestone."""
 
@@ -24385,6 +24751,7 @@ def _record_workflow_context(
             handler.root,
             tool_name,
             request_arguments=request_arguments,
+            avoided_authoring_tokens=avoided_authoring_tokens,
             milestone_completed=milestone_completed,
         )
         if metric.get("captured") is not True:
@@ -27337,6 +27704,39 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
                 mode=mode,
                 cache=handler.cache,
             )
+
+    @mcp.tool(annotations=_MUTATING_TOOL)
+    def wf_mark_ac(wave_id: str, change_id: str, ac_id: str, state: str, reason: str = "", mode: str = "dry_run", **kwargs: Any) -> dict[str, Any]:
+        """Mark one acceptance criterion complete (``x``) or deferred (``~``).
+
+        Required-priority deferrals need a reason under the same rule as docs-lint.
+        A successful deferred AC also refreshes its review receipt; it never
+        carries an approval forward and returns the fresh review actions.
+        """
+        bad = _ensure_no_extra_args("wf_mark_ac", kwargs)
+        if bad is not None:
+            return bad
+        handler = get_handler()
+        response = _mark_change_item_response(handler.root, wave_id, change_id, ac_id, state, target_section="Acceptance Criteria", reason=reason, mode=mode)
+        return _record_tracking_context(
+            handler, "wf_mark_ac", wave_id, response,
+            request_arguments={"change_id": change_id, "ac_id": ac_id, "state": state, "mode": mode},
+            mode=mode,
+        )
+
+    @mcp.tool(annotations=_MUTATING_TOOL)
+    def wf_mark_task(wave_id: str, change_id: str, task: str, state: str, mode: str = "dry_run", **kwargs: Any) -> dict[str, Any]:
+        """Mark one exact task complete (``x``) or deferred (``~``)."""
+        bad = _ensure_no_extra_args("wf_mark_task", kwargs)
+        if bad is not None:
+            return bad
+        handler = get_handler()
+        response = _mark_change_item_response(handler.root, wave_id, change_id, task, state, target_section="Tasks", mode=mode)
+        return _record_tracking_context(
+            handler, "wf_mark_task", wave_id, response,
+            request_arguments={"change_id": change_id, "task": task, "state": state, "mode": mode},
+            mode=mode,
+        )
 
     @mcp.tool(annotations=_MUTATING_TOOL)
     def wf_prepare_wave(wave_id: str, mode: str = "dry_run", **kwargs: Any) -> dict[str, Any]:

@@ -6,6 +6,85 @@ the individual wave records under [`docs/waves/`](docs/waves/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.15.4] - unreleased
+
+### Fixed
+
+- **Deferring a required acceptance criterion now refreshes the review receipt in the same operation.**
+  `wf_mark_ac(state="~")` publishes the changed contract and returns fresh review actions without
+  carrying approvals forward; failed publication rolls back the AC, receipt ledger, and projection.
+  Ordinary completion and task marks remain receipt-neutral. Wave 1uj12 / 1ulnu.
+
+- **Routine checkbox tracking no longer reopens review, while an acceptance-criterion deferral still does.**
+  The receipt canonicalizer now treats AC completion and every task marker as progress-only, but
+  preserves an AC `[~]` and its rationale as a reviewable contract change. `wf_mark_ac` and
+  `wf_mark_task` supply the same narrow write path: each changes one unambiguous item, while the AC
+  tool applies exactly the existing docs-lint rationale rule for required-priority deferrals.
+
+- **Automatic review lanes now come only from declared `## Serialization Points` paths, not plan
+  prose.** This removes false lanes triggered by quoted filenames and change IDs, keeps extension
+  matching boundary-aware, and makes the existing wave-level `Requested review lanes` field the
+  explicit route for security and performance risks. Evaluator version 4 marks only non-closed waves
+  with an older current receipt for one re-Prepare during upgrade; a newly planned no-receipt wave is
+  untouched.
+
+- **Guided review actions now include the caller schema once per response and carry the current
+  judgment template for reverification.** The response names the blocking constraint without
+  weakening the evidence validator or duplicating the schema onto every action.
+
+- **Recording a repair in a change doc's `## Progress Log` no longer lapses the approvals that the
+  repair did not touch.** The review-policy receipt digests change-doc bytes, and `AGENTS.md`
+  requires every repairer to log what they did, so the mandated act of logging a trivial repair
+  moved the digest, superseded the receipt, and forced a re-Prepare plus a re-record of the whole
+  readiness signoff roster. The digest now replaces the Progress Log body with a stable sentinel,
+  exactly as it already does for the gardener-owned `Last verified:` date. This is the only new
+  exclusion, it is hash-only (the section stays in the file verbatim, and the `Gapfill:` retrieval
+  advisory still reads it), and every requirement-bearing section (Rationale, Requirements, Scope,
+  Acceptance Criteria, Tasks, AC Priority, Decision Log, Risks, Session Handoff) still lapses
+  approvals on edit. Review coverage is unchanged: the same lanes run and the same findings block.
+  **One-time re-Prepare on upgrade.** `REVIEW_POLICY_EVALUATOR_VERSION` moves from 2 to 3 so the
+  permanent `events.jsonl` history can tell a plan edit apart from a canonicalization change. Any
+  wave that is readied or open when this lands goes stale once at its next `wf_prepare_wave` and its
+  READINESS-phase approvals (the council readiness approval and the prepare lanes) lapse once;
+  re-record them and the receipt settles, proven by a convergence test. Delivery-phase approvals,
+  finding heads, and repair records are untouched, and CLOSED waves are untouched because
+  receipt-chain validation re-derives ids from the fields stored on each record rather than from
+  change-doc bytes, so every sealed archive keeps validating. On a wave already open for review, the
+  stale receipt gates guided signoff recording until that one re-Prepare; recorded findings and
+  delivery approvals are unaffected. The change is server-resident and is NOT immediate: it takes
+  effect after either `wf_reload_mcp` or a full host restart (`gardener_metadata` is in the
+  reload-purge set, so a reload genuinely suffices).
+
+- **The review seeds now state when an editorial delivery-review finding stays inline, and that the
+  Progress Log narrates rather than amends.** An editorial-only finding (imprecise but true wording,
+  drifted citations, formatting) does not by itself open another repair cycle; every finding needing
+  verification, a boundary repair, or escalation retains its existing action-matrix route. An
+  editorial finding that makes a shipped claim false counts as a correctness defect. Paired with it:
+  a scope, requirement, or AC change is recorded in the
+  section that owns it, with the Progress Log row pointing at that edit, which is what keeps the new
+  digest exclusion safe. The rule also states plainly that a re-Prepare depends on WHERE a repair
+  lands: a repair confined to `## Progress Log` needs none, and a repair that edits any digested
+  section still supersedes the receipt even when the finding was editorial.
+  **Transition run (class (b) carrier).** The behavioral rule is live in the seeds as soon as the
+  pack extracts, so fresh installs and every agent reading the seeds get it immediately. The
+  project-local `docs/prompts/review-wave.prompt.md` copy is rewritten by the review-policy
+  reconciler, whose replacement plan is built before extraction and deliberately frozen for the
+  whole upgrade, so the upgrade that INSTALLS this release still runs the previous release's
+  replacement set and leaves that file unchanged; the NEXT upgrade applies the sentence, and a third
+  is a no-op. That one-run lag is the frozen-plan preflight working as designed, not the reconciler
+  failing: do not report it as the rule not landing.
+
+### Changed
+
+- **Newly scaffolded change docs are told to fill the AC Priority table at plan time, not at
+  Prepare.** The scaffold and `docs/plans/plan-template.md` previously carried
+  `(Populated at Prepare wave.)`, which instructed an edit at exactly the moment it invalidated the
+  readiness approval just collected: AC Priority is requirement-bearing and correctly stays in the
+  digest, so the remedy is ordering rather than exclusion. `170-plan-feature.prompt.md` now states
+  that AC Priority is populated and Tasks are fully enumerated before the prepare council runs, and
+  the upgrade prompt migrates an existing repository's plan template. The `ac_priority_unpopulated`
+  Prepare advisory is unchanged and remains the backstop. Existing change docs keep their text.
+
 ## [1.15.3] - 2026-08-04
 
 ### Fixed

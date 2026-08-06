@@ -42,6 +42,12 @@ LIFECYCLE_PROMPT_MAP: Mapping[str, Path] = {
     "wf_implement_wave": Path("docs/prompts/implement-wave.prompt.md"),
     "wf_review_wave": Path("docs/prompts/review-wave.prompt.md"),
     "wf_close_wave": Path("docs/prompts/close-wave.prompt.md"),
+    # Exact-item tracking tools (wf_mark_ac / wf_mark_task) deliberately have NO
+    # entry here. Their saving is not a one-time procedure lookup: it recurs on
+    # every call and is measured per write via
+    # `workflow_instruction_proxy(avoided_authoring_tokens=...)`. They also earn
+    # no content-source credit, because they return no change-doc content and
+    # `_context_source_paths` credits only content that is in the envelope.
 }
 
 # Wave 1t3gt (1t3ld): the ONLY stage values the accounting layer ever writes.
@@ -306,6 +312,7 @@ def implement_stage_retrieval_calls(
             conn.close()
     except sqlite3.Error:
         return None
+
 
 
 # --- Open-wave attribution (wave 1t3ek / 1t3el) -----------------------------
@@ -874,8 +881,21 @@ def workflow_instruction_proxy(
     *,
     request_arguments: Any = None,
     milestone_completed: bool = True,
+    avoided_authoring_tokens: int | None = None,
 ) -> dict[str, Any]:
-    """Build one workflow ledger candidate; no-op calls retain both debits."""
+    """Build one workflow ledger candidate; no-op calls retain both debits.
+
+    ``avoided_authoring_tokens`` replaces the prompt-surface baseline for tools
+    whose saving RECURS per call rather than happening once. An exact-item
+    tracking tool is the case: performing the same edit by hand costs the item's
+    full text TWICE (the match string and the replacement), every time, so the
+    saving scales with item count and item length rather than with a one-time
+    procedure lookup. Measured on wave 1ui1d's own 41 items, hand-editing would
+    have cost 4,084 tokens against 791 for the tool calls; acceptance criteria
+    saved 121 tokens each and short task lines only 16, which is exactly the
+    per-item variation a single aggregate credit cannot express. The caller
+    supplies the measurement because only it knows which block matched.
+    """
 
     try:
         returned = estimate_tokens_utf8(canonical_core_json(core_response))
@@ -896,13 +916,16 @@ def workflow_instruction_proxy(
         }
     prompt_tokens = 0
     if milestone_completed:
-        relative = LIFECYCLE_PROMPT_MAP.get(tool_name)
-        prompt = _contained_prompt(root, relative) if relative is not None else None
-        if prompt is not None:
-            try:
-                prompt_tokens = estimate_tokens_utf8(prompt.read_bytes())
-            except OSError:
-                prompt_tokens = 0
+        if avoided_authoring_tokens is not None:
+            prompt_tokens = max(0, int(avoided_authoring_tokens))
+        else:
+            relative = LIFECYCLE_PROMPT_MAP.get(tool_name)
+            prompt = _contained_prompt(root, relative) if relative is not None else None
+            if prompt is not None:
+                try:
+                    prompt_tokens = estimate_tokens_utf8(prompt.read_bytes())
+                except OSError:
+                    prompt_tokens = 0
     return {
         "estimated_request_tokens": requested,
         "estimated_returned_tokens": returned,

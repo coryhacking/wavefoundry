@@ -2,9 +2,130 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-04
+Last verified: 2026-08-06
 
-## Current State (2026-08-04)
+## Current State (2026-08-05)
+
+- **Wave `1uhcb review-cycle-churn` is CLOSED (2026-08-05) on explicit operator direction, with
+  `1ugk9-bug` delivered, reviewed, repaired twice, verified, and fully ledgered. NOT COMMITTED.**
+  Delivered: `## Progress Log` excluded from the review-policy digest
+  (`gardener_metadata.normalize_progress_log`, fence tracker mirroring
+  `commit_provenance._without_fenced_code`), `REVIEW_POLICY_EVALUATOR_VERSION` 2 to 3, the
+  editorial-only stop condition plus narrate-not-amend in `seeds/180:71`, and the Requirement 8
+  plan-time AC-Priority/Tasks ordering carriers. Suite **6831 across 62 files OK**; docs-lint ok;
+  receipt `review-policy-b013a3b9fd65b85a11ee` at evaluator 3; MCP reloaded.
+  **Live field proof recorded:** two consecutive `wf_prepare_wave` dry runs across an appended
+  Progress Log row returned the identical receipt and digest, so the fix is confirmed in the
+  running server, not just in tests.
+- **1uhcb ledger COMPLETE (2026-08-05).** Recorded across 76 records: the `initial_delivery` run,
+  two typed findings, both `repair_start` chains, then five per-lane reverification clears
+  (`crlf-...` by code-reviewer then qa-reviewer; `false-shipped-...` by docs-contract-reviewer,
+  release-reviewer, then qa-reviewer), five delivery lane approvals, and
+  `ev-approval-wave-council-delivery`. Both findings project **Open block: no / Repair: completed**;
+  all seven lane and council signoffs read `approved`. `operator-signoff` recorded on the explicit
+  in-session close instruction (77 records total), then `wf_close_wave(mode='create')` transitioned
+  the wave to closed with a clean dry-run, `lint.clean: true`, and the CE projection sealed.
+- **Memory candidate adjudicated at close.** `memory_propose` drafted exactly one record, a
+  `fragile_file` for `test_review_policy.py` on the grounds that two repairs touched it. REWRITTEN,
+  not promoted: that is the test file for the change under review, so both repairs landing there is
+  the expected shape of a red-first delivery rather than fragility, and the draft carried the known
+  bare-basename target defect. Replaced by `1ufqs-mem region-scanner-tests-need-a-real-target-section-after-the-co`
+  (kind `failed_attempt`, full repo-relative targets), carrying the reusable control the two findings
+  actually exposed: a section-region scanner fixture that omits a REAL target section after the
+  construct under test proves only that a guard exists, which is why two mutants survived all five
+  delivered fence tests. Candidate `1uh3m-mem` retained as `superseded` history.
+- **Change-status shape at close is normal, do not "fix" it.** The admitted change keeps
+  `Change Status: implemented` after close; closed waves 1ugk8 and 1uf65 carry the identical shape
+  and docs-lint is ok. This is NOT the older "close did not finalize admitted change statuses" note.
+- **The former ledger BLOCKER was a caller error, not a tool defect. Do not re-file it.** The
+  guided `state_args` and the finding-synthesis validator never disagreed.
+  `blocking_required_lanes` may be non-empty only when the synthesis derives `blocking=true`
+  (`review_evidence.py:3376`), and `blocking` is DERIVED, not declared (`derive_blocking`, `:913`):
+  it needs `disposition == do_now` plus the blocking predicate. The failed attempts supplied
+  judgments that derived `blocking=false`, which is what tripped the message. **A reverification
+  must repeat the finding's ORIGINAL judgment** (`validation_status: real`,
+  `contract_relevance: required_ac`, `supported_reachability: true`, `observable_impact: material`,
+  …); `blocking` describes the defect's nature, while `blocking_required_lanes` tracks which lanes
+  have not yet cleared it, so "still blocking, one lane left" is the legal intermediate state. The
+  acting lane must remove exactly itself (`:2831-2838` requires `cleared == {actor}` with
+  `fresh_context` and `independent` true), and the last clear terminalizes with an empty list.
+  This remains a good ergonomics specimen (the shape is discoverable only by reading the deriver),
+  but it is NOT a correctness bug in the guided action.
+- **Two delivery-review defects were found and fixed by the operator, both worth remembering.**
+  P1: the original stop condition said only "correctness or contract" defects reopen a cycle, which
+  would have suppressed missing-test-coverage and architecture findings, i.e. exactly the
+  surviving-mutant class that caught this wave's own CRLF bug. Reworded to editorial-only-stays-inline
+  with every other finding keeping its action-matrix route. P2: the reconciler changed the shipped
+  1.15.3 review prompt with no regression test for that migration path; a focused test was added and
+  is confirmed non-vacuous (neutralising `_SHIPPED_REPAIR_CYCLE_SENTENCE`, the semicolon variant,
+  kills it).
+- **Wave `1ui1d review-loop-friction` is READIED, not open** (2026-08-05). Prepare council PASS with
+  a valid structured verdict; seven prepare-phase lanes plus `wave-council-readiness` all recorded
+  under receipt `review-policy-0b1575db43c470e76964` (digest `4b1a6a51`, evaluator 3, superseding
+  `review-policy-45818a47b3cffc101963`). `readied: true`, `transitioned_to_active: false`. Twelve
+  ledger records; docs-lint ok. **Next action is `wf_implement_wave` and that is the operator's
+  call.**
+  **ONE OPEN DESIGN QUESTION blocks nothing mechanically but should be decided before
+  implementation: `1ug67-bug` Requirement 5.** Path-only lane scoring makes `security-reviewer` and
+  `performance-reviewer` permanently unreachable by automatic selection (neither lane holds a single
+  path-shaped token), and AC-2's census is structurally blind to it. Three alternatives are recorded;
+  AC-4b pins whichever is chosen. This trades automatic security-review coverage for author-declared
+  coverage, so it is the operator's decision, not the implementer's.
+  Prepare-council findings, all folded BEFORE the receipt was minted: the lane unreachability above;
+  the evaluator 3-to-4 bump staling this wave's OWN receipt (measured `dd1fb564` at v3 versus
+  `13e15b5c` at v4 on identical bytes) with a blocking sequencing watchpoint; `1ug68-enh`'s
+  non-contiguous AC ids disagreeing with its priority table under a POSITIONAL fallback (renumbered
+  AC-1..AC-7); `1ug66-enh`'s tautological close-gate sentence; its missing `wave_validators.py`
+  coordination entry; and the `1ug68-enh` per-action schema multiplication against a count-only
+  `REVIEW_ACTION_CAP` (now one response-level emission). The last one arrived after the first receipt
+  was minted and was folded and re-minted rather than waived.
+  **The wave now requires SEVEN delivery lanes and a delivery council**, up from five: writing the
+  security/performance finding into `1ug67-bug` named those lanes' semantic triggers and recruited
+  both, flipping `delivery_council_required` to true. Recorded as specimen 6 and deliberately not
+  trimmed.
+- **What the three follow-ups were before readiness** (`1ug66-enh`, `1ug67-bug`, `1ug68-enh`):
+  A pre-Prepare discovery pass corrected all three against the tree; docs-lint ok. What changed:
+  - **`1ug68-enh` re-authored off its REFUTED premise.** It had asserted the guided action and the
+    finding-synthesis validator disagree. They never did. Retitled to the discoverability framing;
+    Requirement 1 now forbids changing either side (`derive_blocking` and the `:3376` retention rule
+    are named out-of-scope, since relaxing the latter would destroy the property that keeps a
+    repaired-but-uncleared finding visible); Requirement 2's RED fixture re-pointed at the
+    softened-judgment case with the vacuity trap named, because the originally-specified fixture is
+    GREEN on arrival; AC-1 became a paired positive-control-plus-red case; AC-8 added to pin the
+    retention rule. The refuted text is retained deliberately so it is not re-derived.
+  - **`1ug67-bug` gained a fifth specimen and a whole missing direction.** Measured with the real
+    selector: the document recruits all five lanes purely by describing the defect (`.js` from
+    `events.jsonl`, architecture and docs-contract from the sentence quoting a CLEAN census,
+    release from quoted filenames, qa from its own `-bug ` id). The **under-recruitment half was
+    missed at filing**: `1ug66-enh` and `1ug68-enh` each draw `code-reviewer` alone, matched on
+    `-enh ` in their own change IDs, so a change modifying the digest function and adding an MCP
+    tool escapes qa, docs-contract and architecture by never writing a literal path. Requirement 2
+    is now bidirectional and AC-4a gates it.
+  - **`1ug66-enh` tool scope corrected.** It described the mark tool as enforcing "the `[~]`
+    rationale" mirroring docs-lint, but `_check_tilde_required_ac_has_inline_note`
+    (`wave_validators.py:294-365`) enforces only `required`-priority ACs, exempts tasks entirely,
+    and accepts italics OR a prose-length threshold. As written the tool would have been stricter
+    than its own declared backstop. AC-5a now pins tool/validator agreement on both sides.
+  - **AC Priority populated at plan time in all three**, per the rule 1uhcb shipped; all three had
+    carried the stale "(Populate at Prepare)" placeholder, which is the exact churn its predecessor
+    fixed.
+  - **`Requested review lanes` set to all five on the wave record.** The wave-level five-lane roster
+    was ACCIDENTAL, arriving only because `1ug67-bug`'s prose carries the triggers. Naming them
+    makes coverage intentional and survives any later trim; `wave.md` is not digested, so this costs
+    no receipt churn.
+  The three items map to the original follow-up list: (1) finish the digest boundary, splitting checkbox state so `[x]` is free while
+  `[~]` plus its rationale stays digested, plus a `wf_mark`-style MCP tool that refuses `[~]` without
+  a reason at the write instead of at lint; (2) stop `select_required_review_lanes` scoring
+  change-doc PROSE, since documenting evidence recruits reviewers (four measured specimens, incl.
+  `.js` matching `events.jsonl` and a census concluding a surface is clean recruiting its reviewer);
+  (3) ledger ergonomics, so the guided action returns enum domains and derived defaults rather than
+  requiring a ~20-field schema reconstruction.
+- Operator direction (2026-08-05): move straight from implementation to review in the normal flow
+  unless the operator needs to verify something first; do not annotate reviewer independence as a
+  limitation; and treat recordkeeping as confirmation of work rather than the work, so updating it
+  must not trigger further reviews.
+
+## Prior State (2026-08-04)
 
 - **Wave `1uf65 integrity-checks-guidance` is OPEN (implementing) with THREE delivered changes,
   five-lane delivery-approved under receipt `review-policy-8d1ab111859fdc73107a`; the close

@@ -24,6 +24,29 @@ MANAGED_END = "<!-- wavefoundry:review-lifecycle:end -->"
 UPGRADE_POLICY_DESTINATION = "docs/prompts/upgrade-wavefoundry.prompt.md"
 
 
+# Wave 1uhcb: the editorial-only stop condition plus the narrate-not-amend rule.
+# Both baselines below (the v1.14 prose and the shipped repair-cycle sentence)
+# converge on this one current text, and neither baseline is a substring of it,
+# so a second reconciliation pass is a no-op.
+_REPAIR_CYCLE_STOP_CONDITION = (
+    "Blocking findings open a recorded repair cycle. The implementer repairs the affected "
+    "boundary and each blocking lane independently reverifies it before delivery approval is "
+    "restored. After the first delivery cycle, an editorial-only finding (wording that is true but "
+    "imprecise, drifted citations, formatting) is repaired inline in the current cycle and "
+    "recorded in the Progress Log; it does not by itself open another repair cycle. Every finding "
+    "that needs verification, a boundary repair, or escalation retains its existing action-matrix "
+    "route. An editorial finding that makes a shipped claim FALSE is a correctness defect. A scope, "
+    "requirement, or AC change is recorded in the section that owns it, and the Progress Log row "
+    "points at that edit rather than substituting for it."
+)
+
+_SHIPPED_REPAIR_CYCLE_SENTENCE = (
+    "Blocking findings open a recorded repair cycle; the implementer repairs the affected "
+    "boundary and each blocking lane independently reverifies it before delivery approval is "
+    "restored."
+)
+
+
 KNOWN_SECTION_REPLACEMENTS: dict[str, tuple[tuple[str, str], ...]] = {
     "docs/prompts/implement-wave.prompt.md": (
         (
@@ -71,12 +94,16 @@ KNOWN_SECTION_REPLACEMENTS: dict[str, tuple[tuple[str, str], ...]] = {
         ),
         (
             "Blocking findings return the wave to implementation (Level 2 loop).",
-            "Blocking findings open a recorded repair cycle; the implementer repairs the affected boundary and each blocking lane independently reverifies it before delivery approval is restored.",
+            _REPAIR_CYCLE_STOP_CONDITION,
         ),
         (
             "## Pre-Implementation Gate Reconciliation\n\n"
             "During review, confirm that a `pre-implementation-review: passed` verdict was recorded before the first code edit (in `## Review Checkpoints`). If the gate was skipped or recorded as `blocked` and implementation proceeded anyway, surface it as a finding. When implementation revealed that the pre-mortem missed important risks or information gaps, record a `Reflect:` entry in Progress Log noting what should be added to the pre-implementation checklist before the next similar wave.\n",
             "",
+        ),
+        (
+            _SHIPPED_REPAIR_CYCLE_SENTENCE,
+            _REPAIR_CYCLE_STOP_CONDITION,
         ),
     ),
     "docs/prompts/agents/review-wave.prompt.md": (

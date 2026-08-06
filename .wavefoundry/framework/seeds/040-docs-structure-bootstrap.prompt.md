@@ -33,10 +33,10 @@ Tasks:
     - `## Requirements` — numbered behavioral requirements; each must be specific enough for an implementer to act on unambiguously
     - `## Scope` — problem statement, in-scope, out-of-scope
     - `## Acceptance Criteria` — testable outcomes written as stable checkbox items (`- [ ] AC-1: ...`)
-    - `## AC Priority` — one row per Acceptance Criteria item with required / important / nice-to-have / not-this-scope
+    - `## AC Priority` — one row per Acceptance Criteria item with required / important / nice-to-have / not-this-scope; the template must direct a plan-time fill (populated with the ACs, before the prepare council runs) rather than a Prepare-time fill, because this table is requirement-bearing and stays in the review-policy digest, so filling it after readiness is recorded supersedes the receipt and lapses the approvals just collected
     - `## Tasks` — inline implementation checklist written as checkboxes (`- [ ] step`)
     - `## Agent Execution Graph` — workstream table with owners and dependencies
-    - `## Serialization Points` — shared files and integration gates
+    - `## Serialization Points` — shared files and integration gates, AND the machine-readable review-target declaration: list explicit repo-relative paths (for example `src/app/handler.py`, `docs/specs/`), because Prepare selects automatic review lanes from these paths and from nothing else — never from Scope, Rationale, or other narrative. A change doc that declares no path keeps legacy whole-document scoring so coverage is never silently lost, but it forfeits the precision. Path scoring is a floor: any lane may additionally be requested by judgment in the wave record's `Requested review lanes`, and architecture, security and performance risk are usually judgment calls that no path can express
     - `## Affected architecture docs` — which hub or `docs/architecture/*` children this change may update (or `N/A` with rationale); names should align with `domain-map.md` when that file exists
     - `## Progress Log` — date/update/evidence table
     - `## Decision Log` — date/decision/reason/alternatives table

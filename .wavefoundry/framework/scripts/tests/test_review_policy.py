@@ -283,6 +283,41 @@ class ReviewPolicyReconcilerTests(unittest.TestCase):
                 {relative: (root / relative).read_bytes() for relative in snapshot},
             )
 
+    def test_shipped_v1153_review_prompt_baseline_reconciles_and_retries_byte_stably(self):
+        """Pin the exact 1.15.3-to-1.15.4 review-prompt transition."""
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / "docs/prompts/review-wave.prompt.md"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            shipped_v1153 = (
+                "Blocking findings open a recorded repair cycle; the implementer repairs the affected "
+                "boundary and each blocking lane independently reverifies it before delivery approval is "
+                "restored."
+            )
+            self.assertEqual(
+                review_policy_reconcile._SHIPPED_REPAIR_CYCLE_SENTENCE,
+                shipped_v1153,
+            )
+            path.write_text(
+                "operator prefix\n"
+                + shipped_v1153
+                + "\noperator suffix\n",
+                encoding="utf-8",
+            )
+
+            self.assertEqual(
+                review_policy_reconcile.reconcile_lifecycle_sections(root),
+                ("docs/prompts/review-wave.prompt.md",),
+            )
+            current = path.read_bytes()
+            self.assertIn(
+                review_policy_reconcile._REPAIR_CYCLE_STOP_CONDITION,
+                current.decode("utf-8"),
+            )
+            self.assertEqual(review_policy_reconcile.reconcile_lifecycle_sections(root), ())
+            self.assertEqual(path.read_bytes(), current)
+
     def test_real_v114_carriers_render_policy_and_pass_production_validator(self):
         repo_root = SCRIPTS.parents[2]
         probe = subprocess.run(
@@ -340,8 +375,16 @@ class ReviewPolicyReconcilerTests(unittest.TestCase):
 
 
 class ReviewPolicyUpgradeTests(unittest.TestCase):
-    def test_evaluator_version_two_is_the_shipped_transition_boundary(self):
-        self.assertEqual(review_policy.REVIEW_POLICY_EVALUATOR_VERSION, 2)
+    def test_evaluator_version_four_is_the_shipped_transition_boundary(self):
+        """Deliberate tripwire: update it consciously on every evaluator bump.
+
+        v3 to v4 (wave 1ui1d): lane selection now scores only declared
+        Serialization Points paths. The pin moves with the constant, it is
+        never deleted, and `test_server_tools.py` carries the paired public
+        transition test.
+        """
+
+        self.assertEqual(review_policy.REVIEW_POLICY_EVALUATOR_VERSION, 4)
 
     def test_upgrade_policy_guidance_matches_legacy_migration(self):
         self.assertIn("delivery_mode=targeted", review_policy.UPGRADE_POLICY_BLOCK)
@@ -813,15 +856,36 @@ class LockAndPublicationPolicyTests(unittest.TestCase):
             )
         )
 
+    # One change body through the real policy digest path, shared by every
+    # digest stability/sensitivity test below so none of them can drift into
+    # asserting on the canonicalizer alone.
+    def _policy_digest(self, body: bytes) -> str:
+        return review_policy.policy_input_digest(
+            wave_review={"enabled": True, "delivery_mode": "universal"},
+            project_lanes=(),
+            review_policies={},
+            changes=(("1abc-bug example", "bug", body),),
+            requested_lanes=(),
+        )
+
+    def _policy_receipt_id(self, body: bytes) -> str:
+        semantic = {
+            "schema_version": review_policy.REVIEW_POLICY_SCHEMA_VERSION,
+            "evaluator_version": review_policy.REVIEW_POLICY_EVALUATOR_VERSION,
+            "policy_input_digest": self._policy_digest(body),
+            "delivery_mode": "universal",
+            "primer_depth": "standard",
+            "council_seats": ["red-team"],
+            "requested_lanes": [],
+            "required_lanes": ["code-reviewer"],
+            "delivery_council_required": True,
+        }
+        return review_policy.derive_receipt_id(
+            semantic, review_policy.GENESIS_RECEIPT_PARENT
+        )
+
     def test_policy_digest_ignores_only_one_canonical_gardener_date(self):
-        def digest(body: bytes) -> str:
-            return review_policy.policy_input_digest(
-                wave_review={"enabled": True, "delivery_mode": "universal"},
-                project_lanes=(),
-                review_policies={},
-                changes=(("1abc-bug example", "bug", body),),
-                requested_lanes=(),
-            )
+        digest = self._policy_digest
 
         base = b"# Change\nOwner: Engineering\nLast verified: 2026-07-29\n\n## Requirements\n\nKeep this.\n"
         next_day = base.replace(b"2026-07-29", b"2026-07-30")
@@ -829,7 +893,117 @@ class LockAndPublicationPolicyTests(unittest.TestCase):
         self.assertEqual(digest(base), digest(next_day))
         self.assertNotEqual(digest(base), digest(substantive))
 
-    def test_policy_and_drift_consumers_share_the_same_narrow_boundary(self):
+    @staticmethod
+    def _change_doc_with_progress_log() -> bytes:
+        """A change doc carrying every requirement-bearing section.
+
+        `## Progress Log` sits in the middle so the sensitivity cases below also
+        prove the excluded region ends at the next `## ` heading instead of
+        swallowing the sections that follow it.
+        """
+
+        return (
+            "# Change\n"
+            "Owner: Engineering\n"
+            "Last verified: 2026-08-05\n"
+            "\n## Rationale\n\nThe receipt digests repair-tracking prose.\n"
+            "\n## Requirements\n\n1. Exclude the Progress Log body from the digest.\n"
+            "\n## Scope\n\n**In scope:** one canonicalizer helper.\n"
+            "\n## Acceptance Criteria\n\n- [ ] AC-1: A logged repair keeps the digest stable.\n"
+            "\n## Tasks\n\n- [ ] Add the helper.\n"
+            "\n## Serialization Points\n\n- `gardener_metadata.py`\n"
+            "\n## AC Priority\n\n"
+            "| AC | Priority | Rationale |\n| --- | --- | --- |\n"
+            "| AC-1 | required | The stability property is the fix. |\n"
+            "\n## Progress Log\n\n"
+            "| Date | Update | Evidence |\n| ---- | ------ | -------- |\n"
+            "| 2026-08-05 | Filed after the operator flagged the reopening loop. | ledger |\n"
+            "\n## Decision Log\n\n"
+            "| Date | Decision | Reason | Alternatives |\n| ---- | -------- | ------ | ------------ |\n"
+            "| 2026-08-05 | Exclude the section. | Narration states no claim. | Cycle cap. |\n"
+            "\n## Risks\n\n"
+            "| Risk | Mitigation |\n| ---- | ---------- |\n"
+            "| The exclusion is drawn too wide. | One sensitivity case per surface. |\n"
+            "\n## Session Handoff\n\n"
+            "See `docs/agents/session-handoff.md` for current session state.\n"
+        ).encode("utf-8")
+
+    def test_progress_log_narration_never_moves_the_policy_digest(self):
+        """AC-1: appending, editing, or reordering rows keeps digest and receipt id."""
+
+        base = self._change_doc_with_progress_log()
+        first_row = b"| 2026-08-05 | Filed after the operator flagged the reopening loop. | ledger |\n"
+        second_row = b"| 2026-08-05 | Repaired a drifted line citation in place. | test:x |\n"
+        appended = base.replace(first_row, first_row + second_row)
+        reordered = base.replace(first_row, second_row + first_row)
+        rewritten = base.replace(
+            b"Filed after the operator flagged the reopening loop.",
+            b"Filed after the operator flagged that the review loop kept reopening.",
+        )
+        emptied = base.replace(first_row, b"")
+        for label, variant in (
+            ("appended", appended),
+            ("reordered", reordered),
+            ("rewritten", rewritten),
+            ("emptied", emptied),
+        ):
+            with self.subTest(variant=label):
+                self.assertNotEqual(base, variant, "the fixture must really differ on disk")
+                self.assertEqual(self._policy_digest(base), self._policy_digest(variant))
+                self.assertEqual(self._policy_receipt_id(base), self._policy_receipt_id(variant))
+        # CRLF line endings are the field-normal case on Windows checkouts under
+        # `core.autocrlf`, where the heading arrives as `## Progress Log\r`. A
+        # heading pattern that tolerated only spaces and tabs matched zero times
+        # there, the `len(matches) != 1` guard returned the body unchanged, and
+        # the exclusion degraded to a silent no-op on every Windows target repo.
+        crlf = base.replace(b"\n", b"\r\n")
+        crlf_appended = crlf.replace(
+            first_row.replace(b"\n", b"\r\n"),
+            first_row.replace(b"\n", b"\r\n") + second_row.replace(b"\n", b"\r\n"),
+        )
+        with self.subTest(variant="crlf-appended"):
+            self.assertIn(b"## Progress Log\r\n", crlf, "the fixture must really carry CRLF")
+            self.assertNotEqual(crlf, crlf_appended, "the fixture must really differ on disk")
+            self.assertIn(
+                gardener_metadata.PROGRESS_LOG_SENTINEL,
+                gardener_metadata.canonical_review_policy_body(crlf).decode("utf-8"),
+            )
+            self.assertEqual(self._policy_digest(crlf), self._policy_digest(crlf_appended))
+            self.assertEqual(
+                self._policy_receipt_id(crlf), self._policy_receipt_id(crlf_appended)
+            )
+
+    def test_every_other_change_doc_surface_still_moves_the_policy_digest(self):
+        """AC-2 and AC-3a: one sensitivity case per requirement-bearing surface."""
+
+        base = self._change_doc_with_progress_log()
+        cases = (
+            ("rationale", b"The receipt digests repair-tracking prose.", b"The receipt digests narration."),
+            ("requirements", b"1. Exclude the Progress Log body from the digest.", b"1. Exclude two sections."),
+            ("scope", b"**In scope:** one canonicalizer helper.", b"**In scope:** two canonicalizer helpers."),
+            ("acceptance-criteria", b"AC-1: A logged repair keeps the digest stable.", b"AC-1: A logged repair moves the digest."),
+            ("tasks", b"- [ ] Add the helper.", b"- [ ] Add the helper and a second one."),
+            ("serialization-points", b"- `gardener_metadata.py`", b"- `gardener_metadata.py`; `review_policy.py`"),
+            ("ac-priority", b"| AC-1 | required | The stability property is the fix. |", b"| AC-1 | important | The stability property is the fix. |"),
+            ("decision-log", b"| 2026-08-05 | Exclude the section. | Narration states no claim. | Cycle cap. |", b"| 2026-08-05 | Cap the cycles. | Simpler. | Exclusion. |"),
+            ("risks", b"| The exclusion is drawn too wide. | One sensitivity case per surface. |", b"| The exclusion is drawn too wide. | Nothing. |"),
+            ("session-handoff", b"See `docs/agents/session-handoff.md` for current session state.", b"Paused mid-implementation; resume at the canonicalizer."),
+        )
+        for label, old, new in cases:
+            with self.subTest(surface=label):
+                self.assertIn(old, base)
+                variant = base.replace(old, new)
+                self.assertNotEqual(self._policy_digest(base), self._policy_digest(variant))
+
+    def test_policy_and_drift_consumers_share_the_same_gardener_date_boundary(self):
+        """The DATE boundary is shared; it is no longer the only one.
+
+        `index_state_store`'s doc-drift consumer deliberately shares only
+        `normalize_gardener_date`. The review-policy body carries one further
+        normalization (the `## Progress Log` body), so these cases carry no
+        Progress Log section and pin the shared date boundary alone.
+        """
+
         cases = (
             (
                 "# Change\nOwner: Engineering\nLast verified: 2026-07-29\n\n## Body\nText.\n",
@@ -859,6 +1033,150 @@ class LockAndPublicationPolicyTests(unittest.TestCase):
                 else:
                     self.assertEqual(canonical, text)
 
+    def test_progress_log_region_is_anchored_and_degrades_on_ambiguity(self):
+        """AC-3: fenced lookalikes, zero matches, and two matches all degrade."""
+
+        real = (
+            "# Change\nOwner: Engineering\n\n"
+            "## Progress Log\n\n| Date | Update | Evidence |\n| 2026-08-05 | Filed. | x |\n\n"
+            "## Decision Log\n\nKeep this row digested.\n"
+        )
+        fenced_only = (
+            "# Change\nOwner: Engineering\n\n"
+            "## Rationale\n\nThe scaffold emits:\n\n"
+            "```markdown\n## Progress Log\n\n| Date | Update | Evidence |\n```\n\n"
+            "## Decision Log\n\nKeep this row digested.\n"
+        )
+        absent = "# Change\nOwner: Engineering\n\n## Rationale\n\nNo tracking section here.\n"
+        duplicated = (
+            "# Change\nOwner: Engineering\n\n"
+            "## Progress Log\n\nFirst.\n\n"
+            "## Progress Log\n\nSecond.\n\n"
+            "## Decision Log\n\nKeep.\n"
+        )
+        tilde_inside_backticks = (
+            "# Change\nOwner: Engineering\n\n"
+            "## Rationale\n\n"
+            "```markdown\n~~~\n## Progress Log\n~~~\n```\n\n"
+            "## Decision Log\n\nKeep this row digested.\n"
+        )
+        for label, text, changes in (
+            ("fenced-lookalike-only", fenced_only, False),
+            ("absent", absent, False),
+            ("duplicated", duplicated, False),
+            ("tilde-inside-backticks", tilde_inside_backticks, False),
+            ("real-section", real, True),
+        ):
+            with self.subTest(case=label):
+                normalized = gardener_metadata.normalize_progress_log(
+                    text, replacement=gardener_metadata.PROGRESS_LOG_SENTINEL
+                )
+                canonical = gardener_metadata.canonical_review_policy_body(
+                    text.encode("utf-8")
+                ).decode("utf-8")
+                self.assertEqual(normalized != text, changes)
+                self.assertEqual(canonical != text, changes)
+                if not changes:
+                    self.assertEqual(normalized, text)
+                    self.assertNotIn(gardener_metadata.PROGRESS_LOG_SENTINEL, normalized)
+                else:
+                    self.assertIn(gardener_metadata.PROGRESS_LOG_SENTINEL, normalized)
+                # Sections after the region always survive, fenced or not.
+                if "Keep this row digested." in text:
+                    self.assertIn("Keep this row digested.", canonical)
+
+    def test_a_fenced_lookalike_inside_the_real_section_neither_ends_nor_reopens_it(self):
+        """AC-3: an in-region fence cannot terminate the region early."""
+
+        text = (
+            "# Change\nOwner: Engineering\n\n"
+            "## Progress Log\n\n"
+            "| 2026-08-05 | Filed. | x |\n\n"
+            "```markdown\n## Progress Log\n## Decision Log\n```\n\n"
+            "| 2026-08-05 | Repaired. | y |\n\n"
+            "## Decision Log\n\nKeep this row digested.\n"
+        )
+        canonical = gardener_metadata.canonical_review_policy_body(
+            text.encode("utf-8")
+        ).decode("utf-8")
+        self.assertIn(gardener_metadata.PROGRESS_LOG_SENTINEL, canonical)
+        self.assertNotIn("Filed.", canonical)
+        self.assertNotIn("Repaired.", canonical)
+        self.assertNotIn("```markdown", canonical)
+        self.assertIn("## Decision Log\n\nKeep this row digested.", canonical)
+
+    def test_marker_matched_fence_toggling_keeps_the_real_section_excluded(self):
+        """AC-3 / Requirement 4: only a matching marker may close an open fence.
+
+        The other fence cases carry no real `## Progress Log` after the fenced
+        construct, so they pass whenever *some* fence guard exists. This case
+        puts a real section after a `~~~` nested in a backtick fence, so a
+        toggle that is not marker-matched shifts the fence state past the fence
+        and the real section is either matched twice or never matched at all.
+        """
+
+        text = (
+            "# Change\nOwner: Engineering\n\n"
+            "## Rationale\n\nThe scaffold emits:\n\n"
+            "```markdown\n~~~\n## Progress Log\n~~~\n```\n\n"
+            "## Progress Log\n\n"
+            "| 2026-08-05 | Filed. | x |\n\n"
+            "## Decision Log\n\nKeep this row digested.\n"
+        )
+        canonical = gardener_metadata.canonical_review_policy_body(
+            text.encode("utf-8")
+        ).decode("utf-8")
+        self.assertIn(gardener_metadata.PROGRESS_LOG_SENTINEL, canonical)
+        self.assertNotIn("| 2026-08-05 | Filed. | x |", canonical)
+        # The fenced lookalike is untouched prose in a digested section.
+        self.assertIn("```markdown\n~~~\n## Progress Log\n~~~\n```", canonical)
+        self.assertIn("## Decision Log\n\nKeep this row digested.", canonical)
+
+    def test_the_progress_log_region_ends_only_at_a_level_two_heading(self):
+        """AC-3 / Requirement 4: a `###` subheading stays inside the region.
+
+        Seed-180 asks implementers to record `Reflect:` narration, which this
+        repository sometimes subheads. Ending the region at any `#` heading would
+        leave that narration digested and reopen the churn for exactly the rows
+        the exclusion exists to cover.
+        """
+
+        text = (
+            "# Change\nOwner: Engineering\n\n"
+            "## Progress Log\n\n"
+            "| 2026-08-05 | Filed. | x |\n\n"
+            "### Reflect notes\n\nRoot cause pattern recorded here.\n\n"
+            "## Decision Log\n\nKeep this row digested.\n"
+        )
+        canonical = gardener_metadata.canonical_review_policy_body(
+            text.encode("utf-8")
+        ).decode("utf-8")
+        self.assertIn(gardener_metadata.PROGRESS_LOG_SENTINEL, canonical)
+        self.assertNotIn("### Reflect notes", canonical)
+        self.assertNotIn("Root cause pattern recorded here.", canonical)
+        self.assertNotIn("| 2026-08-05 | Filed. | x |", canonical)
+        self.assertIn("## Decision Log\n\nKeep this row digested.", canonical)
+
+    def test_hash_exclusion_diverges_from_the_on_disk_progress_log(self):
+        """AC-5a: the digest body carries the sentinel; the file keeps `Gapfill:`."""
+
+        with tempfile.TemporaryDirectory() as tmp:
+            change = Path(tmp) / "1abc-bug example.md"
+            change.write_bytes(
+                self._change_doc_with_progress_log().replace(
+                    b"| 2026-08-05 | Filed after the operator flagged the reopening loop. | ledger |",
+                    b"| 2026-08-05 | Gapfill: the briefing packet lacked the ledger split. | ledger |",
+                )
+            )
+            on_disk = change.read_text(encoding="utf-8")
+            canonical = gardener_metadata.canonical_review_policy_body(
+                change.read_bytes()
+            ).decode("utf-8")
+            self.assertIn("Gapfill:", on_disk)
+            self.assertNotIn("Gapfill:", canonical)
+            self.assertIn(gardener_metadata.PROGRESS_LOG_SENTINEL, canonical)
+            self.assertEqual(on_disk, change.read_text(encoding="utf-8"))
+
     def test_background_index_epoch_cannot_begin_or_finalize_during_upgrade(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -873,6 +1191,219 @@ class LockAndPublicationPolicyTests(unittest.TestCase):
                 index_state_store.begin_build_epoch(index_dir, "code")
             with self.assertRaisesRegex(RuntimeError, "upgrade_in_progress"):
                 index_state_store.finalize_build_epoch(index_dir, attempt)
+
+
+class ReviewLoopFrictionPolicyTests(unittest.TestCase):
+    def test_checkbox_tracking_preserves_ac_deferral_but_not_completion_or_tasks(self):
+        base = (
+            "# Change\n\n## Acceptance Criteria\n\n"
+            "- [ ] AC-1: required contract\n- [~] AC-2: deferred *operator decision*\n"
+            "\n## Tasks\n\n- [x] implement it\n- [~] follow-up note\n"
+            "\n## Rationale\n\nLiteral [x] prose remains significant.\n"
+        )
+        completed = base.replace("- [ ] AC-1", "- [x] AC-1")
+        task_variant = completed.replace("- [x] implement it", "- [ ] implement it")
+        deferred_ac = completed.replace("AC-2: deferred", "AC-2: materially deferred")
+        canonical = gardener_metadata.canonical_review_policy_body
+        self.assertEqual(canonical(base.encode()), canonical(completed.encode()))
+        self.assertEqual(canonical(completed.encode()), canonical(task_variant.encode()))
+        self.assertNotEqual(canonical(completed.encode()), canonical(deferred_ac.encode()))
+
+    def test_lane_selection_uses_only_serialization_paths_and_explicit_requests(self):
+        prose_only = "# Change\n\n## Scope\n\nSecurity boundary latency build_pack.py events.jsonl.\n"
+        paths = (
+            "# Change\n\n## Serialization Points\n\n"
+            "- `.wavefoundry/framework/scripts/review_policy.py`; "
+            "`.wavefoundry/framework/scripts/tests/test_review_policy.py`; "
+            "`.wavefoundry/framework/seeds/170-plan-feature.prompt.md`\n"
+        )
+        lanes, _ = review_policy.select_required_review_lanes(
+            requested_lanes=(), project_lanes=(), change_texts=(prose_only, paths)
+        )
+        # A wave that has ADOPTED the contract scores paths only: the prose
+        # sibling contributes nothing, so `build_pack.py` and `events.jsonl`
+        # recruit neither the release nor a JavaScript lane.
+        self.assertEqual(lanes, ("code-reviewer", "qa-reviewer", "docs-contract-reviewer"))
+
+        # An UN-MIGRATED wave (no admitted change declares any target) keeps its
+        # legacy coverage instead of dropping to nothing. This assertion was
+        # inverted before the delivery review: it required a prose-only corpus to
+        # recruit nothing, and the AC-2 census then measured what that costs —
+        # 775 change docs losing lanes, zero gaining any, and five of six
+        # non-closed change docs at an EMPTY roster. Silent loss of all review is
+        # a worse failure than the over-recruitment this change removes, so prose
+        # scoring survives exactly where nothing better exists, and only there.
+        requested, reasons = review_policy.select_required_review_lanes(
+            requested_lanes=("security-reviewer", "performance-reviewer"),
+            project_lanes=(), change_texts=(prose_only,)
+        )
+        self.assertIn("performance-reviewer", requested)
+        self.assertIn("security-reviewer", requested)
+        self.assertIn("release-reviewer", requested)
+        self.assertTrue(
+            all(
+                "fallback" in reason
+                for reason in reasons["release-reviewer"]
+            ),
+            "a legacy-fallback lane must be labelled as one, never presented as "
+            "a declared-target match",
+        )
+
+    @staticmethod
+    def _roster(serialization_points: str) -> tuple[str, ...]:
+        doc = (
+            "# Change\n\n## Serialization Points\n\n"
+            f"{serialization_points}\n\n## Next\n"
+        )
+        lanes, _ = review_policy.select_required_review_lanes(
+            requested_lanes=(), project_lanes=(), change_texts=(doc,)
+        )
+        return lanes
+
+    def test_every_automatic_lane_is_selected_by_a_real_declared_path(self):
+        """Delivery finding: `docs/architecture` matched only the bare string.
+
+        `_path_token_matches` fell through to `path == token or
+        path.endswith("/" + token)`, so a change declaring
+        `docs/architecture/current-state.md` selected NOTHING and the
+        architecture lane was unreachable from any real target. One case per
+        automatic lane, so a lane can never again lose selection silently.
+        """
+
+        self.assertEqual(
+            self._roster("- `docs/architecture/current-state.md`"),
+            ("architecture-reviewer",),
+        )
+        self.assertEqual(
+            self._roster("- `docs/ARCHITECTURE.md`"), ("architecture-reviewer",)
+        )
+        self.assertEqual(
+            self._roster("- `.wavefoundry/framework/scripts/review_policy.py`"),
+            ("code-reviewer",),
+        )
+        self.assertEqual(
+            self._roster("- `.wavefoundry/framework/scripts/tests/test_x.py`"),
+            ("code-reviewer", "qa-reviewer"),
+        )
+        self.assertEqual(
+            self._roster("- `docs/specs/mcp-tool-surface.md`"),
+            ("docs-contract-reviewer",),
+        )
+        self.assertEqual(
+            self._roster("- `.wavefoundry/framework/scripts/upgrade_wavefoundry.py`"),
+            ("code-reviewer", "release-reviewer"),
+        )
+
+    def test_path_extraction_is_layout_agnostic_across_target_repositories(self):
+        """Delivery finding: a four-prefix allowlist blanked non-Wavefoundry repos.
+
+        `_REPO_PATH_RE` accepted only `.wavefoundry/`, `docs/`, `src/` and
+        `tests/`, so a Go, JS or Java target laid out as `lib/`, `pkg/`, `cmd/`
+        or `internal/` extracted zero paths, selected zero automatic lanes, and
+        emitted no diagnostic at all.
+        """
+
+        for declared in (
+            "- `lib/foo.py`",
+            "- `pkg/x.go`",
+            "- `app/main.ts`",
+            "- `internal/service/handler.py`",
+            "- `cmd/tool/main.go`",
+        ):
+            with self.subTest(declared=declared):
+                self.assertEqual(self._roster(declared), ("code-reviewer",))
+        self.assertEqual(
+            review_policy.serialization_point_paths(
+                "## Serialization Points\n\n- `lib/foo.py`\n\n## Next\n"
+            ),
+            ("lib/foo.py",),
+        )
+
+    def test_an_undeclared_plan_keeps_its_coverage_instead_of_dropping_to_zero(self):
+        """Delivery finding: path-only scoring was retroactive.
+
+        Measured over the corpus, 775 change docs lost lanes and none gained
+        any, and five of six non-closed change docs fell to an EMPTY roster,
+        because every plan authored before the explicit-path contract describes
+        its targets in prose. An un-migrated plan must keep the coverage it had.
+        """
+
+        undeclared = (
+            "# Change\n\n## Scope\n\nTouches framework/scripts/ and tests/ and "
+            "a regression harness.\n\n## Serialization Points\n\n"
+            "- Serialize edits to the runner through the runner workstream.\n"
+        )
+        self.assertEqual(
+            review_policy.serialization_point_paths(undeclared), (),
+            "prose Serialization Points declare no machine-readable target",
+        )
+        lanes, reasons = review_policy.select_required_review_lanes(
+            requested_lanes=(), project_lanes=(), change_texts=(undeclared,)
+        )
+        self.assertIn("code-reviewer", lanes)
+        self.assertIn("qa-reviewer", lanes)
+        self.assertTrue(
+            any("fallback" in r for rs in reasons.values() for r in rs),
+            "the fallback must be visible in the reason strings, not silent",
+        )
+        # The retired lanes stay request-only even on the fallback path.
+        self.assertNotIn("security-reviewer", lanes)
+        self.assertNotIn("performance-reviewer", lanes)
+
+    def test_slashed_prose_is_not_mistaken_for_a_declared_target(self):
+        """A misclassified declaration silently suppresses the fallback.
+
+        `the runner/test corpus` and `dashboard/index activity` are English, not
+        paths. Reading them as declared targets is worse than ignoring them,
+        because a document counted as DECLARED loses the undeclared fallback and
+        can end up with no required lanes at all.
+        """
+
+        body = (
+            "## Serialization Points\n\n- Do not edit the runner/test corpus; "
+            "freeze source/inventory and stop dashboard/index activity.\n\n## X\n"
+        )
+        self.assertEqual(review_policy.serialization_point_paths(body), ())
+        declared = "## Serialization Points\n\n- `docs/architecture/`\n\n## X\n"
+        self.assertEqual(
+            review_policy.serialization_point_paths(declared), ("docs/architecture/",),
+            "an explicit directory declaration keeps its trailing separator",
+        )
+
+    def test_each_checkbox_transition_direction_is_pinned_independently(self):
+        """Requirement 2 states seven directions; pin each rather than a subset."""
+
+        def doc(ac_mark: str, ac_note: str, task_mark: str) -> bytes:
+            return (
+                "# Change\n\n## Acceptance Criteria\n\n"
+                f"- [{ac_mark}] AC-1: required contract{ac_note}\n"
+                f"\n## Tasks\n\n- [{task_mark}] implement it\n"
+            ).encode()
+
+        canonical = gardener_metadata.canonical_review_policy_body
+        # The AC marker comparisons hold the LABEL byte-identical, so only the
+        # marker can move the digest. Varying the note as well would let this
+        # test pass on a canonicalizer that wrongly normalizes an AC `[~]`,
+        # because the note text alone would still differ.
+        note = " *operator removed this*"
+        ac_open = canonical(doc(" ", note, " "))
+        ac_done = canonical(doc("x", note, " "))
+        ac_deferred = canonical(doc("~", note, " "))
+        self.assertEqual(ac_open, ac_done, "AC [ ]->[x] must be free")
+        self.assertNotEqual(ac_done, ac_deferred, "AC [x]->[~] must move the digest")
+        self.assertNotEqual(ac_deferred, ac_done, "AC [~]->[x] must move the digest")
+        self.assertNotEqual(
+            ac_deferred,
+            canonical(doc("~", " *operator removed this after review*", " ")),
+            "editing a [~] rationale must move the digest",
+        )
+        for before, after in ((" ", "x"), ("x", "~"), ("~", "x"), ("~", " ")):
+            with self.subTest(task_transition=f"{before}->{after}"):
+                self.assertEqual(
+                    canonical(doc(" ", "", before)),
+                    canonical(doc(" ", "", after)),
+                    "every task marker transition must be digest-neutral",
+                )
 
 
 if __name__ == "__main__":

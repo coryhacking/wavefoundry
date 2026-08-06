@@ -111,6 +111,8 @@ TOOL_TIERS: dict[str, str] = {
     "wf_remove_change": TIER_WRITE,
     "wf_reopen_wave": TIER_WRITE,
     "wf_review_event": TIER_WRITE,
+    "wf_mark_ac": TIER_WRITE,
+    "wf_mark_task": TIER_WRITE,
     "wf_review_wave": TIER_WRITE,
     "wf_set_handoff": TIER_WRITE,
     # ── Change-doc creation ──────────────────────────────────────────────

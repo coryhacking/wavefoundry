@@ -462,10 +462,10 @@ class UpgradeProtocolTests(unittest.TestCase):
                 feature, artifacts, version="1.15.0", build_prefix="rehearsal",
                 bundle_source=SCRIPTS / "upgrade_bundle.py",
             )
-            target = root / "tagged 1.14 fixture"
+            target = root / "tagged 1.8 fixture"
             framework = target / ".wavefoundry/framework"
             framework.mkdir(parents=True)
-            (framework / "VERSION").write_text("1.14.0\n", encoding="utf-8")
+            (framework / "VERSION").write_text("1.8.0\n", encoding="utf-8")
             completed = subprocess.run(
                 [
                     sys.executable,
@@ -482,9 +482,13 @@ class UpgradeProtocolTests(unittest.TestCase):
             )
             payload = json.loads(completed.stdout.splitlines()[-1])
             self.assertEqual(payload["bridge_state"], "bridge_installed")
-            self.assertEqual(payload["source_version"], "1.14.0")
+            self.assertEqual(payload["source_version"], "1.8.0")
             self.assertEqual(payload["target_version"], "1.15.0")
-            self.assertIn(payload["feature_exit_code"], (0, 1, 2, 3, 4))
+            # This fixture proves the bridge invokes the hash-bound feature hop;
+            # its deliberately minimal feature package has no runnable product
+            # payload and therefore exits with the documented preflight code.
+            # Successful product-upgrade validation belongs to a real project.
+            self.assertEqual(payload["feature_exit_code"], 2)
             self.assertTrue(payload["restart_required"])
             self.assertTrue((framework / "UPGRADE-PROTOCOL.json").is_file())
             retained = target / ".wavefoundry/upgrade-assets" / feature.name
@@ -505,7 +509,7 @@ class UpgradeProtocolTests(unittest.TestCase):
             self.assertNotEqual(artifacts["bridge"], feature)
             selection = json.loads(artifacts["selection"].read_text("utf-8"))
             self.assertNotEqual(selection["bridge_build_id"], "test")
-            self.assertEqual(selection["supported_source_version"], "1.14.0")
+            self.assertEqual(selection["minimum_source_version"], "1.8.0")
             self.assertEqual(selection["supported_source_protocol"], 1)
             self.assertEqual(selection["feature_release_version"], "1.15.0")
             with zipfile.ZipFile(artifacts["bridge"], "r") as archive:
@@ -522,13 +526,14 @@ class UpgradeProtocolTests(unittest.TestCase):
             current = target / ".wavefoundry/framework"
             current.mkdir(parents=True)
             (current / "old.txt").write_text("old\n", encoding="utf-8")
-            (current / "VERSION").write_text("1.14.0\n", encoding="utf-8")
+            (current / "VERSION").write_text("1.8.0\n", encoding="utf-8")
             result = upgrade_bridge_bootstrap.install(
                 target,
                 artifacts["selection"],
                 hosts_stopped=True,
             )
             self.assertEqual(result["status"], "bridge_installed")
+            self.assertEqual(result["source_version"], "1.8.0")
             self.assertTrue((current / "UPGRADE-PROTOCOL.json").is_file())
             self.assertTrue(Path(result["rollback"]).joinpath("old.txt").is_file())
             self.assertIn("--pack", result["next_command"])
@@ -537,7 +542,7 @@ class UpgradeProtocolTests(unittest.TestCase):
             self.assertTrue(Path(result["feature_archive"]).is_file())
             if sys.platform != "win32":
                 self.assertEqual(shlex.split(result["next_command"]), result["next_argv"])
-            self.assertEqual((current / "VERSION").read_text("utf-8"), "1.14.0\n")
+            self.assertEqual((current / "VERSION").read_text("utf-8"), "1.8.0\n")
             rollback_record = json.loads((current / "BRIDGE-ROLLBACK.json").read_text("utf-8"))
             self.assertTrue(rollback_record["hosts_stopped_confirmed"])
 
@@ -550,7 +555,8 @@ class UpgradeProtocolTests(unittest.TestCase):
                 bootstrap_source=SCRIPTS / "upgrade_bridge_bootstrap.py",
             )
             for installed, protocol, message in (
-                ("9.9.9", None, "requires installed source version"),
+                ("1.7.9", None, "at least 1.8.0"),
+                ("9.9.9", None, "feature release must advance the source"),
                 ("1.14.0", 2, "already uses protocol 2"),
             ):
                 with self.subTest(installed=installed, protocol=protocol):

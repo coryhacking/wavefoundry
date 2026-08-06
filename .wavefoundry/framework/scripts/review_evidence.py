@@ -309,6 +309,9 @@ REVIEW_ACTION_FIELDS = (
     "phase",
     "state_args",
     "required_caller_inputs",
+    "input_schema_ref",
+    "judgment_template",
+    "blocking_constraint",
     "legal_alternatives",
     "reinspect_after_success",
 )
@@ -334,6 +337,42 @@ REVIEW_ACTION_CALLER_INPUTS = {
     ),
 }
 REVIEW_ACTION_TRUNCATED_DIAGNOSTIC = "review_actions_truncated"
+
+
+def review_action_input_schema() -> dict[str, Any]:
+    """Return the one response-level schema for guided review caller inputs."""
+
+    enum_fields = {
+        "validation_status": VALIDATION_STATUSES,
+        "scope_relation": SCOPE_RELATIONS,
+        "contract_relevance": CONTRACT_RELEVANCES,
+        "authority_domain": AUTHORITY_DOMAINS,
+        "authority_delta": AUTHORITY_DELTAS,
+        "observable_impact": OBSERVABLE_IMPACTS,
+        "containment": CONTAINMENTS,
+        "fix_risk": FIX_RISKS,
+        "optional_value": OPTIONAL_VALUES,
+        "repair_safety": REPAIR_SAFETIES,
+        "benefit_vs_fix_risk": BENEFIT_VS_FIX_RISKS,
+        "rejection_basis": REJECTION_BASES,
+    }
+    fields: dict[str, dict[str, Any]] = {
+        field: {"kind": "enum", "allowed_values": sorted(values, key=str)}
+        for field, values in enum_fields.items()
+    }
+    for field in (
+        "introduced_or_worsened_by_wave", "supported_reachability",
+        "attacker_reachability", "repair_scope_bounded",
+    ):
+        fields[field] = {"kind": "tristate", "allowed_values": [False, True, "unverified"]}
+    return {
+        "name": "review_event_inputs",
+        "judgment": fields,
+        "integrity_checks": {
+            **{field: {"kind": "boolean"} for field in INTEGRITY_CHECK_BOOLEAN_FIELDS},
+            INTEGRITY_CHECK_METHOD_FIELD: {"kind": "string"},
+        },
+    }
 
 
 def _review_action_state_args(
@@ -1274,6 +1313,14 @@ def review_authority_projection(
                     )
                 ),
                 "terminal": terminal,
+                "judgment_template": {
+                    field: head.get(field)
+                    for field in (
+                        *REVIEW_FINDING_CORE_JUDGMENT_FIELDS,
+                        *REVIEW_FINDING_REPAIR_JUDGMENT_FIELDS,
+                    )
+                    if field in head
+                },
             }
         )
 
@@ -1426,6 +1473,9 @@ def review_authority_projection(
                     "phase": selected_projection_phase,
                     "state_args": state_args,
                     "required_caller_inputs": list(REVIEW_ACTION_CALLER_INPUTS[kind]),
+                    "input_schema_ref": "review_event_inputs",
+                    "judgment_template": None,
+                    "blocking_constraint": None,
                     "legal_alternatives": [],
                     "reinspect_after_success": dict(continuation),
                 }
@@ -1481,6 +1531,12 @@ def review_authority_projection(
                         "phase": selected_projection_phase,
                         "state_args": state_args,
                         "required_caller_inputs": list(REVIEW_ACTION_CALLER_INPUTS[kind]),
+                        "input_schema_ref": "review_event_inputs",
+                        "judgment_template": dict(fact["judgment_template"]),
+                        "blocking_constraint": {
+                            "must_derive_blocking": True,
+                            "reason": "The finding remains blocking until its required lanes independently reverify the repair.",
+                        },
                         "legal_alternatives": [],
                         "reinspect_after_success": dict(continuation),
                     }
@@ -1514,6 +1570,9 @@ def review_authority_projection(
                     "approval_phase": selected_projection_phase,
                 }),
                 "required_caller_inputs": caller_inputs,
+                "input_schema_ref": "review_event_inputs",
+                "judgment_template": None,
+                "blocking_constraint": None,
                 "legal_alternatives": [],
                 "reinspect_after_success": dict(continuation),
             }
@@ -3374,7 +3433,20 @@ def _validate_synthesis_shape(record: Mapping[str, Any], index: int, *, closure:
         errors.append(f"{label}: waiver fields are valid only for operator_waived state")
 
     if record.get("blocking_required_lanes") and not expected_blocking:
-        errors.append(f"{label}: non-blocking synthesis cannot retain blocking_required_lanes")
+        # Name the COUPLING, not just the field. The observed failure is a caller
+        # softening the judgment to signal "it is repaired now", which makes
+        # `blocking` derive false while the lanes it must keep are still listed.
+        # Point at the guided action's `judgment_template`, which carries the
+        # finding's original judgment and is the copyable fix.
+        errors.append(
+            f"{label}: non-blocking synthesis cannot retain blocking_required_lanes. "
+            "`blocking` is DERIVED from the judgment, never declared, so retaining "
+            "lanes requires a judgment that still derives blocking=true. A "
+            "reverification records that the repair happened, NOT that the defect "
+            "was never real: reuse the finding's original judgment from the guided "
+            "action's `judgment_template` (its `blocking_constraint` states this) "
+            "and let repair_execution_state carry the completion."
+        )
     return errors
 
 

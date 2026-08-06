@@ -22,7 +22,7 @@ FRESH_INSTALL_DELIVERY_MODE = "targeted"
 TARGETED_DEFAULT_COUNCIL_REDUCTION_MIN = 0.20
 TARGETED_DEFAULT_LANE_REDUCTION_MIN = 0.15
 REVIEW_POLICY_SCHEMA_VERSION = 1
-REVIEW_POLICY_EVALUATOR_VERSION = 2
+REVIEW_POLICY_EVALUATOR_VERSION = 4
 REVIEW_POLICY_RECEIPT_RECORD_TYPE = "review_policy_receipt"
 REVIEW_POLICY_REPREPARE_MARKER = "review-policy-reprepare-required"
 GENESIS_RECEIPT_PARENT = "genesis"
@@ -38,13 +38,26 @@ REVIEW_LANE_ORDER = (
 )
 
 RISK_TRIGGER_LANES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("code-reviewer", (".py", ".js", ".ts", ".go", ".rs", "src/", "framework/scripts/")),
+    ("qa-reviewer", ("tests/",)),
+    ("architecture-reviewer", ("docs/architecture", "docs/architecture.md")),
+    ("docs-contract-reviewer", ("framework/seeds/", "docs/prompts/", "docs/specs/")),
+    ("release-reviewer", ("upgrade_wavefoundry.py", "build_pack.py")),
+)
+
+# Whole-document tokens used ONLY for a change doc that declares no repo-relative
+# targets in `## Serialization Points`. This is the migration bridge: an
+# un-migrated plan keeps exactly the coverage it had, including the known false
+# positives of prose scoring, until its author declares real targets and earns
+# the precise roster above. It deliberately OMITS `security-reviewer` and
+# `performance-reviewer`, whose retirement to request-only is a recorded decision
+# that applies to declared and undeclared documents alike.
+LEGACY_WHOLE_DOCUMENT_TRIGGER_LANES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("code-reviewer", ("-feat ", "-enh ", "-refactor ", ".py", ".js", ".ts", ".go", ".rs", "src/", "framework/scripts/")),
     ("qa-reviewer", ("-bug ", "tests/", "regression", "test harness", "fixture path")),
     ("architecture-reviewer", ("docs/architecture", "protocol boundary", "ownership change", "state machine", "public abi")),
     ("docs-contract-reviewer", ("framework/seeds/", "docs/prompts/", "docs/specs/", "public contract")),
     ("release-reviewer", ("upgrade_wavefoundry.py", "build_pack.py", "release artifact", "distribution boundary")),
-    ("performance-reviewer", ("performance budget", "latency", "throughput", "hot path")),
-    ("security-reviewer", ("security boundary", "secret handling", "trust boundary", "privilege")),
 )
 
 FULL_COUNCIL_TRIGGER_FIELDS = (
@@ -388,6 +401,85 @@ def extract_requested_review_lanes(wave_text: str) -> tuple[str, ...]:
     )
 
 
+_SERIALIZATION_POINTS_HEADING_RE = re.compile(
+    r"(?mi)^##[ \t]+Serialization Points\s*$"
+)
+# Any repo-relative path, not a fixed prefix allowlist. An earlier form accepted
+# only `.wavefoundry/`, `docs/`, `src/` and `tests/`, which silently returned NO
+# paths — and therefore no automatic lanes and no diagnostic — for any target
+# repository laid out as `lib/`, `pkg/`, `cmd/`, `internal/` or `app/`. Wavefoundry
+# must work against any configured target repo, so the shape is the contract: one
+# or more `segment/` parts followed by a final segment. Bare root-level files stay
+# out deliberately; requiring a separator is what keeps ordinary Serialization
+# Points prose from being read as a declared target.
+# The final segment may be empty so an explicit directory declaration keeps its
+# trailing separator; `_is_declared_target` relies on that separator to accept
+# `docs/architecture/` while still rejecting slashed prose like `runner/test`.
+_REPO_PATH_RE = re.compile(
+    r"(?<![\w./-])(?P<path>(?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_.-]*)"
+)
+
+
+def serialization_point_paths(change_text: str) -> tuple[str, ...]:
+    """Return explicit repo-relative targets from the one declared section."""
+
+    match = _SERIALIZATION_POINTS_HEADING_RE.search(change_text)
+    if match is None:
+        return ()
+    tail = change_text[match.end():]
+    next_heading = re.search(r"(?m)^##[ \t]+", tail)
+    body = tail[:next_heading.start()] if next_heading else tail
+    return tuple(
+        dict.fromkeys(
+            candidate
+            for candidate in (
+                m.group("path").lower() for m in _REPO_PATH_RE.finditer(body)
+            )
+            if _is_declared_target(candidate)
+        )
+    )
+
+
+def _is_declared_target(candidate: str) -> bool:
+    """Reject slashed English prose that is not a file or directory reference.
+
+    Serialization Points is written for humans as well as the evaluator, and
+    real plans say things like "the runner/test corpus" or "stop
+    dashboard/index activity". Accepting those as declared targets is not just
+    noise: a document misclassified as DECLARED loses the undeclared-document
+    fallback and can end up with no required lanes at all. A declared target
+    therefore has to look like one — an extension on its final segment, or an
+    explicit trailing separator.
+    """
+
+    if candidate.endswith("/"):
+        return True
+    return "." in candidate.rsplit("/", 1)[-1]
+
+
+def _path_token_matches(token: str, path: str) -> bool:
+    """Match extensions and path fragments at path boundaries, never substrings.
+
+    A directory-shaped token matches at a segment boundary, and a bare token
+    matches the path itself, its trailing segment, OR any directory prefix it
+    names. That last case is load-bearing: without it a token like
+    ``docs/architecture`` could only ever match the literal bare string, so
+    `docs/architecture/current-state.md` selected NOTHING and the
+    architecture lane became unreachable from any real declared target.
+    """
+
+    if token.startswith("."):
+        return path.endswith(token)
+    if token.endswith("/"):
+        return path.startswith(token) or ("/" + token) in path
+    return (
+        path == token
+        or path.endswith("/" + token)
+        or path.startswith(token + "/")
+        or ("/" + token + "/") in path
+    )
+
+
 def select_required_review_lanes(
     *,
     requested_lanes: Iterable[str],
@@ -396,7 +488,34 @@ def select_required_review_lanes(
 ) -> tuple[tuple[str, ...], dict[str, tuple[str, ...]]]:
     """Derive an ordered risk-selected delivery roster and its reasons."""
 
-    texts = tuple(str(text).lower() for text in change_texts)
+    # Per-document, because the declared-target contract is per-document: a doc
+    # that declares paths is scored on them, and a doc that declares none FAILS
+    # OPEN to whole-text scoring rather than to an empty roster.
+    #
+    # Without this, path-only scoring is retroactive. Measured over the corpus at
+    # delivery: 775 change docs lost lanes and NONE gained any, and five of the
+    # six non-closed change docs collapsed to zero required lanes, because every
+    # plan authored before this contract describes its targets in prose. A change
+    # that removes all required review from every existing readied wave is a far
+    # worse failure than the over-recruitment it set out to fix, so an undeclared
+    # document keeps exactly the coverage it had.
+    undeclared: list[str] = []
+    paths: list[str] = []
+    for text in change_texts:
+        text_s = str(text)
+        found = serialization_point_paths(text_s)
+        if found:
+            paths.extend(found)
+        else:
+            undeclared.append(text_s.lower())
+    # Adoption is a property of the WAVE, not of each document. As soon as any
+    # admitted change declares real targets, the wave has adopted the contract
+    # and prose scoring stays off for all of its documents — otherwise one
+    # un-migrated sibling would resurrect exactly the false positives this
+    # change exists to remove. The fallback is for a wave that declares nothing
+    # anywhere, which is every wave planned before this contract shipped.
+    if paths:
+        undeclared = []
     reasons: dict[str, list[str]] = {}
     selected: list[str] = []
 
@@ -409,11 +528,29 @@ def select_required_review_lanes(
         add(str(lane), "requested by operator/project wave input")
     for lane in project_lanes:
         add(str(lane), "required by project policy")
-    corpus = "\n".join(texts)
+    undeclared_corpus = "\n".join(undeclared)
+    legacy_tokens = dict(LEGACY_WHOLE_DOCUMENT_TRIGGER_LANES)
     for lane, tokens in RISK_TRIGGER_LANES:
-        matched = tuple(token for token in tokens if token in corpus)
+        matched = tuple(
+            token for token in tokens
+            if any(_path_token_matches(token, path) for path in paths)
+        )
         if matched:
             add(lane, "risk trigger: " + ", ".join(matched[:4]))
+        if not undeclared_corpus:
+            continue
+        legacy = tuple(
+            token for token in legacy_tokens.get(lane, ())
+            if token in undeclared_corpus
+        )
+        if legacy and not matched:
+            # Named distinctly so the fallback is visible in the receipt rather
+            # than passing as a declared-target match.
+            add(
+                lane,
+                "risk trigger (undeclared targets, whole-document fallback): "
+                + ", ".join(legacy[:4]),
+            )
     ordered = tuple(
         [lane for lane in REVIEW_LANE_ORDER if lane in selected]
         + [lane for lane in selected if lane not in REVIEW_LANE_ORDER]

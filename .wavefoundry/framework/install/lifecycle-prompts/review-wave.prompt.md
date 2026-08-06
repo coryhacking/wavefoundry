@@ -22,7 +22,15 @@ contracts, failure modes, and current repository state.
    tool when available.
 6. A newly discovered finding may be recorded, started, repaired, and
    reverified in the same open repair cycle. Do not stop merely because an
-   earlier review pass already ran.
+   earlier review pass already ran. After the first delivery cycle, an
+   editorial-only finding (wording that is true but imprecise, drifted
+   citations, formatting) is repaired inline in the current cycle and recorded
+   in the Progress Log; it does not by itself open another repair cycle. Every
+   finding that needs verification, a boundary repair, or escalation retains
+   its existing action-matrix route. An editorial finding that makes a shipped
+   claim FALSE is a correctness defect. A scope, requirement, or AC change is
+   recorded in the section that owns it, and the Progress Log row points at
+   that edit rather than substituting for it.
 7. Re-run only affected lanes for bounded repairs unless a load-bearing
    boundary objectively requires a full council.
 8. After current finding heads are reconciled, run

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: accepted
-Last verified: 2026-08-04
+Last verified: 2026-08-06
 
 ## Context
 
@@ -36,6 +36,7 @@ Review readiness, delivery review, and close independently re-derived overlappin
 - **Keep separate Review and Close implementations.** Rejected because their shared diagnostics repeatedly drifted; making them identical was also rejected because Close owns real terminal-only controls.
 - **Prose-directed carrier cleanup.** Rejected after repeated review showed exact wording and scope drift; the reconciler makes ambiguity a typed failure.
 - **One-hop protocol-1 upgrade.** Rejected because the old runner cannot make new mandatory code load before extraction or prevent its own post-extract project writes.
+- **Legacy direct-upgrade floor (wave 1uj12).** Protocol-1 installations at version 1.8.0 or later use the standalone bridge directly; the bridge retains hash, containment, host-quiescence, rollback, protocol, and explicit second-hop controls. Sources below 1.8.0 remain fail-closed before mutation.
 - **Treat the JSON checkpoint as a lock.** Rejected because durable state does not provide mutual exclusion.
 
 ## References
