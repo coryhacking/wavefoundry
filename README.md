@@ -377,14 +377,12 @@ project root, `~/`, `~/.wavefoundry/`, `~/.wavefoundry/dist/`, and `~/Downloads/
 semver feature zip. If that feature declares an offline model set, it looks in the same locations
 for the exact `wavefoundry-models-<set>.zip` asset; it does not select a model asset by "latest".
 
-A protocol-1 installation at 1.8.0 or later moves to the current release the same way, with the
-same matching `wavefoundry-<version>.zip` package and the same shortcut phrase. There is no
-intermediate version to stage through. The agent stops the dashboard and every attached MCP/agent
-host, then executes the exact returned argv once through its ordinary non-MCP shell; the operator
-does not copy or type the command. Restart every attached host after it returns, then follow its
-structured reconciliation/cleanup result. The package verifies and runs its embedded feature
-payload; there is no special upgrade package, separate bridge asset, or second feature command. A
-source below 1.8.0 stops before any change is made and must first be upgraded to that floor.
+A protocol-1 installation at 1.8.0 or later moves to the current release the same way: same
+package, same shortcut phrase, no intermediate version to stage through. The agent stops the
+dashboard and every attached MCP/agent host, runs the exact returned argv once through its ordinary
+non-MCP shell, and tells you when to restart; you never copy or type that command. There is no
+special upgrade package, separate bridge asset, or second feature command. A source below 1.8.0
+stops before any change is made and must first be upgraded to that floor.
 
 ---
 

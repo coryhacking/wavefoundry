@@ -8,19 +8,6 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [1.15.4] - 2026-08-06
 
-### Upgrade
-
-Upgrading from 1.8.0 or newer now goes straight to this release. You no longer
-need to stage through an intermediate version.
-
-1. Put the matching `wavefoundry-<version>.zip` in your normal package location.
-2. Tell the agent: **Upgrade Wavefoundry.**
-3. Let the agent run the exact command it returns, in your normal shell.
-4. Follow any reload or restart instruction the agent gives you during the run.
-5. Let the agent finish its reconciliation and verification steps.
-
----
-
 ### Fixed
 
 - **Installations from 1.8.0 onward now upgrade directly to the current release.** The upgrade
