@@ -6,9 +6,47 @@ the individual wave records under [`docs/waves/`](docs/waves/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.15.4] - unreleased
+## [1.15.4] - 2026-08-06
+
+### Upgrade
+
+Upgrading from 1.8.0 or newer now goes straight to this release. You no longer
+need to stage through an intermediate version.
+
+1. Put the matching `wavefoundry-<version>.zip` in your normal package location.
+2. Tell the agent: **Upgrade Wavefoundry.**
+3. Let the agent run the exact command it returns, in your normal shell.
+4. Follow any reload or restart instruction the agent gives you during the run.
+5. Let the agent finish its reconciliation and verification steps.
+
+You do not need to stop MCP or the dashboard beforehand.
 
 ### Fixed
+
+- **Installations from 1.8.0 onward now upgrade directly to the current release.** The upgrade
+  bridge previously accepted only an exact 1.14.0 source, which forced every other supported
+  installation to stage through an intermediate release before it could move. The bridge now
+  enforces a 1.8.0 minimum-source floor instead, so any protocol-1 installation at or above that
+  version crosses in a single run. The integrity boundary is unchanged: a source below 1.8.0, a
+  source this release would not advance, and an installation already on protocol 2 are each still
+  refused with their own distinct message, and a missing or malformed source version still fails
+  closed.
+
+- **Admitting a change now fills in its `Wave:` field, and preparing a declared wave no longer
+  reports absent legacy prose as a defect.** `wf_add_change(mode='create')` replaces only an exact
+  `Wave: [wave-id or TBD]` or `Wave: TBD` scaffold value with the containing wave ID, so docs
+  validation stops failing on a value the tool already knew. An operator-authored `Wave:` value is
+  never overwritten, and dry-run stays read-only. For waves declaring
+  `review-evidence-source: events.jsonl`, `wf_prepare_wave` now derives readiness from the current
+  typed `wave-council-readiness` approval and its review-policy receipt instead of also demanding a
+  hand-authored `## Review Checkpoints` verdict, which previously made a successful readiness pass
+  look invalid. Legacy prose-only waves keep their existing structured `prepare-council` authority
+  and validation unchanged.
+
+- **Upgrades now reconcile all scalar docs-vs-code facts they own.** The
+  snapshot/reconcile guard covers embedding and reranker model names, chunker,
+  state-store, and graph-builder versions across extraction and crash-resume;
+  edited, duplicate, or missing claims remain fail-safe for docs-lint.
 
 - **Deferring a required acceptance criterion now refreshes the review receipt in the same operation.**
   `wf_mark_ac(state="~")` publishes the changed contract and returns fresh review actions without

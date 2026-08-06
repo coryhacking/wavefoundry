@@ -115,8 +115,11 @@ def write_upgrade_lock(
             data["dashboard_restart_port"] = port
     prior_snapshot = prior.get("graph_builder_doc_claim_pre_extract")
     prior_pack_sha = prior.get("graph_builder_doc_claim_pack_sha256")
+    prior_scalar_snapshot = prior.get("docs_scalar_claims_pre_extract")
+    prior_scalar_pack_sha = prior.get("docs_scalar_claims_pack_sha256")
     requested_pack_sha = ""
-    if isinstance(prior_pack_sha, str) and prior_pack_sha and zip_path is not None:
+    pack_hint = prior_pack_sha or prior_scalar_pack_sha
+    if isinstance(pack_hint, str) and pack_hint and zip_path is not None:
         digest = hashlib.sha256()
         try:
             with zip_path.open("rb") as handle:
@@ -135,6 +138,16 @@ def write_upgrade_lock(
     ):
         data["graph_builder_doc_claim_pre_extract"] = prior_snapshot
         data["graph_builder_doc_claim_pack_sha256"] = prior_pack_sha
+    if (
+        isinstance(prior_scalar_snapshot, dict)
+        and prior_scalar_snapshot
+        and prior.get("to_version") == to_version
+        and isinstance(prior_scalar_pack_sha, str)
+        and prior_scalar_pack_sha
+        and prior_scalar_pack_sha == requested_pack_sha
+    ):
+        data["docs_scalar_claims_pre_extract"] = prior_scalar_snapshot
+        data["docs_scalar_claims_pack_sha256"] = prior_scalar_pack_sha
     _durable_json_replace(p, data)
     return p
 

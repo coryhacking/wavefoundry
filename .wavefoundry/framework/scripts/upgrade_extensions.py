@@ -95,11 +95,59 @@ _LEGACY_RUNTIME_LOCKS = (
 
 _PROTOCOL_METADATA_ARC = ".wavefoundry/framework/UPGRADE-PROTOCOL.json"
 _GRAPH_BUILDER_DOC_CLAIM_RE = re.compile(r"graph builder version `([^`\r\n]+)`")
-_GRAPH_BUILDER_ASSIGNMENT_RE = re.compile(
-    r'^GRAPH_BUILDER_VERSION\s*=\s*["\']([^"\']+)["\']', re.MULTILINE
-)
 _GRAPH_BUILDER_DOC_SNAPSHOT_KEY = "graph_builder_doc_claim_pre_extract"
 _GRAPH_BUILDER_DOC_PACK_SHA_KEY = "graph_builder_doc_claim_pack_sha256"
+_DOC_SCALAR_SNAPSHOT_KEY = "docs_scalar_claims_pre_extract"
+_DOC_SCALAR_PACK_SHA_KEY = "docs_scalar_claims_pack_sha256"
+
+# Keep this registry aligned with the scalar module-constant claims in
+# wave_lint_lib/docs_constants_validators.py.  Vocabulary claims owned by
+# public_contract are intentionally excluded: they are not scalar assignments
+# and should remain an explicit docs-gate repair.
+_DOC_SCALAR_CLAIMS = (
+    (
+        "docs embedding model",
+        "docs/architecture/performance-budget.md",
+        re.compile(r"docs embedding model `([^`\r\n]+)`"),
+        ".wavefoundry/framework/scripts/indexer.py",
+        "DOCS_MODEL",
+    ),
+    (
+        "code embedding model",
+        "docs/architecture/performance-budget.md",
+        re.compile(r"code embedding model `([^`\r\n]+)`"),
+        ".wavefoundry/framework/scripts/indexer.py",
+        "CODE_MODEL",
+    ),
+    (
+        "reranker model",
+        "docs/architecture/performance-budget.md",
+        re.compile(r"reranker model `([^`\r\n]+)`"),
+        ".wavefoundry/framework/scripts/indexer.py",
+        "RERANKER_MODEL",
+    ),
+    (
+        "state-store schema version",
+        "docs/RELIABILITY.md",
+        re.compile(r"state-store schema version `([^`\r\n]+)`"),
+        ".wavefoundry/framework/scripts/index_state_store.py",
+        "STATE_STORE_SCHEMA_VERSION",
+    ),
+    (
+        "graph builder version",
+        "docs/RELIABILITY.md",
+        _GRAPH_BUILDER_DOC_CLAIM_RE,
+        ".wavefoundry/framework/scripts/graph_indexer.py",
+        "GRAPH_BUILDER_VERSION",
+    ),
+    (
+        "chunker version",
+        "docs/architecture/performance-budget.md",
+        re.compile(r"chunker version `([^`\r\n]+)`"),
+        ".wavefoundry/framework/scripts/chunker.py",
+        "CHUNKER_VERSION",
+    ),
+)
 
 
 def _render_command(argv: list[str], *, platform_name: str | None = None) -> str:
@@ -364,13 +412,15 @@ def _cut_over_runtime_locks(root: Path) -> None:
     _update_upgrade_state(root, runtime_lock_cutover_complete=True)
 
 
-def _graph_builder_version(root: Path) -> str:
-    path = root / ".wavefoundry" / "framework" / "scripts" / "graph_indexer.py"
+def _read_scalar_constant(root: Path, relative: str, name: str) -> str:
+    path = root / relative
     try:
         text = path.read_text(encoding="utf-8")
     except OSError:
         return ""
-    match = _GRAPH_BUILDER_ASSIGNMENT_RE.search(text)
+    match = re.search(
+        rf"^{re.escape(name)}\s*=\s*[\"']([^\"']+)[\"']", text, re.MULTILINE
+    )
     return match.group(1) if match else ""
 
 
@@ -384,73 +434,120 @@ def _pack_sha256(path: Path | None) -> str:
     return digest.hexdigest()
 
 
-def _snapshot_graph_builder_doc_claim(ctx) -> None:
-    """Remember an exact pre-extract code/doc version match."""
+def _snapshot_docs_scalar_claims(ctx) -> None:
+    """Remember exact pre-extract matches for scalar docs-vs-code claims."""
 
     state = _read_json_object(ctx.root / ".wavefoundry" / "upgrade-in-progress.json")
-    persisted = state.get(_GRAPH_BUILDER_DOC_SNAPSHOT_KEY)
-    if isinstance(persisted, str) and persisted:
-        ctx.pre_extract_graph_builder_doc_claim = persisted
-        return
-    path = ctx.root / "docs" / "RELIABILITY.md"
-    try:
-        text = path.read_text(encoding="utf-8")
-    except OSError:
-        ctx.pre_extract_graph_builder_doc_claim = ""
-        return
-    claims = list(_GRAPH_BUILDER_DOC_CLAIM_RE.finditer(text))
-    installed = _graph_builder_version(ctx.root)
-    ctx.pre_extract_graph_builder_doc_claim = (
-        installed
-        if len(claims) == 1 and installed and claims[0].group(1) == installed
-        else ""
-    )
+    persisted = state.get(_DOC_SCALAR_SNAPSHOT_KEY)
+    if isinstance(persisted, dict):
+        snapshots = {
+            str(key): str(value)
+            for key, value in persisted.items()
+            if isinstance(key, str) and isinstance(value, str) and value
+        }
+    else:
+        snapshots = {}
+        for label, relative_doc, pattern, script, constant in _DOC_SCALAR_CLAIMS:
+            path = ctx.root / relative_doc
+            try:
+                text = path.read_text(encoding="utf-8")
+            except OSError:
+                continue
+            claims = list(pattern.finditer(text))
+            installed = _read_scalar_constant(ctx.root, script, constant)
+            if len(claims) == 1 and installed and claims[0].group(1) == installed:
+                snapshots[label] = installed
+
+    ctx.pre_extract_docs_scalar_claims = snapshots
+    graph_snapshot = snapshots.get("graph builder version", "")
+    ctx.pre_extract_graph_builder_doc_claim = graph_snapshot
     _update_upgrade_state(
         ctx.root,
         **{
-            _GRAPH_BUILDER_DOC_SNAPSHOT_KEY: ctx.pre_extract_graph_builder_doc_claim,
+            _DOC_SCALAR_SNAPSHOT_KEY: snapshots,
+            _DOC_SCALAR_PACK_SHA_KEY: (
+                _pack_sha256(getattr(ctx, "zip_path", None)) if snapshots else ""
+            ),
+            # Preserve the legacy graph keys for older recovery code and tests.
+            _GRAPH_BUILDER_DOC_SNAPSHOT_KEY: graph_snapshot,
             _GRAPH_BUILDER_DOC_PACK_SHA_KEY: (
-                _pack_sha256(getattr(ctx, "zip_path", None))
-                if ctx.pre_extract_graph_builder_doc_claim
-                else ""
+                _pack_sha256(getattr(ctx, "zip_path", None)) if graph_snapshot else ""
             ),
         },
     )
 
 
-def _reconcile_graph_builder_doc_claim(ctx) -> bool:
-    """Advance only the exact code-matched claim captured before extraction."""
+def _reconcile_docs_scalar_claims(ctx) -> bool:
+    """Advance only exact code-matched scalar claims captured before extraction."""
 
-    old = getattr(ctx, "pre_extract_graph_builder_doc_claim", "")
-    if not isinstance(old, str) or not old:
-        state = _read_json_object(ctx.root / ".wavefoundry" / "upgrade-in-progress.json")
-        old = state.get(_GRAPH_BUILDER_DOC_SNAPSHOT_KEY, "")
-    if not isinstance(old, str) or not old:
-        return False
-    new = _graph_builder_version(ctx.root)
-    if not new or new == old:
-        return False
-    path = ctx.root / "docs" / "RELIABILITY.md"
-    try:
-        text = path.read_text(encoding="utf-8")
-    except OSError:
-        return False
-    claims = list(_GRAPH_BUILDER_DOC_CLAIM_RE.finditer(text))
-    if len(claims) == 1 and claims[0].group(1) == new:
-        _update_upgrade_state(ctx.root, **{_GRAPH_BUILDER_DOC_SNAPSHOT_KEY: ""})
-        return False
-    if len(claims) != 1 or claims[0].group(1) != old:
-        return False
-    claim = claims[0]
-    updated = text[: claim.start(1)] + new + text[claim.end(1) :]
-    path.write_text(updated, encoding="utf-8")
-    ctx.pre_extract_graph_builder_doc_claim = ""
-    _update_upgrade_state(ctx.root, **{_GRAPH_BUILDER_DOC_SNAPSHOT_KEY: ""})
-    print(
-        f"upgrade docs reconciliation: graph builder version {old} -> {new}",
-        flush=True,
+    snapshots = getattr(ctx, "pre_extract_docs_scalar_claims", None)
+    state = _read_json_object(ctx.root / ".wavefoundry" / "upgrade-in-progress.json")
+    if not isinstance(snapshots, dict):
+        persisted = state.get(_DOC_SCALAR_SNAPSHOT_KEY)
+        snapshots = persisted if isinstance(persisted, dict) else {}
+    if not snapshots:
+        legacy = getattr(ctx, "pre_extract_graph_builder_doc_claim", "")
+        if not isinstance(legacy, str) or not legacy:
+            legacy = state.get(_GRAPH_BUILDER_DOC_SNAPSHOT_KEY, "")
+        if isinstance(legacy, str) and legacy:
+            snapshots = {"graph builder version": legacy}
+
+    changed = False
+    remaining = dict(snapshots)
+    for label, relative_doc, pattern, script, constant in _DOC_SCALAR_CLAIMS:
+        old = remaining.get(label, "")
+        if not old:
+            continue
+        new = _read_scalar_constant(ctx.root, script, constant)
+        if not new or new == old:
+            if new == old:
+                remaining.pop(label, None)
+            continue
+        path = ctx.root / relative_doc
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        claims = list(pattern.finditer(text))
+        if len(claims) == 1 and claims[0].group(1) == new:
+            remaining.pop(label, None)
+            continue
+        if len(claims) != 1 or claims[0].group(1) != old:
+            continue
+        claim = claims[0]
+        path.write_text(text[: claim.start(1)] + new + text[claim.end(1) :], encoding="utf-8")
+        remaining.pop(label, None)
+        changed = True
+        print(f"upgrade docs reconciliation: {label} {old} -> {new}", flush=True)
+
+    ctx.pre_extract_docs_scalar_claims = remaining
+    ctx.pre_extract_graph_builder_doc_claim = remaining.get("graph builder version", "")
+    _update_upgrade_state(
+        ctx.root,
+        **{
+            _DOC_SCALAR_SNAPSHOT_KEY: remaining,
+            _DOC_SCALAR_PACK_SHA_KEY: state.get(_DOC_SCALAR_PACK_SHA_KEY, "")
+            if remaining
+            else "",
+            _GRAPH_BUILDER_DOC_SNAPSHOT_KEY: ctx.pre_extract_graph_builder_doc_claim,
+            _GRAPH_BUILDER_DOC_PACK_SHA_KEY: state.get(_GRAPH_BUILDER_DOC_PACK_SHA_KEY, "")
+            if ctx.pre_extract_graph_builder_doc_claim
+            else "",
+        },
     )
-    return True
+    return changed
+
+
+def _snapshot_graph_builder_doc_claim(ctx) -> None:
+    """Backward-compatible wrapper for the generalized scalar snapshot."""
+
+    _snapshot_docs_scalar_claims(ctx)
+
+
+def _reconcile_graph_builder_doc_claim(ctx) -> bool:
+    """Backward-compatible wrapper for the generalized scalar reconcile."""
+
+    return _reconcile_docs_scalar_claims(ctx)
 
 
 def pre_extract(ctx):

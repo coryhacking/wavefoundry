@@ -7988,6 +7988,42 @@ class HistoricalMemoryUpgradeExtensionBootstrapTests(unittest.TestCase):
         )
         return scripts, reliability
 
+    def _seed_scalar_docs(self):
+        scripts = self.root / ".wavefoundry" / "framework" / "scripts"
+        scripts.mkdir(parents=True, exist_ok=True)
+        scripts.joinpath("indexer.py").write_text(
+            'DOCS_MODEL = "docs-v1"\nCODE_MODEL = "code-v1"\nRERANKER_MODEL = "reranker-v1"\n',
+            encoding="utf-8",
+        )
+        scripts.joinpath("index_state_store.py").write_text(
+            'STATE_STORE_SCHEMA_VERSION = "6"\n', encoding="utf-8"
+        )
+        scripts.joinpath("graph_indexer.py").write_text(
+            'GRAPH_BUILDER_VERSION = "45"\n', encoding="utf-8"
+        )
+        scripts.joinpath("chunker.py").write_text(
+            'CHUNKER_VERSION = "32"\n', encoding="utf-8"
+        )
+        reliability = self.root / "docs" / "RELIABILITY.md"
+        reliability.parent.mkdir(parents=True, exist_ok=True)
+        reliability.write_text(
+            "# Reliability\n\n"
+            "- state-store schema version `6`\n"
+            "- graph builder version `45`\n",
+            encoding="utf-8",
+        )
+        performance = self.root / "docs" / "architecture" / "performance-budget.md"
+        performance.parent.mkdir(parents=True, exist_ok=True)
+        performance.write_text(
+            "# Performance\n\n"
+            "- docs embedding model `docs-v1`\n"
+            "- code embedding model `code-v1`\n"
+            "- reranker model `reranker-v1`\n"
+            "- chunker version `32`\n",
+            encoding="utf-8",
+        )
+        return scripts, reliability, performance
+
     def _skip_sidecar_cleanup(self):
         path = self.root / ".wavefoundry" / "upgrade-in-progress.json"
         state = json.loads(path.read_text(encoding="utf-8"))
@@ -8092,6 +8128,65 @@ class HistoricalMemoryUpgradeExtensionBootstrapTests(unittest.TestCase):
         self.ext.pre_docs_gate(self.ctx)
 
         self.assertIn("graph builder version `43`", reliability.read_text(encoding="utf-8"))
+
+    def test_scalar_doc_reconciliation_advances_models_chunker_and_state_store(self):
+        scripts, reliability, performance = self._seed_scalar_docs()
+        self._skip_sidecar_cleanup()
+        with patch.object(self.ext, "_cut_over_runtime_locks"):
+            self.ext.pre_extract(self.ctx)
+        scripts.joinpath("indexer.py").write_text(
+            'DOCS_MODEL = "docs-v2"\nCODE_MODEL = "code-v2"\nRERANKER_MODEL = "reranker-v2"\n',
+            encoding="utf-8",
+        )
+        scripts.joinpath("index_state_store.py").write_text(
+            'STATE_STORE_SCHEMA_VERSION = "7"\n', encoding="utf-8"
+        )
+        scripts.joinpath("chunker.py").write_text(
+            'CHUNKER_VERSION = "33"\n', encoding="utf-8"
+        )
+
+        self.ext.pre_docs_gate(self.ctx)
+
+        self.assertIn("state-store schema version `7`", reliability.read_text(encoding="utf-8"))
+        self.assertIn("graph builder version `45`", reliability.read_text(encoding="utf-8"))
+        updated = performance.read_text(encoding="utf-8")
+        for claim in (
+            "docs embedding model `docs-v2`",
+            "code embedding model `code-v2`",
+            "reranker model `reranker-v2`",
+            "chunker version `33`",
+        ):
+            self.assertIn(claim, updated)
+        lock = json.loads(
+            (self.root / ".wavefoundry" / "upgrade-in-progress.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertEqual(lock["docs_scalar_claims_pre_extract"], {})
+
+    def test_scalar_snapshot_survives_retry_lock_without_graph_claim(self):
+        scripts = self.root / ".wavefoundry" / "framework" / "scripts"
+        scripts.mkdir(parents=True, exist_ok=True)
+        scripts.joinpath("indexer.py").write_text(
+            'DOCS_MODEL = "docs-v1"\n', encoding="utf-8"
+        )
+        performance = self.root / "docs" / "architecture" / "performance-budget.md"
+        performance.parent.mkdir(parents=True, exist_ok=True)
+        performance.write_text(
+            "- docs embedding model `docs-v1`\n", encoding="utf-8"
+        )
+        pack = self.root / "pack.zip"
+        pack.write_bytes(b"verified pack")
+        import upgrade_lib
+
+        upgrade_lib.write_upgrade_lock(self.root, "1.14.0", "1.15.0", pack)
+        self.ctx.zip_path = pack
+        with patch.object(self.ext, "_cut_over_runtime_locks"):
+            self.ext.pre_extract(self.ctx)
+
+        upgrade_lib.write_upgrade_lock(self.root, "1.15.0", "1.15.0", pack)
+        lock = upgrade_lib.read_upgrade_lock(self.root) or {}
+        self.assertEqual(lock["docs_scalar_claims_pre_extract"], {"docs embedding model": "docs-v1"})
 
     def test_post_docs_gate_pauses_pre_upgrade_runner_before_index(self):
         wave = self.root / "docs" / "waves" / "1old closed"
