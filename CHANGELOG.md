@@ -19,7 +19,7 @@ need to stage through an intermediate version.
 4. Follow any reload or restart instruction the agent gives you during the run.
 5. Let the agent finish its reconciliation and verification steps.
 
-You do not need to stop MCP or the dashboard beforehand.
+---
 
 ### Fixed
 
