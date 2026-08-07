@@ -20,6 +20,7 @@ from context_efficiency import checkpoint_validation_errors
 from .constants import (
     ALLOWED_CHANGE_STATUS_TRANSITIONS,
     ALLOWED_ITEM_STATUS_TRANSITIONS,
+    allowed_values_suffix,
     BACKTICK_VALUE_PATTERN,
     CHANGE_ID_PATTERN,
     CHANGE_REFERENCE_PATTERN,
@@ -1179,18 +1180,20 @@ def check_wave_docs(root: Path, only: set[Path] | None = None, skip: set[Path] |
         if work_records and all(record.status is None for record in work_records):
             status_label = "Change Status" if change_records else "Item Status"
             failures.append(f"{rel}: missing `{status_label}` for declared wave changes")
+        change_status_suffix = allowed_values_suffix(ALLOWED_CHANGE_STATUS_TRANSITIONS)
+        item_status_suffix = allowed_values_suffix(ALLOWED_ITEM_STATUS_TRANSITIONS)
         for raw_line in [line for line in text.splitlines() if line.startswith("Change Status:")]:
             if not CHANGE_STATUS_PATTERN.match(raw_line):
-                failures.append(f"{rel}: invalid `Change Status` declaration `{raw_line}`")
+                failures.append(f"{rel}: invalid `Change Status` declaration `{raw_line}`{change_status_suffix}")
         for raw_line in [line for line in text.splitlines() if line.startswith("Previous Change Status:")]:
             if not PREVIOUS_CHANGE_STATUS_PATTERN.match(raw_line):
-                failures.append(f"{rel}: invalid `Previous Change Status` declaration `{raw_line}`")
+                failures.append(f"{rel}: invalid `Previous Change Status` declaration `{raw_line}`{change_status_suffix}")
         for raw_line in [line for line in text.splitlines() if line.startswith("Item Status:")]:
             if not ITEM_STATUS_PATTERN.match(raw_line):
-                failures.append(f"{rel}: invalid `Item Status` declaration `{raw_line}`")
+                failures.append(f"{rel}: invalid `Item Status` declaration `{raw_line}`{item_status_suffix}")
         for raw_line in [line for line in text.splitlines() if line.startswith("Previous Item Status:")]:
             if not PREVIOUS_ITEM_STATUS_PATTERN.match(raw_line):
-                failures.append(f"{rel}: invalid `Previous Item Status` declaration `{raw_line}`")
+                failures.append(f"{rel}: invalid `Previous Item Status` declaration `{raw_line}`{item_status_suffix}")
         for raw_line in [line for line in text.splitlines() if line.startswith("Depends On:")]:
             if "`" not in raw_line:
                 failures.append(f"{rel}: `Depends On` must reference stable Change IDs in backticks")
@@ -1209,6 +1212,7 @@ def check_wave_docs(root: Path, only: set[Path] | None = None, skip: set[Path] |
                     failures.append(
                         f"{rel}: {record.anchor_type} `{record.record_id}` has invalid status progression "
                         f"`{record.previous_status}` -> `{record.status}`"
+                        f"{allowed_values_suffix(allowed_previous, origin=record.previous_status)}"
                     )
             for dependency in record.depends_on:
                 if dependency == record.record_id:
@@ -1224,7 +1228,8 @@ def check_wave_docs(root: Path, only: set[Path] | None = None, skip: set[Path] |
                 if record.status in progressable_statuses and dependency_record.status not in terminal_statuses:
                     failures.append(
                         f"{rel}: {record.anchor_type} `{record.record_id}` is `{record.status}` but dependency `{dependency}` "
-                        f"is still `{dependency_record.status}`"
+                        f"is still `{dependency_record.status}`. The dependency must reach a terminal status"
+                        f"{allowed_values_suffix(terminal_statuses)}"
                     )
 
         non_terminal_states = {
@@ -1237,6 +1242,7 @@ def check_wave_docs(root: Path, only: set[Path] | None = None, skip: set[Path] |
         if non_terminal_states and watchpoints and not _contains_any(watchpoints, WAVE_WATCHPOINT_MARKERS):
             failures.append(
                 f"{rel}: the watchpoints section should capture follow-up, watchpoint, or blocking language for non-terminal changes"
+                f"{allowed_values_suffix(WAVE_WATCHPOINT_MARKERS)}"
             )
         if wave_matches and _wave_requires_wave_owned_change_docs(text):
             for change_id in sorted(set(CHANGE_ID_PATTERN.findall(text))):
@@ -1328,7 +1334,8 @@ def check_memory_docs(root: Path, only: set[Path] | None = None, skip: set[Path]
             failures.append(f"{rel}: missing backticked `Kind:` line")
         elif kind.group(1) not in MEMORY_KINDS:
             failures.append(
-                f"{rel}: unknown memory kind {kind.group(1)!r}; allowed: {', '.join(MEMORY_KINDS)}"
+                f"{rel}: unknown memory kind {kind.group(1)!r}"
+                f"{allowed_values_suffix(MEMORY_KINDS)}"
             )
         status = status_line.search(text)
         if not status:
@@ -1336,12 +1343,13 @@ def check_memory_docs(root: Path, only: set[Path] | None = None, skip: set[Path]
             # runtime parser no longer defaults it, and a status-less record
             # must never pass the schema gate and surface as an advisory.
             failures.append(
-                f"{rel}: missing `Status:` line (one of {', '.join(MEMORY_STATUSES)})"
+                f"{rel}: missing `Status:` line"
+                f"{allowed_values_suffix(MEMORY_STATUSES)}"
             )
         elif status.group(1) not in MEMORY_STATUSES:
             failures.append(
-                f"{rel}: memory `Status` must be one of {', '.join(MEMORY_STATUSES)} "
-                f"(got {status.group(1)!r})"
+                f"{rel}: memory `Status` is invalid (got {status.group(1)!r})"
+                f"{allowed_values_suffix(MEMORY_STATUSES)}"
             )
         elif status.group(1) == "archived":
             if not is_archive_body:

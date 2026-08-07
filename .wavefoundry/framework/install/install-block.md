@@ -20,9 +20,10 @@ The agent unpacks the zip, advances the framework, runs any required migrations 
 
 **Upgrading a protocol-1 installation at 1.8.0 or later:** same package, same shortcut phrase, and
 no intermediate version to stage through. The agent stops the dashboard and every attached MCP/agent
-host, runs the exact returned command through its ordinary non-MCP shell, and tells you when to
-restart; you never copy or type that command. There is no special upgrade package, second operator
-command, or separate bridge asset to coordinate. A source below 1.8.0 stops before any change is
-made and must first be upgraded to that floor.
+host, then runs the exact returned command through its ordinary non-MCP shell; the operator does not
+copy or type that command. Restart every attached host once the package returns, then follow its
+structured reconciliation, cleanup, and audit guidance. There is no special upgrade package, second
+operator command, or separate bridge asset to coordinate. A source below 1.8.0 stops before any
+change is made and must first be upgraded to that floor.
 
 ---

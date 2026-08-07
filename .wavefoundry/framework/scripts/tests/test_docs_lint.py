@@ -1480,6 +1480,176 @@ class DocsLintFixtureTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn(f"change `{self.VALID_CHANGE_ID}` has invalid status progression `complete` -> `active`", result.stderr)
 
+    def test_rejected_transition_names_what_is_reachable_from_the_current_status(self) -> None:
+        """AC-3: the message states the reachable set for THIS status, not the global one."""
+        root = self.copy_fixture()
+        wave_doc = root / self.WAVE_DOC_PATH
+        wave_doc.write_text(
+            wave_doc.read_text(encoding="utf-8").replace(
+                "Previous Change Status: `planned`\nChange Status: `complete`",
+                "Previous Change Status: `complete`\nChange Status: `active`",
+                1,
+            ),
+            encoding="utf-8",
+        )
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("; allowed from `complete`: `complete`", result.stderr)
+        # `complete` is terminal, so the reachable set is strictly narrower than
+        # the global vocabulary. Printing the global set here would be wrong.
+        self.assertNotIn("; allowed from `complete`: `active`", result.stderr)
+
+    def test_malformed_change_status_names_the_accepted_vocabulary(self) -> None:
+        """AC-1: the shape failure from the field report now carries the value set."""
+        root = self.copy_fixture()
+        wave_doc = root / self.WAVE_DOC_PATH
+        wave_doc.write_text(
+            wave_doc.read_text(encoding="utf-8").replace(
+                "Change Status: `complete`",
+                "Change Status: `implemented - awaiting delivery review`",
+                1,
+            ),
+            encoding="utf-8",
+        )
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("invalid `Change Status` declaration", result.stderr)
+        self.assertIn("; allowed: `active`, `blocked`, `complete`", result.stderr)
+        self.assertIn("`planned`, `ready`, `retry`, `review`, `superseded`", result.stderr)
+
+    def test_publishing_the_vocabulary_did_not_turn_it_into_a_gate(self) -> None:
+        """AC-2: `implemented` is used 1000 times and is in no constant. It must still pass.
+
+        This is the no-new-gate oracle: the change publishes the vocabulary as
+        guidance, so a well-formed value outside it keeps linting exactly as it
+        did before.
+        """
+        root = self.copy_fixture()
+        wave_doc = root / self.WAVE_DOC_PATH
+        original = wave_doc.read_text(encoding="utf-8")
+        self.assertIn("Change Status: `complete`", original)
+        wave_doc.write_text(
+            original.replace("Change Status: `complete`", "Change Status: `implemented`", 1),
+            encoding="utf-8",
+        )
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        # The claim under test is narrow and must be stated narrowly: publishing
+        # the vocabulary did not add a declaration-time gate. `implemented` is
+        # well formed and unknown, and the declaration check still accepts it.
+        self.assertNotIn("invalid `Change Status` declaration", result.stderr)
+        # Any OTHER failure this fixture produces is pre-existing behavior that
+        # this change did not touch: the fixture carries a `Previous Change
+        # Status`, so the transition rule applies, and a dependent change
+        # requires a terminal dependency. Asserting their absence here would be
+        # asserting something this change never claimed. What must hold is that
+        # each such message is one the tree already emitted, now merely carrying
+        # its value set.
+        for line in result.stderr.splitlines():
+            if "Change Status" in line and "declaration" in line:
+                self.fail(f"declaration-time gate appeared: {line}")
+
+    def test_blocked_dependency_names_which_statuses_would_unblock_it(self) -> None:
+        """Delivery review: the terminal set is bound at the check but was not printed.
+
+        Same defect shape as the transition site, found by auditing every
+        enum-governed failure rather than only the sites the plan happened to
+        name.
+        """
+        from wave_lint_lib import wave_validators
+
+        root = self.copy_fixture()
+        wave_doc = root / self.WAVE_DOC_PATH
+        wave_doc.write_text(
+            wave_doc.read_text(encoding="utf-8").replace(
+                "Change Status: `complete`", "Change Status: `planned`", 1
+            ),
+            encoding="utf-8",
+        )
+        try:
+            failures = "\n".join(wave_validators.check_wave_docs(root))
+        finally:
+            shutil.rmtree(root)
+        self.assertIn(
+            f"change `{self.FOLLOW_UP_CHANGE_ID}` is `ready` but dependency "
+            f"`{self.VALID_CHANGE_ID}` is still `planned`. "
+            "The dependency must reach a terminal status; allowed:",
+            failures,
+        )
+        for status in wave_validators.TERMINAL_CHANGE_STATUSES:
+            self.assertIn(f"`{status}`", failures)
+
+    def test_watchpoint_marker_message_lists_every_marker_that_satisfies_it(self) -> None:
+        """Delivery review: the message hand-listed 3 of 6 markers.
+
+        `retry`, `defer`, and `move` also satisfy the check but were never
+        named, which is the hand-written drift this change exists to remove.
+        """
+        from wave_lint_lib import wave_validators
+        from wave_lint_lib.constants import WAVE_WATCHPOINT_MARKERS, allowed_values_suffix
+
+        self.assertEqual(len(WAVE_WATCHPOINT_MARKERS), 6)
+        rendered = allowed_values_suffix(WAVE_WATCHPOINT_MARKERS)
+        for marker in WAVE_WATCHPOINT_MARKERS:
+            self.assertIn(f"`{marker}`", rendered)
+        source = Path(wave_validators.__file__).read_text(encoding="utf-8")
+        self.assertIn(
+            "blocking language for non-terminal changes\"\n"
+            "                f\"{allowed_values_suffix(WAVE_WATCHPOINT_MARKERS)}",
+            source,
+            "the watchpoint message must derive its marker list from the constant",
+        )
+
+    def test_the_printed_set_is_read_from_the_constant_not_hand_written(self) -> None:
+        """AC-4: vary the CONSTANT, not the fixture, and the message must follow.
+
+        A hand-written list in the message would pass every other test in this
+        class while silently drifting from the rule it claims to describe. The
+        patch target is the ``wave_validators`` binding rather than the
+        ``constants`` module: ``wave_validators`` does ``from .constants import
+        (...)`` at import time, so patching ``constants`` would leave the bound
+        name untouched and this test would pass without exercising anything.
+        The unpatched assertion below is the negative control that proves it.
+        """
+        from unittest import mock
+
+        from wave_lint_lib import wave_validators
+
+        root = self.copy_fixture()
+        wave_doc = root / self.WAVE_DOC_PATH
+        wave_doc.write_text(
+            wave_doc.read_text(encoding="utf-8").replace(
+                "Previous Change Status: `planned`\nChange Status: `complete`",
+                "Previous Change Status: `complete`\nChange Status: `active`",
+                1,
+            ),
+            encoding="utf-8",
+        )
+        try:
+            baseline = "\n".join(wave_validators.check_wave_docs(root))
+            self.assertIn("; allowed from `complete`:", baseline)
+            self.assertNotIn("`teleported`", baseline)
+
+            widened = {
+                status: (set(targets) | {"teleported"} if status == "complete" else targets)
+                for status, targets in wave_validators.ALLOWED_CHANGE_STATUS_TRANSITIONS.items()
+            }
+            with mock.patch.object(
+                wave_validators, "ALLOWED_CHANGE_STATUS_TRANSITIONS", widened
+            ):
+                mutated = "\n".join(wave_validators.check_wave_docs(root))
+        finally:
+            shutil.rmtree(root)
+        self.assertIn("`teleported`", mutated)
+
     def test_missing_change_status_fails(self) -> None:
         root = self.copy_fixture()
         wave_doc = root / self.WAVE_DOC_PATH
@@ -3453,7 +3623,7 @@ class MemoryRecordLintTests(DocsLintFixtureTests):
         cases = [
             ("unknown kind", self._record("mem-a", "vibes"), "unknown memory kind"),
             ("bad status", self._record("mem-a", "decision", status="maybe"),
-             "memory `Status` must be one of"),
+             "memory `Status` is invalid (got 'maybe')"),
             ("bad confidence", self._record("mem-a", "decision", confidence="9"),
              "`Confidence` must be a number in [0.0, 1.0]"),
             ("id/filename mismatch", self._record("mem-b", "decision"),

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: closed
-Last verified: 2026-08-05
+Last verified: 2026-08-06
 review-evidence-source: events.jsonl
 
 review-policy-reprepare-required: false
@@ -88,12 +88,12 @@ Estimated token savings use phase-unique returned source versions and mapped wor
 
 | Stage | Tool calls | Estimated token savings |
 | --- | ---: | ---: |
-| plan | 54 | 719,214 |
+| plan | 57 | 722,643 |
 | implement | 26 | 1,554,937 |
 | review | 36 | 808,265 |
-| **Total** | **116** | **3,082,416** |
+| **Total** | **119** | **3,085,845** |
 
-<!-- wave:context-efficiency-state {"generation":121,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"implement":{"calls":26,"content_source_credit":1599064,"derived_artifact_credit":0,"direct_net":1554937,"estimated_tokens_saved":1554937,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":772,"response_debit":44786,"source_credit_count":25,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":1431},"plan":{"calls":54,"content_source_credit":807770,"derived_artifact_credit":4040,"direct_net":719214,"estimated_tokens_saved":719214,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":4135,"response_debit":102071,"source_credit_count":43,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":13610},"review":{"calls":36,"content_source_credit":861742,"derived_artifact_credit":4847,"direct_net":808265,"estimated_tokens_saved":808265,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":5622,"response_debit":52702,"source_credit_count":62,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":0}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":116,"content_source_credit":3268576,"derived_artifact_credit":8887,"direct_net":3082416,"estimated_tokens_saved":3082416,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":10529,"response_debit":199559,"source_credit_count":130,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":15041},"wave_id":"1uj12 legacy-direct-upgrade-compatibility"} -->
+<!-- wave:context-efficiency-state {"generation":124,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"implement":{"calls":26,"content_source_credit":1599064,"derived_artifact_credit":0,"direct_net":1554937,"estimated_tokens_saved":1554937,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":772,"response_debit":44786,"source_credit_count":25,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":1431},"plan":{"calls":57,"content_source_credit":812625,"derived_artifact_credit":4769,"direct_net":722643,"estimated_tokens_saved":722643,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":4157,"response_debit":104204,"source_credit_count":47,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":13610},"review":{"calls":36,"content_source_credit":861742,"derived_artifact_credit":4847,"direct_net":808265,"estimated_tokens_saved":808265,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":5622,"response_debit":52702,"source_credit_count":62,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":0}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":119,"content_source_credit":3273431,"derived_artifact_credit":9616,"direct_net":3085845,"estimated_tokens_saved":3085845,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":10551,"response_debit":201692,"source_credit_count":134,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":15041},"wave_id":"1uj12 legacy-direct-upgrade-compatibility"} -->
 <!-- wave:context-efficiency end -->
 
 ## Estimated Exploration Avoided

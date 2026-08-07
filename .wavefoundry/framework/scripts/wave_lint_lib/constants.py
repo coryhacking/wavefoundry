@@ -301,3 +301,25 @@ WAVE_REFERENCE_PATTERN = re.compile(rf"^wave-id:\s+`({LIFECYCLE_PREFIX_PATTERN} 
 ITEM_REFERENCE_PATTERN = re.compile(r"^Item ID:\s+`([a-z0-9][a-z0-9-]*)`$", re.MULTILINE)
 CHANGE_REFERENCE_PATTERN = CHANGE_ID_PATTERN
 MARKDOWN_HEADING_PATTERN = re.compile(r"^(## .+)$", re.MULTILINE)
+
+
+def allowed_values_suffix(values, *, origin=None):
+    """Render an authoritative value set for appending to a validation failure.
+
+    The caller passes the same collection the validator checked against, so the
+    printed set cannot drift from the rule it describes. This is guidance, not a
+    gate: appending it never changes whether a document passes.
+
+    ``values`` may be any iterable of strings. Passing a transition mapping is
+    intentional and yields its KEYS, which are the full vocabulary; pass a
+    specific mapping entry instead when the reachable subset is what the caller
+    means, as the transition validator does.
+
+    ``origin`` names the current value when validity is relative rather than
+    global, as with a status transition, so the message states what is reachable
+    from where the document actually is.
+    """
+    listed = ", ".join(f"`{value}`" for value in sorted(values))
+    if origin is None:
+        return f"; allowed: {listed}"
+    return f"; allowed from `{origin}`: {listed}"

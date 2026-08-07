@@ -379,10 +379,11 @@ for the exact `wavefoundry-models-<set>.zip` asset; it does not select a model a
 
 A protocol-1 installation at 1.8.0 or later moves to the current release the same way: same
 package, same shortcut phrase, no intermediate version to stage through. The agent stops the
-dashboard and every attached MCP/agent host, runs the exact returned argv once through its ordinary
-non-MCP shell, and tells you when to restart; you never copy or type that command. There is no
-special upgrade package, separate bridge asset, or second feature command. A source below 1.8.0
-stops before any change is made and must first be upgraded to that floor.
+dashboard and every attached MCP/agent host, then executes the exact returned argv once through its
+ordinary non-MCP shell; the operator does not copy or type the command. Restart every attached host
+after it returns, then follow its structured reconciliation/cleanup result. There is no special
+upgrade package, separate bridge asset, or second feature command. A source below 1.8.0 stops before
+any change is made and must first be upgraded to that floor.
 
 ---
 
