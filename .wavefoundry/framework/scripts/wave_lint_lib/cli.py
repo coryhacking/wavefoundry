@@ -9,7 +9,7 @@ from pathlib import Path
 from .context import build_context
 from .constants import AUDIT_DEFAULT_REPORT
 from .docs_constants_validators import check_docs_constants, check_wave_scaffolding_integrity
-from .core_validators import check_forbidden_root_wrappers, check_prompt_file_extensions, check_prompt_surface_manifest, check_pycache, check_required_files, check_review_policy_carriers, check_seed_prefix_uniqueness, check_workflow_config
+from .core_validators import check_forbidden_root_wrappers, check_prompt_file_extensions, check_prompt_surface_manifest, check_pycache, check_required_files, check_review_policy_carriers, check_scaffold_declares_nothing, check_seed_prefix_uniqueness, check_workflow_config
 from .design_system_validators import check_design_system
 from .design_system_governance_validators import check_design_governance
 from .design_system_surface_validators import check_design_surface
@@ -226,6 +226,10 @@ def _run_incremental_checks(root: Path):
         failures.extend(check_persona_docs(root, only=changed_docs, skip=oversized))
         failures.extend(check_wave_docs(root, only=changed_docs, skip=oversized))
         failures.extend(check_plan_filenames(root, only=changed_docs, skip=oversized))
+        # Registered on the incremental path too. A corpus-only registration
+        # would give the author no signal at the moment they paste a declaring
+        # block into the template, which is where the defect is cheapest to fix.
+        failures.extend(check_scaffold_declares_nothing(root, only=changed_docs))
         failures.extend(_check_agent_role_metadata(root, only=changed_docs, skip=oversized))
         failures.extend(_check_agent_category_metadata(root, only=changed_docs, skip=oversized))
     if changed_event_wave_docs:
@@ -265,6 +269,7 @@ def _run_full_checks(root: Path, args: argparse.Namespace, timings: dict | None 
         failures.extend(check_wave_roots(root))
         failures.extend(check_workflow_config(root))
         failures.extend(check_review_policy_carriers(root))
+        failures.extend(check_scaffold_declares_nothing(root))
         failures.extend(check_docs_constants(root))
         failures.extend(check_wave_scaffolding_integrity(root))
         failures.extend(check_prompt_surface_manifest(root))

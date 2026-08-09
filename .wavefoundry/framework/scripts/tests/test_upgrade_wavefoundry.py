@@ -9172,3 +9172,892 @@ class PermissionsRenderBackstopTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ScaffoldRepairIsClassATests(unittest.TestCase):
+    """The scaffold rule is class-a; its repair must be too.
+
+    `phase_docs_gate` subprocesses the freshly extracted `docs_lint.py`, so the
+    new ERROR fires on the very upgrade that installs it. A repository whose
+    template already declares would therefore halt at
+    `failed_phase == "docs_gate"` — precisely the population the rule exists to
+    protect. The repair runs from the pack-loaded `pre_docs_gate` extension so
+    it clears on the same run, and separately from the resume path, which
+    builds no extension module and is the only path a stranded repository can
+    travel.
+    """
+
+    CONTAMINATED = (
+        "# [Change Title]\n\n## Serialization Points\n\n"
+        "**Review targets (repo-relative paths):**\n\n"
+        "- `path/to/file.swift`\n"
+        "- `docs/specs/`\n\n"
+        "## Affected Architecture Docs\n"
+    )
+
+    def setUp(self):
+        self.ext = _load_upgrade_extensions()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        (self.root / "docs" / "plans").mkdir(parents=True)
+        self.template = self.root / "docs" / "plans" / "plan-template.md"
+        sys.path.insert(0, str(SCRIPTS_ROOT))
+        self.ctx = MagicMock(root=self.root)
+
+    def _declared(self):
+        import review_policy
+
+        return review_policy.serialization_point_paths(
+            self.template.read_text(encoding="utf-8")
+        )
+
+    def test_a_contaminated_template_is_repaired_before_the_gate(self):
+        self.template.write_text(self.CONTAMINATED, encoding="utf-8")
+        self.assertEqual(
+            self._declared(), ("path/to/file.swift", "docs/specs/"),
+            "fixture must start contaminated, or the test proves nothing",
+        )
+        repaired = self.ext.repair_declaring_scaffold(self.root)
+        self.assertEqual(repaired, ["docs/plans/plan-template.md"])
+        self.assertEqual(
+            self._declared(), (),
+            "after repair the scaffold must declare nothing",
+        )
+
+    def test_the_repair_preserves_the_example_text(self):
+        """Fencing, not deleting: the author still sees how to declare."""
+
+        self.template.write_text(self.CONTAMINATED, encoding="utf-8")
+        self.ext.repair_declaring_scaffold(self.root)
+        after = self.template.read_text(encoding="utf-8")
+        self.assertIn("path/to/file.swift", after, "example text is retained")
+        self.assertIn("**Review targets (repo-relative paths):**", after)
+        self.assertIn("```", after, "the block is fenced")
+
+    def test_a_clean_template_is_left_byte_identical(self):
+        clean = (
+            "# [Change Title]\n\n## Serialization Points\n\n"
+            "```\n**Review targets (repo-relative paths):**\n\n"
+            "- `path/to/file.swift`\n```\n\n## Affected Architecture Docs\n"
+        )
+        self.template.write_text(clean, encoding="utf-8")
+        before = self.template.read_bytes()
+        self.assertEqual(self.ext.repair_declaring_scaffold(self.root), [])
+        self.assertEqual(self.template.read_bytes(), before)
+
+    def test_pre_docs_gate_runs_the_repair_for_an_old_runner(self):
+        """The class-a seam: an OLD orchestrator still gets the NEW repair.
+
+        `pre_docs_gate` is dispatched from the module the orchestrator exec'd
+        out of the pack, so this is the hook an old in-process runner reaches.
+        """
+
+        self.template.write_text(self.CONTAMINATED, encoding="utf-8")
+        self.ctx.from_version = "1.15.5"
+        self.ctx.runner_protocol = 2
+        with patch.object(self.ext, "_installed_memory_backfill", return_value=None):
+            try:
+                self.ext.pre_docs_gate(self.ctx)
+            except Exception:
+                # Other hook steps may need fixtures this test does not build;
+                # the repair runs first, so its effect is already observable.
+                pass
+        self.assertEqual(
+            self._declared(), (),
+            "pre_docs_gate must clear the scaffold before the gate runs",
+        )
+
+    def test_the_resume_path_reaches_the_repair(self):
+        """Resume builds no ext_mod and has no zip, so it needs its own call.
+
+        It is also the only path a repository that already halted can travel,
+        so without this the scaffold rule would strand it permanently.
+        """
+
+        import upgrade_wavefoundry
+
+        self.template.write_text(self.CONTAMINATED, encoding="utf-8")
+        repaired = upgrade_wavefoundry._repair_declaring_scaffold_on_resume(self.root)
+        self.assertEqual(repaired, ["docs/plans/plan-template.md"])
+        self.assertEqual(self._declared(), ())
+
+    def test_a_tier_one_pure_path_bullet_is_repaired_too(self):
+        """The shape seed 040 literally hands a bootstrap agent.
+
+        A marker-only repair would leave a freshly installed template halted at
+        the docs gate with nothing to do but hand-edit, because seed 040's own
+        example is a tier-1 bullet with no marker at all.
+        """
+
+        self.template.write_text(
+            "# T\n\n## Serialization Points\n\n"
+            "- `src/app/handler.py`, `docs/specs/`\n\n"
+            "## Affected Architecture Docs\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(
+            self._declared(), ("src/app/handler.py", "docs/specs/"),
+            "fixture must start contaminated",
+        )
+        self.assertEqual(
+            self.ext.repair_declaring_scaffold(self.root),
+            ["docs/plans/plan-template.md"],
+        )
+        self.assertEqual(self._declared(), ())
+
+    def test_instructional_prose_bullets_are_left_alone(self):
+        """Only runs that DECLARE are fenced, decided by the parser."""
+
+        prose = (
+            "# T\n\n## Serialization Points\n\n"
+            "- Serialize edits through the runner workstream.\n"
+            "- Coordinate with the release lane.\n\n"
+            "- `src/app/handler.py`\n\n## Next\n"
+        )
+        self.template.write_text(prose, encoding="utf-8")
+        self.ext.repair_declaring_scaffold(self.root)
+        after = self.template.read_text(encoding="utf-8")
+        self.assertIn("- Serialize edits through the runner workstream.", after)
+        self.assertNotIn(
+            "```\n- Serialize edits", after,
+            "an instructional bullet run must not be fenced",
+        )
+        self.assertEqual(self._declared(), ())
+
+    def test_a_stray_bullet_beside_a_fenced_example_is_repaired_not_refused(self):
+        """This shape used to halt the upgrade; it must now repair.
+
+        A fenced marker example with a stray declaring bullet outside it is
+        what an operator produces with one ordinary edit to the shipped
+        template. The fencer used to be fence-blind, so it re-fenced the
+        already-fenced example, flipped fence parity, still declared, and got
+        refused by the post-fence re-check — leaving the operator stuck at the
+        docs gate with the hand-edit the repair exists to avoid.
+        """
+
+        odd = (
+            "# T\n\n## Serialization Points\n\n"
+            "```\n**Review targets (repo-relative paths):**\n\n"
+            "- `a/b.md`\n```\n\n"
+            "- `src/app/handler.py`\n\n## Next\n"
+        )
+        self.template.write_text(odd, encoding="utf-8")
+        self.assertEqual(
+            self.ext.repair_declaring_scaffold(self.root),
+            ["docs/plans/plan-template.md"],
+        )
+        self.assertEqual(self._declared(), ())
+        after = self.template.read_text(encoding="utf-8")
+        self.assertEqual(
+            after.count("```"), 4, "the pre-existing fence must survive intact"
+        )
+        self.assertIn("- `a/b.md`", after, "the example content is preserved")
+
+    def test_a_heading_inside_a_fenced_example_does_not_truncate_the_section(self):
+        """`section_end` is fence-aware too, not just `section_start`.
+
+        A "## " line inside a fenced example is sample text. Treating it as
+        the next heading ends the section early, so a real declaring run past
+        that false boundary is never fenced and the document still declares.
+        """
+
+        self.template.write_text(
+            "# T\n\n## Serialization Points\n\n- `src/one.py`\n\n"
+            "```\n## Next\n```\n\n- `src/two.py`\n\n## Real\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(self._declared(), ("src/one.py", "src/two.py"))
+        self.assertEqual(
+            self.ext.repair_declaring_scaffold(self.root),
+            ["docs/plans/plan-template.md"],
+        )
+        self.assertEqual(self._declared(), ())
+
+    def test_the_fence_tracker_agrees_with_the_shipped_parser(self):
+        """The repair's fence tracking must match the parser it defers to.
+
+        Every fence spelling the parser honors must also be honored here; a
+        divergence means the repair either re-fences a safe example or skips a
+        declaring one. Each variant carries a real declaring bullet, so a
+        tracker that mishandles the fence fails to reach `()`.
+        """
+
+        variants = {
+            "tilde": "~~~\n- `src/ex.py`\n~~~",
+            "info string": "```markdown\n- `src/ex.py`\n```",
+            "four backticks": "````\n```\n````",
+            "indented": "    ```\n    - `src/ex.py`\n    ```",
+            "unterminated": "```\nopened never closed",
+        }
+        for name, block in variants.items():
+            with self.subTest(fence=name):
+                self.template.write_text(
+                    "# T\n\n## Serialization Points\n\n- `src/one.py`\n\n"
+                    f"{block}\n\n## Next\n",
+                    encoding="utf-8",
+                )
+                self.assertEqual(self._declared(), ("src/one.py",))
+                self.assertEqual(
+                    self.ext.repair_declaring_scaffold(self.root),
+                    ["docs/plans/plan-template.md"],
+                )
+                self.assertEqual(self._declared(), ())
+                self.assertIn(
+                    block, self.template.read_text(encoding="utf-8"),
+                    "the fenced block must come through byte-identical; "
+                    "an unrecognized fence gets a nested fence spliced INTO it",
+                )
+
+    def test_a_fenced_section_heading_is_not_mistaken_for_the_section(self):
+        """`section_start` is fence-aware: a documented example is not the section.
+
+        A template that shows what a Serialization Points section looks like
+        carries the heading inside a fence. Anchoring on it makes the repair
+        scan the wrong region, find nothing to fence, and refuse — halting the
+        upgrade on a document it could have repaired.
+        """
+
+        self.template.write_text(
+            "# T\n\n## How to write one\n\n"
+            "```\n## Serialization Points\n\n- `docs/example.md`\n```\n\n"
+            "## Serialization Points\n\n- `src/real.py`\n\n## Next\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(self._declared(), ("src/real.py",))
+        self.assertEqual(
+            self.ext.repair_declaring_scaffold(self.root),
+            ["docs/plans/plan-template.md"],
+        )
+        self.assertEqual(self._declared(), ())
+
+    def test_the_marker_is_fenced_together_with_its_own_bullets(self):
+        """The marker and the bullets beneath it are ONE construct.
+
+        Fencing only the bullets clears the declaration but strands the
+        `**Review targets…**` marker outside the example, so the template then
+        shows a live-looking marker with nothing under it — and the next
+        author to add a bullet there silently re-declares.
+        """
+
+        self.template.write_text(
+            "# T\n\n## Serialization Points\n\n"
+            "**Review targets (repo-relative paths):**\n\n"
+            "- `src/one.py`\n\n## Next\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(
+            self.ext.repair_declaring_scaffold(self.root),
+            ["docs/plans/plan-template.md"],
+        )
+        self.assertEqual(self._declared(), ())
+        body = self.template.read_text(encoding="utf-8")
+        opening = body.index("```")
+        self.assertLess(
+            opening, body.index("**Review targets"),
+            "the marker must sit INSIDE the fence, not above it",
+        )
+
+    def test_the_repair_preserves_the_file_s_line_endings(self):
+        """A CRLF checkout must not come back as a whole-file LF diff."""
+
+        crlf = self.CONTAMINATED.replace("\n", "\r\n")
+        self.template.write_bytes(crlf.encode("utf-8"))
+        self.ext.repair_declaring_scaffold(self.root)
+        raw = self.template.read_bytes()
+        self.assertGreater(raw.count(b"\r\n"), 0)
+        self.assertEqual(
+            raw.count(b"\n") - raw.count(b"\r\n"), 0,
+            "no bare LF may survive in a CRLF file, and no mixed endings",
+        )
+        self.assertEqual(self._declared(), ())
+
+    def test_an_unwritable_template_reports_instead_of_aborting(self):
+        """The repair must never be fatal to an upgrade.
+
+        An unguarded write escaped into the hook dispatcher's sys.exit(3),
+        which reports itself as a pre-flight failure for a phase-3 problem.
+        """
+
+        import os
+
+        self.template.write_text(self.CONTAMINATED, encoding="utf-8")
+        os.chmod(self.template, 0o444)
+        self.addCleanup(os.chmod, self.template, 0o644)
+        try:
+            result = self.ext.repair_declaring_scaffold(self.root)
+        except Exception as exc:  # noqa: BLE001
+            self.fail(f"repair must not raise; got {exc!r}")
+        self.assertEqual(result, [], "an unwritable template repairs nothing")
+        self.assertEqual(
+            self.template.read_text(encoding="utf-8"), self.CONTAMINATED,
+            "the repair writes through a staged file and a rename, which needs "
+            "only directory permission — so it must check writability first "
+            "rather than silently overriding the operator's read-only marking",
+        )
+        self.assertEqual(
+            sorted(p.name for p in self.template.parent.iterdir()),
+            ["plan-template.md"],
+            "no staged temp file may be left behind",
+        )
+
+    def test_a_non_os_failure_also_reports_instead_of_aborting(self):
+        """"Never fatal" must mean any exception, not just OSError.
+
+        The chmod case above raises PermissionError, an OSError subclass, so a
+        narrower `except (OSError, UnicodeDecodeError)` would still pass it.
+        A parser that raises is the case that distinguishes them, and it is
+        reachable: the repair loads `review_policy` from a tree that extraction
+        has just rewritten.
+        """
+
+        self.template.write_text(self.CONTAMINATED, encoding="utf-8")
+
+        def _boom(*_args, **_kwargs):
+            raise ValueError("fencer exploded")
+
+        # Patched on the extension module rather than on `review_policy`:
+        # the repair calls `importlib.reload` on a cached parser, which
+        # re-executes it from disk and discards any patch applied there.
+        with patch.object(self.ext, "_fence_serialization_examples", _boom):
+            try:
+                result = self.ext.repair_declaring_scaffold(self.root)
+            except Exception as exc:  # noqa: BLE001
+                self.fail(f"repair must swallow any failure; got {exc!r}")
+        self.assertEqual(result, [])
+        self.assertEqual(
+            self.template.read_text(encoding="utf-8"), self.CONTAMINATED,
+            "a failed repair must leave the template untouched",
+        )
+
+    def test_the_resume_branch_repairs_before_it_re_runs_the_gate(self):
+        """Pins the CALL SITE, not just the helper.
+
+        `test_the_resume_path_reaches_the_repair` above calls the helper
+        directly, so it stays green even if the resume branch stops calling it
+        — which would silently restore the stranding this AC exists to prevent.
+        Driving the whole resume branch needs a lock file, argv, and a full
+        docs corpus, so this asserts the ordering structurally instead: the
+        repair must appear immediately before the resume site's
+        `phase_docs_gate(root)`, and the file must contain exactly the two
+        gate call sites the plan accounts for.
+        """
+
+        import upgrade_lib
+        import upgrade_wavefoundry
+
+        self.template.write_text(self.CONTAMINATED, encoding="utf-8")
+        upgrade_lib.write_upgrade_lock(
+            self.root, from_version="1.0.0", to_version="1.0.1"
+        )
+        upgrade_lib.update_upgrade_lock(self.root, failed_phase="docs_gate")
+
+        seen: list[tuple[str, ...]] = []
+
+        def _recording_gate(root):
+            # What the gate would ACTUALLY see. The gate is the thing the
+            # repair exists to unblock, so ordering is the whole contract.
+            seen.append(self._declared())
+
+        with patch.object(upgrade_wavefoundry, "phase_docs_gate", _recording_gate):
+            rc = upgrade_wavefoundry.main(
+                ["--resume-after-gate", "--root", str(self.root)]
+            )
+
+        self.assertEqual(rc, 0, "the resume branch must complete")
+        self.assertEqual(
+            seen, [()],
+            "the docs gate must run exactly once and see a repaired template; "
+            "a repair that is skipped, or ordered after the gate, strands the "
+            "one path a halted repository can travel",
+        )
+
+    def test_the_blocking_set_and_the_repairable_set_are_one_constant(self):
+        """AC-4a's invariant, pinned rather than assumed.
+
+        The lint rule blocks on `review_policy.SCAFFOLD_DOCS` and the repair
+        iterates the same constant. Two independent literals would let the
+        blocking set grow past the repairable set on the next edit, shipping a
+        gate with no repair — the exact stranding this wave exists to prevent.
+        """
+
+        import review_policy
+        from wave_lint_lib import core_validators
+
+        # Value equality, not identity: `repair_declaring_scaffold` calls
+        # `importlib.reload` on `review_policy`, which rebinds the constant to
+        # a NEW tuple while `core_validators` still holds the pre-reload one.
+        # An identity assertion passes standalone and fails in-suite the moment
+        # any repair test has run first.
+        self.assertEqual(
+            core_validators.SCAFFOLD_DOCS, review_policy.SCAFFOLD_DOCS,
+            "the linter and the parser must agree on the scaffold set",
+        )
+        linter_source = (SCRIPTS_ROOT / "wave_lint_lib" / "core_validators.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(
+            "SCAFFOLD_DOCS,", linter_source,
+            "the linter must IMPORT the shared constant, not define its own",
+        )
+        self.assertNotIn(
+            "SCAFFOLD_DOCS = (", linter_source,
+            "a local definition would let the two sets drift apart",
+        )
+        source = Path(self.ext.__file__ or "").read_text(encoding="utf-8") \
+            if getattr(self.ext, "__file__", None) and Path(self.ext.__file__).is_file() \
+            else (SCRIPTS_ROOT / "upgrade_extensions.py").read_text(encoding="utf-8")
+        self.assertIn(
+            'getattr(review_policy, "SCAFFOLD_DOCS", ())', source,
+            "the repair must iterate the shared constant, not a literal, and "
+            "must read it defensively because the loop header sits outside "
+            "the per-file guard",
+        )
+        self.assertNotIn(
+            '"docs/plans/plan-template.md",)', source,
+            "a local literal would let the repairable set drift from the "
+            "blocking set, which is the invariant AC-4a rests on",
+        )
+
+    def test_the_post_fence_recheck_prevents_a_corrupting_write(self):
+        """The re-check is defense in depth against a fencer bug.
+
+        It is pinned by INJECTION on purpose. A delivery lane once reached
+        this guard with a real document — a fenced example beside a stray
+        declaring bullet — but that was only possible because the fencer was
+        fence-blind, and repairing that blindness turned the input into a
+        successful repair (see the stray-bullet test above). No natural input
+        is known to reach the re-check now, so a fixture-based pin would be
+        vacuous. The guard still earns its place: it is the only thing
+        standing between a future fencer defect and a written file that
+        un-fences a real example, so the caller must refuse a transformation
+        that still declares no matter which transform produced it.
+        """
+
+        self.template.write_text(self.CONTAMINATED, encoding="utf-8")
+        before = self.template.read_bytes()
+        still_declaring = (
+            "# T\n\n## Serialization Points\n\n- `real/target.py`\n\n## Next\n"
+        )
+        import review_policy
+
+        self.assertEqual(
+            review_policy.serialization_point_paths(still_declaring),
+            ("real/target.py",),
+            "the injected transform must genuinely still declare",
+        )
+        with patch.object(
+            self.ext,
+            "_fence_serialization_examples",
+            lambda *_a, **_k: still_declaring,
+        ):
+            self.assertEqual(self.ext.repair_declaring_scaffold(self.root), [])
+        self.assertEqual(
+            self.template.read_bytes(), before,
+            "the re-check must refuse a transformation that still declares",
+        )
+
+    def test_a_clean_template_produces_no_operator_message(self):
+        """The early-continue is NOT redundant with the post-fence re-check.
+
+        With it removed, the transform double-fences the already-fenced
+        example, the re-check refuses, and the repair prints a false
+        "fence it by hand" warning on EVERY upgrade of EVERY clean repository.
+        """
+
+        import contextlib
+        import io
+
+        shipped = (SCRIPTS_ROOT.parent.parent.parent / "docs" / "plans" / "plan-template.md")
+        self.template.write_text(shipped.read_text(encoding="utf-8"), encoding="utf-8")
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            result = self.ext.repair_declaring_scaffold(self.root)
+        self.assertEqual(result, [])
+        self.assertEqual(
+            buffer.getvalue(), "",
+            "a clean template must produce no message at all",
+        )
+
+    def test_the_repair_reloads_the_extracted_parser(self):
+        """A cached pre-upgrade parser would silently skip the repair.
+
+        `review_evidence` imports `review_policy` at module scope and the
+        sidecar cleanup runs before this hook, so `sys.modules` really can hold
+        an old parser — one that did not know the marker block at all.
+
+        This is pinned BEHAVIORALLY. The previous assertion looked for the
+        literal `importlib.reload(cached)` anywhere in the module source, but
+        that string appears four times and three of them predate this change,
+        so deleting the reload here left the test green while the repair
+        silently no-opped and the docs gate halted the upgrade.
+
+        The stub below is the transition run: a pre-upgrade runner holding a
+        parser that does not know the marker block, so it reports the
+        contaminated template as declaring nothing. Only a reload against the
+        extracted tree can see the real declaration.
+        """
+
+        import importlib
+        import review_policy
+
+        self.template.write_text(self.CONTAMINATED, encoding="utf-8")
+        self.assertEqual(
+            self._declared(), ("path/to/file.swift", "docs/specs/"),
+            "fixture must declare when read by the REAL parser",
+        )
+
+        stale = types.ModuleType("review_policy")
+        stale.__file__ = review_policy.__file__
+        stale.__spec__ = review_policy.__spec__
+        stale.SCAFFOLD_DOCS = review_policy.SCAFFOLD_DOCS
+        # The old parser's blind spot: it reports the contamination as clean.
+        stale.serialization_point_paths = lambda _text: ()
+
+        with patch.dict(sys.modules, {"review_policy": stale}):
+            repaired = self.ext.repair_declaring_scaffold(self.root)
+
+        self.assertEqual(
+            repaired, ["docs/plans/plan-template.md"],
+            "a stale cached parser must be reloaded, not trusted; with the "
+            "reload gone the repair sees () and skips, and the class-a gate "
+            "then halts exactly the repositories this change protects",
+        )
+        importlib.reload(review_policy)
+        self.assertEqual(self._declared(), ())
+
+    def test_a_run_reaching_eof_keeps_the_trailing_newline(self):
+        """The repair is insertion-only; it must not eat the final newline."""
+
+        self.template.write_text(
+            "# T\n\n## Serialization Points\n\n- `src/app/handler.py`\n",
+            encoding="utf-8",
+        )
+        self.ext.repair_declaring_scaffold(self.root)
+        self.assertTrue(
+            self.template.read_text(encoding="utf-8").endswith("\n"),
+            "the trailing newline must survive a run that reaches EOF",
+        )
+
+    def test_both_ends_of_the_repair_open_with_untranslated_newlines(self):
+        """The write side is a Windows-only corruption, so pin the contract.
+
+        Reading without ``newline=""`` turns a CRLF checkout into LF in
+        memory; writing without it translates every ``\\n`` back to
+        ``os.linesep``. On POSIX that write-side translation is a no-op, so a
+        byte-comparison test passes on this machine while a Windows operator
+        gets ``\\r\\r\\n`` on every line of the template. Asserting the call
+        contract is what makes the pin portable — a byte test cannot reach it
+        from here.
+        """
+
+        import pathlib
+
+        real_open = pathlib.Path.open
+        modes: dict[str, object] = {}
+
+        def _spy(self_path, mode="r", *args, **kwargs):
+            # The write lands on a staged sibling that is then renamed over the
+            # template, so match the prefix rather than the exact name.
+            if self_path.name.startswith("plan-template.md"):
+                modes[mode] = kwargs.get("newline", "<absent>")
+            return real_open(self_path, mode, *args, **kwargs)
+
+        self.template.write_text(self.CONTAMINATED, encoding="utf-8")
+        with patch.object(pathlib.Path, "open", _spy):
+            self.assertEqual(
+                self.ext.repair_declaring_scaffold(self.root),
+                ["docs/plans/plan-template.md"],
+            )
+        self.assertEqual(
+            modes, {"r": "", "w": ""},
+            "both the read and the write must pass newline='' — "
+            f"saw {modes}",
+        )
+
+    def _repair_capturing(self):
+        import contextlib
+        import io
+
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            result = self.ext.repair_declaring_scaffold(self.root)
+        return result, buffer.getvalue()
+
+    def test_the_repair_reports_every_outcome_to_the_operator(self):
+        """AC-6's report, asserted rather than named.
+
+        Production discards the return value at both call sites, so `print` is
+        the ONLY operator-facing report. Deleting any of the three messages
+        previously survived every test, and two tests named
+        "..._reports_instead_of_aborting" asserted only the no-raise half.
+        """
+
+        import os
+
+        # Success.
+        self.template.write_text(self.CONTAMINATED, encoding="utf-8")
+        result, out = self._repair_capturing()
+        self.assertEqual(result, ["docs/plans/plan-template.md"])
+        self.assertIn("fenced the example block", out)
+        self.assertIn("plan-template.md", out)
+
+        # Refusal: an unrecognized template the fencer declines to transform.
+        # Injected, because the fencer now recognizes every natural shape.
+        self.template.write_text(self.CONTAMINATED, encoding="utf-8")
+        with patch.object(
+            self.ext, "_fence_serialization_examples", lambda *_a, **_k: None
+        ):
+            result, out = self._repair_capturing()
+        self.assertEqual(result, [])
+        self.assertIn("could not be repaired", out)
+        self.assertIn(
+            "--resume-after-gate", out, "the refusal must name the remedy"
+        )
+
+        # Crash: the operator must still be told.
+        self.template.write_text(self.CONTAMINATED, encoding="utf-8")
+
+        def _boom(*_a, **_k):
+            raise ValueError("fencer exploded")
+
+        with patch.object(self.ext, "_fence_serialization_examples", _boom):
+            result, out = self._repair_capturing()
+        self.assertEqual(result, [])
+        self.assertIn("could not be repaired", out)
+        self.assertIn("fencer exploded", out, "the cause must reach the operator")
+
+    def test_an_already_fenced_example_is_never_re_fenced(self):
+        """The realistic contamination: shipped template plus one stray bullet.
+
+        Re-fencing an already-fenced example flips fence parity, so the result
+        still declares and the repair refuses — halting the upgrade on a
+        template an operator produced with one ordinary edit. Uses the REAL
+        shipped template so the fixture cannot drift from what ships.
+        """
+
+        shipped = (
+            SCRIPTS_ROOT.parent.parent.parent / "docs" / "plans" / "plan-template.md"
+        ).read_text(encoding="utf-8")
+        self.assertIn("```", shipped, "the shipped template fences its example")
+        contaminated = shipped.replace(
+            "## Affected Architecture Docs",
+            "- `src/api/routes.py`\n\n## Affected Architecture Docs",
+            1,
+        )
+        self.template.write_text(contaminated, encoding="utf-8")
+        self.assertEqual(self._declared(), ("src/api/routes.py",))
+        self.assertEqual(
+            self.ext.repair_declaring_scaffold(self.root),
+            ["docs/plans/plan-template.md"],
+            "a stray bullet beside a fenced example must be repairable",
+        )
+        self.assertEqual(self._declared(), ())
+        after = self.template.read_text(encoding="utf-8")
+        self.assertEqual(
+            after.count("```"), shipped.count("```") + 2,
+            "exactly one new fence pair; the existing one must be untouched",
+        )
+
+    def test_the_scan_loop_boundaries_are_pinned(self):
+        """Branch coverage for the run scanner, not just fixture coverage.
+
+        The section bound, the marker predicate, the multi-run splice order and
+        the loop advance each get an input that fails when the branch is wrong.
+        """
+
+        fence = self.ext._fence_serialization_examples
+        import review_policy
+
+        declares = review_policy.serialization_point_paths
+
+        # Section bound: a declaring bullet AFTER the section must be ignored.
+        outside = (
+            "# T\n\n## Serialization Points\n\n- prose only\n\n"
+            "## Next\n\n- `src/after.py`\n"
+        )
+        self.assertIsNone(
+            fence(outside, declares),
+            "a bullet outside the section is not this rule's business",
+        )
+
+        # Multi-run splice: two separate declaring runs, both fenced, and the
+        # document must keep every line (a forward splice corrupts indices).
+        multi = (
+            "# T\n\n## Serialization Points\n\n"
+            "- `src/one.py`\n\nMiddle prose.\n\n- `src/two.py`\n\n## Next\n"
+        )
+        out = fence(multi, declares)
+        self.assertIsNotNone(out)
+        self.assertEqual(declares(out), ())
+        self.assertIn("Middle prose.", out)
+        self.assertIn("src/one.py", out)
+        self.assertIn("src/two.py", out)
+        self.assertEqual(out.count("```"), 4, "one fence pair per declaring run")
+
+        # No declaring run at all: refuse rather than fence prose.
+        self.assertIsNone(
+            fence("# T\n\n## Serialization Points\n\n- prose only\n", declares)
+        )
+
+    def test_every_predicate_matches_the_shipped_parser_not_a_restatement(self):
+        """Tab forms the parser accepts must not be invisible to the repair.
+
+        Each shape below declares to `serialization_point_paths`, so each must
+        be repaired. A locally-restated predicate misses them: the parser's
+        `_BULLET_RE` accepts a tab after the bullet marker and
+        `_SECTION_HEADING_RE` accepts a tab after `##`, while a
+        `startswith("- ")` / `startswith("## ")` test does not.
+        """
+
+        shapes = {
+            "tab-separated tier-1 bullet": (
+                "# T\n\n## Serialization Points\n\n-\t`src/one.py`\n\n## Next\n"
+            ),
+            "tab-separated bullet under the marker": (
+                "# T\n\n## Serialization Points\n\n"
+                "**Review targets (repo-relative paths):**\n\n"
+                "-\t`src/one.py`\n\n## Next\n"
+            ),
+            "tab-form next heading": (
+                "# T\n\n## Serialization Points\n\n- `src/one.py`\n\n"
+                "##\tAffected Architecture Docs\n\n- `src/two.py`\n"
+            ),
+        }
+        for name, text in shapes.items():
+            with self.subTest(shape=name):
+                self.template.write_text(text, encoding="utf-8")
+                self.assertNotEqual(
+                    self._declared(), (),
+                    "fixture must declare to the shipped parser",
+                )
+                self.assertEqual(
+                    self.ext.repair_declaring_scaffold(self.root),
+                    ["docs/plans/plan-template.md"],
+                )
+                self.assertEqual(self._declared(), ())
+
+    def test_the_repair_never_writes_outside_its_own_section(self):
+        """A tab-form heading used to truncate the scan and fence the NEXT section.
+
+        The post-verify cannot catch this: fencing content in a section that
+        declares nothing does not change what the parser extracts, so the file
+        was written and reported as a success while carrying fences the
+        operator never asked for in `## Affected Architecture Docs`.
+        """
+
+        self.template.write_text(
+            "# T\n\n## Serialization Points\n\n"
+            "**Review targets (repo-relative paths):**\n\n- `docs/specs/`\n\n"
+            "##\tAffected Architecture Docs\n\n- `src/real/thing.py`\n",
+            encoding="utf-8",
+        )
+        self.ext.repair_declaring_scaffold(self.root)
+        after = self.template.read_text(encoding="utf-8")
+        tail = after.split("##\tAffected Architecture Docs", 1)[1]
+        self.assertNotIn(
+            "```", tail,
+            "the repair must not insert fences past its own section boundary",
+        )
+
+    def test_the_repair_sources_its_predicates_from_the_parser(self):
+        """Structural pin for the rule that produced three drifted predicates.
+
+        Requirement 2 forbids re-implementing extraction because a second
+        implementation drifts. The same holds for the fence scanner and the
+        boundary tests, which is exactly where the drift happened.
+        """
+
+        source = (SCRIPTS_ROOT / "upgrade_extensions.py").read_text(encoding="utf-8")
+        body = source.split("def _fence_serialization_examples", 1)[1]
+        body = body.split("\ndef ", 1)[0]
+        for name in (
+            "parser._fenced_line_flags",
+            "parser._SERIALIZATION_POINTS_HEADING_RE",
+            "parser._SECTION_HEADING_RE",
+            "parser._BULLET_RE",
+            "parser._REVIEW_TARGETS_MARKER_RE",
+        ):
+            self.assertIn(name, body, f"{name} must come from the parser")
+        self.assertNotIn(
+            'startswith(("- ", "* "))', body,
+            "a locally-restated bullet test is the defect this pins",
+        )
+        self.assertNotIn(
+            'startswith("## ")', body,
+            "a locally-restated heading test is the defect this pins",
+        )
+
+    def test_the_staged_write_preserves_mode_and_leaves_no_debris(self):
+        """Both properties of the atomic write, pinned where they can fail.
+
+        The chmod-444 refusal returns BEFORE a staged file is ever created, so
+        it cannot pin cleanup. These drive the two paths where a temp file
+        actually exists: a failure during the staged write, and a failure at
+        the rename. Mode preservation had no pin at all, so a checkout whose
+        template is group-writable would silently come back private.
+        """
+
+        import os
+
+        def _names():
+            return sorted(p.name for p in self.template.parent.iterdir())
+
+        for mode in (0o644, 0o664, 0o600):
+            with self.subTest(mode=oct(mode)):
+                self.template.write_text(self.CONTAMINATED, encoding="utf-8")
+                os.chmod(self.template, mode)
+                self.assertEqual(
+                    self.ext.repair_declaring_scaffold(self.root),
+                    ["docs/plans/plan-template.md"],
+                )
+                self.assertEqual(
+                    self.template.stat().st_mode & 0o7777, mode,
+                    "the repair must carry the template's own mode across the "
+                    "rename; the staged file is created with the umask",
+                )
+                self.assertEqual(_names(), ["plan-template.md"])
+
+        original = self.CONTAMINATED
+        # Each case is INDEPENDENT: the directory is reset first, so a case
+        # cannot pass by tripping on debris the previous one left. The first
+        # two fail AFTER the staged file exists, so they are the ones that
+        # genuinely pin cleanup; the third fails before it is created and
+        # pins only that the original survives.
+        cases = {
+            "rename": lambda: patch.object(
+                self.ext.os, "replace", side_effect=OSError("boom")
+            ),
+            "mode carry-over": lambda: patch.object(
+                self.ext.os, "chmod", side_effect=OSError("no chmod")
+            ),
+            "staged write": lambda: patch.object(
+                type(self.template), "open", _explode_on_staged
+            ),
+        }
+        real_open = type(self.template).open
+
+        def _explode_on_staged(self_path, mode="r", *a, **kw):
+            if self_path.name.endswith(".wf-scaffold-repair"):
+                raise OSError("disk full")
+            return real_open(self_path, mode, *a, **kw)
+
+        for label, make_patcher in cases.items():
+            with self.subTest(fails_at=label):
+                for stray in self.template.parent.iterdir():
+                    if stray.name != "plan-template.md":
+                        stray.unlink()
+                self.template.write_text(original, encoding="utf-8")
+                with make_patcher():
+                    result = self.ext.repair_declaring_scaffold(self.root)
+                self.assertEqual(result, [], "a failed write repairs nothing")
+                self.assertEqual(
+                    self.template.read_text(encoding="utf-8"), original,
+                    "the original must survive intact; this is why the write "
+                    "stages instead of truncating in place",
+                )
+                self.assertEqual(
+                    _names(), ["plan-template.md"],
+                    "a staged temp file must never be left in the operator's "
+                    "docs/plans directory",
+                )

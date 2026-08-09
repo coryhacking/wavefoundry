@@ -2758,6 +2758,34 @@ def _config_review_recommendation_lines(
         return []
 
 
+def _repair_declaring_scaffold_on_resume(root: Path) -> list[str]:
+    """Reach the scaffold repair from the resume path, which runs no hooks.
+
+    ``--resume-after-gate`` re-enters only ``phase_docs_gate``; it builds no
+    extension module and has no zip to load one from, so the ``pre_docs_gate``
+    repair is unavailable there by construction. Resume is also the ONLY path
+    a repository that already halted on a declaring scaffold can travel, so
+    without this call the scaffold rule would permanently strand exactly the
+    repositories it exists to protect.
+
+    Safe to call unconditionally: the repair is a no-op when the scaffold
+    declares nothing, and never fatal.
+    """
+
+    try:
+        import upgrade_extensions  # noqa: PLC0415 — post-extraction by construction
+    except Exception:  # noqa: BLE001
+        return []
+    repair = getattr(upgrade_extensions, "repair_declaring_scaffold", None)
+    if repair is None:
+        return []
+    try:
+        return repair(root) or []
+    except Exception as exc:  # noqa: BLE001 — advisory, never blocks a resume
+        _log(f"  ⚠  scaffold repair skipped on resume: {exc}")
+        return []
+
+
 def _run_reconciliation_scan(
     root: Path | None,
 ) -> tuple[list[dict], list[dict], list[dict]]:
@@ -4411,6 +4439,16 @@ def main(argv: list[str] | None = None) -> int:
                 "already-extracted tree ──"
             )
             try:
+                # The resume branch builds no ext_mod and dispatches no hook —
+                # it has no zip to load one from — so the pre_docs_gate repair
+                # cannot reach it. Call the INSTALLED extension directly. That
+                # is not the class-b trap Requirement 7 warns about: resume
+                # runs strictly post-extraction (it requires
+                # failed_phase == "docs_gate"), so the installed module is
+                # already the new one. Without this, a repository that halted
+                # on a declaring scaffold stays halted on every resume, which
+                # is the one path it can travel.
+                _repair_declaring_scaffold_on_resume(root)
                 # Re-run only docs-gardener/docs-lint; no extract/render/prune.
                 phase_docs_gate(root)
             except SystemExit:

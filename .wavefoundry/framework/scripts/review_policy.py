@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
-from gardener_metadata import canonical_review_policy_body
+from gardener_metadata import _fenced_line_flags, canonical_review_policy_body
 
 
 DELIVERY_MODES = ("disabled", "targeted", "universal")
@@ -22,7 +22,17 @@ FRESH_INSTALL_DELIVERY_MODE = "targeted"
 TARGETED_DEFAULT_COUNCIL_REDUCTION_MIN = 0.20
 TARGETED_DEFAULT_LANE_REDUCTION_MIN = 0.15
 REVIEW_POLICY_SCHEMA_VERSION = 1
-REVIEW_POLICY_EVALUATOR_VERSION = 4
+# 6 -> 7: the canonicalizer gained carrier normalization (BOM, line endings,
+# trailing newline, trailing whitespace outside a fence), a conditional
+# `## Session Handoff` exclusion, an order-invariant `changes` payload, and
+# whitespace-independent legacy lane matching. Bumped for the same reason 2 -> 3
+# was: without it the permanent `events.jsonl` history cannot tell a plan edit
+# apart from a canonicalization change. The re-digest happens either way -- every
+# change document's canonical body moves -- so the only question the bump settles
+# is whether the ledger can EXPLAIN why. One re-Prepare per readied-or-open wave;
+# closed waves are untouched, because receipt-chain validation re-derives ids from
+# the fields stored on each record.
+REVIEW_POLICY_EVALUATOR_VERSION = 7
 REVIEW_POLICY_RECEIPT_RECORD_TYPE = "review_policy_receipt"
 REVIEW_POLICY_REPREPARE_MARKER = "review-policy-reprepare-required"
 GENESIS_RECEIPT_PARENT = "genesis"
@@ -161,7 +171,15 @@ REVIEW_POLICY_SURFACE_BLOCKS = {
 
 Prepare Wave is the single readiness authority. It evaluates the configured
 `wave_review.delivery_mode`, records the review-policy receipt, and requires a
-re-Prepare whenever policy inputs change before implementation.""",
+re-Prepare whenever policy inputs change before implementation.
+
+Editing the digest canonicalizer is itself a policy-input change, and it moves
+every change document at once. `canonical_review_policy_body` and its
+normalizers decide what the digest sees, so changing them re-digests the whole
+repository and lapses every readiness approval in every open wave without a
+single document being edited. Expect one re-Prepare per open wave, disclose it
+in the change document, and avoid making the edit while waves are readied but
+unclosed without saying so.""",
     "docs/prompts/review-wave.prompt.md": """## Review-policy delivery
 
 Review Wave consumes the shared delivery evaluator selected by the current
@@ -347,7 +365,12 @@ def normalize_wave_review_policy(
 def migrate_wave_review_policy(value: object) -> dict[str, Any]:
     """Map a legacy boolean policy to its enforcement-preserving explicit mode."""
 
-    if value is None:
+    # An empty mapping carries no policy, which is exactly what an absent key
+    # carries. Treating only `None` as unset stranded any repository holding
+    # `"wave_review": {}`: the preflight hard-failed before mutation and the
+    # upgrade could not proceed at all. Widening covers the unset case only;
+    # every malformed shape still falls through to the validator below.
+    if value is None or value == {}:
         return {"enabled": True, "delivery_mode": FRESH_INSTALL_DELIVERY_MODE}
 
     normalized, errors = normalize_wave_review_policy(
@@ -401,6 +424,15 @@ def extract_requested_review_lanes(wave_text: str) -> tuple[str, ...]:
     )
 
 
+# The scaffold set: documents meant to be COPIED rather than admitted, which
+# must therefore declare no review targets of their own. It lives here, beside
+# the parser, because two independent consumers must agree on it exactly: the
+# docs-lint rule that BLOCKS a declaring scaffold, and the upgrade repair that
+# FIXES one. If those sets ever diverge, the blocking set can grow past the
+# repairable set and strand a repository at the docs gate with nothing the
+# upgrade can do — the precise failure the rule exists to prevent.
+SCAFFOLD_DOCS: tuple[str, ...] = ("docs/plans/plan-template.md",)
+
 _SERIALIZATION_POINTS_HEADING_RE = re.compile(
     r"(?mi)^##[ \t]+Serialization Points\s*$"
 )
@@ -420,24 +452,222 @@ _REPO_PATH_RE = re.compile(
 )
 
 
-def serialization_point_paths(change_text: str) -> tuple[str, ...]:
-    """Return explicit repo-relative targets from the one declared section."""
+# The strict opt-in marker. Its block is the only place a target containing a
+# SPACE can be declared, because extraction there is span-bounded rather than
+# regex-scanned. Kept byte-exact so a near-miss degrades to the tier-1 floor
+# instead of silently declaring nothing.
+# `\s*$` rather than `[ \t]*$` so a CRLF checkout's trailing `\r` still matches,
+# exactly as `_SERIALIZATION_POINTS_HEADING_RE` above already tolerates it. The
+# splitter below splits on "\n", so the "\r" reaches this pattern. Without it a
+# Windows checkout silently loses every tier-2 declaration and degrades to the
+# floor, which is the silent-loss failure this change exists to remove.
+_REVIEW_TARGETS_MARKER_RE = re.compile(
+    r"(?mi)^\*\*Review targets \(repo-relative paths\):\*\*\s*$"
+)
+_BULLET_RE = re.compile(r"^[ \t]*[-*][ \t]+(?P<content>.*)$")
+_BACKTICK_SPAN_RE = re.compile(r"`(?P<span>[^`]+)`")
+# Separators an author writes BETWEEN targets on one bullet. Stripped before the
+# all-tokens test so `- \`a.py\`; \`b.py\`` stays a declaration.
+_TARGET_SEPARATOR_RE = re.compile(r"[`;,]")
+# An extension followed by anything else is a path with a note glued on, or two
+# paths crammed into one span. Both are phantoms: they name no real file.
+_EXTENSION_THEN_MORE_RE = re.compile(r"\.[A-Za-z0-9]+\s")
+_WHITESPACE_RE = re.compile(r"\s")
 
-    match = _SERIALIZATION_POINTS_HEADING_RE.search(change_text)
-    if match is None:
+
+_SECTION_HEADING_RE = re.compile(r"^##[ \t]+")
+
+
+def _serialization_points_body(change_text: str) -> str | None:
+    """Return the one real `## Serialization Points` body, ignoring fences.
+
+    Both scans skip fenced lines. A plain text search picks up a fenced
+    EXAMPLE of the section and reads it in place of the real one, so a document
+    illustrating the declaration form declares the example's paths and drops
+    the real ones. The same blindness on the closing scan lets a fenced `## `
+    line inside the section truncate it and silently discard every declaration
+    below.
+
+    This is not hypothetical: the shipped change-doc scaffold now teaches the
+    declaration forms with fenced examples inside this very section, so the
+    illustrate-the-form case is the common one rather than the exotic one.
+    """
+
+    lines = change_text.split("\n")
+    fenced = _fenced_line_flags(lines)
+    start = None
+    for index, line in enumerate(lines):
+        if not fenced[index] and _SERIALIZATION_POINTS_HEADING_RE.fullmatch(line):
+            start = index + 1
+            break
+    if start is None:
+        return None
+    end = len(lines)
+    for index in range(start, len(lines)):
+        if not fenced[index] and _SECTION_HEADING_RE.match(lines[index]):
+            end = index
+            break
+    return "\n".join(lines[start:end])
+
+
+def _span_bullet_targets(line: str) -> tuple[str, ...]:
+    """Tier 2: backtick spans are atomic targets, and prose still declares nothing.
+
+    A span may contain spaces, which is the only reason this tier exists. The
+    all-or-nothing rule from the floor still applies: once the spans are
+    removed, anything left over other than separators makes the bullet prose.
+    Without that, `- Shared with the wave that also touches the ``docs/``
+    folder` declares `docs/` and empties the roster INSIDE the block that the
+    docs present as the stricter opt-in, which is the reported defect wearing
+    a different hat.
+    """
+
+    bullet = _BULLET_RE.match(line)
+    if bullet is None:
         return ()
-    tail = change_text[match.end():]
-    next_heading = re.search(r"(?m)^##[ \t]+", tail)
-    body = tail[:next_heading.start()] if next_heading else tail
-    return tuple(
-        dict.fromkeys(
-            candidate
-            for candidate in (
-                m.group("path").lower() for m in _REPO_PATH_RE.finditer(body)
-            )
-            if _is_declared_target(candidate)
-        )
-    )
+    content = bullet.group("content")
+    spans = [m.group("span").strip() for m in _BACKTICK_SPAN_RE.finditer(content)]
+    if not spans:
+        return _pure_path_bullet_targets(line)
+    residue = _TARGET_SEPARATOR_RE.sub(
+        " ", _BACKTICK_SPAN_RE.sub(" ", content)
+    ).strip()
+    if residue:
+        # Residue is either prose or an unbackticked path. Fall back to the
+        # floor rather than rejecting outright: the floor decides correctly
+        # (prose fails its all-tokens test, a mixed-notation bullet passes),
+        # and rejecting here would break the union invariant this module
+        # promises, silently dropping a bullet the floor would have accepted
+        # purely because a marker line sits above it.
+        return _pure_path_bullet_targets(line)
+    found: list[str] = []
+    for span in spans:
+        candidate = span.lower()
+        # A span must still look like a PATH, not merely like a declared
+        # target. `_is_declared_target` accepts any dotted final segment, so
+        # without these rules a version string such as `1.15.4` declares
+        # itself, and a path carrying a trailing note declares the whole
+        # sentence. Either phantom matches no trigger, SUPPRESSES the
+        # fallback, and yields a smaller roster than the same bullet with no
+        # marker above it. The floor gets this from `_REPO_PATH_RE`, which
+        # cannot be reused here because it has no space in its character
+        # class, so the space tolerance is spent deliberately: a DIRECTORY
+        # segment may contain spaces (this project's `<id> <slug>` artifacts),
+        # a basename may not, and an extension is never followed by more text.
+        if (
+            "/" not in candidate
+            or not _is_declared_target(candidate)
+            or _EXTENSION_THEN_MORE_RE.search(candidate) is not None
+            or (not candidate.endswith("/") and _WHITESPACE_RE.search(
+                candidate.rsplit("/", 1)[-1]
+            ) is not None)
+        ):
+            return ()
+        found.append(candidate)
+    return tuple(found)
+
+
+def _pure_path_bullet_targets(line: str) -> tuple[str, ...]:
+    """Tier 1: a bullet declares only if EVERY token in it is a target.
+
+    One residual English word makes the whole bullet prose. That all-or-nothing
+    rule is what keeps narrative out of the declaration set: real Serialization
+    Points prose is usually written as bullets, so a floor that merely scanned
+    bullets for path-shaped tokens reproduced the reported defect exactly.
+
+    It also rejects shredded phantoms for free. An unbackticked spaced path
+    splits into fragments, and the leading fragment (`docs/waves/1uo1x`) is not
+    a declared target, so the bullet is prose and the document keeps its
+    fallback rather than being suppressed by a target that names no real file.
+    """
+
+    bullet = _BULLET_RE.match(line)
+    if bullet is None:
+        return ()
+    tokens = _TARGET_SEPARATOR_RE.sub(" ", bullet.group("content")).split()
+    if not tokens:
+        return ()
+    found: list[str] = []
+    for token in tokens:
+        if _REPO_PATH_RE.fullmatch(token) is None:
+            return ()
+        candidate = token.lower()
+        if not _is_declared_target(candidate):
+            return ()
+        found.append(candidate)
+    return tuple(found)
+
+
+def serialization_point_paths(change_text: str) -> tuple[str, ...]:
+    """Return explicit repo-relative targets from the one declared section.
+
+    Two tiers, unioned. The tier-1 floor accepts pure-path bullets and needs no
+    migration; the tier-2 `**Review targets (repo-relative paths):**` block is
+    the strict opt-in that additionally tolerates spaces. They union so that
+    adding a block can never silently drop a declaration the floor accepted.
+
+    Extraction is NOT proof of adoption on its own: a document declaring
+    nothing here keeps whole-document prose scoring, decided per document by
+    `select_required_review_lanes`.
+    """
+
+    body = _serialization_points_body(change_text)
+    if body is None:
+        return ()
+    lines = body.split("\n")
+    fenced = _fenced_line_flags(lines)
+    marker_line = None
+    for index, line in enumerate(lines):
+        if not fenced[index] and _REVIEW_TARGETS_MARKER_RE.fullmatch(line):
+            marker_line = index
+            break
+
+    def wraps(index: int) -> bool:
+        """A bullet whose text continues on the next line is not single-line.
+
+        Such a bullet is prose in its entirety, in BOTH tiers. Taking its first
+        line and discarding the rest would silently drop the continuation
+        targets of a real declaration, and would equally let a sentence that
+        merely opens with a path declare one.
+        """
+
+        following = lines[index + 1] if index + 1 < len(lines) else ""
+        if not following.strip() or _BULLET_RE.match(following) is not None:
+            return False
+        # A fence marker OPENS a block; it is a boundary, not a continuation.
+        # Treating it as one drops a real declaration that happens to sit
+        # directly above a fenced example, which the shipped scaffold now
+        # teaches authors to write in this section.
+        stripped = following.lstrip()
+        return not (stripped.startswith("```") or stripped.startswith("~~~"))
+
+    found: list[str] = []
+    block: set[int] = set()
+    if marker_line is not None:
+        # The block runs to the first line that is neither a bullet nor blank.
+        for index in range(marker_line + 1, len(lines)):
+            line = lines[index]
+            if fenced[index]:
+                break
+            if not line.strip():
+                continue
+            if _BULLET_RE.match(line) is None:
+                break
+            block.add(index)
+            if wraps(index):
+                continue
+            # A backtick span is ONE target, spaces included, so this project's
+            # own `<id> <slug>` artifacts are declarable. Lowercased like every
+            # other target: the footprint consumer folds case on the git side
+            # only, deliberately, after a delivery bug that silently dropped
+            # every PascalCase declaration.
+            found.extend(_span_bullet_targets(line))
+
+    for index, line in enumerate(lines):
+        if fenced[index] or index in block or wraps(index):
+            continue
+        found.extend(_pure_path_bullet_targets(line))
+    return tuple(dict.fromkeys(found))
 
 
 def _is_declared_target(candidate: str) -> bool:
@@ -480,6 +710,74 @@ def _path_token_matches(token: str, path: str) -> bool:
     )
 
 
+def _legacy_token_match(token: str, corpus: str) -> tuple[int, str] | None:
+    """Find a legacy fallback token without treating prose suffixes as paths."""
+
+    if token.startswith("."):
+        # A bare extension in prose (or ``events.jsonl`` containing ``.js``)
+        # is not a JavaScript target.  Require a path-like basename ending in
+        # the extension, bounded from surrounding word/dot characters.  A dot
+        # that begins another filename segment means the extension is only an
+        # intermediate suffix (for example ``README.js.md``); terminal prose
+        # punctuation after a real path remains valid.
+        pattern = re.compile(
+            rf"(?<![\w.])(?P<match>[A-Za-z0-9_./-]+{re.escape(token)})(?!(?:\w|\.[A-Za-z0-9_-]))"
+        )
+        found = pattern.search(corpus)
+        return (found.start(), found.group("match")) if found else None
+    # Boundary match on the token with its trailing space stripped. Four kind
+    # tokens ship WITH a trailing space (`-bug `, `-enh `, `-feat `,
+    # `-refactor `), and a bare `corpus.find` made lane selection depend on
+    # invisible whitespace in both directions: a line ending `-bug ` recruited
+    # a lane and a line ending `-bug` did not. The trigger is the token, not
+    # the space. This deliberately WIDENS matching, so a bare token at end of
+    # line now recruits its lane; that is the correct direction and it is
+    # pinned positively rather than tolerated. The trailing `(?!\w)` keeps
+    # `-bug` inside `debugger` from matching, which substring search never did
+    # either once the space was required.
+    if token.endswith(" "):
+        stripped = token.rstrip()
+        found = re.search(rf"{re.escape(stripped)}(?!\w)", corpus)
+        return (found.start(), stripped) if found else None
+    # Every other token is a PATH PREFIX (`docs/prompts/`, `framework/seeds/`)
+    # and is meant to match as one, so it keeps substring search. Applying the
+    # boundary guard here broke 20 documents: `docs/prompts/index.md` has a word
+    # character immediately after the token, so `(?!\w)` rejected the very match
+    # the trigger exists to make.
+    found = corpus.find(token)
+    return (found, token) if found >= 0 else None
+
+
+def _legacy_match_reason(token: str, corpus: str) -> str:
+    """Describe a fallback token match without inventing a source location.
+
+    The corpus is every undeclared change document joined together and then
+    canonicalized, which collapses each Progress Log body to a single sentinel
+    line. An offset into it therefore names no line in any real document: a
+    token on line 22 of one doc reported as "line 15", and with two documents
+    the number became a cross-document offset. The excerpt is also lowercased,
+    so it is not a byte-accurate quote either. Report what is true (the token
+    and a normalized excerpt) rather than a precise-looking line reference the
+    reader cannot act on. A document that declares targets in
+    `## Serialization Points` replaces this fallback with exact per-path
+    reasons FOR THAT DOCUMENT; adoption is per document, so an un-migrated
+    sibling in the same wave still contributes its own fallback reasons.
+    """
+
+    match = _legacy_token_match(token, corpus)
+    if match is None:
+        # Callers pre-filter on the same predicate, so this is unreachable in
+        # practice. It is a plain branch rather than an `assert` because
+        # `python -O` strips asserts, and the next line would then fail on an
+        # unpack of None instead of degrading to a still-useful reason.
+        return f"{token} (matched in undeclared change-document prose)"
+    _offset, excerpt = match
+    return (
+        f"{token} (matched in undeclared change-document prose, "
+        f"normalized excerpt: {excerpt[:80]!r})"
+    )
+
+
 def select_required_review_lanes(
     *,
     requested_lanes: Iterable[str],
@@ -507,15 +805,21 @@ def select_required_review_lanes(
         if found:
             paths.extend(found)
         else:
-            undeclared.append(text_s.lower())
-    # Adoption is a property of the WAVE, not of each document. As soon as any
-    # admitted change declares real targets, the wave has adopted the contract
-    # and prose scoring stays off for all of its documents — otherwise one
-    # un-migrated sibling would resurrect exactly the false positives this
-    # change exists to remove. The fallback is for a wave that declares nothing
-    # anywhere, which is every wave planned before this contract shipped.
-    if paths:
-        undeclared = []
+            # Policy selection and receipt hashing must consume the same
+            # canonical carrier.  Otherwise a Progress Log update can change
+            # the fallback roster while leaving the receipt digest unchanged.
+            undeclared.append(
+                canonical_review_policy_body(text_s.encode("utf-8")).decode(
+                    "utf-8", errors="replace"
+                ).lower()
+            )
+    # Adoption is a property of each DOCUMENT, never of the wave. Suppressing
+    # prose scoring wave-wide as soon as any sibling declared targets was the
+    # reported defect at wave scope: measured on a mixed wave it turned
+    # [code, qa, docs-contract] into [docs-contract], silently removing the
+    # un-migrated sibling's entire coverage because a DIFFERENT document had
+    # migrated. Each document is scored in its own mode and the results union,
+    # so migrating one plan can never reduce another's review.
     reasons: dict[str, list[str]] = {}
     selected: list[str] = []
 
@@ -541,7 +845,7 @@ def select_required_review_lanes(
             continue
         legacy = tuple(
             token for token in legacy_tokens.get(lane, ())
-            if token in undeclared_corpus
+            if _legacy_token_match(token, undeclared_corpus) is not None
         )
         if legacy and not matched:
             # Named distinctly so the fallback is visible in the receipt rather
@@ -549,7 +853,7 @@ def select_required_review_lanes(
             add(
                 lane,
                 "risk trigger (undeclared targets, whole-document fallback): "
-                + ", ".join(legacy[:4]),
+                + ", ".join(_legacy_match_reason(token, undeclared_corpus) for token in legacy[:4]),
             )
     ordered = tuple(
         [lane for lane in REVIEW_LANE_ORDER if lane in selected]
@@ -572,14 +876,26 @@ def policy_input_digest(
         "wave_review": dict(wave_review),
         "project_required_review_lanes": list(project_lanes),
         "review_policies": review_policies,
-        "changes": [
-            {
-                "change_id": change_id,
-                "kind": kind,
-                "sha256": hashlib.sha256(canonical_review_policy_body(body)).hexdigest(),
-            }
-            for change_id, kind, body in changes
-        ],
+        # Sorted by change_id. The caller collects change ids from `wave.md` in
+        # DOCUMENT order, so reordering the `## Changes` entries -- pure
+        # bookkeeping, with no content change at all -- moved the digest and
+        # lapsed every recorded approval. Order carries no meaning here and
+        # nothing can be hidden in a sort, so this is a canonicalization defect
+        # rather than an exclusion, and needs none of the exclusion risk
+        # analysis. Admitting or removing a change still moves the digest.
+        "changes": sorted(
+            (
+                {
+                    "change_id": change_id,
+                    "kind": kind,
+                    "sha256": hashlib.sha256(
+                        canonical_review_policy_body(body)
+                    ).hexdigest(),
+                }
+                for change_id, kind, body in changes
+            ),
+            key=lambda entry: entry["change_id"],
+        ),
         "requested_lanes": list(requested_lanes),
     }
     encoded = json.dumps(
@@ -623,20 +939,20 @@ def extract_full_council_triggers(texts: Iterable[str]) -> tuple[str, ...]:
 
 
 def receipt_semantic_fields(receipt: Mapping[str, Any]) -> dict[str, Any]:
-    return {
-        key: receipt[key]
-        for key in (
-            "schema_version",
-            "evaluator_version",
-            "policy_input_digest",
-            "delivery_mode",
-            "primer_depth",
-            "council_seats",
-            "requested_lanes",
-            "required_lanes",
-            "delivery_council_required",
-        )
-    }
+    keys = [
+        "schema_version",
+        "evaluator_version",
+        "policy_input_digest",
+        "delivery_mode",
+        "primer_depth",
+    ]
+    # v4 receipts committed the selected seat into their receipt identity.
+    # Preserve their validator/upgrade compatibility; v5 deliberately makes
+    # that operational roster persistent but non-semantic.
+    if int(receipt.get("evaluator_version", 0)) < 5:
+        keys.append("council_seats")
+    keys.extend(("requested_lanes", "required_lanes", "delivery_council_required"))
+    return {key: receipt[key] for key in keys}
 
 
 def derive_receipt_id(
@@ -668,7 +984,8 @@ def build_policy_receipt(
 ) -> tuple[dict[str, Any] | None, bool]:
     """Return (new receipt or current receipt, append_required)."""
 
-    if current is not None and receipt_semantic_fields(current) == dict(semantic_fields):
+    semantic = receipt_semantic_fields(semantic_fields)
+    if current is not None and receipt_semantic_fields(current) == semantic:
         return dict(current), False
     parent = (
         str(current["receipt_id"])
@@ -677,7 +994,7 @@ def build_policy_receipt(
     )
     receipt: dict[str, Any] = {
         "record_type": REVIEW_POLICY_RECEIPT_RECORD_TYPE,
-        "receipt_id": derive_receipt_id(semantic_fields, parent),
+        "receipt_id": derive_receipt_id(semantic, parent),
         **dict(semantic_fields),
     }
     if current is not None:
@@ -757,7 +1074,7 @@ __all__ = [
     "DELIVERY_MODES", "FRESH_INSTALL_DELIVERY_MODE",
     "FULL_COUNCIL_TRIGGER_FIELDS", "FULL_COUNCIL_TRIGGER_TOKENS",
     "GENESIS_RECEIPT_PARENT",
-    "LIFECYCLE_RECONCILER_CARRIERS", "RETIRED_LIFECYCLE_TOKENS",
+    "LIFECYCLE_RECONCILER_CARRIERS", "RETIRED_LIFECYCLE_TOKENS", "SCAFFOLD_DOCS",
     "REVIEW_LANE_ORDER", "REVIEW_POLICY_CARRIER_REGISTRY",
     "REVIEW_POLICY_EVALUATOR_VERSION", "REVIEW_POLICY_RECEIPT_RECORD_TYPE",
     "REVIEW_POLICY_REPREPARE_MARKER", "REVIEW_POLICY_SCHEMA_VERSION",

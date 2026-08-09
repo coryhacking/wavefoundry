@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-31
+Last verified: 2026-08-08
 
 Wavefoundry reports one conservative estimate of tokens saved while its tools
 support a wave. The estimate is an accounting signal, not a billing record and
@@ -199,7 +199,22 @@ implementation-phase review and close dry-run compute a
 `retrieval_posture_gap` when implement-stage retrieval events are at or below
 `sensors.retrieval_posture.max_retrieval_calls` (default 0) while the changed
 non-docs file footprint is at or above `min_changed_files` (default 5). A
-recorded `Gapfill:` entry anywhere in the wave record clears it. At review
+recorded `Gapfill:` entry anywhere in the wave record clears it.
+
+That footprint is **bounded to the wave**, not to the whole working tree: it
+counts only changed files matching the `## Serialization Points` declared by
+the wave's admitted change docs, so unrelated working-tree dirt cannot become
+evidence about this wave. The consequence is that a wave whose admitted changes
+declare no targets has no trustworthy file-count signal, and the sensor stays
+**silent** rather than guessing: it never fires, in either direction. Declaring
+Serialization Points is therefore what makes this advisory available at all.
+"Declared" here means the machine-readable forms only: a bullet whose content
+is entirely repo-relative paths, or an explicit
+`**Review targets (repo-relative paths):**` block whose backtick-quoted entries
+may contain spaces. Prose that merely names a path declares nothing, so a wave
+whose Serialization Points are narrative sentences gets the silent sensor
+rather than a footprint bounded by whatever those sentences happened to
+mention. At review
 the gap is an advisory diagnostic that never affects the review status; at
 close it is surfaced in the response data and never blocks by itself. The
 implementation-phase review response also carries an

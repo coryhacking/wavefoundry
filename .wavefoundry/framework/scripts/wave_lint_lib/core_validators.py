@@ -20,7 +20,66 @@ from review_policy import (
     UPGRADE_POLICY_MARKER_BEGIN,
     normalize_wave_review_policy,
     review_policy_carriers,
+    serialization_point_paths,
+    SCAFFOLD_DOCS,
 )
+
+
+def check_scaffold_declares_nothing(root: Path, only: set[Path] | None = None) -> list[str]:
+    """A document meant to be COPIED must declare no review targets.
+
+    Field report from a 1.15.5 upgrade: a target repository's
+    `plan-template.md` carried an unfenced example under the
+    `**Review targets (repo-relative paths):**` marker, so the scaffold itself
+    declared `path/to/file.swift` and `docs/specs/`. Every plan created from it
+    was born in declared mode, silently losing two required review lanes and
+    gaining one from a path its author never chose.
+
+    Wavefoundry itself was never affected, and that is exactly the problem the
+    rule exists to solve: this repository is clean only because a test in ITS
+    OWN suite pins the property. A target repository does not run that suite.
+    What it gets is prose instruction in seed 160 telling the upgrade agent to
+    fence its example — instruction the downstream repository received and
+    followed, and still shipped a declaring template. Prose is not a gate.
+
+    Extraction is DELEGATED to `serialization_point_paths`, never
+    re-implemented. A second extractor would drift from the evaluator and pass
+    a template the evaluator reads as declaring, recreating the same silent gap
+    one layer up. The check therefore consumes parser OUTPUT only and never
+    scans raw text: real scaffolds legitimately MENTION example paths in prose,
+    and a text scan would fail them.
+
+    Scope is the scaffold set alone. The upgrade can safely repair a scaffold,
+    because every declaration in one is by definition an example; it cannot
+    safely rewrite authored content, and a closed wave's history is not
+    rewritable at all. Blocking anything the upgrade cannot repair would strand
+    the repository at the docs gate, so nothing outside the set is examined.
+    """
+
+    failures: list[str] = []
+    for rel in SCAFFOLD_DOCS:
+        path = root / rel
+        if not path.is_file():
+            continue
+        if only is not None and path not in only:
+            continue
+        try:
+            declared = serialization_point_paths(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError):
+            continue
+        if declared:
+            named = ", ".join(f"`{target}`" for target in declared)
+            # No "ERROR: " prefix here: `cli._emit` adds one, and every sibling
+            # validator in this module returns a bare message. Self-prefixing
+            # renders as `ERROR: ERROR: …` to the operator.
+            failures.append(
+                f"{rel}: scaffold declares review targets ({named}). "
+                "A template is copied, so its declarations become every new "
+                "change doc's declarations, silently replacing the lanes its "
+                "author would otherwise get. Put the example inside a fenced "
+                "block — fenced regions declare nothing."
+            )
+    return failures
 
 
 def _check_lifecycle_id_policy(data: dict) -> list[str]:

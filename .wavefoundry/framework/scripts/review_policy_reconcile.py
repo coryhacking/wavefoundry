@@ -210,11 +210,16 @@ def _retired_recovery(relative: str, text: str, problem: str) -> str:
     )
 
 
+# `.wavefoundry/` is framework-owned in its entirety; the operator's authored
+# surface is `docs/`. The three subdirectory entries this replaces left the
+# `.wavefoundry/` ROOT scannable, where the pack ships `README.md` and
+# `CHANGELOG.md`. A target repository carrying an older copy of either was told
+# to hand-rewrite a file the same upgrade delivers a replacement for. A prefix
+# rule rather than two more paths, so the next shipped file at that level
+# inherits the exclusion instead of reproducing this bug.
 _LIVE_MARKDOWN_EXCLUDED_PREFIXES = (
     ".git/",
-    ".wavefoundry/framework/",
-    ".wavefoundry/index/",
-    ".wavefoundry/upgrade-assets/",
+    ".wavefoundry/",
     "docs/waves/",
     "docs/reports/",
     "docs/agents/memory/",
@@ -222,14 +227,15 @@ _LIVE_MARKDOWN_EXCLUDED_PREFIXES = (
 
 
 def _live_markdown_dir_excluded(relative_dir: str) -> bool:
+    # The `.wavefoundry/` prefix subsumes what used to need a special case for
+    # `framework.rollback-*` staging directories, exactly as it subsumed the
+    # three subdirectory prefixes it replaced. Keeping the branch would imply
+    # rollback trees are skipped for their own reason when they are skipped
+    # because the whole tree is framework-owned.
     normalized = relative_dir.strip("/")
-    if any((normalized + "/").startswith(prefix) for prefix in _LIVE_MARKDOWN_EXCLUDED_PREFIXES):
-        return True
-    parts = normalized.split("/")
-    return (
-        len(parts) >= 2
-        and parts[0] == ".wavefoundry"
-        and parts[1].startswith("framework.rollback-")
+    return any(
+        (normalized + "/").startswith(prefix)
+        for prefix in _LIVE_MARKDOWN_EXCLUDED_PREFIXES
     )
 
 

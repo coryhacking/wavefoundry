@@ -4,7 +4,7 @@ Change ID: `<id-prefix>-<kind> <slug>` — **mint via the MCP `wf_new_*` tool** 
 Change Status: `planned`
 Owner: [role or person]
 Status: planned
-Last verified: 2026-08-06
+Last verified: 2026-08-08
 Wave: [wave-id or TBD]
 
 ## Rationale
@@ -49,9 +49,17 @@ Why this change is needed. State a specific motivation a reviewer can understand
 
 ## Serialization Points
 
-- [Explicit repo-relative file or integration path that this change will touch]
+[Declare review targets in either form below, then delete this bracketed note.]
 
-List real repository-relative paths here. Prepare uses these paths—not Scope, Rationale, or other narrative—to select automatic review lanes. Path scoring is a floor, not a ceiling: ANY lane may also be requested by judgment through the wave's `Requested review lanes` field, and the coordinator is expected to use it. Architecture review especially is usually a judgment call, since an ownership shift or a protocol change can live entirely in files whose paths recruit only the code lane. A requested lane is always honored and costs no receipt churn.
+Declare a target with a bullet whose content is entirely repo-relative paths, for example `` - `src/app/handler.py`, `docs/specs/` ``. When a target contains a space, declare it inside an explicit block instead:
+
+```
+**Review targets (repo-relative paths):**
+
+- `docs/waves/1abc some slug/wave.md`
+```
+
+Prepare uses declared paths—not Scope, Rationale, or other narrative—to select automatic review lanes, and prose declares nothing in either form: a bullet containing one stray English word is prose (including inside the block, so a sentence there that merely quotes a path declares no target), a wrapped bullet is prose in its entirety, and a fenced example declares nothing. Adoption is per document, so declaring targets here never suppresses a sibling change doc's scoring, and declaring none keeps this document's whole-document coverage rather than emptying it. Path scoring is a floor, not a ceiling: ANY lane may also be requested by judgment through the wave's `Requested review lanes` field, and the coordinator is expected to use it. Architecture review especially is usually a judgment call, since an ownership shift or a protocol change can live entirely in files whose paths recruit only the code lane. A requested lane is always honored and costs no receipt churn.
 
 ## Affected Architecture Docs
 

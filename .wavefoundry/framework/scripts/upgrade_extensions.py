@@ -805,6 +805,234 @@ def _migrate_journals(root: Path) -> None:
         )
 
 
+def repair_declaring_scaffold(root) -> list[str]:
+    """Fence a scaffold's example block so it stops declaring review targets.
+
+    1.15.6 ships a docs-lint ERROR for a scaffold that declares review
+    targets, because a declaring template hands every change doc created from
+    it a roster its author never chose. (1.15.5 is the release the field
+    report came from, not the release carrying the rule.) That rule is class-a: the docs gate
+    subprocesses the freshly extracted ``docs_lint.py``, so it fires on the
+    upgrade that installs it. A repository whose template was already
+    contaminated would therefore halt at ``failed_phase == "docs_gate"`` —
+    exactly the population the rule exists to protect.
+
+    This repair runs from the pack-loaded extension immediately before that
+    gate, so it is class-a too and clears the contamination on the same run.
+    It is safe in a scaffold and only in a scaffold: every declaration in a
+    template is by definition an example, so fencing cannot destroy a real
+    target. Authored change docs are never touched.
+
+    Returns the repaired paths so the caller can report what it changed;
+    reporting from the repair is the only option, because the reconciliation
+    scan runs after the gate and is skipped entirely when the gate fails.
+    """
+
+    from pathlib import Path as _Path
+
+    root = _Path(root)
+    scripts = root / ".wavefoundry" / "framework" / "scripts"
+    if str(scripts) not in sys.path:
+        sys.path.insert(0, str(scripts))
+    try:
+        # Resolve against the EXTRACTED tree: a pre-upgrade runner's cached
+        # module would be the old parser, which is the version that did not
+        # know the marker block at all.
+        cached = sys.modules.get("review_policy")
+        if cached is not None:
+            importlib.reload(cached)
+            review_policy = cached
+        else:
+            import review_policy  # noqa: PLC0415
+    except Exception as exc:  # noqa: BLE001 — never fatal to an upgrade
+        print(f"scaffold repair: skipped (parser unavailable: {exc})", flush=True)
+        return []
+
+    repaired: list[str] = []
+    # The SAME constant the docs-lint rule blocks on. Two independent literals
+    # would let the blocking set grow past the repairable set, stranding a
+    # repository at the docs gate with nothing the upgrade can fix.
+    # getattr, not attribute access: the loop header sits OUTSIDE the per-file
+    # guard below, so a parser without the constant would raise straight past
+    # every "never fatal" promise into _run_hook's sys.exit(3) and abort the
+    # upgrade. No shipped launcher reaches that, but the cost of not finding
+    # out the hard way is one word.
+    for rel in getattr(review_policy, "SCAFFOLD_DOCS", ()):
+        path = root / rel
+        # Every step below is guarded: a repair that cannot complete must
+        # REPORT, never abort the upgrade. An unguarded write on a read-only
+        # template escaped into the hook dispatcher's `sys.exit(3)`, which
+        # reports itself as a pre-flight failure for a phase-3 problem.
+        try:
+            if not path.is_file():
+                continue
+            # newline="" on BOTH sides. Reading without it translates a CRLF
+            # checkout to LF in memory, so writing it back rewrites every line
+            # in the operator's repo even though the repair touched one block.
+            with path.open("r", encoding="utf-8", newline="") as handle:
+                text = handle.read()
+            if not review_policy.serialization_point_paths(text):
+                continue
+            fenced = _fence_serialization_examples(
+                text, review_policy.serialization_point_paths, review_policy
+            )
+            if fenced is None or review_policy.serialization_point_paths(fenced):
+                print(
+                    f"scaffold repair: {rel} declares review targets and could "
+                    "not be repaired automatically — fence its example block by "
+                    "hand, then re-run with --resume-after-gate.",
+                    flush=True,
+                )
+                continue
+            # Write to a sibling temp file and rename. `open("w")` truncates
+            # BEFORE writing, so an I/O error between those two points would
+            # leave the operator's template truncated while the handler below
+            # reported "could not be repaired" — false, and destructively so.
+            # This is the one place the change writes to an operator's file,
+            # and the whole fencing-over-re-rendering decision rests on
+            # preserving their prose.
+            #
+            # newline="" preserves the file's own line endings. Without it a
+            # CRLF checkout comes back all-LF (and the reverse on Windows),
+            # producing a whole-file spurious diff in the operator's repo.
+            # A rename only needs write permission on the DIRECTORY, so an
+            # atomic write would silently override a template the operator
+            # deliberately marked read-only. Refuse and report instead: it is
+            # their file, and they still get the message naming it and the fix.
+            if not os.access(path, os.W_OK):
+                raise PermissionError(f"{path} is not writable")
+            staged = path.with_name(path.name + ".wf-scaffold-repair")
+            try:
+                with staged.open("w", encoding="utf-8", newline="") as handle:
+                    handle.write(fenced)
+                # The staged file gets the process umask, not the template's
+                # mode; carry the original across so a group-writable checkout
+                # stays group-writable.
+                os.chmod(staged, path.stat().st_mode & 0o7777)
+                os.replace(staged, path)
+            finally:
+                if staged.exists():
+                    staged.unlink()
+        except Exception as exc:  # noqa: BLE001 — never fatal to an upgrade
+            print(
+                f"scaffold repair: {rel} could not be repaired ({exc}) — fence "
+                "its example block by hand, then re-run with "
+                "--resume-after-gate.",
+                flush=True,
+            )
+            continue
+        repaired.append(rel)
+        print(f"scaffold repair: fenced the example block in {rel}.", flush=True)
+    return repaired
+
+
+def _fence_serialization_examples(text, declares, parser=None):
+    """Fence the declaring example(s) in a scaffold's Serialization Points.
+
+    Handles BOTH declaration tiers, because both are shapes the framework
+    itself teaches. Tier 2 is the ``**Review targets (repo-relative paths):**``
+    block. Tier 1 is a bullet whose content is entirely repo-relative paths,
+    which is the literal example seed 040 hands a bootstrap agent, so a
+    freshly installed template can carry it and a marker-only repair would
+    leave that repository halted at the docs gate with nothing to do but edit
+    by hand.
+
+    Only bullet runs that actually DECLARE are fenced, decided by the shipped
+    parser rather than by shape, so instructional prose bullets are left
+    alone. Returns ``None`` when nothing is recognized, so the caller reports
+    rather than mangling an unfamiliar template.
+    """
+
+    if parser is None:
+        import review_policy as parser  # noqa: PLC0415
+
+    lines = text.split("\n")
+
+    # EVERY predicate below comes from the parser, never from a local
+    # restatement. Requirement 2 forbids re-implementing extraction because a
+    # second implementation drifts; the same argument holds for the fence
+    # scanner and the boundary tests, and all of them had drifted. A local
+    # "## " section-end test missed the tab form the parser accepts, so the
+    # scan ran past a real boundary and spliced fences into the NEXT section
+    # while the post-verify stayed silent (fencing a non-declaring section
+    # does not change what the parser extracts). A local bullet test missed
+    # the tab separator, so a template that declares to the parser was
+    # invisible here and halted the upgrade.
+    fenced = parser._fenced_line_flags(lines)
+
+    section_start = None
+    for index, line in enumerate(lines):
+        if not fenced[index] and parser._SERIALIZATION_POINTS_HEADING_RE.match(line):
+            section_start = index + 1
+            break
+    if section_start is None:
+        return None
+    section_end = len(lines)
+    for index in range(section_start, len(lines)):
+        # A heading inside a fenced example is sample text, not the next
+        # section; treating it as one truncates the scan and leaves a real
+        # declaring run beyond the false boundary unfenced.
+        if not fenced[index] and parser._SECTION_HEADING_RE.match(lines[index]):
+            section_end = index
+            break
+
+    def _bullet(index: int) -> bool:
+        # An already-fenced bullet is an example that is ALREADY safe; it
+        # declares nothing and must not be re-fenced.
+        return not fenced[index] and bool(parser._BULLET_RE.match(lines[index]))
+
+    # Collect the runs to fence, then splice from the bottom up so earlier
+    # indices stay valid.
+    runs: list[tuple[int, int]] = []
+    index = section_start
+    while index < section_end:
+        marker = not fenced[index] and bool(
+            parser._REVIEW_TARGETS_MARKER_RE.match(lines[index])
+        )
+        if not marker and not _bullet(index):
+            index += 1
+            continue
+        start = index
+        end = index + 1
+        saw_bullet = _bullet(index)
+        while end < section_end:
+            if not lines[end].strip():
+                # A blank line ends a plain bullet run, so an instructional
+                # bullet group separated from the example by a blank is a
+                # DIFFERENT run and is judged on its own. Only the marker
+                # form spans its blank, because the marker and the bullets
+                # beneath it are one construct.
+                if marker and not saw_bullet:
+                    end += 1
+                    continue
+                break
+            if _bullet(end):
+                saw_bullet = True
+                end += 1
+                continue
+            break
+        while end > start and not lines[end - 1].strip():
+            end -= 1
+        if saw_bullet and declares("## Serialization Points\n\n" + "\n".join(lines[start:end])):
+            runs.append((start, end))
+        index = max(end, index + 1)
+
+    if not runs:
+        return None
+    # Match the file's own line ending. The split is on "\n", so a CRLF file's
+    # lines carry a trailing "\r"; an inserted bare fence would leave the file
+    # with mixed endings.
+    fence = "```\r" if "\r\n" in text else "```"
+    for start, end in reversed(runs):
+        lines[start:end] = [fence] + lines[start:end] + [fence]
+    repaired = "\n".join(lines)
+    # A run reaching EOF puts the closing fence on the last line, dropping the
+    # file's trailing newline. Restore it so the repair is insertion-only.
+    if text.endswith("\n") and not repaired.endswith("\n"):
+        repaired += "\r\n" if "\r\n" in text else "\n"
+    return repaired
+
+
 def pre_docs_gate(ctx):
     """Run the retired-sidecar cutover before the docs gate validates the tree.
 
@@ -813,6 +1041,12 @@ def pre_docs_gate(ctx):
     installed module by file path avoids the old ``sys.modules`` entry and
     gives that runner the new one-way sidecar cleanup before docs-lint runs.
     """
+
+    # 1.15.6's scaffold rule is class-a, so a repository whose template already
+    # declares would halt at the docs gate on the very upgrade that installs
+    # the rule. Repair first, from this pack-loaded module, so it clears on the
+    # same run rather than one upgrade later.
+    repair_declaring_scaffold(ctx.root)
 
     # A graph extraction change may advance the framework-owned version while
     # leaving an exact project-local reliability claim behind. The incoming

@@ -18,7 +18,13 @@ only one wave may be open for implementation.
    not-this-scope, with rationale.
 5. Select reviewer and builder lanes. Automatic lanes are derived from the
    explicit repo-relative paths each change doc declares in
-   `## Serialization Points`, never from Scope or other narrative; a change doc
+   `## Serialization Points`, never from Scope or other narrative, and never
+   from prose inside that section, in either declaration form. A path is
+   declared by a bullet whose content is entirely repo-relative paths, or
+   inside an explicit `**Review targets (repo-relative paths):**` block whose
+   backtick-quoted entries may contain spaces. One stray English word makes the
+   whole bullet prose in either form, and a wrapped bullet is prose entirely. Adoption is decided per DOCUMENT, so one change
+   doc declaring targets never suppresses a sibling's scoring, and a change doc
    that declares no path keeps legacy whole-document scoring so coverage is
    never silently lost. That derivation is a FLOOR, not the whole answer:
    add any lane your own judgment calls for to the wave record's
@@ -35,7 +41,8 @@ only one wave may be open for implementation.
    behavior or acceptance expectations.
 8. Use `wf_prepare_wave(mode='ready')` to ready without opening, or
    `wf_prepare_wave(mode='create')` to ready and open when the single-open-wave
-   slot is available.
+   slot is available. `mode='dry_run'` validates and reports without changing
+   anything; `mode='evaluate'` is an accepted read-only alias for it.
 
 ## Gate
 

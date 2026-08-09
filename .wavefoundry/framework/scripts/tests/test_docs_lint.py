@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 
@@ -3899,3 +3900,245 @@ class MemoryRecordValueParityLintTests(MemoryRecordLintTests):
         finally:
             shutil.rmtree(root)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+
+class ScaffoldDeclaresNothingTests(unittest.TestCase):
+    """A scaffold that declares review targets silently removes coverage.
+
+    Field report from a 1.15.5 upgrade: a target repository's
+    `docs/plans/plan-template.md` carried an UNFENCED example under the
+    `**Review targets (repo-relative paths):**` marker, so the scaffold itself
+    declared `path/to/file.swift` and `docs/specs/`. Every plan created from it
+    was born in declared mode, losing `qa-reviewer` and `architecture-reviewer`
+    and gaining `docs-contract-reviewer` from a path nobody chose.
+
+    This repository is not affected, and that is the point: we are clean only
+    because wave `1uo1x` pinned it with a test in OUR suite. A target
+    repository does not run our suite; it gets prose instruction in seed 160,
+    which the downstream repository followed and still shipped a declaring
+    template. These tests make the property mechanical.
+    """
+
+    DOWNSTREAM_SHAPE = (
+        "## Serialization Points\n\n"
+        "**Review targets (repo-relative paths):**\n\n"
+        "- `path/to/file.swift`\n"
+        "- `docs/specs/`\n\n"
+        "## Affected Architecture Docs\n"
+    )
+
+    def test_the_reported_downstream_shape_declares_targets(self):
+        """The red premise: this shape really does declare, on shipped code.
+
+        Pinned separately from the rule so a later parser change that stops
+        extracting cannot make the rule vacuously green.
+        """
+
+        from review_policy import serialization_point_paths
+
+        self.assertEqual(
+            serialization_point_paths(self.DOWNSTREAM_SHAPE),
+            ("path/to/file.swift", "docs/specs/"),
+        )
+
+    def test_a_declaring_scaffold_fails_on_the_blocking_channel(self):
+        from wave_lint_lib.core_validators import check_scaffold_declares_nothing
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "docs" / "plans").mkdir(parents=True)
+            (root / "docs" / "plans" / "plan-template.md").write_text(
+                "# [Change Title]\n\n" + self.DOWNSTREAM_SHAPE, encoding="utf-8"
+            )
+            failures = check_scaffold_declares_nothing(root)
+        self.assertTrue(failures, "a declaring scaffold must fail")
+        joined = " ".join(failures)
+        self.assertIn("plan-template.md", joined)
+        self.assertIn("path/to/file.swift", joined, "name the found target")
+        self.assertIn("fence", joined.lower(), "state the remedy")
+
+    def test_the_shipped_scaffolds_pass(self):
+        """Confirms the wave-1uo1x fix rather than contradicting it.
+
+        Without this, a rule that failed everything would satisfy the red test.
+        """
+
+        from wave_lint_lib.core_validators import check_scaffold_declares_nothing
+
+        root = Path(__file__).resolve().parents[4]
+        self.assertEqual(check_scaffold_declares_nothing(root), [])
+
+    def test_an_authored_change_doc_never_blocks(self):
+        """Blocking set equals repairable set.
+
+        The upgrade repairs scaffolds only, so nothing else may block: a
+        change doc the upgrade cannot rewrite must never halt the docs gate.
+        Uses this wave's own change doc, which declares ten real targets.
+        """
+
+        from wave_lint_lib.core_validators import check_scaffold_declares_nothing
+
+        root = Path(__file__).resolve().parents[4]
+        declaring = sorted(
+            (root / "docs" / "waves").glob("1ur6o */1ur6p-bug *.md")
+        )
+        self.assertTrue(declaring, "fixture must find this wave's change doc")
+        failures = check_scaffold_declares_nothing(root)
+        for path in declaring:
+            self.assertNotIn(
+                path.name, " ".join(failures),
+                "an authored change doc must never block",
+            )
+
+    def test_the_rule_delegates_to_the_shipped_parser(self):
+        """A second extractor would drift and pass what the evaluator declares.
+
+        Patches the name the RULE resolves. Patching `review_policy` instead
+        would be observationally identical to a re-implementation, since
+        neither changes the output.
+        """
+
+        from wave_lint_lib import core_validators
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "docs" / "plans").mkdir(parents=True)
+            (root / "docs" / "plans" / "plan-template.md").write_text(
+                "# T\n\n## Serialization Points\n\n- nothing here\n", encoding="utf-8"
+            )
+            self.assertEqual(
+                core_validators.check_scaffold_declares_nothing(root), []
+            )
+            with patch.object(
+                core_validators,
+                "serialization_point_paths",
+                return_value=("sentinel/injected.py",),
+            ):
+                failures = core_validators.check_scaffold_declares_nothing(root)
+        self.assertTrue(
+            failures and "sentinel/injected.py" in " ".join(failures),
+            "the rule must follow the patched parser, not its own extractor",
+        )
+
+    def test_the_rule_is_registered_on_both_lint_paths(self):
+        """AC-6c: a corpus-only registration is invisible to the post-edit hook.
+
+        `_run_incremental_checks` runs an explicit per-file subset with
+        `only=changed_docs` and deliberately excludes corpus checks, so a rule
+        registered only in the corpus block never fires at the moment an author
+        pastes a declaring block into the template — which is where the defect
+        is cheapest to fix. Both registrations are pinned, and the `only=`
+        filter is pinned with them: an unrelated changed doc must NOT drag the
+        template into an incremental run.
+        """
+
+        import unittest.mock as mock
+
+        sys.path.insert(0, str(SCRIPTS_ROOT))
+        from wave_lint_lib import cli as lint_cli
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "docs" / "plans").mkdir(parents=True)
+            template = root / "docs" / "plans" / "plan-template.md"
+            template.write_text(
+                "# [Change Title]\n\n" + self.DOWNSTREAM_SHAPE, encoding="utf-8"
+            )
+            unrelated = root / "docs" / "plans" / "other.md"
+            unrelated.write_text("# Other\n", encoding="utf-8")
+
+            # Incremental, template changed -> fires.
+            with mock.patch.object(
+                lint_cli, "_get_changed_files", return_value=[template]
+            ):
+                hit, _ = lint_cli._run_incremental_checks(root)
+            self.assertTrue(
+                any("scaffold declares review targets" in f for f in hit),
+                f"incremental must fire when the template changes; got {hit}",
+            )
+
+            # Incremental, template NOT changed -> silent (the only= filter).
+            with mock.patch.object(
+                lint_cli, "_get_changed_files", return_value=[unrelated]
+            ):
+                miss, _ = lint_cli._run_incremental_checks(root)
+            self.assertFalse(
+                any("scaffold declares review targets" in f for f in miss),
+                f"an unrelated changed doc must not drag in the template; got {miss}",
+            )
+
+    def test_a_declaring_scaffold_blocks_the_real_cli(self):
+        """The severity decision, pinned end to end rather than by inspection.
+
+        `cli.py` has a real two-channel split: `failures` block and exit
+        non-zero, `warnings` print and exit 0. A warning-channel implementation
+        would satisfy a loose reading of "fails docs-lint" while leaving the
+        property unenforced, and an unrepaired declaring template must halt the
+        upgrade's docs gate rather than pass it.
+        """
+
+        sys.path.insert(0, str(SCRIPTS_ROOT))
+        from wave_lint_lib.core_validators import check_scaffold_declares_nothing
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "docs" / "plans").mkdir(parents=True)
+            (root / "docs" / "plans" / "plan-template.md").write_text(
+                "# [Change Title]\n\n" + self.DOWNSTREAM_SHAPE, encoding="utf-8"
+            )
+            failures = check_scaffold_declares_nothing(root)
+        self.assertTrue(failures)
+        # Drive the real emitter. An earlier version of this test asserted the
+        # string started with "ERROR:", which a delivery lane proved cannot
+        # distinguish the channels: feeding the identical list to the warnings
+        # channel also exits 0. The channel is the contract, not the prefix.
+        import argparse
+
+        sys.path.insert(0, str(SCRIPTS_ROOT))
+        from wave_lint_lib import cli as lint_cli
+
+        self.assertEqual(
+            lint_cli._emit(failures, [], [], root, argparse.Namespace(changed=False, write_migration_audit=False, migration_audit_path="docs/reports/wave-migration-audit.md", scan_all=False), False), 1,
+            "a declaring scaffold must exit non-zero on the failures channel",
+        )
+        self.assertEqual(
+            lint_cli._emit([], failures, [], root, argparse.Namespace(changed=False, write_migration_audit=False, migration_audit_path="docs/reports/wave-migration-audit.md", scan_all=False), False), 0,
+            "control: the same strings on the warnings channel do NOT block, "
+            "which is why a prefix assertion proves nothing",
+        )
+        self.assertFalse(
+            any(f.startswith("ERROR:") for f in failures),
+            "the validator must not self-prefix; cli._emit adds ERROR:",
+        )
+
+    def test_the_corpus_path_reports_a_declaring_scaffold(self):
+        """The full lint is the authoritative gate the upgrade actually runs.
+
+        `phase_docs_gate` subprocesses `docs_lint.py` with no `--changed`, so
+        the corpus registration is what decides whether a contaminated
+        repository halts. Pinned by driving `_run_full_checks`, the same entry
+        the CLI uses, rather than the validator in isolation.
+        """
+
+        import argparse
+
+        sys.path.insert(0, str(SCRIPTS_ROOT))
+        from wave_lint_lib import cli as lint_cli
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "docs" / "plans").mkdir(parents=True)
+            (root / "docs" / "plans" / "plan-template.md").write_text(
+                "# [Change Title]\n\n" + self.DOWNSTREAM_SHAPE, encoding="utf-8"
+            )
+            args = argparse.Namespace(
+                scan_all=False,
+                write_migration_audit=False,
+                migration_audit_path="docs/reports/wave-migration-audit.md",
+                changed=False,
+            )
+            failures, _warnings, _info = lint_cli._run_full_checks(root, args)
+        self.assertTrue(
+            any("scaffold declares review targets" in f for f in failures),
+            f"the corpus path must report a declaring scaffold; got {failures}",
+        )

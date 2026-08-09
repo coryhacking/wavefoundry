@@ -9142,6 +9142,34 @@ class MarkChangeItemRecoveryTests(unittest.TestCase):
         self.assertIn("current exact label", diagnostic["message"])
         self.assertEqual(diagnostic["recovery_tools"], ["wf_get_change"])
 
+    def test_wrapped_task_marks_by_its_logical_label(self):
+        self._write_change(
+            "# Sample\n\n## Tasks\n\n- [ ] Implement the parser\n"
+            "  and preserve semicolon values.\n"
+        )
+        response = self.srv._mark_change_item_response(
+            self.root, self.wave_id, "1200c-mark-sample",
+            "Implement the parser and preserve semicolon values.", "x",
+            target_section="Tasks", mode="create",
+        )
+        self.assertEqual(response["status"], "ok", response)
+        self.assertIn("[x] Implement the parser", (self.wave_dir / "1200c-mark-sample.md").read_text(encoding="utf-8"))
+
+    def test_missing_wrapped_task_returns_every_logical_label(self):
+        self._write_change(
+            "# Sample\n\n## Tasks\n\n- [ ] Implement the parser\n"
+            "  and preserve semicolon values.\n- [ ] Add tests.\n"
+        )
+        response = self.srv._mark_change_item_response(
+            self.root, self.wave_id, "1200c-mark-sample", "Missing", "x",
+            target_section="Tasks",
+        )
+        self.assertEqual(response["status"], "error", response)
+        self.assertEqual(
+            response["data"]["candidate_labels"],
+            ["Implement the parser and preserve semicolon values.", "Add tests."],
+        )
+
     def test_required_ac_deferral_explains_how_to_supply_its_rationale(self):
         self._write_change(
             "# Sample\n\n## Acceptance Criteria\n\n- [ ] AC-1: Do it.\n\n"
@@ -9156,6 +9184,24 @@ class MarkChangeItemRecoveryTests(unittest.TestCase):
         self.assertEqual(diagnostic["code"], "tilde_rationale_required")
         self.assertIn("wf_mark_ac", diagnostic["message"])
         self.assertIn("reason", diagnostic["message"])
+
+
+class PrepareCouncilVerdictParserTests(unittest.TestCase):
+    def setUp(self):
+        self.srv = load_server()
+
+    def test_wrapped_verdict_preserves_semicolons_inside_values(self):
+        text = (
+            "## Review Checkpoints\n\n"
+            "- **Prepare-phase Wave Council [prepare-council] — 2026-08-06: PASS**\n"
+            "  (moderator: wave-council; primer-depth: standard; seats: red-team, code-reviewer;\n"
+            "  rotating-seat: code-reviewer; strongest-challenge: first concern; second concern;\n"
+            "  strongest-alternative: retain the old parser; add diagnostics)\n"
+        )
+        info = self.srv._prepare_council_verdict_info(text)
+        self.assertTrue(info["valid"], info)
+        self.assertEqual(info["meta"]["strongest-challenge"], "first concern; second concern")
+        self.assertEqual(info["meta"]["strongest-alternative"], "retain the old parser; add diagnostics")
 
 
 class MarkAcReceiptRefreshTests(unittest.TestCase):
@@ -10392,6 +10438,78 @@ class WaveCreateWaveLastVerifiedTests(unittest.TestCase):
         self.assertIsNotNone(m, "Last verified line missing from scaffold")
         value = m.group(1)
         self.assertRegex(value, r"^\d{4}-\d{2}-\d{2}$", f"Last verified value not ISO date: {value!r}")
+
+
+class WavePlaceholderRepairTests(unittest.TestCase):
+    """Admission fills in a `Wave:` field the tool already knows.
+
+    Field report: a document carrying `Wave: <wave-id>` was hand-repaired by an
+    operator. That form never came from our template, so this is not our
+    placeholder leaking; it is that an unambiguous angle-bracket placeholder
+    was not recognized as one. Recognition widens to bracketed forms only,
+    never to "any unrecognized value", because an arbitrary unknown value can
+    be operator-authored and must never be overwritten.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = _make_repo(Path(self.tmp.name))
+        self.wave_id = self.srv.wf_create_wave_response(
+            self.root, "placeholder-wave", mode="create"
+        )["data"]["wave_id"]
+
+    def _admit_with_wave_line(self, wave_line: str, *, mode: str = "create") -> str:
+        change_id = self.srv.new_change(self.root, "bug", "sample")["id"]
+        plan = self.root / "docs" / "plans" / f"{change_id}.md"
+        text = plan.read_text(encoding="utf-8")
+        text = re.sub(r"(?m)^Wave: .*$", wave_line, text, count=1)
+        plan.write_text(text, encoding="utf-8")
+        result = self.srv.wf_add_change_response(
+            self.root, self.wave_id, change_id, mode=mode
+        )
+        self.assertEqual(result["status"], "dry_run" if mode == "dry_run" else "ok", result)
+        target = (
+            self.root / "docs" / "waves" / self.wave_id / f"{change_id}.md"
+            if mode == "create" else plan
+        )
+        return next(
+            l for l in target.read_text(encoding="utf-8").splitlines()
+            if l.startswith("Wave:")
+        )
+
+    def test_angle_bracket_placeholders_are_repaired(self):
+        for supplied in ("Wave: <wave-id>", "Wave: `<wave-id>`"):
+            with self.subTest(supplied=supplied):
+                self.setUp()
+                self.assertEqual(
+                    self._admit_with_wave_line(supplied), f"Wave: {self.wave_id}"
+                )
+
+    def test_the_scaffold_forms_still_repair(self):
+        for supplied in ("Wave: [wave-id or TBD]", "Wave: TBD"):
+            with self.subTest(supplied=supplied):
+                self.setUp()
+                self.assertEqual(
+                    self._admit_with_wave_line(supplied), f"Wave: {self.wave_id}"
+                )
+
+    def test_an_operator_authored_value_is_never_overwritten(self):
+        """The control. Widening to any unrecognized value would fail here."""
+        self.assertEqual(
+            self._admit_with_wave_line("Wave: my-own-tracking-note"),
+            "Wave: my-own-tracking-note",
+        )
+
+    def test_dry_run_writes_nothing(self):
+        self.assertEqual(
+            self._admit_with_wave_line("Wave: <wave-id>", mode="dry_run"),
+            "Wave: <wave-id>",
+        )
 
 
 class WaveAddChangeSectionPlacementTests(unittest.TestCase):
@@ -13735,13 +13853,16 @@ class MaybeRefreshIfStaleTests(unittest.TestCase):
     def test_completed_registered_child_is_reaped_before_refresh_decision(self):
         import time
 
+        if not all(hasattr(os, name) for name in ("waitid", "P_PID", "WEXITED", "WNOWAIT")):
+            self.skipTest("requires waitid with WNOWAIT to preserve child wait status")
+
         child = subprocess.Popen(
             [sys.executable, "-c", "pass"],
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
-        time.sleep(0.05)
+        os.waitid(os.P_PID, child.pid, os.WEXITED | os.WNOWAIT)
         state_path = self.server._background_refresh_state_path(self.root, "project")
         state_path.parent.mkdir(parents=True, exist_ok=True)
         state_path.write_text(
@@ -25693,6 +25814,367 @@ class WavePrepareCouncilGateTests(unittest.TestCase):
         self.assertEqual(brief["rotating_seat"], "security-reviewer")
 
 
+class WaveCodeFootprintTests(unittest.TestCase):
+    """Exercise `_wave_code_footprint` itself.
+
+    Every existing retrieval-posture test stubs `_FOOTPRINT_PROVIDER`, which
+    short-circuits before this function runs, so the whole wave-bounding
+    semantic shipped with no coverage at all. These tests deliberately leave the
+    seam unset.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def _repo(self, declared: str, dirty: list[str]):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        wave_dir = root / "docs" / "waves" / "0aaaa sample"
+        wave_dir.mkdir(parents=True)
+        wave_md = wave_dir / "wave.md"
+        wave_md.write_text(
+            "# Wave Record\n\nStatus: implementing\n"
+            "wave-id: `0aaaa sample`\n\n"
+            "## Changes\n\nChange ID: `1200a-feat sample`\nChange Status: `active`\n",
+            encoding="utf-8",
+        )
+        (wave_dir / "1200a-feat sample.md").write_text(
+            "# Change\nChange ID: `1200a-feat sample`\n\n"
+            f"## Serialization Points\n\n{declared}\n",
+            encoding="utf-8",
+        )
+        subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
+        for rel in dirty:
+            p = root / rel
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text("x\n", encoding="utf-8")
+        # Intent-to-add: git collapses a wholly untracked directory to a single
+        # `?? src/` entry, which the porcelain parser correctly skips as a
+        # directory. Recording intent makes each path appear individually, which
+        # is what a real dirty working tree looks like.
+        if dirty:
+            subprocess.run(
+                ["git", "-C", str(root), "add", "-N", *dirty], check=True
+            )
+        return root, wave_md
+
+    def test_declared_targets_are_matched_regardless_of_path_case(self):
+        """`git status` preserves case; the declared extractor lowercases.
+
+        Comparing them directly dropped every PascalCase target, so a
+        TypeScript, Java, or C# repository undercounted its own declared
+        footprint while the advisory still claimed to describe it.
+        """
+        root, wave_md = self._repo(
+            "- `src/GardenerMetadata.ts`\n- `src/beta.ts`",
+            ["src/GardenerMetadata.ts", "src/beta.ts"],
+        )
+        self.assertEqual(self.srv._wave_code_footprint(root, wave_md), 2)
+
+    def test_a_wave_declaring_nothing_stays_silent_instead_of_guessing(self):
+        root, wave_md = self._repo("(none yet)", ["src/alpha.ts"])
+        self.assertIsNone(self.srv._wave_code_footprint(root, wave_md))
+
+    def test_unrelated_dirt_is_not_evidence_about_this_wave(self):
+        root, wave_md = self._repo(
+            "- `src/alpha.ts`", ["src/alpha.ts", "src/unrelated.ts", "other/thing.ts"]
+        )
+        self.assertEqual(self.srv._wave_code_footprint(root, wave_md), 1)
+
+    def test_a_declared_directory_counts_the_files_beneath_it(self):
+        """The directory arm of `in_wave_footprint` was unpinned.
+
+        Declaring `src/` must bound the footprint to everything under it;
+        without the prefix arm a directory declaration matches nothing and the
+        advisory silently reports zero for a wave that declared its whole
+        source tree.
+        """
+
+        root, wave_md = self._repo(
+            "- `src/`",
+            ["src/alpha.ts", "src/nested/beta.ts", "other/thing.ts"],
+        )
+        self.assertEqual(self.srv._wave_code_footprint(root, wave_md), 2)
+
+    def test_a_renamed_declared_file_is_attributed_by_its_new_path(self):
+        """Delivery finding: the rename parse shipped with zero coverage.
+
+        Git writes `old -> new` in a rename entry and quotes each side
+        INDEPENDENTLY when it contains a space, so unquoting before splitting
+        on the arrow left a stray quote on the new path and the target never
+        matched. Both deleting the split and inverting it to take the OLD path
+        left the whole suite green, so the behavior was correct but unpinned.
+
+        Declaring a path with a space is only possible through the explicit
+        marker block, which is what makes this reachable at all.
+        """
+
+        root, wave_md = self._repo(
+            "**Review targets (repo-relative paths):**\n\n"
+            "- `src/spaced dir/new.py`\n- `src/plain/new.py`",
+            ["src/spaced dir/old.py", "src/plain/old.py"],
+        )
+        subprocess.run(["git", "-C", str(root), "add", "-A"], check=True)
+        subprocess.run(
+            ["git", "-C", str(root), "-c", "user.email=t@e", "-c", "user.name=t",
+             "commit", "-qm", "base"],
+            check=True,
+        )
+        for old, new in (
+            ("src/spaced dir/old.py", "src/spaced dir/new.py"),
+            ("src/plain/old.py", "src/plain/new.py"),
+        ):
+            subprocess.run(["git", "-C", str(root), "mv", old, new], check=True)
+        porcelain = subprocess.run(
+            ["git", "-C", str(root), "status", "--porcelain"],
+            capture_output=True, text=True, check=True,
+        ).stdout
+        self.assertIn(' -> ', porcelain, "fixture must stage real renames")
+        self.assertIn('"', porcelain, "git must quote the spaced rename")
+        self.assertEqual(
+            self.srv._wave_code_footprint(root, wave_md), 2,
+            f"both renames must attribute to their NEW paths:\n{porcelain}",
+        )
+
+    def test_a_rename_away_from_a_declared_path_is_not_attributed(self):
+        """The OLD path must not be what counts, or the split could invert.
+
+        Declaring only the pre-rename path must score zero: the file that
+        changed is the new one, and attributing the old path would let a
+        `rsplit` silently become a `split` without any test noticing.
+        """
+
+        root, wave_md = self._repo(
+            "- `src/plain/old.py`", ["src/plain/old.py"],
+        )
+        subprocess.run(["git", "-C", str(root), "add", "-A"], check=True)
+        subprocess.run(
+            ["git", "-C", str(root), "-c", "user.email=t@e", "-c", "user.name=t",
+             "commit", "-qm", "base"],
+            check=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(root), "mv", "src/plain/old.py", "src/plain/new.py"],
+            check=True,
+        )
+        self.assertEqual(self.srv._wave_code_footprint(root, wave_md), 0)
+
+
+class ReviewPhaseAliasTests(unittest.TestCase):
+    """The approval-phase vocabulary is accepted on the review-phase argument.
+
+    Nothing pinned this: no test in the suite passed `readiness` or `delivery`
+    as `phase`. That gap is why the wrapper regression below went unnoticed.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        # A real wave: the wave-not-found path returns before `phase` is ever
+        # placed in the response, so it cannot show resolution.
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = Path(tmp.name)
+        (self.root / "docs").mkdir(parents=True)
+        (self.root / "docs" / "workflow-config.json").write_text(
+            json.dumps({
+                "lifecycle_id_policy": {"epoch_utc": "2020-02-02T02:02:00Z", "hour_offset": 0},
+                "wave_review": {"enabled": True, "delivery_mode": "targeted"},
+            }),
+            encoding="utf-8",
+        )
+        wave_dir = self.root / "docs" / "waves" / "0aaaa sample"
+        wave_dir.mkdir(parents=True)
+        (wave_dir / "wave.md").write_text(
+            "# Wave Record\n\nStatus: implementing\nreview-evidence-source: events.jsonl\n"
+            "wave-id: `0aaaa sample`\n\n## Changes\n\n"
+            "Change ID: `1200a-feat sample`\nChange Status: `active`\n",
+            encoding="utf-8",
+        )
+        (wave_dir / "1200a-feat sample.md").write_text(
+            "# Change\nChange ID: `1200a-feat sample`\n\n## Scope\n\nWork.\n",
+            encoding="utf-8",
+        )
+        (wave_dir / "events.jsonl").write_text("", encoding="utf-8")
+
+    def _resolved(self, phase):
+        return self.srv.wf_review_wave_response(self.root, "0aaaa", phase=phase)
+
+    def test_approval_phase_words_map_onto_review_phases(self):
+        for supplied, expected in (
+            ("readiness", "prepare"),
+            ("delivery", "implementation"),
+            ("prepare", "prepare"),
+            ("implementation", "implementation"),
+        ):
+            with self.subTest(phase=supplied):
+                data = self._resolved(supplied).get("data", {})
+                self.assertEqual(
+                    data.get("phase"), expected, f"{supplied} did not map to {expected}"
+                )
+
+    def test_an_unknown_phase_is_rejected_and_names_the_mapping(self):
+        result = self._resolved("nonsense")
+        self.assertEqual(result["status"], "error")
+        message = " ".join(d.get("message", "") for d in result.get("diagnostics", []))
+        self.assertIn("prepare", message)
+        self.assertIn("implementation", message)
+        # The mapping is what a confused caller needs, not just the valid list.
+        self.assertIn("readiness", message)
+        self.assertIn("delivery", message)
+
+    def test_the_wrapper_reads_the_resolved_phase_not_the_caller_spelling(self):
+        """Regression: `phase='delivery'` must earn the same CE treatment.
+
+        The wrapper derived `is_implementation_phase` from the raw argument, so
+        an accepted spelling returned a fully green review while publishing no
+        implement-stage accumulation, with no diagnostic. Assert the derivation
+        the wrapper performs, against both spellings of the same phase.
+        """
+        # Scope the haystack to the registration block. Passing the whole
+        # 1.4 MB module dumps all of it into the failure output.
+        source = Path(self.srv.__file__).read_text(encoding="utf-8")
+        idx = source.index('_ensure_no_extra_args("wf_review_wave"')
+        window = source[idx : source.index("\n        )", source.index(
+            'focus_stage="review"', idx))]
+        self.assertNotIn(
+            'is_implementation_phase = (phase or "").strip().lower()',
+            window,
+            "wrapper is deriving the phase from the caller's raw spelling again",
+        )
+        # Both spellings of the same phase must reach the same derivation. The
+        # authoritative pin for the predicate itself lives in
+        # test_server_context_efficiency, which is the only module that invokes
+        # register_mcp_surface and can therefore reach the wrapper closure.
+        for supplied in ("implementation", "delivery"):
+            with self.subTest(phase=supplied):
+                data = self._resolved(supplied).get("data", {})
+                self.assertEqual(
+                    str(data.get("phase") or "").strip().lower(), "implementation",
+                    f"{supplied} did not resolve to the implementation phase",
+                )
+
+
+class ReceiptSemanticCanonicalInputTests(unittest.TestCase):
+    """Every receipt-semantic reader consumes the same canonical carrier.
+
+    Lane scoring canonicalized its input; trigger extraction and seat selection
+    did not. A Progress Log row is mandated real-time tracking, so one carrying
+    a trigger word could flip `delivery_council_required`, supersede the receipt
+    and lapse approvals, while `policy_input_digest` stayed byte-identical and
+    no diagnostic could explain it.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    CHANGE_ID = "1200a-feat sample"
+
+    def _doc(self, *, trigger_in_progress_log: bool) -> str:
+        """The SAME trigger word, moved between a digested and an excluded section."""
+        row = "| 2026-08-06 | Repaired the windows path handling. | log |"
+        scope = "Portable work." if trigger_in_progress_log else "Rework the windows path handling."
+        return (
+            f"# Change\nChange ID: `{self.CHANGE_ID}`\n\n"
+            f"## Scope\n\n{scope}\n\n"
+            "## Progress Log\n\n| Date | Update | Evidence |\n| --- | --- | --- |\n"
+            f"{row if trigger_in_progress_log else '| 2026-08-06 | Did work. | log |'}\n"
+        )
+
+    def _policy_state(self, doc_text: str):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        (root / "docs").mkdir(parents=True)
+        (root / "docs" / "workflow-config.json").write_text(
+            json.dumps({
+                "lifecycle_id_policy": {"epoch_utc": "2020-02-02T02:02:00Z", "hour_offset": 0},
+                "wave_review": {"enabled": True, "delivery_mode": "targeted"},
+            }),
+            encoding="utf-8",
+        )
+        wave_dir = root / "docs" / "waves" / "0aaaa sample"
+        wave_dir.mkdir(parents=True)
+        wave_md = wave_dir / "wave.md"
+        wave_text = (
+            "# Wave Record\n\nStatus: implementing\nreview-evidence-source: events.jsonl\n"
+            "wave-id: `0aaaa sample`\n\n"
+            f"## Changes\n\nChange ID: `{self.CHANGE_ID}`\nChange Status: `active`\n"
+        )
+        wave_md.write_text(wave_text, encoding="utf-8")
+        (wave_dir / f"{self.CHANGE_ID}.md").write_text(doc_text, encoding="utf-8")
+        (wave_dir / "events.jsonl").write_text("", encoding="utf-8")
+        state, errors = self.srv._prepare_policy_state(
+            root, wave_md, wave_text, [self.CHANGE_ID], {},
+            change_text_overrides={self.CHANGE_ID: doc_text},
+        )
+        self.assertEqual(errors, (), errors)
+        self.assertIsNotNone(state, "policy state did not build")
+        return state
+
+    def test_a_progress_log_row_cannot_change_council_requirement(self):
+        """The defect was the SERVER passing raw text, not the helper being wrong.
+
+        Both fixtures carry the identical trigger word; only its section differs.
+        The Progress Log is excluded from the digest, so a row there must not
+        move a receipt-semantic field. Otherwise a mandated real-time-tracking
+        row supersedes the receipt and lapses approvals while
+        `policy_input_digest` stays byte-identical, leaving nothing able to
+        explain it.
+        """
+        excluded = self._policy_state(self._doc(trigger_in_progress_log=True))
+        digested = self._policy_state(self._doc(trigger_in_progress_log=False))
+
+        # Control: the word genuinely triggers when it sits in a digested
+        # section. Without this the assertion below could pass on a fixture that
+        # never triggered at all.
+        self.assertTrue(
+            digested["delivery_council_required"],
+            "fixture no longer triggers from ## Scope; the test would be vacuous",
+        )
+        self.assertFalse(
+            excluded["delivery_council_required"],
+            "a ## Progress Log row reached council selection",
+        )
+
+    def test_a_progress_log_row_cannot_choose_the_receipt_council_seat(self):
+        """The seat reader is a second receipt-semantic consumer of the same text.
+
+        `delivery_council_required` and the persisted `council_seats` are read
+        by two different calls. Pinning only the first left the second free to
+        pick a seat out of Progress Log narration, contradicting the comment at
+        the call site that binds seat selection to admitted change bytes.
+        """
+        # "refactor" selects architecture-reviewer; "windows" does not move the
+        # seat at all, so the seat probe needs its own word.
+        def doc(*, in_progress_log: bool) -> str:
+            word = "Reworked the layering refactor."
+            scope = "Portable work." if in_progress_log else word
+            row = word if in_progress_log else "Did work."
+            return (
+                f"# Change\nChange ID: `{self.CHANGE_ID}`\n\n"
+                f"## Scope\n\n{scope}\n\n"
+                "## Progress Log\n\n| Date | Update | Evidence |\n| --- | --- | --- |\n"
+                f"| 2026-08-06 | {row} | log |\n"
+            )
+
+        excluded = self._policy_state(doc(in_progress_log=True))
+        digested = self._policy_state(doc(in_progress_log=False))
+        self.assertEqual(
+            digested["receipt"]["council_seats"], ["red-team", "architecture-reviewer"],
+            "fixture no longer moves the seat; the assertion below would be vacuous",
+        )
+        self.assertEqual(
+            excluded["receipt"]["council_seats"], ["red-team"],
+            "a ## Progress Log row selected the receipt's council seat",
+        )
+
+
 class PrepareCouncilVerdictTemplateTests(unittest.TestCase):
     """1p9pk AC-1/AC-2/AC-5: verdict template de-dup, replace-me placeholder, code-grounded brief."""
 
@@ -25705,6 +26187,39 @@ class PrepareCouncilVerdictTemplateTests(unittest.TestCase):
         match = re.search(r"seats: (?P<seats>[^;]*);", template)
         self.assertIsNotNone(match, f"template has no seats: field: {template}")
         return template, match.group("seats")
+
+    def test_receipt_binding_rebuilds_every_string_that_names_the_seat(self):
+        """One response must never advertise two rosters.
+
+        The binding overwrites `rotating_seat` and `council_seats` from the
+        receipt. `instructions` and `verdict_format` also embed the seat, so
+        leaving them at their wave-text value made the authoritative fields and
+        the copy-paste template disagree: an agent following the template
+        recorded a verdict the seat-alignment check then rejected against the
+        very roster the same response had bound.
+        """
+        brief = self.srv._build_prepare_council_brief(
+            "w1", "Wave text naming a security-reviewer boundary", ["c1"]
+        )
+        self.assertEqual(brief["rotating_seat"], "security-reviewer")
+
+        bound = self.srv._bind_prepare_council_brief_to_receipt(
+            brief, {"council_seats": ["red-team", "code-reviewer"]}
+        )
+        seat = bound["rotating_seat"]
+        self.assertEqual(seat, "code-reviewer")
+        # Every surface that names a seat must name the SAME seat.
+        for field in ("verdict_format", "instructions"):
+            found = re.findall(r"rotating-seat: ([a-z-]+)", bound[field])
+            self.assertTrue(found, f"{field} names no rotating seat: {bound[field]!r}")
+            self.assertEqual(
+                set(found), {seat},
+                f"{field} still names a superseded seat: {found} != {seat}",
+            )
+        # Deliberately NOT asserting the superseded name is absent entirely:
+        # `security-reviewer` also appears in the template's static example seat
+        # list, which is unrelated to the rotating pick. The `rotating-seat:`
+        # field checked above is the one that must agree.
 
     def test_template_dedups_security_reviewer_rotating_pick(self):
         """AC-1: security-reviewer rotating pick collides with the fixed seat — appears exactly once."""
@@ -27801,6 +28316,11 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
         self.assertEqual(review_impl["data"]["max_severity"], "none")
         self.assertNotIn("high_severity_finding", self._codes(review_impl))
 
+        # Advancing a change to `complete` is progress, not a contract change:
+        # it edits no Requirement, Scope, AC, or AC-Priority text, so it is
+        # digest-neutral and the readiness roster it was granted against stays
+        # current. Verification of the work itself lives behind the delivery
+        # gate, which this does not touch.
         self._mark_change_complete()
         refreshed = self._run(
             self.srv.wf_prepare_wave_response,
@@ -27808,8 +28328,9 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
             self.wave_id,
             mode="ready",
         )
-        self.assertEqual(refreshed["status"], "error", refreshed)
-        self.assertIn("missing_wave_council_signoff", self._codes(refreshed))
+        self.assertEqual(refreshed["status"], "ok", refreshed)
+        self.assertNotIn("missing_wave_council_signoff", self._codes(refreshed))
+        self.assertNotIn("review_policy_receipt_stale", self._codes(refreshed))
         for signoff_key, actor in (
             ("wave-council-readiness", "wave-council"),
             ("code-reviewer", "code-reviewer"),
@@ -28084,9 +28605,59 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
         self.assertEqual(close["status"], "error", close)
         self.assertIn("review_policy_receipt_stale", self._codes(close))
 
+    def test_advancing_change_status_is_progress_not_a_contract_change(self):
+        """Status advancement is digest-neutral; editing the contract is not.
+
+        This pins the rule directly rather than leaving it implied by other
+        tests. It replaces the previous rule, under which advancing a change
+        superseded the receipt and lapsed the readiness roster. That rule was
+        ceremony: the re-recorded approvals attested to a plan whose reviewed
+        text had not changed by a single byte.
+
+        The negative control is the load-bearing half. Without it this test
+        would pass just as well against a normalizer that swallowed every
+        change-document edit.
+        """
+        import review_policy
+
+        change = self.wave_md.parent / "1200a-feat sample.md"
+        before = review_policy.canonical_review_policy_body(
+            change.read_bytes()
+        )
+
+        self._mark_change_complete()
+        after_status = review_policy.canonical_review_policy_body(
+            change.read_bytes()
+        )
+        self.assertEqual(
+            before,
+            after_status,
+            "advancing Change Status must not move the review-policy digest",
+        )
+
+        # Negative control: a requirement-bearing edit in the same document
+        # must still move the digest and therefore still lapse approvals.
+        change.write_text(
+            change.read_text(encoding="utf-8").replace(
+                "## Scope", "## Scope\n\nNewly added scope sentence.", 1
+            ),
+            encoding="utf-8",
+        )
+        after_scope = review_policy.canonical_review_policy_body(
+            change.read_bytes()
+        )
+        self.assertNotEqual(
+            after_status,
+            after_scope,
+            "a Scope edit must still be review-relevant",
+        )
+
     def test_gardener_only_date_rollover_keeps_all_lifecycle_surfaces_current(self):
         """A midnight gardener stamp cannot invalidate the prepared receipt."""
 
+        # Setup, and itself an assertion of the progress-only rule: advancing
+        # the change supersedes no receipt, so the roster below is a no-op
+        # refresh rather than a forced re-approval.
         self._mark_change_complete()
         refreshed = self._run(
             self.srv.wf_prepare_wave_response,
@@ -28094,8 +28665,8 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
             self.wave_id,
             mode="ready",
         )
-        self.assertEqual(refreshed["status"], "error", refreshed)
-        self.assertIn("missing_wave_council_signoff", self._codes(refreshed))
+        self.assertEqual(refreshed["status"], "ok", refreshed)
+        self.assertNotIn("review_policy_receipt_stale", self._codes(refreshed))
         for signoff_key, actor in (
             ("wave-council-readiness", "wave-council"),
             ("code-reviewer", "code-reviewer"),
@@ -28296,8 +28867,15 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
                 "a current evaluator-v2 receipt must make repeated Prepare idempotent",
             )
 
-    def test_public_prepare_converges_once_from_evaluator_v3_to_v4(self):
-        """Wave 1ui1d: the live boundary, proven to converge exactly once."""
+    def test_public_prepare_converges_once_from_evaluator_v5_to_v6(self):
+        """Wave 1uo1x: the live boundary, proven to converge exactly once.
+
+        v6 moves lane semantics (per-document adoption, two-tier declaration)
+        and the digest carrier boundary together, so a non-closed wave holding
+        a v5 receipt needs one deterministic re-Prepare and is idempotent after
+        it. The v4-to-v5 case below is RETAINED as a retired boundary rather
+        than replaced, matching how v1-to-v2 was kept.
+        """
 
         review_policy = sys.modules["review_policy"]
 
@@ -28310,9 +28888,9 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
 
         initial_count = len(receipts())
         with patch.object(
-            review_policy, "REVIEW_POLICY_EVALUATOR_VERSION", 3
+            review_policy, "REVIEW_POLICY_EVALUATOR_VERSION", 5
         ), patch.object(
-            self.srv, "REVIEW_POLICY_EVALUATOR_VERSION", 3
+            self.srv, "REVIEW_POLICY_EVALUATOR_VERSION", 5
         ):
             legacy = self._run(
                 self.srv.wf_prepare_wave_response,
@@ -28322,7 +28900,7 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
             )
         self.assertEqual(legacy["status"], "error", legacy)
         self.assertEqual(len(receipts()), initial_count + 1)
-        self.assertEqual(receipts()[-1]["evaluator_version"], 3)
+        self.assertEqual(receipts()[-1]["evaluator_version"], 5)
 
         upgraded = self._run(
             self.srv.wf_prepare_wave_response,
@@ -28332,7 +28910,14 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
         )
         self.assertEqual(upgraded["status"], "error", upgraded)
         self.assertEqual(len(receipts()), initial_count + 2)
-        self.assertEqual(receipts()[-1]["evaluator_version"], 4)
+        self.assertEqual(
+            receipts()[-1]["evaluator_version"],
+            review_policy.REVIEW_POLICY_EVALUATOR_VERSION,
+            "convergence is about old -> current -> stable, not about which\n"
+            "number is current; the conscious pin on the number itself lives\n"
+            "in test_review_policy's transition-boundary tripwire, so this\n"
+            "assertion tracks the constant and needs no edit per bump",
+        )
 
         repeated = self._run(
             self.srv.wf_prepare_wave_response,
@@ -28344,8 +28929,72 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
         self.assertEqual(
             len(receipts()),
             initial_count + 2,
-            "a current evaluator-v4 receipt must make repeated Prepare idempotent",
+            "a current evaluator-v6 receipt must make repeated Prepare "
+            "idempotent",
         )
+
+    def test_public_prepare_converged_once_from_evaluator_v4_to_v5(self):
+        """Wave 1umst: a RETIRED boundary, still pinned after the v6 bump.
+
+        Both prepares run pinned, exactly as the retired v1-to-v2 case above
+        does. Leaving the second unpinned would silently retarget this test at
+        whatever the live version happens to be, so it would stop proving the
+        v4-to-v5 transition the moment the constant moved again.
+        """
+
+        review_policy = sys.modules["review_policy"]
+
+        def receipts():
+            return tuple(
+                record
+                for record in self._records()
+                if record.get("record_type") == "review_policy_receipt"
+            )
+
+        initial_count = len(receipts())
+        with patch.object(
+            review_policy, "REVIEW_POLICY_EVALUATOR_VERSION", 4
+        ), patch.object(
+            self.srv, "REVIEW_POLICY_EVALUATOR_VERSION", 4
+        ):
+            legacy = self._run(
+                self.srv.wf_prepare_wave_response,
+                self.root,
+                self.wave_id,
+                mode="ready",
+            )
+        self.assertEqual(legacy["status"], "error", legacy)
+        self.assertEqual(len(receipts()), initial_count + 1)
+        self.assertEqual(receipts()[-1]["evaluator_version"], 4)
+
+        with patch.object(
+            review_policy, "REVIEW_POLICY_EVALUATOR_VERSION", 5
+        ), patch.object(
+            self.srv, "REVIEW_POLICY_EVALUATOR_VERSION", 5
+        ):
+            upgraded = self._run(
+                self.srv.wf_prepare_wave_response,
+                self.root,
+                self.wave_id,
+                mode="ready",
+            )
+            self.assertEqual(upgraded["status"], "error", upgraded)
+            self.assertEqual(len(receipts()), initial_count + 2)
+            self.assertEqual(receipts()[-1]["evaluator_version"], 5)
+
+            repeated = self._run(
+                self.srv.wf_prepare_wave_response,
+                self.root,
+                self.wave_id,
+                mode="ready",
+            )
+            self.assertEqual(repeated["status"], "error", repeated)
+            self.assertEqual(
+                len(receipts()),
+                initial_count + 2,
+                "a current evaluator-v5 receipt must make repeated Prepare "
+                "idempotent",
+            )
 
     def test_failed_docs_gate_publishes_no_new_roster_receipt_or_projection(self):
         config_path = self.root / "docs/workflow-config.json"

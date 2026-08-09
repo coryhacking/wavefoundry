@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-06
+Last verified: 2026-08-08
 
 Shortcut: **`Upgrade Wavefoundry`** | Legacy: **`Upgrade wave framework`** / **`Upgrade wave context`**
 
@@ -285,10 +285,7 @@ Feature packs carry integer `upgrade_protocol_version` and
 `minimum_runner_protocol`. `upgrade_protocol_invalid` means the pack is missing,
 malformed, import-incomplete, or incompatible and is refused before extraction.
 `bridge_release_required` means the installed protocol-1 runner must not extract the
-feature. Protocol-1 installations at version 1.8.0 or later upgrade directly with the
-same package; 1.14 is not an intermediate requirement. A source below 1.8.0 is refused
-before mutation and must first be upgraded to the supported floor. Use the same single
-matching `wavefoundry-<version>.zip` release package.
+feature. Use the same single matching `wavefoundry-<version>.zip` release package.
 The agent stops the dashboard, disconnects/stops every Wavefoundry MCP server for
 the repository, and leaves the current host session idle; it then runs the exact
 `command_argv` through its ordinary non-MCP shell. No operator-entered terminal

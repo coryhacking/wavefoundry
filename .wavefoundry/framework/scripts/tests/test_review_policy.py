@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -201,13 +202,19 @@ class ReviewPolicyReconcilerTests(unittest.TestCase):
                 "# Historical\n\nRun the pre-implementation review gate.\n",
                 encoding="utf-8",
             )
-            wavefoundry_live = root / ".wavefoundry/README.md"
-            wavefoundry_live.parent.mkdir(parents=True, exist_ok=True)
-            wavefoundry_live.write_text(
-                "# Local framework guidance\n\nRun the reviewer loop.\n",
-                encoding="utf-8",
+            # A second project-authored carrier, so this test still proves more
+            # than one file is reported. It replaces `.wavefoundry/README.md` in
+            # that role: that file is shipped by the pack, so reporting it told
+            # operators to hand-rewrite a file the same upgrade replaces. It now
+            # sits in the excluded group below.
+            second_live = root / "docs/contributing/review-notes.md"
+            second_live.parent.mkdir(parents=True, exist_ok=True)
+            second_live.write_text(
+                "# Notes\n\nRun the reviewer loop.\n", encoding="utf-8",
             )
             generated_paths = (
+                root / ".wavefoundry/README.md",
+                root / ".wavefoundry/CHANGELOG.md",
                 root / ".wavefoundry/framework/README.md",
                 root / ".wavefoundry/index/README.md",
                 root / ".wavefoundry/upgrade-assets/README.md",
@@ -221,13 +228,13 @@ class ReviewPolicyReconcilerTests(unittest.TestCase):
                 )
             before = {
                 live: live.read_bytes(),
-                wavefoundry_live: wavefoundry_live.read_bytes(),
+                second_live: second_live.read_bytes(),
             }
             with self.assertRaises(ValueError) as caught:
                 review_policy_reconcile.plan_reconciliation(root)
             message = str(caught.exception)
             self.assertIn("docs/agents/wave-council.md", message)
-            self.assertIn(".wavefoundry/README.md", message)
+            self.assertIn("docs/contributing/review-notes.md", message)
             self.assertIn("outside a registered carrier", message)
             self.assertNotIn("docs/waves/1old closed/wave.md", message)
             for generated in generated_paths:
@@ -374,17 +381,118 @@ class ReviewPolicyReconcilerTests(unittest.TestCase):
             )
 
 
+class ShippedMarkdownIsNotProjectDriftTests(unittest.TestCase):
+    """The upgrade must not demand a manual rewrite of a file it ships.
+
+    Field report: the preflight halted on `.wavefoundry/README.md` carrying a
+    retired token, telling the operator to rewrite it by hand. That file is in
+    the pack. The cause is a prefix gap, not a per-file oversight: the
+    exclusions covered `.wavefoundry/framework/`, `/index/`, and
+    `/upgrade-assets/` but nothing at the `.wavefoundry/` root, where the pack
+    ships exactly README.md and CHANGELOG.md. The changelog exposure is the
+    worse half and was never reported, because a release history must name
+    retired concepts to do its job.
+    """
+
+    RETIRED = "reviewer loop"
+
+    def _scan(self, files: dict[str, str]) -> tuple[str, ...]:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        for rel, body in files.items():
+            p = root / rel
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(body, encoding="utf-8")
+        return review_policy_reconcile._live_markdown_retired_errors(root)
+
+    def _flagged(self, errors, rel):
+        return any(rel in e for e in errors)
+
+    def test_shipped_root_markdown_is_not_reported_as_project_drift(self):
+        errors = self._scan({
+            ".wavefoundry/README.md": f"# R\n\nThe {self.RETIRED} is retired.\n",
+            ".wavefoundry/CHANGELOG.md": f"# C\n\nRemoved the {self.RETIRED}.\n",
+        })
+        self.assertFalse(self._flagged(errors, ".wavefoundry/README.md"), errors)
+        self.assertFalse(self._flagged(errors, ".wavefoundry/CHANGELOG.md"), errors)
+
+    def test_project_authored_prose_is_still_reported(self):
+        """The control. A blanket silence would pass the test above and this one fails."""
+        errors = self._scan({
+            "docs/contributing/notes.md": f"# N\n\nThe {self.RETIRED} still runs.\n",
+        })
+        self.assertTrue(self._flagged(errors, "docs/contributing/notes.md"), errors)
+
+    def test_the_exclusion_is_a_prefix_rule_not_a_per_file_list(self):
+        """A future shipped file at that level inherits the exclusion."""
+        errors = self._scan({
+            ".wavefoundry/NOTICE.md": f"# N\n\nThe {self.RETIRED} is gone.\n",
+        })
+        self.assertFalse(self._flagged(errors, ".wavefoundry/NOTICE.md"), errors)
+
+
+class EmptyWaveReviewPolicyMigrationTests(unittest.TestCase):
+    """An empty mapping means what an absent key means.
+
+    Field report: a 1.11.0 repository carrying `"wave_review": {}` could not
+    upgrade at all. `migrate_wave_review_policy` defaulted only on `None`, so
+    the empty mapping fell through to the validator and hard-failed the
+    preflight before any mutation. Migration is the one component whose whole
+    job is normalizing old shapes.
+    """
+
+    FRESH = {"enabled": True, "delivery_mode": review_policy.FRESH_INSTALL_DELIVERY_MODE}
+
+    def test_an_empty_mapping_migrates_like_an_absent_key(self):
+        self.assertEqual(review_policy.migrate_wave_review_policy({}), self.FRESH)
+        self.assertEqual(review_policy.migrate_wave_review_policy(None), self.FRESH)
+
+    def test_widening_the_unset_case_does_not_weaken_rejection(self):
+        """The control. Without it, `return FRESH` unconditionally would pass."""
+        for bad in ("enabled", 5, [], {"enabled": "yes"}, {"enabled": None}):
+            with self.subTest(value=bad):
+                with self.assertRaises(ValueError):
+                    review_policy.migrate_wave_review_policy(bad)
+
+    def test_a_partial_mapping_still_migrates_on_the_existing_path(self):
+        """`allow_legacy_missing_mode` already covered this; the gap was only `{}`."""
+        self.assertEqual(
+            review_policy.migrate_wave_review_policy({"enabled": True}), self.FRESH
+        )
+        self.assertEqual(
+            review_policy.migrate_wave_review_policy({"enabled": False})["enabled"], False
+        )
+
+
 class ReviewPolicyUpgradeTests(unittest.TestCase):
-    def test_evaluator_version_four_is_the_shipped_transition_boundary(self):
+    def test_evaluator_version_seven_is_the_shipped_transition_boundary(self):
         """Deliberate tripwire: update it consciously on every evaluator bump.
 
-        v3 to v4 (wave 1ui1d): lane selection now scores only declared
-        Serialization Points paths. The pin moves with the constant, it is
-        never deleted, and `test_server_tools.py` carries the paired public
-        transition test.
+        v4 to v5 (wave 1umst): legacy extension triggers are path-shaped rather
+        than raw substrings, and receipt semantics exclude rotating council
+        seats. The pin moves with the constant, it is never deleted, and
+        `test_server_tools.py` carries the paired public transition test.
+
+        v5 to v6 (wave 1uo1x): lane semantics and digest boundary both moved.
+        Adoption of the declared-target contract is decided per DOCUMENT rather
+        than per wave, declaration requires a pure-path bullet or the explicit
+        `**Review targets (repo-relative paths):**` block, and the status
+        normalizer bounds its carrier by a known-key allowlist. One bump
+        carries both changes.
+
+        v6 to v7 (wave 1uprb): the canonicalizer gained carrier normalization
+        (BOM, line endings, trailing newline, and trailing whitespace outside a
+        fence, preserved inside one), a `## Session Handoff` exclusion
+        conditional on an exact match against the shipped template sentence,
+        an order-invariant `changes` payload sorted by `change_id`, and
+        whitespace-independent legacy lane matching. Bumped for the same reason
+        v2 to v3 was: without it the permanent ledger cannot tell a plan edit
+        apart from a canonicalization change. The re-digest happens either way,
+        so the bump only decides whether the history can explain it.
         """
 
-        self.assertEqual(review_policy.REVIEW_POLICY_EVALUATOR_VERSION, 4)
+        self.assertEqual(review_policy.REVIEW_POLICY_EVALUATOR_VERSION, 7)
 
     def test_upgrade_policy_guidance_matches_legacy_migration(self):
         self.assertIn("delivery_mode=targeted", review_policy.UPGRADE_POLICY_BLOCK)
@@ -1194,6 +1302,811 @@ class LockAndPublicationPolicyTests(unittest.TestCase):
 
 
 class ReviewLoopFrictionPolicyTests(unittest.TestCase):
+    def test_legacy_extension_fallback_requires_a_real_path_and_reports_location(self):
+        # The control must exercise the PATH-SHAPE requirement, so the bare
+        # extension lives in `## Scope`, a digested section. Putting it in
+        # `## Progress Log` made this pass for an unrelated reason: the
+        # canonicalizer replaces that body wholesale, so the matcher never saw
+        # the token at all and the test could not detect a relaxed path rule.
+        false_positive, _ = review_policy.select_required_review_lanes(
+            requested_lanes=(),
+            project_lanes=(),
+            change_texts=(
+                "# Change\n\n## Scope\n\nRecorded in events.jsonl; "
+                "the Markdown filename is README.js.md; prose says .js.\n",
+            ),
+        )
+        lanes, reasons = review_policy.select_required_review_lanes(
+            requested_lanes=(),
+            project_lanes=(),
+            change_texts=("# Change\n\n## Scope\n\nTouches lib/widget.js.\n",),
+        )
+        self.assertNotIn("code-reviewer", false_positive)
+        self.assertEqual(lanes, ("code-reviewer",))
+        # The reason names the token and a normalized excerpt. It deliberately
+        # invents no source location: the corpus is every undeclared document
+        # joined and canonicalized, so any offset into it points at no line in
+        # any real document. Assert the PROPERTY (no location-shaped number),
+        # not one spelling of it; `L22` and `offset 341` are equally misleading.
+        reason = reasons["code-reviewer"][0]
+        self.assertIn("matched in undeclared change-document prose", reason)
+        self.assertIn("lib/widget.js", reason)
+        self.assertIsNone(
+            re.search(r"(?:line|offset|L|:)\s*\d+", reason),
+            f"reason invents a source location: {reason!r}",
+        )
+
+    def test_digest_ignores_leading_workflow_status_metadata(self):
+        base = b"# Change\nChange Status: planned\nStatus: planned\nLast verified: 2026-08-05\n\n## Scope\n\nKeep this.\n"
+        progressed = base.replace(b"Change Status: planned", b"Change Status: implemented").replace(b"Status: planned", b"Status: reviewing").replace(b"2026-08-05", b"2026-08-06")
+        digest = lambda body: review_policy.policy_input_digest(
+            wave_review={"enabled": True, "delivery_mode": "targeted"},
+            project_lanes=(), review_policies={},
+            changes=(("1abc-bug example", "bug", body),), requested_lanes=(),
+        )
+        self.assertEqual(digest(base), digest(progressed))
+
+    # ---- 1uo1w: per-document adoption and the two-tier declaration form ----
+
+    _PROSE_DOC = (
+        "# Change\n\nChange ID: `1abc-bug example`\n\n## Scope\n\n"
+        "A state machine change.\n\n## Serialization Points\n\n"
+        "{body}\n\n## Next\n"
+    )
+
+    def _lanes(self, *docs: str) -> tuple[str, ...]:
+        lanes, _ = review_policy.select_required_review_lanes(
+            requested_lanes=(), project_lanes=(), change_texts=docs
+        )
+        return lanes
+
+    def test_prose_naming_a_directory_never_confers_adoption(self):
+        """Field report: one sentence of prose emptied a required-lane roster.
+
+        Any extracted path was read as proof the author adopted the
+        declared-target contract, so a narrative mention of `docs/` switched
+        the document out of prose scoring and left it with NOTHING. Pinned at
+        the measured worst case (an empty roster, not a reduced one) and in
+        BOTH shapes: a plain prose line and a prose BULLET.
+
+        The bullet shape is load-bearing. A first design scanned bullets for
+        path tokens, which reproduced this exact failure, because real
+        Serialization Points prose is mostly written as bullets.
+        """
+
+        baseline = self._lanes(self._PROSE_DOC.format(
+            body="- Serialize edits through the runner workstream."
+        ))
+        self.assertEqual(baseline, ("qa-reviewer", "architecture-reviewer"))
+        for shape in (
+            "- Shared with the wave that also touches the docs/ folder",
+            "Shared with the wave that also touches the docs/ folder",
+        ):
+            with self.subTest(shape=shape):
+                self.assertEqual(
+                    self._lanes(self._PROSE_DOC.format(body=shape)),
+                    baseline,
+                    "prose that merely mentions a directory must not switch "
+                    "the document into declared mode",
+                )
+
+    def test_adoption_is_per_document_so_a_mixed_wave_loses_no_lane(self):
+        """The wave-level suppression IS the defect, at wave scope.
+
+        A wave with one adopting document and one un-migrated sibling scored
+        the whole wave on paths alone, so the sibling's prose stopped
+        recruiting and the roster collapsed. No corpus census can detect this:
+        nearly every declared document is in a closed wave or alone in its
+        wave, so a static count returns zero losses under a correct and an
+        incorrect design alike. Only a mixed fixture discriminates.
+        """
+
+        declared = self._PROSE_DOC.format(
+            body="- `docs/specs/mcp-tool-surface.md`"
+        )
+        undeclared = (
+            "# Change\n\nChange ID: `1abd-bug sibling`\n\n## Scope\n\n"
+            "Touches framework/scripts/ and tests/ regression harness.\n\n"
+            "## Serialization Points\n\n- Serialize through the runner.\n"
+        )
+        declared_alone = self._lanes(declared)
+        undeclared_alone = self._lanes(undeclared)
+        self.assertEqual(declared_alone, ("docs-contract-reviewer",))
+        self.assertIn("code-reviewer", undeclared_alone)
+        mixed = self._lanes(declared, undeclared)
+        for lane in set(declared_alone) | set(undeclared_alone):
+            self.assertIn(
+                lane, mixed,
+                "a mixed wave must union each document's own mode, never "
+                "suppress the un-migrated sibling's coverage",
+            )
+
+    def test_a_shredded_path_fragment_is_not_a_declared_target(self):
+        """A phantom is worse than a silent drop: it suppresses the fallback.
+
+        `_REPO_PATH_RE` has no space in its character class, so this project's
+        own `<id> <slug>` artifact path shreds into two fragments. The second
+        has a dot in its final segment, so it was ACCEPTED as a declared
+        target: it matches no risk trigger, flips the document into declared
+        mode, and yields zero required lanes. Declaring a real on-disk
+        wave-owned artifact was therefore actively harmful.
+        """
+
+        doc = self._PROSE_DOC.format(
+            body="- docs/waves/1uo1x declaration-and-digest-boundaries/wave.md"
+        )
+        self.assertEqual(
+            review_policy.serialization_point_paths(doc), (),
+            "an unbackticked spaced path must declare nothing: its first "
+            "fragment is not a declared target, so the bullet is prose",
+        )
+        self.assertNotEqual(
+            self._lanes(doc), (),
+            "a shredded fragment must never suppress the fallback",
+        )
+
+    def test_a_wrapped_pure_path_bullet_is_prose_not_a_partial_declaration(self):
+        """Readiness finding: "continuation lines are not scanned" was ambiguous.
+
+        One reading scans the bullet's first line and discards the rest, which
+        silently drops the continuation targets. Measured over the corpus that
+        reading keeps five extra documents and loses `docs-contract-reviewer`
+        on the real declaration reproduced here, the only lane loss either
+        reading produces. A wrapped bullet is therefore prose in its entirety;
+        a multi-target declaration belongs in the explicit block.
+        """
+
+        wrapped = self._PROSE_DOC.format(body=(
+            "- `upgrade_wavefoundry.py`, `server_impl.py`,\n"
+            "  `.wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md`"
+        ))
+        self.assertEqual(
+            review_policy.serialization_point_paths(wrapped), (),
+            "a wrapped bullet must not declare its first line's targets while "
+            "silently dropping the seed on its continuation line",
+        )
+        # The real `1uf68` bullet above opens with BARE filenames, which carry
+        # no separator and are therefore not declared targets at all. That
+        # makes it a weak pin on its own: it stays green even with the
+        # wrapped-bullet rule deleted. This variant opens with genuine slashed
+        # paths, so the first line WOULD declare if the rule were removed, and
+        # the assertion is load-bearing rather than incidentally true.
+        wrapped_slashed = self._PROSE_DOC.format(body=(
+            "- `src/a.py`, `src/b.py`,\n"
+            "  `docs/specs/mcp-tool-surface.md` land together"
+        ))
+        self.assertEqual(
+            review_policy.serialization_point_paths(wrapped_slashed), (),
+            "deleting the wrapped-bullet rule must fail this assertion",
+        )
+
+    def test_the_explicit_block_declares_a_target_containing_spaces(self):
+        """This project's own `<id> <slug>` artifacts were undeclarable.
+
+        Regex extraction has no space in its character class, so a wave-owned
+        path shredded into fragments. Inside the marker block a backtick span
+        is ONE target, spaces included, which is the only reason the strict
+        opt-in tier exists. Proven against a real on-disk artifact.
+        """
+
+        root = Path(__file__).resolve().parents[4]
+        artifact = (
+            "docs/waves/1uo1x declaration-and-digest-boundaries/wave.md"
+        )
+        self.assertTrue(
+            (root / artifact).exists(), "fixture must name a real artifact"
+        )
+        doc = self._PROSE_DOC.format(body=(
+            "**Review targets (repo-relative paths):**\n\n"
+            f"- `{artifact}`\n- `.wavefoundry/framework/scripts/Review_Policy.py`"
+        ))
+        declared = review_policy.serialization_point_paths(doc)
+        self.assertIn(artifact.lower(), declared)
+        self.assertIn(
+            ".wavefoundry/framework/scripts/review_policy.py", declared,
+            "spans lowercase like every other target, because the footprint "
+            "consumer folds case on the git side only",
+        )
+
+    def test_prose_declares_nothing_inside_the_explicit_block_either(self):
+        """Delivery finding: the reported defect survived inside tier 2.
+
+        Span extraction took every backticked token and ignored the English
+        words around it, so the wave's own worst-case sentence still emptied a
+        roster when written INSIDE the block the docs present as the stricter
+        opt-in. The direction of harm is the silent one: an author who believes
+        their sentence is prose has actually declared, which suppresses the
+        fallback. Seven shipped carriers state "prose declares nothing in any
+        shape", so the code has to mean it in both tiers.
+        """
+
+        marker = "**Review targets (repo-relative paths):**"
+        prose = (
+            "- Shared with the wave that also touches the `docs/` folder"
+        )
+        outside = self._lanes(self._PROSE_DOC.format(body=prose))
+        inside = self._lanes(
+            self._PROSE_DOC.format(body=f"{marker}\n\n{prose}")
+        )
+        self.assertEqual(
+            inside, outside,
+            "a prose bullet must score identically inside and outside the "
+            "explicit block",
+        )
+        self.assertEqual(inside, ("qa-reviewer", "architecture-reviewer"))
+        wrapped = self._PROSE_DOC.format(body=(
+            f"{marker}\n\n- `src/a.py` and the module owning\n"
+            "  the thing must land together"
+        ))
+        self.assertEqual(
+            review_policy.serialization_point_paths(wrapped), (),
+            "the wrapped-bullet rule applies in both tiers, not just the floor",
+        )
+        # The bullet above is ALSO rejected by the residue rule, so it does not
+        # isolate the wrapped-bullet rule inside the block. Here the first line
+        # is pure targets with no residue, so only the wrapped-bullet rule can
+        # reject it.
+        wrapped_clean_first_line = self._PROSE_DOC.format(body=(
+            f"{marker}\n\n- `src/a.py`\n  and the module owning it"
+        ))
+        self.assertEqual(
+            review_policy.serialization_point_paths(wrapped_clean_first_line),
+            (),
+            "deleting the block's wrapped-bullet rule must fail this assertion",
+        )
+        # A span that is not a declared target rejects the whole bullet, the
+        # same all-or-nothing contract the floor uses.
+        non_target = self._PROSE_DOC.format(
+            body=f"{marker}\n\n- `notes`, `src/a.py`"
+        )
+        self.assertEqual(
+            review_policy.serialization_point_paths(non_target), (),
+            "one non-target span makes the whole block bullet prose",
+        )
+
+    def test_a_fenced_example_of_the_section_never_substitutes_for_the_real_one(self):
+        """Delivery finding: the section finder itself was fence-blind.
+
+        A document illustrating the declaration form inside a fence had that
+        example read as the real section, so it declared the example's path and
+        dropped every real one, losing a lane. The closing scan was blind the
+        same way, letting a fenced `## ` line truncate the section.
+
+        The shipped scaffold now teaches fenced examples in this exact section,
+        so this is the ordinary case rather than an exotic one.
+        """
+
+        doc = (
+            "# C\n\n## Rationale\n\nAuthors write it like this:\n\n"
+            "```\n## Serialization Points\n\n- `src/example.py`\n\n```\n\n"
+            "## Serialization Points\n\n- `src/real.py`\n"
+            "- `docs/specs/real.md`\n\n## Next\n"
+        )
+        self.assertEqual(
+            review_policy.serialization_point_paths(doc),
+            ("src/real.py", "docs/specs/real.md"),
+        )
+        truncating = (
+            "## Serialization Points\n\n```\n## Fake\n```\n\n"
+            "- `src/real.py`\n\n## Next\n"
+        )
+        self.assertEqual(
+            review_policy.serialization_point_paths(truncating),
+            ("src/real.py",),
+            "a fenced heading must not close the section",
+        )
+
+    def test_the_tiers_union_rather_than_the_block_masking_the_floor(self):
+        """Delivery finding: a marker line could silently disable the floor.
+
+        A mixed-notation bullet (one unbackticked path, one backticked) is
+        rejected by the span rule but accepted by the floor. Because block
+        bullets were excluded from the floor pass, adding a marker line above
+        such a bullet dropped it entirely, contradicting the union invariant
+        this module documents and producing the silent under-recruitment the
+        wave exists to remove.
+        """
+
+        marker = "**Review targets (repo-relative paths):**"
+        mixed = "- src/app/handler.py, `docs/specs/x.md`"
+        inside = self._PROSE_DOC.format(body=f"{marker}\n\n{mixed}")
+        outside = self._PROSE_DOC.format(body=mixed)
+        self.assertEqual(
+            review_policy.serialization_point_paths(inside),
+            review_policy.serialization_point_paths(outside),
+        )
+        self.assertEqual(
+            set(review_policy.serialization_point_paths(inside)),
+            {"src/app/handler.py", "docs/specs/x.md"},
+        )
+
+    def test_a_span_carrying_a_note_or_two_paths_declares_nothing(self):
+        """Reverification finding: the space tolerance opened a phantom.
+
+        `_is_declared_target` only asks whether the final segment has a dot, so
+        a real path with a trailing note glued on, or two paths crammed into
+        one span, declared the whole string. That names no file, matches no
+        trigger, SUPPRESSES the fallback, and yields a SMALLER roster than the
+        identical bullet with no marker above it. It also zeroes the wave
+        footprint for a file that really changed.
+
+        The space tolerance is spent deliberately: a directory segment may
+        contain spaces, a basename may not, and an extension is never followed
+        by more text.
+        """
+
+        marker = "**Review targets (repo-relative paths):**"
+        noted = self._PROSE_DOC.format(body=(
+            f"{marker}\n\n- `.wavefoundry/framework/scripts/"
+            "upgrade_wavefoundry.py (extraction filter)`"
+        ))
+        self.assertEqual(review_policy.serialization_point_paths(noted), ())
+        self.assertIn(
+            "release-reviewer", self._lanes(noted),
+            "rejecting the phantom must leave the document on its fallback, "
+            "which is strictly more coverage than the phantom produced",
+        )
+        two_paths = self._PROSE_DOC.format(
+            body=f"{marker}\n\n- `src/a.py src/b.py`"
+        )
+        self.assertEqual(review_policy.serialization_point_paths(two_paths), ())
+        # The legitimate spaced shape still declares: the space is in a
+        # DIRECTORY segment and the basename is a plain filename.
+        legit = self._PROSE_DOC.format(
+            body=f"{marker}\n\n- `docs/waves/1abc some slug/wave.md`"
+        )
+        self.assertEqual(
+            review_policy.serialization_point_paths(legit),
+            ("docs/waves/1abc some slug/wave.md",),
+        )
+
+    def test_a_span_must_look_like_a_path_not_merely_carry_a_dot(self):
+        """A version string is not a declared target.
+
+        `_is_declared_target` accepts any dotted final segment, which the floor
+        survives only because `_REPO_PATH_RE` independently requires a
+        separator. Spans get no such regex, so without an explicit separator
+        rule `- ``1.15.4``` declared itself, matched no trigger, and zeroed the
+        document's roster.
+        """
+
+        doc = self._PROSE_DOC.format(body=(
+            "**Review targets (repo-relative paths):**\n\n- `1.15.4`"
+        ))
+        self.assertEqual(review_policy.serialization_point_paths(doc), ())
+        self.assertNotEqual(
+            self._lanes(doc), (),
+            "a rejected span must leave the document on its fallback",
+        )
+
+    def test_a_declaration_directly_above_a_fence_is_not_a_wrapped_bullet(self):
+        """A fence marker opens a block; it is a boundary, not a continuation.
+
+        Reading it as one dropped a real declaration that sits immediately
+        above a fenced example, which the shipped scaffold now teaches authors
+        to write in this section.
+        """
+
+        doc = self._PROSE_DOC.format(
+            body="- `docs/specs/a.md`\n```\nexample\n```"
+        )
+        self.assertEqual(
+            review_policy.serialization_point_paths(doc),
+            ("docs/specs/a.md",),
+        )
+
+    def test_a_fenced_marker_never_preempts_the_real_block(self):
+        """The marker scan skips fences, and nothing pinned that.
+
+        Both shipped scaffolds now carry a FENCED marker example, so the first
+        author who keeps the example and adds a real block below lands in this
+        shape. If the fenced marker wins, the real block degrades to tier 1 and
+        its spaced target shreds: silent loss of a declaration, which is the
+        class this wave exists to remove.
+        """
+
+        marker = "**Review targets (repo-relative paths):**"
+        doc = self._PROSE_DOC.format(body=(
+            f"```\n{marker}\n\n- `src/fake.py`\n```\n\n"
+            f"{marker}\n\n- `docs/waves/1abc some slug/wave.md`"
+        ))
+        self.assertEqual(
+            review_policy.serialization_point_paths(doc),
+            ("docs/waves/1abc some slug/wave.md",),
+        )
+
+    def test_the_marker_block_ends_at_the_first_non_bullet_line(self):
+        """Requirement 5's block boundary had no test.
+
+        Without the terminator the tier-2 span rules leak past the block, so a
+        spaced target written in ordinary prose further down the section is
+        picked up as a declaration.
+        """
+
+        marker = "**Review targets (repo-relative paths):**"
+        doc = self._PROSE_DOC.format(body=(
+            f"{marker}\n\n- `src/a.py`\n\nAlso:\n\n"
+            "- `docs/waves/1abc some slug/wave.md`"
+        ))
+        self.assertEqual(
+            review_policy.serialization_point_paths(doc), ("src/a.py",),
+            "the block ends at `Also:`, so the spaced target below it is "
+            "outside tier 2 and the floor cannot declare it either",
+        )
+
+    def test_a_root_level_file_is_not_a_declared_target(self):
+        """Root-level declarations are deliberately out of scope.
+
+        `_is_declared_target` alone would accept `README.md`, so the tier-1
+        shape check carries this decision on its own. Measured across four
+        repositories at plan time: zero root-level source files, zero lane
+        impact, so requiring a separator is what keeps ordinary prose from
+        reading as a declaration.
+        """
+
+        doc = self._PROSE_DOC.format(body="- `README.md`")
+        self.assertEqual(review_policy.serialization_point_paths(doc), ())
+
+    def test_the_marker_is_matched_case_insensitively_on_purpose(self):
+        """Leniency here is deliberate, not an accident of a regex flag.
+
+        A near-miss on the marker degrades to the tier-1 floor, so tolerating
+        case costs nothing and removes one way to lose a spaced declaration
+        silently.
+        """
+
+        doc = self._PROSE_DOC.format(body=(
+            "**review targets (repo-relative paths):**\n\n"
+            "- `docs/waves/1abc some slug/wave.md`"
+        ))
+        self.assertEqual(
+            review_policy.serialization_point_paths(doc),
+            ("docs/waves/1abc some slug/wave.md",),
+        )
+
+    def test_an_inadmissible_status_count_degrades_byte_for_byte(self):
+        """AC-4's degrade clause, pinned directly rather than by census.
+
+        The corpus census cannot test this: the guard returns the input
+        unchanged on an inadmissible count, so the census's own count
+        assertion can never observe a value outside the admissible set. Only a
+        constructed three-status-line document reaches the branch.
+        """
+
+        three = (
+            "# T\n\nChange Status: planned\nStatus: planned\n"
+            "Previous Change Status: draft\nStatus: reviewing\n\n## Scope\n\nX\n"
+        )
+        self.assertEqual(
+            gardener_metadata.normalize_review_tracking_status(
+                three, replacement="<workflow-status>"
+            ),
+            three,
+            "a count outside {1, 2} returns the input byte-for-byte",
+        )
+
+    def test_declarations_survive_a_crlf_checkout(self):
+        """A Windows checkout must not silently lose its declarations.
+
+        The line splitter splits on `\\n`, so every line carries a trailing
+        `\\r`. A marker pattern anchored with `[ \\t]*$` therefore never matches
+        there, and the document degrades to the floor with its spaced targets
+        gone: silent loss, in the change that exists to remove silent loss.
+        Both tiers are pinned, and both must produce byte-identical results
+        under either line ending.
+        """
+
+        body = (
+            "**Review targets (repo-relative paths):**\n\n"
+            "- `docs/waves/1abc some slug/wave.md`\n\n"
+            "Also serialized:\n\n"
+            "- `.wavefoundry/framework/scripts/review_policy.py`"
+        )
+        doc = self._PROSE_DOC.format(body=body)
+        self.assertEqual(
+            review_policy.serialization_point_paths(doc.replace("\n", "\r\n")),
+            review_policy.serialization_point_paths(doc),
+        )
+        self.assertIn(
+            "docs/waves/1abc some slug/wave.md",
+            review_policy.serialization_point_paths(doc.replace("\n", "\r\n")),
+        )
+
+    def test_fenced_examples_and_tier_union_are_pinned_not_left_to_chance(self):
+        """AC-7b: two behaviors nothing else would have decided deliberately.
+
+        A fenced example inside the section is documentation, not a
+        declaration; it currently declares its example path. And a document
+        carrying BOTH a marker block and separate pure-path bullets must keep
+        both sets, so adding a block can never silently drop what the floor
+        already accepted.
+        """
+
+        # The bullet is followed by a BLANK line inside the fence, so the
+        # wrapped-bullet rule cannot reject it and only the fence skip can.
+        # Without the blank line this fixture stays green with fence handling
+        # deleted, which would make it a pin in name only.
+        fenced = self._PROSE_DOC.format(body=(
+            "Authors declare targets like this:\n\n"
+            "```\n- `src/app/handler.py`\n\n```"
+        ))
+        self.assertEqual(
+            review_policy.serialization_point_paths(fenced), (),
+            "a fenced example must declare nothing",
+        )
+        both = self._PROSE_DOC.format(body=(
+            "**Review targets (repo-relative paths):**\n\n"
+            "- `docs/specs/mcp-tool-surface.md`\n\n"
+            "Also serialized:\n\n"
+            "- `.wavefoundry/framework/scripts/review_policy.py`"
+        ))
+        declared = review_policy.serialization_point_paths(both)
+        self.assertIn("docs/specs/mcp-tool-surface.md", declared)
+        self.assertIn(
+            ".wavefoundry/framework/scripts/review_policy.py", declared,
+            "the tiers union; a marker block must not suppress the floor",
+        )
+
+    def test_declaration_change_loses_no_lane_anywhere_in_the_corpus(self):
+        """AC-7: the floor's safety contract, asserted over the real corpus.
+
+        A stricter declaration rule reclassifies documents, and the only
+        outcome that would be unacceptable is a document ending up with LESS
+        required review than it has today. Asserts that invariant rather than a
+        fixed keep/revert count, because a downstream repository will differ.
+
+        Measured here at delivery: 814 change documents, 138 declared before
+        and 37 after, 101 reverting to whole-document fallback, 95 gaining
+        lanes, and ZERO losing any.
+        """
+
+        root = Path(__file__).resolve().parents[4]
+        docs = [
+            p for p in sorted((root / "docs/plans").glob("*.md"))
+            if "plan-template" not in p.name
+        ]
+        docs += [
+            p for p in sorted((root / "docs/waves").glob("*/*.md"))
+            if p.name != "wave.md"
+        ]
+        self.assertGreater(len(docs), 100, "census must see a real corpus")
+
+        def roster(text, paths):
+            lanes, _ = review_policy.select_required_review_lanes(
+                requested_lanes=(), project_lanes=(),
+                change_texts=(text if not paths else
+                              "## Serialization Points\n\n"
+                              + "".join(f"- `{p}`\n" for p in paths),),
+            )
+            return set(lanes)
+
+        losses = []
+        for path in docs:
+            try:
+                text = path.read_text("utf-8")
+            except (OSError, UnicodeDecodeError):
+                continue
+            before = roster(text, self._legacy_declared_paths(text))
+            after = roster(text, review_policy.serialization_point_paths(text))
+            if before - after:
+                losses.append((path.name, sorted(before - after)))
+        self.assertEqual(
+            losses, [],
+            "no change document may lose a required lane; a stricter "
+            "declaration rule must only ever restore coverage",
+        )
+
+    @staticmethod
+    def _legacy_declared_paths(text: str) -> tuple[str, ...]:
+        """The pre-change extractor: regex-scan the whole section."""
+
+        body = review_policy._serialization_points_body(text)
+        if body is None:
+            return ()
+        return tuple(dict.fromkeys(
+            candidate
+            for candidate in (
+                m.group("path").lower()
+                for m in review_policy._REPO_PATH_RE.finditer(body)
+            )
+            if review_policy._is_declared_target(candidate)
+        ))
+
+    def test_the_shipped_scaffolds_declare_nothing_until_an_author_edits_them(self):
+        """The placeholder currently declares a real target on every new doc.
+
+        `_default_template()`'s example bullet extracts `src/app/handler.py`,
+        so every freshly scaffolded change document is born in declared mode
+        with a code-reviewer-only roster before its author has declared
+        anything. Reads the canonical producers rather than a copied literal,
+        because a literal goes vacuous the moment either drifts.
+        """
+
+        root = Path(__file__).resolve().parents[4]
+        template = (root / "docs/plans/plan-template.md").read_text("utf-8")
+        self.assertEqual(
+            review_policy.serialization_point_paths(template), (),
+            "the plan template must scaffold zero declared targets",
+        )
+        server_impl_src = (
+            root / ".wavefoundry/framework/scripts/server_impl.py"
+        ).read_text("utf-8")
+        marker = "## Serialization Points"
+        self.assertIn(marker, server_impl_src)
+        for chunk in server_impl_src.split(marker)[1:]:
+            embedded = marker + chunk.split('"""')[0].split("\n## ")[0]
+            self.assertEqual(
+                review_policy.serialization_point_paths(embedded), (),
+                "an embedded scaffold must declare nothing:\n"
+                + embedded[:400],
+            )
+
+    def test_body_prose_status_line_is_never_normalized(self):
+        """Readiness finding: the carrier boundary was a line SHAPE, not a key.
+
+        The scan kept the region open for any line matching `Word: text`, so
+        `Problem: the gate fails.` held it open and the later body `Status:`
+        line was rewritten. That makes a real contract edit digest-invisible:
+        an operator changes a document's meaning and the receipt does not move.
+
+        The fixture deliberately carries NO `## ` heading. An earlier revision
+        of this plan proposed bounding the region at the first `## ` heading;
+        that is structurally incapable of fixing this, because a `## ` heading
+        already closes the current scan, so every capture necessarily lies
+        before it. This document is the case that disproved that design.
+        """
+
+        text = (
+            "# T\n\nOwner: Eng\n\nProblem: the gate fails.\n\n"
+            "Status: this sentence is real contract prose a reviewer must read.\n"
+        )
+        self.assertEqual(
+            gardener_metadata.normalize_review_tracking_status(
+                text, replacement="<workflow-status>"
+            ),
+            text,
+            "a body Status: line held open by unknown-key prose must survive "
+            "byte-identical",
+        )
+
+    def test_leading_carrier_survives_a_blockquote_and_stops_at_prose(self):
+        """The boundary moves in neither direction, and a fence closes it.
+
+        Blockquote tolerance is the repair for a measured wrong result: the
+        current scan truncates at a `> **REFRAMED...**` line, leaving genuine
+        frontmatter status lines digest-SIGNIFICANT, so advancing that
+        document's status lapses its approvals. `1p7dg-enh` is the real case.
+
+        The fence direction is already correct today and is pinned as a
+        preserved behavior, not a repair.
+        """
+
+        normalize = gardener_metadata.normalize_review_tracking_status
+        quoted = (
+            "# T\n\n> **REFRAMED 2026-06-23** superseded by a later wave.\n\n"
+            "Change Status: planned\nStatus: planned\n\n## Scope\n\nKeep this.\n"
+        )
+        normalized = normalize(quoted, replacement="<workflow-status>")
+        self.assertIn("Change Status: <workflow-status>", normalized)
+        self.assertIn("Status: <workflow-status>", normalized)
+        self.assertIn("> **REFRAMED 2026-06-23**", normalized)
+
+        fenced = (
+            "# T\n\nOwner: Eng\n\n```\nStatus: inside a fenced example\n```\n"
+        )
+        self.assertEqual(
+            normalize(fenced, replacement="<workflow-status>"), fenced,
+            "a fence marker closes the carrier, so a fenced example is prose",
+        )
+
+    def test_status_normalization_admits_one_or_two_matches_not_exactly_one(self):
+        """A literal `len(matches) != 1` guard would lapse approvals en masse.
+
+        The siblings `normalize_gardener_date` and `normalize_progress_log`
+        normalize a SINGLE line and degrade on any other count. Copying that
+        contract here is wrong: a change document legitimately carries both
+        `Change Status:` and `Status:`, and 794 of 1457 documents in this
+        repository have exactly that pair. Under `!= 1` every one of them
+        stops normalizing, so the digest moves on each status advance and the
+        recorded approvals lapse.
+
+        This test fails under the literal sibling guard and passes under the
+        stated admissible set, which is what makes it an anti-regression pin
+        rather than a comment.
+        """
+
+        normalize = gardener_metadata.normalize_review_tracking_status
+        pair = (
+            "# T\n\nChange ID: `1abc-bug example`\nChange Status: planned\n"
+            "Owner: Engineering\nStatus: planned\n\n## Scope\n\nKeep this.\n"
+        )
+        normalized = normalize(pair, replacement="<workflow-status>")
+        self.assertEqual(normalized.count("<workflow-status>"), 2)
+        self.assertIn("Change Status: <workflow-status>", normalized)
+
+        single = "# T\n\nChange Status: planned\n\n## Scope\n\nKeep this.\n"
+        self.assertIn(
+            "Change Status: <workflow-status>",
+            normalize(single, replacement="<workflow-status>"),
+            "one match stays admissible; the set is {1, 2}, not {2}",
+        )
+
+    def test_carrier_boundary_census_reports_its_own_transition_cost(self):
+        """AC-6: the boundary change must report what it moves, not assume it.
+
+        Asserts the PROPERTIES that make the transition safe rather than a
+        fixed count, because a downstream repository will differ: no document
+        may produce a match count outside the admissible set, and no document
+        may LOSE a captured line (that direction would make a previously
+        digest-neutral status advance suddenly contract-bearing).
+
+        On this repository the measured result is one differing document,
+        `1p7dg-enh cross-file-receiver-resolution.md`, which widens because its
+        line-3 blockquote currently truncates the carrier, and its wave is
+        closed. Recorded rather than asserted, so the census stays honest
+        somewhere else.
+        """
+
+        root = Path(__file__).resolve().parents[4]
+        docs = sorted((root / "docs").rglob("*.md"))
+        self.assertGreater(len(docs), 100, "census must see a real corpus")
+        normalize = gardener_metadata.normalize_review_tracking_status
+        status_re = gardener_metadata._REVIEW_TRACKING_STATUS_LINE_RE
+        legacy_re = gardener_metadata._FRONTMATTER_METADATA_RE
+
+        def legacy_captured(lines):
+            found = []
+            for index, line in enumerate(lines):
+                if status_re.fullmatch(line):
+                    found.append(index)
+                if (
+                    line.strip()
+                    and not line.startswith("# ")
+                    and not legacy_re.match(line)
+                ):
+                    break
+            return tuple(found)
+
+        # A sentinel that cannot occur in the corpus. Counting the production
+        # `<workflow-status>` marker instead reports a false 3 for this wave's
+        # own change doc, which quotes that marker in its Rationale prose.
+        sentinel = "<<<census-sentinel-9f3a>>>"
+        losses = []
+        for path in docs:
+            try:
+                text = path.read_text("utf-8")
+            except (OSError, UnicodeDecodeError):
+                continue
+            self.assertNotIn(sentinel, text, "sentinel must be corpus-unique")
+            lines = text.split("\n")
+            normalized = normalize(text, replacement=sentinel)
+            shipped = normalized.count(sentinel)
+            self.assertIn(
+                shipped, (0, 1, 2),
+                f"{path.name} normalized an inadmissible count {shipped}",
+            )
+            if shipped < len(legacy_captured(lines)):
+                losses.append(path.name)
+        self.assertEqual(
+            losses, [],
+            "no document may lose a normalized status line: that direction "
+            "makes a previously digest-neutral status advance contract-bearing",
+        )
+
+    def test_receipt_rotation_is_not_semantic_but_the_roster_is_persisted(self):
+        semantic = {
+            "schema_version": 1, "evaluator_version": review_policy.REVIEW_POLICY_EVALUATOR_VERSION,
+            "policy_input_digest": "digest", "delivery_mode": "targeted", "primer_depth": "standard",
+            "council_seats": ["red-team", "code-reviewer"], "requested_lanes": [],
+            "required_lanes": ["code-reviewer"], "delivery_council_required": False,
+        }
+        current, appended = review_policy.build_policy_receipt(semantic, None)
+        self.assertTrue(appended)
+        changed_rotation = {**semantic, "council_seats": ["red-team", "docs-contract-reviewer"]}
+        retained, appended = review_policy.build_policy_receipt(changed_rotation, current)
+        self.assertFalse(appended)
+        self.assertEqual(retained["council_seats"], ["red-team", "code-reviewer"])
+
     def test_checkbox_tracking_preserves_ac_deferral_but_not_completion_or_tasks(self):
         base = (
             "# Change\n\n## Acceptance Criteria\n\n"
@@ -1217,13 +2130,37 @@ class ReviewLoopFrictionPolicyTests(unittest.TestCase):
             "`.wavefoundry/framework/scripts/tests/test_review_policy.py`; "
             "`.wavefoundry/framework/seeds/170-plan-feature.prompt.md`\n"
         )
-        lanes, _ = review_policy.select_required_review_lanes(
+        lanes, reasons = review_policy.select_required_review_lanes(
             requested_lanes=(), project_lanes=(), change_texts=(prose_only, paths)
         )
-        # A wave that has ADOPTED the contract scores paths only: the prose
-        # sibling contributes nothing, so `build_pack.py` and `events.jsonl`
-        # recruit neither the release nor a JavaScript lane.
-        self.assertEqual(lanes, ("code-reviewer", "qa-reviewer", "docs-contract-reviewer"))
+        # RE-PINNED for per-document adoption. This previously asserted that
+        # one document's declaration switched prose scoring off for the WHOLE
+        # wave, so the un-migrated sibling contributed nothing. That was the
+        # reported defect at wave scope: migrating one plan silently removed a
+        # different plan's coverage. Each document is now scored in its own
+        # mode and the results union, so the declaring document contributes its
+        # exact path roster AND the prose sibling keeps its fallback lanes.
+        self.assertEqual(
+            lanes,
+            (
+                "code-reviewer",
+                "qa-reviewer",
+                "docs-contract-reviewer",
+                "release-reviewer",
+            ),
+        )
+        self.assertTrue(
+            any("fallback" in r for r in reasons["release-reviewer"]),
+            "the sibling's lane must be labelled a fallback, never presented "
+            "as a declared-target match",
+        )
+        # Still true, and independent of adoption: `events.jsonl` contains the
+        # substring `.js` but is not a JavaScript target, so no JS-driven lane
+        # is recruited by it.
+        self.assertNotIn(
+            "events.jsonl",
+            " ".join(r for rs in reasons.values() for r in rs),
+        )
 
         # An UN-MIGRATED wave (no admitted change declares any target) keeps its
         # legacy coverage instead of dropping to nothing. This assertion was
@@ -1408,3 +2345,430 @@ class ReviewLoopFrictionPolicyTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RecordkeepingChurnTests(unittest.TestCase):
+    """Wave 1uprb / 1urlc: recordkeeping edits must not lapse approvals.
+
+    Every assertion here is on the CANONICAL body, which is what both the
+    digest and lane scoring consume. The negative halves matter as much as the
+    positives: an over-applied exclusion converts a churn problem into a
+    silent-coverage problem, which is strictly worse.
+    """
+
+    TEMPLATE_HANDOFF = "See `docs/agents/session-handoff.md` for current session state."
+
+    def _doc(self, handoff=None, extra=""):
+        handoff = self.TEMPLATE_HANDOFF if handoff is None else handoff
+        return (
+            "# T\n\nChange ID: `1abc-bug slug`\nStatus: planned\n"
+            "Last verified: 2026-08-08\n\n"
+            "## Rationale\n\nWhy.\n\n"
+            "## Requirements\n\n1. A thing.\n\n"
+            "## Acceptance Criteria\n\n- [ ] AC-1: A thing.\n\n"
+            "## Tasks\n\n- [ ] Do it.\n\n"
+            "## Risks\n\n| Risk | Mitigation |\n| --- | --- |\n| r | m |\n\n"
+            f"## Session Handoff\n\n{handoff}\n{extra}"
+        )
+
+    def _canon(self, text):
+        return gardener_metadata.canonical_review_policy_body(text.encode("utf-8"))
+
+    def test_a_boilerplate_session_handoff_is_excluded(self):
+        """AC-1. The measured-harmless half of the exclusion set."""
+
+        base = self._canon(self._doc())
+        edited = self._canon(self._doc(handoff=self.TEMPLATE_HANDOFF + "\n\nParked mid-wave."))
+        # Assert the exclusion actually FIRED. An earlier revision compared a
+        # pure function against itself on identical input, which passes under
+        # `return body`.
+        self.assertIn(
+            gardener_metadata.SESSION_HANDOFF_SENTINEL, base.decode("utf-8"),
+            "a boilerplate handoff must be replaced by its sentinel",
+        )
+        self.assertNotIn(
+            self.TEMPLATE_HANDOFF, base.decode("utf-8"),
+            "the template sentence itself must not survive canonicalization",
+        )
+        self.assertNotEqual(
+            base, edited,
+            "a substantive handoff body must still be digested; excluding the "
+            "whole section would blind review to the 5 percent that use it",
+        )
+
+    def test_a_substantive_session_handoff_still_churns(self):
+        """AC-1 negative half. Over-application is the worse failure."""
+
+        a = self._canon(self._doc(handoff="Blocked on operator decision about the release."))
+        b = self._canon(self._doc(handoff="Unblocked; proceeding with the release."))
+        self.assertNotEqual(
+            a, b,
+            "two different substantive handoffs must produce different canonical "
+            "bodies, or an admission precondition could be deleted invisibly",
+        )
+
+    def test_the_boilerplate_match_is_exact_not_a_prefix(self):
+        """AC-1b. Five real corpus documents begin with the template sentence.
+
+        A `startswith` or `in` implementation swallows all five while still
+        passing a negative test built from a wholly-different body, so the
+        prefix case needs its own fixture.
+        """
+
+        plain = self._canon(self._doc())
+        prefixed = self._canon(
+            self._doc(handoff=self.TEMPLATE_HANDOFF + " Change doc scaffolded 2026-06-05.")
+        )
+        self.assertNotEqual(
+            plain, prefixed,
+            "a body that BEGINS with the template sentence and continues with "
+            "substantive text must not be treated as boilerplate",
+        )
+
+    def test_the_boilerplate_match_survives_carrier_normalization(self):
+        """AC-1a. Ordering is load-bearing and cannot fail loudly.
+
+        If the body match runs before whitespace normalization, a CRLF checkout
+        or a stray trailing space makes the boilerplate fail to match and the
+        churn returns for exactly the population the carrier rules protect.
+        That failure is silent, because a body that differs from the template
+        is indistinguishable from an author who wrote something substantive.
+        """
+
+        plain = self._canon(self._doc())
+        for label, variant in {
+            "CRLF": self._doc().replace("\n", "\r\n"),
+            "BOM": "﻿" + self._doc(),
+            "one trailing space": self._doc(handoff=self.TEMPLATE_HANDOFF + " "),
+            "no EOF newline": self._doc().rstrip("\n"),
+        }.items():
+            with self.subTest(carrier=label):
+                self.assertEqual(
+                    plain, self._canon(variant),
+                    f"{label} must not defeat the boilerplate match",
+                )
+
+    def test_carrier_only_edits_do_not_move_the_canonical_body(self):
+        """AC-2. Zero human intent, and a Windows checkout hits every document."""
+
+        base = self._canon(self._doc(handoff="Substantive note here."))
+        doc = self._doc(handoff="Substantive note here.")
+        for label, variant in {
+            "CRLF": doc.replace("\n", "\r\n"),
+            "BOM": "﻿" + doc,
+            "trailing newline added": doc + "\n",
+            "trailing newline removed": doc.rstrip("\n"),
+            "one trailing space": doc.replace("Substantive note here.", "Substantive note here. "),
+        }.items():
+            with self.subTest(carrier=label):
+                self.assertEqual(base, self._canon(variant), f"{label} must not churn")
+
+    def test_all_trailing_whitespace_outside_a_fence_is_noise(self):
+        """AC-2. A hard line break changes layout, not the claim.
+
+        An earlier revision preserved runs of two or more spaces because they
+        are a markdown hard break. The digest exists to detect changes to the
+        approved contract, and a hard break changes rendering rather than
+        words, so the split was arbitrary AND backwards: it normalized the 2
+        lines in this corpus carrying a lone trailing space while leaving the
+        24 carrying a run of two or more to churn.
+        """
+
+        doc = self._doc(handoff="Substantive note here.")
+        for label, trailer in {"one space": " ", "hard break": "  ", "tab": "\t"}.items():
+            with self.subTest(trailing=label):
+                self.assertEqual(
+                    self._canon(doc),
+                    self._canon(doc.replace("Substantive note here.",
+                                            "Substantive note here." + trailer)),
+                    f"a trailing {label} outside a fence must not move the digest",
+                )
+
+    def test_trailing_whitespace_inside_a_fence_is_preserved(self):
+        """AC-2 negative half. In a fence the whitespace can be the subject.
+
+        A change document demonstrating one-space versus two-space behaviour in
+        a fenced example must not become indistinguishable from itself.
+        """
+
+        base = self._doc(handoff="Note.\n\n```\nexample line\n```")
+        spaced = self._doc(handoff="Note.\n\n```\nexample line  \n```")
+        self.assertNotEqual(
+            self._canon(base), self._canon(spaced),
+            "trailing whitespace inside a fence is content, not formatting",
+        )
+
+    def test_legacy_lane_matching_is_whitespace_independent(self):
+        """AC-3a. Operator-directed semantics change, asserted in both directions.
+
+        Four whole-document triggers carry a literal trailing space, so lane
+        selection currently depends on invisible whitespace: a line ending
+        `-bug ` recruits a lane and a line ending `-bug` does not. The trigger
+        is the token, not the space.
+        """
+
+        with_space = review_policy._legacy_token_match("-bug ", "see 1abc-bug \nnext")
+        bare_eol = review_policy._legacy_token_match("-bug ", "see 1abc-bug\nnext")
+        self.assertIsNotNone(with_space, "the trailing-space form must keep matching")
+        self.assertIsNotNone(
+            bare_eol,
+            "a bare token at end of line must ALSO match; this is the widening "
+            "the operator chose, and asserting it positively is what stops it "
+            "shipping as an unnoticed side effect of the whitespace rule",
+        )
+
+    def test_a_legacy_token_inside_a_word_still_does_not_match(self):
+        """AC-3a guard. Boundary matching must not become substring matching."""
+
+        # The falsifier must actually CONTAIN the token. An earlier revision
+        # used "debugger", which does not contain "-bug" at all, so the
+        # assertion held under substring search, under boundary search, and
+        # with the lookahead deleted.
+        self.assertIsNone(
+            review_policy._legacy_token_match("-bug ", "see 1abc-bugfix notes\n"),
+            "'-bug' inside '-bugfix' is a longer word, not a kind token",
+        )
+        self.assertIsNone(
+            review_policy._legacy_token_match("-enh ", "see 1abc-enhanced notes\n"),
+            "'-enh' inside '-enhanced' is not a kind token either",
+        )
+
+    def _digest(self, changes):
+        return review_policy.policy_input_digest(
+            wave_review={}, project_lanes=(), review_policies=None,
+            changes=changes, requested_lanes=(),
+        )
+
+    def test_reordering_the_changes_payload_does_not_move_the_digest(self):
+        """AC-3. Pure bookkeeping with no content change at all.
+
+        `change_ids` are collected from wave.md in DOCUMENT order, so swapping
+        two admitted entries moved the digest and lapsed every approval.
+        """
+
+        a = ("1aaa-bug alpha", "bug", self._doc().encode("utf-8"))
+        b = ("1bbb-enh beta", "enh", self._doc(handoff="Other.").encode("utf-8"))
+        self.assertEqual(
+            self._digest([a, b]), self._digest([b, a]),
+            "reordering admitted changes must not move the digest",
+        )
+        self.assertNotEqual(
+            self._digest([a, b]), self._digest([a]),
+            "removing a change is a real contract change and must still move it",
+        )
+
+    def test_the_declined_sections_still_churn(self):
+        """AC-4. The guard against over-applying the exclusion pattern.
+
+        Each of these was measured on both policy-output channels and declined.
+        Excluding any of them would convert a churn problem into a silent
+        coverage problem, which is strictly worse.
+        """
+
+        base = self._doc()
+        for label, edited in {
+            "Risks": base.replace("| r | m |", "| r | m |\n| r2 | m2 |"),
+            "Rationale": base.replace("Why.", "Why, restated."),
+            "Requirements": base.replace("1. A thing.", "1. A different thing."),
+            "Acceptance Criteria label": base.replace(
+                "- [ ] AC-1: A thing.", "- [ ] AC-1: A narrower thing."
+            ),
+            # The three AC-4 names that the fixture previously had no section
+            # for, so the AC claimed four and the test covered one.
+            "AC Priority rationale": base.replace(
+                "## Risks", "## AC Priority\n\n| AC | Priority | Rationale |\n| - | - | - |\n| AC-1 | required | Because it is the reported defect. |\n\n## Risks"
+            ),
+            "Affected Architecture Docs": base.replace(
+                "## Risks", "## Affected Architecture Docs\n\nN/A with rationale.\n\n## Risks"
+            ),
+            "Serialization Points prose": base.replace(
+                "## Risks", "## Serialization Points\n\nProse explaining why nothing is declared.\n\n## Risks"
+            ),
+        }.items():
+            with self.subTest(section=label):
+                self.assertNotEqual(
+                    self._canon(base), self._canon(edited),
+                    f"{label} is load-bearing and must keep churning",
+                )
+
+    def test_an_excluded_region_is_never_partially_canonicalized(self):
+        """AC-6. Anti-leak: the region is replaced WHOLE, never in part.
+
+        Exercised on `## Progress Log`, because that is the only excluded
+        region whose body can carry a payload and still be excluded. The
+        Session Handoff exclusion is exact-equality, so any payload defeats the
+        match by construction and the region simply stays digested -- which the
+        AC-1b and AC-7 tests already pin.
+
+        An earlier revision of this test looped over three payloads and never
+        used the loop variable, so it made three byte-identical assertions on a
+        plain document. It was vacuous AND self-contradictory: inserting a
+        payload into a boilerplate handoff makes it non-boilerplate, so the
+        sentinel assertion could never have held.
+        """
+
+        for payload in (
+            "- `.wavefoundry/framework/scripts/upgrade_wavefoundry.py`",
+            "**Review targets (repo-relative paths):**\n\n- `docs/specs/`",
+            "windows security upgrade migration schema trust boundary",
+        ):
+            with self.subTest(payload=payload[:34]):
+                doc = self._doc().replace(
+                    "## Session Handoff",
+                    f"## Progress Log\n\n| Date | Update | Evidence |\n| - | - | - |\n| d | {payload} | e |\n\n## Session Handoff",
+                )
+                canon = self._canon(doc).decode("utf-8")
+                self.assertIn(
+                    gardener_metadata.PROGRESS_LOG_SENTINEL, canon,
+                    "the excluded region must be replaced by its sentinel",
+                )
+                self.assertNotIn(
+                    payload.split("\n")[0], canon,
+                    "no part of the excluded body may survive; a partial "
+                    "replacement leaves a half-canonicalized document",
+                )
+
+    def test_the_template_sentence_producers_stay_in_step(self):
+        """P2 from the security lane: three producers, nothing keeping them aligned.
+
+        `SESSION_HANDOFF_TEMPLATE_BODY`, the shipped `plan-template.md`, and the
+        `wf_new_*` literal all carry this sentence. They are byte-identical
+        today and Requirement 1 says they must stay so, but no test asserted it.
+        The dangerous direction is not narrowing: if the sentence ever gained a
+        token like `docs/prompts/`, the exclusion would silently strip a lane
+        trigger from roughly 700 documents.
+        """
+
+        repo_root = Path(__file__).resolve().parents[4]
+        template = (repo_root / "docs/plans/plan-template.md").read_text("utf-8")
+        self.assertIn(
+            gardener_metadata.SESSION_HANDOFF_TEMPLATE_BODY, template,
+            "docs/plans/plan-template.md must ship the exact template sentence",
+        )
+        # Measured against the REAL producers rather than a hand-listed token
+        # set: what matters is that swapping the sentence for its sentinel
+        # changes no policy output. The sentence does contain `docs/agents/...`,
+        # so a hand-rolled "carries no path" assertion would be both wrong and
+        # beside the point.
+        sentence = gardener_metadata.SESSION_HANDOFF_TEMPLATE_BODY
+        sentinel = gardener_metadata.SESSION_HANDOFF_SENTINEL
+        for label, text in {"sentence": sentence, "sentinel": sentinel}.items():
+            lanes, _ = review_policy.select_required_review_lanes(
+                requested_lanes=(), project_lanes=(), change_texts=(text,),
+            )
+            triggers = review_policy.extract_full_council_triggers((text,))
+            self.assertEqual(
+                (tuple(lanes), tuple(triggers)), ((), ()),
+                f"the {label} must recruit no lane and fire no council trigger, "
+                "or replacing one with the other would move policy output on "
+                "roughly 700 documents",
+            )
+
+    def test_an_ambiguous_or_absent_heading_never_raises(self):
+        """AC-7. Loud is a diagnostic, never an exception from a pure helper.
+
+        `canonical_review_policy_body` has three call sites and none wraps it,
+        so raising would take down lane selection, digest computation and
+        prepare on ordinary author input. Zero matches is the NORMAL absent
+        case: 89 of 825 documents carry no such section at all.
+        """
+
+        absent = self._doc().split("## Session Handoff")[0]
+        duplicated = self._doc() + "\n## Session Handoff\n\nSecond one.\n"
+        variant = self._doc().replace("## Session Handoff", "## Session Handoff (notes)")
+        for label, text in {
+            "absent": absent, "duplicated": duplicated, "variant heading": variant,
+        }.items():
+            with self.subTest(shape=label):
+                try:
+                    canon = self._canon(text)
+                except Exception as exc:  # noqa: BLE001
+                    self.fail(f"{label} must not raise from the canonicalizer; got {exc!r}")
+                self.assertNotIn(
+                    gardener_metadata.SESSION_HANDOFF_SENTINEL,
+                    canon.decode("utf-8"),
+                    f"{label} must degrade to a digested region, not a partial one",
+                )
+
+    def test_an_ambiguous_heading_is_reported_loudly(self):
+        """AC-7's loud half. A silent degrade returns the churn unexplained.
+
+        The normalizer cannot raise, because its three call sites have no
+        handler, so the loudness lives in a detector the caller surfaces
+        through the diagnostic channel that already exists.
+        """
+
+        duplicated = self._doc() + "\n## Session Handoff\n\nSecond one.\n"
+        problems = gardener_metadata.ambiguous_excluded_headings(duplicated)
+        self.assertTrue(problems, "a duplicated excluded heading must be reported")
+        self.assertIn("Session Handoff", problems[0])
+        self.assertIn(
+            "was NOT applied", problems[0],
+            "the message must say the exclusion did not apply, or the operator "
+            "cannot connect the churn to its cause",
+        )
+
+    def test_absent_and_single_headings_are_never_reported(self):
+        """AC-7 negative half. Zero matches is NORMAL, not malformed.
+
+        89 of 825 change documents carry no Session Handoff section at all.
+        Conflating absent with duplicated is the defect the shipped
+        `len(matches) != 1` predicate has, and reporting it would produce a
+        diagnostic on 89 healthy documents.
+        """
+
+        for label, text in {
+            "single heading": self._doc(),
+            "absent section": self._doc().split("## Session Handoff")[0],
+        }.items():
+            with self.subTest(shape=label):
+                self.assertEqual(
+                    gardener_metadata.ambiguous_excluded_headings(text), (),
+                    f"{label} must be silent",
+                )
+
+    def test_a_variant_heading_is_reported_loudly(self):
+        """AC-7's other half, which the first implementation left silent.
+
+        A duplicate heading is the loud shape; a VARIANT is the quiet one. The
+        author sees only that their narration started superseding the receipt,
+        with nothing naming the cause.
+        """
+
+        for variant in (
+            "## Progress Log (delivery)",
+            "### Progress Log",
+            "## progress log",
+            "## Session Handoff (notes)",
+        ):
+            with self.subTest(heading=variant):
+                base = self._doc()
+                doc = (
+                    base.replace("## Session Handoff", variant)
+                    if "Handoff" in variant
+                    else base.replace("## Risks", f"{variant}\n\n| d | u | e |\n\n## Risks")
+                )
+                problems = gardener_metadata.ambiguous_excluded_headings(doc)
+                self.assertTrue(
+                    problems, f"`{variant}` disables its exclusion and must be named"
+                )
+                self.assertIn("was NOT", " ".join(problems))
+
+    def test_the_detector_is_fence_aware(self):
+        """Mutation-found: a fenced example must not raise a blocking diagnostic.
+
+        The detector's output flows into `_prepare_policy_state`'s
+        `(None, errors)`, which blocks receipt publication. A change document
+        that DEMONSTRATES a duplicate heading inside a fenced example would
+        otherwise block its own prepare. This document class is exactly what a
+        plan about heading hazards looks like.
+        """
+
+        fenced = self._doc().replace(
+            "## Risks",
+            "```\n## Progress Log\n## Progress Log\n```\n\n## Risks",
+        )
+        self.assertEqual(
+            gardener_metadata.ambiguous_excluded_headings(fenced), (),
+            "headings inside a fence are examples, not structure",
+        )

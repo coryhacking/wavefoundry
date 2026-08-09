@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-31
+Last verified: 2026-08-08
 
 Shortcut: **`Prepare wave`** | Alias: **`Ready wave`**
 
@@ -19,7 +19,7 @@ Confirm wave readiness before implementation begins. The stage gate: implementat
 5. When `wave_review.enabled` is true, run the Wave Council readiness pass in two phases: first, the `wave-council` declares a **primer depth tier** (`lightweight` / `standard` / `full`) based on trust boundaries touched, files in scope, and change type — this sets how many stances and `primer_questions` Phase 1 produces; (1) `red-team` runs the adversarial primer (`council-adversarial-primer` mode) first in isolation at the declared depth — strongest challenge, best alternative, and `primer_questions`; (2) fixed seats each receive the standard briefing plus the primer output and must address `strongest_challenge` and `primer_questions` before producing their own findings; a rotating fifth seat finds the strongest alternative path the wave did not take; `wave-council` synthesizes all outputs. On declared waves, record `wave-council-readiness` as a typed approval event via `wf_review_event`; this typed record is the sole machine authority, and any structured `prepare-council` checkpoint is narrative only. Legacy prose waves retain the structured checkpoint compatibility gate. Call `wf_prepare_wave` again after the current typed approval is recorded (`ready` to ready without opening, or `create` to prepare and open).
 6. **AC priority check:** categorize each admitted change's ACs as required / important / nice-to-have / not-this-scope; record in `## AC priority` on the change doc; interrogate required and important ACs until each classification is explicitly justified. ACs admitted with the `[~]` marker (intentionally not met from the outset) are unusual but accepted — they must already carry an inline status note explaining the deferral, and the `## AC priority` row must still record their priority. See `.wavefoundry/framework/seeds/170-plan-feature.prompt.md` *"AC and task checkbox states — the `[~]` marker"* for the canonical convention. Note the close-time hard gate: silent `[ ]` items block `wf_close_wave`, so prepare-time AC tracking habits matter.
 7. Record product-owner acknowledgment for product-impacting waves (feature changes shifting product behavior/UX/acceptance).
-8. Record the readiness verdict; the wave stays **readied** (`Status: planned`). Readiness no longer flips the wave to `active` (wave 1p45l) — opening it is a separate, single-OPEN-gated step. Complete readiness with `wf_prepare_wave(mode='ready')` (readies without opening — works while another wave is OPEN) or `wf_prepare_wave(mode='create')` (prepare-and-open in one step, the common single-wave flow).
+8. Record the readiness verdict; the wave stays **readied** (`Status: planned`). Readiness no longer flips the wave to `active` (wave 1p45l) — opening it is a separate, single-OPEN-gated step. Complete readiness with `wf_prepare_wave(mode='ready')` (readies without opening — works while another wave is OPEN) or `wf_prepare_wave(mode='create')` (prepare-and-open in one step, the common single-wave flow). Use `mode='evaluate'` as the documented read-only alias for `dry_run`.
 
 ## Readiness Verdict
 
@@ -82,4 +82,12 @@ When Wave Council is enabled, `red-team` always runs first as the adversarial pr
 Prepare Wave is the single readiness authority. It evaluates the configured
 `wave_review.delivery_mode`, records the review-policy receipt, and requires a
 re-Prepare whenever policy inputs change before implementation.
+
+Editing the digest canonicalizer is itself a policy-input change, and it moves
+every change document at once. `canonical_review_policy_body` and its
+normalizers decide what the digest sees, so changing them re-digests the whole
+repository and lapses every readiness approval in every open wave without a
+single document being edited. Expect one re-Prepare per open wave, disclose it
+in the change document, and avoid making the edit while waves are readied but
+unclosed without saying so.
 <!-- wavefoundry:review-policy:end -->

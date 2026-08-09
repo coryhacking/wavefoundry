@@ -1853,15 +1853,38 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
     def test_review_registration_flushes_only_implementation_phase(self):
         """Wave 1t3ek (1t22z): the wf_review_wave registration passes
         flush=is_implementation_phase — prepare-phase reviews stay
-        non-publishing. Verified structurally against the registration source."""
+        non-publishing. Verified structurally against the registration source.
+
+        The window is delimited by the end of the registration call rather than
+        a fixed character count: a byte budget silently stops covering the
+        assertions it names as soon as anyone adds a comment, which is exactly
+        how it broke.
+
+        The derivation itself is pinned to the RESOLVED phase. Pinning the raw
+        argument, as this test previously did, pinned a defect: `phase='delivery'`
+        is an accepted alias, so deriving from the caller's spelling returned a
+        fully green review while publishing nothing, with no diagnostic.
+        """
         source = (SCRIPTS_ROOT / "server_impl.py").read_text(encoding="utf-8")
         idx = source.index('_ensure_no_extra_args("wf_review_wave"')
-        window = source[idx : idx + 1800]
+        end = source.index("focus_stage=\"review\"", idx)
+        end = source.index("\n        )", end)
+        window = source[idx:end]
         self.assertIn("flush=is_implementation_phase", window)
         self.assertIn("transfer_general=is_implementation_phase", window)
-        self.assertIn(
-            'is_implementation_phase = (phase or "").strip().lower() == "implementation"',
+        self.assertIn('_context_data(result).get("phase")', window)
+        # Pin the COMPARISON, not just the source of the value. Asserting only
+        # that the resolved phase is read leaves the predicate unpinned, so
+        # `is not None` or `!= "prepare"` both satisfy the rest of this test
+        # while making every prepare-phase review publish the implement-stage
+        # accumulation — the exact wave 1t3ek regression this test exists to
+        # prevent. The original assertion caught that; its replacement must too.
+        self.assertIn('== "implementation"', window)
+        self.assertNotIn(
+            'is_implementation_phase = (phase or "").strip().lower()',
             window,
+            "the wrapper is deriving the phase from the caller's raw spelling, "
+            "which silently defeats the accepted `delivery`/`readiness` aliases",
         )
 
     def _posture_repo(self, tmp, *, wave_id="1aaaa posture-wave"):

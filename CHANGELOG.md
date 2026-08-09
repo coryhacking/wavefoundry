@@ -6,6 +6,183 @@ the individual wave records under [`docs/waves/`](docs/waves/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.15.5] - 2026-08-08
+
+### Fixed
+
+- **Recordkeeping edits no longer lapse your review approvals.** Editing a boilerplate
+  `## Session Handoff`, a Windows checkout, a stray trailing space, an editor that strips
+  whitespace on save, a missing or extra newline at end of file, or reordering the `## Changes`
+  entries in a wave record all moved the review-policy digest and lapsed every approval the wave had
+  collected, with no claim changed. None of them do now. The `## Session Handoff` exclusion is
+  deliberately conditional: it applies only when the section body is exactly the shipped template
+  sentence, so the 5% of change docs that use that section substantively stay fully reviewable.
+  Trailing whitespace inside a fenced block is preserved, because there it can be the subject rather
+  than the formatting. Measured across every change document in this repository: zero lost review
+  lanes, zero changed council triggers, zero changed council seats.
+
+  **Lane selection no longer depends on invisible whitespace.** Four kind triggers were matched with
+  a literal trailing space, so a line ending `-bug ` recruited a lane and a line ending `-bug` did
+  not. The trigger is the token. This widens matching slightly and only ever adds review: one
+  document in this repository gains `qa-reviewer`, none loses anything.
+
+  **One-time re-Prepare on upgrade.** `REVIEW_POLICY_EVALUATOR_VERSION` moves from 6 to 7 so the
+  permanent `events.jsonl` history can tell a plan edit apart from this canonicalization change. Any
+  wave that is readied or open when this lands goes stale once at its next `wf_prepare_wave` and its
+  READINESS-phase approvals lapse once; re-record them and the receipt settles. Delivery-phase
+  approvals, finding heads, and repair records are untouched, and CLOSED waves are untouched. Note
+  the re-digest happens because the canonicalizer changed, not because of the bump; the bump is what
+  lets the ledger attribute it.
+
+  **A heading that disables its own exclusion now says so.** `## Progress Log (delivery)`,
+  `### Progress Log`, a duplicated heading, or any near-miss variant silently switched that section
+  back into the digest, so narration started superseding the receipt with nothing naming the cause.
+  Prepare now reports it by name. No document in this repository is currently in that state.
+
+- **A change-doc template that declares review targets is now a lint error, and the upgrade repairs
+  it for you.** Reported from the field by a repository running an earlier build: its `docs/plans/plan-template.md`
+  carried an example under `**Review targets (repo-relative paths):**` that was **not** fenced, so the
+  template itself declared `path/to/file.swift` and `docs/specs/`. Every plan created from it was born
+  in declared mode and silently lost review lanes it should have had: reproduced here, a plan scored
+  against a clean template recruits three lanes, and the same plan against the contaminated template
+  recruits one. The reporting operator also saw a lane recruited by a placeholder path they never
+  chose. docs-lint now fails when a scaffold declares anything, naming the targets it found and the
+  fix. **In the shapes the framework itself teaches, you do not need to repair the template by
+  hand:** the upgrade that installs this rule fences the example block for you before the docs gate
+  runs, and prints what it changed, so an already affected repository upgrades cleanly rather than
+  halting. (That report goes to the console as the upgrade runs; it is not written to
+  `.wavefoundry/logs/upgrade.log`.) This covers a plain example bullet, a `**Review targets…**` block, several of either, and
+  any of those sitting beside an example you had already fenced. If your template is shaped in a way
+  the upgrade does not recognize, it changes nothing and tells you so, naming the file and the fix
+  rather than guessing at your content. The same repair also runs on `--resume-after-gate`, which is
+  the path the upgrade's own halt message directs you to.
+
+  **Scope is deliberately narrow.** Only the template is checked and only the template is repaired.
+  Your authored change docs are never blocked and never rewritten, because the repair cannot safely
+  edit content you wrote and a closed wave's history is not rewritable at all. No placeholder
+  detection ships: measured across this repository's change documents, every literal placeholder
+  pattern matched none of the real declared targets, so such a rule would have caught nothing. The
+  one heuristic with any reach, "the declared target no longer exists on disk", matched a single
+  path, and that match was a legitimately deleted historical file rather than a placeholder. Zero
+  catches and a false positive is the combination that teaches you to ignore a warning.
+
+- **One sentence of prose in `## Serialization Points` no longer removes required review lanes.**
+  Any path-shaped token found in that section was read as proof the author had adopted the
+  declared-target contract, so a narrative mention of a directory switched the change doc out of
+  prose scoring. Measured worst case: a plan whose section said "shared with the wave that also
+  touches the docs/ folder" went from two required lanes to **none**. Worse, adoption was decided
+  per WAVE, so one plan declaring targets silently emptied an un-migrated sibling's coverage in the
+  same wave. Adoption is now decided per **document** and the results union, so migrating one plan
+  can never reduce another's review. A target is declared by a bullet whose content is entirely
+  repo-relative paths, or inside an explicit `**Review targets (repo-relative paths):**` block whose
+  backtick-quoted entries may contain spaces; prose declares nothing in any shape, including prose
+  written as a bullet. Across this repository's 814 change docs the stricter rule reclassifies 101
+  documents from declared to whole-document scoring, **95 gain lanes and none lose any**.
+
+- **A declared path containing a space no longer yields zero required lanes.** Path extraction had
+  no space in its character class, so a real wave-owned target such as
+  `docs/waves/<id> <slug>/wave.md` shredded into fragments, and a fragment was accepted as a
+  declared target: it matched no risk trigger, suppressed the fallback, and left the document with
+  an empty roster. Declaring a genuine on-disk artifact was therefore actively harmful. Spaced
+  targets are now declarable inside the explicit block, and a shredded fragment declares nothing.
+  A related parse defect is repaired with it: `git status --porcelain` rename entries quote each
+  side independently, so a renamed spaced path never matched the wave footprint.
+
+- **A freshly scaffolded change doc no longer declares a target its author never wrote.** The
+  shipped template's placeholder bullet extracted `src/app/handler.py`, so every new change document
+  was born in declared mode with a code-reviewer-only roster before anyone had declared anything.
+
+- **The review-policy digest stops rewriting body prose it promises to leave alone.** The leading
+  metadata carrier was bounded by line SHAPE, so any body line reading `Word: text` held the region
+  open and a later `Status:` line in the document body was normalized away. A contract edit on that
+  line was invisible to the receipt, meaning an operator could change a document's meaning and the
+  recorded approvals would not lapse. The carrier is now bounded by a known-key allowlist, and a
+  blockquote inside it no longer truncates it early. One document in this repository is affected and
+  its wave is closed.
+
+- **Upgrade note (one-time re-Prepare).** These two fixes move lane semantics and the digest
+  boundary together and ship as a single evaluator-version bump from `5` to `6`. Every **non-closed**
+  wave needs exactly one re-Prepare to publish the current version; repeated Prepare is idempotent
+  after it. Approvals recorded against the old receipt lapse once at that re-Prepare and must be
+  re-recorded. **Closed waves and their event ledgers stay byte-immutable.** Change docs need no bulk
+  re-authoring: an undeclared plan keeps whole-document scoring, which is more review, not less. A
+  plan whose Serialization Points are prose sentences is now treated as undeclared; re-declare it in
+  one of the two supported forms to get its precise roster back.
+
+- **A repository whose `wave_review` is an empty object can upgrade again.** The migration treated
+  only an absent key as unset, so a config carrying `"wave_review": {}` hard-failed the preflight
+  with `wave_review.enabled must be boolean` before any change was made, and the upgrade could not
+  proceed at all. An empty object now means what an absent key means. Genuinely malformed policy is
+  still rejected exactly as before.
+
+- **The upgrade no longer asks you to hand-edit files it ships.** The retired-prose preflight scanned
+  the `.wavefoundry/` root, where the pack delivers `README.md` and `CHANGELOG.md`, and refused to
+  proceed until the operator rewrote prose they did not author and must not maintain. The whole
+  `.wavefoundry/` tree is now treated as framework-owned; your authored surface under `docs/` is
+  still scanned exactly as before. The changelog case was the more serious half and had not yet been
+  hit: a release history must name retired concepts to do its job, so the first note that did would
+  have blocked every target repository.
+
+- **Admitting a change fills in an `<wave-id>` placeholder.** The `Wave:` repair recognized only
+  `[wave-id or TBD]` and bare `TBD`, so an angle-bracket placeholder was left for the operator to
+  correct by hand. Recognition widens to bracketed forms only: an operator-authored `Wave:` value is
+  still never overwritten, and dry-run still writes nothing.
+
+  **When these take effect depends on your upgrade path.** Crossing from a pre-1.15 protocol-1
+  installation, the bridge installs the new framework and then runs the upgrade from it, so all three
+  fixes apply on that same run and no manual repair is needed. On an ordinary protocol-2 to
+  protocol-2 upgrade the review-policy preflight deliberately runs before any extraction, using the
+  framework already installed, so these fixes take effect from the **next** upgrade. If that preflight
+  is what is blocking you today on a protocol-2 install, repair it once by hand and the following
+  upgrade will not ask again.
+
+- **Validation errors now state the values that would satisfy them.** Failures whose validity is
+  defined by a fixed set render that set from the same constant the check used, so the printed
+  values cannot drift from the rule. Status shape checks name the full vocabulary; rejected
+  transitions and blocked dependencies name the subset valid from the current value and name that
+  value; the watchpoint message no longer lists three of its six markers. Publishing a set is
+  guidance, not a gate: no membership check was added and nothing that linted clean before this
+  change fails after it.
+
+- **`wf_review_wave` accepts the approval-phase vocabulary.** `readiness` and `delivery` now map onto
+  the `prepare` and `implementation` review phases instead of being rejected, and the invalid-phase
+  message states the mapping in both directions.
+
+- **`wf_prepare_wave(mode='evaluate')` is documented where callers can find it.** The read-only alias
+  was already accepted but appeared in no tool docstring and in no shipped lifecycle prompt.
+
+### Changed
+
+- **Advancing a change's `Change Status` no longer lapses the readiness approvals.** Marking a change
+  `complete` is progress, not a change to the agreed contract: it edits no Requirement, Scope,
+  Acceptance Criteria, or AC Priority text, so it is now digest-neutral and the readiness roster it
+  was granted against stays current. This continues the direction set by the Progress Log exclusion
+  and by making AC completion and task marks progress-only, while an AC `[~]` still counts as a
+  contract change and still lapses approvals. **Verification of the work is unaffected:** closing a
+  wave still requires the delivery lane approvals and operator signoff regardless of any status
+  value. Previously, advancing a change superseded the review-policy receipt and forced a re-Prepare
+  plus a full re-record of readiness approvals against plan text that had not changed by a byte.
+
+- **Review-policy receipts move to evaluator version 6, which costs one re-Prepare in total.** The
+  last released version was 4, and this release carries the intermediate step, so upgrading from
+  1.15.4 is a single 4-to-6 transition and not two. Any wave that is readied or open when this lands
+  goes stale once at its next `wf_prepare_wave`; re-record the readiness approvals and the receipt
+  settles. Closed waves are untouched. See the upgrade note under **Fixed** for what version 6
+  changes.
+
+- **The retrieval-posture advisory is now bounded to the wave's declared files.** It counts only
+  changed files matching the `## Serialization Points` of the wave's admitted change docs, so
+  unrelated working-tree dirt can no longer become evidence about your wave. The consequence worth
+  knowing: a wave whose changes declare no Serialization Points has no trustworthy signal, so the
+  advisory stays **silent** for it rather than guessing.
+
+- **Automatic review lanes are no longer recruited by prose that merely mentions a path.** For waves
+  predating the Serialization Points contract, the legacy fallback now requires a genuine
+  path-shaped match. Required lanes can therefore **drop** for an undeclared wave whose only trigger
+  was a bare file extension or a Progress Log line. Declaring Serialization Points replaces the
+  fallback with exact per-path reasons for the declaring change doc; adoption is decided per
+  document, so an un-migrated sibling in the same wave keeps its own fallback coverage.
+
 ## [1.15.4] - 2026-08-06
 
 ### Fixed

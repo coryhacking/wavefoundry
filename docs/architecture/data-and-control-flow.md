@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-04
+Last verified: 2026-08-08
 
 ## Primary Control Paths
 
@@ -477,9 +477,23 @@ Prepare is the sole writer of the generated review roster and the append-only
 `review_policy_receipt` in the existing wave ledger. The receipt binds policy,
 admitted change content, project/requested lanes, primer depth, seats, and the
 delivery-Council decision to its immediate parent, so A → B → A cannot revive
-the first A approval. Admitted-change hashing normalizes only one canonical
-top-level gardener-owned `Last verified: YYYY-MM-DD` value to a stable sentinel;
-all other bytes remain significant. Evaluator version 2 makes that boundary
+the first A approval. These normalizers are no longer only receipt hashing: `select_required_review_lanes`
+canonicalizes each undeclared document before scoring it, and Prepare feeds the same
+canonical texts to full-council trigger extraction and rotating-seat selection. Adding
+or changing an exclusion therefore moves lane selection, the delivery-Council decision,
+and the council seat, not just receipt identity. The `changes` payload is hashed sorted
+by `change_id`, so reordering `## Changes` in a wave record is order-invariant.
+Admitted-change hashing first stabilizes carriers that
+carry no markdown meaning (a BOM, CRLF line endings, the trailing newline, and ALL
+trailing whitespace on lines OUTSIDE a fence; trailing whitespace INSIDE a fence is
+preserved, because there it can be the subject rather than the formatting),
+then normalizes five narrow regions to stable sentinels: leading workflow-status
+metadata, the canonical top-level gardener-owned `Last verified: YYYY-MM-DD`
+value, the `## Progress Log` body, a `## Session Handoff` body that exactly
+matches the shipped template sentence, and completion-tracking checkbox markers
+in Acceptance Criteria and Tasks. An Acceptance Criteria `[~]` is deliberately
+NOT normalized, because an intentional non-delivery changes the contract. Every
+other byte remains significant. Evaluator version 2 makes that boundary
 explicit, so a non-closed legacy receipt converges through one re-Prepare while
 closed Markdown and ledgers remain immutable. Review and Close share the common
 delivery evaluator; Close owns only the registered closure-only delta.

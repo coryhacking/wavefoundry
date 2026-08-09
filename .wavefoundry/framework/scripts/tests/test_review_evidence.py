@@ -4219,6 +4219,30 @@ class ReviewAuthorityFacadeTests(unittest.TestCase):
             self.assertEqual(broken.records, ())
             self.assertFalse(broken.evidence_present())
 
+class ReviewActionInputSchemaTests(unittest.TestCase):
+    def test_schema_exposes_all_nested_evidence_and_integrity_requirements(self):
+        schema = subject.review_action_input_schema()
+        self.assertEqual(
+            schema["evidence"]["finding"]["required_fields"],
+            list(subject.REVIEW_FINDING_REQUIRED_EVIDENCE_FIELDS),
+        )
+        self.assertEqual(
+            schema["evidence"]["approval"]["required_fields"],
+            list(subject.REVIEW_APPROVAL_REQUIRED_EVIDENCE_FIELDS),
+        )
+        self.assertEqual(
+            set(schema["integrity_checks"]), set(subject.INTEGRITY_CHECK_FIELDS),
+        )
+        # Pin the whole map, not one key: emitting only `reverification` and
+        # dropping `repair_start` and `approval` previously survived, which
+        # defeats the point of a response-level schema a caller reads before
+        # its first write.
+        self.assertEqual(
+            schema["action_required_inputs"],
+            {kind: list(inputs)
+             for kind, inputs in subject.REVIEW_ACTION_CALLER_INPUTS.items()},
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

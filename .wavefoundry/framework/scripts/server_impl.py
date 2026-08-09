@@ -56,6 +56,7 @@ import repo_root  # shared cwd-independent root discovery (wave 1t3gt)
 import context_efficiency
 import lifecycle_lock as _lifecycle_lock_authority
 import publication_control
+from gardener_metadata import ambiguous_excluded_headings, canonical_review_policy_body
 from review_policy import (
     FULL_COUNCIL_TRIGGER_FIELDS,
     REVIEW_POLICY_EVALUATOR_VERSION,
@@ -68,6 +69,7 @@ from review_policy import (
     has_reprepare_marker,
     normalize_wave_review_policy,
     policy_input_digest,
+    serialization_point_paths,
     select_required_review_lanes,
     set_reprepare_marker,
 )
@@ -6173,20 +6175,32 @@ def _mark_change_item_response(
     text = path.read_text(encoding="utf-8")
     section = ""
     candidates: list[tuple[int, re.Match[str], str]] = []
-    for index, line in enumerate(text.splitlines(keepends=True)):
+    all_labels: list[str] = []
+    lines = text.splitlines(keepends=True)
+    for index, line in enumerate(lines):
         heading = re.fullmatch(r"##\s+(.+?)\s*\r?\n?", line)
         if heading:
             section = heading.group(1).strip()
             continue
         match = re.match(r"(?P<prefix>\s*-\s*\[)[ x~X](?P<suffix>\]\s+)(?P<label>.*?)(?:\r?\n)?$", line)
         if match and section == target_section:
-            label = match.group("label").strip().lower()
+            label_parts = [match.group("label").strip()]
+            for probe in range(index + 1, len(lines)):
+                continuation = lines[probe]
+                if not continuation.strip() or re.match(r"\s*-\s*\[[ x~X]\]", continuation) or continuation.lstrip().startswith("#"):
+                    break
+                if not continuation.startswith((" ", "\t")):
+                    break
+                label_parts.append(continuation.strip())
+            full_label = " ".join(label_parts)
+            all_labels.append(full_label)
+            label = full_label.lower()
             requested = item_label.strip().lower()
             if label == requested or label.startswith(requested + ":"):
                 candidates.append((index, match, section))
     if len(candidates) != 1:
         code = "ambiguous_mark_target" if candidates else "mark_target_not_found"
-        candidate_labels = [candidate.group("label").strip() for _, candidate, _ in candidates]
+        candidate_labels = [candidate.group("label").strip() for _, candidate, _ in candidates] if candidates else all_labels
         if candidates:
             message = (
                 f"Expected exactly one {target_section} item matching `{item_label}`; found {len(candidates)}. "
@@ -7071,6 +7085,13 @@ def _prepare_policy_state(
             errors.append(f"cannot read admitted change `{change_id}` for policy selection: {exc}")
             continue
         kind = change_id.split("-", 1)[0].rsplit("-", 1)[-1]
+        # Loud, not silent, and not fatal. The exclusion normalizers degrade by
+        # returning the text unchanged, which is right for a pure helper whose
+        # callers have no handler -- but a silent degrade means the churn comes
+        # back with no explanation. Report the ambiguity here instead, where the
+        # existing (None, errors) channel already reaches the operator.
+        for problem in ambiguous_excluded_headings(text):
+            errors.append(f"admitted change `{change_id}`: {problem}")
         change_inputs.append((change_id, kind, body))
         change_texts.append(text)
     if errors:
@@ -7095,16 +7116,26 @@ def _prepare_policy_state(
         return None, tuple(record_errors)
     heads = current_synthesis_heads(records).values()
     mode = str(policy["delivery_mode"])
+    # One canonical representation feeds every receipt-semantic reader. Lane
+    # scoring already canonicalizes internally; these two did not, so a mandated
+    # Progress Log row could carry a trigger word (for example "windows"), flip
+    # `delivery_council_required`, and supersede the receipt while
+    # `policy_input_digest` stayed byte-identical, leaving no diagnostic able to
+    # explain why the approvals lapsed.
+    canonical_change_texts = [
+        canonical_review_policy_body(text.encode("utf-8")).decode("utf-8", "replace")
+        for text in change_texts
+    ]
     delivery_council = delivery_council_required(
         mode,
-        delivered_boundary_triggers=extract_full_council_triggers(change_texts),
+        delivered_boundary_triggers=extract_full_council_triggers(canonical_change_texts),
         current_heads=heads,
     )
     # Receipt seat selection is bound to admitted change bytes, never to the
     # mutable wave projection (which later contains actor/lane vocabulary and
     # must not change its own policy input).
     stable_rotating, _stable_reason = _select_prepare_council_rotating_seat(
-        "\n".join(change_texts)
+        "\n".join(canonical_change_texts)
     )
     seats = ["red-team", *([stable_rotating] if stable_rotating else [])]
     semantic = {
@@ -7608,7 +7639,11 @@ def wf_add_change_response(
         try:
             admitted_text = target_path.read_text(encoding="utf-8")
             repaired_admitted_text = re.sub(
-                r"(?m)^Wave: (?:\[wave-id or TBD\]|TBD)$",
+                # Bracketed placeholders and the bare TBD scaffold only. An
+                # angle-bracket form cannot be a real wave id, so recognizing it
+                # is safe; recognition deliberately does NOT widen to "any
+                # unrecognized value", which could be an operator-authored note.
+                r"(?m)^Wave: (?:\[wave-id or TBD\]|`?<wave-id>`?|TBD)$",
                 f"Wave: {wave_md.parent.name}",
                 admitted_text,
             )
@@ -14238,6 +14273,11 @@ _PREPARE_COUNCIL_VERDICT_RE = re.compile(
     r"^\s*-\s*\*\*Prepare-phase Wave Council \[prepare-council\] — (?P<date>[^:]+): (?P<verdict>PASS(?: WITH NOTES)?|BLOCKED)\*\*(?:\s*\((?P<meta>.*)\))?\s*$",
     re.IGNORECASE,
 )
+_PREPARE_COUNCIL_META_KEY_RE = re.compile(
+    r"(?:^|;)\s*(?P<key>moderator|primer-depth|seats|rotating-seat|"
+    r"strongest-challenge|strongest-alternative)\s*:",
+    re.IGNORECASE,
+)
 _PREPARE_COUNCIL_REQUIRED_META_FIELDS = (
     "moderator",
     "primer-depth",
@@ -14256,10 +14296,23 @@ def _prepare_council_verdict_info(wave_text: str) -> dict[str, Any]:
         if m.group(1).strip() == "## Review Checkpoints":
             end = headings[i + 1].start() if i + 1 < len(headings) else len(wave_text)
             checkpoints = wave_text[m.end():end]
-            for raw in checkpoints.splitlines():
+            lines = checkpoints.splitlines()
+            for index, raw in enumerate(lines):
                 line = raw.strip()
                 if "prepare-council" not in line.casefold():
                     continue
+                # A checklist bullet may wrap its parenthesized metadata onto
+                # indented continuation lines.  Consume only that logical list
+                # item; the next bullet, heading, blank line, or unindented
+                # prose remains outside the verdict.
+                logical_lines = [line]
+                for continuation in lines[index + 1:]:
+                    if not continuation.strip() or continuation.lstrip().startswith("#"):
+                        break
+                    if re.match(r"\s*-\s+", continuation) or not continuation.startswith((" ", "\t")):
+                        break
+                    logical_lines.append(continuation.strip())
+                line = " ".join(logical_lines)
                 match = _PREPARE_COUNCIL_VERDICT_RE.match(line)
                 if not match:
                     return {
@@ -14270,16 +14323,22 @@ def _prepare_council_verdict_info(wave_text: str) -> dict[str, Any]:
                         "date": "",
                         "meta": {},
                         "missing_fields": list(_PREPARE_COUNCIL_REQUIRED_META_FIELDS),
+                        "parse_error": "invalid verdict header or markdown continuation",
                     }
                 meta_text = match.group("meta") or ""
                 meta: dict[str, str] = {}
-                for raw_part in re.split(r";\s*", meta_text):
-                    if not raw_part.strip():
-                        continue
-                    key, sep, value = raw_part.partition(":")
-                    if not sep:
-                        continue
-                    meta[key.strip().casefold()] = value.strip()
+                field_markers = list(_PREPARE_COUNCIL_META_KEY_RE.finditer(meta_text))
+                for marker_index, marker in enumerate(field_markers):
+                    value_start = marker.end()
+                    value_end = (
+                        field_markers[marker_index + 1].start()
+                        if marker_index + 1 < len(field_markers)
+                        else len(meta_text)
+                    )
+                    # The delimiter precedes the NEXT known key, so a semicolon
+                    # inside a strongest-* value stays part of that value.
+                    value = meta_text[value_start:value_end].strip().rstrip(";").strip()
+                    meta[marker.group("key").casefold()] = value
                 missing_fields = [field for field in _PREPARE_COUNCIL_REQUIRED_META_FIELDS if not meta.get(field)]
                 verdict = match.group("verdict").strip().upper()
                 valid = not missing_fields and verdict in {"PASS", "PASS WITH NOTES"}
@@ -14291,6 +14350,10 @@ def _prepare_council_verdict_info(wave_text: str) -> dict[str, Any]:
                     "date": match.group("date").strip(),
                     "meta": meta,
                     "missing_fields": missing_fields,
+                    "parse_error": (
+                        "missing required metadata fields: " + ", ".join(missing_fields)
+                        if missing_fields else ""
+                    ),
                 }
     return {
         "present": False,
@@ -14300,6 +14363,7 @@ def _prepare_council_verdict_info(wave_text: str) -> dict[str, Any]:
         "date": "",
         "meta": {},
         "missing_fields": list(_PREPARE_COUNCIL_REQUIRED_META_FIELDS),
+        "parse_error": "",
     }
 
 
@@ -14344,6 +14408,29 @@ def _prepare_council_verdict_present(wave_text: str) -> bool:
     return bool(_prepare_council_verdict_info(wave_text).get("valid"))
 
 
+def _prepare_council_instructions(rotating_seat: str | None) -> str:
+    """Council instructions for one rotating seat.
+
+    Keyed on the seat so every producer renders the same text for the same
+    roster; the receipt binding rebuilds this rather than inheriting a string
+    built from superseded wave text.
+    """
+
+    return (
+        "Run each council seat in isolation against the admitted change docs and wave record. "
+        "Verification must be code-grounded: verify each plan's load-bearing claims against the "
+        "actual tree, not against the plan's own prose — cited file:line sites and symbols must "
+        "resolve, 'X already does Y' claims must hold in the code, and 'no other caller/site' "
+        "censuses must be complete. Do not approve a plan whose claims were checked only against "
+        "its own text. Have wave-council synthesize findings. "
+        "Record the verdict in ## Review Checkpoints with a structured 'prepare-council' line "
+        "whose seats: field lists the seats actually run, each at most once, with per-seat "
+        "evidence (or an explicit no-findings note) recorded in the wave record "
+        f"(e.g. `{_prepare_council_verdict_template(rotating_seat)}`) "
+        "before calling wf_prepare_wave(mode='create')."
+    )
+
+
 def _prepare_council_verdict_template(rotating_seat: str | None) -> str:
     rotating_part = rotating_seat or "none"
     seat_list = ["red-team", "architecture-reviewer", "security-reviewer", "qa-reviewer", "reality-checker"]
@@ -14363,6 +14450,42 @@ def _prepare_council_verdict_template(rotating_seat: str | None) -> str:
     )
 
 
+def _bind_prepare_council_brief_to_receipt(
+    council_brief: Mapping[str, Any], receipt: Mapping[str, Any] | None
+) -> dict[str, Any]:
+    """Use the receipt-bound roster for every post-Prepare council check.
+
+    ``instructions`` and ``verdict_format`` are rebuilt from the bound seat, not
+    carried over. Both embed the rotating seat, so leaving them at their
+    wave-text value made one response advertise two rosters: the authoritative
+    fields naming the receipt's seat while the copy-paste template named the
+    wave-text seat. An agent following the template then recorded a verdict that
+    the seat-alignment check rejected against the very roster the same response
+    had bound.
+    """
+
+    bound = dict(council_brief)
+    seats = receipt.get("council_seats") if isinstance(receipt, Mapping) else None
+    if not isinstance(seats, list) or not seats:
+        return bound
+    fixed = str(seats[0])
+    rotating = str(seats[1]) if len(seats) > 1 else None
+    bound.update(
+        {
+            "fixed_seat": fixed,
+            "rotating_seat": rotating,
+            "council_seats": [
+                f"{fixed} (fixed)",
+                *([f"{rotating} (rotating)"] if rotating else []),
+            ],
+            "rotating_seat_reason": "Bound to the current review-policy receipt.",
+            "instructions": _prepare_council_instructions(rotating),
+            "verdict_format": _prepare_council_verdict_template(rotating),
+        }
+    )
+    return bound
+
+
 def _build_prepare_council_brief(wave_id: str, wave_text: str, change_ids: list[str]) -> dict[str, Any]:
     """Build the council review brief returned by wf_prepare_wave when no verdict is recorded."""
     rotating_seat, rotating_seat_reason = _select_prepare_council_rotating_seat(wave_text)
@@ -14376,19 +14499,7 @@ def _build_prepare_council_brief(wave_id: str, wave_text: str, change_ids: list[
         "rotating_seat": rotating_seat,
         "rotating_seat_reason": rotating_seat_reason,
         "council_seats": seats,
-        "instructions": (
-            "Run each council seat in isolation against the admitted change docs and wave record. "
-            "Verification must be code-grounded: verify each plan's load-bearing claims against the "
-            "actual tree, not against the plan's own prose — cited file:line sites and symbols must "
-            "resolve, 'X already does Y' claims must hold in the code, and 'no other caller/site' "
-            "censuses must be complete. Do not approve a plan whose claims were checked only against "
-            "its own text. Have wave-council synthesize findings. "
-            "Record the verdict in ## Review Checkpoints with a structured 'prepare-council' line "
-            "whose seats: field lists the seats actually run, each at most once, with per-seat "
-            "evidence (or an explicit no-findings note) recorded in the wave record "
-            f"(e.g. `{_prepare_council_verdict_template(rotating_seat)}`) "
-            "before calling wf_prepare_wave(mode='create')."
-        ),
+        "instructions": _prepare_council_instructions(rotating_seat),
         "verdict_format": _prepare_council_verdict_template(rotating_seat),
     }
 
@@ -15290,9 +15401,10 @@ def wf_review_event_response(
 
 
 def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cache: Optional[McpRepoCache] = None) -> dict[str, Any]:
-    mode_s = "create" if (mode or "").strip().lower() == "apply" else (mode or "").strip().lower()
+    requested_mode = (mode or "").strip().lower()
+    mode_s = {"apply": "create", "evaluate": "dry_run"}.get(requested_mode, requested_mode)
     if mode_s not in {"dry_run", "ready", "create"}:
-        return _response("error", {"wave_id": wave_id, "mode": mode}, diagnostics=[_diagnostic("invalid_arguments", f"Unsupported mode '{mode}'. Valid modes: dry_run, ready, create.")], next_tools=["wf_help"], usage="wf_help()")
+        return _response("error", {"wave_id": wave_id, "mode": mode, "valid_modes": ["dry_run", "evaluate", "ready", "create"]}, diagnostics=[_diagnostic("invalid_arguments", f"Unsupported mode '{mode}'. Valid modes: dry_run (or evaluate), ready, create.")], next_tools=["wf_help"], usage="wf_help()")
     # Wave 1p45l: decouple readiness from activation.
     #   dry_run  — read-only validation, no guard, no writes.
     #   ready    — full readiness (relocate + garden + lint + council verdict) recorded WITHOUT
@@ -15448,6 +15560,13 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
         if policy_state is not None
         else None
     )
+    if policy_state is not None:
+        # The roster is policy input.  Once a receipt exists, a later prose
+        # edit to the wave record must not rotate the council underneath that
+        # receipt or invalidate an already-recorded verdict.
+        council_brief = _bind_prepare_council_brief_to_receipt(
+            council_brief, policy_state.get("receipt")
+        )
     diagnostics.extend(
         _diagnostic(
             "review_policy_receipt_stale",
@@ -15615,8 +15734,9 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
             diagnostics.append(
                 _diagnostic(
                     "prepare_council_verdict_invalid",
-                    "A prepare-phase Wave Council verdict exists, but it is not structurally valid. "
-                    "Record a structured verdict in ## Review Checkpoints with moderator, primer-depth, seats, rotating-seat, strongest-challenge, and strongest-alternative fields before calling wf_prepare_wave(mode='create').",
+                    "A prepare-phase Wave Council verdict exists, but it is not structurally valid: "
+                    f"{verdict_info.get('parse_error') or 'check its required metadata fields'}. "
+                    "Use the council_brief verdict_format template; wrapped continuation lines are allowed, and semicolons inside values are preserved before calling wf_prepare_wave(mode='create').",
                     recovery_tools=["wf_prepare_wave"],
                     recovery_usage="wf_prepare_wave(mode='create')",
                 )
@@ -15931,10 +16051,36 @@ def _evaluate_shared_delivery_state(
     }
 
 
+#: The lifecycle names two axes with sibling vocabularies: a review *phase*
+#: (``prepare``/``implementation``) and an approval *phase*
+#: (``readiness``/``delivery``). Callers reasonably reach for the approval word
+#: when inspecting the stage that collects those approvals, so accept the
+#: sibling and map it rather than rejecting a request whose intent is
+#: unambiguous. ``wf_review_wave`` already maps ``prepare`` to
+#: ``required_run_kind="readiness"`` internally; this makes that mapping
+#: reachable from the caller side too.
+_REVIEW_PHASE_ALIASES = {"readiness": "prepare", "delivery": "implementation"}
+
+
 def wf_review_wave_response(root: Path, wave_id: str, phase: str = "implementation") -> dict[str, Any]:
     phase_s = (phase or "implementation").strip().lower()
+    phase_s = _REVIEW_PHASE_ALIASES.get(phase_s, phase_s)
     if phase_s not in ("prepare", "implementation"):
-        return _response("error", {"wave_id": wave_id, "phase": phase_s}, diagnostics=[_diagnostic("invalid_arguments", f"Invalid phase '{phase_s}'. Valid values: 'prepare', 'implementation'.")], next_tools=["wf_help"], usage="wf_help()")
+        return _response(
+            "error",
+            {"wave_id": wave_id, "phase": phase_s},
+            diagnostics=[
+                _diagnostic(
+                    "invalid_arguments",
+                    f"Invalid phase '{phase_s}'. Valid values: 'prepare', 'implementation'. "
+                    "The approval-phase vocabulary maps onto these: 'readiness' is the "
+                    "'prepare' review phase and 'delivery' is the 'implementation' review "
+                    "phase; both are accepted here and mapped.",
+                )
+            ],
+            next_tools=["wf_help"],
+            usage="wf_help()",
+        )
     wave_md = _find_wave_md(root, wave_id)
     if wave_md is None:
         return _response("error", {"wave_id": wave_id}, diagnostics=[_diagnostic("wave_not_found", f"No wave found matching '{wave_id}'.", recovery_tools=["wf_list_waves"], recovery_usage="wf_list_waves()")], next_tools=["wf_list_waves"], usage="wf_list_waves()")
@@ -16169,11 +16315,46 @@ _FOOTPRINT_PROVIDER: Optional[Callable[[Path], Optional[int]]] = None
 _FOOTPRINT_EXCLUDE_PREFIXES = ("docs/", ".wavefoundry/index/", ".wavefoundry/logs/")
 
 
-def _wave_code_footprint(root: Path) -> Optional[int]:
-    """Count changed tracked non-docs files in the working tree; None when
-    git is unavailable (the sensor then stays silent)."""
+def _wave_code_footprint(root: Path, wave_md: Path) -> Optional[int]:
+    """Count changed non-doc files within this wave's declared footprint.
+
+    An implementation advisory must not turn unrelated working-tree dirt into
+    evidence about this wave.  Use the admitted change docs' Serialization
+    Points as the bounded file universe; a wave with no declared targets has no
+    trustworthy file-count signal and stays silent.
+    """
     if _FOOTPRINT_PROVIDER is not None:
         return _FOOTPRINT_PROVIDER(root)
+    targets: list[str] = []
+    try:
+        for change_id in _extract_change_ids_from_wave_text(
+            wave_md.read_text(encoding="utf-8")
+        ):
+            change = _wave_change_doc_path(root, wave_md, change_id)
+            targets.extend(serialization_point_paths(change.read_text(encoding="utf-8")))
+    except OSError:
+        return None
+    if not targets:
+        return None
+
+    # `serialization_point_paths` already lowercases declared targets, but
+    # `git status --porcelain` preserves case. Only the git side needs folding;
+    # comparing raw `rel` against a lowercased target silently dropped every
+    # PascalCase declaration, so a TypeScript, Java, or C# repository
+    # undercounted its own declared footprint while the advisory still claimed
+    # to describe it. Folding the target side too would be a no-op, so it is
+    # deliberately not done: a reader should be able to see which side carries
+    # the behavior. The tradeoff accepted here is that on a case-sensitive
+    # filesystem holding both `src/Foo.ts` and `src/foo.ts`, declaring one
+    # counts the other. That inflates an advisory counter and never a gate,
+    # which is the lesser harm against dropping every PascalCase target.
+    def in_wave_footprint(rel: str) -> bool:
+        probe = rel.casefold()
+        return any(
+            probe == target or (target.endswith("/") and probe.startswith(target))
+            for target in targets
+        )
+
     try:
         proc = subprocess_util.isolated_run(
             ["git", "-C", str(root), "status", "--porcelain"],
@@ -16187,12 +16368,22 @@ def _wave_code_footprint(root: Path) -> Optional[int]:
     for line in proc.stdout.splitlines():
         if len(line) < 4:
             continue
-        rel = line[3:].strip().strip('"')
+        rel = line[3:].strip()
+        # Git uses ``old -> new`` in porcelain rename entries, and quotes each
+        # side INDEPENDENTLY when it contains a space. Split on the arrow
+        # before unquoting: stripping quotes first leaves the surviving inner
+        # quote on ``R  "src/a b/old.py" -> "src/a b/new.py"``, so the target
+        # never matched. Unreachable until spaced targets became declarable,
+        # which is what makes it this change's problem.
+        if " -> " in rel:
+            rel = rel.rsplit(" -> ", 1)[-1].strip()
+        rel = rel.strip('"')
         if not rel or rel.endswith("/"):
             continue
         if any(rel.startswith(prefix) for prefix in _FOOTPRINT_EXCLUDE_PREFIXES):
             continue
-        count += 1
+        if in_wave_footprint(rel):
+            count += 1
     return count
 
 
@@ -16243,7 +16434,7 @@ def _retrieval_posture_gap(root: Path, wave_md: Path) -> Optional[dict[str, Any]
     max_calls, min_files = _retrieval_posture_thresholds(root)
     if calls > max_calls:
         return None
-    footprint = _wave_code_footprint(root)
+    footprint = _wave_code_footprint(root, wave_md)
     if footprint is None or footprint < min_files:
         return None
     if _wave_has_gapfill_note(wave_md):
@@ -16253,7 +16444,7 @@ def _retrieval_posture_gap(root: Path, wave_md: Path) -> Optional[dict[str, Any]
         "changed_non_docs_files": footprint,
         "message": (
             f"Implement-stage instrumented retrieval calls: {calls}; changed "
-            f"non-docs files in the working tree: {footprint}. Implementation "
+            f"non-docs files within this wave's declared footprint: {footprint}. Implementation "
             "appears to have bypassed the MCP retrieval tools (code_*, "
             "docs_search). Route exploration through them, or record a "
             "'Gapfill:' entry in a Progress Log explaining why harness "
@@ -17027,12 +17218,28 @@ Wave: TBD
 
 ## Serialization Points
 
-- [Explicit repo-relative path this change touches, e.g. `src/app/handler.py`]
+(Declare review targets in EITHER form shown below, then replace this note.
+The examples are fenced so this scaffold declares nothing until you edit it.
 
-(List real repo-relative paths. Prepare selects automatic review lanes from
-these paths and from nothing else — never from Scope, Rationale, or other
-narrative. A change doc that declares no path keeps legacy whole-document
-scoring, so coverage is never silently lost, but it forfeits the precision.
+```
+- `src/app/handler.py`, `docs/specs/`
+```
+
+or, when a target contains a space, an explicit block:
+
+```
+**Review targets (repo-relative paths):**
+
+- `docs/waves/1abc some slug/wave.md`
+```
+
+Prepare selects automatic review lanes from those declared paths and from
+nothing else — never from Scope, Rationale, or other narrative, and never from
+prose, in either declaration form. A bullet declares only when it is entirely
+targets: one stray English word makes the whole bullet prose, including inside
+the block, and a bullet whose text wraps is prose in its entirety. Adoption is
+per document, so a change doc that declares no path keeps legacy whole-document
+scoring and coverage is never silently lost, but it forfeits the precision.
 Path scoring is a floor, not a ceiling: ANY lane may also be requested by
 judgment in the wave record's `Requested review lanes`, and architecture,
 security and performance risk are usually judgment calls that no path expresses.)
@@ -27770,7 +27977,9 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
 
         Args:
             wave_id: Wave ID or unique prefix.
-            mode: "dry_run", "ready", or "create" (alias "apply").
+            mode: "dry_run", "ready", or "create" (alias "apply"). "evaluate" is
+                accepted as a read-only alias of "dry_run": it validates and
+                reports without readying, opening, or taking any lock.
         """
         bad = _ensure_no_extra_args("wf_prepare_wave", kwargs)
         if bad is not None:
@@ -27878,6 +28087,8 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             phase: Review phase. "prepare" checks ## Prepare Review Evidence for prepare-phase
                 lane signoffs (run before wf_implement_wave). "implementation" (default) checks
                 ## Review Evidence for implementation-phase signoffs (run before wf_close_wave).
+                The approval-phase vocabulary is accepted and mapped: "readiness" is the
+                "prepare" review phase, and "delivery" is the "implementation" review phase.
         """
         bad = _ensure_no_extra_args("wf_review_wave", kwargs)
         if bad is not None:
@@ -27885,7 +28096,19 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         handler = get_handler()
         result = wf_review_wave_response(handler.root, wave_id, phase=phase)
         canonical = str(_context_data(result).get("wave_id") or wave_id)
-        is_implementation_phase = (phase or "").strip().lower() == "implementation"
+        # Read the phase the response RESOLVED, not the caller's spelling.
+        # `wf_review_wave_response` maps the approval-phase aliases
+        # (`readiness`/`delivery`) onto the review phases, and both its ok and
+        # error paths put the resolved value in `data["phase"]`. Deriving this
+        # from the raw argument made `phase="delivery"` return a fully green
+        # review while silently publishing no implement-stage context-efficiency
+        # accumulation: `credit`, `flush`, and `transfer_general` were all False,
+        # so the delivery council read an unpublished projection with no
+        # diagnostic anywhere.
+        is_implementation_phase = (
+            str(_context_data(result).get("phase") or "").strip().lower()
+            == "implementation"
+        )
         return _lifecycle_context_result(
             handler,
             "wf_review_wave",

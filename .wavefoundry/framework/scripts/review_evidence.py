@@ -367,7 +367,25 @@ def review_action_input_schema() -> dict[str, Any]:
         fields[field] = {"kind": "tristate", "allowed_values": [False, True, "unverified"]}
     return {
         "name": "review_event_inputs",
+        # Per-action caller inputs at the response level, so a caller sees every
+        # required field for the action kind it is about to submit rather than
+        # discovering them one rejected write at a time. The per-action
+        # `required_caller_inputs` on each guided action carries the same list
+        # for the specific action offered; this is the full map.
+        "action_required_inputs": {
+            kind: list(inputs) for kind, inputs in REVIEW_ACTION_CALLER_INPUTS.items()
+        },
         "judgment": fields,
+        "evidence": {
+            "finding": {
+                "required_fields": list(REVIEW_FINDING_REQUIRED_EVIDENCE_FIELDS),
+                "field_kind": "non-empty string",
+            },
+            "approval": {
+                "required_fields": list(REVIEW_APPROVAL_REQUIRED_EVIDENCE_FIELDS),
+                "field_kind": "non-empty string",
+            },
+        },
         "integrity_checks": {
             **{field: {"kind": "boolean"} for field in INTEGRITY_CHECK_BOOLEAN_FIELDS},
             INTEGRITY_CHECK_METHOD_FIELD: {"kind": "string"},
@@ -1381,14 +1399,23 @@ def review_authority_projection(
                 blocking.append(fact)
         if blocking:
             finding_ids = [fact["finding_id"] for fact in blocking]
+            unresolved_facts = [fact for fact in blocking if not fact["terminal"]]
+            repaired_facts = [fact for fact in blocking if fact["terminal"]]
             unresolved = sorted(
                 {
                     lane
-                    for fact in blocking
+                    for fact in unresolved_facts
                     for lane in fact["unresolved_required_lanes"]
                 }
             )
-            why = "blocking findings: " + ", ".join(finding_ids[:8])
+            if unresolved_facts:
+                why = "blocking findings: " + ", ".join(
+                    fact["finding_id"] for fact in unresolved_facts[:8]
+                )
+            else:
+                why = "repaired findings require fresh approval: " + ", ".join(
+                    fact["finding_id"] for fact in repaired_facts[:8]
+                )
             if len(finding_ids) > 8:
                 why += f" (+{len(finding_ids) - 8} more; see events.jsonl)"
             if unresolved:
@@ -2681,12 +2708,15 @@ def build_compact_review_event(
     provisional: dict[str, Any] = dict(judgment)
     provisional.update(
         {
-            "optional_value": "none",
-            "repair_scope_bounded": "unverified",
-            "repair_safety": "unverified",
-            "benefit_vs_fix_risk": "unverified",
-            "fix_risk": "unverified",
-            "rejection_basis": "none",
+            field: judgment.get(field, default)
+            for field, default in {
+                "optional_value": "none",
+                "repair_scope_bounded": "unverified",
+                "repair_safety": "unverified",
+                "benefit_vs_fix_risk": "unverified",
+                "fix_risk": "unverified",
+                "rejection_basis": "none",
+            }.items()
         }
     )
     action_required = derive_action_required(provisional)
