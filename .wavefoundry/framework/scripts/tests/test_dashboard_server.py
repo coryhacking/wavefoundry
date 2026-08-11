@@ -1320,6 +1320,242 @@ Wave: `12x test-wave`
                 self.srv.choose_port(self.root, "127.0.0.1")
 
 
+class UnreadableWaveRecordTests(unittest.TestCase):
+    """Wave 1v1df: the dashboard renders unreadable wave records as visible
+    degraded rows instead of crashing (decode cause) or hiding them
+    (permission cause), and its `wave["path"]` handling is root-anchored,
+    never CWD-dependent.
+
+    Red-first record (pre-fix behavior, executed before the fix):
+    - a decode-broken wave.md crashed `collect_waves` with UnicodeDecodeError
+      at repo-root CWD (the degraded enumeration entry carries a repo-relative
+      path, which reopened the broken file when CWD == root);
+    - a permission-broken wave.md silently vanished (`except OSError:
+      continue`);
+    - a decode-broken admitted change doc raised UnicodeDecodeError out of
+      `collect_changes` (`parse_change_doc` wrapped only OSError), and a
+      permission-broken one silently misparsed (file stem as change_id,
+      status unknown, no marker).
+    """
+
+    def setUp(self):
+        self.lib, self.srv = load_dashboard_modules()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        _make_repo(self.root)
+        _make_wave(self.root)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _chdir(self, target) -> None:
+        prev = os.getcwd()
+        os.chdir(target)
+        self.addCleanup(os.chdir, prev)
+
+    def _make_broken_wave(self, mode: str, dirname: str = "12z broken-wave") -> Path:
+        """Break a wave record by `mode`: invalid UTF-8 bytes, or chmod 0."""
+        wave_md = self.root / "docs" / "waves" / dirname / "wave.md"
+        if mode == "decode":
+            wave_md.parent.mkdir(parents=True, exist_ok=True)
+            wave_md.write_bytes(b"\xff\xfe not valid utf-8 \xff")
+        else:
+            _write(wave_md, f"# Wave Record\n\nwave-id: `{dirname}`\nStatus: active\n")
+            os.chmod(wave_md, 0)
+            self.addCleanup(
+                lambda: wave_md.exists() and os.chmod(wave_md, 0o600))
+        return wave_md
+
+    def test_decode_broken_wave_record_renders_degraded_row(self):
+        """1v1df AC-1 (red-first): pre-fix this crashed with UnicodeDecodeError
+        at repo-root CWD; post-fix the rendered snapshot payload carries a
+        visible degraded row for the broken wave."""
+        self._make_broken_wave("decode")
+        self._chdir(self.root)
+        snapshot = self.lib.collect_dashboard_snapshot(self.root, skip_git=True)
+        rows = [w for w in snapshot["waves"] if w["wave_id"] == "12z broken-wave"]
+        self.assertTrue(
+            rows,
+            "a decode-broken wave record must render as a degraded row, "
+            "not crash the snapshot or disappear from it")
+        row = rows[0]
+        self.assertTrue(row.get("read_error"),
+                        "the degrade must be bound to read_error")
+        self.assertIn("UnicodeDecodeError", row["read_error"])
+        self.assertEqual(row["status"], "unknown")
+        self.assertEqual(row["title"], "12z broken-wave")
+        self.assertEqual(row["change_count"], 0)
+        # The cause reaches the existing review-evidence tooltip surface.
+        # "invalid" is load-bearing: routing substituted-empty text through
+        # _review_evidence_dashboard_state would mislabel the row "legacy"
+        # (silent) instead of visibly broken.
+        self.assertEqual(row["review_evidence_status"]["integrity"], "invalid")
+        self.assertIn(row["read_error"],
+                      row["review_evidence_status"]["diagnostics"])
+        healthy = [w for w in snapshot["waves"] if w["wave_id"] == "12x test-wave"]
+        self.assertTrue(healthy, "the healthy sibling wave must keep rendering")
+        self.assertNotIn("read_error", healthy[0])
+
+    def test_permission_broken_wave_record_appears_as_degraded_row(self):
+        """1v1df AC-2 (red-first): pre-fix the wave silently vanished
+        (`except OSError: continue`); post-fix it renders as a degraded row
+        naming the cause. A hidden broken wave is the misdirection twin of the
+        crash: it is the entry the operator opened the dashboard to see."""
+        self._make_broken_wave("permission")
+        self._chdir(self.root)
+        snapshot = self.lib.collect_dashboard_snapshot(self.root, skip_git=True)
+        rows = [w for w in snapshot["waves"] if w["wave_id"] == "12z broken-wave"]
+        self.assertTrue(
+            rows,
+            "a permission-broken wave record must be visible, not silently omitted")
+        row = rows[0]
+        self.assertTrue(row.get("read_error"))
+        self.assertIn("PermissionError", row["read_error"])
+        self.assertEqual(row["review_evidence_status"]["integrity"], "invalid")
+        self.assertIn(row["read_error"],
+                      row["review_evidence_status"]["diagnostics"])
+
+    def test_snapshot_is_cwd_independent(self):
+        """1v1df AC-3 (red-first, decode vehicle): the same corpus yields the
+        same wave rows from the repo root and from a foreign working directory.
+        Pre-fix the repo-root run crashed (UnicodeDecodeError) while the
+        foreign run dropped the wave (FileNotFoundError, then `continue`).
+        A permission-only corpus is CWD-identical today, so it cannot carry
+        this red on its own; AC-1/AC-2 pin the per-cause behavior."""
+        self._make_broken_wave("decode")
+        foreign = tempfile.TemporaryDirectory()
+        self.addCleanup(foreign.cleanup)
+        self._chdir(self.root)
+        waves_at_root = self.lib.collect_waves(self.root)
+        os.chdir(foreign.name)
+        waves_foreign = self.lib.collect_waves(self.root)
+        self.assertEqual(waves_at_root, waves_foreign,
+                         "collect_waves must not depend on the process CWD")
+        self.assertIn("12z broken-wave",
+                      [w["wave_id"] for w in waves_at_root])
+
+    def test_degraded_rows_carry_no_absolute_path(self):
+        """1v1df AC-4: the degraded row is a new rendering path; the
+        absolute-path leak class (1v0lw) must not recur on it. Reach guards
+        first: each row must exist before the leak assertion means anything."""
+        self._make_broken_wave("decode", dirname="12z broken-wave")
+        self._make_broken_wave("permission", dirname="12w locked-wave")
+        self._chdir(self.root)
+        waves = self.lib.collect_waves(self.root)
+        by_id = {w["wave_id"]: w for w in waves}
+        for wave_id in ("12z broken-wave", "12w locked-wave"):
+            row = by_id.get(wave_id)
+            self.assertIsNotNone(
+                row, f"reach guard: {wave_id} must render as a degraded row")
+            rendered = json.dumps(row)
+            for leak in (str(self.root), str(self.root.resolve())):
+                self.assertNotIn(
+                    leak, rendered,
+                    "a degraded row must stay repo-relative / path-free")
+
+    def test_decode_broken_change_doc_degrades_instead_of_crashing(self):
+        """1v1df AC-7 (red-first): `parse_change_doc` wrapped only OSError, so
+        a decode-broken admitted change doc raised UnicodeDecodeError out of
+        `collect_changes`; post-fix the change renders with `read_error`
+        bound to the record."""
+        change_path = (self.root / "docs" / "waves" / "12x test-wave"
+                       / "12x1-enh sample-dashboard.md")
+        change_path.write_bytes(b"\xff\xfe not valid utf-8 \xff")
+        changes = self.lib.collect_changes(self.root)
+        records = [c for c in changes["wave"]
+                   if c["change_id"] == "12x1-enh sample-dashboard"]
+        self.assertTrue(
+            records, "reach guard: the admitted change must still be listed")
+        record = records[0]
+        self.assertTrue(
+            record.get("read_error"),
+            "the degraded indication must be BOUND to read_error, not "
+            "inferred from status 'unknown'")
+        self.assertIn("UnicodeDecodeError", record["read_error"])
+        self.assertEqual(record["status"], "unknown")
+        rendered = json.dumps(record)
+        for leak in (str(self.root), str(self.root.resolve())):
+            self.assertNotIn(leak, rendered,
+                             "a degraded change record must not leak an "
+                             "absolute filesystem path")
+
+    def test_permission_broken_change_doc_is_not_a_silent_misparse(self):
+        """1v1df AC-7 (red-first): pre-fix a permission-broken change doc
+        silently misparsed through empty-text substitution (file stem as
+        change_id, status unknown, NO marker). A wrong fix that widens the
+        wrap while keeping the substitution stays red here, because the
+        assertion is bound to `read_error`, not to the misparse shape."""
+        change_path = (self.root / "docs" / "waves" / "12x test-wave"
+                       / "12x1-enh sample-dashboard.md")
+        os.chmod(change_path, 0)
+        self.addCleanup(
+            lambda: change_path.exists() and os.chmod(change_path, 0o600))
+        changes = self.lib.collect_changes(self.root)
+        records = [c for c in changes["wave"]
+                   if c["change_id"] == "12x1-enh sample-dashboard"]
+        self.assertTrue(
+            records, "reach guard: the change record must still be listed")
+        record = records[0]
+        self.assertTrue(
+            record.get("read_error"),
+            "unreadability must be observable on the record itself")
+        self.assertIn("PermissionError", record["read_error"])
+        self.assertEqual(record["status"], "unknown")
+        self.assertEqual(record["tasks_total"], 0)
+
+    def test_wave_record_vanished_between_enumeration_and_render_degrades(self):
+        """1v1df Requirement 3 (red-first): a wave record deleted between
+        enumeration and render must produce a degraded row, and the non-read
+        touches (`stat()`) must stay quiet: pre-fix the FileNotFoundError hit
+        `except OSError: continue` and the wave vanished."""
+        ghost = self.root / "docs" / "waves" / "12v ghost-wave" / "wave.md"
+        entry = {"wave_id": "12v ghost-wave", "status": "active",
+                 "changes": [], "path": str(ghost)}
+        with patch.object(self.lib.server, "list_waves", return_value=[entry]):
+            waves = self.lib.collect_waves(self.root)
+        self.assertEqual([w["wave_id"] for w in waves], ["12v ghost-wave"])
+        row = waves[0]
+        self.assertTrue(row.get("read_error"))
+        self.assertIn("FileNotFoundError", row["read_error"])
+        self.assertIsNone(row["last_updated"],
+                          "stat() on a vanished file must fail closed per "
+                          "entry, not crash the snapshot")
+        self.assertEqual(row["status"], "active")
+
+    def test_seam_read_error_is_trusted_without_reread(self):
+        """1v1df Requirement 3: when the enumeration entry already carries
+        `read_error` from the seam, the dashboard trusts it instead of
+        re-deriving. The entry's path points at a perfectly readable file, so
+        a re-reading implementation would render the row healthy and fail."""
+        entry = {
+            "wave_id": "12x test-wave", "status": "unknown", "changes": [],
+            "path": "docs/waves/12x test-wave/wave.md",
+            "read_error": "PermissionError: Operation not permitted",
+        }
+        with patch.object(self.lib.server, "list_waves", return_value=[entry]):
+            waves = self.lib.collect_waves(self.root)
+        self.assertEqual(len(waves), 1)
+        row = waves[0]
+        self.assertEqual(row["read_error"],
+                         "PermissionError: Operation not permitted")
+        self.assertEqual(row["review_evidence_status"]["integrity"], "invalid")
+        self.assertEqual(row["path"], "docs/waves/12x test-wave/wave.md")
+
+    def test_healthy_rows_and_records_carry_no_read_error_key(self):
+        """1v1df AC-5 support: `read_error` appears ONLY on degraded output,
+        so a healthy corpus renders byte-identically to the pre-fix snapshot
+        (no `read_error: null` sprayed across healthy rows and records)."""
+        waves = self.lib.collect_waves(self.root)
+        self.assertTrue(waves, "reach guard: the healthy corpus must render")
+        for row in waves:
+            self.assertNotIn("read_error", row)
+        changes = self.lib.collect_changes(self.root)
+        payloads = changes["wave"] + changes["plan"]
+        self.assertTrue(payloads, "reach guard: change records must render")
+        for record in payloads:
+            self.assertNotIn("read_error", record)
+
+
 class _HandlerHarnessMixin:
     """Shared HTTP handler test harness. Subclasses must set self.srv and self.snapshot."""
 

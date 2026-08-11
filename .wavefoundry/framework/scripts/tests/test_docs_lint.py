@@ -871,6 +871,33 @@ class DocsLintFixtureTests(unittest.TestCase):
         )
         self.assertIn("Prepare wave", result.stderr)
 
+    def test_implementing_wave_requires_sibling_change_docs(self) -> None:
+        """1v0lx AC-3 red-first (end-to-end half): the existence check must
+        fire at `Status: implementing`, the status every OPEN wave actually
+        holds. Before 1v0lx the gate covered {active, ready} plus the
+        `Activated at:` fallback only, so a missing admitted doc sailed
+        through the exact status where implementation happens (probe: rc=0
+        with zero failures on this fixture against the pre-fix code)."""
+        root = self.copy_fixture()
+        wave_md = root / self.WAVE_DOC_PATH
+        wave_md.write_text(
+            wave_md.read_text(encoding="utf-8").replace(
+                "Status: active", "Status: implementing", 1
+            ),
+            encoding="utf-8",
+        )
+        change_doc = root / "docs/waves/waves/change-2026-03/00058-bug fixture-core.md"
+        change_doc.unlink()
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn(
+            f"wave-owned change `{self.VALID_CHANGE_ID}` must exist at ",
+            result.stderr,
+        )
+
     def test_missing_persona_journal_reference_fails(self) -> None:
         root = self.copy_fixture()
         persona_doc = root / self.PERSONA_DOC_PATH
@@ -2791,6 +2818,139 @@ class CouncilSeedVerificationContractTests(unittest.TestCase):
         if live_copy.exists():  # absent in target repos
             self.assertIn(pinned, live_copy.read_text(encoding="utf-8"), "live council-review copy")
 
+    # 1v1c4: the 1uu9y resolvable-anchor AUTHORING paragraph has no renderer
+    # sync (it sits outside BOTH renderer-owned marker regions of the live
+    # prompt copy: wavefoundry:review-policy and wave:executable-review-
+    # evidence), so these exact-value pins are its sync mechanism, per the
+    # 1tmb4 precedent above.  The 1v1c4 carrier census found the seed copies
+    # equally unpinned (the clause pin in test_server_tools covers only the
+    # runtime brief), so the class is retired here once: seed 237 + live copy
+    # in one pin, seed 209's audience variant in the other.
+
+    CITATION_PARAGRAPH_237 = (
+        "When a council seat writes a finding that cites code, cite a "
+        "**resolvable anchor** — a function, class, method, constant, test "
+        "name, or a distinguishing expression — rather than a bare "
+        "`file:line`. The reason is not tidiness, it is resolvability: "
+        "`code_definition(symbol)` and `code_read` return today's text for a "
+        "symbol anchor, while a line anchor can only be checked and drifts "
+        "hardest when a sibling wave concurrently edits the target. A line "
+        "number is still correct for a module-level constant block, data "
+        "file, specific line in a generated artifact, prose in a "
+        "hand-authored markdown document, or deliberately historical "
+        "citation; name that case inline so a reviewer can distinguish a "
+        "deliberate line anchor from a lapsed one. Deliberately historical "
+        "citations, including line numbers already written into a change "
+        "document's `## Progress Log` or `## Decision Log` rows, record what "
+        "was verified at the time and are never rewritten to symbols."
+    )
+
+    def test_1uu9y_citation_paragraph_pinned_in_seed_237_and_live_copy(self) -> None:
+        """1v1c4 AC-1: byte-exact pin naming seed 237 as canonical."""
+        seed_text = (self.SEEDS_DIR / "237-council-review.prompt.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(
+            self.CITATION_PARAGRAPH_237,
+            seed_text,
+            "seed 237 lost the 1uu9y citation-authoring paragraph; the seed "
+            "is canonical, so update the pin AND the live copy together",
+        )
+        live_copy = (
+            SCRIPTS_ROOT.parent.parent.parent
+            / "docs" / "prompts" / "council-review.prompt.md"
+        )
+        if live_copy.exists():  # absent in target repos
+            self.assertIn(
+                self.CITATION_PARAGRAPH_237,
+                live_copy.read_text(encoding="utf-8"),
+                "live council-review copy drifted from seed 237's "
+                "citation-authoring paragraph; no re-render reaches it, so "
+                "align it with the seed by hand",
+            )
+
+    def test_1urlb_citation_variant_pinned_in_seed_170(self) -> None:
+        """1v1dh: the author-phase citation variant, head sentence exact plus
+        load-bearing clauses (the resolvability reason and the carve-out
+        table), unconditional per the family's failure-not-skip rule."""
+        text = (self.SEEDS_DIR / "170-plan-feature.prompt.md").read_text(
+            encoding="utf-8"
+        )
+        head = (
+            "When a change document cites code, cite a **resolvable anchor** "
+            "— a function, class, method, constant, test name, or a "
+            "distinguishing expression — rather than a bare `file:line`."
+        )
+        self.assertIn(head, text, "seed 170 citation-variant head sentence")
+        self.assertIn(
+            "A symbol anchor can be *resolved*", text,
+            "seed 170 resolvability reason",
+        )
+        self.assertIn(
+            "**A line number is still correct in these cases**", text,
+            "seed 170 carve-out header",
+        )
+        self.assertIn(
+            "| A module-level constant block | No containing symbol |", text,
+            "seed 170 carve-out table first case",
+        )
+
+    def test_1urlb_citation_variant_pinned_in_seed_180(self) -> None:
+        """1v1dh: the implement-phase citation bullet, head exact plus the
+        anchor vocabulary (as seed 180 words it), the name-the-case-inline
+        obligation, and the history-falsification clause."""
+        text = (self.SEEDS_DIR / "180-implement-feature.prompt.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(
+            "**Cite by symbol, so the citation survives the cycle.**", text,
+            "seed 180 bullet head",
+        )
+        self.assertIn(
+            "cite a **resolvable anchor** — a function, class, method, "
+            "constant, test name, or distinguishing expression — rather than "
+            "a bare `file:line`.",
+            text,
+            "seed 180 anchor vocabulary (wording differs from seed 170 by "
+            "one article; pinned as the seed reads)",
+        )
+        self.assertIn(
+            "**Name the case inline when you rely on it.**", text,
+            "seed 180 name-the-case obligation",
+        )
+        self.assertIn(
+            "repairing them to symbols falsifies the history", text,
+            "seed 180 history-falsification clause",
+        )
+
+    def test_1uu9y_citation_paragraph_pinned_in_seed_209(self) -> None:
+        """1v1c4 AC-2 census closure: seed 209's audience variant, same pin."""
+        variant = (
+            "When `artifact_or_test_id` or review-evidence prose cites code, "
+            "cite a **resolvable anchor** — a function, class, method, "
+            "constant, test name, or a distinguishing expression — rather "
+            "than a bare `file:line`."
+        )
+        immutable_tail = (
+            "An appended evidence record is immutable: deliberately "
+            "historical anchors record what was verified at the time and are "
+            "never rewritten to symbols."
+        )
+        seed_text = (self.SEEDS_DIR / "209-agent-harness-core.prompt.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(variant, seed_text, "seed 209 authoring-rule head")
+        self.assertIn(immutable_tail, seed_text, "seed 209 immutability tail")
+        shared_middle = (
+            "A line number is still correct for a module-level constant "
+            "block, data file, specific line in a generated artifact, prose "
+            "in a hand-authored markdown document, or deliberately "
+            "historical citation; name that case inline so a reviewer can "
+            "distinguish a deliberate line anchor from a lapsed one."
+        )
+        self.assertIn(shared_middle, seed_text, "seed 209 shared carve-outs")
+        self.assertIn(shared_middle, self.CITATION_PARAGRAPH_237)
+
     def test_code_grounded_tenet_stated_once_in_seed_209(self) -> None:
         """1tmb4 AC-1: one canonical definition sentence, in seed 209 only.
 
@@ -3115,6 +3275,214 @@ class SeedPrefixUniquenessCliIntegrationTests(unittest.TestCase):
             hasattr(cli_module, "check_seed_prefix_uniqueness"),
             "wave_lint_lib.cli must import check_seed_prefix_uniqueness so the "
             "docs-lint pipeline auto-runs the prefix check (1p3dm AC-6)",
+        )
+
+
+class WaveOwnedChangeDocGateTests(unittest.TestCase):
+    """1v0lx Requirement 3: both conjuncts of the existence-check gate, so a
+    re-derivation can neither miss `implementing` again nor delete the
+    seed-driven `Activated at:` fallback on a dead-code theory."""
+
+    @staticmethod
+    def _wave_text(status: str, activated: str | None = None) -> str:
+        lines = ["# Wave Record", "", "Owner: Engineering", f"Status: {status}"]
+        if activated is not None:
+            lines.append(f"Activated at: {activated}")
+        return "\n".join(lines) + "\n"
+
+    def test_status_set_and_activation_fallback(self) -> None:
+        from wave_lint_lib.wave_validators import (
+            _wave_requires_wave_owned_change_docs,
+        )
+
+        cases = [
+            ("active", None, True),
+            ("ready", None, True),
+            ("implementing", None, True),
+            ("implementing", "2026-08-11T00:00:00Z", True),
+            ("planned", None, False),
+            ("planned", "2026-08-11T00:00:00Z", True),
+            ("planned", "not activated", False),
+            ("completed", None, False),
+            ("closed", None, False),
+            ("closed", "2026-08-11T00:00:00Z", False),
+        ]
+        for status, activated, expected in cases:
+            with self.subTest(status=status, activated=activated):
+                self.assertIs(
+                    _wave_requires_wave_owned_change_docs(
+                        self._wave_text(status, activated)
+                    ),
+                    expected,
+                )
+
+
+class ReviewPolicyCarrierParityTests(unittest.TestCase):
+    """1v1c5: docs-lint fails when a rendered review-policy region differs from
+    its registered block source, composed via the RENDERER'S OWN helper (the
+    1us4q no-parallel-parser lesson). Dispositions pinned here as named
+    behavior: missing file skipped; exists-with-neither-marker skipped (the
+    base fixture holds that state); malformed markers FAIL; drift in either
+    direction FAILS."""
+
+    FIXTURE_CARRIER = "docs/references/project-overview.md"
+
+    @staticmethod
+    def _modules():
+        import render_agent_surfaces as ras
+        import review_policy
+        from wave_lint_lib.core_validators import (
+            check_review_policy_carrier_parity,
+        )
+        return review_policy, ras, check_review_policy_carrier_parity
+
+    def _carrier(self):
+        review_policy, _, _ = self._modules()
+        return next(
+            row
+            for row in review_policy.REVIEW_POLICY_CARRIER_REGISTRY
+            if row.destination == self.FIXTURE_CARRIER and row.owner == "renderer"
+        )
+
+    def _root_with_rendered_region(self):
+        review_policy, ras, _check = self._modules()
+        carrier = self._carrier()
+        block = review_policy.REVIEW_POLICY_SURFACE_BLOCKS[carrier.destination]
+        root = Path(tempfile.mkdtemp(prefix="parity-fixture-"))
+        self.addCleanup(shutil.rmtree, root, ignore_errors=True)
+        path = root / carrier.destination
+        path.parent.mkdir(parents=True, exist_ok=True)
+        base = "# Fixture carrier\n\nProject prose stays untouched.\n"
+        rendered = ras._upsert_review_policy_region(base, block)
+        self.assertIsNotNone(rendered)
+        path.write_text(rendered, encoding="utf-8")
+        return root, carrier, block, path
+
+    def test_matching_region_passes(self) -> None:
+        _, _, check = self._modules()
+        root, _carrier, _block, _path = self._root_with_rendered_region()
+        self.assertEqual(check(root), [])
+
+    def test_hand_edit_inside_region_fails(self) -> None:
+        """AC-4: the drift direction likelier in a self-hosting repo."""
+        _, _, check = self._modules()
+        root, carrier, block, path = self._root_with_rendered_region()
+        text = path.read_text(encoding="utf-8")
+        tampered = text.replace(block, block + "\nhand-edited addition", 1)
+        self.assertNotEqual(tampered, text)
+        path.write_text(tampered, encoding="utf-8")
+        failures = check(root)
+        self.assertEqual(len(failures), 1, failures)
+        self.assertIn(carrier.destination, failures[0])
+        self.assertIn("reconcile_review_policy_surfaces", failures[0])
+
+    def test_block_edit_without_rerender_fails(self) -> None:
+        """AC-1: the direction that motivated the change (1us4q shipped it)."""
+        review_policy, _, check = self._modules()
+        root, carrier, block, _path = self._root_with_rendered_region()
+        with patch.dict(
+            review_policy.REVIEW_POLICY_SURFACE_BLOCKS,
+            {carrier.destination: block + "\n\nNew registered obligation."},
+        ):
+            failures = check(root)
+        self.assertEqual(len(failures), 1, failures)
+        self.assertIn(carrier.destination, failures[0])
+        self.assertIn("reconcile_review_policy_surfaces", failures[0])
+        self.assertEqual(check(root), [], "patch.dict must restore parity")
+
+    def test_regionless_existing_carrier_is_skipped(self) -> None:
+        """Requirement 2: presence/adoption stays the existing checks'
+        business; a naive exists-implies-region rule would fail the base
+        fixture, which holds this exact state today."""
+        _, _, check = self._modules()
+        root, _carrier, _block, path = self._root_with_rendered_region()
+        path.write_text("# Fixture carrier\n\nNo markers at all.\n", encoding="utf-8")
+        self.assertEqual(check(root), [])
+
+    def test_malformed_markers_fail_instead_of_warn_and_skip(self) -> None:
+        """The reconciler warns-and-skips on malformed markers; a gate must
+        not."""
+        review_policy, _, check = self._modules()
+        root, _carrier, _block, path = self._root_with_rendered_region()
+        text = path.read_text(encoding="utf-8")
+        path.write_text(
+            text + "\n" + review_policy.REVIEW_POLICY_SURFACE_MARKER_BEGIN + "\n",
+            encoding="utf-8",
+        )
+        failures = check(root)
+        self.assertEqual(len(failures), 1, failures)
+        self.assertIn("malformed", failures[0])
+
+    def test_missing_file_is_skipped(self) -> None:
+        _, _, check = self._modules()
+        root = Path(tempfile.mkdtemp(prefix="parity-empty-"))
+        self.addCleanup(shutil.rmtree, root, ignore_errors=True)
+        self.assertEqual(check(root), [])
+
+    def test_live_corpus_passes_rooted_at_this_repo(self) -> None:
+        """AC-3: rooted at the repository root constant that resolves to THIS
+        repo, not the scripts-tree parent (the 1uwpf PROJECT_ROOT vacuity;
+        module-scope PROJECT_ROOT above resolves OUTSIDE the repo)."""
+        review_policy, _, check = self._modules()
+        repo_root = SCRIPTS_ROOT.parents[1].parent
+        if not (repo_root / "docs" / "prompts").is_dir():
+            self.skipTest("self-hosted docs corpus absent (target repo)")
+        self.assertTrue(
+            (repo_root / ".wavefoundry").is_dir(),
+            f"corpus root must be the self-hosted repo, got {repo_root}",
+        )
+        probe = repo_root / "docs" / "prompts" / "council-review.prompt.md"
+        self.assertIn(
+            review_policy.REVIEW_POLICY_SURFACE_MARKER_BEGIN,
+            probe.read_text(encoding="utf-8"),
+            "corpus probe carrier lost its rendered region; the scan below "
+            "would be vacuous",
+        )
+        self.assertEqual(check(repo_root), [])
+
+    def test_registered_on_full_and_incremental_paths(self) -> None:
+        """AC-3 registration half: a drifted fixture fails cli._run_full_checks
+        end to end, and the incremental path catches the same drift when the
+        carrier file is in the changed set (rendered-side coverage per
+        Requirement 3; a review_policy.py edit never fires the docs hook)."""
+        import argparse
+        import unittest.mock as mock
+
+        import wave_lint_lib.cli as cli
+
+        review_policy, ras, _check = self._modules()
+        carrier = self._carrier()
+        block = review_policy.REVIEW_POLICY_SURFACE_BLOCKS[carrier.destination]
+        root = Path(tempfile.mkdtemp(prefix="parity-registration-"))
+        self.addCleanup(shutil.rmtree, root, ignore_errors=True)
+        shutil.copytree(FIXTURE_ROOT, root, dirs_exist_ok=True)
+        path = root / carrier.destination
+        rendered = ras._upsert_review_policy_region(
+            path.read_text(encoding="utf-8"), block
+        )
+        self.assertIsNotNone(rendered)
+        path.write_text(
+            rendered.replace(block, block + "\nhand-edited drift", 1),
+            encoding="utf-8",
+        )
+        args = argparse.Namespace(
+            scan_all=False,
+            write_migration_audit=False,
+            migration_audit_path="docs/reports/wave-migration-audit.md",
+            changed=False,
+        )
+        full_failures, _warnings, _infos = cli._run_full_checks(root, args)
+        self.assertTrue(
+            any("reconcile_review_policy_surfaces" in item for item in full_failures),
+            full_failures,
+        )
+        with mock.patch.object(cli, "_get_changed_files", return_value=[path]):
+            incremental = cli._run_incremental_checks(root)
+        self.assertIsNotNone(incremental)
+        inc_failures, _inc_warnings = incremental
+        self.assertTrue(
+            any("reconcile_review_policy_surfaces" in item for item in inc_failures),
+            inc_failures,
         )
 
 

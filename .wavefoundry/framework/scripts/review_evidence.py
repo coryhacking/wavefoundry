@@ -679,7 +679,18 @@ def _review_authority_path_error(wave_path: Path) -> str | None:
         if ledger.exists() and not ledger.resolve(strict=True).is_relative_to(wave_real):
             return "events.jsonl escapes its wave directory"
     except (OSError, RuntimeError) as exc:
-        return f"review authority path is not safely resolvable: {exc}"
+        # Path-free (1v1de census): ``OSError.__str__`` and the symlink-loop
+        # message both embed the absolute filesystem path, and this string
+        # ships to operators through both the ledger-read and validation
+        # paths. Name the failing member plus the cause instead.
+        cause = getattr(exc, "strerror", None) or type(exc).__name__
+        failed_member = getattr(exc, "filename", None)
+        if failed_member:
+            return (
+                "review authority path is not safely resolvable: "
+                f"{Path(failed_member).name}: {cause}"
+            )
+        return f"review authority path is not safely resolvable: {cause}"
     return None
 
 
@@ -1362,26 +1373,33 @@ def review_authority_projection(
             if key == "operator-signoff"
             else ("wave-council" if key.startswith("wave-council-") else key)
         )
+        # Per-conjunct booleans feed BOTH the validity predicate and the
+        # invalid-approval reason (1v0lz): one derivation, no drift between
+        # what fails and what the operator is told failed.
+        context_valid = isinstance(context, Mapping)
+        actor_valid = context_valid and context.get("actor") == expected_actor
+        independence_valid = context_valid and (
+            key == "operator-signoff"
+            or (
+                context.get("fresh_context") is True
+                and context.get("independent") is True
+            )
+        )
+        receipt_binding_applies = (
+            approval_record is not None
+            and approval_record_phase(approval_record) == "readiness"
+            and "approval_phase" in approval_record
+        )
+        receipt_binding_current = not receipt_binding_applies or (
+            current_receipt is not None
+            and approval_record.get("policy_receipt_id")
+            == current_receipt.get("receipt_id")
+        )
         approval_valid = bool(
             approval_record is not None
-            and isinstance(context, Mapping)
-            and context.get("actor") == expected_actor
-            and (
-                key == "operator-signoff"
-                or (
-                    context.get("fresh_context") is True
-                    and context.get("independent") is True
-                )
-            )
-            and (
-                approval_record_phase(approval_record) != "readiness"
-                or "approval_phase" not in approval_record
-                or (
-                    current_receipt is not None
-                    and approval_record.get("policy_receipt_id")
-                    == current_receipt.get("receipt_id")
-                )
-            )
+            and actor_valid
+            and independence_valid
+            and receipt_binding_current
         )
         blocking: list[dict[str, Any]] = []
         for fact in finding_facts:
@@ -1435,11 +1453,36 @@ def review_authority_projection(
             next_action = "none"
         else:
             state = "pending"
-            why = (
-                "approval evidence has invalid actor or independence"
-                if approval_record is not None
-                else "no current executed approval"
-            )
+            if approval_record is None:
+                why = "no current executed approval"
+            elif not context_valid:
+                why = (
+                    "approval evidence has a missing or malformed "
+                    "verification context"
+                )
+            elif not actor_valid:
+                why = (
+                    "approval evidence has an invalid actor: recorded "
+                    f"`{context.get('actor')}`, expected `{expected_actor}`"
+                )
+            elif not independence_valid:
+                why = (
+                    "approval evidence lacks independence: fresh_context and "
+                    "independent must both be true"
+                )
+            elif current_receipt is None:
+                why = (
+                    "approval binding is stale: pinned receipt "
+                    f"`{approval_record.get('policy_receipt_id')}` has no "
+                    "current receipt on the ledger"
+                )
+            else:
+                why = (
+                    "approval binding is stale: pinned receipt "
+                    f"`{approval_record.get('policy_receipt_id')}` does not "
+                    "match current receipt "
+                    f"`{current_receipt.get('receipt_id')}`"
+                )
             next_action = f"record approval evidence for {key}"
         status_row = {
             "signoff_key": key,
@@ -2036,7 +2079,9 @@ class ReviewAuthority:
       (``review_status_rows``: executed delivery approvals, exact actor
       binding, freshness/independence for non-operator keys, staleness
       against affected repairs). An unreadable or invalid ledger yields zero
-      records, so every read fails closed.
+      records, so every read fails closed. An unreadable ``wave.md`` also
+      resolves here (typed with errors): its declaration is unknowable, so
+      it never downgrades to prose (1v1de).
     - prose (legacy wave): reads preserve the historical prose parsing
       unchanged.
     """
@@ -2134,6 +2179,19 @@ class ReviewAuthority:
         return prose_max_severity(self.wave_text)
 
 
+def _unreadable_wave_record_error(wave_md: Path, exc: Exception) -> str:
+    """Path-free unreadable-record message (1v1de).
+
+    ``OSError.__str__`` embeds the absolute filesystem path and the decode
+    message names no file at all; both causes render as the file name plus
+    ``strerror`` (or the exception type when ``strerror`` is absent), the
+    same idiom as the ledger-read sibling in ``read_review_event_ledger``.
+    """
+
+    cause = getattr(exc, "strerror", None) or type(exc).__name__
+    return f"wave record is unreadable: {wave_md.name}: {cause}"
+
+
 def resolve_review_authority(
     root: Path | None,
     wave_path: Path | None,
@@ -2151,7 +2209,8 @@ def resolve_review_authority(
             tolerated only for text-only legacy probes; a declared wave
             without a path fails closed (no records).
         wave_text: Optional already-read ``wave.md`` text; when omitted it is
-            read from ``wave_path``.
+            read from ``wave_path``. An unreadable record resolves as typed
+            with errors, never as legacy prose (1v1de).
     """
 
     del root  # identity anchor only; derivation is wave-local (see docstring)
@@ -2165,8 +2224,23 @@ def resolve_review_authority(
         if wave_md is not None:
             try:
                 wave_text = wave_md.read_text(encoding="utf-8")
-            except OSError:
-                wave_text = ""
+            except (OSError, UnicodeError) as exc:
+                # 1v1de: an unreadable record must not classify as legacy
+                # prose (the permission cause silently downgraded review
+                # authority to empty prose; the decode cause raised out of
+                # the facade uncaught). Typed-with-errors fails every
+                # consumer read closed, and the nonempty ``ledger_errors``
+                # keeps the close carve-out predicate in
+                # ``_required_wave_council_signoffs`` from reading the wave
+                # as never-prepared-under-policy.
+                return ReviewAuthority(
+                    typed=True,
+                    wave_text="",
+                    records=(),
+                    ledger_errors=(
+                        _unreadable_wave_record_error(wave_md, exc),
+                    ),
+                )
     source, source_errors = parse_review_evidence_source(wave_text)
     typed = source is not None or bool(source_errors)
     if not typed:
@@ -4017,7 +4091,13 @@ def read_review_event_ledger(
     except FileNotFoundError:
         return (), (f"canonical review event ledger is missing: {path.name}",)
     except OSError as exc:
-        return (), (f"canonical review event ledger is unreadable: {exc}",)
+        # Path-free like the missing-file sibling above: OSError.__str__
+        # embeds the absolute path, and this string ships to operators
+        # through tool diagnostics (1uzwh delivery-council finding).
+        cause = exc.strerror or type(exc).__name__
+        return (), (
+            f"canonical review event ledger is unreadable: {path.name}: {cause}",
+        )
     return parse_review_event_bytes(data)
 
 
@@ -4042,7 +4122,10 @@ def validate_external_review_evidence(
             wave_md.read_text(encoding="utf-8")
         )
     except (OSError, UnicodeError) as exc:
-        authority_errors = (f"wave record is unreadable: {exc}",)
+        # Path-free like the ledger-read sibling below (1uzwh idiom): the
+        # permission cause rendered the absolute path and the decode cause
+        # named no file at all (1v1de).
+        authority_errors = (_unreadable_wave_record_error(wave_md, exc),)
         return ReviewEvidenceValidation(
             None, (), authority_errors, authority_errors=authority_errors
         )

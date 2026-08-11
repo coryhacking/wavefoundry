@@ -401,6 +401,81 @@ def check_review_policy_carriers(root: Path) -> list[str]:
     return list(dict.fromkeys(failures))
 
 
+def check_review_policy_carrier_parity(
+    root: Path, only: set[Path] | None = None
+) -> list[str]:
+    """1v1c5: a rendered review-policy region must equal its block source.
+
+    The expected region is composed by the RENDERER'S OWN helper
+    (``_upsert_review_policy_region``), never a second implementation of the
+    region shape: ``1us4q``'s guard died of a parallel reimplementation, and
+    this check exists because nothing else compares content (the carrier check
+    above tests marker presence and obligation anchors; the renderer test
+    counts markers). Dispositions are deliberate:
+
+    - missing file: skipped (presence stays the existing checks' business);
+    - file exists with NEITHER marker: skipped (an unadopted carrier; base
+      lint fixtures legitimately hold this state);
+    - a single or malformed marker pair: FAILURE (the reconciler
+      warns-and-skips there; a gate must not);
+    - a well-formed region differing from the block: FAILURE whichever side
+      drifted (block edited without re-render, or a hand-edit inside the
+      region).
+    """
+
+    from render_agent_surfaces import (
+        _contained_review_carrier_path,
+        _upsert_review_policy_region,
+    )
+    from review_policy import (
+        REVIEW_POLICY_CARRIER_REGISTRY,
+        REVIEW_POLICY_SURFACE_BLOCKS,
+        REVIEW_POLICY_SURFACE_MARKER_END,
+    )
+
+    only_resolved = (
+        {path.resolve() for path in only} if only is not None else None
+    )
+    failures: list[str] = []
+    for carrier in REVIEW_POLICY_CARRIER_REGISTRY:
+        block = REVIEW_POLICY_SURFACE_BLOCKS.get(carrier.destination)
+        if carrier.owner != "renderer" or block is None:
+            continue
+        path = _contained_review_carrier_path(root, carrier.destination)
+        if not path.is_file():
+            continue
+        if only_resolved is not None and path.resolve() not in only_resolved:
+            continue
+        try:
+            with path.open("r", encoding="utf-8", newline="") as handle:
+                text = handle.read()
+        except (OSError, UnicodeError) as exc:
+            failures.append(
+                f"{carrier.destination}: review-policy carrier unreadable ({exc})"
+            )
+            continue
+        has_begin = REVIEW_POLICY_SURFACE_MARKER_BEGIN in text
+        has_end = REVIEW_POLICY_SURFACE_MARKER_END in text
+        if not has_begin and not has_end:
+            continue
+        updated = _upsert_review_policy_region(text, block)
+        if updated is None:
+            failures.append(
+                f"{carrier.destination}: review-policy markers are malformed "
+                "(unbalanced or duplicated); repair the markers, then run "
+                "reconcile_review_policy_surfaces to re-render the region"
+            )
+        elif updated != text:
+            failures.append(
+                f"{carrier.destination}: rendered review-policy region differs "
+                "from its registered block source; run "
+                "reconcile_review_policy_surfaces to re-render it"
+            )
+    # The registry legitimately holds more than one renderer row per
+    # destination; one destination reports once.
+    return list(dict.fromkeys(failures))
+
+
 def check_prompt_surface_manifest(root: Path) -> list[str]:
     path = root / "docs/prompts/prompt-surface-manifest.json"
     if not path.exists():

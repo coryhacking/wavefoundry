@@ -4,6 +4,8 @@ import copy
 import hashlib
 import json
 import multiprocessing
+import os
+import stat
 import sys
 import tempfile
 import threading
@@ -17,6 +19,7 @@ SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPTS_ROOT))
 
 import review_evidence as subject  # noqa: E402
+import review_policy  # noqa: E402
 from wave_lint_lib.wave_validators import check_wave_docs  # noqa: E402
 
 
@@ -2823,6 +2826,193 @@ class ReviewStatusProjectionTests(unittest.TestCase):
         self.assertIn("F-1", table)
 
 
+class LapsedApprovalReasonTests(unittest.TestCase):
+    """1v0lz: a lapsed approval's reason names the failed conjunct.
+
+    The pre-1v0lz code emitted one undifferentiated string for every invalid
+    approval with a record present; receipt supersession (the routine cause)
+    was reported as an actor/independence failure (the rare one).
+    """
+
+    LEGACY_MISATTRIBUTION = "approval evidence has invalid actor or independence"
+
+    @staticmethod
+    def _receipt(
+        digest: str,
+        required_lanes: list[str],
+        current: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        semantic = {
+            "schema_version": 1,
+            "evaluator_version": 7,
+            "policy_input_digest": digest,
+            "delivery_mode": "targeted",
+            "primer_depth": "standard",
+            "council_seats": ["red-team"],
+            "requested_lanes": [],
+            "required_lanes": required_lanes,
+            "delivery_council_required": False,
+        }
+        receipt, _appended = review_policy.build_policy_receipt(semantic, current)
+        assert receipt is not None
+        return receipt
+
+    @staticmethod
+    def _readiness_approval(receipt_id: str, **overrides: object) -> dict[str, object]:
+        return executable_evidence(
+            "approval-wave-council-readiness",
+            "approval:wave-council-readiness",
+            claim_kind="approval",
+            actor="wave-council",
+            required_for_approval=True,
+            approval_phase="readiness",
+            policy_receipt_id=receipt_id,
+            **overrides,
+        )
+
+    def _single_row(
+        self,
+        rows: list[dict[str, object]],
+        key: str,
+        *,
+        approval_phase: str | None = None,
+    ) -> dict[str, object]:
+        [row] = subject.review_status_rows(
+            rows, [key], approval_phase=approval_phase
+        )
+        return row
+
+    def test_supersession_lapse_names_stale_binding_with_both_ids(self) -> None:
+        first = self._receipt("a" * 64, ["code-reviewer"])
+        second = self._receipt("b" * 64, ["qa-reviewer"], current=first)
+        self.assertNotEqual(first["receipt_id"], second["receipt_id"])
+        rows = [first, self._readiness_approval(str(first["receipt_id"])), second]
+        row = self._single_row(
+            rows, "wave-council-readiness", approval_phase="readiness"
+        )
+        self.assertEqual(row["state"], "pending")
+        self.assertIn(str(first["receipt_id"]), row["why"])
+        self.assertIn(str(second["receipt_id"]), row["why"])
+        self.assertIn("stale", row["why"])
+        self.assertNotIn(self.LEGACY_MISATTRIBUTION, row["why"])
+
+    def test_no_current_receipt_edge_renders_pinned_id_with_marker(self) -> None:
+        pinned = "review-policy-feedbeeffeedbeeffeed"
+        rows = [self._readiness_approval(pinned)]
+        row = self._single_row(
+            rows, "wave-council-readiness", approval_phase="readiness"
+        )
+        self.assertEqual(row["state"], "pending")
+        self.assertIn(pinned, row["why"])
+        self.assertIn("no current receipt", row["why"])
+        self.assertNotIn(self.LEGACY_MISATTRIBUTION, row["why"])
+
+    def test_wrong_actor_names_recorded_and_expected(self) -> None:
+        rows = [
+            executable_evidence(
+                "approval-qa-reviewer",
+                "approval:qa-reviewer",
+                claim_kind="approval",
+                actor="implementer",
+                required_for_approval=True,
+            )
+        ]
+        row = self._single_row(rows, "qa-reviewer")
+        self.assertEqual(row["state"], "pending")
+        self.assertIn("invalid actor", row["why"])
+        self.assertIn("implementer", row["why"])
+        self.assertIn("qa-reviewer", row["why"])
+        self.assertNotIn(self.LEGACY_MISATTRIBUTION, row["why"])
+
+    def test_missing_independence_flags_name_their_cause(self) -> None:
+        rows = [
+            executable_evidence(
+                "approval-qa-reviewer",
+                "approval:qa-reviewer",
+                claim_kind="approval",
+                actor="qa-reviewer",
+                independent=False,
+                required_for_approval=True,
+            )
+        ]
+        row = self._single_row(rows, "qa-reviewer")
+        self.assertEqual(row["state"], "pending")
+        self.assertIn("lacks independence", row["why"])
+        self.assertIn("fresh_context", row["why"])
+        self.assertNotIn(self.LEGACY_MISATTRIBUTION, row["why"])
+
+    def test_malformed_verification_context_is_its_own_cause(self) -> None:
+        record = executable_evidence(
+            "approval-qa-reviewer",
+            "approval:qa-reviewer",
+            claim_kind="approval",
+            required_for_approval=True,
+        )
+        record["verification_context"] = "not-a-mapping"
+        row = self._single_row([record], "qa-reviewer")
+        self.assertEqual(row["state"], "pending")
+        self.assertIn("verification context", row["why"])
+        self.assertNotIn(self.LEGACY_MISATTRIBUTION, row["why"])
+
+    def test_causes_are_pairwise_distinguishable(self) -> None:
+        first = self._receipt("a" * 64, ["code-reviewer"])
+        second = self._receipt("b" * 64, ["qa-reviewer"], current=first)
+        stale = self._single_row(
+            [first, self._readiness_approval(str(first["receipt_id"])), second],
+            "wave-council-readiness",
+            approval_phase="readiness",
+        )
+        wrong_actor = self._single_row(
+            [
+                executable_evidence(
+                    "approval-qa-reviewer",
+                    "approval:qa-reviewer",
+                    claim_kind="approval",
+                    actor="implementer",
+                    required_for_approval=True,
+                )
+            ],
+            "qa-reviewer",
+        )
+        not_independent = self._single_row(
+            [
+                executable_evidence(
+                    "approval-qa-reviewer",
+                    "approval:qa-reviewer",
+                    claim_kind="approval",
+                    actor="qa-reviewer",
+                    fresh_context=False,
+                    required_for_approval=True,
+                )
+            ],
+            "qa-reviewer",
+        )
+        reasons = {stale["why"], wrong_actor["why"], not_independent["why"]}
+        self.assertEqual(len(reasons), 3)
+
+    def test_validity_is_derivation_only(self) -> None:
+        current = self._receipt("a" * 64, ["code-reviewer"])
+        bound = self._readiness_approval(str(current["receipt_id"]))
+        row = self._single_row(
+            [current, bound], "wave-council-readiness", approval_phase="readiness"
+        )
+        self.assertEqual(row["state"], "approved")
+        absent = self._single_row([], "qa-reviewer")
+        self.assertEqual(absent["state"], "pending")
+        self.assertEqual(absent["why"], "no current executed approval")
+
+    def test_projection_markdown_carries_the_stale_binding_reason(self) -> None:
+        first = self._receipt("a" * 64, ["code-reviewer"])
+        second = self._receipt("b" * 64, ["qa-reviewer"], current=first)
+        rows = [first, self._readiness_approval(str(first["receipt_id"])), second]
+        table = subject.review_status_human_table(
+            rows, ["wave-council-readiness"]
+        )
+        self.assertIn(str(first["receipt_id"]), table)
+        self.assertIn(str(second["receipt_id"]), table)
+        self.assertNotIn(self.LEGACY_MISATTRIBUTION, table)
+
+
 class GuidedReviewAuthorityProjectionTests(unittest.TestCase):
     """1tvbs: one structured authority owns status facts and guided actions."""
 
@@ -4218,6 +4408,169 @@ class ReviewAuthorityFacadeTests(unittest.TestCase):
             self.assertTrue(broken.ledger_errors)
             self.assertEqual(broken.records, ())
             self.assertFalse(broken.evidence_present())
+
+    @staticmethod
+    def _declared_wave(tmp: str) -> Path:
+        """A minimal declared wave directory whose record starts out readable."""
+        wave_dir = Path(tmp) / "docs" / "waves" / "1test sample"
+        wave_dir.mkdir(parents=True)
+        (wave_dir / "wave.md").write_text(
+            "# Wave\nreview-evidence-source: events.jsonl\n", encoding="utf-8"
+        )
+        return wave_dir
+
+    def _assert_fails_closed_with_errors(self, authority) -> str:
+        """Shared shape assertions for the 1v1de typed-with-errors result."""
+        self.assertTrue(
+            authority.typed,
+            "an unreadable wave record must not classify as legacy prose",
+        )
+        self.assertEqual(authority.records, ())
+        self.assertEqual(authority.wave_text, "")
+        self.assertTrue(authority.ledger_errors)
+        # every consumer-facing read fails closed on the shape
+        self.assertFalse(
+            authority.signoff_current(
+                "wave-council-readiness", approval_phase="readiness"
+            )
+        )
+        self.assertFalse(
+            authority.signoff_recorded(
+                "wave-council-readiness", approval_phase="readiness"
+            )
+        )
+        self.assertFalse(
+            authority.signoff_current(
+                "wave-council-delivery", approval_phase="delivery"
+            )
+        )
+        self.assertFalse(authority.operator_signoff_present())
+        self.assertFalse(authority.evidence_present())
+        self.assertFalse(authority.any_signoff_evidence())
+        self.assertEqual(authority.max_severity(), "none")
+        return " ".join(authority.ledger_errors)
+
+    def test_permission_unreadable_wave_record_is_typed_with_errors(self):
+        """1v1de AC-1 (red-first): before the fix the permission cause returned
+        ``typed=False`` with empty ``wave_text`` and empty ``ledger_errors``,
+        the silent legacy-prose downgrade."""
+        with tempfile.TemporaryDirectory() as tmp:
+            wave_dir = self._declared_wave(tmp)
+            wave_md = wave_dir / "wave.md"
+            os.chmod(wave_md, 0)
+            try:
+                # Reach guard: the record is demonstrably unreadable.
+                with self.assertRaises(PermissionError):
+                    wave_md.read_text(encoding="utf-8")
+                authority = subject.resolve_review_authority(Path(tmp), wave_dir)
+                message = self._assert_fails_closed_with_errors(authority)
+            finally:
+                os.chmod(wave_md, stat.S_IRUSR | stat.S_IWUSR)
+            self.assertIn("wave record is unreadable", message)
+            self.assertIn("wave.md", message)
+            self.assertIn("Permission denied", message)
+            self.assertNotIn(tmp, message, "authority errors must stay path-free")
+            self.assertNotIn(str(Path(tmp).resolve()), message)
+
+    def test_undecodable_wave_record_is_typed_with_errors(self):
+        """1v1de AC-2 (red-first): before the fix ``UnicodeDecodeError`` raised
+        out of the facade uncaught."""
+        with tempfile.TemporaryDirectory() as tmp:
+            wave_dir = self._declared_wave(tmp)
+            wave_md = wave_dir / "wave.md"
+            wave_md.write_bytes(b"\xff\xfe not valid utf-8 \xff")
+            # Reach guard: the record is demonstrably undecodable.
+            with self.assertRaises(UnicodeDecodeError):
+                wave_md.read_text(encoding="utf-8")
+            authority = subject.resolve_review_authority(Path(tmp), wave_dir)
+            message = self._assert_fails_closed_with_errors(authority)
+            self.assertIn("wave record is unreadable", message)
+            self.assertIn("wave.md", message)
+            self.assertIn("UnicodeDecodeError", message)
+            self.assertNotIn(tmp, message, "authority errors must stay path-free")
+            self.assertNotIn(str(Path(tmp).resolve()), message)
+
+    def test_validate_unreadable_message_names_file_and_cause_path_free(self):
+        """1v1de AC-3 (red-first): the permission cause rendered ``{exc}`` with
+        the absolute path; the decode cause named no file at all."""
+        with tempfile.TemporaryDirectory() as tmp:
+            wave_dir = self._declared_wave(tmp)
+            wave_md = wave_dir / "wave.md"
+            wave_md.write_bytes(b"\xff\xfe not valid utf-8 \xff")
+            decode_result = subject.validate_external_review_evidence(wave_md)
+            self.assertFalse(decode_result.ok)
+            decode_message = " ".join(decode_result.authority_errors)
+            # Reach guard: the unreadable branch, not the declaration branch.
+            self.assertIn("wave record is unreadable", decode_message)
+            self.assertIn("wave.md", decode_message)
+            self.assertIn("UnicodeDecodeError", decode_message)
+            self.assertNotIn(tmp, decode_message)
+            self.assertNotIn(str(Path(tmp).resolve()), decode_message)
+
+            wave_md.write_text(
+                "# Wave\nreview-evidence-source: events.jsonl\n", encoding="utf-8"
+            )
+            os.chmod(wave_md, 0)
+            try:
+                permission_result = subject.validate_external_review_evidence(
+                    wave_md
+                )
+            finally:
+                os.chmod(wave_md, stat.S_IRUSR | stat.S_IWUSR)
+            self.assertFalse(permission_result.ok)
+            permission_message = " ".join(permission_result.authority_errors)
+            self.assertIn("wave record is unreadable", permission_message)
+            self.assertIn("wave.md", permission_message)
+            self.assertIn("Permission denied", permission_message)
+            self.assertNotIn(tmp, permission_message)
+            self.assertNotIn(str(Path(tmp).resolve()), permission_message)
+
+    def test_unresolvable_authority_path_error_is_path_free(self):
+        """1v1de census item (AC-3's spirit, red-first):
+        ``_review_authority_path_error`` rendered ``{exc}`` verbatim, leaking
+        the absolute path through BOTH the ledger and validation paths.
+        Two fixtures: a permission-broken wave directory and a symlink-loop
+        parent (the deterministic ``resolve(strict=True)`` failure)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            resolved_tmp = str(Path(tmp).resolve())
+
+            wave_dir = self._declared_wave(tmp)
+            wave_md = wave_dir / "wave.md"
+            os.chmod(wave_dir, 0)
+            try:
+                _records, dir_ledger_errors = subject.read_review_event_ledger(
+                    wave_md
+                )
+                dir_validation = subject.validate_external_review_evidence(
+                    wave_md
+                )
+            finally:
+                os.chmod(wave_dir, stat.S_IRWXU)
+            loop = Path(tmp) / "loop"
+            os.symlink("loop", loop)
+            loop_wave_md = loop / "waves" / "wave.md"
+            _records, loop_ledger_errors = subject.read_review_event_ledger(
+                loop_wave_md
+            )
+            loop_validation = subject.validate_external_review_evidence(
+                loop_wave_md
+            )
+
+            cases = [
+                ("dir ledger", " ".join(dir_ledger_errors)),
+                ("dir validation", " ".join(dir_validation.authority_errors)),
+                ("loop ledger", " ".join(loop_ledger_errors)),
+                ("loop validation", " ".join(loop_validation.authority_errors)),
+            ]
+            for label, message in cases:
+                with self.subTest(label):
+                    # Reach guard: the path-error branch actually fired.
+                    self.assertIn("not safely resolvable", message)
+                    self.assertNotIn(
+                        tmp, message, "path errors must stay path-free"
+                    )
+                    self.assertNotIn(resolved_tmp, message)
+
 
 class ReviewActionInputSchemaTests(unittest.TestCase):
     def test_schema_exposes_all_nested_evidence_and_integrity_requirements(self):

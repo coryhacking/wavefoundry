@@ -204,6 +204,25 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   predicate implements. All are corrected, and installed repositories see the seed correction at
   their next upgrade.
 
+- **An unreadable wave record no longer weakens the review gates it should be blocking.** When a
+  declared wave's `wave.md` could not be read, the review authority resolver silently reclassified
+  the wave as legacy prose with empty text on a permission failure, and crashed outright on a
+  wrong-encoding one. In the worst case the close-time gate read the silent downgrade as "this wave
+  predates the review policy" and dropped the council-readiness requirement from the close roster,
+  so a broken record demanded less review than a healthy one. Both causes now return a structured
+  refusal that every downstream gate treats as fail-closed, the readiness requirement stays on the
+  close roster, and the diagnostic names the file and the cause without your absolute filesystem
+  path. Readable records classify exactly as before, verified by a zero-diff comparison across
+  every wave record in this repository.
+
+- **The dashboard now shows you the broken records you opened it to investigate.** A wave record
+  that was not valid UTF-8 crashed the entire snapshot, a permission-broken one vanished from the
+  list with no trace, and whether either happened depended on the server's working directory. A
+  change document with the same encoding problem crashed the snapshot from one function away. Each
+  broken entry now renders as a degraded row that names the cause (path-free), healthy siblings
+  are unaffected, path resolution is anchored to the repository root instead of the working
+  directory, and a healthy corpus renders a byte-identical snapshot before and after the change.
+
 - **Review findings that cite code now anchor by symbol.** The citation rule that already governed
   plans and implementation reaches the surfaces where review evidence is authored: the evidence
   record's `artifact_or_test_id` and prose, the council seat's finding-authoring guidance, and the
@@ -211,7 +230,10 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   today's text; a bare line number drifts hardest exactly when a sibling wave edits the target.
   The five deliberate line-anchor cases (constant blocks, data files, generated artifacts,
   hand-authored prose, historical citations) stay legitimate and must be named inline. Installed
-  repositories see the seed half at their next upgrade.
+  repositories see the seed half at their next upgrade. Every shipped carrier of this rule,
+  across the planning, implementation, evidence, and council surfaces, is now pinned by a test,
+  so a drifted copy can no longer reach target repositories through an upgrade unnoticed; that
+  is how an earlier weakening of this rule escaped.
 
 ### Changed
 

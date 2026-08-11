@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-10
+Last verified: 2026-08-11
 
 Behavioral contract for the Wavefoundry local MCP server. This spec covers the
 tool names, response conventions, safety rules, and compatibility expectations that
@@ -507,6 +507,15 @@ once envelope migration is complete.
 action when known.
 - Returns context-efficiency SQLite totals, published checkpoints, current focus,
   producer-scoped general totals, pending projection, and store health.
+- A wave record that exists but cannot be read (invalid UTF-8, permissions) is
+  **reported, never raised and never silently dropped** (wave 1v0lw): its entry
+  stays in `waves` with `status: "unknown"`, an identity derived from the
+  directory name, a repo-relative `path`, a `read_error` string naming the
+  exception type and cause (never the absolute filesystem path), and no parsed
+  changes; the response adds a `wave_record_unreadable` diagnostic per
+  unreadable entry while `status` stays `ok`. When the unreadable wave is the
+  ONLY wave, it is still surfaced this way: the response never degrades to a
+  silent `no_active_wave`, which would deny the wave exists.
 
 `wf_list_waves(limit: int = 50)`
 
@@ -518,6 +527,11 @@ action when known.
   read-time summaries from existing Context Efficiency, review-evidence, and
   exploration-avoided authorities. A failed optional authority is marked
   unavailable; it never prevents listing waves or invents a positive value.
+- An unreadable wave record degrades per entry exactly like `wf_current_wave`
+  (wave 1v0lw): the entry is listed with `read_error` and no parsed content,
+  readable siblings return normally, the response adds a
+  `wave_record_unreadable` diagnostic per unreadable entry, and `status` stays
+  `ok`.
 
 `wf_list_plans(limit: int = 50)`
 
@@ -553,6 +567,18 @@ action when known.
   so the readable siblings are still returned. The single-document MCP resource
   `wavefoundry://change/{change_id}` renders `# Unreadable Change` for the same
   condition rather than an empty body.
+- An unreadable **wave record** at a bulk `wave_id` lookup refuses (wave 1v0lw),
+  matching this tool's `change_doc_unreadable` convention: `status: "error"`
+  with a `wave_record_unreadable` diagnostic naming the record and the cause.
+  Zero readable wave matches with at least one unreadable candidate skipped
+  during resolution also refuse with `wave_record_unreadable` listing the
+  skipped candidates, never bare `wave_not_found`, because the requested id
+  may live inside an unreadable record (wave-id and directory name can
+  diverge). An unreadable NON-matching sibling never blocks a readable wave's
+  bulk lookup: the result returns normally with the sibling's own
+  `wave_record_unreadable` diagnostic appended. The MCP resource
+  `wavefoundry://wave/{wave_id}` renders `# Unreadable Wave` for the same
+  conditions rather than `# Not Found` or an exception.
 
 `wf_get_prompt(shortcut: str)`
 
@@ -588,6 +614,36 @@ reads.
 change remains active outside the wave.
 - Must reject duplicate staged + wave copies rather than silently picking one.
 - On successful apply/create writes, requests a background docs-index refresh without relying on editor hooks.
+
+**Unreadable wave records (wave 1v0lw): shared refusal contract for `wf_create_wave`, `wf_add_change`, `wf_remove_change`, `wf_prepare_wave`, `wf_implement_wave`, `wf_pause_wave`, `wf_review_wave`, `wf_review_event`, `wf_mark_ac`, `wf_mark_task`, `wf_close_wave`, and `wf_reopen_wave`:**
+
+- A `wave.md` that exists but cannot be read (invalid UTF-8, permissions)
+  **refuses, never raises**: `status: "error"` with a `wave_record_unreadable`
+  diagnostic naming the record (repo-relative) and the cause (exception type
+  plus detail, never the absolute filesystem path). A gate cannot be evaluated
+  over a record it cannot read. The code is deliberately distinct from
+  `change_doc_unreadable` because the artifact class and the recovery differ:
+  a broken change doc is repaired or removed from the wave, while a broken
+  wave record blocks the whole wave and its fix is restoration.
+- Resolution failure is never `wave_not_found`: a by-id lookup whose requested
+  record is unreadable reports `wave_record_unreadable`, and zero readable
+  matches with at least one unreadable candidate skipped during resolution
+  also report `wave_record_unreadable` listing the skipped candidates (the
+  requested id may live inside an unreadable record, since wave-id and
+  directory name can diverge). Bare `wave_not_found` is reserved for
+  resolution runs that skipped no unreadable candidate.
+- An unreadable NON-matching sibling never blocks resolution of a readable
+  wave. Sibling diagnostics surface on the inspection surfaces
+  (`wf_get_change`, `wf_list_waves`, `wf_current_wave`) and inside the
+  refusal envelopes of `wf_get_change`, `wf_mark_ac`/`wf_mark_task`,
+  `wf_add_change`, and `wf_remove_change`; the remaining decision gates'
+  refusal envelopes and every gate's SUCCESS envelope carry no sibling
+  diagnostics, so a rotted unrelated record can never block an unrelated
+  wave's readiness, activation, or close.
+- `wf_review_event(event="list")` is the one read-only sub-surface here: it
+  degrades instead of refusing (the listing returns with a
+  `wave_record_unreadable` diagnostic and no chain/approval derivation), while
+  every mutating `wf_review_event` call refuses as above.
 
 `wf_prepare_wave(wave_id: str, mode: str = "dry_run")` — modes: `dry_run` (alias: `evaluate`) / `ready` / `create`
 
@@ -686,6 +742,16 @@ above: typed-exclusive on declared waves, prose only on legacy waves.
 - Drafts are structurally eligible, not semantically approved. Close blocks when
   an eligible source has no persisted candidate or its candidate still has
   `Validation: pending`; zero-memory waves pass.
+- **Missing admitted documents block close (wave 1v0lx):** a `change_doc_missing`
+  diagnostic per admitted change whose document has no file on disk, naming the
+  change id and the recovery (restore the document, or `wf_remove_change`). The
+  missing case is deliberately not folded into `change_doc_unreadable`: the file
+  is absent rather than broken, and the recovery differs. Exact-match consumers
+  note: `change_doc_missing` is a distinct code from the pre-existing
+  `change_doc_missing_sections`; match codes by equality, never substring. The
+  close summary generator fails closed on the same condition (a `ValueError`
+  naming the ghost change id), so the TOCTOU window between the hard gate and
+  summary generation cannot fabricate an empty record of a nonexistent document.
 - **Repair-independence audit (wave 1tmb2):** while the target wave's status is
   non-closed (including an explicitly reopened archive), close audits each
   finding's current/latest repair chain and surfaces

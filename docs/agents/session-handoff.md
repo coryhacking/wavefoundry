@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-10
+Last verified: 2026-08-11
 
 ## Wave `1uwpf receipt-and-citation-contract-followups` — CLOSED 2026-08-10 (uncommitted)
 

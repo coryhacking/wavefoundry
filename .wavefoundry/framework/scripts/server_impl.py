@@ -2782,6 +2782,19 @@ def _collect_silent_unchecked_items_for_close(wave_md: Path, wave_text: str) -> 
     for change_id in _CHANGE_ID_PATTERN.findall(wave_text):
         change_path = wave_md.parent / f"{change_id}.md"
         if not change_path.exists():
+            # 1v0lx: absent is not "nothing to check". The gate cannot verify
+            # ACs and tasks it cannot see, so a ghost blocks close exactly as
+            # an unreadable document does, under its own item id (the recovery
+            # differs: restore or wf_remove_change, not repair).
+            findings.append({
+                "change_id": change_id,
+                "item_type": "change document",
+                "item_id": "missing",
+                "item_text": (
+                    f"no file at {wave_md.parent.name}/{change_path.name}; "
+                    "restore the document or remove the change via wf_remove_change"
+                ),
+            })
             continue
         try:
             change_text = change_path.read_text(encoding="utf-8")
@@ -2843,8 +2856,53 @@ def _collect_silent_unchecked_items_for_close(wave_md: Path, wave_text: str) -> 
 _TITLE_PATTERN = re.compile(r"^#\s+(.+)$", re.MULTILINE)
 
 
-def _parse_wave_record(wave_md: Path) -> dict:
-    text = wave_md.read_text(encoding="utf-8")
+def _read_wave_record_text(wave_md: Path) -> tuple[Optional[str], Optional[str]]:
+    """Sole raw-read boundary for wave records (wave 1v0lw).
+
+    Returns ``(text, None)`` on success or ``(None, read_error)`` on failure,
+    where ``read_error`` is the operator-safe cause from ``_read_error_detail``
+    (exception type plus detail, never an absolute path).  Every ``wave.md``
+    read in this module must route through here; the residue census test keys
+    on the resolved read target, so a new raw read cannot land unreviewed.
+    """
+    try:
+        return wave_md.read_text(encoding="utf-8"), None
+    except (OSError, UnicodeError) as exc:
+        return None, _read_error_detail(exc)
+
+
+class _WaveRecordUnreadableError(Exception):
+    """Transport for wave-record read failures inside non-response helpers.
+
+    Raised only where no response envelope exists yet (``create_wave``) so the
+    response wrapper can build the ``wave_record_unreadable`` refusal; response
+    functions return the refusal directly instead of raising.
+    """
+
+    def __init__(self, wave_md: Path, read_error: str) -> None:
+        super().__init__(read_error)
+        self.wave_md = wave_md
+        self.read_error = read_error
+
+
+def _read_wave_record(root: Path, wave_md: Path) -> dict:
+    """Parse a wave record through the read seam, degrading on failure.
+
+    Readable records keep the exact historical payload (``read_error`` absent,
+    ``path`` absolute).  An unreadable record returns the ``_parse_plan_record``
+    degrade shape: dirname-derived ``wave_id``, ``status: "unknown"``, no
+    changes, a repo-relative ``path``, and ``read_error`` present, so
+    enumeration surfaces can list it without leaking the absolute path.
+    """
+    text, read_error = _read_wave_record_text(wave_md)
+    if text is None:
+        return {
+            "wave_id": wave_md.parent.name,
+            "status": "unknown",
+            "changes": [],
+            "path": _repo_rel(root, wave_md),
+            "read_error": read_error,
+        }
     wave_id_m = _WAVE_ID_PATTERN.search(text)
     status_m = _STATUS_PATTERN.search(text)
     change_ids = _CHANGE_ID_PATTERN.findall(text)
@@ -2884,7 +2942,7 @@ def list_waves(root: Path) -> list[dict]:
             continue
         wave_md = wave_dir / "wave.md"
         if wave_md.exists():
-            result.append(_parse_wave_record(wave_md))
+            result.append(_read_wave_record(root, wave_md))
     return result
 
 
@@ -5553,9 +5611,20 @@ def wf_current_wave_response(root: Path, cache: Optional[McpRepoCache] = None) -
             next_tools=["wf_list_waves", "wf_list_plans"],
             usage="wf_list_waves()",
         )
+    # Wave 1v0lw: an unreadable wave record is listed with its `read_error`
+    # and its own diagnostic (the wf_list_plans degrade pattern) -- this is
+    # the recovery tool, so it must recover, not crash or go silent.
+    diagnostics: list[dict[str, Any]] = [
+        _diagnostic(
+            "wave_record_unreadable",
+            f"Could not read wave record {w['path']}: {w['read_error']}. "
+            "The entry is listed with no parsed content.",
+        )
+        for w in open_waves
+        if w.get("read_error")
+    ]
     # Drift detection only runs against the active wave (if present) — that's the only
     # wave where in-flight Change Status drift is meaningful.
-    diagnostics: list[dict[str, Any]] = []
     active_entry = entries[0] if entries[0]["status"] in ("active", "implementing") else None
     if active_entry is not None:
         try:
@@ -5643,10 +5712,24 @@ def wf_list_waves_response(root: Path, limit: int = 50, cache: Optional[McpRepoC
             )
         except Exception:
             metrics[wave_id]["memory"] = {"available": False}
+    # Wave 1v0lw: unreadable wave records degrade per entry (the wf_list_plans
+    # pattern) -- listed with `read_error`, reported with their own diagnostic,
+    # while readable siblings return normally.
+    diagnostics = [
+        _diagnostic(
+            "wave_record_unreadable",
+            f"Could not read wave record {w['path']}: {w['read_error']}. "
+            "The entry is listed with no parsed content.",
+        )
+        for w in waves
+        if w.get("read_error")
+    ]
+    if not waves:
+        diagnostics.append(_diagnostic("no_waves", "No waves found."))
     return _response(
         "ok",
         {"waves": waves, "wave_metrics": metrics, "total": len(all_waves), "has_more": has_more},
-        diagnostics=[] if waves else [_diagnostic("no_waves", "No waves found.")],
+        diagnostics=diagnostics,
         next_tools=["wf_current_wave"] if waves else ["wf_list_plans"],
         usage="wf_current_wave()" if waves else "wf_list_plans()",
     )
@@ -5690,8 +5773,18 @@ def wf_get_change_response(root: Path, change_id: str = "", wave_id: str = "") -
 
     # Bulk mode: wave_id provided, no specific change_id
     if wave_id_s and not change_id_s:
-        wave_matches = _resolve_wave_md_matches(root, wave_id_s)
+        wave_matches, unreadable_waves = _resolve_wave_md_matches(root, wave_id_s)
         if not wave_matches:
+            if unreadable_waves:
+                # Wave 1v0lw: zero readable matches with skipped unreadable
+                # candidates is a read failure, never `wave_not_found`. This
+                # tool refuses on unreadable input, following the 1uu9z
+                # `change_doc_unreadable` convention at its single-lookup mode.
+                return _wave_resolution_unreadable_response(
+                    wave_id_s,
+                    unreadable_waves,
+                    data={"wave_id": wave_id_s, "changes": []},
+                )
             return _response(
                 "ok",
                 {"wave_id": wave_id_s, "changes": []},
@@ -5699,6 +5792,7 @@ def wf_get_change_response(root: Path, change_id: str = "", wave_id: str = "") -
                 next_tools=["wf_list_waves"],
                 usage="wf_list_waves()",
             )
+        sibling_diagnostics = _unreadable_wave_sibling_diagnostics(unreadable_waves)
         if len(wave_matches) > 1:
             candidates = ", ".join(f"{m['wave_id']} ({m['path']})" for m in wave_matches)
             return _response(
@@ -5716,7 +5810,13 @@ def wf_get_change_response(root: Path, change_id: str = "", wave_id: str = "") -
                 usage="wf_list_waves()",
             )
         wave_md = root / str(wave_matches[0]["path"])
-        wave_text = wave_md.read_text(encoding="utf-8")
+        wave_text, wave_read_error = _read_wave_record_text(wave_md)
+        if wave_text is None:
+            return _wave_record_unreadable_response(
+                root, wave_md, wave_read_error,
+                data={"wave_id": wave_id_s, "changes": []},
+                sibling_diagnostics=sibling_diagnostics,
+            )
         admitted_ids = _extract_change_ids_from_wave_text(wave_text)
         changes: list[dict[str, Any]] = []
         wave_dir = wave_md.parent
@@ -5775,7 +5875,7 @@ def wf_get_change_response(root: Path, change_id: str = "", wave_id: str = "") -
         return _response(
             "ok",
             {"wave_id": wave_id_s, "count": len(changes), "changes": changes},
-            diagnostics=diagnostics or None,
+            diagnostics=(diagnostics + sibling_diagnostics) or None,
             next_tools=["wf_validate_docs", "wf_current_wave"],
             usage="wf_validate_docs()",
         )
@@ -6073,13 +6173,18 @@ def _change_doc_matches_token(path: Path, canonical_change_id: str, token: str) 
 
 
 def _wave_match_payload(root: Path, wave_md: Path) -> dict[str, Any]:
-    try:
-        parsed = _parse_wave_record(wave_md)
-        text = wave_md.read_text(encoding="utf-8")
-    except OSError:
-        parsed = {}
-        text = ""
-    wave_id = str(parsed.get("wave_id") or wave_md.parent.name)
+    text, read_error = _read_wave_record_text(wave_md)
+    if text is None:
+        # Wave 1v0lw: the read failure is carried, not swallowed -- an empty
+        # parse here misreported a permission-unreadable record downstream.
+        return {
+            "wave_id": wave_md.parent.name,
+            "path": str(wave_md.relative_to(root.resolve())).replace("\\", "/"),
+            "changes": [],
+            "read_error": read_error,
+        }
+    wave_id_m = _WAVE_ID_PATTERN.search(text)
+    wave_id = str(wave_id_m.group(1) if wave_id_m else wave_md.parent.name)
     return {
         "wave_id": wave_id,
         "path": str(wave_md.relative_to(root.resolve())).replace("\\", "/"),
@@ -6087,14 +6192,27 @@ def _wave_match_payload(root: Path, wave_md: Path) -> dict[str, Any]:
     }
 
 
-def _resolve_wave_md_matches(root: Path, wave_id_or_prefix: str) -> list[dict[str, Any]]:
+def _resolve_wave_md_matches(
+    root: Path, wave_id_or_prefix: str
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Resolve wave records by id/dirname prefix: ``(matches, unreadable)``.
+
+    ``matches`` are the resolved candidates; a dirname-matching record that
+    cannot be read still MATCHES, carrying ``read_error`` (wave 1v0lw --
+    resolution failure must never be misreported as ``wave_not_found``).
+    ``unreadable`` lists non-matching records skipped because they could not
+    be read: their inner ``wave-id`` may differ from the dirname, so callers
+    must surface them (and treat zero-match-with-skipped as a read failure,
+    not a missing wave).
+    """
     token = (wave_id_or_prefix or "").strip().lower()
     if not token:
-        return []
+        return [], []
     waves_root = root / "docs" / "waves"
     if not waves_root.exists():
-        return []
+        return [], []
     matches: list[dict[str, Any]] = []
+    unreadable: list[dict[str, Any]] = []
     for wave_md in waves_root.glob("*/wave.md"):
         try:
             wave_md, _ = _contained_wave_review_paths(root, wave_md)
@@ -6102,24 +6220,144 @@ def _resolve_wave_md_matches(root: Path, wave_id_or_prefix: str) -> list[dict[st
             if _token_matches_id(wave_md.parent.name, token):
                 raise ValueError(f"Wave record path is not contained: {exc}") from exc
             continue
-        try:
-            parsed = _parse_wave_record(wave_md)
-            wave_id = str(parsed.get("wave_id") or wave_md.parent.name).lower()
-        except OSError:
+        text, read_error = _read_wave_record_text(wave_md)
+        if text is None:
+            if _token_matches_id(wave_md.parent.name, token):
+                matches.append(_wave_match_payload(root, wave_md))
+            else:
+                unreadable.append({
+                    "wave_id": wave_md.parent.name,
+                    "path": str(wave_md.relative_to(root.resolve())).replace("\\", "/"),
+                    "read_error": read_error,
+                })
             continue
+        wave_id_m = _WAVE_ID_PATTERN.search(text)
+        wave_id = str(wave_id_m.group(1) if wave_id_m else wave_md.parent.name).lower()
         if _token_matches_id(wave_id, token) or _token_matches_id(wave_md.parent.name, token):
             matches.append(_wave_match_payload(root, wave_md))
-    return sorted(matches, key=lambda m: str(m.get("path") or ""))
+    return (
+        sorted(matches, key=lambda m: str(m.get("path") or "")),
+        sorted(unreadable, key=lambda m: str(m.get("path") or "")),
+    )
 
 
-def _find_wave_md(root: Path, wave_id_or_prefix: str) -> Optional[Path]:
-    matches = _resolve_wave_md_matches(root, wave_id_or_prefix)
+def _find_wave_md_detailed(
+    root: Path, wave_id_or_prefix: str
+) -> tuple[Optional[Path], Optional[str], list[dict[str, Any]]]:
+    """``(wave_md, requested_read_error, unreadable_siblings)`` for one token.
+
+    ``requested_read_error`` is set when the resolved record itself cannot be
+    read; ``unreadable_siblings`` are skipped non-matching unreadable records
+    the caller must surface as diagnostics (wave 1v0lw).
+    """
+    matches, unreadable = _resolve_wave_md_matches(root, wave_id_or_prefix)
     if not matches:
-        return None
+        return None, None, unreadable
     if len(matches) > 1:
         candidates = ", ".join(f"{m['wave_id']} ({m['path']})" for m in matches)
         raise ValueError(f"Multiple wave records match {wave_id_or_prefix!r}: {candidates}")
-    return root / str(matches[0]["path"])
+    return (
+        root / str(matches[0]["path"]),
+        matches[0].get("read_error"),
+        unreadable,
+    )
+
+
+def _find_wave_md(root: Path, wave_id_or_prefix: str) -> Optional[Path]:
+    wave_md, _read_error, _unreadable = _find_wave_md_detailed(root, wave_id_or_prefix)
+    return wave_md
+
+
+def _wave_record_unreadable_diagnostic(
+    root: Path, wave_md: Path, read_error: str
+) -> dict[str, Any]:
+    """The 1v0lw refusal diagnostic: names the record and the cause, no absolute path."""
+    return _diagnostic(
+        "wave_record_unreadable",
+        f"Could not read wave record {_repo_rel(root, wave_md)}: {read_error}. "
+        "The wave cannot be evaluated over a record that cannot be read; "
+        "restore or repair the file, then retry.",
+        recovery_tools=["wf_list_waves", "wf_validate_docs"],
+        recovery_usage="wf_list_waves()",
+    )
+
+
+def _unreadable_wave_sibling_diagnostics(
+    unreadable: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Diagnostics for unreadable NON-matching records skipped mid-resolution."""
+    return [
+        _diagnostic(
+            "wave_record_unreadable",
+            f"Could not read wave record {entry['path']}: {entry['read_error']}. "
+            "The record was skipped during wave resolution; restore or repair "
+            "it so it can be resolved again.",
+            recovery_tools=["wf_list_waves", "wf_validate_docs"],
+            recovery_usage="wf_list_waves()",
+        )
+        for entry in unreadable
+    ]
+
+
+def _wave_resolution_unreadable_diagnostic(
+    wave_id_or_prefix: str, unreadable: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """Zero readable matches with skipped unreadable candidates (wave 1v0lw).
+
+    The requested id may live inside a skipped record (wave-id and dirname can
+    diverge), so this outcome is a read failure, never ``wave_not_found``.
+    """
+    candidates = "; ".join(
+        f"{entry['path']}: {entry['read_error']}" for entry in unreadable
+    )
+    return _diagnostic(
+        "wave_record_unreadable",
+        f"No readable wave record matches '{wave_id_or_prefix}', and "
+        f"{len(unreadable)} wave record(s) could not be read during "
+        f"resolution: {candidates}. The requested wave may be among them; "
+        "restore or repair the unreadable record(s), then retry.",
+        recovery_tools=["wf_list_waves", "wf_validate_docs"],
+        recovery_usage="wf_list_waves()",
+    )
+
+
+def _wave_record_unreadable_response(
+    root: Path,
+    wave_md: Path,
+    read_error: str,
+    *,
+    data: dict[str, Any] | None = None,
+    sibling_diagnostics: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """The shared refusal envelope for decision tools (1uu9z sibling pattern)."""
+    return _response(
+        "error",
+        data or {},
+        diagnostics=[
+            _wave_record_unreadable_diagnostic(root, wave_md, read_error),
+            *(sibling_diagnostics or []),
+        ],
+        next_tools=["wf_list_waves", "wf_validate_docs"],
+        usage="wf_list_waves()",
+    )
+
+
+def _wave_resolution_unreadable_response(
+    wave_id_or_prefix: str,
+    unreadable: list[dict[str, Any]],
+    *,
+    data: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """The shared refusal envelope for the zero-match-with-skipped outcome."""
+    return _response(
+        "error",
+        data or {},
+        diagnostics=[
+            _wave_resolution_unreadable_diagnostic(wave_id_or_prefix, unreadable)
+        ],
+        next_tools=["wf_list_waves", "wf_validate_docs"],
+        usage="wf_list_waves()",
+    )
 
 
 def _extract_change_ids_from_wave_text(text: str) -> list[str]:
@@ -6262,8 +6500,10 @@ def _mark_change_item_response(
                 "state must be 'x' or '~'. Retry with `x` to mark complete or `~` to mark intentionally deferred.",
             )],
         )
-    wave_md = _find_wave_md(root, wave_id)
+    wave_md, wave_read_error, unreadable_waves = _find_wave_md_detailed(root, wave_id)
     if wave_md is None:
+        if unreadable_waves:
+            return _wave_resolution_unreadable_response(wave_id, unreadable_waves)
         return _response(
             "error",
             {},
@@ -6273,6 +6513,15 @@ def _mark_change_item_response(
                 recovery_tools=["wf_current_wave", "wf_list_waves"],
                 recovery_usage="wf_current_wave()",
             )],
+        )
+    sibling_diagnostics = _unreadable_wave_sibling_diagnostics(unreadable_waves)
+    if wave_read_error is not None:
+        # Wave 1v0lw: an exact-item mark is gated on the wave record it
+        # amends; marking against a record that cannot be read is fail-open.
+        return _wave_record_unreadable_response(
+            root, wave_md, wave_read_error,
+            data={"wave_id": wave_md.parent.name, "change_id": change_id},
+            sibling_diagnostics=sibling_diagnostics,
         )
     path = _wave_change_doc_path(root, wave_md, change_id)
     if not path.is_file():
@@ -6410,7 +6659,14 @@ def _mark_change_item_response(
 
     try:
         with project_state_publication_lock(root):
-            live_wave = wave_md.read_text(encoding="utf-8")
+            live_wave, live_read_error = _read_wave_record_text(wave_md)
+            if live_wave is None:
+                # The record was readable at the gate above and vanished
+                # before publication; nothing has been written yet.
+                return _wave_record_unreadable_response(
+                    root, wave_md, live_read_error,
+                    data={**data, "changed": False, "review_receipt_refreshed": False},
+                )
             change_ids = _extract_change_ids_from_wave_text(live_wave)
             if change_id not in change_ids:
                 raise ValueError(
@@ -6448,7 +6704,7 @@ def _mark_change_item_response(
             diagnostics=[_diagnostic(
                 "review_receipt_refresh_failed",
                 "The AC was not deferred because its review receipt could not be refreshed: "
-                f"{exc}. Fix the stated wave or review-evidence problem, then retry the same wf_mark_ac call; do not edit the checkbox or receipt manually.",
+                f"{_read_error_detail(exc)}. Fix the stated wave or review-evidence problem, then retry the same wf_mark_ac call; do not edit the checkbox or receipt manually.",
                 recovery_tools=["wf_review_wave", "wf_mark_ac"],
                 recovery_usage=(
                     f"wf_review_wave(wave_id={wave_md.parent.name!r}, phase='prepare')"
@@ -7428,7 +7684,22 @@ def _prepare_policy_state(
     }, ()
 
 
+def _artifact_display_path(root: Path, path: Path) -> str:
+    """Leak-safe artifact path for publication-failure messages (1v0ly).
+
+    Repo-relative inside the root; for a path outside the root, where
+    ``_repo_rel``'s resolve fallback still raises ``ValueError``, keep the
+    final path component only: the artifact stays nameable without shipping
+    the absolute prefix.
+    """
+    try:
+        return _repo_rel(root, path)
+    except ValueError:
+        return path.name
+
+
 def _replace_artifacts_transactionally(
+    root: Path,
     replacements: Iterable[tuple[Path, bytes, str]],
 ) -> None:
     """Publish a small fixed artifact set, restoring earlier writes on failure.
@@ -7437,6 +7708,11 @@ def _replace_artifacts_transactionally(
     changes the event authority, its wave projection, and (for a tracked AC
     deferral) the admitted change.  Keep those artifacts coherent for ordinary
     write failures rather than exposing a half-published contract.
+
+    The raised detail is composed path-free (1v0ly): the original exception's
+    ``str`` embeds the absolute path, this synthetic single-arg ``OSError``
+    has ``strerror is None`` so ``_read_error_detail`` deliberately renders it
+    verbatim downstream, and the publish handler ships it to the operator.
     """
 
     staged = [
@@ -7454,6 +7730,8 @@ def _replace_artifacts_transactionally(
             _atomic_replace_bytes(path, payload, purpose)
             written.append(path)
     except OSError as exc:
+        # Capture before the rollback loop rebinds `path`.
+        failing_path, failing_purpose = path, purpose
         rollback_errors: list[str] = []
         for path in reversed(written):
             original = originals[path]
@@ -7463,8 +7741,15 @@ def _replace_artifacts_transactionally(
                 else:
                     _atomic_replace_bytes(path, original, "receipt-rollback")
             except OSError as rollback_exc:
-                rollback_errors.append(f"{path}: {rollback_exc}")
-        detail = f"receipt publication failed: {exc}"
+                rollback_errors.append(
+                    f"{_artifact_display_path(root, path)}: "
+                    f"{_read_error_detail(rollback_exc)}"
+                )
+        detail = (
+            "receipt publication failed at "
+            f"{_artifact_display_path(root, failing_path)} "
+            f"({failing_purpose}): {_read_error_detail(exc)}"
+        )
         if rollback_errors:
             detail += "; rollback incomplete: " + "; ".join(rollback_errors)
         raise OSError(detail) from exc
@@ -7487,7 +7772,16 @@ def _publish_prepare_policy_state(
         # Revalidate the inspected wave identity and roster shape immediately
         # before the first replacement.
         contained_wave, events_path = _contained_wave_review_paths(root, wave_md)
-        live = contained_wave.read_text(encoding="utf-8")
+        live, live_read_error = _read_wave_record_text(contained_wave)
+        if live is None:
+            # Wave 1v0lw: the mid-transaction re-read failure surfaces as the
+            # retryable publication error every caller already handles, with
+            # the sanitized cause (never the raw OSError path or a decode
+            # crash).
+            raise ValueError(
+                "wave record could not be re-read during receipt publication: "
+                f"{live_read_error}; retry"
+            )
         if live != wave_text:
             raise ValueError("wave changed during Prepare policy publication; retry")
         _replace_required_review_lanes(live, state["required_lanes"])
@@ -7522,7 +7816,7 @@ def _publish_prepare_policy_state(
             (path, updated.encode("utf-8"), "receipt-change")
             for path, _expected, updated in normalized_updates
         )
-        _replace_artifacts_transactionally(replacements)
+        _replace_artifacts_transactionally(root, replacements)
         return final
 
 
@@ -7698,7 +7992,11 @@ def create_wave(root: Path, slug: str, mode: str = "dry_run") -> dict[str, Any]:
     )
     with project_state_publication_lock(root):
         if wave_md.exists():
-            existing_text = wave_md.read_text(encoding="utf-8")
+            existing_text, existing_read_error = _read_wave_record_text(wave_md)
+            if existing_text is None:
+                # Wave 1v0lw: an existing record this create would adopt must
+                # be readable before any authority decision about it.
+                raise _WaveRecordUnreadableError(wave_md, existing_read_error)
             source, source_errors = parse_review_evidence_source(existing_text)
             if source != "events.jsonl" or source_errors:
                 raise RuntimeError(
@@ -7730,6 +8028,10 @@ def create_wave(root: Path, slug: str, mode: str = "dry_run") -> dict[str, Any]:
 def wf_create_wave_response(root: Path, slug: str, mode: str = "dry_run", cache: Optional[McpRepoCache] = None) -> dict[str, Any]:
     try:
         result = create_wave(root, slug, mode)
+    except _WaveRecordUnreadableError as exc:
+        return _wave_record_unreadable_response(
+            root, exc.wave_md, exc.read_error, data={"slug": slug, "mode": mode}
+        )
     except ValueError as exc:
         return _response(
             "error",
@@ -7797,7 +8099,7 @@ def wf_add_change_response(
     if mode_s not in {"dry_run", "create"}:
         return _response("error", {"wave_id": wave_id, "change_id": change_id, "mode": mode}, diagnostics=[_diagnostic("invalid_arguments", f"Unsupported mode '{mode}'.")], next_tools=["wf_help"], usage="wf_help()")
     try:
-        wave_md = _find_wave_md(root, wave_id)
+        wave_md, wave_read_error, unreadable_waves = _find_wave_md_detailed(root, wave_id)
     except ValueError as exc:
         return _response(
             "error",
@@ -7805,6 +8107,11 @@ def wf_add_change_response(
             diagnostics=[_diagnostic("review_evidence_path_escape", str(exc))],
         )
     if wave_md is None:
+        if unreadable_waves:
+            return _wave_resolution_unreadable_response(
+                wave_id, unreadable_waves,
+                data={"wave_id": wave_id, "change_id": change_id, "mode": mode_s},
+            )
         return _response("error", {"wave_id": wave_id, "change_id": change_id, "mode": mode_s}, diagnostics=[_diagnostic("wave_not_found", f"No wave found matching '{wave_id}'.", recovery_tools=["wf_list_waves"], recovery_usage="wf_list_waves()")], next_tools=["wf_list_waves"], usage="wf_list_waves()")
     change_matches = _resolve_change_doc_matches(root, change_id)
     if not change_matches:
@@ -7827,7 +8134,15 @@ def wf_add_change_response(
     canonical_change_id = str(change_matches[0]["change_id"])
     source_path = root / str(change_matches[0]["path"])
     target_path = _wave_change_doc_path(root, wave_md, canonical_change_id)
-    text = wave_md.read_text(encoding="utf-8")
+    text, wave_read_error = _read_wave_record_text(wave_md)
+    if text is None:
+        # Wave 1v0lw: admission mutates the wave record; refusing here keeps
+        # the gate fail-closed for both read-failure causes.
+        return _wave_record_unreadable_response(
+            root, wave_md, wave_read_error,
+            data={"wave_id": wave_id, "change_id": canonical_change_id, "mode": mode_s},
+            sibling_diagnostics=_unreadable_wave_sibling_diagnostics(unreadable_waves),
+        )
     existing = _extract_change_ids_from_wave_text(text)
     location = _change_location_state(root, wave_md, canonical_change_id)
     if source_path.parent.name != wave_md.parent.name and "docs/waves/" in str(change_matches[0]["path"]).replace("\\", "/") and source_path != target_path:
@@ -7997,10 +8312,23 @@ def wf_remove_change_response(
     mode_s = "create" if (mode or "").strip().lower() == "apply" else (mode or "").strip().lower()
     if mode_s not in {"dry_run", "create"}:
         return _response("error", {"wave_id": wave_id, "change_id": change_id, "mode": mode}, diagnostics=[_diagnostic("invalid_arguments", f"Unsupported mode '{mode}'.")], next_tools=["wf_help"], usage="wf_help()")
-    wave_md = _find_wave_md(root, wave_id)
+    wave_md, wave_read_error, unreadable_waves = _find_wave_md_detailed(root, wave_id)
     if wave_md is None:
+        if unreadable_waves:
+            return _wave_resolution_unreadable_response(
+                wave_id, unreadable_waves,
+                data={"wave_id": wave_id, "change_id": change_id, "mode": mode_s},
+            )
         return _response("error", {"wave_id": wave_id, "change_id": change_id, "mode": mode_s}, diagnostics=[_diagnostic("wave_not_found", f"No wave found matching '{wave_id}'.", recovery_tools=["wf_list_waves"], recovery_usage="wf_list_waves()")], next_tools=["wf_list_waves"], usage="wf_list_waves()")
-    text = wave_md.read_text(encoding="utf-8")
+    text, wave_read_error = _read_wave_record_text(wave_md)
+    if text is None:
+        # Wave 1v0lw: removal edits the admitted-change roster; a record that
+        # cannot be read cannot be edited safely.
+        return _wave_record_unreadable_response(
+            root, wave_md, wave_read_error,
+            data={"wave_id": wave_id, "change_id": change_id, "mode": mode_s},
+            sibling_diagnostics=_unreadable_wave_sibling_diagnostics(unreadable_waves),
+        )
     target = _change_block_pattern(change_id)
     if not target.search(text):
         return _response("ok", {"wave_id": wave_id, "change_id": change_id, "mode": mode_s, "updated": False}, diagnostics=[_diagnostic("not_admitted", f"Change '{change_id}' is not admitted to wave.")], next_tools=["wf_current_wave"], usage="wf_current_wave()")
@@ -14817,9 +15145,11 @@ def _build_prepare_council_brief(wave_id: str, wave_text: str, change_ids: list[
 def _wave_uses_external_review_evidence(root: Path, wave_md: Path) -> bool:
     """True for the new contract; unmarked pre-protocol waves remain prose-only legacy."""
 
-    try:
-        text = wave_md.read_text(encoding="utf-8")
-    except OSError:
+    # Wave 1v0lw: seam-routed; an unreadable record stays classified as
+    # legacy (the historical OSError behavior, now covering decode too) --
+    # callers gate on their own record read before any authority decision.
+    text, _read_error = _read_wave_record_text(wave_md)
+    if text is None:
         return False
     source, source_errors = parse_review_evidence_source(text)
     legacy_inline_marker = re.search(r"(?mi)^review-evidence-protocol\s*:", text) is not None
@@ -14851,8 +15181,17 @@ def _review_evidence_diagnostics(
             result = validate_external_review_evidence(wave_md, closure=closure)
             errors = list(result.errors)
             if not result.errors:
+                # Wave 1v0lw: the projection re-read routes through the seam;
+                # a failure keeps the historical message shape with the
+                # sanitized cause instead of raising or leaking the path.
+                raw_projection, projection_read_error = _read_wave_record_text(wave_md)
+                if raw_projection is None:
+                    errors.append(
+                        "Finding Synthesis projection could not be checked: "
+                        f"{projection_read_error}"
+                    )
+            if not result.errors and raw_projection is not None:
                 try:
-                    raw_projection = wave_md.read_text(encoding="utf-8")
                     # Compare in canonical form (wave 1tb4z, same seam as the
                     # lint and dashboard paths): legacy marker namespaces and
                     # the retired bodyless-details projection are current, not
@@ -15220,23 +15559,32 @@ def _review_evidence_list_response(
     visible = filtered[-REVIEW_EVIDENCE_LIST_CAP:] if truncated else filtered
 
     chain_summary: dict[str, Any] = {}
-    try:
-        wave_text = wave_md.read_text(encoding="utf-8")
-        required_keys = required_review_status_keys(root, wave_text, records)
-        authority_projection = review_authority_projection(records, required_keys)
-        for fact in authority_projection["finding_facts"]:
-            chain_summary[fact["finding_id"]] = {
-                "head_record_id": fact["head_record_id"],
-                "cycle": fact["cycle"],
-                "disposition": fact["disposition"],
-                "repair_execution_state": fact["repair_execution_state"],
-                "unresolved_required_lanes": list(fact["unresolved_required_lanes"]),
-                "terminal": fact["terminal"],
-            }
-        approvals = list(authority_projection["status_rows"])
-    except Exception as exc:  # noqa: BLE001 - listing must not fail on status derivation
+    # Wave 1v0lw: the record read routes through the seam; a failure degrades
+    # this listing (enumeration surface) under the true cause instead of the
+    # derivation-failure code, and never leaks the absolute path.
+    wave_text, wave_read_error = _read_wave_record_text(wave_md)
+    if wave_text is None:
         approvals = []
-        diagnostics.append(_diagnostic("review_status_unavailable", str(exc)))
+        diagnostics.append(
+            _wave_record_unreadable_diagnostic(root, wave_md, wave_read_error)
+        )
+    else:
+        try:
+            required_keys = required_review_status_keys(root, wave_text, records)
+            authority_projection = review_authority_projection(records, required_keys)
+            for fact in authority_projection["finding_facts"]:
+                chain_summary[fact["finding_id"]] = {
+                    "head_record_id": fact["head_record_id"],
+                    "cycle": fact["cycle"],
+                    "disposition": fact["disposition"],
+                    "repair_execution_state": fact["repair_execution_state"],
+                    "unresolved_required_lanes": list(fact["unresolved_required_lanes"]),
+                    "terminal": fact["terminal"],
+                }
+            approvals = list(authority_projection["status_rows"])
+        except Exception as exc:  # noqa: BLE001 - listing must not fail on status derivation
+            approvals = []
+            diagnostics.append(_diagnostic("review_status_unavailable", str(exc)))
     if truncated:
         diagnostics.append(_diagnostic(
             "review_evidence_list_truncated",
@@ -15371,7 +15719,7 @@ def wf_review_event_response(
             usage="wf_help()",
         )
     try:
-        wave_md = _find_wave_md(root, wave_id)
+        wave_md, wave_read_error, unreadable_waves = _find_wave_md_detailed(root, wave_id)
     except ValueError as exc:
         return _response(
             "error",
@@ -15379,6 +15727,10 @@ def wf_review_event_response(
             diagnostics=[_diagnostic("review_evidence_path_escape", str(exc))],
         )
     if wave_md is None:
+        if unreadable_waves:
+            return _wave_resolution_unreadable_response(
+                wave_id, unreadable_waves, data={"wave_id": wave_id}
+            )
         return _response(
             "error",
             {"wave_id": wave_id},
@@ -15400,7 +15752,14 @@ def wf_review_event_response(
             finding_id=finding_id, record_type=record_type,
             run_kind=run_kind, verbose=verbose,
         )
-    wave_text_for_phase = wave_md.read_text(encoding="utf-8")
+    wave_text_for_phase, wave_read_error = _read_wave_record_text(wave_md)
+    if wave_text_for_phase is None:
+        # Wave 1v0lw: a typed review event amends the wave's authority; the
+        # append gate cannot be evaluated over a record that cannot be read.
+        return _wave_record_unreadable_response(
+            root, wave_md, wave_read_error,
+            data={"wave_id": wave_id, "mode": mode_s, "event": event},
+        )
     # Most event identities determine their recovery phase without touching
     # the ledger. Only a repair/reverification needs the finding's sealed
     # origin for errors that can occur before the publication transaction.
@@ -15509,7 +15868,14 @@ def wf_review_event_response(
         )
 
     def transact() -> dict[str, Any]:
-        original = wave_md.read_text(encoding="utf-8")
+        original, original_read_error = _read_wave_record_text(wave_md)
+        if original is None:
+            # Readable at the gate above, unreadable inside the transaction;
+            # refuse before any authority decision or append.
+            return _wave_record_unreadable_response(
+                root, wave_md, original_read_error,
+                data={"wave_id": wave_id, "mode": mode_s, "event": event},
+            )
         current = validate_external_review_evidence(wave_md)
         if current.errors:
             return _response(
@@ -15852,11 +16218,29 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
     #   create   — readiness PLUS the single-OPEN guard PLUS the `planned`->`active` flip (prepare-and-open).
     _activating = mode_s == "create"
     _mutating = mode_s in ("create", "ready")
-    wave_md = _find_wave_md(root, wave_id)
+    wave_md, wave_read_error, unreadable_waves = _find_wave_md_detailed(root, wave_id)
     if wave_md is None:
+        if unreadable_waves:
+            # Wave 1v0lw: zero readable matches with skipped unreadable
+            # candidates is a read failure, never `wave_not_found`.
+            diagnostics.append(
+                _wave_resolution_unreadable_diagnostic(wave_id, unreadable_waves)
+            )
+            return _prepare_envelope("error", {"wave_id": wave_id, "mode": mode_s}, next_tools=["wf_list_waves", "wf_validate_docs"], usage="wf_list_waves()")
         diagnostics.append(_diagnostic("wave_not_found", f"No wave found matching '{wave_id}'.", recovery_tools=["wf_list_waves"], recovery_usage="wf_list_waves()"))
         return _prepare_envelope("error", {"wave_id": wave_id, "mode": mode_s}, next_tools=["wf_list_waves"], usage="wf_list_waves()")
-    text = wave_md.read_text(encoding="utf-8")
+    # Wave 1v0lw: unreadable non-matching siblings are NOT appended here --
+    # prepare's diagnostics list gates receipt publication, and a rotted
+    # unrelated record must not silently block this wave's readiness. The
+    # inspection surfaces (wf_get_change, wf_list_waves, wf_current_wave)
+    # surface those siblings.
+    text, wave_read_error = _read_wave_record_text(wave_md)
+    if text is None:
+        # A readiness gate cannot be evaluated over a record it cannot read.
+        diagnostics.append(
+            _wave_record_unreadable_diagnostic(root, wave_md, wave_read_error)
+        )
+        return _prepare_envelope("error", {"wave_id": wave_id, "mode": mode_s}, next_tools=["wf_list_waves", "wf_validate_docs"], usage="wf_list_waves()")
     change_ids = _extract_change_ids_from_wave_text(text)
     diagnostics.extend(_wave_review_policy_diagnostics(root))
     diagnostics.extend(
@@ -15973,7 +16357,14 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
         if not garden_passed:
             diagnostics.append(_diagnostic("docs_gardener_failed", "docs_gardener failed during prepare.", recovery_tools=["wf_garden_docs", "wf_validate_docs"], recovery_usage="wf_garden_docs(mode='run')"))
         # Gardening may update verification metadata in the inspected packet.
-        text = wave_md.read_text(encoding="utf-8")
+        text, wave_read_error = _read_wave_record_text(wave_md)
+        if text is None:
+            # Readable at the gate above, unreadable after gardening; the
+            # remaining preflight cannot be evaluated blind.
+            diagnostics.append(
+                _wave_record_unreadable_diagnostic(root, wave_md, wave_read_error)
+            )
+            return _prepare_envelope("error", {"wave_id": wave_id, "mode": mode_s}, next_tools=["wf_list_waves", "wf_validate_docs"], usage="wf_list_waves()")
     lint_result = run_validate(root)
     lint_passed = lint_result["passed"]
     if not lint_passed:
@@ -16267,7 +16658,15 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
                 {"wave_id": wave_id, "mode": mode_s},
                 next_tools=["wf_review_event", "wf_validate_docs"],
             )
-        if projected_text != wave_md.read_text(encoding="utf-8"):
+        live_text, live_read_error = _read_wave_record_text(wave_md)
+        if live_text is None:
+            # Refuse rather than blind-write a projection over a record whose
+            # current content cannot be compared.
+            diagnostics.append(
+                _wave_record_unreadable_diagnostic(root, wave_md, live_read_error)
+            )
+            return _prepare_envelope("error", {"wave_id": wave_id, "mode": mode_s}, next_tools=["wf_list_waves", "wf_validate_docs"], usage="wf_list_waves()")
+        if projected_text != live_text:
             wave_md.write_text(projected_text, encoding="utf-8", newline="")
             text = projected_text
             updated = True
@@ -16303,13 +16702,25 @@ def wf_pause_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
     mode_s = "create" if (mode or "").strip().lower() == "apply" else (mode or "").strip().lower()
     if mode_s not in {"dry_run", "create"}:
         return _response("error", {"wave_id": wave_id, "mode": mode}, diagnostics=[_diagnostic("invalid_arguments", f"Unsupported mode '{mode}'.")], next_tools=["wf_help"], usage="wf_help()")
-    wave_md = _find_wave_md(root, wave_id)
+    wave_md, wave_read_error, unreadable_waves = _find_wave_md_detailed(root, wave_id)
     if wave_md is None:
+        if unreadable_waves:
+            return _wave_resolution_unreadable_response(
+                wave_id, unreadable_waves,
+                data={"wave_id": wave_id, "mode": mode_s},
+            )
         return _response("error", {"wave_id": wave_id, "mode": mode_s}, diagnostics=[_diagnostic("wave_not_found", f"No wave found matching '{wave_id}'.", recovery_tools=["wf_list_waves"], recovery_usage="wf_list_waves()")], next_tools=["wf_list_waves"], usage="wf_list_waves()")
     handoff = root / "docs" / "agents" / "session-handoff.md"
     rel = str(handoff.relative_to(root)).replace("\\", "/")
     # Compute the wave-status transition. Only active → paused writes; other states are no-ops.
-    wave_text = wave_md.read_text(encoding="utf-8")
+    wave_text, wave_read_error = _read_wave_record_text(wave_md)
+    if wave_text is None:
+        # Wave 1v0lw: the pause transition edits the record's Status field; a
+        # record that cannot be read cannot be transitioned.
+        return _wave_record_unreadable_response(
+            root, wave_md, wave_read_error,
+            data={"wave_id": wave_id, "mode": mode_s},
+        )
     status_match = _STATUS_PATTERN.search(wave_text)
     current_status = status_match.group(1) if status_match else ""
     if current_status in ("active", "implementing"):
@@ -16549,11 +16960,22 @@ def wf_review_wave_response(root: Path, wave_id: str, phase: str = "implementati
             next_tools=["wf_help"],
             usage="wf_help()",
         )
-    wave_md = _find_wave_md(root, wave_id)
+    wave_md, wave_read_error, unreadable_waves = _find_wave_md_detailed(root, wave_id)
     if wave_md is None:
+        if unreadable_waves:
+            return _wave_resolution_unreadable_response(
+                wave_id, unreadable_waves, data={"wave_id": wave_id}
+            )
         return _response("error", {"wave_id": wave_id}, diagnostics=[_diagnostic("wave_not_found", f"No wave found matching '{wave_id}'.", recovery_tools=["wf_list_waves"], recovery_usage="wf_list_waves()")], next_tools=["wf_list_waves"], usage="wf_list_waves()")
     lint_result = run_validate(root)
-    wave_text = wave_md.read_text(encoding="utf-8")
+    wave_text, wave_read_error = _read_wave_record_text(wave_md)
+    if wave_text is None:
+        # Wave 1v0lw: every review gate below reads this record; refuse rather
+        # than evaluate lanes over content that cannot be read.
+        return _wave_record_unreadable_response(
+            root, wave_md, wave_read_error,
+            data={"wave_id": wave_id, "phase": phase_s},
+        )
     # Wave 1to78: every review-evidence CONTENT read below (operator/lane/
     # council signoff currency, max severity) goes through the single
     # authority facade — typed-exclusive on declared waves, prose on legacy.
@@ -16794,10 +17216,13 @@ def _wave_code_footprint(root: Path, wave_md: Path) -> Optional[int]:
     if _FOOTPRINT_PROVIDER is not None:
         return _FOOTPRINT_PROVIDER(root)
     targets: list[str] = []
+    # Wave 1v0lw: the record read routes through the seam; the advisory
+    # degrades to None on any read failure exactly as before.
+    wave_text, _wave_read_error = _read_wave_record_text(wave_md)
+    if wave_text is None:
+        return None
     try:
-        for change_id in _extract_change_ids_from_wave_text(
-            wave_md.read_text(encoding="utf-8")
-        ):
+        for change_id in _extract_change_ids_from_wave_text(wave_text):
             change = _wave_change_doc_path(root, wave_md, change_id)
             targets.extend(serialization_point_paths(change.read_text(encoding="utf-8")))
     except (OSError, UnicodeError):
@@ -16879,12 +17304,12 @@ def _wave_has_gapfill_note(wave_md: Path) -> bool:
     # the whole loop let one undecodable change doc abort the scan, and because
     # both call sites wrap this in `except Exception` the effect was to silently
     # disable the retrieval-posture sensor rather than to crash visibly.
+    # The loop's targets include the wave record itself, so each read routes
+    # through the 1v0lw seam; an unreadable document still skips per-document.
     for doc in sorted(wave_md.parent.glob("*.md")):
-        try:
-            if "Gapfill:" in doc.read_text(encoding="utf-8"):
-                return True
-        except (OSError, UnicodeError):
-            continue
+        doc_text, _doc_read_error = _read_wave_record_text(doc)
+        if doc_text is not None and "Gapfill:" in doc_text:
+            return True
     return False
 
 
@@ -16943,11 +17368,23 @@ def wf_implement_wave_response(root: Path, wave_id: str, mode: str = "dry_run", 
     _VALID_MODES = ["dry_run", "create"]
     if mode_s not in _VALID_MODES:
         return _response("error", {"wave_id": wave_id, "mode": mode, "valid_modes": _VALID_MODES}, diagnostics=[_diagnostic("invalid_arguments", f"Unsupported mode '{mode}'. Valid modes: {_VALID_MODES}.")], next_tools=["wf_help"], usage="wf_help()")
-    wave_md = _find_wave_md(root, wave_id)
+    wave_md, wave_read_error, unreadable_waves = _find_wave_md_detailed(root, wave_id)
     if wave_md is None:
+        if unreadable_waves:
+            return _wave_resolution_unreadable_response(
+                wave_id, unreadable_waves, data={"wave_id": wave_id}
+            )
         return _response("error", {"wave_id": wave_id}, diagnostics=[_diagnostic("wave_not_found", f"No wave found matching '{wave_id}'.", recovery_tools=["wf_list_waves"], recovery_usage="wf_list_waves()")], next_tools=["wf_list_waves"], usage="wf_list_waves()")
 
-    wave_text = wave_md.read_text(encoding="utf-8")
+    wave_text, wave_read_error = _read_wave_record_text(wave_md)
+    if wave_text is None:
+        # Wave 1v0lw: the OPEN gate reads status, council verdict, and lane
+        # evidence from this record; activation over an unreadable record is
+        # fail-open.
+        return _wave_record_unreadable_response(
+            root, wave_md, wave_read_error,
+            data={"wave_id": wave_id, "mode": mode_s},
+        )
     status_match = _STATUS_PATTERN.search(wave_text)
     current_status = (status_match.group(1) if status_match else "").lower()
 
@@ -17278,8 +17715,16 @@ def _generate_wf_close_wave_summary(wave_id: str, wave_text: str, wave_md: Path)
     for cid in change_ids:
         change_path = wave_md.parent / f"{cid}.md"
         if not change_path.exists():
-            change_summaries.append({"id": cid, "title": cid, "completed_acs": [], "decisions": [], "progress": []})
-            continue
+            # 1v0lx: the close hard gate blocks a missing admitted document
+            # before summary generation; if the file vanishes in the window
+            # between the gate and this read, fail closed like the unreadable
+            # sibling below rather than fabricate an empty record of a
+            # document that does not exist.
+            raise ValueError(
+                f"Missing admitted change '{cid}': no file at "
+                f"{wave_md.parent.name}/{change_path.name}; restore the "
+                "document or remove the change via wf_remove_change"
+            )
         try:
             ct = change_path.read_text(encoding="utf-8")
         except (OSError, UnicodeError) as exc:
@@ -17458,8 +17903,12 @@ def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
     _WAVE_CLOSE_VALID_MODES = ["dry_run", "create"]
     if mode_s not in {"dry_run", "create"}:
         return _response("error", {"wave_id": wave_id, "mode": mode, "valid_modes": _WAVE_CLOSE_VALID_MODES}, diagnostics=[_diagnostic("invalid_arguments", f"Unsupported mode '{mode}'. Valid modes: {_WAVE_CLOSE_VALID_MODES}.")], next_tools=["wf_help"], usage="wf_help()")
-    wave_md = _find_wave_md(root, wave_id)
+    wave_md, wave_read_error, unreadable_waves = _find_wave_md_detailed(root, wave_id)
     if wave_md is None:
+        if unreadable_waves:
+            return _wave_resolution_unreadable_response(
+                wave_id, unreadable_waves, data={"wave_id": wave_id}
+            )
         return _response("error", {"wave_id": wave_id}, diagnostics=[_diagnostic("wave_not_found", f"No wave found matching '{wave_id}'.", recovery_tools=["wf_list_waves"], recovery_usage="wf_list_waves()")], next_tools=["wf_list_waves"], usage="wf_list_waves()")
     # Garden only runs on create — dry-run must stay read-only.
     garden_passed = True
@@ -17467,7 +17916,15 @@ def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
         garden_result = run_garden(root)
         garden_passed = garden_result["passed"]
     lint_result = run_validate(root)
-    text = wave_md.read_text(encoding="utf-8")
+    # Wave 1v0lw: the read keeps its post-garden position (gardening may
+    # refresh record metadata) and routes through the seam; the close hard
+    # gate cannot be evaluated over a record that cannot be read.
+    text, wave_read_error = _read_wave_record_text(wave_md)
+    if text is None:
+        return _wave_record_unreadable_response(
+            root, wave_md, wave_read_error,
+            data={"wave_id": wave_id, "mode": mode_s},
+        )
     shared = _evaluate_shared_delivery_state(
         root, wave_md, text, lint_result, lifecycle_phase="close"
     )
@@ -17538,8 +17995,24 @@ def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
     # unchecked-items count produced a false count and an unactionable
     # instruction ("mark it `[x]` or `[~]`") for a file that will not decode,
     # under a code every sibling site does not use.
-    unreadable_docs = [i for i in silent_all if i["item_type"] == "change document"]
+    doc_findings = [i for i in silent_all if i["item_type"] == "change document"]
+    unreadable_docs = [i for i in doc_findings if i["item_id"] == "unreadable"]
+    missing_docs = [i for i in doc_findings if i["item_id"] == "missing"]
     silent_unchecked = [i for i in silent_all if i["item_type"] != "change document"]
+    for item in missing_docs:
+        diagnostics.append(
+            _diagnostic(
+                "change_doc_missing",
+                (
+                    f"Wave close blocked: admitted change '{item['change_id']}' has no "
+                    f"document on disk ({item['item_text']}). The close hard gate cannot "
+                    "verify ACs and tasks it cannot see; restore the document, or remove "
+                    "the change via wf_remove_change, before close."
+                ),
+                recovery_tools=["wf_remove_change", "wf_current_wave"],
+                recovery_usage=f"wf_remove_change(change_id='{item['change_id']}')",
+            )
+        )
     for item in unreadable_docs:
         diagnostics.append(
             _diagnostic(
@@ -17667,10 +18140,20 @@ def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
 
 
 def wf_reopen_wave_response(root: Path, wave_id: str) -> dict[str, Any]:
-    wave_md = _find_wave_md(root, wave_id)
+    wave_md, wave_read_error, unreadable_waves = _find_wave_md_detailed(root, wave_id)
     if wave_md is None:
+        if unreadable_waves:
+            return _wave_resolution_unreadable_response(
+                wave_id, unreadable_waves, data={"wave_id": wave_id}
+            )
         return _response("error", {"wave_id": wave_id}, diagnostics=[_diagnostic("wave_not_found", f"No wave found matching '{wave_id}'.", recovery_tools=["wf_list_waves"], recovery_usage="wf_list_waves()")], next_tools=["wf_list_waves"], usage="wf_list_waves()")
-    text = wave_md.read_text(encoding="utf-8")
+    text, wave_read_error = _read_wave_record_text(wave_md)
+    if text is None:
+        # Wave 1v0lw: reopening rewrites the record's Status field; a record
+        # that cannot be read cannot be transitioned.
+        return _wave_record_unreadable_response(
+            root, wave_md, wave_read_error, data={"wave_id": wave_id}
+        )
     status_match = _STATUS_PATTERN.search(text)
     current_status = status_match.group(1).lower() if status_match else ""
     if current_status not in ("closed", "paused"):
@@ -25537,12 +26020,14 @@ def _wave_checkpoint_floor(root: Path, wave_id: str) -> dict[str, Any]:
     wave_md = _find_wave_md(root, wave_id)
     if wave_md is None:
         return context_efficiency.empty_checkpoint(wave_id)
-    try:
-        parsed = context_efficiency.parse_checkpoint_block(
-            wave_md.read_text(encoding="utf-8")
-        )
-    except OSError:
-        parsed = None
+    # Wave 1v0lw: seam-routed; an unreadable record degrades to the empty
+    # checkpoint (the historical OSError behavior, now covering decode too).
+    wave_text, _read_error = _read_wave_record_text(wave_md)
+    parsed = (
+        context_efficiency.parse_checkpoint_block(wave_text)
+        if wave_text is not None
+        else None
+    )
     return parsed or context_efficiency.empty_checkpoint(wave_md.parent.name)
 
 
@@ -25569,7 +26054,16 @@ def _project_context_efficiency_wave(
             # Status, floor, and the durable generation are one publication
             # decision.  Read all three only after acquiring the shared lock;
             # otherwise a concurrent close can be overwritten with sealed=0.
-            current = wave_md.read_text(encoding="utf-8")
+            current, current_read_error = _read_wave_record_text(wave_md)
+            if current is None:
+                # Wave 1v0lw: same failed shape the broad handler below
+                # produced, with the sanitized cause.
+                return {
+                    "persistence": "failed",
+                    "projection": "pending",
+                    "error": current_read_error,
+                    "wave_id": canonical_wave,
+                }
             status_match = _STATUS_PATTERN.search(current)
             sealed = bool(status_match and status_match.group(1) == "closed")
             if automatic and sealed:
@@ -25679,7 +26173,19 @@ def _flush_context_efficiency(
             )
         canonical_wave = wave_md.parent.name
         floor = _wave_checkpoint_floor(root, canonical_wave)
-        initial_markdown = wave_md.read_text(encoding="utf-8")
+        initial_markdown, initial_read_error = _read_wave_record_text(wave_md)
+        if initial_markdown is None:
+            # Wave 1v0lw: same failed shape the broad handler below produced,
+            # with the sanitized cause.
+            return (
+                {
+                    "persistence": "failed",
+                    "projection": "pending",
+                    "error": initial_read_error,
+                    "wave_id": canonical_wave,
+                },
+                None,
+            )
         status_match = _STATUS_PATTERN.search(initial_markdown)
         sealed = bool(status_match and status_match.group(1) == "closed")
         context_efficiency.reconcile_checkpoint_authority(
@@ -26993,7 +27499,12 @@ def _review_evidence_cost_focus(
         wave_md = _find_wave_md(root, requested_wave)
         if wave_md is None:
             return None
-        status = str(_parse_wave_record(wave_md).get("status") or "").lower()
+        record = _read_wave_record(root, wave_md)
+        if record.get("read_error"):
+            # Wave 1v0lw: no focus for an unreadable record (the historical
+            # OSError behavior, now covering decode too).
+            return None
+        status = str(record.get("status") or "").lower()
         if status in {"active", "implementing"}:
             stage = context_efficiency._derive_open_wave_stage(wave_md.parent)
         elif status == "closed":
@@ -31018,8 +31529,22 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
     def resource_wave(wave_id: str) -> str:
         """Return the wave.md for the given wave ID or prefix."""
         root = get_handler().root
-        matches = _resolve_wave_md_matches(root, wave_id)
+        matches, unreadable = _resolve_wave_md_matches(root, wave_id)
         if not matches:
+            if unreadable:
+                # Wave 1v0lw: resolution now reports skipped unreadable
+                # records; `# Not Found` here would be the same misdirection
+                # the tools stopped issuing.
+                lines = [
+                    "# Unreadable Wave",
+                    "",
+                    f"No readable wave record matches `{wave_id}`, and these "
+                    "wave record(s) could not be read during resolution:",
+                    "",
+                ]
+                for entry in unreadable:
+                    lines.append(f"- `{entry['path']}`: {entry['read_error']}")
+                return "\n".join(lines) + "\n"
             return f"# Not Found\n\nNo wave found matching `{wave_id}`. Use `wf_list_waves()` to see available waves.\n"
         if len(matches) > 1:
             lines = [
@@ -31033,6 +31558,15 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
                 suffix = f" — changes: {changes}" if changes else ""
                 lines.append(f"- `{match['wave_id']}` — `{match['path']}`{suffix}")
             return "\n".join(lines) + "\n"
+        if matches[0].get("read_error"):
+            # Wave 1v0lw: resolution now MATCHES a dirname-matching unreadable
+            # record; serve the failure rather than raising out of the
+            # validated-markdown reader (the `# Unreadable Change` pattern).
+            return (
+                "# Unreadable Wave\n\n"
+                f"`{matches[0]['wave_id']}` could not be read: "
+                f"{matches[0]['read_error']}\n"
+            )
         wave_md = root / str(matches[0]["path"])
         return _validated_wave_markdown(wave_md)
 

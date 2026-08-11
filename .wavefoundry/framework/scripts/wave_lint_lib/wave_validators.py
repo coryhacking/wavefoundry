@@ -670,9 +670,16 @@ def _is_activated_wave(text: str) -> bool:
 
 
 def _wave_requires_wave_owned_change_docs(text: str) -> bool:
-    """Ready/active waves and activated waves must keep admitted change docs under the wave folder only."""
+    """Ready/active/implementing waves and activated waves must keep admitted change docs under the wave folder only.
+
+    `implementing` is the status every OPEN wave actually holds (1v0lx: its
+    omission let a missing admitted doc pass lint exactly where implementation
+    happens). The `_is_activated_wave` fallback stays: no framework script
+    writes `Activated at:`, but seeds 170/180/190 instruct implementing agents
+    to set it, so the conjunct is workflow-live in seed-following repos.
+    """
     status = (_metadata_value(text, "Status") or "").casefold()
-    if status in {"active", "ready"}:
+    if status in {"active", "implementing", "ready"}:
         return True
     if status in {"completed", "closed"}:
         return False

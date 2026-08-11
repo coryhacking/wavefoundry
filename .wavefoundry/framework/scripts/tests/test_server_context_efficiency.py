@@ -92,6 +92,33 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
         ordered = sorted(samples)
         return ordered[max(0, ((95 * len(ordered) + 99) // 100) - 1)]
 
+    @staticmethod
+    def _contention_probe() -> float:
+        """Wall/cpu ratio of a fixed pure-python busy loop (wave 1uzwi, 1v1c6).
+
+        Measures scheduler contention on this machine at this instant,
+        independently of the code under test: preemption stretches wall
+        time but not thread cpu time, so a ratio near 1.0 means an
+        uncontended time slice. The budget test interleaves this probe
+        with its timed samples and scales each nominal budget by the p95
+        of the pooled ratios, so wall-clock assertions stop failing when
+        the parallel suite loads the machine. The probe runs outside the
+        measured calls, so a slowdown injected into a measured path
+        cannot move it: the calibrated budget keeps its teeth against
+        real regressions (measured under a 12-worker busy-loop load
+        generator; quiet-machine ratios read 1.005 to 1.014).
+        """
+        started_wall = time.perf_counter()
+        started_cpu = time.thread_time()
+        x = 1
+        for _ in range(20000):
+            x = (x * 1103515245 + 12345) & 0x7FFFFFFF
+        wall = time.perf_counter() - started_wall
+        cpu = time.thread_time() - started_cpu
+        if cpu <= 0.0:
+            return 1.0
+        return max(1.0, wall / cpu)
+
     def test_registered_envelope_census_is_exact(self):
         tree = ast.parse(
             (SCRIPTS_ROOT / "server_impl.py").read_text(encoding="utf-8")
@@ -3239,20 +3266,25 @@ if flushed is None or not flushed.success:
                 )
             core = {"status": "ok", "data": {"results": []}}
 
+            # Wave 1uzwi (1v1c6): wall-clock budgets are calibrated by a
+            # measured contention factor instead of asserted raw. Probes
+            # interleave with every timed sample across all three loops;
+            # the assertions move below, after the pooled factor is known.
+            contention_ratios: list[float] = []
+            budget_checks: list[tuple[str, float, float]] = []
+
             for count, budget_ms in ((10, 10.0), (50, 25.0)):
                 ce.retrieval_context_avoided(core, root, proofs[:count])
                 samples: list[float] = []
                 for _ in range(40):
+                    contention_ratios.append(self._contention_probe())
                     started = time.perf_counter()
                     ce.retrieval_context_avoided(
                         core, root, proofs[:count]
                     )
                     samples.append((time.perf_counter() - started) * 1000)
-                p95 = self._p95(samples)
-                self.assertLessEqual(
-                    p95,
-                    budget_ms,
-                    f"{count}-source warm p95 {p95:.3f}ms",
+                budget_checks.append(
+                    (f"{count}-source warm", self._p95(samples), budget_ms)
                 )
 
             wave_id = "1aaaa performance"
@@ -3281,6 +3313,7 @@ if flushed is None or not flushed.success:
                         "method": ce.RETRIEVAL_METHOD,
                     }
                 )
+                contention_ratios.append(self._contention_probe())
                 started = time.perf_counter()
                 projection, flushed = srv._flush_context_efficiency(
                     handler, wave_id
@@ -3290,12 +3323,36 @@ if flushed is None or not flushed.success:
                 )
                 self.assertIsNotNone(flushed)
                 self.assertEqual(projection["persistence"], "durable")
-            flush_p95 = self._p95(flush_samples[5:])
-            self.assertLessEqual(
-                flush_p95,
-                25.0,
-                f"lifecycle flush/projection warm p95 {flush_p95:.3f}ms",
+            budget_checks.append(
+                (
+                    "lifecycle flush/projection warm",
+                    self._p95(flush_samples[5:]),
+                    25.0,
+                )
             )
+
+            # One run-level factor from the pooled interleaved probes: on
+            # a quiet machine it reads 1.0 and every effective budget
+            # equals its nominal value; under scheduler contention it
+            # scales with the measured preemption the samples suffered.
+            factor = max(1.0, self._p95(contention_ratios))
+            diag = os.environ.get("WAVEFOUNDRY_BUDGET_DIAG")
+            for label, observed_p95, budget_ms in budget_checks:
+                effective_ms = budget_ms * factor
+                if diag:
+                    print(
+                        f"budget-diag: {label} p95 {observed_p95:.3f}ms "
+                        f"nominal {budget_ms}ms factor {factor:.3f} "
+                        f"effective {effective_ms:.3f}ms",
+                        file=sys.stderr,
+                    )
+                self.assertLessEqual(
+                    observed_p95,
+                    effective_ms,
+                    f"{label} p95 {observed_p95:.3f}ms exceeds effective "
+                    f"budget {effective_ms:.3f}ms (nominal {budget_ms}ms "
+                    f"x contention factor {factor:.3f})",
+                )
 
     def test_closed_projection_seals_compacts_and_clears_process_focus(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -1036,17 +1036,71 @@ class ChangeRecord:
     ac_items: list[dict[str, Any]]
     latest_progress: dict[str, str] | None
     progress_log: list[dict[str, str]] = None  # type: ignore[assignment]
+    # Wave 1v1df: set ONLY on unreadable-change records (operator-safe cause,
+    # never an absolute path). None on healthy records, and stripped from the
+    # snapshot payload by _change_payload so a healthy corpus renders unchanged.
+    read_error: str | None = None
 
     def __post_init__(self) -> None:
         if self.progress_log is None:
             self.progress_log = []
 
 
+def _root_anchored(root: Path, raw_path: str) -> Path:
+    """Anchor an enumeration ``path`` value: absolute passes through, relative
+    joins against ``root`` -- never the process CWD (wave 1v1df).
+
+    The enumeration seam (wave 1v0lw) emits repo-relative paths for degraded
+    entries and absolute paths for readable ones; resolving the relative form
+    against the CWD reopened the broken file at the repo root (decode crash)
+    and vanished the wave from anywhere else (FileNotFoundError, skipped).
+    """
+    path = Path(raw_path)
+    return path if path.is_absolute() else root / path
+
+
+def _repo_rel_or_name(root: Path, path: Path) -> str:
+    """Repo-relative posix path; never raises and never returns an absolute
+    path (wave 1v1df fail-closed render path + 1v0lw leak class).
+
+    Mirrors the healthy ``relative_to`` output byte-for-byte, adds the
+    resolve-based fallback from the seam's ``_repo_rel``, and degrades to the
+    bare filename rather than crash the snapshot or leak an absolute path.
+    """
+    try:
+        return str(path.relative_to(root)).replace("\\", "/")
+    except ValueError:
+        pass
+    try:
+        return str(
+            path.resolve(strict=False).relative_to(root.resolve())
+        ).replace("\\", "/")
+    except (ValueError, OSError):
+        return path.name
+
+
+def _stat_mtime_iso(path: Path) -> str | None:
+    """File mtime as ISO-8601, or None when the file vanished in the
+    enumeration-to-render window (wave 1v1df Requirement 3: every raw
+    filesystem touch on the render path fails closed per entry)."""
+    try:
+        return datetime.fromtimestamp(path.stat().st_mtime, UTC).isoformat()
+    except OSError:
+        return None
+
+
 def parse_change_doc(root: Path, change_path: Path) -> ChangeRecord:
     try:
         text = change_path.read_text(encoding="utf-8")
-    except OSError:
-        text = ""
+    except (OSError, UnicodeError) as exc:
+        # Wave 1v1df AC-7: BOTH causes degrade to a record whose unreadability
+        # is BOUND to `read_error`, never inferred from status "unknown". The
+        # previous OSError-only wrap substituted empty text, which silently
+        # misparsed a permission-broken document (file stem as change_id,
+        # status unknown, no marker) and let UnicodeDecodeError crash the
+        # snapshot one function above.
+        return _unreadable_change_record(
+            root, change_path, server._read_error_detail(exc))
     change_match = server._CHANGE_ID_PATTERN.search(text)
     # Accept both "Change Status: `value`" (canonical) and plain "Status: value" (fallback for
     # projects that omit the "Change" prefix and backticks).
@@ -1080,7 +1134,7 @@ def parse_change_doc(root: Path, change_path: Path) -> ChangeRecord:
         title=title,
         description=description,
         status=change_status,
-        path=str(change_path.relative_to(root)).replace("\\", "/"),
+        path=_repo_rel_or_name(root, change_path),
         scope=scope,
         wave_id=wave_id,
         kind=kind,
@@ -1098,36 +1152,142 @@ def parse_change_doc(root: Path, change_path: Path) -> ChangeRecord:
     )
 
 
+def _unreadable_change_record(
+    root: Path, change_path: Path, read_error: str
+) -> ChangeRecord:
+    """Degraded record for a change document that cannot be read (wave 1v1df).
+
+    Identity fields keep the same stem-derived fallbacks the misparse produced
+    (so nothing downstream loses its join key), but the unreadability is now
+    observable: ``read_error`` carries the operator-safe cause.
+    """
+    stem = change_path.stem
+    kind = (
+        stem.split("-", 1)[1].split(" ", 1)[0]
+        if "-" in stem and " " in stem
+        else "change"
+    )
+    return ChangeRecord(
+        change_id=stem,
+        title=stem,
+        description="",
+        status="unknown",
+        path=_repo_rel_or_name(root, change_path),
+        scope="wave" if "docs/waves/" in str(change_path).replace("\\", "/") else "plan",
+        wave_id=change_path.parent.name if change_path.parent.name != "plans" else None,
+        kind=kind,
+        owner="unknown",
+        tasks_total=0,
+        tasks_completed=0,
+        tasks_deferred=0,
+        tasks_items=[],
+        ac_priority_counts=_parse_ac_priority_counts(""),
+        ac_completed_counts=_completed_ac_counts([]),
+        ac_deferred_counts=_deferred_ac_counts([]),
+        ac_items=[],
+        latest_progress=None,
+        progress_log=[],
+        read_error=read_error,
+    )
+
+
+def _change_payload(record: ChangeRecord) -> dict[str, Any]:
+    """Snapshot payload for a change record.
+
+    ``read_error`` appears only on degraded records: a healthy corpus must
+    render byte-identically to the pre-1v1df snapshot (AC-5), with no
+    ``read_error: null`` sprayed across every healthy change.
+    """
+    payload = dict(record.__dict__)
+    if payload.get("read_error") is None:
+        payload.pop("read_error", None)
+    return payload
+
+
 def collect_changes(root: Path) -> dict[str, list[dict[str, Any]]]:
     wave_changes: list[dict[str, Any]] = []
     plan_changes: list[dict[str, Any]] = []
 
     for wave in server.list_waves(root):
-        wave_md = Path(wave["path"])
+        # Root-anchored (wave 1v1df): a degraded enumeration entry carries a
+        # repo-relative path and `changes: []`, so this join never re-reads a
+        # broken record today -- but the anchor keeps the path lawful if that
+        # invariant ever loosens, instead of resolving against the CWD.
+        wave_md = _root_anchored(root, str(wave["path"]))
         for change in wave.get("changes", []):
             change_path = wave_md.parent / f"{change['id']}.md"
             if not change_path.exists():
                 continue
             record = parse_change_doc(root, change_path)
-            wave_changes.append(record.__dict__)
+            wave_changes.append(_change_payload(record))
 
     for plan in server.list_plans(root):
         plan_path = root / plan["path"]
         if not plan_path.exists():
             continue
         record = parse_change_doc(root, plan_path)
-        plan_changes.append(record.__dict__)
+        plan_changes.append(_change_payload(record))
 
     return {"wave": wave_changes, "plan": plan_changes}
+
+
+def _degraded_wave_row(
+    root: Path, wave: dict[str, Any], wave_md: Path, read_error: str
+) -> dict[str, Any]:
+    """Visible degraded row for an unreadable wave record (wave 1v1df).
+
+    Mirrors ``wf_list_waves``' per-entry degrade: the broken wave is the one
+    entry an operator most needs to see, so it renders with its id, status,
+    and the path-free ``read_error`` instead of crashing the snapshot (decode
+    cause) or silently vanishing (permission cause). The cause reaches the
+    existing frontend tooltip by reusing the review-evidence integrity surface
+    (``integrity: "invalid"`` + ``diagnostics``); substituted-empty text must
+    NOT route through ``_review_evidence_dashboard_state``, which would
+    mislabel the row ``integrity: "legacy"`` -- silent, not visible.
+    """
+    changes = list(wave.get("changes") or [])
+    return {
+        "wave_id": wave["wave_id"],
+        "status": wave["status"],
+        "title": wave["wave_id"],
+        "objective": "",
+        "path": _repo_rel_or_name(root, wave_md),
+        "change_count": len(changes),
+        "changes": changes,
+        "participants": [],
+        "review_evidence": [],
+        "review_evidence_projection": None,
+        "review_evidence_status": {
+            "integrity": "invalid",
+            "projection": "unavailable",
+            "diagnostics": [read_error],
+        },
+        "review_checkpoint_preview": [],
+        "last_updated": _stat_mtime_iso(wave_md),
+        "read_error": read_error,
+    }
 
 
 def collect_waves(root: Path) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
     for wave in server.list_waves(root):
-        wave_md = Path(wave["path"])
-        try:
-            text = wave_md.read_text(encoding="utf-8")
-        except OSError:
+        wave_md = _root_anchored(root, str(wave["path"]))
+        # Trust the seam (wave 1v1df): a degraded enumeration entry already
+        # carries the operator-safe `read_error`; re-reading it here would
+        # re-derive what wf_list_waves already reported (or crash on it).
+        read_error = str(wave.get("read_error") or "") or None
+        text: str | None = None
+        if read_error is None:
+            try:
+                text = wave_md.read_text(encoding="utf-8")
+            except (OSError, UnicodeError) as exc:
+                # BOTH causes degrade. The previous `except OSError: continue`
+                # let a decode-broken record crash the snapshot and silently
+                # hid a permission-broken one -- on the diagnostic surface an
+                # operator opens to investigate exactly that input.
+                read_error = server._read_error_detail(exc)
+        if text is None:
+            result.append(_degraded_wave_row(root, wave, wave_md, read_error))
             continue
         title_match = re.search(r"^Title:\s+(.+)$", text, re.MULTILINE)
         objective = _extract_section(text, "Objective")
@@ -1140,7 +1300,7 @@ def collect_waves(root: Path) -> list[dict[str, Any]]:
                 "status": wave["status"],
                 "title": title_match.group(1).strip() if title_match else wave["wave_id"],
                 "objective": objective.splitlines()[0].strip() if objective else "",
-                "path": str(wave_md.relative_to(root)).replace("\\", "/"),
+                "path": _repo_rel_or_name(root, wave_md),
                 "change_count": len(wave.get("changes", [])),
                 "changes": wave.get("changes", []),
                 "participants": participants,
@@ -1152,7 +1312,7 @@ def collect_waves(root: Path) -> list[dict[str, Any]]:
                     "diagnostics": evidence_state["diagnostics"],
                 },
                 "review_checkpoint_preview": [line.strip() for line in checkpoints if line.strip()][:4],
-                "last_updated": datetime.fromtimestamp(wave_md.stat().st_mtime, UTC).isoformat(),
+                "last_updated": _stat_mtime_iso(wave_md),
             }
         )
     return result

@@ -4774,6 +4774,10 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             ),
             encoding="utf-8",
         )
+        # 1v0lx: close blocks on a missing admitted document; model it on disk.
+        for cid in self.srv._CHANGE_ID_PATTERN.findall(wave_md.read_text(encoding="utf-8")):
+            (wave_md.parent / f"{cid}.md").write_text(
+                f"# Sample\n\nChange ID: `{cid}`\n", encoding="utf-8")
         with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
             with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
                 result = self.srv.wf_close_wave_response(self.root, "1200a test-wave", mode="create")
@@ -5072,8 +5076,17 @@ class OperatorSignoffTests(unittest.TestCase):
         codes = {d["code"] for d in result["diagnostics"]}
         self.assertIn("missing_operator_signoff", codes)
 
+    def _write_admitted_docs(self) -> None:
+        # 1v0lx: close now blocks on a missing admitted document, so a
+        # close-path fixture must model a valid wave with its docs on disk.
+        text = self.wave_md.read_text(encoding="utf-8")
+        for cid in self.srv._CHANGE_ID_PATTERN.findall(text):
+            (self.wave_md.parent / f"{cid}.md").write_text(
+                f"# Sample\n\nChange ID: `{cid}`\n", encoding="utf-8")
+
     def test_wf_close_wave_succeeds_with_operator_signoff(self):
         self.wave_md.write_text(self._base_wave(with_operator_signoff=True), encoding="utf-8")
+        self._write_admitted_docs()
         with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
             with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
                 result = self.srv.wf_close_wave_response(self.root, "1200a test-wave", mode="create")
@@ -5084,6 +5097,7 @@ class OperatorSignoffTests(unittest.TestCase):
         # Wave 1p601 AC-2b: a successful close (mode=create) refreshes the
         # codebase map at the close-wave lifecycle checkpoint, fail-safe.
         self.wave_md.write_text(self._base_wave(with_operator_signoff=True), encoding="utf-8")
+        self._write_admitted_docs()
         with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
             with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
                 with patch.object(self.srv, "_regenerate_codebase_map_safe", return_value=True) as regen:
@@ -9336,6 +9350,53 @@ class MarkAcReceiptRefreshTests(unittest.TestCase):
         self.assertEqual(tasked["status"], "ok", tasked)
         self.assertEqual(self.review.review_event_path(self.wave_md).read_bytes(), before)
 
+    def test_refresh_failure_diagnostic_is_path_free(self):
+        """1uzwh delivery-council repair, both halves pinned separately.
+
+        The chmod scenario reaches the handler through _prepare_policy_state's
+        ledger read (producer: review_evidence's ledger OSError branch, now
+        path-free at the source), so it pins the PRODUCER half. The patched
+        scenario raises a real path-carrying OSError from the publication step
+        directly into the handler's except, bypassing every producer-side
+        sanitation, so it pins the CONSUMER half (the message must render via
+        _read_error_detail, not the raw exception). Red pre-fix on each half's
+        own scenario: the message contained the absolute target."""
+        leak_target = self.review.review_event_path(self.wave_md)
+
+        def _assert_path_free(response):
+            self.assertEqual(response["status"], "error", response)
+            self.assertEqual(
+                response["diagnostics"][0]["code"], "review_receipt_refresh_failed")
+            message = response["diagnostics"][0]["message"]
+            self.assertIn("Permission denied", message)
+            self.assertNotIn(
+                str(self.root), message,
+                "the refresh-failure diagnostic must not leak the absolute path")
+
+        with self.subTest(half="producer-ledger-read"):
+            os.chmod(leak_target, 0)
+            try:
+                response = self.srv._mark_change_item_response(
+                    self.root, self.wave_id, self.change_id, "AC-1", "~",
+                    target_section="Acceptance Criteria",
+                    reason="external validation pending", mode="create",
+                )
+            finally:
+                os.chmod(leak_target, 0o644)
+            _assert_path_free(response)
+
+        with self.subTest(half="consumer-raw-oserror"):
+            def boom(*args, **kwargs):
+                raise PermissionError(13, "Permission denied", str(leak_target))
+
+            with patch.object(self.srv, "_publish_prepare_policy_state", side_effect=boom):
+                response = self.srv._mark_change_item_response(
+                    self.root, self.wave_id, self.change_id, "AC-1", "~",
+                    target_section="Acceptance Criteria",
+                    reason="external validation pending", mode="create",
+                )
+            _assert_path_free(response)
+
     def test_receipt_write_failure_rolls_back_the_deferred_ac_and_ledger(self):
         change_before = self.change_path.read_bytes()
         ledger_before = self.review.review_event_path(self.wave_md).read_bytes()
@@ -12542,6 +12603,173 @@ class BulkWaveGetChangeTests(unittest.TestCase):
         self.assertIsNone(entry["content"])
         self.assertIn("Error", entry["read_error"])
 
+    def _ghost_wave(self) -> "Path":
+        """A resolvable wave whose sole admitted change has no file on disk."""
+        wave_dir = self.root / "docs" / "waves" / "ghost-wave"
+        wave_dir.mkdir(parents=True, exist_ok=True)
+        (wave_dir / "wave.md").write_text(
+            "# Wave Record\n"
+            "wave-id: `ghost-wave`\n"
+            "Status: active\n\n"
+            "## Changes\n\n"
+            "Change ID: `ch9gh-feat ghost`\n"
+            "Change Status: `complete`\n\n"
+            "## Review Evidence\n\n"
+            "- operator-signoff: approved\n"
+            "- architecture-reviewer: approved\n"
+            "- code-reviewer: approved\n"
+            "- qa-reviewer: approved\n",
+            encoding="utf-8",
+        )
+        return wave_dir
+
+    def test_close_hard_gate_blocks_a_missing_admitted_doc(self):
+        """1v0lx AC-1: a missing admitted document blocks close with its own
+        `change_doc_missing` diagnostic naming the change id and the
+        `wf_remove_change` recovery. Red pre-fix: the collector returned []
+        for a ghost and close (lint patched out, the TOCTOU window the hard
+        gate exists for) succeeded while the summary fabricated a record."""
+        from unittest.mock import patch as _patch
+
+        wave_dir = self._ghost_wave()
+        items = self.srv._collect_silent_unchecked_items_for_close(
+            wave_dir / "wave.md",
+            (wave_dir / "wave.md").read_text(encoding="utf-8"),
+        )
+        self.assertTrue(
+            any(i["item_type"] == "change document" and i["item_id"] == "missing"
+                for i in items),
+            items,
+        )
+        with _patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}), \
+             _patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
+            resp = self.srv.wf_close_wave_response(self.root, "ghost-wave", mode="dry_run")
+        self.assertEqual(resp["status"], "error")
+        codes = [d["code"] for d in resp.get("diagnostics") or []]
+        self.assertIn("change_doc_missing", codes, codes)
+        self.assertNotIn(
+            "change_doc_unreadable", codes,
+            "absent is not broken: the missing case must not reuse the unreadable code",
+        )
+        message = " ".join(d["message"] for d in resp["diagnostics"]
+                           if d["code"] == "change_doc_missing")
+        self.assertIn("ch9gh-feat ghost", message)
+        self.assertIn("wf_remove_change", message)
+        self.assertNotIn(str(self.root), message,
+                         "the missing-doc message must not leak the absolute path")
+
+    def test_single_fault_publication_detail_is_path_free(self):
+        """1v0ly AC-2, red-first (the qa readiness probe observed the head
+        leaking the absolute path with `rollback_errors` empty): the common
+        single-fault path must compose the whole detail path-free while still
+        naming the artifact, its purpose, and the cause."""
+        from unittest.mock import patch as _patch
+
+        artifact = self.root / "docs" / "waves" / "bulk-wave" / "artifact-a.txt"
+
+        def boom(path, payload, purpose):
+            raise PermissionError(13, "Permission denied", str(path))
+
+        with _patch.object(self.srv, "_atomic_replace_bytes", side_effect=boom):
+            with self.assertRaises(OSError) as ctx:
+                self.srv._replace_artifacts_transactionally(
+                    self.root, [(artifact, b"payload", "receipt")])
+        detail = str(ctx.exception)
+        self.assertNotIn(str(self.root), detail,
+                         "the single-fault head must not leak the absolute path")
+        self.assertIn("artifact-a.txt", detail)
+        self.assertIn("receipt", detail)
+        self.assertIn("Permission denied", detail)
+        self.assertNotIn("rollback incomplete", detail)
+
+    def test_double_fault_publication_detail_is_path_free(self):
+        """1v0ly AC-1: forced rollback double-fault, raise site exercised
+        directly; entries render repo-relative with causes, no absolute
+        path anywhere in the composed detail."""
+        from unittest.mock import patch as _patch
+
+        wave_dir = self.root / "docs" / "waves" / "bulk-wave"
+        wave_dir.mkdir(parents=True, exist_ok=True)
+        first = wave_dir / "artifact-a.txt"
+        second = wave_dir / "artifact-b.txt"
+        first.write_bytes(b"old-a")
+
+        real = self.srv._atomic_replace_bytes
+        calls = {"n": 0}
+
+        def flaky(path, payload, purpose):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                real(path, payload, purpose)
+                return
+            raise PermissionError(13, "Permission denied", str(path))
+
+        with _patch.object(self.srv, "_atomic_replace_bytes", side_effect=flaky):
+            with self.assertRaises(OSError) as ctx:
+                self.srv._replace_artifacts_transactionally(
+                    self.root,
+                    [(first, b"new-a", "receipt"), (second, b"new-b", "projection")])
+        detail = str(ctx.exception)
+        self.assertIn("rollback incomplete", detail)
+        self.assertIn("artifact-a.txt", detail)
+        self.assertIn("artifact-b.txt", detail)
+        self.assertIn("Permission denied", detail)
+        self.assertNotIn(str(self.root), detail,
+                         "the double-fault entries must not leak absolute paths")
+
+    def test_out_of_repo_artifact_renders_final_component_only(self):
+        """1v0ly Requirement 1: `_repo_rel`'s fallback still raises for a
+        genuinely out-of-repo path, so the composition keeps the artifact
+        name and drops the absolute prefix."""
+        import tempfile as _tempfile
+        from unittest.mock import patch as _patch
+
+        outside = Path(_tempfile.mkdtemp(prefix="outside-repo-"))
+        self.addCleanup(shutil.rmtree, outside, ignore_errors=True)
+        artifact = outside / "stray-receipt.jsonl"
+
+        def boom(path, payload, purpose):
+            raise PermissionError(13, "Permission denied", str(path))
+
+        with _patch.object(self.srv, "_atomic_replace_bytes", side_effect=boom):
+            with self.assertRaises(OSError) as ctx:
+                self.srv._replace_artifacts_transactionally(
+                    self.root, [(artifact, b"payload", "receipt")])
+        detail = str(ctx.exception)
+        self.assertIn("stray-receipt.jsonl", detail)
+        self.assertNotIn(str(outside), detail,
+                         "an out-of-repo artifact renders its final component only")
+
+    def test_read_error_detail_behavioral_pin(self):
+        """1v0ly AC-4: behavioral pin, not a source-literal one (the 1upba
+        lesson): strerror rendering for a real OSError, verbatim fall-through
+        for a synthetic single-arg one."""
+        real = FileNotFoundError(2, "No such file or directory", "/abs/secret/path")
+        with self.subTest(shape="real-oserror-strerror"):
+            detail = self.srv._read_error_detail(real)
+            self.assertIn("FileNotFoundError", detail)
+            self.assertIn("No such file or directory", detail)
+            self.assertNotIn("/abs/secret/path", detail)
+        with self.subTest(shape="synthetic-single-arg-verbatim"):
+            synthetic = OSError("verbatim message with /some/path")
+            self.assertIsNone(synthetic.strerror)
+            detail = self.srv._read_error_detail(synthetic)
+            self.assertIn("verbatim message with /some/path", detail)
+
+    def test_close_summary_raises_on_a_ghost_instead_of_fabricating(self):
+        """1v0lx AC-2, by direct generator call (through the blocked gate no
+        summary is generated and the branch would ship byte-unchanged). Red
+        pre-fix: returned 'delivered one change' describing a document that
+        does not exist."""
+        wave_dir = self._ghost_wave()
+        text = (wave_dir / "wave.md").read_text(encoding="utf-8")
+        with self.assertRaises(ValueError) as ctx:
+            self.srv._generate_wf_close_wave_summary(
+                "ghost-wave", text, wave_dir / "wave.md")
+        self.assertIn("ch9gh-feat ghost", str(ctx.exception))
+        self.assertIn("wf_remove_change", str(ctx.exception))
+        self.assertNotIn(str(self.root), str(ctx.exception))
+
     def test_list_plans_reports_an_unreadable_plan_doc(self):
         """1uu9z follow-up (twelfth site, found by the delivery code lane):
         `wf_list_plans` is the recovery tool `change_doc_unreadable` routes to
@@ -12812,6 +13040,555 @@ class BulkWaveGetChangeTests(unittest.TestCase):
         single_messages = " ".join(d["message"] for d in single.get("diagnostics") or [])
         self.assertIn("ch1xx-feat first", single_messages)
         self.assertIn("UnicodeDecodeError", single_messages)
+
+
+class UnreadableWaveRecordTests(unittest.TestCase):
+    """1v0lw: an unreadable ``wave.md`` returns diagnostics at every boundary.
+
+    Red-first record (2026-08-11, against the pre-seam code): the decode cause
+    raised ``UnicodeDecodeError`` at all nine probed boundaries; the permission
+    cause raised ``PermissionError`` at the two enumeration tools and
+    misreported ``wave_not_found`` at the seven by-id boundaries, because the
+    resolution path swallowed ``OSError`` (`_resolve_wave_md_matches` skipped
+    the record; `_wave_match_payload` substituted an empty parse).  Both
+    fail-open shapes are pinned here per cause, per site class.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        self.srv = type(self).srv
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        _make_repo(self.root)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    _WAVE_TEXT = (
+        "# Wave Record\n\nOwner: Engineering\nStatus: active\n"
+        "Last verified: 2026-01-01\n\nwave-id: `seam-wave`\nTitle: Seam Wave\n\n"
+        "## Changes\n\nChange ID: `ch1sm-feat first`\nChange Status: `planned`\n"
+    )
+    _CHANGE_TEXT = (
+        "# First\n\nChange ID: `ch1sm-feat first`\nChange Status: `planned`\n\n"
+        "## Acceptance Criteria\n\n- [ ] AC-1: the seam holds\n\n"
+        "## Tasks\n\n- [ ] Route the read\n"
+    )
+
+    def _fresh_root(self):
+        """Start a clean repo for one subTest without re-entering setUp().
+
+        Same rationale as ``BulkWaveGetChangeTests._fresh_root``: re-calling
+        setUp() rebinds self.tmp and leaks the earlier TemporaryDirectory.
+        """
+        self.tmp.cleanup()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        _make_repo(self.root)
+
+    def _make_unreadable(self, path, mode):
+        """Make `path` unreadable by `mode`; restore permissions at test end."""
+        if mode == "decode":
+            path.write_bytes(b"\xff\xfe not valid utf-8 \xff")
+        else:
+            if not path.exists():
+                path.write_text("# placeholder\n", encoding="utf-8")
+            os.chmod(path, 0)
+            self.addCleanup(
+                lambda: path.exists() and os.chmod(path, stat.S_IRUSR | stat.S_IWUSR))
+        return path
+
+    def _wave(self, name="seam-wave"):
+        """A readable governed wave with one admitted change carrying AC and task items."""
+        wave_dir = self.root / "docs" / "waves" / name
+        wave_dir.mkdir(parents=True, exist_ok=True)
+        wave_md = wave_dir / "wave.md"
+        wave_md.write_text(
+            self._WAVE_TEXT.replace("seam-wave", name), encoding="utf-8")
+        (wave_dir / "ch1sm-feat first.md").write_text(
+            self._CHANGE_TEXT, encoding="utf-8")
+        return wave_md
+
+    def _decision_calls(self):
+        """The seven by-id boundaries of the nine-boundary matrix.
+
+        ``wf_mark_ac`` and ``wf_mark_task`` are each probed at their own
+        boundary through the shared responder's ``target_section`` variants.
+        """
+        return {
+            "get_change": lambda: self.srv.wf_get_change_response(
+                self.root, wave_id="seam-wave"),
+            "prepare": lambda: self.srv.wf_prepare_wave_response(
+                self.root, wave_id="seam-wave", mode="dry_run"),
+            "implement": lambda: self.srv.wf_implement_wave_response(
+                self.root, wave_id="seam-wave", mode="dry_run"),
+            "close": lambda: self.srv.wf_close_wave_response(
+                self.root, "seam-wave", mode="dry_run"),
+            "pause": lambda: self.srv.wf_pause_wave_response(
+                self.root, "seam-wave", mode="dry_run"),
+            "mark_ac": lambda: self.srv._mark_change_item_response(
+                self.root, "seam-wave", "ch1sm-feat first", "AC-1", "x",
+                target_section="Acceptance Criteria", mode="dry_run"),
+            "mark_task": lambda: self.srv._mark_change_item_response(
+                self.root, "seam-wave", "ch1sm-feat first", "Route the read", "x",
+                target_section="Tasks", mode="dry_run"),
+        }
+
+    def test_decision_tools_refuse_on_an_unreadable_wave_record(self):
+        """1v0lw AC-2/AC-3/AC-5 at the seven by-id boundaries, both causes.
+
+        AC-5 mutation kills, named per boundary: restoring a raw read at any
+        of these boundaries resurfaces as a crash on the decode cause (the
+        call raises ``UnicodeDecodeError`` again and the try/fail below
+        reports it) or as the ``wave_not_found`` misdirection on the
+        permission cause (the resolution skip returns and the exact-code
+        assertions below catch the regression).  ``wf_mark_ac`` and
+        ``wf_mark_task`` are covered at their own boundaries.
+        """
+        for cause in ("decode", "permission"):
+            for name, call in self._decision_calls().items():
+                with self.subTest(cause=cause, tool=name):
+                    self._fresh_root()
+                    self._wave()
+                    self._make_unreadable(
+                        self.root / "docs" / "waves" / "seam-wave" / "wave.md",
+                        cause)
+                    try:
+                        resp = call()
+                    except (OSError, UnicodeError) as exc:
+                        self.fail(
+                            f"{name} must report the unreadable wave record, "
+                            f"not raise: {exc!r}")
+                    self.assertEqual(resp["status"], "error", (name, cause, resp))
+                    codes = [d["code"] for d in resp.get("diagnostics") or []]
+                    self.assertIn(
+                        "wave_record_unreadable", codes, (name, cause, codes))
+                    self.assertNotIn(
+                        "wave_not_found", codes,
+                        f"{name}/{cause}: a read failure reported as a "
+                        "nonexistent wave sends the operator to the wrong "
+                        "recovery (the AC-9 misdirection)")
+                    message = " ".join(
+                        d["message"] for d in resp["diagnostics"]
+                        if d["code"] == "wave_record_unreadable")
+                    self.assertIn(
+                        "wave.md", message,
+                        "the diagnostic must name the wave record")
+                    self.assertIn("seam-wave", message)
+                    self.assertIn(
+                        "Error", message,
+                        "AC-3: the diagnostic must carry the CAUSE (exception "
+                        "type), not the record name alone")
+                    # Reach-guard: the exact diagnostic fired above, so the
+                    # leak assertion cannot pass vacuously (1uu9z pattern).
+                    blob = json.dumps(resp.get("diagnostics") or []) + json.dumps(
+                        resp.get("data") or {})
+                    self.assertNotIn(
+                        str(self.root), blob,
+                        f"{name}/{cause}: a read-failure message leaked the "
+                        "absolute repository path")
+
+    def _mutation_calls(self):
+        """The census-added mutation boundaries beyond the probed nine."""
+        return {
+            "add_change": lambda: self.srv.wf_add_change_response(
+                self.root, wave_id="seam-wave", change_id="chadd-feat plan",
+                mode="dry_run"),
+            "remove_change": lambda: self.srv.wf_remove_change_response(
+                self.root, wave_id="seam-wave", change_id="ch1sm-feat first",
+                mode="dry_run"),
+            "review_event": lambda: self.srv.wf_review_event_response(
+                self.root, "seam-wave", "approval", "tester", "ctx-1",
+                mode="dry_run", signoff_key="code-reviewer",
+                approval_phase="delivery"),
+            "review_wave": lambda: self.srv.wf_review_wave_response(
+                self.root, "seam-wave", phase="prepare"),
+            "reopen": lambda: self.srv.wf_reopen_wave_response(
+                self.root, "seam-wave"),
+        }
+
+    def test_census_added_mutation_tools_refuse_on_an_unreadable_wave_record(self):
+        """1v0lw census extension: the six raising tools beyond the probed nine.
+
+        Red-first: decode raised out of every one of these; permission
+        misreported ``wave_not_found`` (``create_wave`` raised
+        ``PermissionError`` instead, covered by its own test below).
+        """
+        for cause in ("decode", "permission"):
+            for name, call in self._mutation_calls().items():
+                with self.subTest(cause=cause, tool=name):
+                    self._fresh_root()
+                    self._wave()
+                    plans = self.root / "docs" / "plans"
+                    plans.mkdir(parents=True, exist_ok=True)
+                    (plans / "chadd-feat plan.md").write_text(
+                        "# Plan\n\nChange ID: `chadd-feat plan`\n"
+                        "Change Status: `planned`\n", encoding="utf-8")
+                    self._make_unreadable(
+                        self.root / "docs" / "waves" / "seam-wave" / "wave.md",
+                        cause)
+                    try:
+                        resp = call()
+                    except (OSError, UnicodeError) as exc:
+                        self.fail(
+                            f"{name} must report the unreadable wave record, "
+                            f"not raise: {exc!r}")
+                    self.assertEqual(resp["status"], "error", (name, cause, resp))
+                    codes = [d["code"] for d in resp.get("diagnostics") or []]
+                    self.assertIn(
+                        "wave_record_unreadable", codes, (name, cause, codes))
+                    self.assertNotIn("wave_not_found", codes, (name, cause))
+                    message = " ".join(
+                        d["message"] for d in resp["diagnostics"]
+                        if d["code"] == "wave_record_unreadable")
+                    self.assertIn("wave.md", message)
+                    self.assertIn("Error", message)
+                    blob = json.dumps(resp.get("diagnostics") or []) + json.dumps(
+                        resp.get("data") or {})
+                    self.assertNotIn(str(self.root), blob, (name, cause))
+
+    def test_create_wave_refuses_when_the_existing_record_is_unreadable(self):
+        """1v0lw census extension at ``create_wave``'s existing-record read.
+
+        The minted id is pinned by patching the lifecycle module (each real
+        mint advances, so a dry-run preview cannot place the fixture), which
+        lets the fixture plant the unreadable record exactly where the
+        create-mode read (`existing_text = ...`) will find it.
+        """
+        for cause in ("decode", "permission"):
+            with self.subTest(cause=cause):
+                self._fresh_root()
+                wave_md = (self.root / "docs" / "waves"
+                           / "seamzz seam-probe" / "wave.md")
+                wave_md.parent.mkdir(parents=True, exist_ok=True)
+                self._make_unreadable(wave_md, cause)
+                try:
+                    with patch.object(self.srv, "_lifecycle_module") as lifecycle:
+                        lifecycle.return_value.build_id.return_value = (
+                            "seamzz seam-probe")
+                        resp = self.srv.wf_create_wave_response(
+                            self.root, "seam-probe", mode="create")
+                except (OSError, UnicodeError) as exc:
+                    self.fail(
+                        "create_wave must refuse over an unreadable existing "
+                        f"record, not raise: {exc!r}")
+                self.assertEqual(resp["status"], "error", resp)
+                codes = [d["code"] for d in resp.get("diagnostics") or []]
+                self.assertIn("wave_record_unreadable", codes, codes)
+                message = " ".join(
+                    d["message"] for d in resp["diagnostics"]
+                    if d["code"] == "wave_record_unreadable")
+                self.assertIn("Error", message)
+                self.assertNotIn(str(self.root), message)
+
+    def test_enumeration_tools_degrade_per_entry_on_an_unreadable_wave_record(self):
+        """1v0lw AC-4: the recovery tools recover; readable siblings survive.
+
+        Red-first: both tools raised ``UnicodeDecodeError`` on decode and
+        ``PermissionError`` on permission (their read path has no handler at
+        all), taking the readable sibling down with the broken record.
+        """
+        for cause in ("decode", "permission"):
+            for name in ("list_waves", "current_wave"):
+                with self.subTest(cause=cause, tool=name):
+                    self._fresh_root()
+                    self._wave()
+                    sibling = self.root / "docs" / "waves" / "aa-broken"
+                    sibling.mkdir(parents=True, exist_ok=True)
+                    self._make_unreadable(sibling / "wave.md", cause)
+                    fn = (self.srv.wf_list_waves_response
+                          if name == "list_waves"
+                          else self.srv.wf_current_wave_response)
+                    try:
+                        resp = fn(self.root)
+                    except (OSError, UnicodeError) as exc:
+                        self.fail(
+                            f"{name} must degrade per entry, not raise: {exc!r}")
+                    self.assertEqual(resp["status"], "ok", (name, cause, resp))
+                    waves = resp["data"]["waves"]
+                    ids = [w.get("wave_id") for w in waves]
+                    self.assertIn(
+                        "seam-wave", ids,
+                        "readable siblings must still be returned")
+                    self.assertIn(
+                        "aa-broken", ids,
+                        "the unreadable wave must be LISTED with its error, "
+                        "not silently dropped")
+                    bad = next(w for w in waves if w["wave_id"] == "aa-broken")
+                    self.assertIn("Error", bad["read_error"])
+                    codes = [d["code"] for d in resp.get("diagnostics") or []]
+                    self.assertIn("wave_record_unreadable", codes, (name, codes))
+                    # Reach-guard held (entry + diagnostic asserted above).
+                    # Readable sibling records keep their historical absolute
+                    # `path`, so the leak assertion covers the NEW surfaces:
+                    # the degraded entry and the diagnostics.
+                    blob = json.dumps(resp.get("diagnostics") or []) + json.dumps(bad)
+                    self.assertNotIn(str(self.root), blob, (name, cause))
+
+    def test_current_wave_surfaces_the_only_wave_when_it_is_unreadable(self):
+        """1v0lw AC-4 corner: unreadable-only-wave must not become 'no wave'.
+
+        A silent ``no_active_wave`` here is the misdirection shape relocated:
+        the operator's first diagnostic tool would deny the wave exists.
+        """
+        for cause in ("decode", "permission"):
+            with self.subTest(cause=cause):
+                self._fresh_root()
+                wave_dir = self.root / "docs" / "waves" / "only-wave"
+                wave_dir.mkdir(parents=True, exist_ok=True)
+                self._make_unreadable(wave_dir / "wave.md", cause)
+                try:
+                    resp = self.srv.wf_current_wave_response(self.root)
+                except (OSError, UnicodeError) as exc:
+                    self.fail(f"wf_current_wave must degrade, not raise: {exc!r}")
+                self.assertEqual(resp["status"], "ok", resp)
+                waves = resp["data"]["waves"]
+                self.assertTrue(
+                    waves,
+                    "the unreadable wave must be surfaced with its read_error, "
+                    "not degraded to a silent 'no current wave'")
+                self.assertEqual(waves[0]["wave_id"], "only-wave")
+                self.assertIn("Error", waves[0]["read_error"])
+                codes = [d["code"] for d in resp.get("diagnostics") or []]
+                self.assertIn("wave_record_unreadable", codes, codes)
+                self.assertNotIn(
+                    "no_active_wave", codes,
+                    "reporting 'no active wave' over a read failure is the "
+                    "fail-open shape this test pins")
+
+    def test_an_unreadable_sibling_does_not_contaminate_by_id_resolution(self):
+        """1v0lw Requirement 5: sibling contamination, both causes.
+
+        Red-first: an undecodable NON-matching sibling crashed by-id
+        resolution of a READABLE wave (`_resolve_wave_md_matches` parses every
+        record before token-matching); the permission cause resolved but
+        silently hid the sibling.  Green: resolution succeeds AND the skipped
+        sibling's diagnostic is surfaced alongside the successful result.
+        """
+        for cause in ("decode", "permission"):
+            with self.subTest(cause=cause):
+                self._fresh_root()
+                self._wave()
+                sibling = self.root / "docs" / "waves" / "aa-broken"
+                sibling.mkdir(parents=True, exist_ok=True)
+                self._make_unreadable(sibling / "wave.md", cause)
+                try:
+                    resp = self.srv.wf_get_change_response(
+                        self.root, wave_id="seam-wave")
+                except (OSError, UnicodeError) as exc:
+                    self.fail(
+                        "an unreadable SIBLING must not break resolution of a "
+                        f"readable wave: {exc!r}")
+                self.assertEqual(resp["status"], "ok", resp)
+                self.assertEqual(resp["data"]["wave_id"], "seam-wave")
+                ids = [c["id"] for c in resp["data"]["changes"]]
+                self.assertIn("ch1sm-feat first", ids)
+                codes = [d["code"] for d in resp.get("diagnostics") or []]
+                self.assertIn(
+                    "wave_record_unreadable", codes,
+                    "the skipped unreadable sibling must be surfaced alongside "
+                    "the successful result, not silently hidden")
+                message = " ".join(
+                    d["message"] for d in resp["diagnostics"]
+                    if d["code"] == "wave_record_unreadable")
+                self.assertIn("aa-broken", message)
+                self.assertNotIn(str(self.root), message)
+
+    def test_zero_match_resolution_with_unreadable_candidates_is_not_wave_not_found(self):
+        """1v0lw AC-9: the renamed-dir evasion class, both causes.
+
+        The requested id may live INSIDE the unreadable record (wave-id and
+        dirname can diverge), so zero readable matches plus a skipped
+        unreadable candidate is a read failure, never a missing wave.
+        Red-first: permission yielded bare ``wave_not_found``; decode raised.
+        """
+        for cause in ("decode", "permission"):
+            with self.subTest(cause=cause):
+                self._fresh_root()
+                renamed = self.root / "docs" / "waves" / "renamed-dir"
+                renamed.mkdir(parents=True, exist_ok=True)
+                self._make_unreadable(renamed / "wave.md", cause)
+                try:
+                    resp = self.srv.wf_prepare_wave_response(
+                        self.root, wave_id="mystery-wave", mode="dry_run")
+                except (OSError, UnicodeError) as exc:
+                    self.fail(f"prepare must report, not raise: {exc!r}")
+                self.assertEqual(resp["status"], "error", resp)
+                codes = [d["code"] for d in resp.get("diagnostics") or []]
+                self.assertIn(
+                    "wave_record_unreadable", codes,
+                    "zero matches with a skipped unreadable candidate is a "
+                    "read failure, not a missing wave")
+                self.assertNotIn("wave_not_found", codes, codes)
+                message = " ".join(
+                    d["message"] for d in resp["diagnostics"]
+                    if d["code"] == "wave_record_unreadable")
+                self.assertIn(
+                    "renamed-dir", message,
+                    "the skipped unreadable candidate must be listed")
+                self.assertNotIn(str(self.root), message)
+
+    def test_a_readable_wave_record_is_unaffected_by_the_seam(self):
+        """1v0lw AC-6 durable half: ok status, zero read diagnostics, determinism.
+
+        The executed before/after byte comparison across the touched tools is
+        recorded in the change doc's Progress Log; what this holds durably is
+        the regression invariant for a normally-decoding record.
+        """
+        self._wave()
+        surfaces = {
+            "current_wave": lambda: self.srv.wf_current_wave_response(self.root),
+            "list_waves": lambda: self.srv.wf_list_waves_response(self.root),
+            "get_change": lambda: self.srv.wf_get_change_response(
+                self.root, wave_id="seam-wave"),
+            "pause": lambda: self.srv.wf_pause_wave_response(
+                self.root, "seam-wave", mode="dry_run"),
+            "mark_ac": lambda: self.srv._mark_change_item_response(
+                self.root, "seam-wave", "ch1sm-feat first", "AC-1", "x",
+                target_section="Acceptance Criteria", mode="dry_run"),
+            "mark_task": lambda: self.srv._mark_change_item_response(
+                self.root, "seam-wave", "ch1sm-feat first", "Route the read",
+                "x", target_section="Tasks", mode="dry_run"),
+        }
+        for name, call in surfaces.items():
+            with self.subTest(surface=name):
+                first, second = call(), call()
+                # wf_pause_wave reports its preview mode as the envelope
+                # status; every other surface here answers "ok".
+                expected_status = "dry_run" if name == "pause" else "ok"
+                self.assertEqual(first["status"], expected_status, (name, first))
+                codes = [d.get("code") for d in first.get("diagnostics") or []]
+                self.assertNotIn("wave_record_unreadable", codes, name)
+                self.assertEqual(
+                    first["data"], second["data"],
+                    f"{name}: responses for a readable record must be "
+                    "deterministic across calls")
+
+
+class WaveRecordReadSeamCensusTests(unittest.TestCase):
+    """1v0lw residue census: no ``wave.md`` read outside the read seam.
+
+    Keyed by RESOLVED TARGET, not receiver name (the receiver-name census key
+    missed ``contained_wave.read_text`` in ``_publish_prepare_policy_state``):
+    a ``.read_text`` call is a wave-record read when its receiver expression
+    contains the ``wave.md`` literal, uses a conventional wave-record binder
+    name, or is bound from a wave-path producer
+    (``_find_wave_md`` / ``_contained_wave_review_paths``).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    # Names conventionally bound to a wave record path in this module.
+    _WAVE_RECEIVER_NAMES = {"wave_md", "wave_path", "wave_file", "contained_wave"}
+    # Callables whose return value is a wave record path (element 0 for the
+    # tuple-returning producer).
+    _WAVE_PATH_PRODUCERS = {"_find_wave_md", "_find_wave_md_detailed", "_contained_wave_review_paths"}
+    _ALLOWED_READERS = {
+        # The seam itself: the sole raw-read boundary for wave records.
+        "_read_wave_record_text",
+        # MCP resource reader; resource surfaces are out of scope per the
+        # 1v0lw change doc Scope ("Reads of prompts, seeds, handoff, and MCP
+        # resources").  Listed so an in-scope reader can never hide behind
+        # the resource exemption unreviewed.
+        "_validated_wave_markdown",
+    }
+
+    def test_every_wave_record_read_routes_through_the_seam(self):
+        module = ast.parse(Path(self.srv.__file__).read_text(encoding="utf-8"))
+        parents = {}
+        for node in ast.walk(module):
+            for child in ast.iter_child_nodes(node):
+                parents[child] = node
+
+        def enclosing_function(node):
+            cur = node
+            while cur in parents:
+                cur = parents[cur]
+                if isinstance(cur, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    return cur
+            return None
+
+        def bound_names(value, targets):
+            """Names bound to the wave-path half of an assignment/loop target."""
+            names = set()
+            for tgt in targets:
+                if (isinstance(tgt, ast.Tuple) and tgt.elts
+                        and isinstance(value, ast.Call)):
+                    called = (getattr(value.func, "id", None)
+                              or getattr(value.func, "attr", None))
+                    if called == "_contained_wave_review_paths":
+                        # (wave_md, events_path): only element 0 is the record.
+                        first = tgt.elts[0]
+                        names.update(
+                            n.id for n in ast.walk(first)
+                            if isinstance(n, ast.Name))
+                        continue
+                names.update(
+                    n.id for n in ast.walk(tgt) if isinstance(n, ast.Name))
+            return names
+
+        def resolves_to_wave_record(call):
+            recv = call.func.value
+            recv_src = ast.unparse(recv)
+            if "wave.md" in recv_src:
+                return True
+            recv_names = {
+                n.id for n in ast.walk(recv) if isinstance(n, ast.Name)}
+            if recv_names & self._WAVE_RECEIVER_NAMES:
+                return True
+            fn = enclosing_function(call)
+            if fn is None or not recv_names:
+                return False
+            for node in ast.walk(fn):
+                if isinstance(node, ast.Assign):
+                    value, targets = node.value, node.targets
+                elif isinstance(node, ast.For):
+                    value, targets = node.iter, (node.target,)
+                elif isinstance(node, ast.comprehension):
+                    value, targets = node.iter, (node.target,)
+                else:
+                    continue
+                if not (bound_names(value, targets) & recv_names):
+                    continue
+                if "wave.md" in ast.unparse(value):
+                    return True
+                called = {
+                    (getattr(n.func, "id", None) or getattr(n.func, "attr", None))
+                    for n in ast.walk(value) if isinstance(n, ast.Call)
+                }
+                if called & self._WAVE_PATH_PRODUCERS:
+                    return True
+            return False
+
+        offenders = []
+        flagged = 0
+        for node in ast.walk(module):
+            if not (isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "read_text"):
+                continue
+            if not resolves_to_wave_record(node):
+                continue
+            flagged += 1
+            fn = enclosing_function(node)
+            fn_name = fn.name if fn is not None else "<module>"
+            if fn_name not in self._ALLOWED_READERS:
+                offenders.append(
+                    f"line {node.lineno} in {fn_name}: "
+                    f"{ast.unparse(node.func.value)}.read_text(...)")
+        self.assertTrue(
+            flagged,
+            "the census detector flagged no wave-record reads at all; the "
+            "detector itself broke (the seam's own read must be flagged)")
+        self.assertEqual(
+            offenders, [],
+            "every wave.md read must route through _read_wave_record_text "
+            "(the 1v0lw seam); raw reads found: " + "; ".join(offenders))
 
 
 class FtsQueryShapeTests(unittest.TestCase):
@@ -17044,6 +17821,53 @@ class WaveCouncilPolicyTests(unittest.TestCase):
             self._close_roster(wave_md),
             "an unreadable ledger must not be read as never-prepared",
         )
+
+    def test_an_unreadable_wave_record_does_not_drop_the_readiness_key(self):
+        """1v1de AC-4: the close carve-out must fail closed on an unreadable
+        wave RECORD, not just an unreadable ledger.
+
+        Red-first, both causes: before the facade fix the permission cause
+        downgraded the authority to legacy-empty (``typed=False``, empty text,
+        empty ``ledger_errors``), so ``never_prepared_under_policy`` read True
+        and the readiness key fell off the close roster (strictly MORE
+        permissive than the downgrade itself); the decode cause raised
+        ``UnicodeDecodeError`` out of the roster derivation entirely.  The
+        typed-with-errors shape keeps the key through the ledger-health
+        conjunct.  ``wave_text`` is deliberately not passed: the facade's own
+        record read is the seam under test (production callers pass pre-read
+        seam text; this is the direct-consumer / post-gate-race window).
+        """
+        self._write_config(transition_policy="applies-from-next-prepare")
+        _wave_id, wave_md = self._governed_wave_without_readiness_approval(
+            "close-unreadable-record"
+        )
+        readable = wave_md.read_bytes()
+
+        with self.subTest(cause="decode"):
+            wave_md.write_bytes(b"\xff\xfe not valid utf-8 \xff")
+            self.assertIn(
+                "wave-council-readiness",
+                self.srv._required_wave_council_signoffs(
+                    self.root, "close", wave_md=wave_md
+                ),
+                "an undecodable wave record must not be read as never-prepared",
+            )
+
+        with self.subTest(cause="permission"):
+            wave_md.write_bytes(readable)
+            os.chmod(wave_md, 0)
+            try:
+                roster = self.srv._required_wave_council_signoffs(
+                    self.root, "close", wave_md=wave_md
+                )
+            finally:
+                os.chmod(wave_md, stat.S_IRUSR | stat.S_IWUSR)
+            self.assertIn(
+                "wave-council-readiness",
+                roster,
+                "a permission-unreadable wave record must not be read as "
+                "never-prepared",
+            )
 
     def test_an_invalid_wave_review_config_refuses_the_approval(self):
         """1upba AC-2 case (b): the accepted repository-wide refusal.
@@ -32542,10 +33366,13 @@ class WaveCloseSecretsGateTests(unittest.TestCase):
         self.wave_id = "1200b secrets-gate-test"
         wave_dir = self.root / "docs" / "waves" / self.wave_id
         wave_dir.mkdir(parents=True, exist_ok=True)
-        (wave_dir / "wave.md").write_text(
-            _WAVE_CLOSE_READY_TEXT.format(wave_id=self.wave_id),
-            encoding="utf-8",
-        )
+        wave_text = _WAVE_CLOSE_READY_TEXT.format(wave_id=self.wave_id)
+        (wave_dir / "wave.md").write_text(wave_text, encoding="utf-8")
+        # 1v0lx: close blocks on a missing admitted document; the close-ready
+        # fixture models a valid wave, so its docs exist on disk.
+        for cid in self.srv._CHANGE_ID_PATTERN.findall(wave_text):
+            (wave_dir / f"{cid}.md").write_text(
+                f"# Sample\n\nChange ID: `{cid}`\n", encoding="utf-8")
 
     def tearDown(self):
         import shutil
