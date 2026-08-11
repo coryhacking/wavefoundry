@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-03
+Last verified: 2026-08-11
 
 ## Test Tiers
 
@@ -32,7 +32,7 @@ Last verified: 2026-08-03
 
 These tests exercise the real `fastembed` embedding path — no mocks. They pin four properties as regression anchors so that a future model upgrade fails loudly rather than silently:
 
-- **Model name** — `DOCS_MODEL == "BAAI/bge-small-en-v1.5"`
+- **Model name** — independent `DOCS_MODEL` and `CODE_MODEL` selectors both equal `Snowflake/snowflake-arctic-embed-s`
 - **Dimension** — output vector length == 384
 - **Determinism** — same text always produces the same vector
 - **Ranking order** — a semantically close query ranks its best match above an unrelated chunk

@@ -1207,6 +1207,13 @@ def main():
             file=sys.stderr,
         )
         sys.exit(1)
+    if (args.release or args.release_dry_run) and not args.with_models:
+        print(
+            "error: --release and --release-dry-run require --with-models so the "
+            "matching offline model-set asset ships with the feature archive",
+            file=sys.stderr,
+        )
+        sys.exit(1)
     version_parts = tuple(int(part) for part in args.version.split("."))
     if version_parts < (1, 0, 0):
         print(

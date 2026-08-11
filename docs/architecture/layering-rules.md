@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-04
+Last verified: 2026-08-11
 
 ## Allowed Dependencies
 
@@ -27,6 +27,7 @@ Last verified: 2026-08-04
 | `review_policy.py` carrier registry → direct docs | Direct-doc carriers are validation-only and never target-repository writers | Verified by owner-permission registry tests |
 | Upgrade → project publishers | Upgrade acquires lifecycle then publication ownership; registered publishers fail fast from the durable checkpoint, except the two memory-recovery writers at the exact memory pause | Verified by lock-order, checkpoint, and public-wrapper tests |
 | FROM-runner → TO-tree summary producer | The pre-extraction parent produces the primary-phase summary only through the pinned `--emit-summary` contract on the freshly extracted tree (argv, sentinel prefix, `summary_schema_version` token, pinned timeout; upgrade lock as the sole state carrier, old-schema tolerant); the surface never changes silently (deliberate versioned evolution bumps the schema token); any contract failure degrades to the parent's marked in-process fallback, never a second sentinel and never unlabeled old-schema output. This boundary governs the PRIMARY-phase producer only; wave 1uf68 additionally has the separate cleanup process carry the same token at its own emit site, which is not a second sentinel in this stream (each subprocess invocation's stdout is parsed on its own) and does not make the token exclusive to this boundary | Verified by the permanent `DelegatedSummaryContractTests` plus the degradation and mutual-exclusion tests |
+| `index_state_store` publication → upgrade cleanup | `index-state.sqlite` is the sole durable semantic authority. The freshly loaded cleanup process may inspect one stable complete docs-and-code token and bounded layer summary, but it must not create a second receipt or treat the upgrade lock's audit copy as authority | Verified by upgrade stable-token, incomplete-epoch, active-manifest, and cleanup-retry tests |
 
 ## Violation Detection
 

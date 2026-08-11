@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: accepted
-Last verified: 2026-06-30
+Last verified: 2026-08-11
 
 > Evaluate-decision artifact (shortcut `Evaluate decision`). **Accepted 2026-06-30** after full measurement (below). Net: **FP16 end-to-end on GPU machines, INT8 end-to-end on CPU-bound machines** (embed + rerank); queries run on CPU; precision folded into `model_versions`. Raw INT8 embeddings churn 23–37% top-1, but the reranked end-to-end pipeline holds the answer in top-3 (100%) and never out of top-5, and a realistic NL→code eval shows **INT8 = FP16** (the scary code number was a test artifact). GPU-for-queries measured as a net latency loss — queries stay on CPU.
 
@@ -147,3 +147,17 @@ Followed the Evaluate-decision contract (frame → grounded current-state → re
 - `1p50s-adr docs-code-embedding-model-split`, `12dzj-adr embedding-model-and-format` — the model/format decision family this refines.
 - `.wavefoundry/framework/scripts/accel_embedder.py` (`CLEAN_ONNX_SOURCES`, `_resolve_model_files`, `_resolve_reranker_cpu_files`, `offloads_to_gpu`) — the resolution + provider-probe surface a future implementation would extend.
 - HF: `Snowflake/snowflake-arctic-embed-xs` ONNX variants (`model_fp16.onnx` 45 MB, `model_int8.onnx` 23 MB), validated atol 1e-4.
+
+## 2026-08-11 Model-Set-v2 Application
+
+Wave `1v0r0` applies this precision policy to Arctic Embed S for both semantic
+layers. The independent document and code selectors each name Arctic S; equal
+IDs reuse one build instance. Supported GPU providers use Snowflake's FP16
+graph and CPU-bound hosts use its INT8 graph, both at static forward batch 32.
+The L6 reranker retains its independent batch 40. The controlled 28-query code
+and 100-query document comparisons, including the production reranker, support
+the swap without changing the precision-class contract.
+
+This update supersedes only the active model names and batch width in the
+earlier measurements. Their recorded BAAI/Arctic-XS facts remain historical
+evidence for how the policy was selected.

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-31
+Last verified: 2026-08-11
 
 This document describes how Wavefoundry builds and maintains its search indexes. It covers
 every stage of the pipeline: file discovery, change detection, chunking, embedding, and
@@ -385,7 +385,7 @@ character counts. Three parsing strategies apply:
 
 **Module-/type-level constants are chunked** (wave 1p4mf, all 11 languages): each named module- or
 type-level constant produces its own `" [const]"`-marked, breadcrumb-prefixed chunk so a constant's
-NAME and VALUE are independently retrievable (`RERANKER_MODEL` → its `"BAAI/bge-reranker-base"`
+NAME and VALUE are independently retrievable (`RERANKER_MODEL` → its logical L6 identifier
 value). Detection is per-language by real mechanism + scope (the keyword/grammar node + an
 ancestor gate to module/file/type top level), **never** a uniform `UPPER_SNAKE` casing filter —
 camelCase/PascalCase/MixedCaps constants (Swift `apiURL`, C# `MaxRetries`, Go `StatusOK`) are
@@ -538,18 +538,18 @@ other `.ts` source.
 
 ## Stage 4: Embedding
 
-Chunks are converted to dense vectors using ONNX-based sentence-transformer models. Two
-separate models are used — one per content type — both producing 768-dimensional vectors:
+Chunks are converted to dense vectors using an ONNX-based sentence-transformer model. Document
+and code selectors remain independent, but both currently name Arctic S and reuse one process-local
+instance. Both produce 384-dimensional vectors:
 
 | Table  | Model (current in `indexer.py`) | Dimensions |
 |--------|----------------------------------|------------|
-| `docs` | `BAAI/bge-small-en-v1.5`         | 384        |
-| `code` | `BAAI/bge-small-en-v1.5`         | 384        |
+| `docs` | `Snowflake/snowflake-arctic-embed-s` | 384 |
+| `code` | `Snowflake/snowflake-arctic-embed-s` | 384 |
 
-Both tables currently share the same symmetric model. Planned wave `12pn3` changes may swap
-the code table to a code-specific model (e.g. `jina-embeddings-v2-base-code`) and/or upgrade
-the docs model; when `CODE_MODEL` or `DOCS_MODEL` in `indexer.py` changes, the stored
-`model_versions` mismatch forces a full re-embed.
+Equality of the two configured IDs enables reuse; it does not alias one selector to the other.
+When `CODE_MODEL` or `DOCS_MODEL` changes, the stored `model_versions` mismatch forces the
+affected re-embed. A shared model-set fingerprint change forces an atomic all-layer rebuild.
 
 Docstrings and other `kind="doc"` chunks from source files are embedded with the **docs**
 model even though they originate from `.py`, `.java`, etc.
@@ -561,8 +561,12 @@ model even though they originate from `.py`, `.java`, etc.
 
 1. `CUDAExecutionProvider` for NVIDIA/CUDA when ONNX Runtime exposes it.
 2. `CoreMLExecutionProvider` on Apple Silicon only after a bounded active-model probe produces
-   valid embeddings (accepted on correctness alone — CoreML partitions unsupported ops back to
-   CPU, so no speedup margin is required). A CoreML probe failure matching the known macOS
+   valid embeddings and the exact production static graph passes a crash-isolated child-process
+   probe. The child repeats a full batch, verifies Arctic S's 384-dimensional output and CPU parity,
+   and must exit normally; a native ONNX/CoreML crash or timeout is cached as unsafe and the parent
+   uses the CPU/full-precision fallback instead. The initial provider probe is accepted on
+   correctness alone — CoreML partitions unsupported ops back to CPU, so no speedup margin is
+   required. A CoreML probe failure matching the known macOS
    temp-working-directory shape (`Failed to create a working directory …` under
    `/var/folders/…/T/`) gets one bounded repair-and-retry inside the probe window — before the
    decision is recorded — so a transient temp-dir failure no longer pins the whole build to CPU;

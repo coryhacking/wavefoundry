@@ -8374,7 +8374,7 @@ class ConstantGraphTests(unittest.TestCase):
     # (rel_path, source, const_simple_suffix, reader_simple_suffix)
     _CASES = [
         ("python", "ind.py",
-         'RERANKER_MODEL = "BAAI/bge-reranker-base"\n\ndef get_model():\n    return RERANKER_MODEL\n',
+         'RERANKER_MODEL = "example/reranker"\n\ndef get_model():\n    return RERANKER_MODEL\n',
          "RERANKER_MODEL", "get_model"),
         ("go", "a.go",
          "package main\nconst MaxRetries = 3\nfunc compute() int { return MaxRetries }\n",
@@ -8424,10 +8424,10 @@ class ConstantGraphTests(unittest.TestCase):
 
     def test_constant_value_captured(self):
         """AC-1: a simple-literal RHS is captured on the node's `value`."""
-        payload = self._build({"ind.py": 'RERANKER_MODEL = "BAAI/bge-reranker-base"\n'})
+        payload = self._build({"ind.py": 'RERANKER_MODEL = "example/reranker"\n'})
         node = next(n for n in payload["nodes"] if n["id"].endswith("::RERANKER_MODEL"))
         self.assertEqual(node.get("kind"), "constant")
-        self.assertIn("bge-reranker-base", str(node.get("value")))
+        self.assertIn("example/reranker", str(node.get("value")))
 
     def test_python_local_shadow_not_bound(self):
         """AC-5: a function-local assignment shadowing a module constant must NOT emit a reads

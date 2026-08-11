@@ -193,9 +193,9 @@ A declared lane missing its signoff blocks `wf_close_wave` the same way a missin
 
 ### The Semantic Index
 
-The framework ships a local semantic search index built on `fastembed` and `BAAI/bge-base-en-v1.5`. It indexes your project docs and code separately, runs entirely offline, and supports incremental updates. `docs_search` falls back to lexical search when the index is unavailable.
+The framework ships a local search index with three layers: semantic embeddings over your project docs and code (independent layer selectors currently share Snowflake Arctic Embed S at FP16 GPU / INT8 CPU batch 32, plus the local MiniLM L6 reranker at batch 40), a BM25 full-text layer for exact identifiers, error strings, and rare tokens, and a structural code graph for call, impact, and dependency queries. It runs entirely offline and updates incrementally. `docs_search` falls back to lexical search when the index is unavailable.
 
-`code_ask` combines semantic code search with an LLM synthesis pass — retrieve relevant code chunks, then get a structured answer to a natural-language question about the codebase.
+`code_ask` is mechanical retrieval routing, not LLM synthesis — it fuses semantic and lexical candidates, reranks them locally, and returns ranked citations from which the calling agent synthesizes its answer to a natural-language question about the codebase.
 
 ### The Coordinator Loop
 

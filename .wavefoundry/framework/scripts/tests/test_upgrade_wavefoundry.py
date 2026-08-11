@@ -1705,7 +1705,7 @@ class PreferredPythonTests(unittest.TestCase):
              patch("subprocess.Popen") as popen_mock:
             self.mod.phase_index_update(self.root)
         self.assertEqual(run_mock.call_args.args[0][0], str(venv_python))
-        self.assertEqual(popen_mock.call_args.args[0][0], str(venv_python))
+        popen_mock.assert_not_called()
 
     def test_phase_index_update_runs_graph_only_update(self):
         # Wave 1p7dh: the upgrade index phase updates the GRAPH too (symmetric
@@ -1761,10 +1761,693 @@ class PreferredPythonTests(unittest.TestCase):
         self.assertIn("--full", graph_calls[0].args[0], "rebuild path runs a full graph rebuild")
 
 
+class RetiredModelCleanupTests(unittest.TestCase):
+    def setUp(self):
+        self.mod = load_upgrade_module()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+
+    def test_semver_boundary_ignores_build_metadata_and_fails_closed(self):
+        self.assertFalse(self.mod._cleanup_version_eligible("1.15.9"))
+        self.assertTrue(self.mod._cleanup_version_eligible("1.16.0"))
+        self.assertTrue(self.mod._cleanup_version_eligible("v1.16.0"))
+        self.assertTrue(self.mod._cleanup_version_eligible("1.16.0+build.7"))
+        self.assertTrue(self.mod._cleanup_version_eligible("1.16.1"))
+        self.assertTrue(self.mod._cleanup_version_eligible("1.16.1-rc.1"))
+        self.assertFalse(self.mod._cleanup_version_eligible("1.16.0-rc.1"))
+        for malformed in (
+            "unknown",
+            "1.16.0+",
+            "1.16.0+bad!",
+            "01.16.0",
+            "vv1.16.0",
+            "1.16.0-",
+            "1.16.1-01",
+            "1.1٦.0",
+            "1.16٢.0",
+            " 1.16.0",
+            "1.16.0 ",
+            "\t1.16.0\n",
+        ):
+            with self.subTest(malformed=malformed):
+                self.assertFalse(self.mod._cleanup_version_eligible(malformed))
+        self.assertFalse(self.mod._cleanup_version_eligible(None))
+
+    def test_default_exact_component_removal_is_idempotent(self):
+        cache = self.root / "cache"
+        target = cache / "models--BAAI--bge-small-en-v1.5"
+        target.mkdir(parents=True)
+        (target / "payload").write_text("retired", encoding="utf-8")
+        self.assertEqual(
+            self.mod._remove_retired_component(
+                cache, target.name, custom=False
+            ),
+            "removed",
+        )
+        self.assertEqual(
+            self.mod._remove_retired_component(
+                cache, target.name, custom=False
+            ),
+            "absent",
+        )
+        self.assertTrue(cache.is_dir())
+
+    def _write_valid_custom_component(self, component: Path) -> None:
+        import hashlib
+
+        (component / "refs").mkdir(parents=True)
+        (component / "snapshots" / "rev").mkdir(parents=True)
+        (component / "blobs").mkdir()
+        (component / "refs" / "main").write_text("rev", encoding="utf-8")
+        blob = component / "blobs" / "abc"
+        blob.write_bytes(b"weights")
+        (component / "snapshots" / "rev" / "model.onnx").symlink_to(
+            Path("../../blobs/abc")
+        )
+        files = {
+            "refs/main": hashlib.sha256(b"rev").hexdigest(),
+            "snapshots/rev/model.onnx": hashlib.sha256(b"weights").hexdigest(),
+        }
+        (component / ".wavefoundry-model-bundle.json").write_text(
+            json.dumps(
+                {
+                    "model_set_version": "1",
+                    "fingerprint": "wf-model-set-1-20260803",
+                    "files": files,
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    def test_custom_marker_requires_exact_legacy_inventory(self):
+        component = self.root / "custom" / "models--BAAI--bge-small-en-v1.5"
+        self._write_valid_custom_component(component)
+        self.assertTrue(self.mod._legacy_custom_component_owned(component))
+        (component / "blobs" / "unreferenced").write_bytes(b"extra")
+        self.assertFalse(self.mod._legacy_custom_component_owned(component))
+
+    def test_symlink_component_never_traverses_external_referent(self):
+        cache = self.root / "cache"
+        cache.mkdir()
+        external = self.root / "external"
+        external.mkdir()
+        sentinel = external / "keep"
+        sentinel.write_text("safe", encoding="utf-8")
+        link = cache / "models--BAAI--bge-small-en-v1.5"
+        link.symlink_to(external, target_is_directory=True)
+        self.assertEqual(
+            self.mod._remove_retired_component(cache, link.name, custom=False),
+            "removed",
+        )
+        self.assertEqual(sentinel.read_text(encoding="utf-8"), "safe")
+
+    def test_mutation_boundary_substitution_preserves_external_referent(self):
+        cache = self.root / "cache"
+        target = cache / "models--BAAI--bge-small-en-v1.5"
+        target.mkdir(parents=True)
+        external = self.root / "external"
+        external.mkdir()
+        sentinel = external / "keep"
+        sentinel.write_text("safe", encoding="utf-8")
+        real_rmtree = self.mod.shutil.rmtree
+        swapped = False
+
+        def substitute(path, *args, **kwargs):
+            # 1v0r0 repair (F4): mirror the production call signature
+            # (component name + dir_fd kwarg); the previous single-argument
+            # substitute raised TypeError before the swap ever ran, so the
+            # test passed vacuously. `target` (closure) is the absolute path
+            # of the component the relative `path` addresses.
+            nonlocal swapped
+            target.rmdir()
+            target.symlink_to(external, target_is_directory=True)
+            swapped = True
+            return real_rmtree(path, *args, **kwargs)
+
+        with patch.object(self.mod.shutil, "rmtree", side_effect=substitute):
+            outcome = self.mod._remove_retired_component(
+                cache, target.name, custom=False
+            )
+        self.assertTrue(swapped, "the symlink substitution must execute")
+        self.assertEqual(outcome, "failed")
+        self.assertEqual(sentinel.read_text(encoding="utf-8"), "safe")
+
+    def test_cache_root_substitution_cannot_redirect_recursive_removal(self):
+        cache = self.root / "cache"
+        component = "models--BAAI--bge-small-en-v1.5"
+        target = cache / component
+        target.mkdir(parents=True)
+        (target / "retired").write_text("remove", encoding="utf-8")
+        moved_cache = self.root / "checked-cache"
+        external = self.root / "external"
+        external_target = external / component
+        external_target.mkdir(parents=True)
+        sentinel = external_target / "DO_NOT_DELETE"
+        sentinel.write_text("safe", encoding="utf-8")
+        real_rmtree = self.mod.shutil.rmtree
+        swapped = False
+
+        def substitute(path, *args, **kwargs):
+            nonlocal swapped
+            if not swapped:
+                cache.rename(moved_cache)
+                cache.symlink_to(external, target_is_directory=True)
+                swapped = True
+            return real_rmtree(path, *args, **kwargs)
+
+        with patch.object(self.mod.shutil, "rmtree", side_effect=substitute):
+            outcome = self.mod._remove_retired_component(
+                cache, component, custom=False
+            )
+        self.assertEqual(outcome, "removed")
+        self.assertTrue(swapped, "the known-bad root substitution must execute")
+        self.assertEqual(sentinel.read_text(encoding="utf-8"), "safe")
+        self.assertFalse((moved_cache / component).exists())
+
+    def test_stable_epoch_requires_both_layers_and_canonical_composites(self):
+        summary = {
+            "content": ["docs", "code"],
+            "model_versions": {
+                "docs": "Snowflake/snowflake-arctic-embed-s@full@fp-v2",
+                "code": "Snowflake/snowflake-arctic-embed-s@int8@fp-v2",
+            },
+        }
+        fake_store = MagicMock()
+        fake_store.build_epoch_token.side_effect = [("a", 2), ("a", 2)]
+        fake_store.read_build_summary.return_value = summary
+        with patch.dict(sys.modules, {"index_state_store": fake_store}):
+            self.assertTrue(
+                self.mod._semantic_epoch_matches_active_models(
+                    self.root,
+                    (
+                        "Snowflake/snowflake-arctic-embed-s",
+                        "Snowflake/snowflake-arctic-embed-s",
+                        "fp-v2",
+                    ),
+                )
+            )
+        fake_store.build_epoch_token.side_effect = [("v3", 7), ("v3", 7)]
+        fake_store.read_build_summary.return_value = {
+            "content": ["docs", "code"],
+            "model_versions": {
+                "docs": "future/docs@full@fp-v3",
+                "code": "future/code@int8@fp-v3",
+            },
+        }
+        with patch.dict(sys.modules, {"index_state_store": fake_store}):
+            self.assertTrue(
+                self.mod._semantic_epoch_matches_active_models(
+                    self.root, ("future/docs", "future/code", "fp-v3")
+                )
+            )
+        fake_store.build_epoch_token.side_effect = [None, None]
+        with patch.dict(sys.modules, {"index_state_store": fake_store}):
+            self.assertFalse(
+                self.mod._semantic_epoch_matches_active_models(
+                    self.root,
+                    ("x", "x", "fp-v2"),
+                )
+            )
+
+    def test_cleanup_result_projection_is_exact_sorted_and_failure_visible(self):
+        targets = [
+            ("z-target", "default", self.root / "a", "z"),
+            ("a-target", "default", self.root / "b", "a"),
+            ("u-target", "custom", self.root / "c", "u"),
+            ("f-target", "default", self.root / "d", "f"),
+        ]
+        outcomes = iter(["removed", "absent", "unowned", "failed"])
+        with patch.object(
+            self.mod,
+            "_verified_active_model_authority",
+            return_value=("docs/model", "code/model", "fingerprint"),
+        ), patch.object(
+            self.mod, "_semantic_epoch_matches_active_models", return_value=True
+        ), patch.object(
+            self.mod, "_retired_cleanup_targets", return_value=targets
+        ), patch.object(
+            self.mod, "_remove_retired_component", side_effect=lambda *_args, **_kwargs: next(outcomes)
+        ):
+            result = self.mod._run_retired_model_cleanup(self.root, "1.16.0+build.9")
+        self.assertEqual(
+            result,
+            {
+                "retired_model_cleanup_status": "failed",
+                "retired_model_cleanup_removed": ["z-target"],
+                "retired_model_cleanup_absent": ["a-target"],
+                "retired_model_cleanup_unowned": ["u-target"],
+                "retired_model_cleanup_failed": ["f-target|remove_failed"],
+            },
+        )
+
+    def test_active_manifest_vetoes_a_retired_allowlist_component(self):
+        active = next(iter(self.mod._RETIRED_MODEL_ALLOWLIST["fastembed"]))
+        fake_bundle = types.SimpleNamespace(
+            load_canonical_verification_manifest=lambda: {
+                "model_set_version": "2",
+                "embedding_compatibility_fingerprint": "fp-v2",
+                "components": [
+                    {
+                        "directory": active,
+                        "upstream": "Snowflake/snowflake-arctic-embed-s",
+                    }
+                ],
+            },
+            local_model_set_status=lambda: "current",
+        )
+        fake_indexer = types.SimpleNamespace(
+            DOCS_MODEL="Snowflake/snowflake-arctic-embed-s",
+            CODE_MODEL="Snowflake/snowflake-arctic-embed-s",
+            EMBEDDING_MODEL_SET_FINGERPRINT="fp-v2",
+        )
+        with patch.dict(
+            sys.modules, {"model_bundle": fake_bundle, "indexer": fake_indexer}
+        ):
+            self.assertIsNone(self.mod._verified_active_model_authority(self.root))
+
+    def test_failed_cleanup_retains_lock_and_never_restarts_dashboard(self):
+        lock = {
+            "dashboard_restart_pending": True,
+            "dashboard_restart_port": 4567,
+        }
+        fake_lib = types.SimpleNamespace(
+            read_upgrade_lock=lambda _root: lock,
+            remove_upgrade_lock=MagicMock(),
+            update_upgrade_lock=MagicMock(),
+        )
+        failed = {
+            "retired_model_cleanup_status": "failed",
+            "retired_model_cleanup_removed": [],
+            "retired_model_cleanup_absent": [],
+            "retired_model_cleanup_unowned": [],
+            "retired_model_cleanup_failed": ["coreml:retired|remove_failed"],
+        }
+        fake_server = MagicMock()
+        with patch.dict(sys.modules, {"upgrade_lib": fake_lib}), patch.object(
+            self.mod, "_print_operator_summary"
+        ), patch.dict(sys.modules, {"server_impl": fake_server}):
+            with self.assertRaises(SystemExit) as raised:
+                self.mod.phase_cleanup(
+                    self.root,
+                    "1.15.9",
+                    "1.16.0",
+                    None,
+                    0,
+                    True,
+                    failed_phase="retired_model_cleanup",
+                    retired_model_cleanup=failed,
+                )
+        self.assertEqual(raised.exception.code, 1)
+        fake_lib.remove_upgrade_lock.assert_not_called()
+        fake_server.wf_start_dashboard_response.assert_not_called()
+
+    def test_flat_key_guard_refuses_separator_and_traversal_keys(self):
+        """1v0r0 repair (F5): a non-flat component key is refused as
+        `unowned` before any filesystem access. Permanent form of the
+        executed falsification probe: without the guard, a `../victim` key
+        rode the dir_fd anchor OUT of the cache root and deleted a sibling
+        directory with outcome `removed`."""
+        cache = self.root / "cache"
+        cache.mkdir()
+        victim = self.root / "victim"
+        victim.mkdir()
+        sentinel = victim / "DO_NOT_DELETE"
+        sentinel.write_text("safe", encoding="utf-8")
+        for hostile in ("../victim", "..", ".", "", "a/b", "a\\b", "victim/.."):
+            with self.subTest(component=hostile):
+                self.assertEqual(
+                    self.mod._remove_retired_component(
+                        cache, hostile, custom=False
+                    ),
+                    "unowned",
+                )
+        self.assertTrue(victim.is_dir())
+        self.assertEqual(sentinel.read_text(encoding="utf-8"), "safe")
+
+    def test_default_target_enumeration_is_the_exact_allowlist(self):
+        """1v0r0 repair (F5): the EXECUTED enumeration equals the 13 pinned
+        retired components across the four cache kinds, and a custom root
+        adds exactly its custom-scope targets."""
+        expected_default = [
+            "clean-onnx:default:models--Xenova--bge-reranker-base",
+            "clean-onnx:default:models--Xenova--bge-small-en-v1.5",
+            "coreml:default:BAAI__bge-base-en-v1.5",
+            "coreml:default:BAAI__bge-reranker-base",
+            "coreml:default:BAAI__bge-small-en-v1.5",
+            "fastembed:default:models--BAAI--bge-base-en-v1.5",
+            "fastembed:default:models--BAAI--bge-reranker-base",
+            "fastembed:default:models--BAAI--bge-small-en-v1.5",
+            "fastembed:default:models--qdrant--bge-base-en-v1.5-onnx-q",
+            "fastembed:default:models--qdrant--bge-small-en-v1.5-onnx-q",
+            "static-onnx:default:BAAI__bge-base-en-v1.5",
+            "static-onnx:default:BAAI__bge-reranker-base",
+            "static-onnx:default:BAAI__bge-small-en-v1.5",
+        ]
+        base_env = {
+            key: value
+            for key, value in os.environ.items()
+            if key not in {"FASTEMBED_CACHE_PATH", "WAVEFOUNDRY_ONNX_SRC_CACHE"}
+        }
+        with patch.dict(os.environ, base_env, clear=True):
+            default_targets = self.mod._retired_cleanup_targets()
+        self.assertEqual(
+            [target[0] for target in default_targets], expected_default
+        )
+        self.assertTrue(
+            all(target[1] == "default" for target in default_targets)
+        )
+
+        custom_fast = self.root / "custom-fastembed"
+        custom_onnx = self.root / "custom-onnx-src"
+        custom_env = dict(base_env)
+        custom_env["FASTEMBED_CACHE_PATH"] = str(custom_fast)
+        custom_env["WAVEFOUNDRY_ONNX_SRC_CACHE"] = str(custom_onnx)
+        expected_custom = sorted(
+            expected_default
+            + [
+                "clean-onnx:custom:models--Xenova--bge-reranker-base",
+                "clean-onnx:custom:models--Xenova--bge-small-en-v1.5",
+                "fastembed:custom:models--BAAI--bge-base-en-v1.5",
+                "fastembed:custom:models--BAAI--bge-reranker-base",
+                "fastembed:custom:models--BAAI--bge-small-en-v1.5",
+                "fastembed:custom:models--qdrant--bge-base-en-v1.5-onnx-q",
+                "fastembed:custom:models--qdrant--bge-small-en-v1.5-onnx-q",
+            ]
+        )
+        with patch.dict(os.environ, custom_env, clear=True):
+            custom_targets = self.mod._retired_cleanup_targets()
+        self.assertEqual(
+            [target[0] for target in custom_targets], expected_custom
+        )
+        for target_id, scope, cache_root, _component in custom_targets:
+            if scope == "custom":
+                expected_root = (
+                    custom_fast
+                    if target_id.startswith("fastembed:")
+                    else custom_onnx
+                )
+                self.assertEqual(cache_root, expected_root, target_id)
+
+    def test_removal_preserves_prefix_siblings_and_active_components(self):
+        """1v0r0 repair (F5): removal takes ONLY the exact allowlisted
+        component; a prefix-named sibling and the active Arctic S / L6
+        component directories survive byte-intact."""
+        cache = self.root / "fastembed-cache"
+        retired_name = "models--BAAI--bge-small-en-v1.5"
+        retired = cache / retired_name
+        retired.mkdir(parents=True)
+        (retired / "payload").write_text("retired", encoding="utf-8")
+        preserved = {
+            "models--BAAI--bge-small-en-v1.5-extra": b"prefix sibling",
+            "models--snowflake--snowflake-arctic-embed-s": b"arctic embedder",
+            "models--Xenova--ms-marco-MiniLM-L-6-v2": b"l6 reranker",
+        }
+        for name, payload in preserved.items():
+            directory = cache / name
+            directory.mkdir()
+            (directory / "weights.bin").write_bytes(payload)
+        outcomes = {
+            component: self.mod._remove_retired_component(
+                cache, component, custom=False
+            )
+            for component in self.mod._RETIRED_MODEL_ALLOWLIST["fastembed"]
+        }
+        self.assertEqual(outcomes.pop(retired_name), "removed")
+        self.assertEqual(set(outcomes.values()), {"absent"})
+        self.assertFalse(retired.exists())
+        for name, payload in preserved.items():
+            self.assertEqual(
+                (cache / name / "weights.bin").read_bytes(), payload, name
+            )
+
+    def _patch_missing_fd_capabilities(self):
+        """Simulate a host without the fd-anchored deletion capabilities
+        (permanently true on native Windows): strip the ``dir_fd`` support
+        set and the ``rmtree`` symlink-attack guarantee, mirroring the
+        red-team probes."""
+        stack = contextlib.ExitStack()
+        stack.enter_context(
+            patch.object(self.mod.os, "supports_dir_fd", frozenset())
+        )
+        stack.enter_context(
+            patch.object(
+                self.mod.shutil.rmtree, "avoids_symlink_attacks", False
+            )
+        )
+        return stack
+
+    def test_fallback_removes_component_without_fd_capabilities(self):
+        """1v0r0 repair (F1): on hosts without the fd-anchored deletion
+        capabilities (native Windows), a present owned component is removed
+        via the revalidated no-follow fallback instead of wedging every
+        upgrade with outcome `failed`."""
+        cache = self.root / "cache"
+        target = cache / "models--BAAI--bge-small-en-v1.5"
+        (target / "snapshots" / "rev").mkdir(parents=True)
+        (target / "payload").write_text("retired", encoding="utf-8")
+        (target / "snapshots" / "rev" / "weights.bin").write_bytes(b"old")
+        with self._patch_missing_fd_capabilities():
+            outcome = self.mod._remove_retired_component(
+                cache, target.name, custom=False
+            )
+        self.assertEqual(outcome, "removed")
+        self.assertFalse(target.exists())
+        self.assertTrue(cache.is_dir())
+        with self._patch_missing_fd_capabilities():
+            self.assertEqual(
+                self.mod._remove_retired_component(
+                    cache, target.name, custom=False
+                ),
+                "absent",
+            )
+
+    def test_fallback_unlinks_symlink_component_node_only(self):
+        """1v0r0 repair (F1): under the fallback, a component that is
+        itself a symlink is unlinked as a NODE; the external referent
+        survives byte-intact."""
+        cache = self.root / "cache"
+        cache.mkdir()
+        external = self.root / "external"
+        external.mkdir()
+        sentinel = external / "keep"
+        sentinel.write_bytes(b"safe bytes")
+        link = cache / "models--BAAI--bge-small-en-v1.5"
+        link.symlink_to(external, target_is_directory=True)
+        with self._patch_missing_fd_capabilities():
+            outcome = self.mod._remove_retired_component(
+                cache, link.name, custom=False
+            )
+        self.assertEqual(outcome, "removed")
+        self.assertFalse(link.is_symlink())
+        self.assertFalse(link.exists())
+        self.assertTrue(external.is_dir())
+        self.assertEqual(sentinel.read_bytes(), b"safe bytes")
+
+    def test_fallback_never_follows_symlink_entries_inside_component(self):
+        """1v0r0 repair (F1): under the fallback, symlink ENTRIES inside
+        the component directory (to an external directory and to an
+        external file) are unlinked as nodes; the referents survive
+        byte-intact."""
+        cache = self.root / "cache"
+        target = cache / "models--BAAI--bge-small-en-v1.5"
+        (target / "snapshots").mkdir(parents=True)
+        external = self.root / "external"
+        (external / "nested").mkdir(parents=True)
+        file_sentinel = external / "weights.bin"
+        file_sentinel.write_bytes(b"external weights")
+        nested_sentinel = external / "nested" / "keep"
+        nested_sentinel.write_bytes(b"nested safe")
+        (target / "dir-link").symlink_to(external, target_is_directory=True)
+        (target / "snapshots" / "file-link").symlink_to(file_sentinel)
+        (target / "payload").write_text("retired", encoding="utf-8")
+        with self._patch_missing_fd_capabilities():
+            outcome = self.mod._remove_retired_component(
+                cache, target.name, custom=False
+            )
+        self.assertEqual(outcome, "removed")
+        self.assertFalse(target.exists())
+        self.assertTrue(external.is_dir())
+        self.assertEqual(file_sentinel.read_bytes(), b"external weights")
+        self.assertEqual(nested_sentinel.read_bytes(), b"nested safe")
+
+    def test_fallback_refuses_top_level_dir_to_symlink_swap_before_descent(self):
+        """1v0r0 repair (F9): the no-follow fallback re-lstats the top target
+        immediately before descent, so a directory swapped for a symlink to an
+        external victim in the entry-lstat -> descent window is refused instead
+        of walked and the external referent is never deleted.
+
+        Red-first discriminator: against the prior bare
+        ``os.walk(topdown=False, followlinks=False)`` fallback the external
+        sentinel was DELETED, because ``followlinks=False`` governs only
+        sub-symlinks encountered during the walk, never the walk ROOT."""
+        cache = self.root / "cache"
+        target = cache / "models--BAAI--bge-small-en-v1.5"
+        (target / "payload").mkdir(parents=True)
+        (target / "payload" / "inner").write_text("retired", encoding="utf-8")
+        external = self.root / "external"
+        external.mkdir()
+        sentinel = external / "DO_NOT_DELETE"
+        sentinel.write_bytes(b"victim bytes")
+
+        real_stat = self.mod.os.stat
+        real_lstat = self.mod.os.lstat
+        real_rmtree = self.mod.shutil.rmtree
+        state = {"swapped": False}
+
+        def _maybe_swap(path):
+            # Swap the real directory for a symlink to the external victim
+            # AFTER the entry lstat already classified it as a directory (the
+            # check-to-use window the pre-descent re-lstat closes).
+            if state["swapped"]:
+                return
+            try:
+                is_target = os.fspath(path) == os.fspath(target)
+            except TypeError:
+                return
+            if is_target:
+                state["swapped"] = True
+                real_rmtree(target)
+                target.symlink_to(external, target_is_directory=True)
+
+        # On CPython 3.13 ``Path.lstat()`` routes through
+        # ``os.stat(follow_symlinks=False)``; patch both so the injection is
+        # version-robust and fires only on the no-follow classification.
+        def swapping_stat(path, *args, **kwargs):
+            result = real_stat(path, *args, **kwargs)
+            if kwargs.get("follow_symlinks", True) is False:
+                _maybe_swap(path)
+            return result
+
+        def swapping_lstat(path, *args, **kwargs):
+            result = real_lstat(path, *args, **kwargs)
+            _maybe_swap(path)
+            return result
+
+        with patch.object(self.mod.os, "stat", swapping_stat), \
+                patch.object(self.mod.os, "lstat", swapping_lstat):
+            outcome = self.mod._remove_retired_component_no_follow(target)
+
+        self.assertTrue(state["swapped"], "the in-window swap must execute")
+        self.assertIn(outcome, ("failed", "unowned"))
+        self.assertTrue(external.is_dir())
+        self.assertTrue(sentinel.exists(), "the external referent must survive")
+        self.assertEqual(sentinel.read_bytes(), b"victim bytes")
+
+    def test_fallback_classifies_junction_entry_as_node_not_descended(self):
+        """1v0r0 repair (F10): a Windows directory junction is NOT a symlink on
+        CPython 3.12+, so ``DirEntry.is_symlink()`` is False and a bare
+        ``os.walk`` descends it, deleting content the junction points at
+        outside the cache root. The fallback classifies every reparse point
+        (symlink OR junction) as a NODE via ``os.path.isjunction``.
+
+        This host cannot create a real junction, so ``os.path.isjunction`` is
+        monkeypatched True for a crafted directory entry; the assertion is that
+        the recursion does NOT descend it (its child survives byte-intact) and
+        the entry is handled on the node-unlink path rather than walked."""
+        cache = self.root / "cache"
+        target = cache / "models--BAAI--bge-small-en-v1.5"
+        target.mkdir(parents=True)
+        fake_junction = target / "reparse-node"
+        fake_junction.mkdir()
+        referent = fake_junction / "referent-child"
+        referent.write_bytes(b"outside-cache bytes")
+
+        def fake_isjunction(path):
+            try:
+                return os.fspath(path) == os.fspath(fake_junction)
+            except TypeError:
+                return False
+
+        with patch.object(self.mod.os.path, "isjunction", fake_isjunction):
+            outcome = self.mod._remove_retired_component_no_follow(target)
+
+        # Classified as a node, not descended: the child was never visited, so
+        # it survives byte-intact. A non-empty real directory cannot be removed
+        # as a node here (a real junction's rmdir would succeed on Windows), so
+        # the outcome is `failed` — the load-bearing guarantee is non-descent.
+        self.assertTrue(fake_junction.is_dir())
+        self.assertEqual(referent.read_bytes(), b"outside-cache bytes")
+        self.assertEqual(outcome, "failed")
+
+    def _cleanup_root_with_lock(self, **lock_fields):
+        """A repo whose lock passes main()'s pre-cleanup memory gate."""
+        import memory_backfill
+
+        lib = _load_upgrade_lib()
+        (self.root / ".wavefoundry" / "index").mkdir(parents=True, exist_ok=True)
+        (self.root / "docs" / "waves").mkdir(parents=True, exist_ok=True)
+        run_id = memory_backfill.ensure_run(self.root, "upgrade")
+        memory_backfill.sync_inventory(self.root, run_id)
+        memory_backfill.mark_indexed(self.root, run_id)
+        lib.write_upgrade_lock(self.root, "1.15.9", "1.16.0")
+        lib.update_upgrade_lock(
+            self.root,
+            memory_backfill_run_id=run_id,
+            memory_backfill_state="indexed",
+            **lock_fields,
+        )
+        return lib
+
+    def test_refused_retry_keeps_failed_phase_and_partial_lists(self):
+        """1v0r0 repair (F2): a RETRY of a failed retired-model cleanup whose
+        authority revalidation refuses (`not_applicable`, e.g. an in-flight
+        index build) must keep `failed_phase=retired_model_cleanup`, keep the
+        preserved partial lists in the lock, and exit nonzero. Only a
+        `complete` retry clears the failure."""
+        partial_removed = ["fastembed:default:models--BAAI--bge-base-en-v1.5"]
+        partial_failed = [
+            "fastembed:default:models--BAAI--bge-small-en-v1.5|remove_failed"
+        ]
+        lib = self._cleanup_root_with_lock(
+            failed_phase="retired_model_cleanup",
+            failed_at="t",
+            retired_model_cleanup_status="failed",
+            retired_model_cleanup_removed=partial_removed,
+            retired_model_cleanup_absent=["coreml:default:BAAI__bge-base-en-v1.5"],
+            retired_model_cleanup_unowned=[],
+            retired_model_cleanup_failed=partial_failed,
+        )
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with patch.object(
+            self.mod,
+            "_run_retired_model_cleanup",
+            return_value=self.mod._retired_model_cleanup_result(),
+        ), patch.object(self.mod, "_ensure_rendered_permissions_backstop"), \
+                contextlib.redirect_stdout(stdout), \
+                contextlib.redirect_stderr(stderr):
+            with self.assertRaises(SystemExit) as caught:
+                self.mod.main(["--root", str(self.root), "--cleanup"])
+        self.assertEqual(caught.exception.code, 1)
+        lock = lib.read_upgrade_lock(self.root)
+        self.assertIsNotNone(lock, "the upgrade lock must be retained")
+        self.assertEqual(lock.get("failed_phase"), "retired_model_cleanup")
+        self.assertEqual(lock.get("retired_model_cleanup_status"), "failed")
+        self.assertEqual(lock.get("retired_model_cleanup_removed"), partial_removed)
+        self.assertEqual(lock.get("retired_model_cleanup_failed"), partial_failed)
+        self.assertIn("retry refused", stderr.getvalue())
+        self.assertIn("authority", stderr.getvalue())
+
+    def test_first_run_not_applicable_cleanup_stays_benign(self):
+        """1v0r0 repair (F2) boundary: with NO prior cleanup failure, a
+        `not_applicable` result keeps the existing benign behavior (lock
+        updated, cleanup proceeds to lock removal, exit zero)."""
+        lib = self._cleanup_root_with_lock()
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with patch.object(
+            self.mod,
+            "_run_retired_model_cleanup",
+            return_value=self.mod._retired_model_cleanup_result(),
+        ), patch.object(self.mod, "_ensure_rendered_permissions_backstop"), \
+                contextlib.redirect_stdout(stdout), \
+                contextlib.redirect_stderr(stderr):
+            code = self.mod.main(["--root", str(self.root), "--cleanup"])
+        self.assertEqual(code, 0, stdout.getvalue() + stderr.getvalue())
+        self.assertIsNone(lib.read_upgrade_lock(self.root))
+
+
 class Phase4PublisherGrantTests(unittest.TestCase):
-    """Wave 1u44n (AC-1, AC-4): the blocking Phase 4 ``setup_index`` children
-    carry the value-bound publisher grant; the DETACHED background code child
-    never does; the docs-layer outcome is OBSERVED, not assumed."""
+    """Blocking Phase 4 children carry the value-bound publisher grant."""
 
     def setUp(self):
         self.mod = load_upgrade_module()
@@ -1790,7 +2473,7 @@ class Phase4PublisherGrantTests(unittest.TestCase):
             result = getattr(self.mod, fn_name)(self.root)
         return result, run_mock, popen_mock, stderr
 
-    def test_update_children_granted_and_detached_child_ungranted(self):
+    def test_update_children_granted_and_detached_child_suppressed(self):
         self.lib.write_upgrade_lock(self.root, "1.14.0", "1.15.0")
         result, run_mock, popen_mock, _ = self._run_phase("phase_index_update")
         self.assertTrue(result)
@@ -1801,16 +2484,9 @@ class Phase4PublisherGrantTests(unittest.TestCase):
             self.assertEqual(
                 call.kwargs["env"]["WAVEFOUNDRY_UPGRADE_PUBLISHER_TOKEN"], token
             )
-        # AC-1 executed assertion: the DETACHED background code child's
-        # environment carries NO publisher grant of either kind.
-        bg_env = popen_mock.call_args.kwargs["env"]
-        self.assertNotIn("WAVEFOUNDRY_UPGRADE_PUBLISHER_TOKEN", bg_env)
-        self.assertNotIn("WAVEFOUNDRY_UPGRADE_PARENT_FINALIZE_RECEIPT", bg_env)
+        popen_mock.assert_not_called()
 
-    def test_detached_child_ungranted_even_when_bridge_exported_token(self):
-        # The pre_index_update bridge exports the token into the PARENT env
-        # (children inherit); the new runner must still strip it from the
-        # detached background child's environment.
+    def test_detached_child_suppressed_even_when_bridge_exported_token(self):
         self.lib.write_upgrade_lock(self.root, "1.14.0", "1.15.0")
         self.lib.update_upgrade_lock(self.root, publisher_grant="bridge-token")
         os.environ["WAVEFOUNDRY_UPGRADE_PUBLISHER_TOKEN"] = "bridge-token"
@@ -1821,12 +2497,9 @@ class Phase4PublisherGrantTests(unittest.TestCase):
                 call.kwargs["env"]["WAVEFOUNDRY_UPGRADE_PUBLISHER_TOKEN"],
                 "bridge-token",
             )
-        self.assertNotIn(
-            "WAVEFOUNDRY_UPGRADE_PUBLISHER_TOKEN",
-            popen_mock.call_args.kwargs["env"],
-        )
+        popen_mock.assert_not_called()
 
-    def test_rebuild_children_granted_and_detached_child_ungranted(self):
+    def test_rebuild_children_granted_and_detached_child_suppressed(self):
         self.lib.write_upgrade_lock(self.root, "1.14.0", "1.15.0")
         result, run_mock, popen_mock, _ = self._run_phase("phase_index_rebuild")
         self.assertTrue(result)
@@ -1836,10 +2509,7 @@ class Phase4PublisherGrantTests(unittest.TestCase):
             self.assertEqual(
                 call.kwargs["env"]["WAVEFOUNDRY_UPGRADE_PUBLISHER_TOKEN"], token
             )
-        self.assertNotIn(
-            "WAVEFOUNDRY_UPGRADE_PUBLISHER_TOKEN",
-            popen_mock.call_args.kwargs["env"],
-        )
+        popen_mock.assert_not_called()
 
     def test_no_lock_means_no_grant_and_no_lock_creation(self):
         result, run_mock, _popen, _ = self._run_phase("phase_index_update")
@@ -5005,7 +5675,7 @@ class PrimaryPhaseSummaryTests(unittest.TestCase):
         # been attempted.
         out = self._emit_primary(None, "1.8.0", "1.9.0", index_published=True)
         summary = self._parse_sentinel(out)[0]
-        self.assertIn("running in background", summary["index_update"])
+        self.assertEqual("docs and code layers complete", summary["index_update"])
         failed_out = self._emit_primary(None, "1.8.0", "1.9.0", index_published=False)
         failed_summary = self._parse_sentinel(failed_out)[0]
         self.assertTrue(
@@ -5595,7 +6265,7 @@ class DelegatedSummaryContractTests(unittest.TestCase):
                     "action_required": None,
                     "failed_phase": None,
                 },
-                "docs layer complete",
+                "docs and code layers complete",
             ),
         )
         for label, lock_fields, expected_index_update in shapes:

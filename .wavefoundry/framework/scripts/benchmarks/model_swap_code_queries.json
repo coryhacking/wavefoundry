@@ -1,0 +1,256 @@
+{
+  "description": "28-query code retrieval comparison for Arctic XS and Arctic S",
+  "queries": [
+    {
+      "id": "c01",
+      "group": "current_path",
+      "query": "normalize a file extension to a canonical language name",
+      "accepted": [
+        "chunker.py",
+        "server_impl.py"
+      ]
+    },
+    {
+      "id": "c02",
+      "group": "current_path",
+      "query": "detect changes in files by comparing hashes from previous index",
+      "accepted": [
+        "indexer.py"
+      ]
+    },
+    {
+      "id": "c03",
+      "group": "current_path",
+      "query": "load an ONNX embedding model and select execution provider",
+      "accepted": [
+        "accel_embedder.py",
+        "provider_policy.py",
+        "indexer.py"
+      ]
+    },
+    {
+      "id": "c04",
+      "group": "current_path",
+      "query": "cosine similarity search over a vector matrix",
+      "accepted": [
+        "server_impl.py",
+        "benchmarks/embed_bench.py"
+      ]
+    },
+    {
+      "id": "c05",
+      "group": "current_path",
+      "query": "chunk a TypeScript or JavaScript file into function and class boundaries",
+      "accepted": [
+        "chunker.py"
+      ]
+    },
+    {
+      "id": "c06",
+      "group": "current_path",
+      "query": "split a large code chunk that exceeds the character limit",
+      "accepted": [
+        "chunker.py"
+      ]
+    },
+    {
+      "id": "c07",
+      "group": "current_path",
+      "query": "parse wave ID from a lifecycle identifier string",
+      "accepted": [
+        "lifecycle_id.py",
+        "memory_supply.py",
+        "review_evidence.py",
+        "wave_lint_lib/constants.py",
+        "server_impl.py",
+        "index_state_store.py"
+      ]
+    },
+    {
+      "id": "c08",
+      "group": "current_path",
+      "query": "validate that a change document has required sections",
+      "accepted": [
+        "server_impl.py",
+        "wave_lint_lib/wave_validators.py",
+        "wave_lint_lib/constants.py"
+      ]
+    },
+    {
+      "id": "c09",
+      "group": "current_path",
+      "query": "acquire and release a file lock with stale lock detection",
+      "accepted": [
+        "lifecycle_lock.py",
+        "indexer.py",
+        "upgrade_lib.py",
+        "upgrade_wavefoundry.py",
+        "dashboard_server.py"
+      ]
+    },
+    {
+      "id": "c10",
+      "group": "current_path",
+      "query": "filter search results by language field",
+      "accepted": [
+        "server_impl.py",
+        "index_state_store.py"
+      ]
+    },
+    {
+      "id": "c11",
+      "group": "current_path",
+      "query": "build a reverse map from language names to file extensions",
+      "accepted": [
+        "server_impl.py",
+        "graph_indexer.py",
+        "chunker.py"
+      ]
+    },
+    {
+      "id": "c12",
+      "group": "current_path",
+      "query": "watch filesystem for file changes and trigger reindex",
+      "accepted": [
+        "render_platform_surfaces.py",
+        "server_impl.py",
+        "indexer.py"
+      ]
+    },
+    {
+      "id": "c13",
+      "group": "current_path",
+      "query": "extract fenced code blocks from markdown sections",
+      "accepted": [
+        "chunker.py"
+      ]
+    },
+    {
+      "id": "c14",
+      "group": "current_path",
+      "query": "relocate a change document from plans directory into a wave folder",
+      "accepted": [
+        "server_impl.py",
+        "upgrade_extensions.py"
+      ]
+    },
+    {
+      "id": "c15",
+      "group": "current_path",
+      "query": "embed a batch of text chunks and store as float32 numpy array",
+      "accepted": [
+        "indexer.py",
+        "accel_embedder.py"
+      ]
+    },
+    {
+      "id": "c16",
+      "group": "current_path",
+      "query": "run docs lint validation and return structured pass fail result",
+      "accepted": [
+        "server_impl.py",
+        "wave_lint_lib/cli.py"
+      ]
+    },
+    {
+      "id": "c17",
+      "group": "current_path",
+      "query": "resolve a seed prompt by name or partial slug",
+      "accepted": [
+        "server_impl.py",
+        "render_agent_surfaces.py"
+      ]
+    },
+    {
+      "id": "k01",
+      "group": "exact_answer",
+      "query": "what cross-encoder reranker model does Wavefoundry use?",
+      "accepted": [
+        "RERANKER_MODEL = \"cross-encoder/ms-marco-MiniLM-L-6-v2\""
+      ]
+    },
+    {
+      "id": "k02",
+      "group": "exact_answer",
+      "query": "what embedding model does Wavefoundry currently use for code search?",
+      "accepted": [
+        "CODE_MODEL = \"BAAI/bge-small-en-v1.5\""
+      ]
+    },
+    {
+      "id": "k03",
+      "group": "exact_answer",
+      "query": "what is the agent-mode text budget for code_ask candidates?",
+      "accepted": [
+        "AGENT_TEXT_BUDGET_CHARS = 16000"
+      ]
+    },
+    {
+      "id": "k04",
+      "group": "exact_answer",
+      "query": "what is the relevance drop-off ratio for agent-mode candidate selection?",
+      "accepted": [
+        "AGENT_RELEVANCE_DROPOFF = 0.85"
+      ]
+    },
+    {
+      "id": "k05",
+      "group": "exact_answer",
+      "query": "what is the per-index coverage floor for agent-mode candidates?",
+      "accepted": [
+        "AGENT_PER_INDEX_FLOOR_K = 3"
+      ]
+    },
+    {
+      "id": "k06",
+      "group": "exact_answer",
+      "query": "where is search_combined defined?",
+      "accepted": [
+        "def search_combined(",
+        "def search_combined "
+      ]
+    },
+    {
+      "id": "k07",
+      "group": "exact_answer",
+      "query": "how does code_ask agent mode decide how many candidates to return?",
+      "accepted": [
+        "def _agent_candidate_select("
+      ]
+    },
+    {
+      "id": "k08",
+      "group": "exact_answer",
+      "query": "what does code_risk_score compute?",
+      "accepted": [
+        "def code_risk_score",
+        "def code_risk_score_response"
+      ]
+    },
+    {
+      "id": "k09",
+      "group": "exact_answer",
+      "query": "how is docs-lint run automatically after editing files under docs/?",
+      "accepted": [
+        "docs_lint.py",
+        "docs-lint"
+      ]
+    },
+    {
+      "id": "k10",
+      "group": "exact_answer",
+      "query": "what does _demote_doc_results do and when does it run?",
+      "accepted": [
+        "def _demote_doc_results("
+      ]
+    },
+    {
+      "id": "k11",
+      "group": "exact_answer",
+      "query": "how does RRF merge the docs and code candidate lists?",
+      "accepted": [
+        "def _rrf_merge("
+      ]
+    }
+  ]
+}

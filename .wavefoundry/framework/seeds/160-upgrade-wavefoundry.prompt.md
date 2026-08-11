@@ -526,6 +526,30 @@ Validation areas that should be checked explicitly:
 - `.claude/agents/*.md` native agent files exist for all roles in `enabled_agent_roles` and are absent for roles not in that set; factor-review agents exist only for the active-lane factors in `docs/workflow-config.json` `factor_review_policy.applicable_factors` (not for every factor merely assessed `applicable` in `docs/repo-profile.json`)
 - `docs/repo-profile.json` archetype and project identity fields accurately describe the current project scope (not the scope at init time)
 
+### Wavefoundry 1.16 retired-model cleanup
+
+For a target version `>=1.16.0`, the freshly loaded `--cleanup` process removes
+only the exact retired Wavefoundry-owned BAAI cache components after the
+installed canonical model set and a stable complete docs-and-code epoch in
+`index-state.sqlite` prove convergence. The upgrade lock is audit/recovery
+state, not semantic publication authority. Cleanup runs before dashboard
+restart and lock removal; dry-run deletes nothing.
+
+Removal applies to the user-global model cache shared by every repository on
+the machine, not a per-repository store. Sibling repositories still on older
+framework versions re-fetch the retired models from Hugging Face on their next
+index build. On offline or controlled machines, upgrade every repository
+together so no sibling is left needing a network fetch.
+
+Read the flat result fields directly:
+`retired_model_cleanup_status`, `retired_model_cleanup_removed`,
+`retired_model_cleanup_absent`, `retired_model_cleanup_unowned`, and
+`retired_model_cleanup_failed`. A removal failure retains the upgrade lock with
+`failed_phase=retired_model_cleanup` and returns nonzero. Correct the named
+target and rerun the cleanup phase; that retry revalidates every authority and
+remaining target before clearing the failure. Do not manually delete a cache
+root or an unowned/custom-cache component.
+
 Guardrails:
 
 - Read the pack's mandatory `upgrade_protocol_version` and `minimum_runner_protocol` before extraction. Protocol 2 accepts only supported, non-decreasing integer metadata and returns `upgrade_protocol_invalid` for missing, malformed, unknown, or mismatched values.

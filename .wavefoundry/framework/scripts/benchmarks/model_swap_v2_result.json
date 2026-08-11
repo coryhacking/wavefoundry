@@ -1,0 +1,1674 @@
+{
+  "schema_version": 1,
+  "controlled_at": "2026-08-11",
+  "provenance": {
+    "xs_model": "Snowflake/snowflake-arctic-embed-xs",
+    "xs_revision": "d8c86521100d3556476a063fc2342036d45c106f",
+    "s_model": "Snowflake/snowflake-arctic-embed-s",
+    "s_revision": "e596f507467533e48a2e17c007f0e1dacc837b33",
+    "reranker_logical_model": "cross-encoder/ms-marco-MiniLM-L-6-v2",
+    "reranker_artifact": "Xenova/ms-marco-MiniLM-L-6-v2",
+    "reranker_revision": "a09144355adeed5f58c8ed011d209bf8ee5a1fec"
+  },
+  "runtime": {
+    "hardware": "Apple M2 Max",
+    "provider": "MPS",
+    "dtype": "FP16",
+    "batch_size": 32,
+    "reranker_provider": "CoreMLExecutionProvider"
+  },
+  "corpora": {
+    "code": {
+      "chunks": 6895,
+      "timing_seconds": {
+        "xs": 13.185,
+        "s": 21.485
+      },
+      "per_query": [
+        {
+          "id": "c01",
+          "group": "current_path",
+          "query": "normalize a file extension to a canonical language name",
+          "xs_raw_rank": 5,
+          "s_raw_rank": 1,
+          "xs_reranked_rank": 1,
+          "s_reranked_rank": 1
+        },
+        {
+          "id": "c02",
+          "group": "current_path",
+          "query": "detect changes in files by comparing hashes from previous index",
+          "xs_raw_rank": 1,
+          "s_raw_rank": 1,
+          "xs_reranked_rank": 1,
+          "s_reranked_rank": 1
+        },
+        {
+          "id": "c03",
+          "group": "current_path",
+          "query": "load an ONNX embedding model and select execution provider",
+          "xs_raw_rank": 1,
+          "s_raw_rank": 1,
+          "xs_reranked_rank": 1,
+          "s_reranked_rank": 1
+        },
+        {
+          "id": "c04",
+          "group": "current_path",
+          "query": "cosine similarity search over a vector matrix",
+          "xs_raw_rank": 1,
+          "s_raw_rank": 1,
+          "xs_reranked_rank": 1,
+          "s_reranked_rank": 1
+        },
+        {
+          "id": "c05",
+          "group": "current_path",
+          "query": "chunk a TypeScript or JavaScript file into function and class boundaries",
+          "xs_raw_rank": 1,
+          "s_raw_rank": 1,
+          "xs_reranked_rank": 1,
+          "s_reranked_rank": 1
+        },
+        {
+          "id": "c06",
+          "group": "current_path",
+          "query": "split a large code chunk that exceeds the character limit",
+          "xs_raw_rank": 1,
+          "s_raw_rank": 1,
+          "xs_reranked_rank": 1,
+          "s_reranked_rank": 1
+        },
+        {
+          "id": "c07",
+          "group": "current_path",
+          "query": "parse wave ID from a lifecycle identifier string",
+          "xs_raw_rank": 1,
+          "s_raw_rank": 1,
+          "xs_reranked_rank": 1,
+          "s_reranked_rank": 1
+        },
+        {
+          "id": "c08",
+          "group": "current_path",
+          "query": "validate that a change document has required sections",
+          "xs_raw_rank": 1,
+          "s_raw_rank": 1,
+          "xs_reranked_rank": 1,
+          "s_reranked_rank": 1
+        },
+        {
+          "id": "c09",
+          "group": "current_path",
+          "query": "acquire and release a file lock with stale lock detection",
+          "xs_raw_rank": 1,
+          "s_raw_rank": 1,
+          "xs_reranked_rank": 2,
+          "s_reranked_rank": 1
+        },
+        {
+          "id": "c10",
+          "group": "current_path",
+          "query": "filter search results by language field",
+          "xs_raw_rank": 1,
+          "s_raw_rank": 1,
+          "xs_reranked_rank": 1,
+          "s_reranked_rank": 1
+        },
+        {
+          "id": "c11",
+          "group": "current_path",
+          "query": "build a reverse map from language names to file extensions",
+          "xs_raw_rank": 1,
+          "s_raw_rank": 1,
+          "xs_reranked_rank": 1,
+          "s_reranked_rank": 1
+        },
+        {
+          "id": "c12",
+          "group": "current_path",
+          "query": "watch filesystem for file changes and trigger reindex",
+          "xs_raw_rank": 1,
+          "s_raw_rank": 1,
+          "xs_reranked_rank": 2,
+          "s_reranked_rank": 2
+        },
+        {
+          "id": "c13",
+          "group": "current_path",
+          "query": "extract fenced code blocks from markdown sections",
+          "xs_raw_rank": 1,
+          "s_raw_rank": 1,
+          "xs_reranked_rank": 1,
+          "s_reranked_rank": 1
+        },
+        {
+          "id": "c14",
+          "group": "current_path",
+          "query": "relocate a change document from plans directory into a wave folder",
+          "xs_raw_rank": 1,
+          "s_raw_rank": 1,
+          "xs_reranked_rank": 7,
+          "s_reranked_rank": 8
+        },
+        {
+          "id": "c15",
+          "group": "current_path",
+          "query": "embed a batch of text chunks and store as float32 numpy array",
+          "xs_raw_rank": 1,
+          "s_raw_rank": 1,
+          "xs_reranked_rank": 1,
+          "s_reranked_rank": 1
+        },
+        {
+          "id": "c16",
+          "group": "current_path",
+          "query": "run docs lint validation and return structured pass fail result",
+          "xs_raw_rank": 1,
+          "s_raw_rank": 1,
+          "xs_reranked_rank": 1,
+          "s_reranked_rank": 1
+        },
+        {
+          "id": "c17",
+          "group": "current_path",
+          "query": "resolve a seed prompt by name or partial slug",
+          "xs_raw_rank": 1,
+          "s_raw_rank": 1,
+          "xs_reranked_rank": 1,
+          "s_reranked_rank": 1
+        },
+        {
+          "id": "k01",
+          "group": "exact_answer",
+          "query": "what cross-encoder reranker model does Wavefoundry use?",
+          "xs_raw_rank": 1,
+          "s_raw_rank": 1,
+          "xs_reranked_rank": 1,
+          "s_reranked_rank": 1
+        },
+        {
+          "id": "k02",
+          "group": "exact_answer",
+          "query": "what embedding model does Wavefoundry currently use for code search?",
+          "xs_raw_rank": 916,
+          "s_raw_rank": 517,
+          "xs_reranked_rank": null,
+          "s_reranked_rank": null
+        },
+        {
+          "id": "k03",
+          "group": "exact_answer",
+          "query": "what is the agent-mode text budget for code_ask candidates?",
+          "xs_raw_rank": 1,
+          "s_raw_rank": 1,
+          "xs_reranked_rank": 1,
+          "s_reranked_rank": 1
+        },
+        {
+          "id": "k04",
+          "group": "exact_answer",
+          "query": "what is the relevance drop-off ratio for agent-mode candidate selection?",
+          "xs_raw_rank": 1,
+          "s_raw_rank": 1,
+          "xs_reranked_rank": 1,
+          "s_reranked_rank": 1
+        },
+        {
+          "id": "k05",
+          "group": "exact_answer",
+          "query": "what is the per-index coverage floor for agent-mode candidates?",
+          "xs_raw_rank": 1,
+          "s_raw_rank": 1,
+          "xs_reranked_rank": 1,
+          "s_reranked_rank": 1
+        },
+        {
+          "id": "k06",
+          "group": "exact_answer",
+          "query": "where is search_combined defined?",
+          "xs_raw_rank": 1,
+          "s_raw_rank": 1,
+          "xs_reranked_rank": 1,
+          "s_reranked_rank": 1
+        },
+        {
+          "id": "k07",
+          "group": "exact_answer",
+          "query": "how does code_ask agent mode decide how many candidates to return?",
+          "xs_raw_rank": 12,
+          "s_raw_rank": 3,
+          "xs_reranked_rank": 6,
+          "s_reranked_rank": 5
+        },
+        {
+          "id": "k08",
+          "group": "exact_answer",
+          "query": "what does code_risk_score compute?",
+          "xs_raw_rank": 1,
+          "s_raw_rank": 6,
+          "xs_reranked_rank": 1,
+          "s_reranked_rank": 1
+        },
+        {
+          "id": "k09",
+          "group": "exact_answer",
+          "query": "how is docs-lint run automatically after editing files under docs/?",
+          "xs_raw_rank": 1,
+          "s_raw_rank": 1,
+          "xs_reranked_rank": 1,
+          "s_reranked_rank": 1
+        },
+        {
+          "id": "k10",
+          "group": "exact_answer",
+          "query": "what does _demote_doc_results do and when does it run?",
+          "xs_raw_rank": 1,
+          "s_raw_rank": 1,
+          "xs_reranked_rank": 1,
+          "s_reranked_rank": 1
+        },
+        {
+          "id": "k11",
+          "group": "exact_answer",
+          "query": "how does RRF merge the docs and code candidate lists?",
+          "xs_raw_rank": 8,
+          "s_raw_rank": 5,
+          "xs_reranked_rank": 7,
+          "s_reranked_rank": 7
+        }
+      ]
+    },
+    "documents": {
+      "chunks": 23410,
+      "timing_seconds": {
+        "xs": 42.246,
+        "s": 68.955
+      },
+      "per_query": [
+        {
+          "id": "orientation-01",
+          "category": "orientation",
+          "query": "what problem is Wavefoundry intended to solve for coding agents",
+          "expected_paths": [
+            "docs/references/wavefoundry-overview.md",
+            "docs/references/project-overview.md"
+          ],
+          "xs_raw_rank": 2,
+          "s_raw_rank": 1,
+          "xs_reranked_rank": 1,
+          "s_reranked_rank": 1
+        },
+        {
+          "id": "orientation-02",
+          "category": "orientation",
+          "query": "explain the boundary between canonical framework source and the repository's self-hosted operating files",
+          "expected_paths": [
+            "docs/references/project-overview.md",
+            "AGENTS.md"
+          ],
+          "xs_raw_rank": 2,
+          "s_raw_rank": 1,
+          "xs_reranked_rank": 1,
+          "s_reranked_rank": 1
+        },
+        {
+          "id": "orientation-03",
+          "category": "orientation",
+          "query": "where can I find a map from code areas to their main entry points",
+          "expected_paths": [
+            "docs/references/codebase-map.md"
+          ],
+          "xs_raw_rank": 4,
+          "s_raw_rank": 3,
+          "xs_reranked_rank": 1,
+          "s_reranked_rank": 9
+        },
+        {
+          "id": "orientation-04",
+          "category": "orientation",
+          "query": "which document lists the public shortcut phrases an operator can use",
+          "expected_paths": [
+            "docs/prompts/index.md",
+            "AGENTS.md"
+          ],
+          "xs_raw_rank": 1,
+          "s_raw_rank": 1,
+          "xs_reranked_rank": 1,
+          "s_reranked_rank": 1
+        },
+        {
+          "id": "orientation-05",
+          "category": "orientation",
+          "query": "where is the hub that links all of the architecture documents",
+          "expected_paths": [
+            "docs/ARCHITECTURE.md"
+          ],
+          "xs_raw_rank": 1,
+          "s_raw_rank": 5,
+          "xs_reranked_rank": 1,
+          "s_reranked_rank": 1
+        },
+        {
+          "id": "orientation-06",
+          "category": "orientation",
+          "query": "what metadata fields identify the owning and approving roles for a document",
+          "expected_paths": [
+            "docs/references/roles.md"
+          ],
+          "xs_raw_rank": 1,
+          "s_raw_rank": 1,
+          "xs_reranked_rank": 1,
+          "s_reranked_rank": 1
+        },
+        {
+          "id": "orientation-07",
+          "category": "orientation",
+          "query": "show the list of active and retired technical debt records",
+          "expected_paths": [
+            "docs/references/tech-debt-tracker.md"
+          ],
+          "xs_raw_rank": 1,
+          "s_raw_rank": 1,
+          "xs_reranked_rank": 1,
+          "s_reranked_rank": 1
+        },
+        {
+          "id": "orientation-08",
+          "category": "orientation",
+          "query": "which operating systems and agent hosts does the project support",
+          "expected_paths": [
+            "docs/references/project-overview.md",
+            "AGENTS.md"
+          ],
+          "xs_raw_rank": 34,
+          "s_raw_rank": 19,
+          "xs_reranked_rank": 5,
+          "s_reranked_rank": 1
+        },
+        {
+          "id": "orientation-09",
+          "category": "orientation",
+          "query": "how should a new contributor get started in this repository",
+          "expected_paths": [
+            "CONTRIBUTING.md",
+            "AGENTS.md",
+            "docs/references/project-overview.md",
+            "docs/contributing/build-and-verification.md"
+          ],
+          "xs_raw_rank": 29,
+          "s_raw_rank": 2,
+          "xs_reranked_rank": 34,
+          "s_reranked_rank": 2
+        },
+        {
+          "id": "orientation-10",
+          "category": "orientation",
+          "query": "how do waves differ from issues and pull requests",
+          "expected_paths": [
+            "docs/references/wavefoundry-overview.md",
+            "docs/references/enterprise-delivery-model.md"
+          ],
+          "xs_raw_rank": 1,
+          "s_raw_rank": 1,
+          "xs_reranked_rank": 1,
+          "s_reranked_rank": 1
+        },
+        {
+          "id": "lifecycle-01",
+          "category": "lifecycle",
+          "query": "create a consolidated change document for a proposed feature",
+          "expected_paths": [
+            "docs/prompts/plan-feature.prompt.md"
+          ],
+          "xs_raw_rank": 2,
+          "s_raw_rank": 2,
+          "xs_reranked_rank": 2,
+          "s_reranked_rank": 2
+        },
+        {
+          "id": "lifecycle-02",
+          "category": "lifecycle",
+          "query": "start a new delivery wave record",
+          "expected_paths": [
+            "docs/prompts/create-wave.prompt.md"
+          ],
+          "xs_raw_rank": null,
+          "s_raw_rank": null,
+          "xs_reranked_rank": null,
+          "s_reranked_rank": null
+        },
+        {
+          "id": "lifecycle-03",
+          "category": "lifecycle",
+          "query": "admit an existing planned change into the current wave",
+          "expected_paths": [
+            "docs/prompts/add-change-to-wave.prompt.md"
+          ],
+          "xs_raw_rank": 1,
+          "s_raw_rank": 2,
+          "xs_reranked_rank": 6,
+          "s_reranked_rank": 6
+        },
+        {
+          "id": "lifecycle-04",
+          "category": "lifecycle",
+          "query": "remove a change from a wave without deleting its plan",
+          "expected_paths": [
+            "docs/prompts/remove-change-from-wave.prompt.md"
+          ],
+          "xs_raw_rank": 1,
+          "s_raw_rank": 1,
+          "xs_reranked_rank": 1,
+          "s_reranked_rank": 1
+        },
+        {
+          "id": "lifecycle-05",
+          "category": "lifecycle",
+          "query": "verify readiness and record council approval before implementation",
+          "expected_paths": [
+            "docs/prompts/prepare-wave.prompt.md",
+            "docs/contributing/review-and-evals.md"
+          ],
+          "xs_raw_rank": 6,
+          "s_raw_rank": 8,
+          "xs_reranked_rank": 2,
+          "s_reranked_rank": 2
+        },
+        {
+          "id": "lifecycle-06",
+          "category": "lifecycle",
+          "query": "coordinate implementation of every admitted change in an open wave",
+          "expected_paths": [
+            "docs/prompts/implement-wave.prompt.md"
+          ],
+          "xs_raw_rank": 28,
+          "s_raw_rank": 6,
+          "xs_reranked_rank": 1,
+          "s_reranked_rank": 1
+        },
+        {
+          "id": "lifecycle-07",
+          "category": "lifecycle",
+          "query": "run the required independent reviewer lanes on completed wave work",
+          "expected_paths": [
+            "docs/prompts/review-wave.prompt.md",
+            "docs/contributing/review-and-evals.md"
+          ],
+          "xs_raw_rank": 1,
+          "s_raw_rank": 3,
+          "xs_reranked_rank": 1,
+          "s_reranked_rank": 1
+        },
+        {
+          "id": "lifecycle-08",
+          "category": "lifecycle",
+          "query": "finalize and archive a wave after all acceptance criteria are complete",
+          "expected_paths": [
+            "docs/prompts/close-wave.prompt.md"
+          ],
+          "xs_raw_rank": 7,
+          "s_raw_rank": 5,
+          "xs_reranked_rank": 3,
+          "s_reranked_rank": 3
+        },
+        {
+          "id": "lifecycle-09",
+          "category": "lifecycle",
+          "query": "park unfinished wave state so another session can resume it safely",
+          "expected_paths": [
+            "docs/prompts/pause-wave.prompt.md",
+            "docs/agents/session-handoff.md"
+          ],
+          "xs_raw_rank": 1,
+          "s_raw_rank": 1,
+          "xs_reranked_rank": 1,
+          "s_reranked_rank": 1
+        },
+        {
+          "id": "lifecycle-10",
+          "category": "lifecycle",
+          "query": "implement one change without using the multi-change coordinator path",
+          "expected_paths": [
+            "docs/prompts/implement-feature.prompt.md",
+            "docs/contributing/feature-workflow.md"
+          ],
+          "xs_raw_rank": 1,
+          "s_raw_rank": 1,
+          "xs_reranked_rank": 1,
+          "s_reranked_rank": 1
+        },
+        {
+          "id": "lifecycle-11",
+          "category": "lifecycle",
+          "query": "close out a single feature after its focused implementation",
+          "expected_paths": [
+            "docs/prompts/finalize-feature.prompt.md",
+            "docs/contributing/feature-workflow.md"
+          ],
+          "xs_raw_rank": 1,
+          "s_raw_rank": 1,
+          "xs_reranked_rank": 2,
+          "s_reranked_rank": 2
+        },
+        {
+          "id": "lifecycle-12",
+          "category": "lifecycle",
+          "query": "stress test a plan for hidden assumptions before admitting it",
+          "expected_paths": [
+            "docs/prompts/interrogate-plan.prompt.md"
+          ],
+          "xs_raw_rank": 5,
+          "s_raw_rank": 4,
+          "xs_reranked_rank": 2,
+          "s_reranked_rank": 5
+        },
+        {
+          "id": "lifecycle-13",
+          "category": "lifecycle",
+          "query": "evaluate an architecture decision and compare alternatives in a structured way",
+          "expected_paths": [
+            "docs/prompts/evaluate-decision.prompt.md"
+          ],
+          "xs_raw_rank": 1,
+          "s_raw_rank": 3,
+          "xs_reranked_rank": 3,
+          "s_reranked_rank": 3
+        },
+        {
+          "id": "lifecycle-14",
+          "category": "lifecycle",
+          "query": "review memory records for consolidation archival and deletion",
+          "expected_paths": [
+            "docs/prompts/memory-review.prompt.md"
+          ],
+          "xs_raw_rank": 24,
+          "s_raw_rank": 4,
+          "xs_reranked_rank": 6,
+          "s_reranked_rank": 7
+        },
+        {
+          "id": "lifecycle-15",
+          "category": "lifecycle",
+          "query": "what are the normal status transitions from planned through closed",
+          "expected_paths": [
+            "docs/contributing/feature-wave-lifecycle-overview.md"
+          ],
+          "xs_raw_rank": null,
+          "s_raw_rank": null,
+          "xs_reranked_rank": null,
+          "s_reranked_rank": null
+        },
+        {
+          "id": "mcp-01",
+          "category": "mcp_search",
+          "query": "what fields are guaranteed in every MCP response envelope",
+          "expected_paths": [
+            "docs/specs/mcp-tool-surface.md"
+          ],
+          "xs_raw_rank": 2,
+          "s_raw_rank": 1,
+          "xs_reranked_rank": 2,
+          "s_reranked_rank": 2
+        },
+        {
+          "id": "mcp-02",
+          "category": "mcp_search",
+          "query": "what contract must a tool obey before it mutates repository state",
+          "expected_paths": [
+            "docs/specs/mcp-tool-surface.md"
+          ],
+          "xs_raw_rank": 4,
+          "s_raw_rank": 2,
+          "xs_reranked_rank": 1,
+          "s_reranked_rank": 2
+        },
+        {
+          "id": "mcp-03",
+          "category": "mcp_search",
+          "query": "which semantic and exact-match tools should I use to search source code",
+          "expected_paths": [
+            "docs/specs/mcp-tool-surface.md",
+            "docs/agents/guru.md"
+          ],
+          "xs_raw_rank": 19,
+          "s_raw_rank": 2,
+          "xs_reranked_rank": 6,
+          "s_reranked_rank": 3
+        },
+        {
+          "id": "mcp-04",
+          "category": "mcp_search",
+          "query": "when should an agent attach an MCP resource instead of calling a tool",
+          "expected_paths": [
+            "docs/specs/mcp-tool-surface.md",
+            "docs/agents/guru.md"
+          ],
+          "xs_raw_rank": 5,
+          "s_raw_rank": 1,
+          "xs_reranked_rank": 2,
+          "s_reranked_rank": 2
+        },
+        {
+          "id": "mcp-05",
+          "category": "mcp_search",
+          "query": "how are retrieval and lifecycle savings represented in context-efficiency telemetry",
+          "expected_paths": [
+            "docs/specs/mcp-tool-surface.md",
+            "docs/references/context-efficiency.md"
+          ],
+          "xs_raw_rank": 20,
+          "s_raw_rank": 3,
+          "xs_reranked_rank": 29,
+          "s_reranked_rank": 27
+        },
+        {
+          "id": "mcp-06",
+          "category": "mcp_search",
+          "query": "how can an agent discover tool names and usage guidance",
+          "expected_paths": [
+            "docs/specs/mcp-tool-surface.md"
+          ],
+          "xs_raw_rank": null,
+          "s_raw_rank": null,
+          "xs_reranked_rank": null,
+          "s_reranked_rank": null
+        },
+        {
+          "id": "mcp-07",
+          "category": "mcp_search",
+          "query": "what repository audits can be run through the MCP server",
+          "expected_paths": [
+            "docs/specs/mcp-tool-surface.md"
+          ],
+          "xs_raw_rank": 12,
+          "s_raw_rank": 22,
+          "xs_reranked_rank": 5,
+          "s_reranked_rank": 4
+        },
+        {
+          "id": "mcp-08",
+          "category": "mcp_search",
+          "query": "choose between symbol definition references keyword regex and lexical search",
+          "expected_paths": [
+            "docs/specs/mcp-tool-surface.md",
+            "docs/agents/guru.md"
+          ],
+          "xs_raw_rank": 12,
+          "s_raw_rank": 3,
+          "xs_reranked_rank": 6,
+          "s_reranked_rank": 6
+        },
+        {
+          "id": "mcp-09",
+          "category": "mcp_search",
+          "query": "how should I interpret citations confidence gaps and reranking from codebase question answering",
+          "expected_paths": [
+            "docs/specs/mcp-tool-surface.md",
+            "docs/agents/guru.md"
+          ],
+          "xs_raw_rank": 7,
+          "s_raw_rank": 1,
+          "xs_reranked_rank": 5,
+          "s_reranked_rank": 5
+        },
+        {
+          "id": "mcp-10",
+          "category": "mcp_search",
+          "query": "which tools inspect graph communities dependencies and call paths",
+          "expected_paths": [
+            "docs/specs/mcp-tool-surface.md",
+            "docs/architecture/graph-index-system.md"
+          ],
+          "xs_raw_rank": 14,
+          "s_raw_rank": 2,
+          "xs_reranked_rank": 10,
+          "s_reranked_rank": 6
+        },
+        {
+          "id": "mcp-11",
+          "category": "mcp_search",
+          "query": "how do I tell whether the semantic index is ready or a build lock is actually held",
+          "expected_paths": [
+            "docs/specs/mcp-tool-surface.md",
+            "docs/contributing/build-and-verification.md"
+          ],
+          "xs_raw_rank": 12,
+          "s_raw_rank": 5,
+          "xs_reranked_rank": 27,
+          "s_reranked_rank": 22
+        },
+        {
+          "id": "mcp-12",
+          "category": "mcp_search",
+          "query": "request an incremental update or a full rebuild of one index layer",
+          "expected_paths": [
+            "docs/specs/mcp-tool-surface.md",
+            "docs/contributing/build-and-verification.md"
+          ],
+          "xs_raw_rank": 18,
+          "s_raw_rank": 2,
+          "xs_reranked_rank": 10,
+          "s_reranked_rank": 8
+        },
+        {
+          "id": "mcp-13",
+          "category": "mcp_search",
+          "query": "how does document search combine vector results lexical matching and reranking",
+          "expected_paths": [
+            "docs/architecture/search-architecture.md"
+          ],
+          "xs_raw_rank": 9,
+          "s_raw_rank": 4,
+          "xs_reranked_rank": 3,
+          "s_reranked_rank": 2
+        },
+        {
+          "id": "mcp-14",
+          "category": "mcp_search",
+          "query": "walk through file discovery chunk generation embedding and index publication",
+          "expected_paths": [
+            "docs/architecture/chunking-and-indexing-pipeline.md"
+          ],
+          "xs_raw_rank": 2,
+          "s_raw_rank": 2,
+          "xs_reranked_rank": 1,
+          "s_reranked_rank": 1
+        },
+        {
+          "id": "mcp-15",
+          "category": "mcp_search",
+          "query": "how is the structural source graph built and queried",
+          "expected_paths": [
+            "docs/architecture/graph-index-system.md"
+          ],
+          "xs_raw_rank": 12,
+          "s_raw_rank": 31,
+          "xs_reranked_rank": 19,
+          "s_reranked_rank": 2
+        },
+        {
+          "id": "architecture-01",
+          "category": "architecture",
+          "query": "what components currently make up the Wavefoundry runtime",
+          "expected_paths": [
+            "docs/architecture/current-state.md"
+          ],
+          "xs_raw_rank": null,
+          "s_raw_rank": null,
+          "xs_reranked_rank": null,
+          "s_reranked_rank": null
+        },
+        {
+          "id": "architecture-02",
+          "category": "architecture",
+          "query": "which layer may import which other layer and where are dependency boundaries enforced",
+          "expected_paths": [
+            "docs/architecture/layering-rules.md"
+          ],
+          "xs_raw_rank": 1,
+          "s_raw_rank": 1,
+          "xs_reranked_rank": 1,
+          "s_reranked_rank": 1
+        },
+        {
+          "id": "architecture-03",
+          "category": "architecture",
+          "query": "trace data and control from an MCP request through repository state changes",
+          "expected_paths": [
+            "docs/architecture/data-and-control-flow.md"
+          ],
+          "xs_raw_rank": 4,
+          "s_raw_rank": 8,
+          "xs_reranked_rank": 1,
+          "s_reranked_rank": 1
+        },
+        {
+          "id": "architecture-04",
+          "category": "architecture",
+          "query": "what are the major domains and responsibilities in the system",
+          "expected_paths": [
+            "docs/architecture/domain-map.md"
+          ],
+          "xs_raw_rank": 2,
+          "s_raw_rank": 17,
+          "xs_reranked_rank": 2,
+          "s_reranked_rank": 7
+        },
+        {
+          "id": "architecture-05",
+          "category": "architecture",
+          "query": "which concerns such as logging portability and configuration cut across components",
+          "expected_paths": [
+            "docs/architecture/cross-cutting-concerns.md"
+          ],
+          "xs_raw_rank": 1,
+          "s_raw_rank": 1,
+          "xs_reranked_rank": 1,
+          "s_reranked_rank": 1
+        },
+        {
+          "id": "architecture-06",
+          "category": "architecture",
+          "query": "what embedding models dimensions prefixes and precision modes are currently used",
+          "expected_paths": [
+            "docs/architecture/embedding-model.md"
+          ],
+          "xs_raw_rank": 1,
+          "s_raw_rank": 4,
+          "xs_reranked_rank": 1,
+          "s_reranked_rank": 1
+        },
+        {
+          "id": "architecture-07",
+          "category": "architecture",
+          "query": "why were document and source-code embedding models split",
+          "expected_paths": [
+            "docs/architecture/decisions/1p50s-adr docs-code-embedding-model-split.md"
+          ],
+          "xs_raw_rank": 2,
+          "s_raw_rank": 1,
+          "xs_reranked_rank": 2,
+          "s_reranked_rank": 2
+        },
+        {
+          "id": "architecture-08",
+          "category": "architecture",
+          "query": "why does the semantic index store derived state in sqlite",
+          "expected_paths": [
+            "docs/architecture/decisions/1s5u9-adr derived-only-sqlite-index-state-substrate.md"
+          ],
+          "xs_raw_rank": 3,
+          "s_raw_rank": 2,
+          "xs_reranked_rank": 4,
+          "s_reranked_rank": 4
+        },
+        {
+          "id": "architecture-09",
+          "category": "architecture",
+          "query": "what lifecycle ID format provides daily entropy and ordering",
+          "expected_paths": [
+            "docs/architecture/decisions/1p9qj-adr lifecycle-id-v2-daily-entropy-scheme.md"
+          ],
+          "xs_raw_rank": 3,
+          "s_raw_rank": 2,
+          "xs_reranked_rank": 3,
+          "s_reranked_rank": 3
+        },
+        {
+          "id": "architecture-10",
+          "category": "architecture",
+          "query": "why was framework documentation folded into the project document index",
+          "expected_paths": [
+            "docs/architecture/decisions/1p4xx-adr fold-framework-index-into-project-docs.md"
+          ],
+          "xs_raw_rank": 1,
+          "s_raw_rank": 2,
+          "xs_reranked_rank": 3,
+          "s_reranked_rank": 2
+        },
+        {
+          "id": "release-01",
+          "category": "install_release",
+          "query": "what command builds and verifies a release package",
+          "expected_paths": [
+            "docs/references/release-flow.md",
+            "docs/prompts/package-wavefoundry.prompt.md"
+          ],
+          "xs_raw_rank": 18,
+          "s_raw_rank": 25,
+          "xs_reranked_rank": 6,
+          "s_reranked_rank": 8
+        },
+        {
+          "id": "release-02",
+          "category": "install_release",
+          "query": "how do I recover when the release process fails partway through",
+          "expected_paths": [
+            "docs/references/release-flow.md"
+          ],
+          "xs_raw_rank": 1,
+          "s_raw_rank": 1,
+          "xs_reranked_rank": 1,
+          "s_reranked_rank": 1
+        },
+        {
+          "id": "release-03",
+          "category": "install_release",
+          "query": "how can I smoke test packaging without creating an actual release",
+          "expected_paths": [
+            "docs/references/release-flow.md",
+            "docs/contributing/build-and-verification.md"
+          ],
+          "xs_raw_rank": 2,
+          "s_raw_rank": 2,
+          "xs_reranked_rank": 1,
+          "s_reranked_rank": 1
+        },
+        {
+          "id": "release-04",
+          "category": "install_release",
+          "query": "which commands run the complete framework script test suite and documentation gate",
+          "expected_paths": [
+            "docs/contributing/build-and-verification.md"
+          ],
+          "xs_raw_rank": 21,
+          "s_raw_rank": 25,
+          "xs_reranked_rank": 26,
+          "s_reranked_rank": 17
+        },
+        {
+          "id": "release-05",
+          "category": "install_release",
+          "query": "how should documentation lint failures and metadata timestamps be repaired",
+          "expected_paths": [
+            "docs/contributing/build-and-verification.md",
+            "AGENTS.md"
+          ],
+          "xs_raw_rank": null,
+          "s_raw_rank": null,
+          "xs_reranked_rank": null,
+          "s_reranked_rank": null
+        },
+        {
+          "id": "release-06",
+          "category": "install_release",
+          "query": "how is the project semantic index initially installed and built",
+          "expected_paths": [
+            "docs/contributing/build-and-verification.md",
+            "docs/references/project-overview.md"
+          ],
+          "xs_raw_rank": 1,
+          "s_raw_rank": 1,
+          "xs_reranked_rank": 1,
+          "s_reranked_rank": 1
+        },
+        {
+          "id": "release-07",
+          "category": "install_release",
+          "query": "diagnose whether embeddings will use CoreML CUDA DirectML or CPU",
+          "expected_paths": [
+            "docs/contributing/build-and-verification.md",
+            "docs/specs/mcp-tool-surface.md"
+          ],
+          "xs_raw_rank": 2,
+          "s_raw_rank": 1,
+          "xs_reranked_rank": 1,
+          "s_reranked_rank": 1
+        },
+        {
+          "id": "release-08",
+          "category": "install_release",
+          "query": "when should I update an index and when is a complete rebuild required",
+          "expected_paths": [
+            "docs/contributing/build-and-verification.md"
+          ],
+          "xs_raw_rank": 1,
+          "s_raw_rank": 2,
+          "xs_reranked_rank": 7,
+          "s_reranked_rank": 6
+        },
+        {
+          "id": "release-09",
+          "category": "install_release",
+          "query": "how are dashboard files packaged installed upgraded started and stopped",
+          "expected_paths": [
+            "docs/references/dashboard-install-upgrade.md"
+          ],
+          "xs_raw_rank": 1,
+          "s_raw_rank": 5,
+          "xs_reranked_rank": 1,
+          "s_reranked_rank": 1
+        },
+        {
+          "id": "release-10",
+          "category": "install_release",
+          "query": "what is the schema for durable install and upgrade log rows",
+          "expected_paths": [
+            "docs/references/install-log-format.md"
+          ],
+          "xs_raw_rank": 4,
+          "s_raw_rank": 12,
+          "xs_reranked_rank": 3,
+          "s_reranked_rank": 6
+        },
+        {
+          "id": "release-11",
+          "category": "install_release",
+          "query": "map canonical templates to the assets shipped by the installer",
+          "expected_paths": [
+            "docs/references/install-assets.md"
+          ],
+          "xs_raw_rank": 1,
+          "s_raw_rank": 1,
+          "xs_reranked_rank": 1,
+          "s_reranked_rank": 1
+        },
+        {
+          "id": "release-12",
+          "category": "install_release",
+          "query": "what gaps remain for running the framework directly on native Windows",
+          "expected_paths": [
+            "docs/references/native-windows-support.md"
+          ],
+          "xs_raw_rank": 1,
+          "s_raw_rank": 6,
+          "xs_reranked_rank": 1,
+          "s_reranked_rank": 3
+        },
+        {
+          "id": "release-13",
+          "category": "install_release",
+          "query": "what semantic versioning rules govern framework releases",
+          "expected_paths": [
+            "docs/architecture/decisions/12tm5-adr semver-versioning-contract.md"
+          ],
+          "xs_raw_rank": 7,
+          "s_raw_rank": null,
+          "xs_reranked_rank": 6,
+          "s_reranked_rank": null
+        },
+        {
+          "id": "release-14",
+          "category": "install_release",
+          "query": "how do I verify a framework pack upgrade before committing it",
+          "expected_paths": [
+            "docs/contributing/build-and-verification.md"
+          ],
+          "xs_raw_rank": 1,
+          "s_raw_rank": 1,
+          "xs_reranked_rank": 1,
+          "s_reranked_rank": 1
+        },
+        {
+          "id": "release-15",
+          "category": "install_release",
+          "query": "upgrade an installed Wavefoundry framework in a target repository",
+          "expected_paths": [
+            "docs/prompts/upgrade-wavefoundry.prompt.md"
+          ],
+          "xs_raw_rank": 3,
+          "s_raw_rank": 1,
+          "xs_reranked_rank": 1,
+          "s_reranked_rank": 1
+        },
+        {
+          "id": "quality-01",
+          "category": "review_quality",
+          "query": "summarize the independent review lanes and what each one checks",
+          "expected_paths": [
+            "docs/contributing/review-and-evals.md",
+            "docs/contributing/agent-team-workflow.md"
+          ],
+          "xs_raw_rank": 4,
+          "s_raw_rank": 5,
+          "xs_reranked_rank": 10,
+          "s_reranked_rank": 9
+        },
+        {
+          "id": "quality-02",
+          "category": "review_quality",
+          "query": "what evidence is required before a wave can be marked ready",
+          "expected_paths": [
+            "docs/contributing/review-and-evals.md",
+            "docs/prompts/prepare-wave.prompt.md"
+          ],
+          "xs_raw_rank": 4,
+          "s_raw_rank": 5,
+          "xs_reranked_rank": 8,
+          "s_reranked_rank": 28
+        },
+        {
+          "id": "quality-03",
+          "category": "review_quality",
+          "query": "what makes a code review sufficient for wave delivery",
+          "expected_paths": [
+            "docs/contributing/review-and-evals.md",
+            "docs/prompts/review-wave.prompt.md",
+            ".wavefoundry/framework/seeds/007-review-system-overview.md",
+            ".wavefoundry/framework/seeds/221-code-reviewer.prompt.md"
+          ],
+          "xs_raw_rank": 9,
+          "s_raw_rank": 3,
+          "xs_reranked_rank": 2,
+          "s_reranked_rank": 9
+        },
+        {
+          "id": "quality-04",
+          "category": "review_quality",
+          "query": "what executable evidence must an independent QA reviewer provide",
+          "expected_paths": [
+            "docs/agents/qa-reviewer.md",
+            "docs/contributing/review-and-evals.md"
+          ],
+          "xs_raw_rank": 1,
+          "s_raw_rank": 1,
+          "xs_reranked_rank": 1,
+          "s_reranked_rank": 1
+        },
+        {
+          "id": "quality-05",
+          "category": "review_quality",
+          "query": "how do reviewers prove independence from the implementation context",
+          "expected_paths": [
+            "docs/contributing/review-and-evals.md",
+            "docs/agents/qa-reviewer.md"
+          ],
+          "xs_raw_rank": 1,
+          "s_raw_rank": 1,
+          "xs_reranked_rank": 1,
+          "s_reranked_rank": 1
+        },
+        {
+          "id": "quality-06",
+          "category": "review_quality",
+          "query": "how does the wave council combine reviewer findings into one verdict",
+          "expected_paths": [
+            "docs/contributing/review-and-evals.md",
+            "docs/prompts/council-review.prompt.md"
+          ],
+          "xs_raw_rank": 12,
+          "s_raw_rank": 9,
+          "xs_reranked_rank": 15,
+          "s_reranked_rank": 13
+        },
+        {
+          "id": "quality-07",
+          "category": "review_quality",
+          "query": "how are agent roles selected and routed for a task",
+          "expected_paths": [
+            "docs/contributing/agent-team-workflow.md"
+          ],
+          "xs_raw_rank": 1,
+          "s_raw_rank": 3,
+          "xs_reranked_rank": 6,
+          "s_reranked_rank": 5
+        },
+        {
+          "id": "quality-08",
+          "category": "review_quality",
+          "query": "what are the rules for running multiple agents concurrently",
+          "expected_paths": [
+            "docs/contributing/agent-team-workflow.md"
+          ],
+          "xs_raw_rank": 1,
+          "s_raw_rank": 4,
+          "xs_reranked_rank": 9,
+          "s_reranked_rank": 8
+        },
+        {
+          "id": "quality-09",
+          "category": "review_quality",
+          "query": "what does the release reviewer verify before shipping",
+          "expected_paths": [
+            "docs/agents/release-reviewer.md"
+          ],
+          "xs_raw_rank": 1,
+          "s_raw_rank": 2,
+          "xs_reranked_rank": 1,
+          "s_reranked_rank": 1
+        },
+        {
+          "id": "quality-10",
+          "category": "review_quality",
+          "query": "what responsibilities and refusal conditions define the QA reviewer role",
+          "expected_paths": [
+            "docs/agents/qa-reviewer.md"
+          ],
+          "xs_raw_rank": 1,
+          "s_raw_rank": 1,
+          "xs_reranked_rank": 1,
+          "s_reranked_rank": 1
+        },
+        {
+          "id": "security-01",
+          "category": "security",
+          "query": "what is the project's overall security posture and local-only trust model",
+          "expected_paths": [
+            "docs/SECURITY.md"
+          ],
+          "xs_raw_rank": 2,
+          "s_raw_rank": 1,
+          "xs_reranked_rank": 1,
+          "s_reranked_rank": 1
+        },
+        {
+          "id": "security-02",
+          "category": "security",
+          "query": "what threats exist at MCP trust boundaries and how are they mitigated",
+          "expected_paths": [
+            "docs/architecture/threat-model.md"
+          ],
+          "xs_raw_rank": 8,
+          "s_raw_rank": 3,
+          "xs_reranked_rank": 1,
+          "s_reranked_rank": 3
+        },
+        {
+          "id": "security-03",
+          "category": "security",
+          "query": "what performance budgets constrain indexing search and server startup",
+          "expected_paths": [
+            "docs/architecture/performance-budget.md"
+          ],
+          "xs_raw_rank": 4,
+          "s_raw_rank": 4,
+          "xs_reranked_rank": 3,
+          "s_reranked_rank": 2
+        },
+        {
+          "id": "security-04",
+          "category": "security",
+          "query": "what JSON schema records secret scan findings and confirmations",
+          "expected_paths": [
+            "docs/references/scan-findings-format.md"
+          ],
+          "xs_raw_rank": 1,
+          "s_raw_rank": 1,
+          "xs_reranked_rank": 1,
+          "s_reranked_rank": 1
+        },
+        {
+          "id": "security-05",
+          "category": "security",
+          "query": "how must sensitive values be redacted from scan evidence",
+          "expected_paths": [
+            "docs/references/scan-findings-format.md",
+            "docs/SECURITY.md"
+          ],
+          "xs_raw_rank": 1,
+          "s_raw_rank": 3,
+          "xs_reranked_rank": 4,
+          "s_reranked_rank": 4
+        },
+        {
+          "id": "security-06",
+          "category": "security",
+          "query": "when is a speculative threat credible enough to block delivery",
+          "expected_paths": [
+            "docs/SECURITY.md"
+          ],
+          "xs_raw_rank": null,
+          "s_raw_rank": null,
+          "xs_reranked_rank": null,
+          "s_reranked_rank": null
+        },
+        {
+          "id": "security-07",
+          "category": "security",
+          "query": "what is the known LanceDB list offset corruption signature and workaround",
+          "expected_paths": [
+            "docs/references/lance-list-offset-corruption.md"
+          ],
+          "xs_raw_rank": 1,
+          "s_raw_rank": 1,
+          "xs_reranked_rank": 1,
+          "s_reranked_rank": 1
+        },
+        {
+          "id": "security-08",
+          "category": "security",
+          "query": "how are memory retrieval quality and fusion measured before adoption",
+          "expected_paths": [
+            "docs/references/memory-retrieval-eval.md"
+          ],
+          "xs_raw_rank": 1,
+          "s_raw_rank": 1,
+          "xs_reranked_rank": 2,
+          "s_reranked_rank": 2
+        },
+        {
+          "id": "security-09",
+          "category": "security",
+          "query": "how is estimated exploration avoided calculated and what caveat must accompany it",
+          "expected_paths": [
+            "docs/references/estimated-exploration-avoided.md"
+          ],
+          "xs_raw_rank": 1,
+          "s_raw_rank": 1,
+          "xs_reranked_rank": 1,
+          "s_reranked_rank": 1
+        },
+        {
+          "id": "security-10",
+          "category": "security",
+          "query": "compare paired context-efficiency sessions and interpret their residual",
+          "expected_paths": [
+            "docs/references/context-efficiency-paired-evaluation.md"
+          ],
+          "xs_raw_rank": 1,
+          "s_raw_rank": 1,
+          "xs_reranked_rank": 1,
+          "s_reranked_rank": 1
+        },
+        {
+          "id": "design-01",
+          "category": "design_system",
+          "query": "where are the design token sources and generated outputs documented",
+          "expected_paths": [
+            "docs/design-system/tokens/README.md"
+          ],
+          "xs_raw_rank": null,
+          "s_raw_rank": null,
+          "xs_reranked_rank": null,
+          "s_reranked_rank": null
+        },
+        {
+          "id": "design-02",
+          "category": "design_system",
+          "query": "how should visible keyboard focus indicators be designed",
+          "expected_paths": [
+            "docs/design-system/accessibility/focus.md"
+          ],
+          "xs_raw_rank": null,
+          "s_raw_rank": null,
+          "xs_reranked_rank": null,
+          "s_reranked_rank": null
+        },
+        {
+          "id": "design-03",
+          "category": "design_system",
+          "query": "what keyboard interaction behavior is required for accessible components",
+          "expected_paths": [
+            "docs/design-system/accessibility/keyboard.md"
+          ],
+          "xs_raw_rank": 13,
+          "s_raw_rank": 9,
+          "xs_reranked_rank": 36,
+          "s_reranked_rank": 28
+        },
+        {
+          "id": "design-04",
+          "category": "design_system",
+          "query": "how should controls expose names states and updates to screen readers",
+          "expected_paths": [
+            "docs/design-system/accessibility/screen-reader.md"
+          ],
+          "xs_raw_rank": null,
+          "s_raw_rank": null,
+          "xs_reranked_rank": null,
+          "s_reranked_rank": null
+        },
+        {
+          "id": "design-05",
+          "category": "design_system",
+          "query": "which semantic color roles should interfaces use instead of raw colors",
+          "expected_paths": [
+            "docs/design-system/foundations/color.md"
+          ],
+          "xs_raw_rank": 2,
+          "s_raw_rank": 3,
+          "xs_reranked_rank": 3,
+          "s_reranked_rank": 2
+        },
+        {
+          "id": "design-06",
+          "category": "design_system",
+          "query": "what type scale weights and text styles are part of the design system",
+          "expected_paths": [
+            "docs/design-system/foundations/typography.md"
+          ],
+          "xs_raw_rank": 1,
+          "s_raw_rank": 1,
+          "xs_reranked_rank": 2,
+          "s_reranked_rank": 1
+        },
+        {
+          "id": "design-07",
+          "category": "design_system",
+          "query": "which spacing scale should components and layouts use",
+          "expected_paths": [
+            "docs/design-system/foundations/spacing.md"
+          ],
+          "xs_raw_rank": 2,
+          "s_raw_rank": 2,
+          "xs_reranked_rank": 2,
+          "s_reranked_rank": 2
+        },
+        {
+          "id": "design-08",
+          "category": "design_system",
+          "query": "how should interface animation respect reduced motion preferences",
+          "expected_paths": [
+            "docs/design-system/foundations/motion.md",
+            "docs/design-system/foundations/media-motion.md"
+          ],
+          "xs_raw_rank": 1,
+          "s_raw_rank": 1,
+          "xs_reranked_rank": 5,
+          "s_reranked_rank": 4
+        },
+        {
+          "id": "design-09",
+          "category": "design_system",
+          "query": "what rules define the dashboard page shell and layout regions",
+          "expected_paths": [
+            "docs/design-system/foundations/dashboard.md",
+            "docs/design-system/foundations/shell.md"
+          ],
+          "xs_raw_rank": 3,
+          "s_raw_rank": 6,
+          "xs_reranked_rank": 1,
+          "s_reranked_rank": 1
+        },
+        {
+          "id": "design-10",
+          "category": "design_system",
+          "query": "what voice and tone should product interface copy use",
+          "expected_paths": [
+            "docs/design-system/content/voice.md"
+          ],
+          "xs_raw_rank": 4,
+          "s_raw_rank": null,
+          "xs_reranked_rank": 12,
+          "s_reranked_rank": null
+        },
+        {
+          "id": "design-11",
+          "category": "design_system",
+          "query": "how should dates numbers currencies and messages be internationalized",
+          "expected_paths": [
+            "docs/design-system/content/i18n.md",
+            "docs/design-system/content/locale-formats.md"
+          ],
+          "xs_raw_rank": 3,
+          "s_raw_rank": 1,
+          "xs_reranked_rank": 3,
+          "s_reranked_rank": 2
+        },
+        {
+          "id": "design-12",
+          "category": "design_system",
+          "query": "what layout changes are required for right to left languages",
+          "expected_paths": [
+            "docs/design-system/content/rtl-layout.md"
+          ],
+          "xs_raw_rank": null,
+          "s_raw_rank": null,
+          "xs_reranked_rank": null,
+          "s_reranked_rank": null
+        },
+        {
+          "id": "design-13",
+          "category": "design_system",
+          "query": "how should forms communicate that a field is required",
+          "expected_paths": [
+            "docs/design-system/validation-patterns/required-field.md"
+          ],
+          "xs_raw_rank": null,
+          "s_raw_rank": 1,
+          "xs_reranked_rank": null,
+          "s_reranked_rank": 17
+        },
+        {
+          "id": "design-14",
+          "category": "design_system",
+          "query": "how should an interface present validation that completes asynchronously",
+          "expected_paths": [
+            "docs/design-system/validation-patterns/async-validation.md"
+          ],
+          "xs_raw_rank": 11,
+          "s_raw_rank": 10,
+          "xs_reranked_rank": 3,
+          "s_reranked_rank": 1
+        },
+        {
+          "id": "design-15",
+          "category": "design_system",
+          "query": "how should validation errors be placed announced and associated with fields",
+          "expected_paths": [
+            "docs/design-system/validation-patterns/error-display.md"
+          ],
+          "xs_raw_rank": null,
+          "s_raw_rank": null,
+          "xs_reranked_rank": null,
+          "s_reranked_rank": null
+        }
+      ]
+    }
+  },
+  "metrics": {
+    "code": {
+      "raw": {
+        "xs": {
+          "queries": 28,
+          "recall": {
+            "1": 0.857143,
+            "3": 0.857143,
+            "5": 0.892857,
+            "10": 0.928571,
+            "20": 0.964286,
+            "40": 0.964286
+          },
+          "mrr_at_40": 0.871726
+        },
+        "s": {
+          "queries": 28,
+          "recall": {
+            "1": 0.857143,
+            "3": 0.892857,
+            "5": 0.928571,
+            "10": 0.964286,
+            "20": 0.964286,
+            "40": 0.964286
+          },
+          "mrr_at_40": 0.882143
+        }
+      },
+      "reranked": {
+        "xs": {
+          "queries": 28,
+          "recall": {
+            "1": 0.785714,
+            "3": 0.857143,
+            "5": 0.857143,
+            "10": 0.964286,
+            "20": 0.964286,
+            "40": 0.964286
+          },
+          "mrr_at_40": 0.837585
+        },
+        "s": {
+          "queries": 28,
+          "recall": {
+            "1": 0.821429,
+            "3": 0.857143,
+            "5": 0.892857,
+            "10": 0.964286,
+            "20": 0.964286,
+            "40": 0.964286
+          },
+          "mrr_at_40": 0.855995
+        }
+      },
+      "s_over_xs_timing_ratio": 1.629503
+    },
+    "documents": {
+      "raw": {
+        "xs": {
+          "queries": 100,
+          "recall": {
+            "1": 0.37,
+            "3": 0.54,
+            "5": 0.64,
+            "10": 0.71,
+            "20": 0.83,
+            "40": 0.88
+          },
+          "mrr_at_40": 0.490677
+        },
+        "s": {
+          "queries": 100,
+          "recall": {
+            "1": 0.35,
+            "3": 0.6,
+            "5": 0.72,
+            "10": 0.8,
+            "20": 0.83,
+            "40": 0.87
+          },
+          "mrr_at_40": 0.499581
+        }
+      },
+      "reranked": {
+        "xs": {
+          "queries": 100,
+          "recall": {
+            "1": 0.39,
+            "3": 0.61,
+            "5": 0.67,
+            "10": 0.8,
+            "20": 0.83,
+            "40": 0.88
+          },
+          "mrr_at_40": 0.518488
+        },
+        "s": {
+          "queries": 100,
+          "recall": {
+            "1": 0.38,
+            "3": 0.6,
+            "5": 0.67,
+            "10": 0.8,
+            "20": 0.83,
+            "40": 0.87
+          },
+          "mrr_at_40": 0.517759
+        }
+      },
+      "paired_s_minus_xs_95": {
+        "top_3": {
+          "mean": -0.01,
+          "low_95": -0.069063,
+          "high_95": 0.049063
+        },
+        "top_5": {
+          "mean": 0.0,
+          "low_95": -0.055716,
+          "high_95": 0.055716
+        },
+        "top_10": {
+          "mean": 0.0,
+          "low_95": -0.039397,
+          "high_95": 0.039397
+        },
+        "top_20": {
+          "mean": 0.0,
+          "low_95": -0.048252,
+          "high_95": 0.048252
+        },
+        "top_40": {
+          "mean": -0.01,
+          "low_95": -0.044062,
+          "high_95": 0.024062
+        },
+        "mrr_at_40": {
+          "mean": -0.000729,
+          "low_95": -0.041622,
+          "high_95": 0.040164
+        }
+      },
+      "s_over_xs_timing_ratio": 1.632226
+    }
+  }
+}

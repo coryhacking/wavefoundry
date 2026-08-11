@@ -3549,12 +3549,12 @@ class ConstantChunkTests(unittest.TestCase):
     def test_module_constant_chunked_with_value_and_breadcrumb(self):
         """AC-1: a module-level UPPER_SNAKE constant becomes a kind=code chunk whose text
         carries the breadcrumb prefix AND the value (the RERANKER_MODEL motivating case)."""
-        consts = self._consts('RERANKER_MODEL = "BAAI/bge-reranker-base"\n')
+        consts = self._consts('RERANKER_MODEL = "example/reranker"\n')
         self.assertIn("mod.py::RERANKER_MODEL", consts)
         c = consts["mod.py::RERANKER_MODEL"]
         self.assertEqual(c.kind, "code")
         self.assertTrue(c.text.startswith("mod > RERANKER_MODEL\n\n"))
-        self.assertIn('"BAAI/bge-reranker-base"', c.text)
+        self.assertIn('"example/reranker"', c.text)
 
     def test_class_constant_chunked_qualified(self):
         """AC-1: a class-body constant is chunked as Type.NAME."""

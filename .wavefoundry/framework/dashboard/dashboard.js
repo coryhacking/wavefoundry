@@ -3816,6 +3816,12 @@ function IndexDialog({ health, onClose }) {
   );
 }
 
+function _visibleModelId(value) {
+  const full = typeof value === "string" ? value : "";
+  const provenanceAt = full.indexOf("@");
+  return provenanceAt > 0 ? full.slice(0, provenanceAt) : full;
+}
+
 function IndexSection({ label, idx }) {
   const staleLocksCleaned = Array.isArray(idx.stale_locks_cleaned) ? idx.stale_locks_cleaned.length : 0;
 
@@ -3833,12 +3839,12 @@ function IndexSection({ label, idx }) {
     const dm = idx.docs_model, cm = idx.code_model;
     if (dm && cm && dm !== cm) {
       return [
-        h("span", { className: "index-meta-pill index-meta-pill--model", key: "dm" }, `docs: ${dm}`),
-        h("span", { className: "index-meta-pill index-meta-pill--model", key: "cm" }, `code: ${cm}`),
+        h("span", { className: "index-meta-pill index-meta-pill--model", key: "dm", title: dm }, `docs: ${_visibleModelId(dm)}`),
+        h("span", { className: "index-meta-pill index-meta-pill--model", key: "cm", title: cm }, `code: ${_visibleModelId(cm)}`),
       ];
     }
     const single = dm || cm || idx.model;
-    return single ? h("span", { className: "index-meta-pill index-meta-pill--model" }, single) : null;
+    return single ? h("span", { className: "index-meta-pill index-meta-pill--model", title: single }, _visibleModelId(single)) : null;
   })();
   return h("div", { className: "index-section" },
     h("div", { className: "index-section-label" }, label),

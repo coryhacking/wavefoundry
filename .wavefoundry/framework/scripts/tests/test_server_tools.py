@@ -613,16 +613,15 @@ class FrameworkWideSubprocessIsolationGuard(unittest.TestCase):
                 # And the enclosing source lacks the helper → would be flagged.
                 self.assertNotIn("windowless_mp_context", src)
 
-    def test_background_popen_launchers_keep_logfile_and_add_isolation(self):
-        # AC-4: the two upgrade background code-index launchers route through the shared isolated Popen,
-        # keeping their log-file stdout/stderr redirection.
+    def test_upgrade_has_no_detached_background_index_launcher(self):
+        # Model-set v2 publishes one synchronous all-layer epoch and suppresses the redundant
+        # Phase 4c detached pass. No dead background launcher or log handle may remain.
         src = (SCRIPTS_ROOT / "upgrade_wavefoundry.py").read_text(encoding="utf-8")
         self.assertEqual(
-            src.count("subprocess_util.isolated_popen("), 2,
-            "both upgrade background launchers must use subprocess_util.isolated_popen",
+            src.count("subprocess_util.isolated_popen("), 0,
+            "upgrade must not retain a detached semantic-index launcher",
         )
-        self.assertIn("stdout=_bg_log_file", src)
-        self.assertIn("stderr=_bg_log_file", src)
+        self.assertNotIn("_bg_log_file", src)
 
     # ── Wave 1p8pe: framework python spawns must launch via the console-free pythonw.exe on Windows ──
     #
@@ -5242,8 +5241,8 @@ class IndexBuildStatusTests(unittest.TestCase):
         import time
         self._write_state(99999999, time.time() - 60)
         self.log_path.write_text(
-            "Prewarming semantic model cache: BAAI/bge-small-en-v1.5\n"
-            "Required embedding model 'Snowflake/snowflake-arctic-embed-xs' could not be prepared for semantic index setup: "
+            "Prewarming semantic model cache: Snowflake/snowflake-arctic-embed-s\n"
+            "Required embedding model 'Snowflake/snowflake-arctic-embed-s' could not be prepared for semantic index setup: "
             "network or download host unavailable.\n",
             encoding="utf-8",
         )
@@ -13798,9 +13797,9 @@ class WavePrepareACPriorityWarningTests(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 # Regression anchors — update these deliberately when upgrading the model.
-# Wave 1p4wx: docs use arctic-embed-xs (384-d, asymmetric); code stays bge-small.
-_EXPECTED_DOCS_MODEL = "Snowflake/snowflake-arctic-embed-xs"
-_EXPECTED_CODE_MODEL = "BAAI/bge-small-en-v1.5"
+# Wave 1v0r0: independent docs/code selectors both use Arctic S (384-d, asymmetric).
+_EXPECTED_DOCS_MODEL = "Snowflake/snowflake-arctic-embed-s"
+_EXPECTED_CODE_MODEL = "Snowflake/snowflake-arctic-embed-s"
 _EXPECTED_EMBEDDING_DIM = 384
 
 
@@ -14036,11 +14035,11 @@ class EmbedderSingletonTests(unittest.TestCase):
         fake_fastembed = types.ModuleType("fastembed")
         fake_fastembed.TextEmbedding = _FakeTextEmbedding
         with patch.dict(sys.modules, {"fastembed": fake_fastembed}):
-            first = self.index._get_embedder("BAAI/bge-small-en-v1.5")
-            second = self.index._get_embedder("BAAI/bge-small-en-v1.5")
+            first = self.index._get_embedder("Snowflake/snowflake-arctic-embed-s")
+            second = self.index._get_embedder("Snowflake/snowflake-arctic-embed-s")
 
         self.assertIs(first, second, "embedder must be cached (same instance returned)")
-        self.assertEqual(construct_calls, ["BAAI/bge-small-en-v1.5"],
+        self.assertEqual(construct_calls, ["Snowflake/snowflake-arctic-embed-s"],
                          "embedder must be constructed exactly once per model")
 
     def test_get_embedder_caches_per_model_name(self):
@@ -14053,21 +14052,21 @@ class EmbedderSingletonTests(unittest.TestCase):
         fake_fastembed = types.ModuleType("fastembed")
         fake_fastembed.TextEmbedding = _FakeTextEmbedding
         with patch.dict(sys.modules, {"fastembed": fake_fastembed}):
-            docs = self.index._get_embedder("Snowflake/snowflake-arctic-embed-xs")
-            code = self.index._get_embedder("BAAI/bge-small-en-v1.5")
-            docs_again = self.index._get_embedder("Snowflake/snowflake-arctic-embed-xs")
+            docs = self.index._get_embedder("Snowflake/snowflake-arctic-embed-s")
+            code = self.index._get_embedder("supplier/future-code")
+            docs_again = self.index._get_embedder("Snowflake/snowflake-arctic-embed-s")
 
         self.assertIsNot(docs, code, "different models get distinct cached embedders")
         self.assertIs(docs, docs_again)
         self.assertEqual(construct_calls,
-                         ["Snowflake/snowflake-arctic-embed-xs", "BAAI/bge-small-en-v1.5"])
+                         ["Snowflake/snowflake-arctic-embed-s", "supplier/future-code"])
 
     def test_get_embedder_uses_int8_when_index_recorded_int8(self):
         """Wave 1p935 AC-2 / 1p936 AC-4: when the index's recorded model_versions class is "int8",
         the query embedder is the accel CPU-INT8 StaticShapeEmbedder (matching the stored vectors'
         precision), NOT fastembed — regardless of the current machine's own classification."""
         import accel_embedder
-        model = "Snowflake/snowflake-arctic-embed-xs"
+        model = "Snowflake/snowflake-arctic-embed-s"
         self.index._meta = {"project": {"model_versions": {"docs": f"{model}@int8"}}}
         self.index._embedders = {}
         int8_sentinel = MagicMock()
@@ -14081,7 +14080,7 @@ class EmbedderSingletonTests(unittest.TestCase):
         """The mirror: a "full"-class (or legacy bare-name) index uses the fastembed-resident
         full-precision embedder, never the INT8 accel path."""
         import accel_embedder
-        model = "Snowflake/snowflake-arctic-embed-xs"
+        model = "Snowflake/snowflake-arctic-embed-s"
         self.index._meta = {"project": {"model_versions": {"docs": f"{model}@full"}}}
         self.index._embedders = {}
 
@@ -14102,7 +14101,7 @@ class EmbedderSingletonTests(unittest.TestCase):
         unavailable (e.g. not cached / offline), fall back to fastembed rather than raising — a
         degraded but usable query beats no query."""
         import accel_embedder
-        model = "Snowflake/snowflake-arctic-embed-xs"
+        model = "Snowflake/snowflake-arctic-embed-s"
         self.index._meta = {"project": {"model_versions": {"docs": f"{model}@int8"}}}
         self.index._embedders = {}
 
@@ -14118,8 +14117,8 @@ class EmbedderSingletonTests(unittest.TestCase):
         self.assertIsInstance(got, _FakeTextEmbedding, "int8 build failure must degrade to fastembed")
 
 
-class DocsCodeModelSplitTests(unittest.TestCase):
-    """1p4wx: docs use arctic-embed-xs (asymmetric, query prefix); code stays bge-small.
+class DocsCodeModelSelectorTests(unittest.TestCase):
+    """Independent docs/code selectors both use Arctic S and its query-only prefix.
 
     These are pure-wiring tests — they do not require fastembed or a cached model
     (the embedder is mocked), so they run everywhere unlike SemanticEmbeddingRegressionTests.
@@ -14139,18 +14138,32 @@ class DocsCodeModelSplitTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def test_model_constants_are_split(self):
+    def test_model_constants_are_independently_assigned_to_same_id(self):
         self.assertEqual(self.indexer.DOCS_MODEL, _EXPECTED_DOCS_MODEL)
         self.assertEqual(self.indexer.CODE_MODEL, _EXPECTED_CODE_MODEL)
-        self.assertNotEqual(self.indexer.DOCS_MODEL, self.indexer.CODE_MODEL)
+        self.assertEqual(self.indexer.DOCS_MODEL, self.indexer.CODE_MODEL)
+        source = Path(self.indexer.__file__).read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        assigned = {
+            node.targets[0].id: node.value.value
+            for node in tree.body
+            if isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+            and node.targets[0].id in {"DOCS_MODEL", "CODE_MODEL"}
+            and isinstance(node.value, ast.Constant)
+        }
+        self.assertEqual(assigned, {"DOCS_MODEL": _EXPECTED_DOCS_MODEL, "CODE_MODEL": _EXPECTED_CODE_MODEL})
 
     def test_arctic_query_prefix_registered(self):
         self.assertEqual(
             self.indexer.query_embedding_prefix(self.indexer.DOCS_MODEL),
             "Represent this sentence for searching relevant passages: ",
         )
-        # Code (bge) is symmetric — no query prefix.
-        self.assertEqual(self.indexer.query_embedding_prefix(self.indexer.CODE_MODEL), "")
+        self.assertEqual(
+            self.indexer.query_embedding_prefix(self.indexer.CODE_MODEL),
+            "Represent this sentence for searching relevant passages: ",
+        )
 
     def test_active_models_have_empty_document_prefix(self):
         # The index build embeds passages without a prefix; this invariant guards it.
@@ -14179,7 +14192,7 @@ class DocsCodeModelSplitTests(unittest.TestCase):
             "Represent this sentence for searching relevant passages: how does the wave lifecycle work",
         )
 
-    def test_embed_query_no_prefix_for_code_model(self):
+    def test_embed_query_applies_arctic_prefix_for_code_model(self):
         import numpy as np
         captured: list[list[str]] = []
 
@@ -14191,8 +14204,10 @@ class DocsCodeModelSplitTests(unittest.TestCase):
         with patch.object(self.index, "_get_embedder", return_value=_FakeEmbedder()):
             self.index._embed_query("parse the config", self.indexer.CODE_MODEL)
 
-        # bge (code) is symmetric — the query text is passed through unchanged.
-        self.assertEqual(captured[0][0], "parse the config")
+        self.assertEqual(
+            captured[0][0],
+            "Represent this sentence for searching relevant passages: parse the config",
+        )
 
 
 class WavePauseStatusTransitionTests(unittest.TestCase):
@@ -14818,7 +14833,7 @@ class LayerHealthFileMetaTests(unittest.TestCase):
         meta = {
             "built_at": "2026-01-01T00:00:00Z",
             "content": ["docs", "code"] if code_prefix else ["docs"],
-            "model_versions": {"docs": "Snowflake/snowflake-arctic-embed-xs"},
+            "model_versions": {"docs": "Snowflake/snowflake-arctic-embed-s"},
             "chunker_versions": {"docs": "13"},
             "walker_version": "3",
             "file_meta": self._file_meta_for_root(root),
@@ -14873,7 +14888,7 @@ class LayerHealthFileMetaTests(unittest.TestCase):
         meta = {
             "built_at": "2026-01-01T00:00:00Z",
             "content": ["docs"],
-            "model_versions": {"docs": "BAAI/bge-base-en-v1.5"},
+            "model_versions": {"docs": "legacy/model-v1"},
             "chunker_versions": {"docs": "13"},
             "walker_version": "3",
             "file_meta": self._file_meta_for_root(root),
@@ -14899,7 +14914,7 @@ class LayerHealthFileMetaTests(unittest.TestCase):
         meta = {
             "built_at": "2026-01-01T00:00:00Z",
             "content": ["docs"],
-            "model_versions": {"docs": "BAAI/bge-base-en-v1.5"},
+            "model_versions": {"docs": "legacy/model-v1"},
             "chunker_versions": {"docs": "13"},
             "walker_version": "3",
             "file_meta": self._file_meta_for_root(root),
@@ -14934,7 +14949,7 @@ class LayerHealthFileMetaTests(unittest.TestCase):
         meta = {
             "built_at": "2026-01-01T00:00:00Z",
             "content": ["docs"],
-            "model_versions": {"docs": "BAAI/bge-base-en-v1.5"},
+            "model_versions": {"docs": "legacy/model-v1"},
             "chunker_versions": {"docs": "13"},
             "walker_version": "3",
             "file_hashes": file_hashes,
@@ -16096,8 +16111,8 @@ class CodeAskTests(unittest.TestCase):
     def test_confidence_no_reranker_capped_at_medium(self):
         # 1p66r: without the cross-encoder (reranked=False) confidence is capped at
         # 'medium' — the prior count-based 'high' was relevance-blind (the per-index
-        # floor guarantees n>=2 on any non-empty index → always 'high'). Mixed-model
-        # cosine is not a calibrated band, so we never over-claim 'high' here.
+        # floor guarantees n>=2 on any non-empty index → always 'high'). The raw
+        # shared-embedder cosine is uncalibrated, so we never over-claim 'high' here.
         index = self._make_index(code_results=[self._fake_code_chunk("src/a.py"), self._fake_code_chunk("src/b.py")])
         result = self.srv.code_ask_response(index, self.root, "billing?")
         self.assertEqual(result["data"]["confidence"], "medium")
@@ -16820,7 +16835,7 @@ class InferTagsServerTests(unittest.TestCase):
                 root / ".wavefoundry" / "index",
                 docs_chunks=docs_chunks,
                 docs_vectors=vecs.tolist(),
-                model="BAAI/bge-base-en-v1.5",
+                model=_EXPECTED_DOCS_MODEL,
             )
             idx = self.srv.WaveIndex(root)
             idx._embed_query = lambda q, model: np.ones(4, dtype=np.float32)
@@ -19074,7 +19089,7 @@ class RerankerTests(unittest.TestCase):
             docs_vectors=np.ones((max(len(docs_chunks), 1), 4), dtype=np.float32).tolist(),
             code_chunks=code_chunks,
             code_vectors=np.ones((max(len(code_chunks or []), 1), 4), dtype=np.float32).tolist() if code_chunks else None,
-            model="BAAI/bge-base-en-v1.5",
+            model=_EXPECTED_DOCS_MODEL,
         )
         idx = srv.WaveIndex(root)
         import numpy as np
@@ -19601,13 +19616,19 @@ class RerankerTests(unittest.TestCase):
                 return lambda: ["CoreMLExecutionProvider"]
             raise AssertionError(f"unexpected _indexer_constant({name!r})")
 
+        logs: list[str] = []
         with patch.object(accel_embedder, "make_reranker", return_value=mock_reranker) as mk:
             with patch.object(idx, "_indexer_constant", side_effect=_const):
-                with patch.object(idx, "_offline_model_env", return_value=__import__("contextlib").nullcontext()):
+                with patch.object(idx, "_offline_model_env", return_value=__import__("contextlib").nullcontext()), \
+                     patch.object(self.srv, "_wf_log", side_effect=logs.append):
                     result = idx._get_reranker()
         mk.assert_called_once()
         self.assertIs(idx._reranker, mock_reranker)
         self.assertIs(result, mock_reranker)
+        self.assertTrue(
+            any("static 40x512" in line for line in logs),
+            f"the public success log must report the independent reranker batch: {logs}",
+        )
 
     # --- search_combined: question-type-aware retrieval ---
 
@@ -27104,6 +27125,53 @@ class WaveUpgradeStatusTests(unittest.TestCase):
         self.assertEqual(result["data"]["from_version"], "2026-05-10a")
         self.assertEqual(result["data"]["to_version"], "2026-05-19a")
 
+    def test_lock_exposes_exact_retired_model_cleanup_projection(self):
+        self._write_lock()
+        path = self._lock_path()
+        lock = json.loads(path.read_text(encoding="utf-8"))
+        expected = {
+            "retired_model_cleanup_status": "failed",
+            "retired_model_cleanup_removed": ["fastembed:default:retired-a"],
+            "retired_model_cleanup_absent": ["clean-onnx:default:retired-b"],
+            "retired_model_cleanup_unowned": ["fastembed:custom:retired-c"],
+            "retired_model_cleanup_failed": ["coreml:default:retired-d|remove_failed"],
+        }
+        lock.update(expected)
+        path.write_text(json.dumps(lock), encoding="utf-8")
+        result = self.srv.wf_upgrade_status_response(self.root)
+        self.assertEqual(
+            {key: result["data"][key] for key in self.srv.RETIRED_MODEL_CLEANUP_KEYS},
+            expected,
+        )
+
+    def test_lock_cleanup_projection_drops_paths_and_exception_text(self):
+        self._write_lock()
+        path = self._lock_path()
+        lock = json.loads(path.read_text(encoding="utf-8"))
+        lock.update({
+            "retired_model_cleanup_status": "failed",
+            "retired_model_cleanup_removed": ["/Users/operator/private/model"],
+            "retired_model_cleanup_absent": ["coreml:default:retired-ok"],
+            "retired_model_cleanup_unowned": ["PermissionError: errno 13"],
+            "retired_model_cleanup_failed": [
+                "coreml:default:retired-bad|/private/cache",
+                "coreml:default:retired-failed|remove_failed",
+            ],
+        })
+        path.write_text(json.dumps(lock), encoding="utf-8")
+        result = self.srv.wf_upgrade_status_response(self.root)
+        self.assertEqual(result["data"]["retired_model_cleanup_status"], "failed")
+        self.assertEqual(result["data"]["retired_model_cleanup_removed"], [])
+        self.assertEqual(
+            result["data"]["retired_model_cleanup_absent"],
+            ["coreml:default:retired-ok"],
+        )
+        self.assertEqual(result["data"]["retired_model_cleanup_unowned"], [])
+        self.assertEqual(
+            result["data"]["retired_model_cleanup_failed"],
+            ["coreml:default:retired-failed|remove_failed"],
+        )
+
     def test_lock_exposes_structured_memory_gate_and_exact_worklist(self):
         self._write_lock(memory_run_id="run-1")
         backfill = MagicMock()
@@ -27320,6 +27388,11 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
             "reconciliation": findings,
             "host_permission_flags": list(findings),
             "skipped_scan_locations": [],
+            "retired_model_cleanup_status": "failed",
+            "retired_model_cleanup_removed": ["fastembed:default:retired-a"],
+            "retired_model_cleanup_absent": ["clean-onnx:default:retired-b"],
+            "retired_model_cleanup_unowned": ["fastembed:custom:retired-c"],
+            "retired_model_cleanup_failed": ["coreml:default:retired-d|remove_failed"],
         }
         stdout = (
             ("seed diff detail\n" * 30_000)
@@ -27346,8 +27419,47 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
         self.assertEqual(bounded["host_permission_flags_total"], 10_000)
         self.assertGreater(bounded["summary_total_chars"], 900_000)
         self.assertEqual(
+            {key: bounded[key] for key in self.srv.RETIRED_MODEL_CLEANUP_KEYS},
+            {
+                "retired_model_cleanup_status": "failed",
+                "retired_model_cleanup_removed": ["fastembed:default:retired-a"],
+                "retired_model_cleanup_absent": ["clean-onnx:default:retired-b"],
+                "retired_model_cleanup_unowned": ["fastembed:custom:retired-c"],
+                "retired_model_cleanup_failed": ["coreml:default:retired-d|remove_failed"],
+            },
+        )
+        self.assertEqual(
             result["data"]["log_path"],
             str(self.root / ".wavefoundry/logs/upgrade.log"),
+        )
+
+    def test_summary_cleanup_projection_drops_paths_and_exception_text(self):
+        summary = {
+            "retired_model_cleanup_status": "failed",
+            "retired_model_cleanup_removed": ["/private/operator/model"],
+            "retired_model_cleanup_absent": ["coreml:default:retired-ok"],
+            "retired_model_cleanup_unowned": ["OSError: errno 13"],
+            "retired_model_cleanup_failed": [
+                "coreml:default:retired-bad|/private/cache",
+                "coreml:default:retired-failed|remove_failed",
+            ],
+        }
+        stdout = self.srv._upgrade_summary_sentinel() + json.dumps(summary) + "\n"
+        with patch(
+            "subprocess.run",
+            return_value=MagicMock(returncode=0, stdout=stdout, stderr=""),
+        ):
+            result = self.srv.wf_upgrade_response(self.root)
+        bounded = result["data"]["summary"]
+        self.assertEqual(bounded["retired_model_cleanup_removed"], [])
+        self.assertEqual(
+            bounded["retired_model_cleanup_absent"],
+            ["coreml:default:retired-ok"],
+        )
+        self.assertEqual(bounded["retired_model_cleanup_unowned"], [])
+        self.assertEqual(
+            bounded["retired_model_cleanup_failed"],
+            ["coreml:default:retired-failed|remove_failed"],
         )
 
     def test_write_tier_permissions_delta_survives_bounding_with_counts(self):
@@ -28011,6 +28123,28 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
         self.assertIn("--dry-run", called_cmd)
         self.assertNotIn("--yes", called_cmd)
 
+    def test_dry_run_summary_exposes_cleanup_sentinel(self):
+        summary = {
+            "from_version": "1.15.9",
+            "to_version": "1.16.0",
+            "retired_model_cleanup_status": "dry_run",
+            "retired_model_cleanup_removed": [],
+            "retired_model_cleanup_absent": [],
+            "retired_model_cleanup_unowned": [],
+            "retired_model_cleanup_failed": [],
+        }
+        mock_proc = MagicMock(
+            returncode=0,
+            stdout=self.srv._upgrade_summary_sentinel() + json.dumps(summary) + "\n",
+            stderr="",
+        )
+        with patch("subprocess.run", return_value=mock_proc):
+            result = self.srv.wf_upgrade_response(self.root, mode="dry_run")
+        self.assertEqual(
+            {key: result["data"]["summary"][key] for key in self.srv.RETIRED_MODEL_CLEANUP_KEYS},
+            {key: summary[key] for key in self.srv.RETIRED_MODEL_CLEANUP_KEYS},
+        )
+
     def test_invalid_mode_returns_error(self):
         """Unknown mode returns error with valid_modes list."""
         result = self.srv.wf_upgrade_response(self.root, mode="bad_mode")
@@ -28174,7 +28308,7 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
             # observed successful"); the failed domain value starts with
             # "publication failed" and is exercised by
             # test_failed_publication_summary_carries_index_health_diagnostic.
-            "index_update": "docs layer complete, code layer running in background",
+            "index_update": "docs and code layers complete",
             "failed_phase": None, "is_major_or_minor": True,
             "reconciliation": [
                 {"file": "docs/x.md", "line": 4, "retired_surface": "docs-lint",

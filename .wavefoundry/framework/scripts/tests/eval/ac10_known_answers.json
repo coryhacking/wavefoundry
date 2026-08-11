@@ -7,8 +7,8 @@
   },
   "_match_note": "answer_any holds DECLARATION-distinctive strings (the value literal, or the full `NAME = value` assignment) — NOT the bare constant name, so a usage site that merely references the name cannot satisfy the match. A hit means the constant's declaration/value was retrieved.",
   "constant_value_queries": [
-    {"query": "what cross-encoder reranker model does local mode use?", "answer_any": ["bge-reranker-base"], "baseline_rank": null},
-    {"query": "what embedding model does wavefoundry use for code search?", "answer_any": ["bge-small-en-v1.5"], "baseline_rank": null},
+    {"query": "what cross-encoder reranker model does local mode use?", "answer_any": ["ms-marco-MiniLM-L-6-v2"], "baseline_rank": null},
+    {"query": "what embedding model does wavefoundry use for code search?", "answer_any": ["snowflake-arctic-embed-s"], "baseline_rank": null},
     {"query": "what is the agent-mode text budget for code_ask candidates?", "answer_any": ["AGENT_TEXT_BUDGET_CHARS = 16000"], "baseline_rank": null},
     {"query": "what is the relevance drop-off ratio for agent-mode candidate selection?", "answer_any": ["AGENT_RELEVANCE_DROPOFF = 0.85"], "baseline_rank": null},
     {"query": "what is the per-index coverage floor for agent-mode candidates?", "answer_any": ["AGENT_PER_INDEX_FLOOR_K = 3"], "baseline_rank": null}

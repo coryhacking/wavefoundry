@@ -18,8 +18,8 @@ from typing import Any
 
 BUNDLE_SCHEMA = 1
 BUNDLE_PREFIX = "wavefoundry-models-"
-MODEL_SET_VERSION = "1"
-EMBEDDING_COMPATIBILITY_FINGERPRINT = "wf-model-set-1-20260803"
+MODEL_SET_VERSION = "2"
+EMBEDDING_COMPATIBILITY_FINGERPRINT = "wf-model-set-2-20260811-arctic-s"
 _HOME = Path("~/.wavefoundry").expanduser()
 _FASTEMBED_DEFAULT = _HOME / "cache" / "fastembed"
 _ONNX_DEFAULT = _HOME / "cache" / "onnx-src"
@@ -30,10 +30,8 @@ _VERIFICATION_MANIFEST_NAME = "model-set-verification-manifest.json"
 # Cache directory names are deliberately exact.  Updating a model requires a
 # new policy/version, provenance review, and an index compatibility decision.
 COMPONENTS = (
-    ("docs-fastembed", "fastembed", "models--snowflake--snowflake-arctic-embed-xs", "Apache-2.0", "Snowflake/snowflake-arctic-embed-xs"),
-    ("code-fastembed", "fastembed", "models--qdrant--bge-small-en-v1.5-onnx-q", "MIT", "BAAI/bge-small-en-v1.5"),
-    ("docs-clean-onnx", "onnx-src", "models--Snowflake--snowflake-arctic-embed-xs", "Apache-2.0", "Snowflake/snowflake-arctic-embed-xs"),
-    ("code-clean-onnx", "onnx-src", "models--Xenova--bge-small-en-v1.5", "MIT", "Xenova/bge-small-en-v1.5"),
+    ("embedding-fastembed", "fastembed", "models--snowflake--snowflake-arctic-embed-s", "Apache-2.0", "Snowflake/snowflake-arctic-embed-s"),
+    ("embedding-clean-onnx", "onnx-src", "models--Snowflake--snowflake-arctic-embed-s", "Apache-2.0", "Snowflake/snowflake-arctic-embed-s"),
     ("reranker-clean-onnx", "onnx-src", "models--Xenova--ms-marco-MiniLM-L-6-v2", "Apache-2.0", "Xenova/ms-marco-MiniLM-L-6-v2"),
 )
 _LICENSE_TEXT = {
@@ -399,6 +397,9 @@ def materialize_bundle(
         manifest = json.loads(archive.read(_MANIFEST_NAME))
         if expected_model_set_version and manifest.get("model_set_version") != expected_model_set_version:
             raise RuntimeError("model bundle does not match the selected model set")
+        canonical = load_canonical_verification_manifest()
+        if manifest != canonical:
+            raise RuntimeError("model bundle manifest does not match the installed canonical model set")
         components = _validate_manifest(manifest, infos)
         for component in components:
             for relative, digest in _component_file_map(component).items():

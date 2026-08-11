@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-08
+Last verified: 2026-08-11
 
 Shortcut: **`Upgrade Wavefoundry`** | Legacy: **`Upgrade wave framework`** / **`Upgrade wave context`**
 
@@ -17,7 +17,7 @@ Use this prompt when the repository is already seeded and you want it to adopt a
 The expected operator flow is:
 
 1. Put the new framework in reach of this repository.
-   - Usually this means building or placing `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` in the repository root, `~/.wavefoundry/`, `~/.wavefoundry/dist/`, or `~/Downloads/`. For offline model setup, place the feature ZIP and the model-set asset it declares (for example, `wavefoundry-models-1.zip`) in any of those standard distribution directories. Discovery ignores model assets as framework packs, selects the exact declared model-set version, and setup verifies its component hashes and licenses before indexing.
+   - Usually this means building or placing `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` in the repository root, `~/.wavefoundry/`, `~/.wavefoundry/dist/`, or `~/Downloads/`. For offline model setup, place the feature ZIP and the model-set asset it declares (`wavefoundry-models-2.zip` beginning with Wavefoundry 1.16.0) in any of those standard distribution directories. Discovery ignores model assets as framework packs, selects the exact declared model-set version, and setup verifies its component hashes and licenses before indexing.
    - If the repository already has the desired newer `.wavefoundry/framework/` tree staged locally, the upgrade runs against that tree directly.
    - **Never `ls` for the pack to decide whether one exists.** It almost always lives in `~/.wavefoundry/dist/`, not the repo root, so an empty `ls wavefoundry-*.zip` at the repo root does **not** mean there's no pack. Determine it only via `wf upgrade --detect-zip` / `--list-zips` / `--dry-run` (see *Agent-safe zip discovery* below).
    - A standard-only upgrade checks the managed model-set identity but does not replace a verified cache with an unpinned upstream revision. If its release-pinned policy is newer, it retains the working cache and names the matching companion as the deterministic update path; missing models still use the normal setup download path.
@@ -255,6 +255,29 @@ backstop, so an old-shaped retained lock cannot publish or clean up around
 the cutover.
 
 <!-- wavefoundry:review-policy-upgrade:begin -->
+## Wavefoundry 1.16 retired-model cleanup
+
+For a target version `>=1.16.0`, the freshly loaded cleanup process removes
+only exact retired Wavefoundry-owned BAAI cache components after the installed
+canonical model set and a stable complete docs-and-code epoch in
+`index-state.sqlite` prove convergence. Cleanup runs before dashboard restart
+and upgrade-lock removal; dry-run deletes nothing.
+
+Removal applies to the user-global model cache shared by every repository on
+this machine, not a per-repository store. Sibling repositories still on older
+framework versions re-fetch the retired models from Hugging Face on their next
+index build. On offline or controlled machines, upgrade every repository
+together so no sibling is left needing a network fetch.
+
+Read the flat result fields directly:
+`retired_model_cleanup_status`, `retired_model_cleanup_removed`,
+`retired_model_cleanup_absent`, `retired_model_cleanup_unowned`, and
+`retired_model_cleanup_failed`. A removal failure retains the upgrade lock with
+`failed_phase=retired_model_cleanup` and returns nonzero. Correct the named
+target and rerun the cleanup phase; the retry revalidates every authority and
+remaining target. Do not manually delete a cache root or an unowned custom
+cache component.
+
 ## Versioned review-policy and bridge recovery
 
 Upgrade maps legacy review enablement to the current default: enabled projects become

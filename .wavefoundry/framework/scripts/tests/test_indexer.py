@@ -16,7 +16,7 @@ import time
 import unittest
 from contextlib import redirect_stderr
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 
 SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
@@ -1394,16 +1394,17 @@ class IncrementalBuildTests(unittest.TestCase):
         })
         self._run_build(full=True)
         (self.root / "docs" / "guide.md").write_text("## Intro\n\nHello changed now.\n", encoding="utf-8")
-        requested: list[str] = []
+        requested: list[tuple[str, int | None]] = []
 
         def spy(model, n_chunks=None):
-            requested.append(model)
+            requested.append((model, n_chunks))
             return _make_embedder_mock(dim=4)
 
         with patch.object(self.bi, "_get_embedder", side_effect=spy):
             self.bi.build_index(self.root, full=False, content="all", verbose=False)
-        self.assertIn(self.bi.DOCS_MODEL, requested)
-        self.assertNotIn(self.bi.CODE_MODEL, requested, "code embedder must not load for a docs-only change")
+        self.assertEqual(len(requested), 1, "a docs-only change must resolve exactly one embedder")
+        self.assertEqual(requested[0][0], self.bi.DOCS_MODEL)
+        self.assertGreater(requested[0][1] or 0, 0)
 
     def test_incremental_code_only_change_skips_docs_embedder(self):
         """1p5d6: the mirror — a code-only change must not construct the docs embedder."""
@@ -1413,16 +1414,17 @@ class IncrementalBuildTests(unittest.TestCase):
         })
         self._run_build(full=True)
         (self.root / "src" / "foo.py").write_text("def f():\n    return 42\n", encoding="utf-8")
-        requested: list[str] = []
+        requested: list[tuple[str, int | None]] = []
 
         def spy(model, n_chunks=None):
-            requested.append(model)
+            requested.append((model, n_chunks))
             return _make_embedder_mock(dim=4)
 
         with patch.object(self.bi, "_get_embedder", side_effect=spy):
             self.bi.build_index(self.root, full=False, content="all", verbose=False)
-        self.assertIn(self.bi.CODE_MODEL, requested)
-        self.assertNotIn(self.bi.DOCS_MODEL, requested, "docs embedder must not load for a code-only change")
+        self.assertEqual(len(requested), 1, "a code-only change must resolve exactly one embedder")
+        self.assertEqual(requested[0][0], self.bi.CODE_MODEL)
+        self.assertGreater(requested[0][1] or 0, 0)
 
     def test_full_rebuild_loads_both_embedders(self):
         """1p5d6: a full rebuild always loads both layer embedders (both layers have all chunks)."""
@@ -1438,8 +1440,7 @@ class IncrementalBuildTests(unittest.TestCase):
 
         with patch.object(self.bi, "_get_embedder", side_effect=spy):
             self.bi.build_index(self.root, full=True, content="all", verbose=False)
-        self.assertIn(self.bi.DOCS_MODEL, requested)
-        self.assertIn(self.bi.CODE_MODEL, requested)
+        self.assertEqual(requested, [self.bi.DOCS_MODEL])
 
     def test_chunker_version_bump_reuses_vectors_no_reembed(self):
         """1p4n4: a chunker-ONLY version bump re-chunks every file but reuses embeddings by
@@ -1523,8 +1524,17 @@ class IncrementalBuildTests(unittest.TestCase):
         meta = _read_meta_store(index_dir)
         # Simulate the docs-model upgrade: the index was built under an old docs model;
         # the code model still matches the current CODE_MODEL.
-        meta.setdefault("model_versions", {})["docs"] = "old-docs-model"
-        meta["model_versions"]["code"] = self.bi.CODE_MODEL
+        code_class = self.bi._predicted_precision_class(
+            self.bi.CODE_MODEL, self.bi._onnx_providers()
+        )
+        meta.setdefault("model_versions", {})["docs"] = (
+            f"old-docs-model@{code_class}@"
+            f"{self.bi.EMBEDDING_MODEL_SET_FINGERPRINT}"
+        )
+        meta["model_versions"]["code"] = (
+            f"{self.bi.CODE_MODEL}@{code_class}@"
+            f"{self.bi.EMBEDDING_MODEL_SET_FINGERPRINT}"
+        )
         _seed_meta_store(index_dir, meta)
 
         # Snapshot the code table before the docs re-embed.
@@ -1550,12 +1560,48 @@ class IncrementalBuildTests(unittest.TestCase):
         # a GPU box or a box without the INT8 source records "@full"), so assert the MODEL-NAME
         # prefix, not the exact class.
         self.assertEqual(meta_after["model_versions"]["docs"].split("@", 1)[0], self.bi.DOCS_MODEL)
-        self.assertEqual(meta_after["model_versions"]["code"], self.bi.CODE_MODEL)
+        self.assertEqual(meta_after["model_versions"]["code"], meta["model_versions"]["code"])
         # The code table files are byte-identical (never rewritten by the docs build).
         code_after = sorted(
             (p.name, p.stat().st_size) for p in code_lance.rglob("*") if p.is_file()
         ) if code_lance.is_dir() else []
         self.assertEqual(code_before, code_after, "code index must be untouched by a docs-only re-embed")
+
+    def test_scoped_model_set_transition_converges_both_layers_atomically(self):
+        """1v0r0 AC-6: a docs-scoped v1→v2 trigger cannot publish a mixed epoch."""
+        _make_repo(self.root, {
+            "src/foo.py": "def f():\n    return 1\n",
+            "docs/guide.md": "## Intro\n\nWave lifecycle docs.\n",
+        })
+        self._run_build(full=True)
+        index_dir = self.root / ".wavefoundry" / "index"
+        meta = _read_meta_store(index_dir)
+        meta["model_versions"] = {
+            "docs": f"{self.bi.DOCS_MODEL}@full@wf-model-set-1-legacy",
+            "code": f"{self.bi.CODE_MODEL}@full@wf-model-set-1-legacy",
+        }
+        _seed_meta_store(index_dir, meta)
+
+        shared = _make_embedder_mock(dim=4)
+        with patch.object(self.bi, "_get_embedder", return_value=shared):
+            result = self.bi.build_index(
+                self.root, full=False, content="docs", verbose=False
+            )
+
+        self.assertFalse(result.get("up_to_date", False))
+        published = _read_meta_store(index_dir)["model_versions"]
+        self.assertEqual(
+            self.bi._model_set_fingerprint_from_version(published["docs"]),
+            self.bi.EMBEDDING_MODEL_SET_FINGERPRINT,
+        )
+        self.assertEqual(
+            self.bi._model_set_fingerprint_from_version(published["code"]),
+            self.bi.EMBEDDING_MODEL_SET_FINGERPRINT,
+        )
+        self.assertEqual(
+            self.bi._model_set_fingerprint_from_version(published["docs"]),
+            self.bi._model_set_fingerprint_from_version(published["code"]),
+        )
 
     def test_explicit_rechunk_rechunks_all_reuses_vectors_no_version_change(self):
         """1p4n4 mode='rechunk': an explicit rechunk re-chunks EVERY file even with NO version
@@ -1665,21 +1711,18 @@ class IncrementalBuildTests(unittest.TestCase):
                 return 2
             '''), encoding="utf-8")
 
-        doc_calls: list[list[str]] = []
-        code_calls: list[list[str]] = []
-        docs_mock = _make_embedder_mock(dim=4, calls=doc_calls)
-        code_mock = _make_embedder_mock(dim=4, calls=code_calls)
+        shared_calls: list[list[str]] = []
+        shared_mock = _make_embedder_mock(dim=4, calls=shared_calls)
         stdout = io.StringIO()
-        with patch.object(self.bi, "_get_embedder", side_effect=[docs_mock, code_mock]):
+        with patch.object(self.bi, "_get_embedder", return_value=shared_mock) as get:
             with contextlib.redirect_stdout(stdout):
                 self.bi.build_index(self.root, full=False, content="all", verbose=False)
 
-        embedded_doc_texts = [text for batch in doc_calls for text in batch]
-        embedded_code_texts = [text for batch in code_calls for text in batch]
-        self.assertEqual(embedded_doc_texts, [])
-        self.assertEqual(len(embedded_code_texts), 1)
-        self.assertIn("return 42", embedded_code_texts[0])
-        self.assertNotIn("def beta", embedded_code_texts[0])
+        embedded_texts = [text for batch in shared_calls for text in batch]
+        get.assert_called_once()
+        self.assertEqual(len(embedded_texts), 1)
+        self.assertIn("return 42", embedded_texts[0])
+        self.assertNotIn("def beta", embedded_texts[0])
         output = stdout.getvalue()
         self.assertRegex(output, r"semantic file update path=src/tools\.py table=docs written=0 removed=0 unchanged=1")
         self.assertRegex(output, r"semantic file update path=src/tools\.py table=code written=1 removed=1 unchanged=2")
@@ -1698,25 +1741,18 @@ class IncrementalBuildTests(unittest.TestCase):
         shifted = "inserted line\n" + source
         (self.root / "Jenkinsfile").write_text(shifted, encoding="utf-8")
 
-        doc_calls: list[list[str]] = []
-        code_calls: list[list[str]] = []
-        docs_mock = _make_embedder_mock(dim=4, calls=doc_calls)
-        code_mock = _make_embedder_mock(dim=4, calls=code_calls)
-        # 1p5d6: notes.custom is a pure line-window CODE file (no doc chunks), so the docs embedder
-        # is not loaded for this change — map by model name rather than relying on call order.
-        def _emb(model, n_chunks=None):
-            return docs_mock if model == self.bi.DOCS_MODEL else code_mock
-        with patch.object(self.bi, "_get_embedder", side_effect=_emb):
+        shared_calls: list[list[str]] = []
+        shared_mock = _make_embedder_mock(dim=4, calls=shared_calls)
+        with patch.object(self.bi, "_get_embedder", return_value=shared_mock) as get:
             self.bi.build_index(self.root, full=False, content="all", verbose=False)
 
-        embedded_doc_texts = [text for batch in doc_calls for text in batch]
-        embedded_code_texts = [text for batch in code_calls for text in batch]
+        embedded_code_texts = [text for batch in shared_calls for text in batch]
+        get.assert_called_once()
         # Line-window ids are line-range based. A leading insertion changes the
         # window boundaries, so the safe behavior is to re-embed affected windows
         # instead of guessing at vector reuse.
         self.assertEqual(len(embedded_code_texts), 2)
         self.assertTrue(any("inserted line" in text for text in embedded_code_texts))
-        self.assertEqual(embedded_doc_texts, [])
 
         rows = _read_index_chunks(self.root / ".wavefoundry" / "index", "code")
         shifted_rows = [row for row in rows if row["path"] == "Jenkinsfile"]
@@ -2421,7 +2457,7 @@ class PrecisionClassVersionTests(unittest.TestCase):
     def test_precision_class_from_version_legacy_bare_name_is_full(self):
         # AC-3: a legacy value with no "@class" suffix predates the precision split → "full"
         # (existing indexes are full-precision; must not spuriously rebuild on upgrade).
-        self.assertEqual(self.bi._precision_class_from_version("BAAI/bge-small-en-v1.5"), "full")
+        self.assertEqual(self.bi._precision_class_from_version("Snowflake/snowflake-arctic-embed-s"), "full")
         self.assertEqual(self.bi._precision_class_from_version(""), "full")
         self.assertEqual(self.bi._precision_class_from_version(None), "full")
 
@@ -2429,7 +2465,7 @@ class PrecisionClassVersionTests(unittest.TestCase):
         # A GPU machine runs FP16 end-to-end → "full" (a non-offloading model falls back to
         # fastembed full, never int8 — so "GPU available" always means "full").
         self.assertEqual(
-            self.bi._predicted_precision_class("BAAI/bge-small-en-v1.5", ["CoreMLExecutionProvider"]),
+            self.bi._predicted_precision_class("Snowflake/snowflake-arctic-embed-s", ["CoreMLExecutionProvider"]),
             "full",
         )
 
@@ -2437,7 +2473,7 @@ class PrecisionClassVersionTests(unittest.TestCase):
         # No GPU + a model with an INT8 clean-export source → "int8".
         with patch.object(self.bi.accel_embedder, "_available_gpu_providers", return_value=[]):
             self.assertEqual(
-                self.bi._predicted_precision_class("BAAI/bge-small-en-v1.5", ["CPUExecutionProvider"]),
+                self.bi._predicted_precision_class("Snowflake/snowflake-arctic-embed-s", ["CPUExecutionProvider"]),
                 "int8",
             )
 
@@ -3594,8 +3630,8 @@ class StreamingRebuildParityTests(unittest.TestCase):
             self.assertEqual(self.bi.EMBED_BUFFER_CHUNKS_DEFAULT, 1024)
 
     def test_resolve_embed_batch_size_per_model_and_global(self):
-        # 1p7iv: per-model forward-batch width is independently overridable so docs (arctic-xs) and
-        # code (bge-small) need not share a size; smaller batch = less CPU activation memory.
+        # Per-layer forward-batch width stays independently overridable even when docs and code
+        # currently select the same model; smaller batch = less CPU activation memory.
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -3605,21 +3641,21 @@ class StreamingRebuildParityTests(unittest.TestCase):
             # Unset → per-model default, pinned to 32 (the lowest-memory + fastest CPU batch).
             cfg.write_text("{}", encoding="utf-8")
             self.assertEqual(self.bi._DEFAULT_EMBED_BATCH, 32)
-            self.assertEqual(self.bi._resolve_embed_batch_size(DOCS, root), 32)
-            self.assertEqual(self.bi._resolve_embed_batch_size(CODE, root), 32)
+            self.assertEqual(self.bi._resolve_embed_batch_size(DOCS, root, layer="docs"), 32)
+            self.assertEqual(self.bi._resolve_embed_batch_size(CODE, root, layer="code"), 32)
             # Global override applies to both models.
             cfg.write_text(json.dumps({"indexing": {"embed_batch_size": 64}}), encoding="utf-8")
-            self.assertEqual(self.bi._resolve_embed_batch_size(DOCS, root), 64)
-            self.assertEqual(self.bi._resolve_embed_batch_size(CODE, root), 64)
+            self.assertEqual(self.bi._resolve_embed_batch_size(DOCS, root, layer="docs"), 64)
+            self.assertEqual(self.bi._resolve_embed_batch_size(CODE, root, layer="code"), 64)
             # Per-model override wins over the global and is independent per model.
             cfg.write_text(json.dumps({"indexing": {
                 "embed_batch_size": 64, "code_embed_batch_size": 32, "docs_embed_batch_size": 128}}),
                 encoding="utf-8")
-            self.assertEqual(self.bi._resolve_embed_batch_size(CODE, root), 32)
-            self.assertEqual(self.bi._resolve_embed_batch_size(DOCS, root), 128)
+            self.assertEqual(self.bi._resolve_embed_batch_size(CODE, root, layer="code"), 32)
+            self.assertEqual(self.bi._resolve_embed_batch_size(DOCS, root, layer="docs"), 128)
             # Invalid (non-positive) falls through to the default.
             cfg.write_text(json.dumps({"indexing": {"code_embed_batch_size": 0}}), encoding="utf-8")
-            self.assertEqual(self.bi._resolve_embed_batch_size(CODE, root), 32)
+            self.assertEqual(self.bi._resolve_embed_batch_size(CODE, root, layer="code"), 32)
 
     def test_streaming_rebuild_bounds_buffer_and_reports_file_progress(self):
         """AC-1 (memory bound) + AC-4 (file-oriented progress): driving the real
@@ -3737,14 +3773,14 @@ class CachedFirstEmbedderTests(unittest.TestCase):
         with patch.object(self.bi, "accel_embedder", None), \
                 patch.object(self.bi, "_onnx_providers", return_value=["CPUExecutionProvider"]), \
                 patch.dict("sys.modules", {"fastembed": types.SimpleNamespace(TextEmbedding=FakeTE)}):
-            emb = self.bi._get_embedder("BAAI/bge-small-en-v1.5")
+            emb = self.bi._get_embedder("Snowflake/snowflake-arctic-embed-s")
         self.assertIsInstance(emb, FakeTE)
         self.assertEqual(seen, [True], "fastembed path loads cached-first (local_files_only=True)")
 
 
 class IncrementalGpuRoutingTests(unittest.TestCase):
     """Wave 1p938: a build run smaller than one full GPU batch (INCREMENTAL_GPU_MIN_CHUNKS) is
-    routed to the full-precision CPU fastembed path on a GPU machine, skipping the 64x512 GPU
+    routed to the full-precision CPU fastembed path on a GPU machine, skipping the 32x512 GPU
     accel session's pad-waste. No effect on a CPU-bound machine."""
 
     def setUp(self):
@@ -3763,6 +3799,53 @@ class IncrementalGpuRoutingTests(unittest.TestCase):
 
         return FakeTE, seen
 
+    def test_equal_selectors_preselect_one_bulk_instance_for_mixed_boundary(self):
+        sentinel = object()
+        threshold = self.bi.INCREMENTAL_GPU_MIN_CHUNKS
+        with patch.object(self.bi, "_get_embedder", return_value=sentinel) as get:
+            docs, code = self.bi._resolve_build_embedders(
+                build_docs=True,
+                build_code=True,
+                full=False,
+                docs_chunk_count=threshold - 1,
+                code_chunk_count=threshold,
+            )
+        self.assertIs(docs, sentinel)
+        self.assertIs(code, docs)
+        get.assert_called_once_with(self.bi.DOCS_MODEL, n_chunks=threshold)
+
+    def test_equal_selectors_share_one_small_run_instance(self):
+        sentinel = object()
+        with patch.object(self.bi, "_get_embedder", return_value=sentinel) as get:
+            docs, code = self.bi._resolve_build_embedders(
+                build_docs=True,
+                build_code=True,
+                full=False,
+                docs_chunk_count=2,
+                code_chunk_count=3,
+            )
+        self.assertIs(docs, code)
+        get.assert_called_once_with(self.bi.DOCS_MODEL, n_chunks=3)
+
+    def test_divergent_selectors_resolve_independently(self):
+        with patch.object(self.bi, "DOCS_MODEL", "supplier/docs"), patch.object(
+            self.bi, "CODE_MODEL", "supplier/code"
+        ), patch.object(
+            self.bi, "_get_embedder", side_effect=lambda name, n_chunks: object()
+        ) as get:
+            docs, code = self.bi._resolve_build_embedders(
+                build_docs=True,
+                build_code=True,
+                full=False,
+                docs_chunk_count=2,
+                code_chunk_count=7,
+            )
+        self.assertIsNot(docs, code)
+        self.assertEqual(
+            get.call_args_list,
+            [call("supplier/docs", n_chunks=2), call("supplier/code", n_chunks=7)],
+        )
+
     def test_small_run_on_gpu_machine_uses_cpu_fastembed(self):
         # AC-1 / AC-4: GPU available + n_chunks below threshold → CPU fastembed (full precision),
         # make_embedder (the GPU accel session) is NOT constructed.
@@ -3770,7 +3853,7 @@ class IncrementalGpuRoutingTests(unittest.TestCase):
         with patch.object(self.bi, "_onnx_providers", return_value=["CoreMLExecutionProvider"]), \
              patch.object(self.bi.accel_embedder, "make_embedder") as mk, \
              patch.dict("sys.modules", {"fastembed": types.SimpleNamespace(TextEmbedding=FakeTE)}):
-            emb = self.bi._get_embedder("BAAI/bge-small-en-v1.5", n_chunks=3)
+            emb = self.bi._get_embedder("Snowflake/snowflake-arctic-embed-s", n_chunks=3)
         self.assertIsInstance(emb, FakeTE)
         mk.assert_not_called()
         self.assertEqual(seen, [True], "small run loads fastembed cached-first (full precision)")
@@ -3782,7 +3865,7 @@ class IncrementalGpuRoutingTests(unittest.TestCase):
         accel_sentinel.provider = "CoreMLExecutionProvider"
         with patch.object(self.bi, "_onnx_providers", return_value=["CoreMLExecutionProvider"]), \
              patch.object(self.bi.accel_embedder, "make_embedder", return_value=accel_sentinel) as mk:
-            emb = self.bi._get_embedder("BAAI/bge-small-en-v1.5",
+            emb = self.bi._get_embedder("Snowflake/snowflake-arctic-embed-s",
                                         n_chunks=self.bi.INCREMENTAL_GPU_MIN_CHUNKS)
         self.assertIs(emb, accel_sentinel)
         mk.assert_called_once()
@@ -3795,7 +3878,7 @@ class IncrementalGpuRoutingTests(unittest.TestCase):
         with patch.object(self.bi, "_onnx_providers", return_value=["CPUExecutionProvider"]), \
              patch.object(self.bi.accel_embedder, "_available_gpu_providers", return_value=[]), \
              patch.object(self.bi.accel_embedder, "make_embedder", return_value=accel_sentinel) as mk:
-            emb = self.bi._get_embedder("BAAI/bge-small-en-v1.5", n_chunks=3)
+            emb = self.bi._get_embedder("Snowflake/snowflake-arctic-embed-s", n_chunks=3)
         self.assertIs(emb, accel_sentinel, "CPU-bound machine: small run still uses the resolved embedder")
         mk.assert_called_once()
 
@@ -3805,7 +3888,7 @@ class IncrementalGpuRoutingTests(unittest.TestCase):
         accel_sentinel.provider = "CoreMLExecutionProvider"
         with patch.object(self.bi, "_onnx_providers", return_value=["CoreMLExecutionProvider"]), \
              patch.object(self.bi.accel_embedder, "make_embedder", return_value=accel_sentinel) as mk:
-            emb = self.bi._get_embedder("BAAI/bge-small-en-v1.5")  # no n_chunks
+            emb = self.bi._get_embedder("Snowflake/snowflake-arctic-embed-s")  # no n_chunks
         self.assertIs(emb, accel_sentinel)
         mk.assert_called_once()
 
@@ -3814,7 +3897,7 @@ class IncrementalGpuRoutingTests(unittest.TestCase):
         # with the FP16 index), so it composes with 1p936 as a no-op — no precision-class change,
         # no spurious re-embed. A GPU machine always predicts "full" for the model.
         self.assertEqual(
-            self.bi._predicted_precision_class("BAAI/bge-small-en-v1.5", ["CoreMLExecutionProvider"]),
+            self.bi._predicted_precision_class("Snowflake/snowflake-arctic-embed-s", ["CoreMLExecutionProvider"]),
             "full",
         )
 
@@ -5971,6 +6054,73 @@ class OrphanReconcilePlanUnitTests(_OrphanStoreCase):
             self.bi._execute_orphan_store_reconcile(self.root, self.index_dir, plan)
         self.assertTrue(plan["file_freshness"],
                         "non-vacuity: the poisoned run still planned real work")
+
+
+class ModelSwapBenchmarkFixtureTests(unittest.TestCase):
+    def setUp(self):
+        bench_dir = SCRIPTS_ROOT / "benchmarks"
+        spec = importlib.util.spec_from_file_location(
+            "embed_bench_fixture", bench_dir / "embed_bench.py"
+        )
+        self.bench = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(self.bench)
+        self.bench_dir = bench_dir
+
+    def test_committed_model_swap_result_recomputes_without_inference(self):
+        validation = self.bench.validate_model_swap_result()
+        self.assertTrue(validation["ok"], validation["errors"])
+        self.assertEqual(
+            __import__("hashlib").sha256(
+                (self.bench_dir / "retrieval_eval.json").read_bytes()
+            ).hexdigest(),
+            "0278e75e544d3f387ccff50bfaa3b4469d5d097bb16180918924661b4a292b86",
+        )
+
+    def test_validator_detects_rank_provenance_and_timing_mutations(self):
+        result = json.loads(
+            (self.bench_dir / "model_swap_v2_result.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        result["provenance"]["s_revision"] = "mutated"
+        result["corpora"]["code"]["per_query"][0]["s_raw_rank"] = 999
+        result["corpora"]["documents"]["timing_seconds"]["s"] *= 10
+        with tempfile.TemporaryDirectory() as tmp:
+            mutated = Path(tmp) / "result.json"
+            mutated.write_text(json.dumps(result), encoding="utf-8")
+            validation = self.bench.validate_model_swap_result(mutated)
+        self.assertFalse(validation["ok"])
+        self.assertTrue(any("provenance" in error for error in validation["errors"]))
+        self.assertTrue(any("timing ratio" in error for error in validation["errors"]))
+        self.assertTrue(
+            any(
+                "recompute" in error or "loses required" in error
+                for error in validation["errors"]
+            )
+        )
+
+    def test_validator_binds_query_and_accepted_answer_fixture_content(self):
+        code_input = json.loads(
+            (self.bench_dir / "model_swap_code_queries.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        code_input["queries"][0]["query"] = "mutated unrelated query"
+        code_input["queries"][0]["accepted"] = ["impossible-answer.py"]
+        with tempfile.TemporaryDirectory() as tmp:
+            mutated = Path(tmp) / "code-queries.json"
+            mutated.write_text(json.dumps(code_input), encoding="utf-8")
+            validation = self.bench.validate_model_swap_result(code_path=mutated)
+        self.assertFalse(validation["ok"])
+        self.assertTrue(
+            any("query/answer fixture" in error for error in validation["errors"]),
+            validation["errors"],
+        )
+        self.assertTrue(
+            any("query text" in error for error in validation["errors"]),
+            validation["errors"],
+        )
 
 
 class OrphanRetirementCallerCensusTests(unittest.TestCase):

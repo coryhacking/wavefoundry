@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-20
+Last verified: 2026-08-11
 
 ## What This Document Covers
 
@@ -22,8 +22,8 @@ The trade-off is operational complexity: the model must be cached locally before
 
 | Constant | Value | Dimension | Defined in |
 |----------|-------|-----------|------------|
-| `DOCS_MODEL` | `Snowflake/snowflake-arctic-embed-xs` | 384 | `indexer.py` |
-| `CODE_MODEL` | `BAAI/bge-small-en-v1.5` | 384 | `indexer.py` |
+| `DOCS_MODEL` | `Snowflake/snowflake-arctic-embed-s` | 384 | `indexer.py` |
+| `CODE_MODEL` | `Snowflake/snowflake-arctic-embed-s` | 384 | `indexer.py` |
 | `RERANKER_MODEL` | `cross-encoder/ms-marco-MiniLM-L-6-v2` (logical) → `Xenova/ms-marco-MiniLM-L-6-v2` `onnx/model_fp16.onnx` (GPU) | logit | `indexer.py` |
 
 ### Reranker (cross-encoder), FP16-on-GPU / INT8-on-CPU (1p52p, ADR `1p52q`)
@@ -52,19 +52,19 @@ ms-marco-L6 matched or beat bge on every axis here. The restart difference is st
 ms-marco-L6 (small enough that the cached conversion dominates) warm-loads in 3.1 s. Newer small
 rerankers were evaluated and rejected: `gte-reranker-modernbert-base` fragments + crashes on CoreML
 (ANE error), `jina-reranker-v2` is the same size as bge, `mxbai-rerank-xsmall` ships no FP16 export.
-`bge-reranker-base` remains resolvable (`CLEAN_ONNX_SOURCES`) for back-compat. Confidence is calibrated
-on the cross-encoder `sigmoid(logit)` scale (high ≥0.5, low <0.1), unchanged by the model swap.
+Confidence is calibrated on the cross-encoder `sigmoid(logit)` scale (high ≥0.5, low <0.1),
+unchanged by the embedding-model swap.
 
 ### Embedder precision: FP16-on-GPU / INT8-on-CPU (1p93a, ADR `1p92d`)
 
 Wave `1p93a` brings the **embedders** to the reranker's precision parity: **one per-machine
 classification drives the whole pipeline** — a machine with a working GPU runs **FP16 end-to-end**
-(embed + rerank), a CPU-bound machine (no GPU) runs **INT8 end-to-end**. Both embedders
-(`arctic-embed-xs` docs, `bge-small` code) resolve through `accel_embedder.make_embedder` →
-`StaticShapeEmbedder`, which is now dual-precision by provider (mirroring `StaticShapeReranker`):
+(embed + rerank), a CPU-bound machine (no GPU) runs **INT8 end-to-end**. Both independent selectors
+currently name Arctic S and resolve through `accel_embedder.make_embedder` →
+`StaticShapeEmbedder`, which is dual-precision by provider (mirroring `StaticShapeReranker`):
 
 - **GPU** (CoreML/CUDA/ROCm/DirectML): the FP16 clean export (`CLEAN_ONNX_SOURCES`), static-shape
-  `64×512`, CLS-pooled + L2-normalized — the proven ~24× path. Arctic's own export is already clean
+  `32×512`, CLS-pooled + L2-normalized. Arctic's own export is already clean
   (no `com.microsoft` contrib ops), so its `CLEAN_ONNX_SOURCES` entry points at the base Snowflake
   repo, which publishes **both** `model_fp16.onnx` (GPU) and `model_int8.onnx` (CPU).
 - **CPU** (no GPU): the INT8 export (`EMBEDDER_CPU_ONNX_FILE = onnx/model_int8.onnx`,
@@ -73,7 +73,14 @@ classification drives the whole pipeline** — a machine with a working GPU runs
   **INT8 = FP16** recall on the reranked retrieval path (recall@1/3/5 identical, 0/30 regressions),
   so INT8-on-CPU is retrieval-equivalent while cutting the full CPU pipeline ~176 MB → ~80 MB.
 
-A GPU machine whose specific graph doesn't offload falls back to **fastembed FULL** (not INT8) —
+A GPU machine whose specific graph doesn't offload falls back to **fastembed FULL** (not INT8).
+Before any CoreML static graph runs in a long-lived process, an isolated child executes and repeats
+the exact full-batch production graph. Arctic S must produce 384-dimensional vectors with CPU parity;
+the L6 reranker must produce finite scores. An abnormal child exit, native crash, or timeout marks
+that workload unsafe for the process and forces the CPU/fallback route, so ONNX/CoreML cannot take
+down the MCP or index-build parent. This guard covers macOS/ONNX Runtime combinations where Apple
+Espresso can raise an uncatchable native `SIGSEGV` during batch input copy.
+
 INT8 is only the classification for a machine with no GPU at all, so the pipeline precision never
 splits. `make_embedder` returns `None` (→ fastembed) only when neither a GPU offload nor an INT8
 clean-export source is available. The **query** side (`server_impl.WaveIndex._get_embedder`) selects
@@ -94,38 +101,38 @@ predictor so a same-machine incremental build never perpetually re-embeds; `make
 constructed to resolve exactly what that predictor reports, so the recorded class stays truthful
 about the stored vectors.
 
-**Incremental small-batch → CPU routing (wave `1p938`).** The GPU accel embedder pins a `64×512`
-static shape and pads every call to 64 rows — optimal for a bulk index build, wasteful for the
+**Incremental small-batch → CPU routing (wave `1p938`).** The GPU accel embedder pins a `32×512`
+static shape and pads every call to 32 rows — optimal for a bulk index build, wasteful for the
 post-edit hook's incremental reindex of a handful of chunks. When a run on a GPU machine would embed
 fewer than `INCREMENTAL_GPU_MIN_CHUNKS` (= `STATIC_BATCH` = one full GPU batch) chunks, it routes to
 the full-precision CPU fastembed path instead (cos 1.0 with the FP16 index → same `full` class → no
 re-embed). No effect on a CPU-bound machine (no GPU session to skip). Threshold and measurement in
 ADR `1p92d`.
 
-Wave `1p4wx` **split the docs and code models** (ADR `1p50s`). Docs use the asymmetric
-`arctic-embed-xs` (best on the 45-query docs bake-off: 82% vs bge-small 67%); code stays on the
-symmetric `bge-small` (unbeaten on the 62-query code set). Both are 384-d, so there is no
-vector-dimension ripple and the docs-model swap reuses the code index unchanged. The split was
-unblocked by `1p4ww` (the framework-index fold made the docs vector space uniform).
+Wave `1v0r0` keeps the document and code selection points separate but assigns both to Arctic S.
+Equality is detected at the build seam: one execution class is chosen from the larger layer
+workload, one embedder is loaded, and the same object serves both layers. If a future reviewed
+change gives the selectors different identifiers, each resolves independently through the same
+generic path. Both remain 384-dimensional.
 
-### Docs/code split and the arctic query prefix (1p4wx)
+### Independent selectors and the Arctic query prefix
 
 `arctic-embed` is **asymmetric**: a query carries the instruction prefix
 `"Represent this sentence for searching relevant passages: "` while a document/passage carries
 none. The pipeline embeds with fastembed `.embed()`, which does **not** auto-apply prefixes, so:
 
 - The **query** prefix is applied explicitly in `server_impl._embed_query` via
-  `indexer.query_embedding_prefix(model_name)` (which reads `EMBEDDING_PREFIXES`). It is empty for
-  the symmetric code model (`bge-small`), so code queries pass through unchanged.
+  `indexer.query_embedding_prefix(model_name)` (which reads `EMBEDDING_PREFIXES`). Because both
+  active selectors name Arctic S, both document-search and code-search queries receive the same
+  query-only instruction.
 - The **document** side stays prefix-free (correct for arctic). An import-time invariant,
   `indexer._assert_active_models_have_empty_document_prefix()`, guards that no active model declares
   a document prefix the build path would silently drop.
 
-Changing `DOCS_MODEL` trips the `model_versions["docs"]` model-name mismatch (compared on the name
-prefix, ignoring the `@class` suffix — wave `1p936`), forcing a docs-only re-embed; the post-edit
-hook's default `content='docs'` never loads the code embedder, so the code index is reused. The
-model name **is** the version — no numeric bump. A precision-class change (`full ↔ int8`) forces the
-same re-embed independently of the name (see the precision-class section above).
+Changing either selector trips that layer's `model_versions` mismatch. Model-set v2 also advances
+the shared compatibility fingerprint, so the v1→v2 transition opens one atomic all-layer rebuild
+and cannot publish mixed vectors. Later unchanged-v2 work remains incremental. A precision-class
+change (`full ↔ int8`) also forces the affected re-embed (see the precision-class section above).
 
 ### Historical: BAAI/bge-base-en-v1.5 (superseded)
 
@@ -181,17 +188,16 @@ The model is not special or irreplaceable. The regression tests exist to make fu
 1. `walk_repo()` yields all non-excluded files (respects `.gitignore`, `.aiignore`, hardcoded excludes)
 2. `chunker.py` splits each file into chunks — Python files via AST, Markdown via header splits, JS/TS/Go/Rust/Java/C/C++/C#/Bash/Kotlin/SQL via tree-sitter AST (wave 12c86 + SQL follow-up), others via line windows. Tree-sitter grammar packages must be installed alongside `fastembed`; `setup_index.py` checks for them. Chunking quality depends on these grammars being present; fallback to regex/line-window chunkers occurs automatically if any grammar is absent.
 3. `fastembed.TextEmbedding` embeds each chunk's text — chunks are globally sorted by length before batching (minimises padding waste), fastembed batches internally at 256
-4. The resulting float32 matrix and chunk metadata are saved as:
-   - `.wavefoundry/index/docs.npy` — float32 matrix, shape `[n_chunks, dim]`
-   - `.wavefoundry/index/docs.json` — list of chunk dicts, row-parallel with `.npy`
-   - `.wavefoundry/index/index-state.sqlite` — records `model_versions`, file hashes for incremental rebuilds (build bookkeeping; wave 1sed7 — no `meta.json`)
+4. The resulting vectors and chunk metadata are persisted as:
+   - `.wavefoundry/index/docs.lance/` and `.wavefoundry/index/code.lance/`: LanceDB tables holding chunk text, metadata, and vectors (memory-mapped, with an HNSW index above the row threshold)
+   - `.wavefoundry/index/index-state.sqlite`: the sole authority for build state and provenance (waves 1rsh9/1sed7), recording `model_versions`, per-file hashes for incremental rebuilds, the build epoch, and the derived FTS5 lexical tables. Legacy `meta.json`, numpy, and JSON index artifacts are never serving inputs.
 
 Subsequent builds are incremental: only files whose SHA-256 has changed are re-chunked and re-embedded.
 
-### Query time (`server.py` `WaveIndex`)
+### Query time (`server_impl.py` `WaveIndex`)
 
 1. `_ensure_loaded()` reads the project index (`.wavefoundry/index/`) — the single index, into which the framework seeds and README are folded (as project docs) at setup/upgrade
-2. **Compatibility check**: the stored `model_versions` must match the current `DOCS_MODEL` / `CODE_MODEL` constants, and its vector matrix must have matching row count and dimension. Incompatible layers are skipped silently — no crash, no results from that layer. This is the safety net for partial or mid-upgrade states.
+2. **Compatibility skip (dimension-based)**: at query time a layer whose stored vectors have a different dimension than the current query embedding is skipped silently. LanceDB's search raises on the dimension mismatch and `_lance_search` returns no rows (no crash, no results from that layer). The stronger `model_versions` composite comparison (model, precision class, and model-set fingerprint against the current `DOCS_MODEL` / `CODE_MODEL` constants and `EMBEDDING_MODEL_SET_FINGERPRINT`) runs at the build seam in `indexer.py`, where a changed composite forces a re-embed. This is the safety net for partial or mid-upgrade states.
 3. `_embed_query()` embeds the user's query with the same model, using `local_files_only=True` and `HF_HUB_OFFLINE=1` to prevent network calls during agent sessions
 4. `_cosine_search()` computes L2-normalized dot products (cosine similarity), filters out negative scores, and returns top-n ranked chunks
 
@@ -215,25 +221,24 @@ The purpose of these tests is to make model changes fail loudly rather than sile
 
 | Test | What it pins | Why it matters |
 |------|-------------|----------------|
-| `test_docs_model_constant_matches_expected` | `DOCS_MODEL == "BAAI/bge-base-en-v1.5"` | Records which model is intentionally in use; fails loudly on an unannounced change |
-| `test_embedding_dimension_matches_expected` | output dim == 768 | A dimension change invalidates all stored `.npy` files and the merged-layer logic |
-| `test_embedding_is_float32` | dtype is `float32` | The cosine math and `.npy` format assume float32; a dtype mismatch produces wrong scores silently |
+| `test_docs_model_constant_matches_expected` | `DOCS_MODEL == "Snowflake/snowflake-arctic-embed-s"` | Records which model is intentionally in use; fails loudly on an unannounced change |
+| `test_embedding_dimension_matches_expected` | output dim == 384 | A dimension change invalidates stored Lance vectors |
+| `test_embedding_is_float32` | dtype is `float32` | The cosine math and Lance vector schema assume float32; a dtype mismatch produces wrong scores silently |
 | `test_same_text_produces_identical_vectors` | embedding is deterministic | Non-deterministic embeddings make search results unpredictable across restarts |
 | `test_different_texts_produce_different_vectors` | model is not degenerate | All-same-output models pass every other test but return identical scores for every query |
 | `test_similar_text_scores_higher_than_unrelated` | semantic ranking order is meaningful | The core guarantee: if this test fails after a model change, the new model doesn't work for the use case |
-| `test_round_trip_search_returns_correct_chunk` | full embed → write .npy → load → search pipeline | Exercises every link end-to-end; catches bugs in the index write or load path that unit tests miss |
-| `test_stale_model_name_in_index_causes_layer_skip` | layer compatibility gate works | Verifies the upgrade safety net; ensures a partial upgrade (new code, old index) produces empty results rather than wrong results |
+| `test_round_trip_search_returns_correct_chunk` | full embed → write Lance → load → search pipeline | Exercises every link end-to-end; catches bugs in the index write or load path that unit tests miss |
 
 ### Anchor constants
 
 Two constants at the top of `SemanticEmbeddingRegressionTests` are the single update point for a model upgrade:
 
 ```python
-_EXPECTED_DOCS_MODEL = "BAAI/bge-base-en-v1.5"
-_EXPECTED_EMBEDDING_DIM = 768
+_EXPECTED_DOCS_MODEL = "Snowflake/snowflake-arctic-embed-s"
+_EXPECTED_EMBEDDING_DIM = 384
 ```
 
-When these are updated, all 8 tests should pass against the new model before the index is rebuilt.
+When these are updated, all 7 tests should pass against the new model before the index is rebuilt.
 
 ---
 
@@ -270,7 +275,7 @@ python3 .wavefoundry/framework/scripts/setup_index.py --root .
 python3 .wavefoundry/framework/scripts/run_tests.py
 ```
 
-All 8 `SemanticEmbeddingRegressionTests` must pass. If `test_similar_text_scores_higher_than_unrelated` or `test_round_trip_search_returns_correct_chunk` fails, the new model may not be suitable for this use case — investigate before shipping.
+All 7 `SemanticEmbeddingRegressionTests` must pass. If `test_similar_text_scores_higher_than_unrelated` or `test_round_trip_search_returns_correct_chunk` fails, the new model may not be suitable for this use case — investigate before shipping.
 
 Also spot-check manually:
 

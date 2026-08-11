@@ -399,8 +399,8 @@ _GRAPH_OUTGOING_INTENT_RE = re.compile(
 # retrieved top ``sigmoid ≥ ~0.5`` (the model's native relevance boundary), off-topic / no-answer top
 # ``sigmoid < ~0.1``. These bands apply ONLY when the cross-encoder actually ran (GPU FP16 or CPU
 # INT8). Two reranked=false cases (wave 1seav): healthy-path vector/coverage ordering with
-# confidence CAPPED at medium (low with zero citations — mixed-model cosine
-# is not trustworthy).
+# confidence CAPPED at medium (low with zero citations; the raw
+# shared-embedder cosine is uncalibrated).
 CONF_AGENT_RERANK_HIGH = 0.5       # reranked top sigmoid ≥ this (with ≥2 citations) → "high"
 CONF_AGENT_RERANK_LOW = 0.1        # reranked top sigmoid < this → "low" (nothing relevant retrieved)
 
@@ -619,8 +619,8 @@ def _ensure_model_cached(model_name: str, model_type: str) -> None:
     if model_type == "reranker":
         # 1p52p: prewarm the cross-encoder reranker (download + compile) so the first live query is
         # fast — FP16 on the GPU or INT8 on the CPU, whichever this machine has. No-op when reranking
-        # is disabled (WAVEFOUNDRY_DISABLE_RERANKER) or the model can't be built. The BAAI FP32
-        # fastembed reranker is no longer downloaded.
+        # is disabled (WAVEFOUNDRY_DISABLE_RERANKER) or the model can't be built. No retired
+        # reranker artifact is downloaded.
         try:
             import accel_embedder
         except Exception:
@@ -1095,7 +1095,7 @@ class WaveIndex:
     # ------------------------------------------------------------------
     # Embedding model
     #
-    # Current model: BAAI/bge-base-en-v1.5  (768-d float32)
+    # Current model: Snowflake/snowflake-arctic-embed-s (384-d; FP16 GPU / INT8 CPU)
     # Defined in:    indexer.py  DOCS_MODEL / CODE_MODEL constants
     # Upgrade doc:   docs/architecture/embedding-model.md
     #
@@ -1206,9 +1206,9 @@ class WaveIndex:
     def _embed_query(self, text: str, model_name: str) -> "np.ndarray":
         import numpy as np
         embedder = self._get_embedder(model_name)
-        # Wave 1p4wx: asymmetric models (e.g. arctic-embed for docs) require an
-        # instruction prefix on the QUERY side. fastembed ``.embed()`` does not
-        # apply it, so prepend it explicitly. Empty for symmetric models (bge).
+        # Wave 1p4wx: asymmetric models (such as the current Arctic S embedder)
+        # require an instruction prefix on the QUERY side. fastembed ``.embed()``
+        # does not apply it, so prepend it explicitly. Empty for symmetric models.
         prefix = self._indexer_module().query_embedding_prefix(model_name)
         query_text = f"{prefix}{text}" if prefix else text
         try:
@@ -1270,7 +1270,7 @@ class WaveIndex:
             self._reranker = reranker
             _wf_log(
                 f"[wavefoundry] using cross-encoder reranker: {reranker.model_name} "
-                f"({reranker.provider}, static {accel_embedder.STATIC_BATCH}x{accel_embedder.STATIC_SEQ})"
+                f"({reranker.provider}, static {accel_embedder.RERANK_STATIC_BATCH}x{accel_embedder.STATIC_SEQ})"
             )
             return self._reranker
 
@@ -1324,7 +1324,9 @@ class WaveIndex:
 
         Replaces each candidate's ``score`` with the UNIFIED relevance ``sigmoid(logit)`` ∈ [0,1] so
         the agent selection (per-index floor, relevance drop-off, text budget) and the confidence band
-        all key off one scale — the arctic-doc vs bge-code cosines (1p4wx split) are not comparable.
+        all key off one scale. Docs and code cosines now come from one shared embedder; the
+        cross-encoder still matters because raw cosines are uncalibrated similarity, not a
+        calibrated relevance band (the historical 1p4wx model split was the original motivation).
         Mutates ``candidates`` in place; returns True if the cross-encoder ran — it runs on either
         hardware (GPU FP16 or CPU INT8). Returns False only when the reranker is unavailable
         (disabled/unbuildable): scores stay raw cosine and the caller caps confidence at
@@ -1638,7 +1640,7 @@ class WaveIndex:
         def _wscore_base(c: dict) -> float:
             # Un-boosted weighted relevance. Post-rerank (1p4wz) docs + code share ONE cross-encoder
             # sigmoid scale → comparable across sources; only when the reranker is unavailable are they
-            # mixed arctic/bge cosines. Apply the per-source weight (RRF's navigational tilt).
+            # raw shared-embedder cosines (uncalibrated). Apply the per-source weight (RRF's navigational tilt).
             return (c.get("score") or 0.0) * ((weights or {}).get(c.get("source"), 1.0))
 
         def _wscore(c: dict) -> float:
@@ -2120,8 +2122,10 @@ class WaveIndex:
         # Wave 1p52p: code_ask has a SINGLE ranking path — agent selection with a rerank-FIRST
         # cross-encoder stage. The cross-encoder scores the full retrieved pool on ONE unified
         # relevance scale (sigmoid of the logit) BEFORE selection, so the per-index floor / relevance
-        # drop-off / text budget AND the confidence band no longer compare incomparable arctic-doc vs
-        # bge-code cosines (the 1p4wx model split). The reranker runs on either hardware (GPU FP16 /
+        # drop-off / text budget AND the confidence band key off calibrated relevance instead of raw
+        # cosine. Docs and code cosines now come from one shared embedder; raw cosines remain
+        # uncalibrated similarity (the historical 1p4wx model split was the original motivation
+        # for the unified scale). The reranker runs on either hardware (GPU FP16 /
         # CPU INT8); only when it is unavailable (disabled/unbuildable) does `_agent_rerank` no-op
         # (scores stay cosine; confidence is capped at medium). The former `rerank="local"`
         # cross-encoder path and the `rrf_fallback` path were REMOVED here — `docs_search`/`code_search`
@@ -2164,8 +2168,8 @@ class WaveIndex:
         # Navigational tilt — boost code over docs for navigational questions. This cross-source weight
         # is only meaningful on the UNIFIED post-rerank sigmoid scale, so apply it only when the
         # cross-encoder actually ran (GPU FP16 or CPU INT8). When the reranker is unavailable
-        # (disabled/unbuildable) the per-source scores are incomparable cross-model cosines (arctic docs
-        # vs bge code) and a cross-source multiplier would be meaningless — skip it; the per-index floor
+        # (disabled/unbuildable) the per-source scores are raw shared-embedder cosines, uncalibrated
+        # relevance, and a cross-source multiplier would be meaningless — skip it; the per-index floor
         # (each source sorted within itself) still gives a sound result.
         _agent_weights = (
             {"code": RRF_NAVIGATIONAL_CODE_WEIGHT, "docs": RRF_NAVIGATIONAL_DOCS_WEIGHT}
@@ -2346,6 +2350,51 @@ UPGRADE_RESPONSE_CAP_CHARS = 100_000
 UPGRADE_BRIDGE_ARGV_CAP_CHARS = 24_000
 UPGRADE_SUMMARY_KEY_CAP_CHARS = 128
 UPGRADE_SUMMARY_METADATA_CAP_CHARS = 4_000
+RETIRED_MODEL_CLEANUP_KEYS = (
+    "retired_model_cleanup_status",
+    "retired_model_cleanup_removed",
+    "retired_model_cleanup_absent",
+    "retired_model_cleanup_unowned",
+    "retired_model_cleanup_failed",
+)
+_RETIRED_MODEL_CLEANUP_ITEM_RE = re.compile(
+    r"^(?:fastembed|clean-onnx|static-onnx|coreml):"
+    r"(?:default|custom):[A-Za-z0-9][A-Za-z0-9_.-]{0,159}$"
+)
+
+
+def _project_retired_model_cleanup_fields(value: object) -> dict[str, Any]:
+    """Project the five terminal fields onto their path-free public vocabulary."""
+    projected: dict[str, Any] = {
+        "retired_model_cleanup_status": "not_applicable",
+        "retired_model_cleanup_removed": [],
+        "retired_model_cleanup_absent": [],
+        "retired_model_cleanup_unowned": [],
+        "retired_model_cleanup_failed": [],
+    }
+    if not isinstance(value, Mapping):
+        return projected
+    status = value.get("retired_model_cleanup_status")
+    if status in {"not_applicable", "dry_run", "complete", "failed"}:
+        projected["retired_model_cleanup_status"] = status
+    for key in RETIRED_MODEL_CLEANUP_KEYS[1:]:
+        items = value.get(key)
+        if not isinstance(items, list):
+            continue
+        accepted: set[str] = set()
+        for item in items:
+            if not isinstance(item, str):
+                continue
+            base, separator, suffix = item.partition("|")
+            expected_failure = key == "retired_model_cleanup_failed"
+            if expected_failure != (separator == "|" and suffix == "remove_failed"):
+                continue
+            if _RETIRED_MODEL_CLEANUP_ITEM_RE.fullmatch(base):
+                accepted.add(item)
+        projected[key] = sorted(accepted)
+    return projected
+
+
 UPGRADE_SUMMARY_TERMINAL_KEYS = {
     "review_sidecar_cleanup",
     "from_version",
@@ -2369,6 +2418,7 @@ UPGRADE_SUMMARY_TERMINAL_KEYS = {
     # registration lives in the MCP server's in-process module, so it takes
     # effect only after a full host restart; emission is unaffected by that.
     "summary_schema_version",
+    *RETIRED_MODEL_CLEANUP_KEYS,
 }
 
 
@@ -13084,12 +13134,26 @@ def _bounded_upgrade_summary(summary: Mapping[str, Any]) -> dict[str, Any]:
     consume the full response allowance.
     """
 
+    summary = {
+        **dict(summary),
+        **_project_retired_model_cleanup_fields(summary),
+    }
+    cleanup_list_keys = RETIRED_MODEL_CLEANUP_KEYS[1:]
     collection_keys = tuple(
-        key for key, value in summary.items() if isinstance(value, list)
+        key
+        for key, value in summary.items()
+        if isinstance(value, list) and key not in cleanup_list_keys
     )
-    bounded: dict[str, Any] = {}
+    # The cleanup lists are finite by construction (20 exact default/custom
+    # targets) and reserve capacity ahead of repo-sized generic collections.
+    bounded: dict[str, Any] = {
+        key: list(summary.get(key) or [])[:20]
+        for key in cleanup_list_keys
+    }
     original_chars = len(json.dumps(summary, ensure_ascii=False, default=str))
-    collection_chars = 0
+    collection_chars = len(
+        json.dumps(bounded, ensure_ascii=False, default=str)
+    )
     scalar_items = [
         (key, value)
         for key, value in summary.items()
@@ -13374,12 +13438,21 @@ def _bounded_upgrade_response_envelope(response: dict[str, Any]) -> dict[str, An
     if len(json.dumps(response, ensure_ascii=False, default=str)) > UPGRADE_RESPONSE_CAP_CHARS:
         data = response.get("data")
         if isinstance(data, dict):
-            for key in ("summary", "memory_backfill"):
-                if key in data:
-                    data[key] = {
-                        "omitted_from_response": True,
-                        "reason": "upgrade response envelope cap",
-                    }
+            summary = data.get("summary")
+            if isinstance(summary, Mapping):
+                data["summary"] = {
+                    **{
+                        key: summary.get(key)
+                        for key in RETIRED_MODEL_CLEANUP_KEYS
+                    },
+                    "other_fields_omitted_from_response": True,
+                    "reason": "upgrade response envelope cap",
+                }
+            if "memory_backfill" in data:
+                data["memory_backfill"] = {
+                    "omitted_from_response": True,
+                    "reason": "upgrade response envelope cap",
+                }
     if len(json.dumps(response, ensure_ascii=False, default=str)) > UPGRADE_RESPONSE_CAP_CHARS:
         data = response.get("data")
         terminal_data_keys = (
@@ -13390,6 +13463,7 @@ def _bounded_upgrade_response_envelope(response: dict[str, Any]) -> dict[str, An
             "bridge_release_required",
             "response_cap_chars",
             "response_total_chars_before_bound",
+            "summary",
         )
         terminal_data = (
             {key: data[key] for key in terminal_data_keys if key in data}
@@ -13858,6 +13932,24 @@ def wf_upgrade_response(
         if _index_pub_failed
         else None
     )
+    _retired_cleanup_failed = bool(
+        (
+            summary is not None
+            and summary.get("retired_model_cleanup_status") == "failed"
+        )
+        or "retired_model_cleanup_failed" in output
+    )
+    _retired_cleanup_diag = (
+        _diagnostic(
+            "retired_model_cleanup_failed",
+            "An owned retired model component could not be removed; the "
+            "upgrade lock was retained for an exact cleanup retry.",
+            recovery_tools=["wf_upgrade_status", "wf_upgrade"],
+            recovery_usage="wf_upgrade(phase='cleanup')",
+        )
+        if _retired_cleanup_failed
+        else None
+    )
 
     # Wave 1p8eu / F2 — compute the phase-aware next step + next_tools BEFORE the returncode check so
     # both the success AND the failure response carry them.
@@ -13983,6 +14075,13 @@ def wf_upgrade_response(
         if _index_pub_diag is not None:
             err.setdefault("diagnostics", []).append(_index_pub_diag)
         err["next_step"] = _next_step
+        if _retired_cleanup_diag is not None:
+            err.setdefault("diagnostics", []).append(_retired_cleanup_diag)
+            err["next_step"] = (
+                "Resolve the exact component ownership or filesystem removal "
+                "failure, then retry wf_upgrade(phase='cleanup')."
+            )
+            err["next_tools"] = ["wf_upgrade_status", "wf_upgrade"]
         return _bounded_upgrade_response_envelope(err)
 
     # 1.15 cutover scoping: when this run's review-sidecar cleanup was
@@ -14057,8 +14156,14 @@ def wf_upgrade_status_response(root: Path) -> dict[str, Any]:
             "from_version": None,
             "to_version": None,
             "pid": None,
+            "retired_model_cleanup_status": "not_applicable",
+            "retired_model_cleanup_removed": [],
+            "retired_model_cleanup_absent": [],
+            "retired_model_cleanup_unowned": [],
+            "retired_model_cleanup_failed": [],
         }
     else:
+        cleanup_projection = _project_retired_model_cleanup_fields(lock)
         data = {
             "in_progress": True,
             "started_at": lock.get("started_at"),
@@ -14069,6 +14174,7 @@ def wf_upgrade_status_response(root: Path) -> dict[str, Any]:
             "failed_phase": None if isinstance(lock.get("action_required"), dict) else lock.get("failed_phase"),
             "failed_at": None if isinstance(lock.get("action_required"), dict) else lock.get("failed_at"),
             "action_required": lock.get("action_required"),
+            **cleanup_projection,
         }
         run_id = str(lock.get("memory_backfill_run_id") or "").strip()
         if run_id:
@@ -24870,8 +24976,8 @@ def _heuristic_confidence(citations: list[dict], reranked: bool = False) -> str:
     cross-encoder relevance ``sigmoid(logit)`` ∈ [0,1] — comparable across docs+code — so we gate
     "high" on a genuinely relevant top score and flag a clearly-weak band "low" around the model's
     native ~0.5 relevance boundary. Without a reranker (explicitly disabled or unbuildable), the
-    per-citation scores are mixed-model cosine (arctic-doc vs bge-code, 1p4wx split) and are NOT a
-    trustworthy band → confidence is CAPPED at "medium" ("low" with zero citations); "high" is never
+    per-citation scores are raw cosines from the single shared embedder: uncalibrated similarity,
+    NOT a trustworthy relevance band, so confidence is CAPPED at "medium" ("low" with zero citations); "high" is never
     claimed without the cross-encoder. In lexical_fallback mode the caller further caps to "low"
     (BM25 exact-token ordering). Still coarse — the per-citation scores carry the fine signal.
     """
@@ -24885,8 +24991,9 @@ def _heuristic_confidence(citations: list[dict], reranked: bool = False) -> str:
         if top < CONF_AGENT_RERANK_LOW:
             return "low"
         return "medium"
-    # Wave 1p66r: no-reranker path — the per-citation scores are mixed-model cosine
-    # (arctic-doc vs bge-code) on incomparable scales, so an absolute floor here is
+    # Wave 1p66r: no-reranker path. The per-citation scores are raw cosines from the
+    # single shared embedder, uncalibrated similarity rather than a calibrated
+    # relevance band, so an absolute floor here is
     # miscalibrated and the prior count-based "high" was relevance-blind (the
     # per-index floor guarantees n >= 2 on any non-empty index → always "high").
     # Cap at "medium": without the cross-encoder we cannot certify a "high"
@@ -25196,9 +25303,9 @@ def code_ask_response(index: "WaveIndex", root: Path, question: str, rerank: str
     # — surface an explicit "no confident match" gap so a consumer does not treat
     # the result as load-bearing. Citations are still returned (anti-starvation
     # preserved) and fidelity is untouched — this only labels weak results honestly.
-    # No absolute floor in the no-reranker path: mixed-model cosine (arctic-doc vs
-    # bge-code) is not a calibrated band (see `_heuristic_confidence`), so the
-    # no-reranker confidence cap is the signal there.
+    # No absolute floor in the no-reranker path: raw single-embedder cosine is
+    # uncalibrated similarity, not a calibrated band (see `_heuristic_confidence`),
+    # so the no-reranker confidence cap is the signal there.
     if citations and combined_reranked:
         top_score = max((c.get("score") or 0.0) for c in citations)
         for c in citations:
@@ -28600,14 +28707,14 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
           (`score` = sigmoid of the cross-encoder logit ∈ [0,1], unified across docs+code) applied BEFORE
           the coverage floor + budget selection — citations come best-first; still read the winners. On a
           GPU machine this uses FP16; on a CPU-only machine it uses the INT8 export. If reranking is
-          explicitly disabled or unbuildable, ordering falls back to coverage-floor over mixed-model cosine
+          explicitly disabled or unbuildable, ordering falls back to coverage-floor over raw shared-embedder cosine (uncalibrated)
           (`reranked=false`) — fuse from full context yourself.
         - rerank_mode: always "agent" — code_ask has one ranking path (agent selection + a rerank-FIRST
           cross-encoder). Use the `reranked` bool to tell whether the cross-encoder ran.
         - reranked: true = the cross-encoder ran and scored/ordered the candidates on one unified
           relevance scale; false = the cross-encoder did not run. Two `reranked=false` cases:
           on the HEALTHY path (reranker disabled/unbuildable) ordering is vector/coverage over
-          mixed-model cosine; in `lexical_fallback` mode ordering is BM25 exact-token.
+          raw shared-embedder cosine (uncalibrated); in `lexical_fallback` mode ordering is BM25 exact-token.
         - confidence: "high" / "medium" / "low". When `reranked=true` it is calibrated on the unified
           cross-encoder relevance (high = a genuinely relevant top match with ≥2 citations; low = nothing
           relevant retrieved). When `reranked=false`: capped at "medium" on the healthy path ("low"

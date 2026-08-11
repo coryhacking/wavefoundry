@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-27
+Last verified: 2026-08-11
 
 ---
 
@@ -119,21 +119,21 @@ Projects declare which lanes are structurally required:
 
 ## The Semantic Index
 
-Finding the right context is a prerequisite for correct agent behavior. Wavefoundry ships a local semantic search index built on `fastembed` and `BAAI/bge-base-en-v1.5`. The index covers:
+Finding the right context is a prerequisite for correct agent behavior. Wavefoundry ships a local search index with three layers: semantic embeddings over docs and code (independent selectors currently share Snowflake Arctic Embed S at FP16 GPU / INT8 CPU batch 32, with MiniLM L6 reranking at batch 40; see `docs/references/model-selection.md`), a BM25 full-text layer for exact identifiers, error strings, and rare tokens, and a structural code graph for call, impact, and dependency queries. The semantic layers cover:
 
 - Project docs (waves, plans, architecture, contributing guides, specs)
-- Framework seeds (all 214+ numbered prompt documents)
+- Framework seeds (the numbered prompt documents)
 - Code (Python AST-aware chunking; tree-sitter for JS/TS/Go/Rust/Java/C/C++/C#/Kotlin/Bash)
 
 The index runs entirely offline. It builds incrementally using file hashes — only changed files are re-embedded on update. Post-edit hooks trigger background incremental refreshes automatically when agents write to docs. `docs_search` falls back to lexical search when the semantic index is unavailable, so search always returns something useful even on first install.
 
-`code_ask` combines semantic code search with an LLM synthesis pass: the agent retrieves relevant code chunks, then synthesizes a structured answer to a natural-language question about the codebase. This is the retrieval layer that makes agents effective on large codebases they haven't fully read.
+`code_ask` is mechanical retrieval routing, not LLM synthesis: it fuses semantic and lexical candidates, reranks them with the local cross-encoder, and returns ranked citations (plus structural graph neighbors) from which the calling agent synthesizes its answer. This is the retrieval layer that makes agents effective on large codebases they haven't fully read.
 
 ---
 
 ## The MCP Server
 
-Everything above is accessible through a local MCP server. The server runs as a stdio subprocess in the agent's host process (Claude Code, Cursor, Copilot, Junie, and others). It exposes 47 tools organized around four concerns:
+Everything above is accessible through a local MCP server. The server runs as a stdio subprocess in the agent's host process (Claude Code, Cursor, Copilot, Junie, and others). It exposes the framework's full tool surface (see `AGENTS.md` for the current list) organized around four concerns:
 
 **Wave lifecycle** — create and manage change documents and waves; prepare, review, and close; run sensors; check gates
 
@@ -151,8 +151,8 @@ The server is local-first by design. It has no network dependencies. All state l
 
 Wavefoundry uses the Wave Framework to build Wavefoundry. The self-hosting boundary is explicit:
 
-- `.wavefoundry/framework/` contains the canonical framework source — seeds, scripts, and packaged index
-- `docs/` contains Wavefoundry's own operating surface — waves, architecture docs, contributing guides, agent journals
+- `.wavefoundry/framework/` contains the canonical framework source — seeds, scripts, renderers, and packaging logic (distributions ship source only; each project's index is built locally)
+- `docs/` contains Wavefoundry's own operating surface — waves, architecture docs, contributing guides, agent role docs and memory records
 
 Changes to the framework itself go through the full wave lifecycle. The architecture reviewer checks that changes don't violate Wavefoundry's own layering rules. The security reviewer checks that new MCP tools don't introduce path traversal or injection risks. Sensors verify that the test suite passes before reviewer lanes are invoked.
 
@@ -177,12 +177,12 @@ This self-hosting model means every wave that improves Wavefoundry is also a dem
 Wavefoundry is in active development and self-hosted on its own framework.
 
 **Shipped:**
-- Full wave lifecycle MCP surface (47 tools)
-- Local semantic index (docs + code) with incremental update and offline fallback
+- Full wave lifecycle MCP surface (see `AGENTS.md` for the current tool list)
+- Local three-layer index (semantic docs + code, BM25 lexical, code graph) with incremental update and offline fallback
 - Three-dimension feedback harness: computational sensors, security/performance/architecture inferential lanes, severity triage
 - Required review lane enforcement at wf_review_wave and wf_close_wave
 - Background index rebuild with non-blocking progress reporting
-- Platform surface rendering for Claude Code, Cursor, Copilot, Junie
+- Platform surface rendering for Claude Code, Cursor, Junie, Codex, Antigravity, and Windsurf
 - Pack distribution and upgrade flow with MANIFEST-aware pruning
 
 **In progress:**

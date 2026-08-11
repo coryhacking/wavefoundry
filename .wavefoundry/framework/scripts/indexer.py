@@ -55,20 +55,17 @@ TABLE_LOCK_NAME = ".lock"   # written inside docs.lance/ and code.lance/
 LOCK_STALE_SECONDS = 60 * 60
 TIMESTAMP_LOGS_ENV = "WAVEFOUNDRY_TIMESTAMP_LOGS"
 
-# Wave 1p4wx: docs/code embedding-model split. Docs use the asymmetric
-# arctic-embed-xs (best on the 45-query docs bake-off: 82% vs bge-small 67%);
-# code stays on the symmetric bge-small (unbeaten on the 62-query code set).
-# Both are 384-d, so there is no vector-dimension ripple. The model name stored
-# in ``model_versions["docs"]`` IS the version — changing it auto-forces a
-# docs-only re-embed (see ``build_index``); the code layer reuses its vectors.
-DOCS_MODEL = "Snowflake/snowflake-arctic-embed-xs"
-CODE_MODEL = "BAAI/bge-small-en-v1.5"
+# Documents and code remain independently configurable. Model set v2 selects
+# Arctic S for both layers; equal names share one per-process instance, while a
+# future reviewed split can still assign different IDs without new plumbing.
+DOCS_MODEL = "Snowflake/snowflake-arctic-embed-s"
+CODE_MODEL = "Snowflake/snowflake-arctic-embed-s"
 EMBEDDING_MODEL_SET_FINGERPRINT = model_bundle.EMBEDDING_COMPATIBILITY_FINGERPRINT
 
 # Instruction prefixes required by asymmetric embedding models.
 # Values include a trailing space/separator so that ``prefix + text`` produces
-# correctly formatted input. Empty strings mean no prefix (symmetric models such
-# as bge-small/base). The pipeline embeds via fastembed ``.embed()`` (which does
+# correctly formatted input. Empty strings mean no prefix for symmetric models.
+# The pipeline embeds via fastembed ``.embed()`` (which does
 # NOT auto-apply prefixes), so the QUERY prefix is applied explicitly at query
 # time (``server_impl._embed_query`` via ``query_embedding_prefix``) and the
 # DOCUMENT prefix at index time. arctic-embed is asymmetric: queries carry the
@@ -78,17 +75,9 @@ EMBEDDING_PREFIXES: dict[str, dict[str, str]] = {
         "document": "search_document: ",
         "query": "search_query: ",
     },
-    "Snowflake/snowflake-arctic-embed-xs": {
+    "Snowflake/snowflake-arctic-embed-s": {
         "document": "",
         "query": "Represent this sentence for searching relevant passages: ",
-    },
-    "BAAI/bge-base-en-v1.5": {
-        "document": "",
-        "query": "",
-    },
-    "BAAI/bge-small-en-v1.5": {
-        "document": "",
-        "query": "",
     },
     "jinaai/jina-embeddings-v2-base-code": {
         "document": "",
@@ -1600,32 +1589,41 @@ def _resolve_embed_buffer_chunks(root: Path) -> int:
     return max(val, EMBED_BATCH_SIZE)
 
 
-# Per-model forward-pass batch width (1p7iv). The onnxruntime CPU forward pass materializes
+# Per-layer forward-pass batch width (1p7iv). The onnxruntime CPU forward pass materializes
 # activation tensors that scale with this batch (attention ~ batch x heads x seq^2), so it is the
-# dominant CPU-embedding memory lever — on-machine benchmark: bge-small (code) 256->32 cut peak RSS
-# ~3.5x, arctic-xs (docs) ~3.8x, both at equal-or-better throughput. Per model because DOCS_MODEL and
-# CODE_MODEL differ in size/chunk-length; the GPU static-shape embedder ignores this (uses STATIC_BATCH).
+# dominant CPU-embedding memory lever. Keep the layer selectors independent even when both layers
+# currently use Arctic S: an operator may still tune docs/code batching separately, and a future
+# divergent model assignment must not require restoring a coupled configuration mechanism. The GPU
+# static-shape embedder ignores this setting (it uses STATIC_BATCH).
 # Default 32 (down from 256): the benchmark's lowest-memory AND fastest CPU point — ~3.5–3.8x less peak
 # RSS at equal-or-better throughput (onnxruntime parallelizes each forward pass across cores regardless
 # of batch, so a small batch still fills cores). Raise per-model via workflow-config for bigger batches.
 _DEFAULT_EMBED_BATCH = 32
-_EMBED_BATCH_DEFAULTS = {DOCS_MODEL: _DEFAULT_EMBED_BATCH, CODE_MODEL: _DEFAULT_EMBED_BATCH}
-_EMBED_BATCH_CONFIG_KEYS = {DOCS_MODEL: "docs_embed_batch_size", CODE_MODEL: "code_embed_batch_size"}
+_EMBED_BATCH_CONFIG_KEYS = {
+    "docs": "docs_embed_batch_size",
+    "code": "code_embed_batch_size",
+}
 
 
-def _resolve_embed_batch_size(model_name: str, root: Path) -> int:
-    """Forward-pass batch width for ``model_name`` — overridable via ``docs/workflow-config.json``:
+def _resolve_embed_batch_size(model_name: str, root: Path, *, layer: Optional[str] = None) -> int:
+    """Forward-pass batch width for a model/layer — overridable via ``docs/workflow-config.json``:
     per-model ``indexing.{docs,code}_embed_batch_size`` wins, then global ``indexing.embed_batch_size``,
     then the per-model default. A CPU-path memory lever (the GPU static-shape embedder ignores it);
-    smaller batch = less onnxruntime activation memory, at equal-or-better CPU throughput."""
-    default = _EMBED_BATCH_DEFAULTS.get(model_name, EMBED_BATCH_SIZE)
+    smaller batch = less onnxruntime activation memory, at equal-or-better CPU throughput.
+
+    ``layer`` is the configuration authority. It is intentionally not derived from ``model_name``:
+    DOCS_MODEL and CODE_MODEL may be equal while their operator overrides remain independent.
+    ``model_name`` remains in the API because callers and diagnostics identify the selected model.
+    """
+    del model_name
+    default = _DEFAULT_EMBED_BATCH
     cfg = root / "docs" / "workflow-config.json"
     if cfg.exists():
         try:
             data = json.loads(cfg.read_text(encoding="utf-8"))
             indexing = data.get("indexing", {}) if isinstance(data, dict) else {}
             if isinstance(indexing, dict):
-                for key in (_EMBED_BATCH_CONFIG_KEYS.get(model_name), "embed_batch_size"):
+                for key in (_EMBED_BATCH_CONFIG_KEYS.get(layer), "embed_batch_size"):
                     if key:
                         raw = indexing.get(key)
                         if isinstance(raw, int) and raw > 0:
@@ -1770,9 +1768,9 @@ def _run_streaming_full_rebuild(
     # so a layer that produces 0 chunks never creates its Lance dir — matching the old full path and
     # keeping the incremental "table absent" guard correct.
     docs_writer = _StreamingLayerWriter(db, "docs", docs_embedder, "doc", lock_dir=db_path / "docs.lance",
-                                        batch_size=_resolve_embed_batch_size(DOCS_MODEL, root)) if build_docs else None
+                                        batch_size=_resolve_embed_batch_size(DOCS_MODEL, root, layer="docs")) if build_docs else None
     code_writer = _StreamingLayerWriter(db, "code", code_embedder, "code", lock_dir=db_path / "code.lance",
-                                        batch_size=_resolve_embed_batch_size(CODE_MODEL, root)) if build_code else None
+                                        batch_size=_resolve_embed_batch_size(CODE_MODEL, root, layer="code")) if build_code else None
     docs_buf: list[dict] = []
     code_buf: list[dict] = []
     t_docs = 0.0
@@ -3483,12 +3481,41 @@ def _predicted_precision_class(model_name: str, providers: list[str]) -> str:
 
 _EMBEDDER_CACHE: dict[str, Any] = {}
 
+
+def _resolve_build_embedders(
+    *,
+    build_docs: bool,
+    build_code: bool,
+    full: bool,
+    docs_chunk_count: int,
+    code_chunk_count: int,
+) -> tuple[Any, Any]:
+    """Resolve per-layer embedders, sharing only when configured IDs match."""
+    docs_need = build_docs and (full or docs_chunk_count > 0)
+    code_need = build_code and (full or code_chunk_count > 0)
+    docs_embedder = None
+    code_embedder = None
+    if docs_need and code_need and DOCS_MODEL == CODE_MODEL:
+        shared_count = None if full else max(docs_chunk_count, code_chunk_count)
+        docs_embedder = _get_embedder(DOCS_MODEL, n_chunks=shared_count)
+        code_embedder = docs_embedder
+        return docs_embedder, code_embedder
+    if docs_need:
+        docs_embedder = _get_embedder(
+            DOCS_MODEL, n_chunks=None if full else docs_chunk_count
+        )
+    if code_need:
+        code_embedder = _get_embedder(
+            CODE_MODEL, n_chunks=None if full else code_chunk_count
+        )
+    return docs_embedder, code_embedder
+
 # Wave 1p938: route an incremental embed run smaller than one full GPU batch to the full-precision
-# CPU fastembed path instead of constructing the 64x512 GPU accel session — the GPU only amortizes
+# CPU fastembed path instead of constructing the 32x512 GPU accel session — the GPU only amortizes
 # its fixed dispatch cost over a large batch (measurement B, ADR 1p92d); a handful of chunks padded
-# into a 64-row batch loses to plain CPU. Default = accel_embedder.STATIC_BATCH (one full GPU
+# into a 32-row batch loses to plain CPU. Default = accel_embedder.STATIC_BATCH (one full GPU
 # batch), so a bulk/full build (>= threshold chunks) still uses GPU unchanged (AC-2).
-INCREMENTAL_GPU_MIN_CHUNKS = accel_embedder.STATIC_BATCH if accel_embedder is not None else 64
+INCREMENTAL_GPU_MIN_CHUNKS = accel_embedder.STATIC_BATCH if accel_embedder is not None else 32
 
 
 def _get_embedder(model_name: str, n_chunks: Optional[int] = None):
@@ -3535,6 +3562,14 @@ def _get_embedder(model_name: str, n_chunks: Optional[int] = None):
                   f"{accel_embedder.STATIC_SEQ})", flush=True)
             _EMBEDDER_CACHE[cache_key] = accel
             return accel
+        if accel_embedder._coreml_static_probe_cache.get(
+            ("embedder", model_name)
+        ) is False:
+            # The exact production static graph crashed or failed in its
+            # isolated child. Keep the full-precision fallback, but force its
+            # ONNX provider to CPU so the rejected CoreML provider cannot be
+            # re-entered through fastembed in this process.
+            providers = ["CPUExecutionProvider"]
     try:
         from fastembed import TextEmbedding
     except ImportError:
@@ -4003,6 +4038,47 @@ def _build_index_locked(
     build_code = content in ("code", "all")
     old_file_meta: dict[str, dict] = meta.get("file_meta", {})
     old_model_versions: dict[str, str] = meta.get("model_versions", {})
+
+    # A model-set fingerprint is an all-layer compatibility boundary. A scoped
+    # update may preserve an untouched layer only while every existing semantic
+    # layer already carries the active model, precision class, and fingerprint.
+    # Otherwise publishing the selected layer would create a completed mixed
+    # epoch (for example docs=v2 beside code=v1), so converge both layers in one
+    # build epoch instead.
+    if content != "all" and index_dir is not None:
+        _active_providers = _onnx_providers()
+        _expected_models = {"docs": DOCS_MODEL, "code": CODE_MODEL}
+        _stale_model_layers: list[str] = []
+        for _layer, _expected_model in _expected_models.items():
+            _layer_present = (
+                (index_dir / f"{_layer}.lance").is_dir()
+                or _layer in set(meta.get("content", []))
+            )
+            if not _layer_present:
+                continue
+            _value = old_model_versions.get(_layer)
+            _fingerprint_stale = (
+                _model_set_fingerprint_from_version(_value)
+                != EMBEDDING_MODEL_SET_FINGERPRINT
+            )
+            _untouched_identity_stale = _layer != content and (
+                (_value or "").split("@", 1)[0] != _expected_model
+                or _precision_class_from_version(_value)
+                != _predicted_precision_class(_expected_model, _active_providers)
+            )
+            if _fingerprint_stale or _untouched_identity_stale:
+                _stale_model_layers.append(_layer)
+        if _stale_model_layers:
+            print(
+                "build_index: semantic model-set identity is stale for "
+                f"{', '.join(_stale_model_layers)} — escalating content={content!r} "
+                "to one all-layer convergence epoch",
+                file=sys.stderr,
+                flush=True,
+            )
+            content = "all"
+            build_docs = True
+            build_code = True
     # chunker_versions tracks per-content-layer chunker version so that a
     # docs-only update does not falsely stamp the code layer as current.
     old_chunker_versions: dict[str, str] = meta.get("chunker_versions", {})
@@ -4751,25 +4827,18 @@ def _build_index_locked(
         )
     # Wave 1p5d6: load a layer's embedder only when it has embedding work — a full rebuild always
     # does, but an incremental update only needs the model for a layer with new/changed chunks. This
-    # spares a docs-only edit the bge (code) CoreML session init (and vice versa). Safe because
+    # spares a docs-only edit the shared Arctic S CoreML session init for the code layer (and vice versa). Safe because
     # `_lance_incremental_write` only touches the embedder when chunks are present (delete-only /
     # no-op writes never embed), so a layer with no new chunks correctly receives `None`.
-    docs_embedder = None
-    if build_docs and (full or new_doc_chunks):
-        _progress(verbose, f"build_index: loading docs model {DOCS_MODEL}")
-        # Wave 1p938: n_chunks lets _get_embedder route a SMALL INCREMENTAL run to CPU. It must be
-        # None for a full rebuild: the streaming full-rebuild path produces chunks AFTER this load,
-        # so new_doc_chunks is still empty here — passing len()==0 would wrongly route a bulk rebuild
-        # of the entire corpus to the CPU fastembed path and defeat GPU acceleration. A full rebuild
-        # is always a bulk run (→ GPU); the small-N optimization is only for the incremental
-        # post-edit-hook path, where new_doc_chunks is already populated (the guard requires it).
-        docs_embedder = _get_embedder(DOCS_MODEL, n_chunks=None if full else len(new_doc_chunks))
-        _progress(verbose, f"build_index: loaded docs model {DOCS_MODEL}")
-    code_embedder = None
-    if build_code and (full or new_code_chunks):
-        _progress(verbose, f"build_index: loading code model {CODE_MODEL}")
-        code_embedder = _get_embedder(CODE_MODEL, n_chunks=None if full else len(new_code_chunks))
-        _progress(verbose, f"build_index: loaded code model {CODE_MODEL}")
+    if build_docs or build_code:
+        _progress(verbose, "build_index: resolving configured docs/code embedders")
+    docs_embedder, code_embedder = _resolve_build_embedders(
+        build_docs=build_docs,
+        build_code=build_code,
+        full=full,
+        docs_chunk_count=len(new_doc_chunks),
+        code_chunk_count=len(new_code_chunks),
+    )
 
     # Write to LanceDB — the only index format.
     lance_db_path = index_dir

@@ -1,4 +1,6 @@
 import json
+import ast
+import hashlib
 import os
 import shutil
 import sys
@@ -53,19 +55,136 @@ class ModelBundleTests(unittest.TestCase):
         self.assertEqual(manifest["model_set_version"], model_bundle.MODEL_SET_VERSION)
         self.assertEqual(len(manifest["components"]), len(model_bundle.COMPONENTS))
 
+    def test_retired_model_residue_census_is_closed(self):
+        """Legacy identities survive only in cleanup, comparison evidence, or history."""
+        repo = SCRIPTS.parents[2]
+        retired = ("BAAI", "arctic-embed-xs")
+
+        production_hits: list[str] = []
+        for path in sorted(SCRIPTS.rglob("*.py")):
+            rel = path.relative_to(repo).as_posix()
+            if "/tests/" in f"/{rel}" or "/benchmarks/" in f"/{rel}":
+                continue
+            for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+                if any(token in line for token in retired):
+                    production_hits.append(f"{rel}:{number}:{line.strip()}")
+
+        cleanup_source = (SCRIPTS / "upgrade_wavefoundry.py").read_text(encoding="utf-8")
+        cleanup_tree = ast.parse(cleanup_source)
+        allowlisted = {
+            node.value
+            for node in ast.walk(cleanup_tree)
+            if isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and "BAAI" in node.value
+        }
+        self.assertTrue(allowlisted)
+        self.assertTrue(all(hit.startswith(".wavefoundry/framework/scripts/upgrade_wavefoundry.py:")
+                            and any(value in hit for value in allowlisted)
+                            for hit in production_hits), production_hits)
+        self.assertNotIn("arctic-embed-xs", cleanup_source)
+
+        # 1v0r0 repair (F7): closed benchmark census. `benchmarks/` may carry
+        # retired identifiers ONLY at the exact paths below, each covered by a
+        # census class from the change doc's Requirement 7; any FUTURE
+        # benchmark file naming a retired identifier fails here.
+        bench_root = SCRIPTS / "benchmarks"
+        bench_source = (bench_root / "embed_bench.py").read_text(encoding="utf-8")
+        pinned_hashes = {
+            node.targets[0].id: node.value.value
+            for node in ast.parse(bench_source).body
+            if isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+            and node.targets[0].id
+            in {"MODEL_SWAP_CODE_SHA256", "MODEL_SWAP_DOCS_SHA256"}
+        }
+        frozen_fixtures = {
+            # Frozen comparison-input fixtures: authored at comparison time,
+            # MAY name the then-current retired identifier in query or
+            # accepted-answer text, hash-bound to the committed result,
+            # never re-authored. The hash binding is enforced right here.
+            "benchmarks/model_swap_code_queries.json": pinned_hashes[
+                "MODEL_SWAP_CODE_SHA256"
+            ],
+            "benchmarks/model_swap_docs_queries.json": pinned_hashes[
+                "MODEL_SWAP_DOCS_SHA256"
+            ],
+        }
+        for rel, expected_sha in frozen_fixtures.items():
+            digest = hashlib.sha256((SCRIPTS / rel).read_bytes()).hexdigest()
+            self.assertEqual(digest, expected_sha, rel)
+        benchmark_exemptions = set(frozen_fixtures) | {
+            # The committed controlled-comparison result of those inputs.
+            "benchmarks/model_swap_v2_result.json",
+            # The comparison validator pins the retired side's provenance.
+            "benchmarks/embed_bench.py",
+            # Historical model-selection comparison evidence (pre-Arctic).
+            "benchmarks/bench_report.json",
+            "benchmarks/bench_report_final.json",
+            "benchmarks/bench_report_sorted.json",
+        }
+        benchmark_hits: list[str] = []
+        for path in sorted(bench_root.rglob("*")):
+            if not path.is_file():
+                continue
+            rel = path.relative_to(SCRIPTS).as_posix()
+            if rel in benchmark_exemptions:
+                continue
+            text = path.read_text(encoding="utf-8", errors="ignore")
+            if any(token in text for token in retired):
+                benchmark_hits.append(rel)
+        self.assertEqual(benchmark_hits, [])
+
+        test_hits: list[str] = []
+        tests_root = SCRIPTS / "tests"
+        for path in sorted(tests_root.rglob("*")):
+            if not path.is_file() or path.suffix not in {".py", ".json"}:
+                continue
+            if path.name in {"test_upgrade_wavefoundry.py", "test_model_bundle.py"}:
+                continue
+            text = path.read_text(encoding="utf-8")
+            if any(token in text for token in retired):
+                test_hits.append(path.relative_to(repo).as_posix())
+        self.assertEqual(test_hits, [])
+
+        active_docs = [
+            repo / "docs/architecture/current-state.md",
+            repo / "docs/architecture/data-and-control-flow.md",
+            repo / "docs/architecture/search-architecture.md",
+            repo / "docs/architecture/testing-architecture.md",
+            repo / "docs/architecture/chunking-and-indexing-pipeline.md",
+            repo / "docs/architecture/performance-budget.md",
+        ]
+        for path in active_docs:
+            text = path.read_text(encoding="utf-8")
+            self.assertNotIn("BAAI/", text, path)
+            self.assertNotIn("arctic-embed-xs", text, path)
+            lowered = text.lower()
+            self.assertTrue(
+                "snowflake-arctic-embed-s" in lowered or "arctic embed s" in lowered,
+                path,
+            )
+
+        embedding = (repo / "docs/architecture/embedding-model.md").read_text(encoding="utf-8")
+        current, historical = embedding.split("### Historical:", 1)
+        self.assertNotIn("BAAI/", current)
+        self.assertNotIn("arctic-embed-xs", current)
+        self.assertIn("BAAI/", historical)
+
     def test_bundle_refuses_cache_that_drifts_from_its_manifest_authority(self):
-        source = self.cache / "fastembed" / "models--snowflake--snowflake-arctic-embed-xs" / "snapshots" / "rev" / "onnx" / "model.onnx"
+        source = self.cache / "fastembed" / "models--snowflake--snowflake-arctic-embed-s" / "snapshots" / "rev" / "onnx" / "model.onnx"
         source.write_bytes(b"drifted")
         with self.assertRaisesRegex(RuntimeError, "does not match the canonical"):
             model_bundle.build_bundle(self.out, cache_root=self.cache)
 
     def test_build_materialize_and_reuse(self):
         bundle = model_bundle.build_bundle(self.out, cache_root=self.cache)
-        self.assertEqual(bundle.name, "wavefoundry-models-1.zip")
-        result = model_bundle.materialize_bundle(bundle, expected_model_set_version="1")
+        self.assertEqual(bundle.name, "wavefoundry-models-2.zip")
+        result = model_bundle.materialize_bundle(bundle, expected_model_set_version="2")
         self.assertEqual(result["published_components"], len(model_bundle.COMPONENTS))
-        self.assertEqual(model_bundle.materialize_bundle(bundle, expected_model_set_version="1")["published_components"], 0)
-        self.assertTrue((self.fast / "models--snowflake--snowflake-arctic-embed-xs" / ".wavefoundry-model-bundle.json").is_file())
+        self.assertEqual(model_bundle.materialize_bundle(bundle, expected_model_set_version="2")["published_components"], 0)
+        self.assertTrue((self.fast / "models--snowflake--snowflake-arctic-embed-s" / ".wavefoundry-model-bundle.json").is_file())
 
     def test_rejects_traversal_and_hash_tamper(self):
         bundle = model_bundle.build_bundle(self.out, cache_root=self.cache)
@@ -97,6 +216,50 @@ class ModelBundleTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "unsafe path|link"):
             model_bundle.materialize_bundle(linked)
 
+    def test_rejects_self_consistent_substitute_before_cache_publication(self):
+        """An internally valid rehash/revision is still not the installed canonical set."""
+        bundle = model_bundle.build_bundle(self.out, cache_root=self.cache)
+        model_bundle.materialize_bundle(bundle)
+        installed = (
+            self.fast
+            / "models--snowflake--snowflake-arctic-embed-s"
+            / "snapshots"
+            / "rev"
+            / "onnx"
+            / "model.onnx"
+        )
+        before_payload = installed.read_bytes()
+        before_marker = (installed.parents[3] / ".wavefoundry-model-bundle.json").read_bytes()
+
+        substitute = self.out / "self-consistent-substitute.zip"
+        with zipfile.ZipFile(bundle) as source:
+            members = {info.filename: source.read(info.filename) for info in source.infolist()}
+        manifest = json.loads(members["model-bundle-manifest.json"])
+        component = next(item for item in manifest["components"] if item["target"] == "fastembed")
+        payload_name = next(
+            item["path"] for item in component["files"] if item["path"].endswith("onnx/model.onnx")
+        )
+        ref_name = next(
+            item["path"] for item in component["files"] if item["path"].endswith("refs/main")
+        )
+        members[payload_name] = b"self-consistent replacement payload"
+        members[ref_name] = b"substitute-revision\n"
+        component["revision"] = "substitute-revision"
+        for item in component["files"]:
+            if item["path"] in {payload_name, ref_name}:
+                item["sha256"] = model_bundle._sha256(members[item["path"]])
+        members["model-bundle-manifest.json"] = (
+            json.dumps(manifest, sort_keys=True, indent=2) + "\n"
+        ).encode("utf-8")
+        with zipfile.ZipFile(substitute, "w", compression=zipfile.ZIP_DEFLATED) as target:
+            for name, data in members.items():
+                target.writestr(name, data)
+
+        with self.assertRaisesRegex(RuntimeError, "does not match the installed canonical"):
+            model_bundle.materialize_bundle(substitute)
+        self.assertEqual(installed.read_bytes(), before_payload)
+        self.assertEqual((installed.parents[3] / ".wavefoundry-model-bundle.json").read_bytes(), before_marker)
+
     def test_rejects_model_set_version_mismatch(self):
         bundle = model_bundle.build_bundle(self.out, cache_root=self.cache)
         with self.assertRaisesRegex(RuntimeError, "does not match"):
@@ -105,23 +268,24 @@ class ModelBundleTests(unittest.TestCase):
     def test_repairs_corrupt_cache(self):
         bundle = model_bundle.build_bundle(self.out, cache_root=self.cache)
         model_bundle.materialize_bundle(bundle)
-        cached = self.fast / "models--snowflake--snowflake-arctic-embed-xs" / "snapshots" / "rev" / "onnx" / "model.onnx"
+        cached = self.fast / "models--snowflake--snowflake-arctic-embed-s" / "snapshots" / "rev" / "onnx" / "model.onnx"
         cached.write_bytes(b"corrupt")
         self.assertEqual(model_bundle.materialize_bundle(bundle)["published_components"], 1)
 
-    def test_newer_model_set_replaces_and_older_set_does_not_downgrade(self):
+    def test_current_set_replaces_v1_and_does_not_downgrade_newer_marker(self):
         bundle = model_bundle.build_bundle(self.out, cache_root=self.cache)
         model_bundle.materialize_bundle(bundle)
-        newer = self.out / "newer.zip"
-        with zipfile.ZipFile(bundle) as source, zipfile.ZipFile(newer, "w") as target:
-            for info in source.infolist():
-                data = source.read(info.filename)
-                if info.filename == "model-bundle-manifest.json":
-                    manifest = json.loads(data)
-                    manifest["model_set_version"] = "2"
-                    data = json.dumps(manifest).encode("utf-8")
-                target.writestr(info.filename, data)
-        self.assertEqual(model_bundle.materialize_bundle(newer)["published_components"], len(model_bundle.COMPONENTS))
+        for _id, target, directory, _license, _upstream in model_bundle.COMPONENTS:
+            marker = model_bundle._target_root(target) / directory / ".wavefoundry-model-bundle.json"
+            value = json.loads(marker.read_text(encoding="utf-8"))
+            value["model_set_version"] = "1"
+            marker.write_text(json.dumps(value), encoding="utf-8")
+        self.assertEqual(model_bundle.materialize_bundle(bundle)["published_components"], len(model_bundle.COMPONENTS))
+        for _id, target, directory, _license, _upstream in model_bundle.COMPONENTS:
+            marker = model_bundle._target_root(target) / directory / ".wavefoundry-model-bundle.json"
+            value = json.loads(marker.read_text(encoding="utf-8"))
+            value["model_set_version"] = "3"
+            marker.write_text(json.dumps(value), encoding="utf-8")
         self.assertEqual(model_bundle.materialize_bundle(bundle)["published_components"], 0)
 
     def test_standard_package_check_reports_older_managed_set(self):
@@ -146,7 +310,7 @@ class ModelBundleTests(unittest.TestCase):
             marker.write_text(old_markers[marker], encoding="utf-8")
 
         real_replace = Path.replace
-        failing_directory = "models--qdrant--bge-small-en-v1.5-onnx-q"
+        failing_directory = "models--snowflake--snowflake-arctic-embed-s"
 
         def fail_staging_publish(path: Path, target: Path):
             if path.name == failing_directory and path.parent.name.startswith(".wf-model-"):
@@ -221,7 +385,7 @@ class ModelBundleTests(unittest.TestCase):
             manifest_path.write_bytes(archive.read("model-bundle-manifest.json"))
         for _id, target, directory, _license, _upstream in model_bundle.COMPONENTS:
             shutil.copytree(self.cache / target / directory, model_bundle._target_root(target) / directory)
-        extra = self.fast / "models--snowflake--snowflake-arctic-embed-xs" / "snapshots" / "rev" / "extra.bin"
+        extra = self.fast / "models--snowflake--snowflake-arctic-embed-s" / "snapshots" / "rev" / "extra.bin"
         extra.write_bytes(b"unexpected")
 
         self.assertFalse(model_bundle.attest_online_cache(manifest_path))

@@ -88,7 +88,7 @@ CUDA_DEPENDENCY_IMPORTS = {
     "fastembed-gpu": "fastembed",
 }
 # Wave 1p517/1p52p: `onnx` pins model input dims to a static shape. GPU embedders need it for the
-# FP16 acceleration path; the CPU INT8 reranker also needs it to build its static 64x512 graph.
+# FP16 acceleration path; the CPU INT8 reranker also needs it to build its static 40x512 graph.
 GPU_ACCEL_IMPORTS = {
     "onnx": "onnx",
 }
@@ -1310,14 +1310,10 @@ def _fastembed_cache_dir() -> Path:
 
 
 _MODEL_CACHE_DIR_ALIASES: dict[str, tuple[str, ...]] = {
-    # FastEmbed stores the current BAAI embedding presets under Qdrant-hosted
-    # ONNX repo directories, not the public model IDs used by indexer.py.
-    "BAAI/bge-small-en-v1.5": ("qdrant/bge-small-en-v1.5-onnx-q",),
-    "BAAI/bge-base-en-v1.5": ("qdrant/bge-base-en-v1.5-onnx-q",),
-    # Wave 1p4wx: arctic-embed-xs (docs model). fastembed normalizes the model
+    # FastEmbed normalizes the Snowflake model
     # name to lowercase ``snowflake/…`` and downloads from that HF repo, so the
-    # offline cache lives under ``models--snowflake--snowflake-arctic-embed-xs``.
-    "Snowflake/snowflake-arctic-embed-xs": ("snowflake/snowflake-arctic-embed-xs",),
+    # offline cache uses a lower-case repository directory.
+    "Snowflake/snowflake-arctic-embed-s": ("snowflake/snowflake-arctic-embed-s",),
 }
 
 

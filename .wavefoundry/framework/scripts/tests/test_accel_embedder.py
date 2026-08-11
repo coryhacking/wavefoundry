@@ -108,10 +108,71 @@ class AccelEmbedderTests(unittest.TestCase):
         # of the CPU-INT8 embedder path; it replaces the pre-1p935 "no GPU → always None" behavior.
         with patch.object(self.ae, "_available_gpu_providers", return_value=[]), \
              patch.object(self.ae, "StaticShapeEmbedder") as cls:
-            got = self.ae.make_embedder("BAAI/bge-small-en-v1.5", ["CPUExecutionProvider"])
+            got = self.ae.make_embedder("Snowflake/snowflake-arctic-embed-s", ["CPUExecutionProvider"])
         self.assertIs(got, cls.return_value)
         # Constructed for the CPU EP only (no GPU provider) → the INT8 branch of StaticShapeEmbedder.
         self.assertEqual(cls.call_args.args[1], ["CPUExecutionProvider"])
+
+    def test_coreml_static_probe_contains_native_crash_and_caches_downgrade(self):
+        crashed = MagicMock(returncode=-11, stdout="", stderr="native crash")
+        with patch.object(
+            self.ae.subprocess_util, "isolated_run", return_value=crashed
+        ) as run:
+            self.assertFalse(
+                self.ae._coreml_static_probe_passes(
+                    "Snowflake/snowflake-arctic-embed-s", "embedder"
+                )
+            )
+            self.assertFalse(
+                self.ae._coreml_static_probe_passes(
+                    "Snowflake/snowflake-arctic-embed-s", "embedder"
+                )
+            )
+        run.assert_called_once()
+        self.assertIn("capture_output", run.call_args.kwargs)
+        self.assertEqual(
+            run.call_args.kwargs["env"][self.ae._COREML_STATIC_PROBE_CHILD_ENV],
+            "1",
+        )
+
+    def test_coreml_static_probe_accepts_clean_child_exit(self):
+        completed = MagicMock(returncode=0, stdout="", stderr="")
+        with patch.object(
+            self.ae.subprocess_util, "isolated_run", return_value=completed
+        ):
+            self.assertTrue(
+                self.ae._coreml_static_probe_passes(
+                    "cross-encoder/ms-marco-MiniLM-L-6-v2", "reranker"
+                )
+            )
+
+    def test_rejected_coreml_embedder_probe_precedes_parent_graph_resolution(self):
+        with patch.object(
+            self.ae, "_coreml_static_probe_passes", return_value=False
+        ) as probe, patch.object(self.ae, "_resolve_model_files") as resolve:
+            with self.assertRaisesRegex(RuntimeError, "isolated CoreML static embedder"):
+                self.ae.StaticShapeEmbedder(
+                    "Snowflake/snowflake-arctic-embed-s",
+                    [self.ae.COREML_PROVIDER, "CPUExecutionProvider"],
+                )
+        probe.assert_called_once_with(
+            "Snowflake/snowflake-arctic-embed-s", "embedder"
+        )
+        resolve.assert_not_called()
+
+    def test_rejected_coreml_reranker_probe_precedes_parent_graph_resolution(self):
+        with patch.object(
+            self.ae, "_coreml_static_probe_passes", return_value=False
+        ) as probe, patch.object(self.ae, "_resolve_model_files") as resolve:
+            with self.assertRaisesRegex(RuntimeError, "isolated CoreML static reranker"):
+                self.ae.StaticShapeReranker(
+                    "cross-encoder/ms-marco-MiniLM-L-6-v2",
+                    [self.ae.COREML_PROVIDER, "CPUExecutionProvider"],
+                )
+        probe.assert_called_once_with(
+            "cross-encoder/ms-marco-MiniLM-L-6-v2", "reranker"
+        )
+        resolve.assert_not_called()
 
     def test_make_embedder_none_when_no_gpu_unregistered_model(self):
         # Wave 1p935: no GPU + a model with NO INT8 clean-export source → the INT8 build raises
@@ -139,7 +200,7 @@ class AccelEmbedderTests(unittest.TestCase):
 
         with patch.object(self.ae, "_available_gpu_providers", return_value=["CoreMLExecutionProvider"]), \
              patch.object(self.ae, "StaticShapeEmbedder", side_effect=_spy):
-            got = self.ae.make_embedder("BAAI/bge-small-en-v1.5", ["CoreMLExecutionProvider"])
+            got = self.ae.make_embedder("Snowflake/snowflake-arctic-embed-s", ["CoreMLExecutionProvider"])
         self.assertIsNone(got, "GPU-present-but-no-offload must fall back to fastembed full, not INT8")
         # Only the GPU attempt was constructed — never a CPU-only (INT8) construction.
         self.assertNotIn(["CPUExecutionProvider"], constructed_providers,
@@ -151,7 +212,7 @@ class AccelEmbedderTests(unittest.TestCase):
         with patch.object(self.ae, "_available_gpu_providers", return_value=["CoreMLExecutionProvider"]), \
              patch.object(self.ae, "StaticShapeEmbedder") as cls:
             cls.return_value.offloads_to_gpu.return_value = True
-            got = self.ae.make_embedder("BAAI/bge-small-en-v1.5", ["CPUExecutionProvider"])
+            got = self.ae.make_embedder("Snowflake/snowflake-arctic-embed-s", ["CPUExecutionProvider"])
         self.assertIs(got, cls.return_value)
         # Constructed with the available GPU provider + CPU fallback.
         self.assertEqual(cls.call_args.args[1], ["CoreMLExecutionProvider", "CPUExecutionProvider"])
@@ -179,7 +240,7 @@ class AccelEmbedderTests(unittest.TestCase):
                  "WAVEFOUNDRY_EMBED_PROVIDER": "auto",
                  "WAVEFOUNDRY_EMBED_PROVIDER_SELECTED": "CPUExecutionProvider",
              }, clear=False):
-            got = self.ae.make_embedder("BAAI/bge-small-en-v1.5", ["CPUExecutionProvider"])
+            got = self.ae.make_embedder("Snowflake/snowflake-arctic-embed-s", ["CPUExecutionProvider"])
         self.assertIs(got, cls.return_value)
         self.assertEqual(cls.call_args.args[1], ["CPUExecutionProvider"])
 
@@ -190,7 +251,7 @@ class AccelEmbedderTests(unittest.TestCase):
         with patch.dict(os.environ, {"WAVEFOUNDRY_EMBED_PROVIDER": "cpu"}), \
              patch.object(self.ae, "StaticShapeEmbedder") as cls:
             self.assertEqual(self.ae._available_gpu_providers(), [])
-            got = self.ae.make_embedder("BAAI/bge-small-en-v1.5", ["CPUExecutionProvider"])
+            got = self.ae.make_embedder("Snowflake/snowflake-arctic-embed-s", ["CPUExecutionProvider"])
         self.assertIs(got, cls.return_value)
         self.assertEqual(cls.call_args.args[1], ["CPUExecutionProvider"], "INT8-CPU build (no GPU provider)")
 
@@ -218,7 +279,7 @@ class AccelEmbedderTests(unittest.TestCase):
         # 1p66v: the reranker has its OWN static batch, sized to the code_ask candidate ceiling,
         # independent of the embedder's index-time STATIC_BATCH.
         self.assertEqual(self.ae.RERANK_STATIC_BATCH, 40)
-        self.assertEqual(self.ae.STATIC_BATCH, 64)
+        self.assertEqual(self.ae.STATIC_BATCH, 32)
         self.assertNotEqual(self.ae.RERANK_STATIC_BATCH, self.ae.STATIC_BATCH)
 
     def test_rerank_ranking_identical_across_batch_sizes(self):
@@ -363,7 +424,7 @@ class AccelEmbedderTests(unittest.TestCase):
              patch.object(self.ae, "StaticShapeReranker") as rr_cls, \
              patch.dict(os.environ, {}, clear=False):
             os.environ.pop("WAVEFOUNDRY_DISABLE_RERANKER", None)
-            self.ae.make_embedder("BAAI/bge-small-en-v1.5", providers)
+            self.ae.make_embedder("Snowflake/snowflake-arctic-embed-s", providers)
             self.ae.make_reranker("cross-encoder/ms-marco-MiniLM-L-6-v2", providers)
         # Both constructed for CPU-only (INT8), no GPU provider in either construction.
         self.assertEqual(emb_cls.call_args.args[1], ["CPUExecutionProvider"])
@@ -378,7 +439,7 @@ class AccelEmbedderTests(unittest.TestCase):
             os.environ.pop("WAVEFOUNDRY_DISABLE_RERANKER", None)
             emb_cls.return_value.offloads_to_gpu.return_value = True
             rr_cls.return_value.offloads_to_gpu.return_value = True
-            emb = self.ae.make_embedder("BAAI/bge-small-en-v1.5", providers)
+            emb = self.ae.make_embedder("Snowflake/snowflake-arctic-embed-s", providers)
             rr = self.ae.make_reranker("cross-encoder/ms-marco-MiniLM-L-6-v2", providers)
         self.assertIs(emb, emb_cls.return_value)
         self.assertIs(rr, rr_cls.return_value)
@@ -484,7 +545,7 @@ class AccelEmbedderTests(unittest.TestCase):
 
         with patch("builtins.__import__", side_effect=_no_onnx):
             self.assertIsNone(
-                self.ae.make_embedder("Snowflake/snowflake-arctic-embed-xs", ["CoreMLExecutionProvider"])
+                self.ae.make_embedder("Snowflake/snowflake-arctic-embed-s", ["CoreMLExecutionProvider"])
             )
 
     def test_embed_uses_cls_pooling_normalized(self):
@@ -497,7 +558,7 @@ class AccelEmbedderTests(unittest.TestCase):
         emb = _make_embedder(self.ae, hidden)
 
         out = list(emb.embed(["a", "b", "c"]))
-        self.assertEqual(len(out), 3, "one vector per input text (batch padded to 64, sliced to 3)")
+        self.assertEqual(len(out), 3, "one vector per input text (batch padded to 32, sliced to 3)")
         for r, vec in enumerate(out):
             self.assertEqual(vec.shape, (H,))
             self.assertAlmostEqual(float(np.linalg.norm(vec)), 1.0, places=5)  # L2-normalized
@@ -520,10 +581,10 @@ class AccelEmbedderTests(unittest.TestCase):
         fake_hub = type(sys)("huggingface_hub")
         fake_hub.hf_hub_download = lambda repo, fn, **k: f"/cache/{repo.replace('/', '_')}/{fn}"
         with patch.dict(self.ae.CLEAN_ONNX_SOURCES,
-                        {"BAAI/bge-small-en-v1.5": ("Repo/clean", "onnx/m.onnx", "tokenizer.json")},
+                        {"Snowflake/snowflake-arctic-embed-s": ("Repo/clean", "onnx/m.onnx", "tokenizer.json")},
                         clear=False), \
              patch.dict(sys.modules, {"huggingface_hub": fake_hub}):
-            got = self.ae._resolve_model_files("BAAI/bge-small-en-v1.5")
+            got = self.ae._resolve_model_files("Snowflake/snowflake-arctic-embed-s")
         self.assertEqual(got, (os.path.realpath("/cache/Repo_clean/onnx/m.onnx"),
                                "/cache/Repo_clean/tokenizer.json"))
 
@@ -533,7 +594,7 @@ class AccelEmbedderTests(unittest.TestCase):
         def _fail(*a, **k): raise OSError("offline")
         fake_hub.hf_hub_download = _fail
         with patch.dict(sys.modules, {"huggingface_hub": fake_hub}):
-            self.assertIsNone(self.ae._resolve_clean_onnx("BAAI/bge-small-en-v1.5"))
+            self.assertIsNone(self.ae._resolve_clean_onnx("Snowflake/snowflake-arctic-embed-s"))
 
     def test_resolve_clean_logs_before_degrading_on_failure(self):
         # Wave 1p939 (delivery-phase fix): a persisting failure (e.g. CERTIFICATE_VERIFY_FAILED)
@@ -544,8 +605,8 @@ class AccelEmbedderTests(unittest.TestCase):
         fake_hub.hf_hub_download = _fail
         buf = io.StringIO()
         with patch.dict(sys.modules, {"huggingface_hub": fake_hub}), patch("sys.stderr", buf):
-            self.assertIsNone(self.ae._resolve_clean_onnx("BAAI/bge-small-en-v1.5"))
-        self.assertIn("BAAI/bge-small-en-v1.5", buf.getvalue())
+            self.assertIsNone(self.ae._resolve_clean_onnx("Snowflake/snowflake-arctic-embed-s"))
+        self.assertIn("Snowflake/snowflake-arctic-embed-s", buf.getvalue())
         self.assertIn("falling back", buf.getvalue())
 
     def test_resolve_reranker_cpu_files_logs_before_degrading_on_failure(self):
@@ -556,8 +617,8 @@ class AccelEmbedderTests(unittest.TestCase):
         fake_hub.hf_hub_download = _fail
         buf = io.StringIO()
         with patch.dict(sys.modules, {"huggingface_hub": fake_hub}), patch("sys.stderr", buf):
-            self.assertIsNone(self.ae._resolve_reranker_cpu_files("BAAI/bge-small-en-v1.5"))
-        self.assertIn("BAAI/bge-small-en-v1.5", buf.getvalue())
+            self.assertIsNone(self.ae._resolve_reranker_cpu_files("Snowflake/snowflake-arctic-embed-s"))
+        self.assertIn("Snowflake/snowflake-arctic-embed-s", buf.getvalue())
         self.assertIn("falling back", buf.getvalue())
 
     def test_resolve_embedder_cpu_files_returns_int8_and_tokenizer(self):
@@ -570,7 +631,7 @@ class AccelEmbedderTests(unittest.TestCase):
             return f"/cache/{repo.replace('/', '_')}/{filename}"
         fake_hub.hf_hub_download = _dl
         with patch.dict(sys.modules, {"huggingface_hub": fake_hub}):
-            got = self.ae._resolve_embedder_cpu_files("BAAI/bge-small-en-v1.5")
+            got = self.ae._resolve_embedder_cpu_files("Snowflake/snowflake-arctic-embed-s")
         self.assertIsNotNone(got)
         onnx_path, tok_path = got
         self.assertTrue(onnx_path.endswith("onnx/model_int8.onnx"))
@@ -588,8 +649,8 @@ class AccelEmbedderTests(unittest.TestCase):
         fake_hub.hf_hub_download = _fail
         buf = io.StringIO()
         with patch.dict(sys.modules, {"huggingface_hub": fake_hub}), patch("sys.stderr", buf):
-            self.assertIsNone(self.ae._resolve_embedder_cpu_files("BAAI/bge-small-en-v1.5"))
-        self.assertIn("BAAI/bge-small-en-v1.5", buf.getvalue())
+            self.assertIsNone(self.ae._resolve_embedder_cpu_files("Snowflake/snowflake-arctic-embed-s"))
+        self.assertIn("Snowflake/snowflake-arctic-embed-s", buf.getvalue())
         self.assertIn("falling back", buf.getvalue())
 
     def test_resolve_clean_none_for_unregistered_model(self):
@@ -613,7 +674,7 @@ class AccelEmbedderTests(unittest.TestCase):
             with patch.object(self.ae, "_resolve_clean_onnx", return_value=None), \
                  patch.object(self.ae, "_model_repo_dir", side_effect=fake_repo), \
                  patch.object(self.ae, "_ensure_fastembed_model_cached") as ensure:
-                got = self.ae._resolve_model_files("Snowflake/snowflake-arctic-embed-xs")
+                got = self.ae._resolve_model_files("Snowflake/snowflake-arctic-embed-s")
             ensure.assert_called_once()  # the cold-cache fetch ran
             self.assertIsNotNone(got)
             self.assertTrue(got[0].endswith("model.onnx"))
@@ -652,7 +713,7 @@ class IndexerAccelDispatchTests(unittest.TestCase):
         sentinel = object()
         with patch.object(self.idx, "_onnx_providers", return_value=["CoreMLExecutionProvider", "CPUExecutionProvider"]), \
              patch.object(self.idx.accel_embedder, "make_embedder", return_value=sentinel):
-            got = self.idx._get_embedder("Snowflake/snowflake-arctic-embed-xs")
+            got = self.idx._get_embedder("Snowflake/snowflake-arctic-embed-s")
         self.assertIs(got, sentinel)
 
     def test_falls_back_to_fastembed_when_accel_none(self):
@@ -662,8 +723,33 @@ class IndexerAccelDispatchTests(unittest.TestCase):
         with patch.object(self.idx, "_onnx_providers", return_value=["CPUExecutionProvider"]), \
              patch.object(self.idx.accel_embedder, "make_embedder", return_value=None), \
              patch.dict(sys.modules, {"fastembed": fake_fastembed}):
-            got = self.idx._get_embedder("BAAI/bge-small-en-v1.5")
+            got = self.idx._get_embedder("Snowflake/snowflake-arctic-embed-s")
         self.assertIs(got, fake_te)
+
+    def test_failed_coreml_static_probe_forces_fastembed_cpu_provider(self):
+        seen: list[list[str]] = []
+
+        class FakeTE:
+            def __init__(self, model_name, providers, local_files_only=False):
+                seen.append(list(providers))
+
+        fake_fastembed = type(sys)("fastembed")
+        fake_fastembed.TextEmbedding = FakeTE
+        model = "Snowflake/snowflake-arctic-embed-s"
+        self.idx.accel_embedder._coreml_static_probe_cache[("embedder", model)] = False
+        with patch.object(
+            self.idx,
+            "_onnx_providers",
+            return_value=["CoreMLExecutionProvider", "CPUExecutionProvider"],
+        ), patch.object(
+            self.idx.accel_embedder, "_available_gpu_providers", return_value=[]
+        ), patch.object(
+            self.idx.accel_embedder, "make_embedder", return_value=None
+        ), patch.dict(
+            sys.modules, {"fastembed": fake_fastembed}
+        ):
+            self.idx._get_embedder(model)
+        self.assertEqual(seen, [["CPUExecutionProvider"]])
 
     def test_falls_back_to_fastembed_cache_miss_applies_ca_bundle(self):
         # Wave 1p939 (delivery-phase fix): the no-GPU fallback path (accel_embedder.make_embedder
@@ -685,7 +771,7 @@ class IndexerAccelDispatchTests(unittest.TestCase):
         with patch.object(self.idx, "_onnx_providers", return_value=["CPUExecutionProvider"]), \
              patch.object(self.idx.accel_embedder, "make_embedder", return_value=None), \
              patch.dict(sys.modules, {"fastembed": fake_fastembed, "setup_index": fake_setup_index}):
-            got = self.idx._get_embedder("BAAI/bge-small-en-v1.5")
+            got = self.idx._get_embedder("Snowflake/snowflake-arctic-embed-s")
         self.assertEqual(got, "online-embedder")
         self.assertEqual(calls, [True, False], "cached-first then online download")
         fake_setup_index.ensure_ca_bundle_applied.assert_called_once()
@@ -717,10 +803,10 @@ class IndexerAccelDispatchTests(unittest.TestCase):
              patch.object(self.idx.accel_embedder, "make_embedder", return_value=None), \
              patch.dict(sys.modules, {"fastembed": fake_fastembed, "setup_index": fake_setup_index}):
             with self.assertRaises(Exception):
-                self.idx._get_embedder("BAAI/bge-small-en-v1.5")
+                self.idx._get_embedder("Snowflake/snowflake-arctic-embed-s")
         fake_setup_index.ensure_ca_bundle_applied.assert_called_once()
         fake_setup_index.raise_with_ca_bundle_diagnostic.assert_called_once_with(
-            "BAAI/bge-small-en-v1.5", cert_exc
+            "Snowflake/snowflake-arctic-embed-s", cert_exc
         )
 
     def test_falls_back_to_fastembed_no_ca_call_when_cached(self):
@@ -732,7 +818,7 @@ class IndexerAccelDispatchTests(unittest.TestCase):
         with patch.object(self.idx, "_onnx_providers", return_value=["CPUExecutionProvider"]), \
              patch.object(self.idx.accel_embedder, "make_embedder", return_value=None), \
              patch.dict(sys.modules, {"fastembed": fake_fastembed, "setup_index": fake_setup_index}):
-            got = self.idx._get_embedder("Snowflake/snowflake-arctic-embed-xs")
+            got = self.idx._get_embedder("Snowflake/snowflake-arctic-embed-s")
         self.assertIs(got, fake_te)
         fake_setup_index.ensure_ca_bundle_applied.assert_not_called()
         fake_setup_index.retry_with_ca_bundle_ladder.assert_not_called()
@@ -839,7 +925,7 @@ class EnsureFastembedModelCachedCaTests(unittest.TestCase):
         fake_setup_index = MagicMock()
         fake_setup_index.retry_with_ca_bundle_ladder.side_effect = lambda attempt, model_name: attempt()
         with patch.dict(sys.modules, {"fastembed": fake_fastembed, "setup_index": fake_setup_index}):
-            self.accel._ensure_fastembed_model_cached("Snowflake/snowflake-arctic-embed-xs")
+            self.accel._ensure_fastembed_model_cached("Snowflake/snowflake-arctic-embed-s")
         self.assertEqual(calls, [True, False], "cached-first then online download")
         fake_setup_index.ensure_ca_bundle_applied.assert_called_once()
         fake_setup_index.retry_with_ca_bundle_ladder.assert_called_once()
@@ -849,7 +935,7 @@ class EnsureFastembedModelCachedCaTests(unittest.TestCase):
         fake_fastembed = types.SimpleNamespace(TextEmbedding=lambda **k: MagicMock())
         fake_setup_index = MagicMock()
         with patch.dict(sys.modules, {"fastembed": fake_fastembed, "setup_index": fake_setup_index}):
-            self.accel._ensure_fastembed_model_cached("Snowflake/snowflake-arctic-embed-xs")
+            self.accel._ensure_fastembed_model_cached("Snowflake/snowflake-arctic-embed-s")
         fake_setup_index.ensure_ca_bundle_applied.assert_not_called()
         fake_setup_index.retry_with_ca_bundle_ladder.assert_not_called()
 
@@ -867,9 +953,9 @@ class EnsureFastembedModelCachedCaTests(unittest.TestCase):
         buf = io.StringIO()
         with patch.dict(sys.modules, {"fastembed": fake_fastembed, "setup_index": fake_setup_index}), \
              patch("sys.stderr", buf):
-            self.accel._ensure_fastembed_model_cached("Snowflake/snowflake-arctic-embed-xs")  # must not raise
+            self.accel._ensure_fastembed_model_cached("Snowflake/snowflake-arctic-embed-s")  # must not raise
         fake_setup_index.retry_with_ca_bundle_ladder.assert_called_once()
-        self.assertIn("Snowflake/snowflake-arctic-embed-xs", buf.getvalue())
+        self.assertIn("Snowflake/snowflake-arctic-embed-s", buf.getvalue())
         self.assertIn("falling back", buf.getvalue())
 
 

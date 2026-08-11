@@ -104,6 +104,11 @@ def write_upgrade_lock(
         "current_phase": "preflight",
         "runner_protocol": runner_protocol,
         "pack_protocol": pack_protocol,
+        "retired_model_cleanup_status": "not_applicable",
+        "retired_model_cleanup_removed": [],
+        "retired_model_cleanup_absent": [],
+        "retired_model_cleanup_unowned": [],
+        "retired_model_cleanup_failed": [],
     }
     # A failed prior run may have stopped a dashboard before mutating the tree.
     # A full recovery run replaces the lock, but must carry that restart intent

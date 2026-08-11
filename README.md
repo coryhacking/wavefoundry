@@ -1,6 +1,6 @@
 # Wavefoundry
 
-[![Version](https://img.shields.io/badge/version-1.15.4-purple)](https://github.com/coryhacking/wavefoundry/releases)
+[![Version](https://img.shields.io/badge/version-1.16.0-purple)](https://github.com/coryhacking/wavefoundry/releases)
 [![MCP](https://img.shields.io/badge/MCP-local_server-0a7ea4)](https://modelcontextprotocol.io)
 [![Hosts](https://img.shields.io/badge/hosts-Claude_Code_%C2%B7_Codex_%C2%B7_Antigravity_%C2%B7_Cursor-blue)](https://github.com/coryhacking/wavefoundry)
 [![Python](https://img.shields.io/badge/python-%E2%89%A53.11-blue)](https://www.python.org/downloads/)
@@ -25,9 +25,16 @@ Anything that's going to live for a while can benefit.
 **A local MCP server with working knowledge of your codebase.** The same server that runs the lifecycle indexes your code and docs locally and exposes them as agent tools:
 
 - **Semantic search over code and docs** — the agent searches by intent rather than grep pattern, with reranked results across your code and your `docs/` tree.
+- **Exact lexical search** — a BM25 full-text layer over the same corpus for the queries intent search is weakest at: compound identifiers, error strings, rare tokens.
 - **Code-graph queries** — call hierarchies, impact analysis, references, dependency walks, community clustering.
 
-All exposed as MCP tools — `docs_search`, `code_search`, `code_ask`, `code_callhierarchy`, `code_impact`, `code_references`, `code_graph_community`, `wf_graph_report`, and others. They work before any wave runs. The agent stops inventing functions that don't exist and starts answering "where do we handle X?" from your actual code.
+All exposed as MCP tools — `docs_search`, `code_search`, `code_ask`, `code_lexical`, `code_callhierarchy`, `code_impact`, `code_references`, `code_graph_community`, `wf_graph_report`, and others. They work before any wave runs. The agent stops inventing functions that don't exist and starts answering "where do we handle X?" from your actual code. Why three index layers instead of one is covered in [How the code intelligence fits together](#how-the-code-intelligence-fits-together).
+
+**An append-only review ledger.** Every review event on a wave — lane approvals, council verdicts, findings, repairs, operator signoff — is a typed record in that wave's `events.jsonl`. The ledger is the sole review authority: the wave record renders a projection of it, and approvals are bound to a digest of the plan text they approved, so editing the contract after approval lapses the approval instead of silently keeping it.
+
+**Typed agent memory.** The agent records decisions, pitfalls, and field feedback as typed, reviewable memory records and recalls them in later sessions (`memory_search`, `memory_brief`), with proposals distilled from wave decision logs rather than free-form notes.
+
+**A codebase map.** A generated, graceful-scaling orientation map of your code (`docs/references/codebase-map.md`) routes the agent to the right area — and its per-area `AGENTS.md` conventions — before it starts exploring.
 
 **Built-in secrets detection.** The framework scans your project for hardcoded credentials, API keys, and tokens on every wave using a [Gitleaks](https://github.com/gitleaks/gitleaks)-based TOML ruleset (MIT licensed, community maintained). Findings land in `docs/scan-findings.json` with a lifecycle — `pending` → `false-positive` (requires multi-reviewer confirmation) or `confirmed-secret` (requires per-wave operator acknowledgment). `Close wave` refuses until every finding is resolved. Call `wf_scan_secrets` for an on-demand scan at any time; incremental mode automatically escalates to a full scan when the ruleset changes.
 
@@ -67,8 +74,9 @@ your environment cannot reach Hugging Face, download the offline model asset fro
 [**Model Assets** release](https://github.com/coryhacking/wavefoundry/releases/tag/models),
 leave it zipped next to the feature package (repo root, `~/`, `~/.wavefoundry/`,
 `~/.wavefoundry/dist/`, or `~/Downloads/`), and run `wf setup`. Assets are versioned by model
-set, not by release — `wavefoundry-models-1.zip` serves every framework version until the pinned
-model set changes, so there is exactly one download per set, ever.
+set, not by release. Wavefoundry `1.16.0` selects `wavefoundry-models-2.zip`
+(Arctic S plus L6); the asset serves every compatible framework release until
+the pinned model set changes again.
 
 ---
 
@@ -101,11 +109,11 @@ This is a **chat message** to your AI agent, not a shell command. The agent must
 
 #### Phase 1 — Bootstrap the harness (no MCP yet)
 
-The Wavefoundry MCP server is what Phase 1 installs, so this phase runs from your agent's general capabilities alone — no `wave_*` MCP tools are called yet. The agent:
+The Wavefoundry MCP server is what Phase 1 installs, so this phase runs from your agent's general capabilities alone — no `wf_*` MCP tools are called yet. The agent:
 
 - **Unpacks the release zip.** Signal: `.wavefoundry/`, `docs/`, and `.mcp.json` appear at your repo root.
 - **Sets the lifecycle epoch** in `docs/workflow-config.json` (defaults to your project's first git commit date).
-- **Runs `wf setup`** — the orchestrator that creates the shared tool venv at `~/.wavefoundry/venv/`, installs dependencies, builds the framework + project semantic indexes, writes `.wavefoundry/bin/` launchers and your host's MCP config, and dry-runs the MCP server to catch startup failures before you restart. Signal: setup exits 0; final summary line reports index-ready.
+- **Runs `wf setup`** — the orchestrator that creates the shared tool venv at `~/.wavefoundry/venv/`, installs dependencies, builds the project index (docs, code, lexical, and graph layers — the framework's own seeds and docs fold into it), writes `.wavefoundry/bin/` launchers and your host's MCP config, and dry-runs the MCP server to catch startup failures before you restart. Signal: setup exits 0; final summary line reports index-ready.
 - **Stops and tells you to restart your MCP host.** This is the explicit Phase 1 → Phase 2 hand-off; don't try to continue in the current agent session.
 
 > **Note on dependency install.** `wf setup` uses [`uv`](https://github.com/astral-sh/uv) when available with a **21-day package-age guard** (`--exclude-newer`) — a supply-chain safeguard that rejects packages published in the last 21 days. If `uv` is not present it is bootstrapped automatically; if that fails, `pip` is used with a warning.
@@ -114,7 +122,7 @@ The Wavefoundry MCP server is what Phase 1 installs, so this phase runs from you
 
 #### → Restart your MCP host, then resume
 
-Quit and relaunch your agent, or use your host's MCP reload command. After restart, the `wavefoundry` MCP server appears in your host's MCP server list and the agent can call `wave_*` tools.
+Quit and relaunch your agent, or use your host's MCP reload command. After restart, the `wavefoundry` MCP server appears in your host's MCP server list and the agent can call `wf_*` tools.
 
 **To resume, type `Install Wavefoundry` again.** The install shortcut is state-aware: when `.wavefoundry/install-log.md` already exists, the agent continues from the first unchecked row (which is Phase 2 row 2.1, `wf_audit_install(phase=1)`). No separate "start Phase 2" phrase is needed.
 
@@ -130,7 +138,7 @@ With the MCP server reachable, the agent walks through `.wavefoundry/install-log
 - **Generates per-role agent docs** — `docs/agents/<role>.md` per enabled role, including the three council specialists (`wave-council`, `red-team`, `archetype-council`) loaded from their authoritative seeds.
 - **Maps your architecture** — `docs/ARCHITECTURE.md` plus `current-state.md`, `domain-map.md`, `layering-rules.md`, `cross-cutting-concerns.md`, `data-and-control-flow.md`, `testing-architecture.md`.
 - **Establishes posture** — `QUALITY_SCORE.md`, `RELIABILITY.md`, `SECURITY.md`, `PERFORMANCE.md` (when applicable).
-- **Wires the docs gate**, **generates the prompt surface**, **bootstraps wave artifacts**, **synthesizes personas**, **bootstraps per-role journals**, and **registers drift expectations**.
+- **Wires the docs gate**, **generates the prompt surface**, **bootstraps wave artifacts**, **synthesizes personas**, and **registers drift expectations**.
 - **Confirms complete.** Final `wf_audit_install()` returns `{status: "complete"}`. The agent delivers an operator summary covering what was seeded, the workflow, commands, roles, and the docs gate.
 
 ---
@@ -145,14 +153,14 @@ After `Install Wavefoundry` finishes, your repository has the following shape. I
 .wavefoundry/
   framework/         Framework code, seeds, dashboard assets
   bin/               Repo-local CLI shims
-  index/             Local semantic + graph indexes (LanceDB)      *
+  index/             Local semantic, lexical + graph indexes (LanceDB + SQLite)  *
   logs/              Build, upgrade, dashboard logs                *
 docs/
   prompts/           Public command catalog
   waves/             Wave records — your delivery history
   plans/             Change docs being authored
   architecture/      Architecture docs
-  agents/            Agent role docs, journals, session handoff
+  agents/            Agent role docs, memory records, session handoff
   references/        Long-form project references
 AGENTS.md            Agent-facing entry surface
 CLAUDE.md            Claude Code-specific entry surface
@@ -169,7 +177,7 @@ What each `docs/` subdirectory carries — the agent reads these to ground its w
 - **`docs/waves/`** — your delivery history. Each closed wave is a committed record of who decided what, who reviewed, and what shipped.
 - **`docs/plans/`** — staging area for change docs being authored before admission into a wave.
 - **`docs/architecture/`** — domain map, layering rules, current-state snapshots, data/control flow, ADRs. The agent reads this before drafting plans so it doesn't violate boundaries.
-- **`docs/agents/`** — role docs (wave-coordinator, planner, reviewer specialists), persona definitions, journals, and the session handoff file. The agent reads its own role description and any active watchpoints before each step.
+- **`docs/agents/`** — role docs (wave-coordinator, planner, reviewer specialists), persona definitions, typed memory records, and the session handoff file. The agent reads its own role description and any active watchpoints before each step.
 - **`docs/references/`** — durable project context: memory, known pitfalls, project overview.
 
 ### On your user home directory
@@ -182,7 +190,7 @@ What each `docs/` subdirectory carries — the agent reads these to ground its w
 
 ### Network footprint
 
-**Zero at runtime to Wavefoundry-controlled endpoints.** Embedding model weights are normally fetched from Hugging Face on the first index build and cached locally thereafter. The standard feature package verifies a complete matching download against its release-pinned manifest and records the same v1 model-set identity as the offline companion; incomplete, altered, mixed, or incompatible caches remain unmanaged. In controlled or air-gapped deployments, download the feature package and its exact declared `wavefoundry-models-<set>.zip` asset into a standard distribution directory; upgrade verifies and materializes that set without a model download. Dependencies are installed via `uv` (or `pip` fallback) during `wf setup` and during framework upgrades. No service, no account, no telemetry.
+**Zero at runtime to Wavefoundry-controlled endpoints.** Embedding model weights are normally fetched from Hugging Face on the first index build and cached locally thereafter. The standard feature package verifies a complete matching download against its release-pinned manifest and records the same model-set identity as the offline companion; incomplete, altered, mixed, or incompatible caches remain unmanaged. In controlled or air-gapped deployments, download the feature package and its exact declared `wavefoundry-models-<set>.zip` asset into a standard distribution directory; upgrade verifies and materializes that set without a model download. Dependencies are installed via `uv` (or `pip` fallback) during `wf setup` and during framework upgrades. No service, no account, no telemetry.
 
 If a required model cannot download, first retry `wf setup` when network access is available. If that is not possible, manually download the exact `wavefoundry-models-<set>.zip` asset from the permanent [Model Assets release](https://github.com/coryhacking/wavefoundry/releases/tag/models) (or your approved internal distribution), leave it zipped, and put it in the target repository root, `~/`, `~/.wavefoundry/`, `~/.wavefoundry/dist/`, or `~/Downloads/`. Run `wf setup` again. Wavefoundry validates the model set, component hashes, and licenses before replacing the cache; an invalid archive leaves a verified cache unchanged.
 
@@ -244,12 +252,12 @@ Agent: Implementation complete. Tests pass. Review lanes:
 
 Agent: wf_close_wave returned an error.
        Diagnostic: operator_signoff_missing
-       Recovery: operator must record `operator-signoff: approved`
-       in ## Review Evidence on wave.md before close can succeed.
+       Recovery: closure needs your explicit approval; once you give it,
+       I record the operator-signoff event in the wave's review ledger.
 
 > approved, go ahead and close
 
-Agent: Recorded operator-signoff. Running wf_close_wave again…
+Agent: Recorded operator-signoff in the review ledger. Running wf_close_wave again…
        Wave closed. 1 change implemented. Session handoff updated.
 ```
 
@@ -292,13 +300,41 @@ A *change doc* is the structured planning artifact for one unit of work: Rationa
 
 Two kinds: **computational sensors** (linters, validators, gate scripts that block when checks fail) and **inferential sensor lanes** (LLM-based code-review, architecture-review, security-review, qa-review, etc., recorded as structured evidence on the wave). Secrets detection is a built-in computational sensor — it scans for hardcoded credentials on every wave and blocks close until every finding is classified.
 
-**Closest analogue:** CI pipelines combined with PR review assignments. **Key difference:** sensors record their findings as structured evidence on the wave doc itself, and `wf_close_wave` blocks until required-lane signoffs are present.
+**Closest analogue:** CI pipelines combined with PR review assignments. **Key difference:** sensors record their findings as typed events in the wave's append-only review ledger, and `wf_close_wave` blocks until required-lane signoffs are present and current.
+
+### Review ledger
+
+Every wave carries an append-only `events.jsonl` — the sole authority for review state. Lane approvals, council verdicts, findings, repairs, and operator signoff are typed records carrying actor, phase, evidence, and integrity checks; the wave record renders a projection of it. A readiness approval binds to a *receipt* — a digest of the exact plan text that was reviewed — so editing the contract after approval lapses the approval instead of silently keeping it.
+
+**Closest analogue:** a signed audit log. **Key difference:** the gates read the ledger, not the prose. `wf_close_wave` verifies signoffs structurally, and a stale or missing record blocks close.
 
 ### MCP server
 
 A local MCP server (`wavefoundry`) exposes tools that operate on your repository's own files. It runs alongside your agent's host. No service, no account, no telemetry.
 
 **Closest analogue:** a CLI you'd invoke yourself with structured I/O. **Key difference:** the agent calls the tools directly during conversation, so the lifecycle gates fire mid-conversation rather than only when you remember to run a check.
+
+---
+
+## How the code intelligence fits together
+
+One question, three index layers — each covers the blind spots of the other two:
+
+- **Semantic (vector) index** — code and docs chunks embedded locally and searched by meaning. This answers *intent* questions — "where do we validate uploads?" — when you don't know what anything is called.
+- **Lexical (FTS5/BM25) index** — the same chunk corpus in SQLite full-text form, with a tokenizer that keeps `snake_case` identifiers whole. This answers *exact-token* questions — a compound identifier, an error string, a rare constant — which is precisely where embedding search is weakest.
+- **Code graph** — extracted definitions, calls, imports, reads/writes, and inheritance edges, with community clustering. This answers *structural* questions — who calls this, what breaks if it changes, what path connects these two symbols — deterministic facts that no relevance ranking can produce.
+
+`code_ask` composes them: vector candidates from the code and docs indexes fuse with BM25 candidates, a local cross-encoder reranks everything on one scale, a second hop expands symbols found in the top results, and the answer comes back as ranked citations — with per-citation freshness signals and a separate section of structural graph neighbors. The tool does mechanical retrieval routing, not LLM synthesis; your agent synthesizes from the citations, so every claim traces to a file and line.
+
+The layers also degrade independently instead of failing together. The exact-navigation tools (`code_read`, `code_keyword`, `code_pattern`, `code_outline`, `code_constants`, `code_list_files`) read live files and need no index at all. `code_definition` and `code_references` are structural and merely get faster when the graph is present. Semantic search degrades to BM25 lexical ranking when the embedding model is unavailable, and every degraded mode is named in the response rather than silently guessed around. Agents are taught to reach for the narrowest tool that fits — a grep-shaped question never pays for a vector search, and an intent question never devolves into grep-thrashing.
+
+## Measured token savings
+
+Retrieval quality has a measurable payoff — context the agent did not have to load — and Wavefoundry measures it rather than asserting it.
+
+Every retrieval tool response carries a `context_avoided` field, and each wave accumulates a **closed ledger**: for every distinct file whose content a response conveys, the ledger credits the whole-file size the agent would otherwise have read, then subtracts what the call actually cost (request plus response). Sizes convert to tokens by one deterministic rule (`ceil(UTF-8 bytes / 4)`). Each file credits **once** per wave phase no matter how many calls return it; listing tools credit only what a response conveys or enumerates as live — closed history never credits; and a net-negative phase floors at zero rather than borrowing against another. The result surfaces as `estimated_tokens_saved` per wave (`wf_list_waves`, `wf_current_wave`) and as a rendered block on the wave record.
+
+The number is designed to be a defensible under-count, not a marketing figure. Counterfactual claims are quarantined: "a surfaced memory prevented a re-exploration" is a separate, labeled estimate that never sums into the measured figure, and the only sanctioned counterfactual channel into it is a matched-pair baseline evaluation (`wf_context_efficiency_eval`, minimum five qualifying pairs) that attaches the *most conservative* residual across the pairs. Full contract: [`docs/references/context-efficiency.md`](docs/references/context-efficiency.md).
 
 ---
 
@@ -358,7 +394,7 @@ All planning artifacts (change docs, wave records) are Markdown in your `docs/` 
 
 ### Security 
 
-Local-only operation. No network calls at runtime to Wavefoundry-controlled endpoints. No service, no account, no telemetry. Embedding model weights fetched from Hugging Face on first index build, cached locally. Dependencies installed via `uv` with a supply-chain age guard during install and upgrade. Audited file-write surface — Wavefoundry never edits files outside the paths shown in [What got installed](#what-got-installed).
+Local-only operation. No network calls at runtime to Wavefoundry-controlled endpoints. No service, no account, no telemetry. Embedding model weights fetched from Hugging Face on first index build, cached locally. Dependencies installed via `uv` with a supply-chain age guard during install and upgrade. Audited file-write surface — Wavefoundry never edits files outside the paths shown in [What is installed](#what-is-installed).
 
 Credential scanning is built in: the framework checks every project file against a community Gitleaks ruleset and blocks wave closure until findings are classified. Your `docs/scan-rules.toml` extends or overrides the framework defaults for project-specific needs.
 
@@ -367,7 +403,7 @@ Credential scanning is built in: the framework checks every project file against
 ## Upgrading
 
 ```
-Upgrade wave framework
+Upgrade Wavefoundry
 ```
 
 For an ordinary protocol-2 upgrade, the agent detects framework drift, reconciles prompts and hook

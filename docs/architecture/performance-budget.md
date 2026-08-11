@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-21
+Last verified: 2026-08-11
 
 Budgets cite recorded measurements (1sc7c hook-cost design pass, 1sbfk/1seiz
 live probes, 1sed7 structural budgets) — no unquantified claims. Reference
@@ -16,16 +16,21 @@ These documented facts are bound to their code constants by the
 docs-constants lint (wave 1seau) — if this table drifts from the code, the
 docs gate fails:
 
-- docs embedding model `Snowflake/snowflake-arctic-embed-xs`
-- code embedding model `BAAI/bge-small-en-v1.5`
+- docs embedding model `Snowflake/snowflake-arctic-embed-s`
+- code embedding model `Snowflake/snowflake-arctic-embed-s`
 - reranker model `cross-encoder/ms-marco-MiniLM-L-6-v2`
 - chunker version `32`
+
+Both embedding selectors currently reuse one Arctic S instance. Embedding
+inference is FP16 on supported GPU providers and INT8 on CPU at static forward
+batch 32. The L6 reranker remains FP16 GPU / INT8 CPU at its independent batch
+40.
 
 ## Measured Budgets
 
 | Operation | Budget | Measured basis |
 | --------- | ------ | -------------- |
-| Full semantic rebuild (docs + code) | minutes-class (~2–10 min by corpus/hardware) | this repo: docs full rebuild ~100 s; code rebuild ~4 min incl. graph merge (2026-07-20 live builds) |
+| Full semantic rebuild (docs + code) | minutes-class (~2–10 min by corpus/hardware) | this repo: docs full rebuild ~100 s; code rebuild ~4 min incl. graph merge (2026-07-20 live builds, prior model set). Arctic S encodes at a wave-measured 350.51 chunks/s versus 581.73 for the prior XS default (same-machine FP16 MPS, batch 32), a ~1.63x indexing slowdown accepted inside the 2.0x ceiling recorded in `docs/references/model-selection.md`. The model-set v1-to-v2 upgrade triggers a one-time full re-embed of both semantic layers. |
 | Incremental post-edit hook build | zero-change ~1.2 s; docs edit ~4 s; code edit ~12 s | 1sc7c hook-cost measurements |
 | Heal pass (false-stale repair) | tens of seconds on a large corpus | 38 s / 1,330 files (recorded) |
 | FTS derived rebuild (`content='fts'`) | seconds-class | ~3.4 s (recorded) |

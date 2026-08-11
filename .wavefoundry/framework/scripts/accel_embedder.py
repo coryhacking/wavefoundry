@@ -2,8 +2,8 @@
 
 Why this exists: fastembed feeds onnxruntime a DYNAMIC-shape graph, which CoreML cannot
 accelerate — it falls back to CPU (the GPU sits idle). Pinning the model's input dims to a
-fixed ``(64, 512)`` lets CoreML compile an FP16 MLProgram that runs on the GPU. Benchmarked
-~24x over INT8/CPU at cos = 1.0 vs the CPU path (M2 Max, arctic-embed-xs).
+fixed ``(32, 512)`` lets CoreML compile an FP16 MLProgram that runs on the GPU. Model-set v2
+uses Arctic S for both semantic layers and reuses one instance when both selectors participate.
 
 ADR `1p92d` (wave 1p935): a GPU machine runs this module's **FP16** clean export; a CPU-bound
 machine runs its **INT8** clean export — both static-shape, both through this module — instead of
@@ -23,9 +23,11 @@ import sys
 from pathlib import Path
 from typing import Iterable, Iterator, Optional
 
-STATIC_BATCH = 64
+import subprocess_util
+
+STATIC_BATCH = 32
 # Wave 1p66v: the reranker's static batch is decoupled from the embedder's. The embedder
-# bulk-processes many chunks at index time (64 amortizes well); the cross-encoder reranker
+# bulk-processes many chunks at index time; the cross-encoder reranker
 # scores a query-time pool that maxes at the code_ask candidate ceiling (AGENT_CANDIDATE_MAX
 # = 40). Benchmarked {24,32,40} × pool {24,32,40} on M2 Max CoreML — 40 wins decisively
 # (single pass at ~107ms for ANY pool ≤ 40), because the moment a smaller batch is exceeded
@@ -56,36 +58,110 @@ _COREML_CACHE = _HOME / "cache" / "coreml"
 # fastembed downloads some models under a different repo dir than the public model ID
 # (mirrors setup_index._MODEL_CACHE_DIR_ALIASES — keep in sync).
 _MODEL_CACHE_DIR_ALIASES: dict[str, tuple[str, ...]] = {
-    "BAAI/bge-small-en-v1.5": ("qdrant/bge-small-en-v1.5-onnx-q",),
-    "BAAI/bge-base-en-v1.5": ("qdrant/bge-base-en-v1.5-onnx-q",),
-    "Snowflake/snowflake-arctic-embed-xs": ("snowflake/snowflake-arctic-embed-xs",),
+    "Snowflake/snowflake-arctic-embed-s": ("snowflake/snowflake-arctic-embed-s",),
 }
 
 # Some models' fastembed-resident ONNX is CoreML-HOSTILE: it's a heavily-optimized graph with
 # ``com.microsoft`` contrib fused ops (Attention / SkipLayerNormalization / FastGelu) that the
-# CoreML EP cannot run, so it shatters into dozens of CPU partitions (bge-small: 42/92 nodes, 38
-# partitions → CPU-bound). A clean transformers.js export (decomposed standard ops) runs as a
+# CoreML EP cannot run, so it shatters into dozens of CPU partitions. A clean transformers.js
+# export (decomposed standard ops) runs as a
 # single CoreML partition on the GPU. Maps model → (hf_repo, onnx_file, tokenizer_file). The
 # clean export's vectors are cos = 1.0 vs fastembed (same weights, CLS pooling).
 CLEAN_ONNX_SOURCES: dict[str, tuple[str, str, str]] = {
-    "BAAI/bge-small-en-v1.5": ("Xenova/bge-small-en-v1.5", "onnx/model_fp16.onnx", "tokenizer.json"),
-    # 1p935: arctic's OWN export is already clean (no contrib ops, unlike bge-small's fastembed
-    # graph) — see _resolve_model_files's "arctic's resident graph is already clean" note — so this
-    # entry points at the base Snowflake repo rather than a third-party re-export. The base repo
-    # publishes both model_fp16.onnx (this entry's GPU source) and model_int8.onnx (the CPU source,
-    # EMBEDDER_CPU_ONNX_FILE below) — one entry serves both precision paths.
-    "Snowflake/snowflake-arctic-embed-xs": ("Snowflake/snowflake-arctic-embed-xs", "onnx/model_fp16.onnx", "tokenizer.json"),
+    # Snowflake's own clean export publishes both FP16 GPU and INT8 CPU graphs.
+    "Snowflake/snowflake-arctic-embed-s": ("Snowflake/snowflake-arctic-embed-s", "onnx/model_fp16.onnx", "tokenizer.json"),
     # 1p52p: the cross-encoder reranker (GPU FP16 / CPU INT8 — see _resolve_reranker_cpu_files). The active reranker is
     # ``ms-marco-MiniLM-L-6-v2`` (6-layer, 22M) via its Xenova FP16 export — chosen over the SOTA-but-
     # heavy ``bge-reranker-base`` (278M) after a head-to-head: ms-marco-L6 won known-answer recall
     # (mean rank 1.07 vs 1.67), runs ~4-5x faster (~380ms vs ~1650ms/query), uses ~8x less memory
     # (0.77 GB vs 6.3 GB RSS), and — unlike bge — the CoreML ``ModelCacheDirectory`` actually
-    # accelerates restarts (3.1s warm vs 17s cold; bge stayed ~26s because CoreML re-specializes its
-    # 2 GB MLProgram every session regardless of cache). bge's entry is kept resolvable for back-compat.
+    # accelerates restarts (3.1s warm vs 17s cold).
     "cross-encoder/ms-marco-MiniLM-L-6-v2": ("Xenova/ms-marco-MiniLM-L-6-v2", "onnx/model_fp16.onnx", "tokenizer.json"),
-    "BAAI/bge-reranker-base": ("Xenova/bge-reranker-base", "onnx/model_fp16.onnx", "tokenizer.json"),
 }
 _CLEAN_ONNX_CACHE = _HOME / "cache" / "onnx-src"
+_COREML_STATIC_PROBE_CHILD_ENV = "WAVEFOUNDRY_COREML_STATIC_PROBE_CHILD"
+_coreml_static_probe_cache: dict[tuple[str, str], bool] = {}
+
+
+def _coreml_static_probe_passes(model_name: str, workload: str) -> bool:
+    """Crash-isolate the production static CoreML graph before in-process use.
+
+    Python exception handling cannot catch an ONNX Runtime/CoreML SIGSEGV. The
+    child executes the exact static embedder or reranker graph, repeats a full
+    batch, and checks CPU parity/shape. An abnormal exit or timeout therefore
+    downgrades the parent safely instead of terminating the MCP/index process.
+    """
+    if os.environ.get(_COREML_STATIC_PROBE_CHILD_ENV) == "1":
+        return True
+    key = (workload, model_name)
+    if key in _coreml_static_probe_cache:
+        return _coreml_static_probe_cache[key]
+    if workload not in {"embedder", "reranker"}:
+        return False
+    probe_code = r"""
+import math
+import sys
+import numpy as np
+import accel_embedder as ae
+
+workload, model = sys.argv[1], sys.argv[2]
+if workload == "embedder":
+    text = "Wavefoundry static CoreML safety and parity probe."
+    gpu = ae.StaticShapeEmbedder(model, [ae.COREML_PROVIDER, "CPUExecutionProvider"])
+    first = list(gpu.embed([text] * ae.STATIC_BATCH))
+    second = list(gpu.embed([text] * ae.STATIC_BATCH))
+    cpu = ae.StaticShapeEmbedder(model, ["CPUExecutionProvider"])
+    cpu_vector = list(cpu.embed([text]))[0]
+    if len(first) != ae.STATIC_BATCH or len(second) != ae.STATIC_BATCH:
+        raise RuntimeError("static embedder batch shape mismatch")
+    if any(np.asarray(vector).shape != (384,) for vector in first + second):
+        raise RuntimeError("Arctic S output dimension mismatch")
+    cosine = float(np.dot(first[0], cpu_vector) / (
+        np.linalg.norm(first[0]) * np.linalg.norm(cpu_vector)
+    ))
+    if not math.isfinite(cosine) or cosine < 0.95:
+        raise RuntimeError("CoreML and CPU embedding parity failed")
+    if not gpu.offloads_to_gpu():
+        raise RuntimeError("static CoreML graph did not offload")
+else:
+    passages = ["Wavefoundry reranker safety probe."] * ae.RERANK_STATIC_BATCH
+    gpu = ae.StaticShapeReranker(model, [ae.COREML_PROVIDER, "CPUExecutionProvider"])
+    first = gpu.rerank("provider safety", passages)
+    second = gpu.rerank("provider safety", passages)
+    cpu = ae.StaticShapeReranker(model, ["CPUExecutionProvider"])
+    cpu_scores = cpu.rerank("provider safety", passages)
+    if not (len(first) == len(second) == len(cpu_scores) == ae.RERANK_STATIC_BATCH):
+        raise RuntimeError("static reranker batch shape mismatch")
+    if not all(math.isfinite(value) for value in first + second + cpu_scores):
+        raise RuntimeError("static reranker produced non-finite scores")
+    if not gpu.offloads_to_gpu():
+        raise RuntimeError("static CoreML reranker did not offload")
+"""
+    child_env = os.environ.copy()
+    child_env[_COREML_STATIC_PROBE_CHILD_ENV] = "1"
+    try:
+        completed = subprocess_util.isolated_run(
+            [subprocess_util.windowless_pythonw() or sys.executable,
+             "-c", probe_code, workload, model_name],
+            cwd=str(Path(__file__).resolve().parent),
+            env=child_env,
+            capture_output=True,
+            text=True,
+            timeout=300,
+            check=False,
+        )
+        passed = completed.returncode == 0
+    except Exception:
+        passed = False
+    _coreml_static_probe_cache[key] = passed
+    if not passed:
+        print(
+            f"[wavefoundry][GPU] WARNING: isolated CoreML {workload} probe failed; "
+            "using the safe CPU/fallback path for this process.",
+            file=sys.stderr,
+            flush=True,
+        )
+    return passed
 
 
 def _fastembed_cache_dir() -> Path:
@@ -278,7 +354,7 @@ def build_static_onnx(
 
     Sets the dims directly on the protobuf rather than via
     ``onnx.tools.update_model_dims.update_inputs_outputs_dims`` — the latter runs a strict
-    ``check_model`` that rejects some fastembed-optimized graphs (e.g. bge-small's
+    ``check_model`` that rejects some fastembed-optimized graphs whose
     ``LayerNormalization`` declared at opset 11). ORT re-infers the internal shapes from the
     fixed inputs. Requires ``onnx``.
 
@@ -318,7 +394,7 @@ class StaticShapeEmbedder:
     (wave 1p935, mirrors ``StaticShapeReranker``):
 
     - **GPU** (CoreML/CUDA/ROCm/DirectML): the **FP16** clean export (``CLEAN_ONNX_SOURCES``,
-      ``_resolve_model_files``) — ~24x over CPU at cos = 1.0 (M2 Max, arctic-embed-xs).
+      ``_resolve_model_files``).
     - **CPU** (no GPU available): the **INT8** export (``_resolve_embedder_cpu_files``) on
       ``CPUExecutionProvider`` — a gold-labeled NL→code eval showed INT8 = FP16 recall on the
       reranked retrieval path (0/30 regressions, ADR `1p92d`).
@@ -336,6 +412,14 @@ class StaticShapeEmbedder:
         from tokenizers import Tokenizer
 
         gpu = next((p for p in providers if p in GPU_PROVIDERS), None)
+        if gpu == COREML_PROVIDER and not _coreml_static_probe_passes(
+            model_name, "embedder"
+        ):
+            # Consult the crash-isolated child before resolving/building the graph or creating
+            # any CoreML objects in this long-lived process.  In particular, a cached rejection
+            # must never reconstruct the parent session: CoreML can fail natively during session
+            # construction as well as prediction, beyond Python exception handling.
+            raise RuntimeError("isolated CoreML static embedder probe failed")
         so = ort.SessionOptions()
         so.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
 
@@ -410,8 +494,8 @@ class StaticShapeEmbedder:
     def offloads_to_gpu(self, threshold: float = 1.5) -> bool:
         """Return True if a full batch actually runs on the GPU (not CPU fallback).
 
-        Not every model's graph is GPU-friendly: a fastembed-*optimized* graph (e.g. bge-small's
-        fused ``LayerNormalization``) shatters into many CoreML/CPU partitions and runs CPU-bound,
+        Not every model's graph is GPU-friendly: a fastembed-*optimized* graph with fused
+        operators can shatter into many CoreML/CPU partitions and run CPU-bound,
         which is no faster than fastembed. We measure the CPU-time/wall-time ratio of a warm batch —
         a GPU-offloaded run leaves the CPU near-idle (ratio « 1); a CPU-bound run pegs cores (ratio » 1).
         The first call also pays the one-time CoreML compile (warmup).
@@ -566,6 +650,12 @@ class StaticShapeReranker:
         from tokenizers import Tokenizer
 
         gpu = next((p for p in providers if p in GPU_PROVIDERS), None)
+        if gpu == COREML_PROVIDER and not _coreml_static_probe_passes(
+            model_name, "reranker"
+        ):
+            # Keep the unsafe native provider entirely out of the parent after an isolated
+            # failure, including failures that happen while constructing InferenceSession.
+            raise RuntimeError("isolated CoreML static reranker probe failed")
         so = ort.SessionOptions()
         so.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
 

@@ -59,7 +59,7 @@ class BuildPackTests(unittest.TestCase):
         with zipfile.ZipFile(path) as archive:
             payload = json.loads(archive.read(manifest))
             package_manifest = archive.read(".wavefoundry/framework/MANIFEST").decode("utf-8")
-        self.assertEqual(payload["model_set_version"], "1")
+        self.assertEqual(payload["model_set_version"], "2")
         self.assertIn("model-set-verification-manifest.json", package_manifest)
 
     def test_build_suffix_uses_rightmost_four_characters(self):
@@ -1395,9 +1395,9 @@ class ReleaseOrchestrationOrderingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = self._repo_with_version()
             output = Path(tmp)
-            feature = output / "wavefoundry-1.6.0.ptest.zip"
+            feature = output / "wavefoundry-1.16.0.ptest.zip"
             feature.write_bytes(b"feature")
-            model = output / "wavefoundry-models-1.zip"
+            model = output / "wavefoundry-models-2.zip"
             model.write_bytes(b"models")
             internal = {
                 "bridge": output / "internal-bridge.zip",
@@ -1407,7 +1407,7 @@ class ReleaseOrchestrationOrderingTests(unittest.TestCase):
             argv = [
                 "build_pack.py",
                 "--version",
-                "1.6.0",
+                "1.16.0",
                 "--output",
                 str(output),
                 "--with-models",
@@ -1452,7 +1452,7 @@ class ReleaseOrchestrationOrderingTests(unittest.TestCase):
             bundle_build.assert_called_once_with(
                 feature,
                 internal,
-                version="1.6.0",
+                version="1.16.0",
                 build_prefix="ptest",
             )
             model_build.assert_called_once_with(
@@ -1460,7 +1460,7 @@ class ReleaseOrchestrationOrderingTests(unittest.TestCase):
             )
             orchestration.assert_called_once_with(
                 root,
-                "1.6.0",
+                "1.16.0",
                 feature,
                 "assembled notes",
                 dry_run=True,
@@ -1604,86 +1604,18 @@ class ReleaseOrchestrationOrderingTests(unittest.TestCase):
             build.assert_not_called()
             self.assertEqual(stale.read_bytes(), b"stale")
 
-    def test_release_main_real_build_leaves_only_feature_asset_without_with_models(self):
-        import tempfile
-
-        with tempfile.TemporaryDirectory() as tmp:
-            root = self._repo_with_version()
-            output = Path(tmp) / "dist"
-            output.mkdir()
-            older = output / "wavefoundry-1.5.0.older.zip"
-            older.write_bytes(b"older")
-            legacy_model = output / "wavefoundry-models-1.15.0.legacy.zip"
-            legacy_model.write_bytes(b"legacy-models")
-            framework = root / build_pack.FRAMEWORK_REL
-            (framework / "scripts").mkdir(parents=True, exist_ok=True)
-            (framework / "scripts" / "placeholder.py").write_text(
-                "# packaged\n", encoding="utf-8"
-            )
-            real_build_zip = build_pack.build_zip
-
-            def isolated_build_zip(out_dir, version, build_prefix, **_kwargs):
-                return real_build_zip(
-                    out_dir,
-                    version,
-                    build_prefix,
-                    framework_dir=framework,
-                    update_manifest=False,
-                    inject_install_templates=False,
-                )
-
-            argv = [
-                "build_pack.py",
-                "--version",
-                "1.6.0",
-                "--output",
-                str(output),
-                "--release-dry-run",
-            ]
-            with patch.object(sys, "argv", argv), patch.object(
-                build_pack, "_reexec_with_venv_if_needed"
-            ), patch.object(
-                build_pack, "find_repo_root", return_value=root
-            ), patch.object(
-                build_pack, "_current_build_suffix", return_value="ptest"
-            ), patch.object(
-                build_pack, "_check_git_working_tree_clean"
-            ), patch.object(
-                build_pack, "_check_on_main_branch"
-            ), patch.object(
-                build_pack, "_check_tag_does_not_exist"
-            ), patch.object(
-                build_pack, "_check_gh_authenticated"
-            ), patch.object(
-                build_pack, "_extract_changelog_section", return_value="release notes"
-            ), patch.object(
-                build_pack, "_assemble_release_notes", return_value="assembled notes"
-            ), patch.object(
-                build_pack, "check_docs_gate"
-            ), patch.object(
-                build_pack, "_warn_on_same_semver_collision"
-            ), patch.object(
-                build_pack, "build_zip", side_effect=isolated_build_zip
-            ), patch.object(
-                build_pack, "_run_release_orchestration"
-            ):
+    def test_release_main_rejects_feature_only_release_before_build(self):
+        root = self._repo_with_version()
+        argv = ["build_pack.py", "--version", "1.6.0", "--release-dry-run"]
+        with patch.object(sys, "argv", argv), patch.object(
+            build_pack, "_reexec_with_venv_if_needed"
+        ), patch.object(
+            build_pack, "find_repo_root", return_value=root
+        ), patch.object(build_pack, "build_zip") as build:
+            with self.assertRaises(SystemExit) as raised:
                 build_pack.main()
-
-            packages = sorted(
-                path.name
-                for path in output.iterdir()
-                if path.name.startswith("wavefoundry-")
-                and path.suffix in {".zip", ".pyz"}
-            )
-            self.assertEqual(
-                packages,
-                [
-                    "wavefoundry-1.5.0.older.zip",
-                    "wavefoundry-1.6.0.ptest.zip",
-                    "wavefoundry-models-1.15.0.legacy.zip",
-                ],
-            )
-            self.assertTrue(zipfile.is_zipfile(output / packages[1]))
+        self.assertEqual(raised.exception.code, 1)
+        build.assert_not_called()
 
     def test_commit_message_carries_the_version_stamp(self):
         root = self._repo_with_version("1.6.0+ptest")

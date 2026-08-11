@@ -232,7 +232,7 @@ def _write_dashboard_lance_index(root: Path, *, docs_chunks: list[dict] | None =
     index_dir.mkdir(parents=True, exist_ok=True)
     meta: dict[str, object] = {
         "built_at": "2026-05-16T00:00:00Z",
-        "model_versions": {"docs": "BAAI/bge-base-en-v1.5", "code": "BAAI/bge-base-en-v1.5"},
+        "model_versions": {"docs": "Snowflake/snowflake-arctic-embed-s", "code": "Snowflake/snowflake-arctic-embed-s"},
         "content": [],
         "file_meta": {},
     }
@@ -1844,6 +1844,12 @@ class DashboardHttpTests(_HandlerHarnessMixin, unittest.TestCase):
         self.assertIn('return { label: "Index", value, note, state, onClick: onIndexClick, variant: "index" };', js)
         self.assertIn('h("h2", { className: "agent-dialog-title" }, "Index")', js)
         self.assertIn('h(GraphIndexSection, { label: "Graph", idx: graphProj })', js)
+        self.assertIn('function _visibleModelId(value) {', js)
+        self.assertIn('const provenanceAt = full.indexOf("@");', js)
+        self.assertIn('return provenanceAt > 0 ? full.slice(0, provenanceAt) : full;', js)
+        self.assertIn('title: single }, _visibleModelId(single)', js)
+        self.assertIn('title: dm }, `docs: ${_visibleModelId(dm)}`', js)
+        self.assertIn('title: cm }, `code: ${_visibleModelId(cm)}`', js)
         self.assertNotIn('h(GraphIndexSection, { label: "Framework Graph"', js)
         self.assertNotIn('const schema = idx.schema_version ? `schema ${idx.schema_version}` : null;', js)
         self.assertNotIn('idx.graph_path ? h("span", { className: "index-meta-pill index-meta-pill--model" }, idx.graph_path) : null,', js)

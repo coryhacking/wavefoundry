@@ -16,9 +16,8 @@ Phases (run in order when no phase flag given):
     Phase 3 — Docs gate: docs-gardener && docs-lint
 
 Separate phase (called after agent editing pass):
-    Phase 4 — Index update: setup_index.py (docs, incremental — auto-escalates to
-              full rebuild only when chunker/model version changed) then
-              setup_index.py --background-code (code, background)
+    Phase 4 — Index update: one blocking setup_index.py pass publishes a complete
+              docs+code semantic epoch, then the graph index is rebuilt.
 
 Phase 5 — Cleanup (called after phase 4, or via --cleanup):
     Remove upgrade lock; print operator summary.
@@ -36,6 +35,7 @@ import datetime
 import hashlib
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -76,6 +76,64 @@ UPGRADE_LOG_FILENAME = "upgrade.log"
 # parses the line back into ``data['summary']`` (fail-safe: an absent/malformed line falls back to the
 # raw ``output``). Keep this string stable — it is the parse contract between the two modules.
 WAVE_UPGRADE_SUMMARY_SENTINEL = "WAVE_UPGRADE_SUMMARY_JSON:"
+
+_RETIRED_MODEL_CLEANUP_KEYS = (
+    "retired_model_cleanup_status",
+    "retired_model_cleanup_removed",
+    "retired_model_cleanup_absent",
+    "retired_model_cleanup_unowned",
+    "retired_model_cleanup_failed",
+)
+_RETIRED_MODEL_ALLOWLIST = {
+    "fastembed": (
+        "models--BAAI--bge-small-en-v1.5",
+        "models--qdrant--bge-small-en-v1.5-onnx-q",
+        "models--BAAI--bge-base-en-v1.5",
+        "models--qdrant--bge-base-en-v1.5-onnx-q",
+        "models--BAAI--bge-reranker-base",
+    ),
+    "clean-onnx": (
+        "models--Xenova--bge-small-en-v1.5",
+        "models--Xenova--bge-reranker-base",
+    ),
+    "static-onnx": (
+        "BAAI__bge-small-en-v1.5",
+        "BAAI__bge-base-en-v1.5",
+        "BAAI__bge-reranker-base",
+    ),
+    "coreml": (
+        "BAAI__bge-small-en-v1.5",
+        "BAAI__bge-base-en-v1.5",
+        "BAAI__bge-reranker-base",
+    ),
+}
+_RETIRED_V1_MODEL_SET_VERSION = "1"
+_RETIRED_V1_FINGERPRINT = "wf-model-set-1-20260803"
+
+
+def _retired_model_cleanup_result(status: str = "not_applicable") -> dict[str, Any]:
+    return {
+        "retired_model_cleanup_status": status,
+        "retired_model_cleanup_removed": [],
+        "retired_model_cleanup_absent": [],
+        "retired_model_cleanup_unowned": [],
+        "retired_model_cleanup_failed": [],
+    }
+
+
+def _retired_model_cleanup_from_mapping(value: object) -> dict[str, Any]:
+    """Project the five public fields without leaking paths or exceptions."""
+    result = _retired_model_cleanup_result()
+    if not isinstance(value, dict):
+        return result
+    status = value.get("retired_model_cleanup_status")
+    if status in {"not_applicable", "dry_run", "complete", "failed"}:
+        result["retired_model_cleanup_status"] = status
+    for key in _RETIRED_MODEL_CLEANUP_KEYS[1:]:
+        items = value.get(key)
+        if isinstance(items, list):
+            result[key] = sorted({str(item) for item in items})
+    return result
 
 # Wave 1u44o: the delegated primary-phase summary contract (old-calls-new). These pins are a
 # TRIPWIRE against SILENT drift, not an unpassable boundary: additive evolution needs no ceremony;
@@ -1360,6 +1418,18 @@ def phase_dry_run(root: Path) -> int:
 
     _log("\n── End Dry Run ──────────────────────────────────────────────────────────")
     _log("No changes were made. Run without --dry-run to execute the upgrade.")
+    dry_summary = _build_upgrade_summary(
+        from_version=from_version,
+        to_version=to_version,
+        zip_path=zip_path,
+        pruned_count=0,
+        ran_index_rebuild=False,
+        failed_phase=None,
+        reconciliation=[],
+        retired_model_cleanup=_retired_model_cleanup_result("dry_run"),
+    )
+    dry_summary[SUMMARY_SCHEMA_KEY] = SUMMARY_SCHEMA_VERSION
+    _emit_summary_line(dry_summary)
     return 0
 
 
@@ -2184,7 +2254,7 @@ def phase_index_update(root: Path) -> bool:
     Auto-escalates to a full rebuild when chunker or embedding model version
     changed.  Use when source files have been edited but the format is stable.
 
-    Returns True when the blocking docs-layer publication was observed
+    Returns True when the blocking all-layer publication was observed
     successful, False when the child exited non-zero (1u44n: the outcome is
     OBSERVED, not assumed; callers derive the summary field from it).
     """
@@ -2194,7 +2264,7 @@ def phase_index_update(root: Path) -> bool:
         _log("  setup_index.py not found — skipping index update.")
         return True
 
-    _log("  Phase 4a: updating docs index (blocking) ...")
+    _log("  Phase 4a: updating docs and code index layers (blocking) ...")
     memory_run_id = os.environ.get(
         "WAVEFOUNDRY_MEMORY_BACKFILL_RUN_ID", ""
     ).strip()
@@ -2217,7 +2287,7 @@ def phase_index_update(root: Path) -> bool:
         env=child_env,
     )
     if result.returncode != 0:
-        message = f"Docs index update exited {result.returncode}"
+        message = f"Semantic index update exited {result.returncode}"
         if memory_run_id:
             raise RuntimeError(
                 message
@@ -2270,38 +2340,10 @@ def phase_index_update(root: Path) -> bool:
         # `index_update` field.
         _log(f"  ⚠  Graph index update exited {graph_result.returncode} — continuing (first-query rebuild remains the safety net).")
 
-    if memory_run_id:
-        _log(
-            "  Phase 4c: skipped — the receipt-owned foreground pass already "
-            "converged both semantic layers."
-        )
-        return published
-
-    _log("  Phase 4c: launching code index update in background ...")
-    background_cmd = [
-        _preferred_python(), str(setup_script),
-        "--root", str(root),
-        "--background-code",
-    ]
-    # H1 (Phase 4b reliability): log the launcher's output (docs build + any startup crash) to a
-    # dedicated file instead of DEVNULL — the silent-failure case the JS/TS team hit had no
-    # diagnosable trace. The detached code build (process B) logs separately to project-background-build.log.
-    _bg_log = root / ".wavefoundry" / "logs" / "project-upgrade-bgcode.log"
-    _bg_log.parent.mkdir(parents=True, exist_ok=True)
-    _bg_log_file = open(_bg_log, "w", encoding="utf-8")  # noqa: SIM115
-    # Wave 1p8gu: route through the shared isolated Popen — keeps the log-file stdout/stderr while it
-    # supplies detached stdin + the detached/no-window Windows creationflags (no flashing console).
-    try:
-        subprocess_util.isolated_popen(
-            background_cmd,
-        stdout=_bg_log_file,
-        stderr=_bg_log_file,
-        cwd=str(root),
-        env=followup_env,  # 1p8gv: UTF-8 stdio in the child (cp1252 safety); no publisher grant (1u44n)
-        )
-    finally:
-        _bg_log_file.close()
-    _log(f"  Code index update running in background (launcher log: {_bg_log}).")
+    _log(
+        "  Phase 4c: skipped — the foreground setup pass already published "
+        "one complete docs+code semantic epoch."
+    )
     return published
 
 
@@ -2353,7 +2395,7 @@ def phase_index_rebuild(root: Path) -> bool:
     Use when a chunker version bump, embedding model change, or index corruption
     requires starting fresh.  Prefer phase_index_update for normal upgrades.
 
-    Returns True when the blocking docs-layer publication was observed
+    Returns True when the blocking all-layer publication was observed
     successful, False when the child exited non-zero (1u44n).
     """
     _log("\n── Phase 4: Index rebuild (full) ──")
@@ -2371,7 +2413,7 @@ def phase_index_rebuild(root: Path) -> bool:
     if grant_token:
         blocking_env["WAVEFOUNDRY_UPGRADE_PUBLISHER_TOKEN"] = grant_token
     published = True
-    _log("  Phase 4a: rebuilding docs index (blocking) ...")
+    _log("  Phase 4a: rebuilding docs and code index layers (blocking) ...")
     result = subprocess_util.isolated_run(
         [_preferred_python(), str(setup_script), "--root", str(root), "--full"],
         cwd=str(root),
@@ -2382,7 +2424,7 @@ def phase_index_rebuild(root: Path) -> bool:
         # 1u44n: OBSERVED failure, not a silent warning (see phase_index_update).
         published = False
         _err(
-            f"Index publication FAILED: Docs index rebuild exited "
+            f"Index publication FAILED: Semantic index rebuild exited "
             f"{result.returncode}; the semantic index epoch is incomplete. "
             "Recover with index_build, then confirm with index_health."
         )
@@ -2401,33 +2443,400 @@ def phase_index_rebuild(root: Path) -> bool:
         # epoch; the first-query rebuild remains the safety net (warning only).
         _log(f"  ⚠  Graph index rebuild exited {graph_result.returncode} — continuing (first-query rebuild remains the safety net).")
 
-    _log("  Phase 4c: launching code index rebuild in background ...")
-    background_cmd = [
-        _preferred_python(), str(setup_script),
-        "--root", str(root),
-        "--background-code",
-        "--full",
-    ]
-    # H1 (Phase 4b reliability): log the launcher's output instead of DEVNULL (see phase_index_update).
-    _bg_log = root / ".wavefoundry" / "logs" / "project-upgrade-bgcode.log"
-    _bg_log.parent.mkdir(parents=True, exist_ok=True)
-    _bg_log_file = open(_bg_log, "w", encoding="utf-8")  # noqa: SIM115
-    # Wave 1p8gu: route through the shared isolated Popen (see phase_index_update).
-    try:
-        subprocess_util.isolated_popen(
-            background_cmd,
-            stdout=_bg_log_file,
-            stderr=_bg_log_file,
-            cwd=str(root),
-            env=rebuild_env,  # 1p8gv: UTF-8 stdio in the child (cp1252 safety); no publisher grant (1u44n)
-        )
-    finally:
-        _bg_log_file.close()
-    _log(f"  Code index rebuild running in background (launcher log: {_bg_log}).")
+    _log(
+        "  Phase 4c: skipped — the foreground setup pass already published "
+        "one complete docs+code semantic epoch."
+    )
     return published
 
 
 # ── Phase 5 — Cleanup & summary ───────────────────────────────────────────────
+
+def _cleanup_version_eligible(to_version: object) -> bool:
+    """Stdlib-only SemVer precedence check for the 1.16 cleanup boundary."""
+    if not isinstance(to_version, str):
+        return False
+    match = re.fullmatch(
+        r"v?(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
+        r"(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?"
+        r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?",
+        to_version,
+    )
+    if match is None:
+        return False
+    prerelease = match.group(4)
+    if prerelease is not None and any(
+        identifier.isdigit()
+        and len(identifier) > 1
+        and identifier.startswith("0")
+        for identifier in prerelease.split(".")
+    ):
+        return False
+    core = tuple(int(match.group(index)) for index in (1, 2, 3))
+    # Any prerelease of 1.16.0 sorts below the stable cleanup boundary.  A
+    # prerelease with a later core tuple (for example 1.16.1-rc.1) sorts above it.
+    return core > (1, 16, 0) or (core == (1, 16, 0) and prerelease is None)
+
+
+def _verified_active_model_authority(root: Path) -> tuple[str, str, str] | None:
+    """Return canonical (docs model, code model, fingerprint), or fail closed."""
+    del root  # Installed framework modules are authoritative in this fresh process.
+    try:
+        import indexer
+        import model_bundle
+
+        manifest = model_bundle.load_canonical_verification_manifest()
+        if tuple(int(part) for part in str(manifest["model_set_version"]).split(".")) < (2,):
+            return None
+        if model_bundle.local_model_set_status() != "current":
+            return None
+        active_directories = {
+            str(component.get("directory"))
+            for component in manifest.get("components", [])
+            if isinstance(component, dict)
+        }
+        if any(
+            component in active_directories
+            for components in _RETIRED_MODEL_ALLOWLIST.values()
+            for component in components
+        ):
+            return None
+        upstreams = {
+            str(component.get("upstream"))
+            for component in manifest.get("components", [])
+            if isinstance(component, dict)
+        }
+        docs_model = str(indexer.DOCS_MODEL)
+        code_model = str(indexer.CODE_MODEL)
+        fingerprint = str(manifest["embedding_compatibility_fingerprint"])
+        if (
+            docs_model not in upstreams
+            or code_model not in upstreams
+            or fingerprint != str(indexer.EMBEDDING_MODEL_SET_FINGERPRINT)
+        ):
+            return None
+        return docs_model, code_model, fingerprint
+    except (ImportError, KeyError, OSError, TypeError, ValueError, RuntimeError):
+        return None
+
+
+def _semantic_epoch_matches_active_models(
+    root: Path, authority: tuple[str, str, str]
+) -> bool:
+    """Validate one stable complete all-layer SQLite epoch."""
+    try:
+        import index_state_store
+
+        index_dir = root / ".wavefoundry" / "index"
+        token_before = index_state_store.build_epoch_token(index_dir)
+        summary = index_state_store.read_build_summary(index_dir)
+        token_after = index_state_store.build_epoch_token(index_dir)
+    except (ImportError, OSError, RuntimeError, ValueError):
+        return False
+    if token_before is None or token_before != token_after or not isinstance(summary, dict):
+        return False
+    if not {"docs", "code"}.issubset(set(summary.get("content") or [])):
+        return False
+    versions = summary.get("model_versions")
+    if not isinstance(versions, dict):
+        return False
+    docs_model, code_model, fingerprint = authority
+    for layer, expected_model in (("docs", docs_model), ("code", code_model)):
+        value = versions.get(layer)
+        if not isinstance(value, str):
+            return False
+        parts = value.rsplit("@", 2)
+        if (
+            len(parts) != 3
+            or parts[0] != expected_model
+            or parts[1] not in {"full", "int8"}
+            or parts[2] != fingerprint
+        ):
+            return False
+    return True
+
+
+def _file_sha256_no_follow(path: Path) -> str | None:
+    try:
+        if stat.S_ISLNK(path.lstat().st_mode) or not path.is_file():
+            return None
+        digest = hashlib.sha256()
+        with path.open("rb") as source:
+            for block in iter(lambda: source.read(1024 * 1024), b""):
+                digest.update(block)
+        return digest.hexdigest()
+    except OSError:
+        return None
+
+
+def _legacy_custom_component_owned(component: Path) -> bool:
+    """Verify the exact legacy marker domain plus referenced HF blobs."""
+    try:
+        if stat.S_ISLNK(component.lstat().st_mode) or not component.is_dir():
+            return False
+        marker_path = component / ".wavefoundry-model-bundle.json"
+        marker = json.loads(marker_path.read_text(encoding="utf-8"))
+    except (OSError, TypeError, ValueError):
+        return False
+    files = marker.get("files") if isinstance(marker, dict) else None
+    if (
+        marker.get("model_set_version") != _RETIRED_V1_MODEL_SET_VERSION
+        or marker.get("fingerprint") != _RETIRED_V1_FINGERPRINT
+        or not isinstance(files, dict)
+        or not files
+    ):
+        return False
+    expected_paths: set[str] = set()
+    referenced_blobs: set[str] = set()
+    for relative, expected_hash in files.items():
+        if (
+            not isinstance(relative, str)
+            or not isinstance(expected_hash, str)
+            or Path(relative).is_absolute()
+            or ".." in Path(relative).parts
+            or Path(relative).parts[0] not in {"refs", "snapshots"}
+        ):
+            return False
+        candidate = component / relative
+        try:
+            mode = candidate.lstat().st_mode
+        except OSError:
+            return False
+        if stat.S_ISLNK(mode):
+            try:
+                target = os.readlink(candidate)
+                resolved = (candidate.parent / target).resolve()
+                blobs = (component / "blobs").resolve()
+                resolved.relative_to(blobs)
+                referenced_blobs.add(resolved.relative_to(component.resolve()).as_posix())
+                digest = hashlib.sha256(resolved.read_bytes()).hexdigest()
+            except (OSError, ValueError):
+                return False
+        else:
+            digest = _file_sha256_no_follow(candidate)
+        if digest != expected_hash:
+            return False
+        expected_paths.add(relative)
+    actual_paths: set[str] = set()
+    try:
+        for candidate in component.rglob("*"):
+            relative = candidate.relative_to(component).as_posix()
+            mode = candidate.lstat().st_mode
+            if stat.S_ISDIR(mode):
+                continue
+            actual_paths.add(relative)
+    except OSError:
+        return False
+    allowed = expected_paths | referenced_blobs | {".wavefoundry-model-bundle.json"}
+    return actual_paths == allowed
+
+
+def _retired_cleanup_targets() -> list[tuple[str, str, Path, str]]:
+    home_cache = Path.home() / ".wavefoundry" / "cache"
+    roots: list[tuple[str, str, Path]] = [
+        ("fastembed", "default", home_cache / "fastembed"),
+        ("clean-onnx", "default", home_cache / "onnx-src"),
+        ("static-onnx", "default", home_cache / "onnx"),
+        ("coreml", "default", home_cache / "coreml"),
+    ]
+    for kind, env_name, default in (
+        ("fastembed", "FASTEMBED_CACHE_PATH", home_cache / "fastembed"),
+        ("clean-onnx", "WAVEFOUNDRY_ONNX_SRC_CACHE", home_cache / "onnx-src"),
+    ):
+        configured = os.environ.get(env_name)
+        if configured:
+            custom = Path(configured).expanduser()
+            try:
+                distinct = custom.resolve(strict=False) != default.resolve(strict=False)
+            except OSError:
+                distinct = True
+            if distinct:
+                roots.append((kind, "custom", custom))
+    targets: list[tuple[str, str, Path, str]] = []
+    for kind, scope, cache_root in roots:
+        for component in _RETIRED_MODEL_ALLOWLIST[kind]:
+            target_id = f"{kind}:{scope}:{component}"
+            targets.append((target_id, scope, cache_root, component))
+    return sorted(targets, key=lambda item: item[0])
+
+
+def _remove_retired_component_no_follow(target: Path) -> str:
+    """Fallback removal for hosts without fd-anchored deletion capabilities.
+
+    1v0r0 repair (F1): native Windows never provides ``os.stat``/``os.unlink``
+    in ``os.supports_dir_fd`` nor ``shutil.rmtree.avoids_symlink_attacks``, so
+    failing on missing capabilities wedged every Windows upgrade. This path
+    re-verifies the component with ``lstat`` immediately before removal.
+
+    1v0r0 repair (F9/F10): it treats every reparse point (symlink OR junction)
+    as a NODE to unlink rather than descend, and re-checks the top ``target``
+    for a reparse point immediately before descent. A top-level directory
+    swapped for a symlink or junction in the lstat-to-descent window is
+    therefore refused rather than walked (the bare ``os.walk`` root followed
+    such a swap because ``followlinks=False`` governs only sub-symlinks). A
+    Windows directory junction (not a symlink on CPython 3.12+, so
+    ``DirEntry.is_symlink()`` is False) is classified via ``os.path.isjunction``
+    and unlinked as a node instead of walked into. Regular files are unlinked
+    and real subdirectories are removed with ``rmdir`` only after their
+    non-followed contents are gone. The check-to-use guarantee is narrower than
+    the fd-anchored path by design: a residual window remains between the
+    pre-descent re-check and the ``scandir`` that follows it.
+    """
+    _isjunction = getattr(os.path, "isjunction", lambda p: False)
+
+    def _unlink_node(node: Path) -> None:
+        # Remove a reparse point (symlink OR junction) as a NODE without
+        # following it. A Windows junction / directory symlink is removed with
+        # ``rmdir``; a file symlink with ``unlink``. Try ``rmdir`` first, then
+        # fall back to ``unlink``; a genuine failure raises and is mapped to
+        # ``failed`` by the caller.
+        try:
+            os.rmdir(node)
+        except OSError:
+            os.unlink(node)
+
+    def _remove_tree(directory: Path) -> None:
+        # Manual bottom-up recursion. Every reparse point (symlink or junction,
+        # file or dir) is unlinked as a node; only a real subdirectory is
+        # recursed into and then ``rmdir``'d; a regular file is unlinked.
+        with os.scandir(directory) as scan:
+            entries = list(scan)
+        for entry in entries:
+            entry_path = Path(entry.path)
+            if entry.is_symlink() or _isjunction(entry.path):
+                _unlink_node(entry_path)
+            elif entry.is_dir(follow_symlinks=False):
+                _remove_tree(entry_path)
+                os.rmdir(entry_path)
+            else:
+                os.unlink(entry_path)
+
+    try:
+        target_stat = target.lstat()
+    except FileNotFoundError:
+        return "absent"
+    except OSError:
+        return "failed"
+    try:
+        if stat.S_ISLNK(target_stat.st_mode) or _isjunction(target):
+            _unlink_node(target)
+            return "removed"
+        if not stat.S_ISDIR(target_stat.st_mode):
+            return "unowned"
+        # Re-lstat the top target immediately before descent: refuse a
+        # directory that has become a symlink or junction in the
+        # entry-lstat -> descent window instead of walking (and following) it.
+        pre_descent = target.lstat()
+        if stat.S_ISLNK(pre_descent.st_mode) or _isjunction(target):
+            return "failed"
+        _remove_tree(target)
+        os.rmdir(target)
+    except FileNotFoundError:
+        return "absent"
+    except (NotImplementedError, OSError, TypeError):
+        return "failed"
+    return "removed"
+
+
+def _remove_retired_component(cache_root: Path, component: str, custom: bool) -> str:
+    """Return removed/absent/unowned/failed without exposing filesystem data."""
+    # 1v0r0 repair (F5): allowlisted component keys are flat directory names.
+    # Refuse any separator- or traversal-shaped key BEFORE the first
+    # filesystem access; a non-flat key could ride the dir_fd anchor to
+    # entries outside the cache root.
+    if (
+        not component
+        or component in {".", ".."}
+        or "/" in component
+        or "\\" in component
+        or ".." in Path(component).parts
+    ):
+        return "unowned"
+    target = cache_root / component
+    try:
+        root_stat = cache_root.lstat()
+    except FileNotFoundError:
+        return "absent"
+    except OSError:
+        return "unowned"
+    if stat.S_ISLNK(root_stat.st_mode) or not stat.S_ISDIR(root_stat.st_mode):
+        return "unowned"
+    try:
+        target.relative_to(cache_root)
+        target_stat = target.lstat()
+    except FileNotFoundError:
+        return "absent"
+    except (OSError, ValueError):
+        return "unowned"
+    if custom and not _legacy_custom_component_owned(target):
+        return "unowned"
+    root_fd: int | None = None
+    try:
+        # The cache root is mutable operator-controlled state. Anchor the
+        # destructive operation to the exact directory inode that was checked;
+        # a path-based rmtree here lets a concurrent rename+symlink substitution
+        # redirect cleanup outside the cache.
+        if (
+            os.stat not in os.supports_dir_fd
+            or os.unlink not in os.supports_dir_fd
+            or not getattr(shutil.rmtree, "avoids_symlink_attacks", False)
+        ):
+            # 1v0r0 repair (F1): the fd-anchored capabilities are permanently
+            # unavailable on native Windows; use the revalidated no-follow
+            # fallback instead of wedging every upgrade on those hosts. The
+            # fd-anchored path below remains the primary whenever the
+            # capabilities exist.
+            return _remove_retired_component_no_follow(target)
+        flags = os.O_RDONLY
+        flags |= getattr(os, "O_DIRECTORY", 0)
+        flags |= getattr(os, "O_NOFOLLOW", 0)
+        root_fd = os.open(cache_root, flags)
+        opened_root = os.fstat(root_fd)
+        if not os.path.samestat(root_stat, opened_root):
+            return "unowned"
+        anchored_target = os.stat(component, dir_fd=root_fd, follow_symlinks=False)
+        if not os.path.samestat(target_stat, anchored_target):
+            return "unowned"
+        if stat.S_ISLNK(anchored_target.st_mode):
+            os.unlink(component, dir_fd=root_fd)
+        elif stat.S_ISDIR(anchored_target.st_mode):
+            shutil.rmtree(component, dir_fd=root_fd)
+        else:
+            return "unowned"
+    except FileNotFoundError:
+        return "absent"
+    except (NotImplementedError, OSError, TypeError):
+        return "failed"
+    finally:
+        if root_fd is not None:
+            os.close(root_fd)
+    return "removed"
+
+
+def _run_retired_model_cleanup(root: Path, to_version: object) -> dict[str, Any]:
+    """Remove only retired Wavefoundry-owned components after durable proof."""
+    result = _retired_model_cleanup_result()
+    authority = _verified_active_model_authority(root)
+    if (
+        not _cleanup_version_eligible(to_version)
+        or authority is None
+        or not _semantic_epoch_matches_active_models(root, authority)
+    ):
+        return result
+    for target_id, scope, cache_root, component in _retired_cleanup_targets():
+        outcome = _remove_retired_component(cache_root, component, scope == "custom")
+        key = f"retired_model_cleanup_{outcome}"
+        if outcome == "failed":
+            result[key].append(f"{target_id}|remove_failed")
+        else:
+            result[key].append(target_id)
+    for key in _RETIRED_MODEL_CLEANUP_KEYS[1:]:
+        result[key] = sorted(set(result[key]))
+    result["retired_model_cleanup_status"] = (
+        "failed" if result["retired_model_cleanup_failed"] else "complete"
+    )
+    return result
+
 
 def phase_cleanup(
     root: Path,
@@ -2440,6 +2849,7 @@ def phase_cleanup(
     lock_present: bool = True,
     review_sidecar_cleanup: dict | None = None,
     index_update_failed: bool = False,
+    retired_model_cleanup: dict | None = None,
 ) -> None:
     import upgrade_lib
 
@@ -2484,6 +2894,12 @@ def phase_cleanup(
                 "  Stop the dashboard and every attached MCP/agent host, then "
                 "re-run the full upgrade."
             )
+        elif failed_phase == "retired_model_cleanup":
+            _log(
+                "  Resolve the failure on the reported exact component "
+                "(commonly permissions, ownership, or a file held open by "
+                "another process), then retry wf_upgrade(phase='cleanup')."
+            )
         else:
             _log("  Re-run the full upgrade to restore a clean state.")
         _print_operator_summary(
@@ -2497,6 +2913,7 @@ def phase_cleanup(
             review_sidecar_cleanup=review_sidecar_cleanup,
             permissions_delta=_cl_permissions,
             index_update_failed=index_update_failed,
+            retired_model_cleanup=retired_model_cleanup,
         )
         raise SystemExit(1)
 
@@ -2566,6 +2983,7 @@ def phase_cleanup(
         review_sidecar_cleanup=review_sidecar_cleanup,
         permissions_delta=_cl_permissions,
         index_update_failed=index_update_failed,
+        retired_model_cleanup=retired_model_cleanup,
     )
     if (
         zip_path is not None
@@ -2924,12 +3342,13 @@ def _build_upgrade_summary(
     renderer_provenance_flags: list[dict] | None = None,
     permissions_delta: dict | None = None,
     index_update_failed: bool = False,
+    retired_model_cleanup: dict | None = None,
 ) -> dict:
     """Wave 1p8eu — assemble the operator summary ONCE as a dict.
 
     ``ran_index_rebuild`` (wave 1u44n semantics): True means the Phase 4
-    docs-layer publication was OBSERVED successful (the child exited zero and
-    the epoch completed), never merely that the phase was attempted. Do not
+    complete docs+code epoch publication was OBSERVED successful (the child
+    exited zero and the epoch completed), never merely that the phase was attempted. Do not
     reintroduce a hardcoded ``True`` at any caller. ``index_update_failed``
     distinguishes an observed failed/refused publication from a phase that was
     not run at all; together they select the ``index_update`` value domain:
@@ -2963,6 +3382,7 @@ def _build_upgrade_summary(
     delta = permissions_delta if permissions_delta is not None else _PERMISSIONS_DELTA
     permissions_added = [str(rule) for rule in (delta or {}).get("added") or []]
     permissions_removed = [str(rule) for rule in (delta or {}).get("removed") or []]
+    cleanup = _retired_model_cleanup_from_mapping(retired_model_cleanup)
     return {
         "review_sidecar_cleanup": review_sidecar_cleanup,
         "from_version": from_version,
@@ -2971,7 +3391,7 @@ def _build_upgrade_summary(
         "pruned_count": pruned_count,
         "docs_gate": _docs_gate_summary_line(failed_phase),
         "index_update": (
-            "docs layer complete, code layer running in background"
+            "docs and code layers complete"
             if ran_index_rebuild
             else (
                 "publication failed: semantic index epoch incomplete; run "
@@ -3004,6 +3424,7 @@ def _build_upgrade_summary(
         # ~/Downloads). Surfaced so the operator can acknowledge — and grant access + re-run if a
         # newer pack lives there. Empty when every location read cleanly.
         "skipped_scan_locations": list(_PACK_SCAN_SKIPPED),
+        **cleanup,
     }
 
 
@@ -3289,6 +3710,7 @@ def _emit_delegated_summary(root: Path) -> int:
             permissions_delta if isinstance(permissions_delta, dict) else None
         ),
         index_update_failed=bool(lock.get("index_publication_failed")),
+        retired_model_cleanup=_retired_model_cleanup_from_mapping(lock),
     )
     # Parent-only fact: the pack-search skip list lives in the PARENT's memory
     # (per-process permission grants make it non-rescannable here); the parent
@@ -3316,6 +3738,7 @@ def _print_operator_summary(
     review_sidecar_cleanup: dict | None = None,
     permissions_delta: dict | None = None,
     index_update_failed: bool = False,
+    retired_model_cleanup: dict | None = None,
 ) -> None:
     # Wave 1p8et/1p8kz: run the shipped retired-surface reconciliation scan on EVERY upgrade (operator
     # direction — a patch or same-version build-successor can change/retire a surface too), report-only
@@ -3340,6 +3763,7 @@ def _print_operator_summary(
         renderer_provenance_flags=renderer_provenance_flags,
         permissions_delta=permissions_delta,
         index_update_failed=index_update_failed,
+        retired_model_cleanup=retired_model_cleanup,
     )
 
     from_str = from_version or "(none)"
@@ -3387,6 +3811,14 @@ def _print_operator_summary(
     _log(f"Files pruned:       {summary['pruned_count']}")
     _log(f"Docs gate:          {summary['docs_gate']}")
     _log(f"Index update:       {summary['index_update']}")
+    _log(
+        "Retired models:      "
+        f"{summary['retired_model_cleanup_status']} "
+        f"(removed={len(summary['retired_model_cleanup_removed'])}, "
+        f"absent={len(summary['retired_model_cleanup_absent'])}, "
+        f"unowned={len(summary['retired_model_cleanup_unowned'])}, "
+        f"failed={len(summary['retired_model_cleanup_failed'])})"
+    )
     if summary["skipped_scan_locations"]:
         _log("")
         _log("⚠  Pack-search locations SKIPPED (permission/sandbox — could not read):")
@@ -4374,6 +4806,49 @@ def main(argv: list[str] | None = None) -> int:
             # upgrade. Permissions-only, idempotent, fail-safe.
             if _cl_present:
                 _ensure_rendered_permissions_backstop(root)
+            _cl_retired = _retired_model_cleanup_result()
+            if _cl_present and _cl_failed in {None, "retired_model_cleanup"}:
+                _cl_retry = _cl_failed == "retired_model_cleanup"
+                _cl_retired = _run_retired_model_cleanup(root, _cl_to)
+                _cl_status = _cl_retired["retired_model_cleanup_status"]
+                if _cl_retry and _cl_status == "not_applicable":
+                    # 1v0r0 repair (F2): a RETRY of a failed cleanup whose
+                    # authority revalidation refused (`not_applicable`, e.g.
+                    # an in-flight index build opened a new epoch) must not
+                    # clear the failure or overwrite the partial lists the
+                    # failed run preserved in the lock. Only a `complete`
+                    # retry clears the failed phase below.
+                    _cl_retired = _retired_model_cleanup_from_mapping(lock)
+                    _err(
+                        "retired_model_cleanup retry refused: the semantic "
+                        "authority (current model-set manifest plus a stable "
+                        "index-state.sqlite epoch) could not be revalidated, "
+                        "for example while an index build is in flight. The "
+                        "failure marker and partial cleanup lists are "
+                        "retained; retry wf_upgrade(phase='cleanup') once "
+                        "the index is stable."
+                    )
+                else:
+                    upgrade_lib.update_upgrade_lock(root, **_cl_retired)
+                    if _cl_status == "failed":
+                        _cl_failed = "retired_model_cleanup"
+                        upgrade_lib.update_upgrade_lock(
+                            root,
+                            failed_phase=_cl_failed,
+                            failed_at=datetime.datetime.now(
+                                datetime.timezone.utc
+                            ).isoformat(),
+                        )
+                        _err(
+                            "retired_model_cleanup_failed: an owned retired model "
+                            "component could not be removed; the upgrade lock is "
+                            "retained. Retry with wf_upgrade(phase='cleanup')."
+                        )
+                    elif _cl_retry:
+                        upgrade_lib.clear_failed_phase(root, "retired_model_cleanup")
+                        _cl_failed = None
+            elif _cl_present:
+                _cl_retired = _retired_model_cleanup_from_mapping(lock)
             _run_hook("pre_cleanup", _cl_ctx, _cl_ext)
             phase_cleanup(
                 root=root,
@@ -4388,6 +4863,7 @@ def main(argv: list[str] | None = None) -> int:
                     _cl_sidecar if isinstance(_cl_sidecar, dict) else None
                 ),
                 index_update_failed=_cl_index_failed,
+                retired_model_cleanup=_cl_retired,
             )
             _run_hook("post_cleanup", _cl_ctx, _cl_ext)
         finally:

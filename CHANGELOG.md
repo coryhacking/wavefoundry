@@ -6,7 +6,33 @@ the individual wave records under [`docs/waves/`](docs/waves/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.15.5] - 2026-08-08
+## [1.16.0] - unreleased
+
+### Changed
+
+- **Retrieval now uses one supplier-lineage-compliant Snowflake Arctic S
+  embedder for documents and code.** CPU uses INT8, supported GPU providers use
+  FP16, embedding batch is 32, and MiniLM L6 remains the batch-40 reranker. The
+  independently configurable layer selectors share one instance when equal.
+  Model set v2 and its matching offline companion are mandatory for release
+  builds; upgrades remove only verified Wavefoundry-owned retired BAAI cache
+  components after the complete v2 semantic epoch is durable. On hosts without
+  the fd-anchored deletion capabilities (native Windows), cleanup uses a
+  revalidated no-follow fallback whose check-to-use guarantee is narrower than
+  the fd-anchored path. Removal applies to the user-global model cache shared
+  by every repository on the machine: sibling repositories still on older
+  versions re-fetch the retired models from Hugging Face on their next index
+  build, so offline or controlled machines should upgrade all repositories
+  together. Wave 1v0r0 / change 1v0qz.
+- **The first index build after this upgrade is a one-time full re-embed of
+  both semantic layers.** The shared embedding model fingerprint changed with
+  model set v2, so documents and code are each re-embedded from scratch once;
+  expect operator-visible foreground work proportional to repository size.
+  Upgrades now build both index layers in the foreground and the detached
+  background code pass is removed, so when the upgrade reports complete, the
+  semantic index is fully published. Wave 1v0r0 / change 1v0qz.
+
+## [1.15.5] - unreleased
 
 ### Fixed
 
@@ -25,6 +51,13 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and a refused approval is also absent -- so doing the right thing produced a weaker close
   gate than ignoring the problem. It now keys on whether the wave was ever prepared under
   the policy, and both branches of that gate are covered.
+- **A lapsed approval now tells you why it lapsed.** Every failure of the approval-validity check
+  reported the same reason, "invalid actor or independence", even when both were fine and the real
+  cause was a superseded receipt -- so the message sent you to re-check the recording agent when
+  the fix was one re-Prepare. The reason now names the condition that actually failed, and the
+  no-current-receipt and malformed-context cases each get their own message. Re-deriving the
+  review state of every approval ever recorded in this repository produced zero changes: only the
+  reasons get truthful, no approval flips.
 - **`wf_prepare_wave(mode='dry_run')` now tells you a receipt mint is pending.** The
   preview was the one surface silent about the mutation it previews; the signal existed
   only buried in the response payload. It is reported as an advisory, so a pending mint --
@@ -195,6 +228,31 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   also let `wf_add_change(mode='create')` reach the relocation step and move a file it could not read.
   It now checks readability first and refuses without touching anything.
 
+- **A wave record that cannot be read no longer crashes every lifecycle tool.** The companion gap
+  to the change-document fix above: an undecodable `wave.md` raised a stack trace out of every
+  tool probed, including the enumeration tools you would reach for to diagnose it, and a
+  permission-broken record was reported as `wave_not_found` at every by-id boundary -- the wave
+  exists, and the tools said it did not. Wave-record reads now flow through a single seam: twelve
+  by-id lifecycle tools plus `wf_create_wave` refuse with a `wave_record_unreadable` diagnostic
+  naming the record and the cause, `wf_list_waves` and `wf_current_wave` list the readable waves
+  and carry a per-entry `read_error` for the broken one, wave resolution reports what it actually
+  found instead of swallowing the failure, and the `wavefoundry://wave/{wave_id}` resource renders
+  `# Unreadable Wave`. No message carries your absolute filesystem path. Healthy records are
+  unaffected, verified byte-identical across sixteen enumeration and lifecycle surfaces.
+
+- **A missing admitted change document now blocks close instead of vanishing from it.** The close
+  hard gate verified the checkboxes of every document it could find and silently skipped an
+  admitted document whose file was gone, and the close summary then fabricated an empty delivered
+  record for it. Close now refuses with a `change_doc_missing` diagnostic naming the document,
+  the summary raises rather than recording work nobody verified, and docs-lint reports the
+  missing file as soon as the wave is implementing, so the discovery does not wait for close.
+
+- **The upgrade's rollback-failure detail no longer embeds absolute filesystem paths.** When a
+  rollback itself failed, the double-fault report interpolated raw exception text -- exactly where
+  the operating system embeds the full path -- defeating the path-stripping helper this release
+  ships everywhere else. The detail is now composed path-free at the raise site, and the
+  review-ledger read path that produces the same class of detail was made path-free with it.
+
 - **The receipt-authority documentation matches what the code does.** Five statements in the
   architecture reference described the system as it was before the previous release: that Prepare is
   the sole writer of the review roster and receipt (`wf_mark_ac(state='~')` is a second writer), the
@@ -234,6 +292,13 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   across the planning, implementation, evidence, and council surfaces, is now pinned by a test,
   so a drifted copy can no longer reach target repositories through an upgrade unnoticed; that
   is how an earlier weakening of this rule escaped.
+
+- **docs-lint now catches a rendered review-policy region that drifted from its source block.**
+  A policy block edited without re-rendering, or a hand-edit inside a rendered marker region,
+  passed lint with the two carriers disagreeing. The new check compares each rendered region
+  against its block using the renderer's own composition -- never a second implementation of it --
+  and names the destination and the repair. Target repositories already self-heal at every
+  upgrade; this closes the drift window in between.
 
 ### Changed
 

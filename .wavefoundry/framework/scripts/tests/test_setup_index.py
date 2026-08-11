@@ -307,16 +307,16 @@ class SetupIndexTests(unittest.TestCase):
         self.assertEqual(cache_dir, default_cache)
 
     def test_arctic_docs_model_cache_alias_resolves_lowercase_dir(self):
-        # 1p4wx: arctic-embed-xs (DOCS_MODEL) — fastembed downloads to the lowercase
+        # Arctic S (DOCS_MODEL/CODE_MODEL) — fastembed downloads to the lowercase
         # ``models--snowflake--…`` dir, so the offline cache resolution must include it.
         default_cache = Path("/tmp/home/.wavefoundry/cache/fastembed")
         with patch.object(self.mod, "FASTEMBED_CACHE_DEFAULT", default_cache):
             with patch.dict(os.environ, {}, clear=True):
                 names = {
                     p.name
-                    for p in self.mod._model_cache_dir_candidates("Snowflake/snowflake-arctic-embed-xs")
+                    for p in self.mod._model_cache_dir_candidates("Snowflake/snowflake-arctic-embed-s")
                 }
-        self.assertIn("models--snowflake--snowflake-arctic-embed-xs", names)
+        self.assertIn("models--snowflake--snowflake-arctic-embed-s", names)
 
     def test_ensure_deps_installs_missing_packages(self):
         """ensure_deps calls _install_deps for missing packages then rechecks."""
@@ -732,7 +732,7 @@ class SetupIndexTests(unittest.TestCase):
         self.assertIn("Required embedding model 'model-a' could not be prepared", message)
         self.assertIn("network or download host unavailable", message)
         self.assertIn("Underlying error:", message)
-        self.assertIn("wavefoundry-models-1.zip", message)
+        self.assertIn("wavefoundry-models-2.zip", message)
         self.assertIn("target repository root, ~/, ~/.wavefoundry/, ~/.wavefoundry/dist/, or ~/Downloads/", message)
         self.assertIn("leave it zipped", message)
         self.assertIn("leaves the verified cache unchanged", message)
@@ -789,7 +789,7 @@ class SetupIndexTests(unittest.TestCase):
     def test_model_cache_corruption_reason_detects_embedding_alias_cache(self):
         with tempfile.TemporaryDirectory() as tmp:
             cache_root = Path(tmp)
-            model_dir = cache_root / "models--qdrant--bge-small-en-v1.5-onnx-q"
+            model_dir = cache_root / "models--snowflake--snowflake-arctic-embed-s"
             onnx_dir = model_dir / "snapshots" / "rev1" / "onnx"
             blobs_dir = model_dir / "blobs"
             onnx_dir.mkdir(parents=True, exist_ok=True)
@@ -799,7 +799,7 @@ class SetupIndexTests(unittest.TestCase):
             (onnx_dir / "model.onnx").symlink_to(Path("../../../blobs/abc123.incomplete"))
 
             with patch.dict(os.environ, {"FASTEMBED_CACHE_PATH": str(cache_root)}):
-                reason = self.mod._model_cache_corruption_reason("BAAI/bge-small-en-v1.5")
+                reason = self.mod._model_cache_corruption_reason("Snowflake/snowflake-arctic-embed-s")
 
         self.assertIsNotNone(reason)
         self.assertIn("incomplete", reason)
@@ -807,17 +807,21 @@ class SetupIndexTests(unittest.TestCase):
     def test_quarantine_model_cache_uses_existing_embedding_alias_dir(self):
         with tempfile.TemporaryDirectory() as tmp:
             cache_root = Path(tmp)
-            model_dir = cache_root / "models--qdrant--bge-small-en-v1.5-onnx-q"
+            model_dir = cache_root / "models--snowflake--snowflake-arctic-embed-s"
             model_dir.mkdir(parents=True, exist_ok=True)
             (model_dir / "marker.txt").write_text("ok", encoding="utf-8")
 
             with patch.dict(os.environ, {"FASTEMBED_CACHE_PATH": str(cache_root)}):
-                quarantined = self.mod._quarantine_model_cache("BAAI/bge-small-en-v1.5")
+                quarantined = self.mod._quarantine_model_cache("Snowflake/snowflake-arctic-embed-s")
                 self.assertIsNotNone(quarantined)
                 self.assertFalse(model_dir.exists())
                 assert quarantined is not None
                 self.assertTrue(quarantined.exists())
-                self.assertTrue(quarantined.name.startswith("models--qdrant--bge-small-en-v1.5-onnx-q.broken."))
+                self.assertTrue(
+                    quarantined.name.lower().startswith(
+                        "models--snowflake--snowflake-arctic-embed-s.broken."
+                    )
+                )
 
     def test_model_cache_corruption_reason_ignores_missing_cache(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -871,13 +875,13 @@ class SetupIndexTests(unittest.TestCase):
         with patch.object(self.mod, "_model_cache_corruption_reason", return_value="missing onnx model artifact"):
             with patch.object(self.mod, "_quarantine_model_cache", return_value=Path("/tmp/quarantine")) as quarantine:
                 self.mod._prewarm_required_model(
-                    "Snowflake/snowflake-arctic-embed-xs",
+                    "Snowflake/snowflake-arctic-embed-s",
                     model_kind="embedding",
                     action="semantic index setup",
                     warm_fn=warm_fn,
                 )
 
-        quarantine.assert_called_once_with("Snowflake/snowflake-arctic-embed-xs")
+        quarantine.assert_called_once_with("Snowflake/snowflake-arctic-embed-s")
         self.assertEqual(calls["count"], 3)
 
     def test_main_prewarms_before_building_index(self):
@@ -1219,7 +1223,7 @@ class TlsTrustStoreFallbackTests(unittest.TestCase):
              patch.dict(sys.modules, {"fastembed": MagicMock(TextEmbedding=te), "huggingface_hub": hf}):
             self._clear_ca_env()
             os.environ["CODEX_CA_CERTIFICATE"] = codex.name
-            self.mod._warm_model("BAAI/bge-small-en-v1.5", local_files_only=False)
+            self.mod._warm_model("Snowflake/snowflake-arctic-embed-s", local_files_only=False)
             self.assertEqual(te.call_count, 1, "proactive pre-config must make the first attempt succeed")
             # Configured from the host-agent bundle BEFORE the first attempt.
             self.assertEqual(os.environ.get("SSL_CERT_FILE"), codex.name)
@@ -1244,7 +1248,7 @@ class TlsTrustStoreFallbackTests(unittest.TestCase):
              patch.dict(sys.modules, {"fastembed": MagicMock(TextEmbedding=te), "huggingface_hub": hf}):
             self._clear_ca_env()
             os.environ["CODEX_CA_CERTIFICATE"] = codex.name
-            self.mod._warm_model("BAAI/bge-small-en-v1.5", local_files_only=False)
+            self.mod._warm_model("Snowflake/snowflake-arctic-embed-s", local_files_only=False)
             self.assertEqual(te.call_count, 2, "host bundle fails → iterate to platform store")
             # Winning (platform) bundle left in place (operator stack env was unset).
             self.assertEqual(os.environ.get("SSL_CERT_FILE"), "/etc/ssl/certs/platform.crt")
@@ -1267,7 +1271,7 @@ class TlsTrustStoreFallbackTests(unittest.TestCase):
              patch.dict(sys.modules, {"fastembed": MagicMock(TextEmbedding=te), "huggingface_hub": hf}):
             self._clear_ca_env()
             os.environ["CODEX_CA_CERTIFICATE"] = codex.name
-            self.mod._warm_model("BAAI/bge-small-en-v1.5", local_files_only=False)
+            self.mod._warm_model("Snowflake/snowflake-arctic-embed-s", local_files_only=False)
             self.assertEqual(te.call_count, 3, "iterate host → platform → certifi default last")
             self.assertEqual(os.environ.get("SSL_CERT_FILE"), "/certifi/cacert.pem")
 
@@ -1285,7 +1289,7 @@ class TlsTrustStoreFallbackTests(unittest.TestCase):
              patch.object(self.mod, "_embedding_providers_for_setup", return_value=["CPUExecutionProvider"]), \
              patch.dict(sys.modules, {"fastembed": MagicMock(TextEmbedding=te), "huggingface_hub": hf}):
             self._clear_ca_env()
-            self.mod._warm_model("BAAI/bge-small-en-v1.5", local_files_only=False)
+            self.mod._warm_model("Snowflake/snowflake-arctic-embed-s", local_files_only=False)
             self.assertEqual(te.call_count, 2, "should retry once after the cert failure")
             self.assertEqual(os.environ.get("SSL_CERT_FILE"), "/os/ca.crt")
             self.assertEqual(os.environ.get("REQUESTS_CA_BUNDLE"), "/os/ca.crt")
@@ -1310,7 +1314,7 @@ class TlsTrustStoreFallbackTests(unittest.TestCase):
              patch.dict(sys.modules, {"fastembed": MagicMock(TextEmbedding=te), "huggingface_hub": hf}):
             self._clear_ca_env()
             os.environ["SSL_CERT_FILE"] = operator_ca.name  # operator's explicit setting
-            self.mod._warm_model("BAAI/bge-small-en-v1.5", local_files_only=False)
+            self.mod._warm_model("Snowflake/snowflake-arctic-embed-s", local_files_only=False)
             # Operator's original SSL_CERT_FILE survives (restored after the iteration swapped it).
             self.assertEqual(os.environ.get("SSL_CERT_FILE"), operator_ca.name)
 
@@ -1331,7 +1335,7 @@ class TlsTrustStoreFallbackTests(unittest.TestCase):
             self._clear_ca_env()
             os.environ["SSL_CERT_FILE"] = operator_ca.name
             with self.assertRaises(self.mod.ModelPrewarmError):
-                self.mod._warm_model("BAAI/bge-small-en-v1.5", local_files_only=False)
+                self.mod._warm_model("Snowflake/snowflake-arctic-embed-s", local_files_only=False)
             self.assertEqual(os.environ.get("SSL_CERT_FILE"), operator_ca.name,
                              "operator SSL_CERT_FILE must survive an all-candidates-fail exit")
 
@@ -1352,7 +1356,7 @@ class TlsTrustStoreFallbackTests(unittest.TestCase):
             self._clear_ca_env()
             os.environ["SSL_CERT_FILE"] = operator_ca.name
             with self.assertRaises(RuntimeError):
-                self.mod._warm_model("BAAI/bge-small-en-v1.5", local_files_only=False)
+                self.mod._warm_model("Snowflake/snowflake-arctic-embed-s", local_files_only=False)
             self.assertEqual(os.environ.get("SSL_CERT_FILE"), operator_ca.name,
                              "operator SSL_CERT_FILE must survive a non-cert-error retry exit")
 
@@ -1537,7 +1541,7 @@ class CaBundleProactiveApplyTests(unittest.TestCase):
         # AC-4: a persisting CERTIFICATE_VERIFY_FAILED is wrapped with operator CA-var guidance.
         exc = Exception("SSLError: certificate verify failed: unable to get local issuer certificate")
         with self.assertRaises(self.mod.ModelPrewarmError) as ctx:
-            self.mod.raise_with_ca_bundle_diagnostic("BAAI/bge-small-en-v1.5", exc)
+            self.mod.raise_with_ca_bundle_diagnostic("Snowflake/snowflake-arctic-embed-s", exc)
         self.assertIn("CERTIFICATE_VERIFY_FAILED", str(ctx.exception))
         self.assertIn("NODE_EXTRA_CA_CERTS", str(ctx.exception))
         self.assertIs(ctx.exception.__cause__, exc)
@@ -1546,7 +1550,7 @@ class CaBundleProactiveApplyTests(unittest.TestCase):
         # A non-cert error must be re-raised unchanged, not wrapped.
         exc = ConnectionError("connection reset by peer")
         with self.assertRaises(ConnectionError) as ctx:
-            self.mod.raise_with_ca_bundle_diagnostic("BAAI/bge-small-en-v1.5", exc)
+            self.mod.raise_with_ca_bundle_diagnostic("Snowflake/snowflake-arctic-embed-s", exc)
         self.assertIs(ctx.exception, exc)
 
     def test_apply_lock_exists_for_thread_safety(self):
@@ -1579,7 +1583,7 @@ class RetryWithCaBundleLadderTests(unittest.TestCase):
             return "ok"
 
         with patch.object(self.mod, "_os_trust_store_candidates") as candidates:
-            result = self.mod.retry_with_ca_bundle_ladder(attempt, "BAAI/bge-small-en-v1.5")
+            result = self.mod.retry_with_ca_bundle_ladder(attempt, "Snowflake/snowflake-arctic-embed-s")
         self.assertEqual(result, "ok")
         self.assertEqual(len(calls), 1)
         candidates.assert_not_called()
@@ -1590,7 +1594,7 @@ class RetryWithCaBundleLadderTests(unittest.TestCase):
 
         with patch.object(self.mod, "_os_trust_store_candidates") as candidates:
             with self.assertRaises(ConnectionError):
-                self.mod.retry_with_ca_bundle_ladder(attempt, "BAAI/bge-small-en-v1.5")
+                self.mod.retry_with_ca_bundle_ladder(attempt, "Snowflake/snowflake-arctic-embed-s")
         candidates.assert_not_called()
 
     def test_retries_candidates_on_cert_failure_until_success(self):
@@ -1608,7 +1612,7 @@ class RetryWithCaBundleLadderTests(unittest.TestCase):
              patch.dict(os.environ, {}, clear=False):
             self._clear_ca_env()
             with patch.object(self.mod, "_os_trust_store_candidates", return_value=[c1.name, c2.name]):
-                result = self.mod.retry_with_ca_bundle_ladder(attempt, "BAAI/bge-small-en-v1.5")
+                result = self.mod.retry_with_ca_bundle_ladder(attempt, "Snowflake/snowflake-arctic-embed-s")
             self.assertEqual(os.environ.get("SSL_CERT_FILE"), c2.name, "last applied candidate stuck (no restore)")
         self.assertEqual(result, "resolved")
         self.assertEqual(len(calls), 3, "initial attempt + 2 candidate retries")
@@ -1623,7 +1627,7 @@ class RetryWithCaBundleLadderTests(unittest.TestCase):
             self._clear_ca_env()
             with patch.object(self.mod, "_os_trust_store_candidates", return_value=[c1.name]):
                 with self.assertRaises(self.mod.ModelPrewarmError) as ctx:
-                    self.mod.retry_with_ca_bundle_ladder(attempt, "BAAI/bge-small-en-v1.5")
+                    self.mod.retry_with_ca_bundle_ladder(attempt, "Snowflake/snowflake-arctic-embed-s")
         self.assertIn("CERTIFICATE_VERIFY_FAILED", str(ctx.exception))
         self.assertIs(ctx.exception.__cause__, cert_exc)
 
@@ -1645,7 +1649,7 @@ class RetryWithCaBundleLadderTests(unittest.TestCase):
             os.environ["SSL_CERT_FILE"] = already_tried.name
             with patch.object(self.mod, "_os_trust_store_candidates", return_value=[already_tried.name, untried.name]):
                 with self.assertRaises(self.mod.ModelPrewarmError):
-                    self.mod.retry_with_ca_bundle_ladder(attempt, "BAAI/bge-small-en-v1.5")
+                    self.mod.retry_with_ca_bundle_ladder(attempt, "Snowflake/snowflake-arctic-embed-s")
         self.assertEqual(len(calls), 2, "initial attempt (against already_tried) + 1 retry (untried only)")
 
 
@@ -1809,7 +1813,7 @@ class SetupPhase1DeadlineTests(unittest.TestCase):
 
         with patch.object(self.mod, "_warm_model_inner", side_effect=slow_inner):
             with self.assertRaises(self.mod.ModelPrewarmError) as raised:
-                self.mod._warm_model("bge-small", local_files_only=False, deadline_seconds=0.05)
+                self.mod._warm_model("fixture/model", local_files_only=False, deadline_seconds=0.05)
         msg = str(raised.exception)
         self.assertIn("model_warm_timeout_seconds", msg)
         self.assertIn("network", msg.lower())
@@ -1821,8 +1825,8 @@ class SetupPhase1DeadlineTests(unittest.TestCase):
             seen["args"] = (model_name, local_files_only)
 
         with patch.object(self.mod, "_warm_model_inner", side_effect=fast_inner):
-            self.mod._warm_model("bge-small", local_files_only=True, deadline_seconds=5.0)
-        self.assertEqual(seen["args"], ("bge-small", True))
+            self.mod._warm_model("fixture/model", local_files_only=True, deadline_seconds=5.0)
+        self.assertEqual(seen["args"], ("fixture/model", True))
 
     def test_warm_model_propagates_inner_error_within_deadline(self):
         def boom_inner(model_name, *, local_files_only):
@@ -1830,7 +1834,7 @@ class SetupPhase1DeadlineTests(unittest.TestCase):
 
         with patch.object(self.mod, "_warm_model_inner", side_effect=boom_inner):
             with self.assertRaises(RuntimeError):
-                self.mod._warm_model("bge-small", local_files_only=False, deadline_seconds=5.0)
+                self.mod._warm_model("fixture/model", local_files_only=False, deadline_seconds=5.0)
 
     def test_warm_model_uses_active_run_deadline_when_arg_default(self):
         captured = {}
@@ -1842,7 +1846,7 @@ class SetupPhase1DeadlineTests(unittest.TestCase):
         try:
             self.mod._ACTIVE_MODEL_WARM_DEADLINE_SECONDS = 123.0
             with patch.object(self.mod, "_run_in_process_with_deadline", side_effect=_fake_deadline):
-                self.mod._warm_model("bge-small", local_files_only=False)
+                self.mod._warm_model("fixture/model", local_files_only=False)
         finally:
             self.mod._ACTIVE_MODEL_WARM_DEADLINE_SECONDS = prior
         self.assertEqual(captured["deadline"], 123.0)
@@ -1863,7 +1867,7 @@ class SetupPhase1DeadlineTests(unittest.TestCase):
             with patch.object(self.mod, "_quarantine_model_cache") as quarantine:
                 with self.assertRaises(self.mod.ModelPrewarmTimeout) as raised:
                     self.mod._prewarm_required_model(
-                        "bge-small", model_kind="docs embedding", action="setup",
+                        "fixture/model", model_kind="docs embedding", action="setup",
                         warm_fn=timing_out_warm,
                     )
         self.assertIs(raised.exception, timeout_exc)  # propagated unwrapped, message intact
@@ -2062,7 +2066,7 @@ class HfHubSocketTimeoutScopeTests(unittest.TestCase):
         active = {self.DOWNLOAD_KEY: 77.0, self.ETAG_KEY: 33.0}
         with self._scope_env(pkg, constants, active=active):
             with patch.object(self.mod, "_warm_model_inner", side_effect=inner):
-                self.mod._warm_model("bge-small", local_files_only=False, deadline_seconds=5.0)
+                self.mod._warm_model("fixture/model", local_files_only=False, deadline_seconds=5.0)
         self.assertEqual(seen, {"download": 77.0, "etag": 33.0})
         self.assertEqual(constants.HF_HUB_DOWNLOAD_TIMEOUT, 10)  # restored (AC-3)
         self.assertEqual(constants.HF_HUB_ETAG_TIMEOUT, 10)
@@ -2127,7 +2131,7 @@ class HfHubSocketTimeoutScopeTests(unittest.TestCase):
         with self._scope_env(pkg, constants):
             with patch.object(self.mod, "_warm_model_inner", side_effect=boom):
                 with self.assertRaises(RuntimeError):
-                    self.mod._warm_model("bge-small", local_files_only=False, deadline_seconds=5.0)
+                    self.mod._warm_model("fixture/model", local_files_only=False, deadline_seconds=5.0)
         self.assertEqual(constants.HF_HUB_DOWNLOAD_TIMEOUT, 10)
         self.assertEqual(constants.HF_HUB_ETAG_TIMEOUT, 10)
 
@@ -2145,7 +2149,7 @@ class HfHubSocketTimeoutScopeTests(unittest.TestCase):
         with self._scope_env(pkg, constants):
             with patch.object(self.mod, "_warm_model_inner", side_effect=slow):
                 with self.assertRaises(self.mod.ModelPrewarmTimeout):
-                    self.mod._warm_model("bge-small", local_files_only=False, deadline_seconds=0.05)
+                    self.mod._warm_model("fixture/model", local_files_only=False, deadline_seconds=0.05)
         self.assertEqual(constants.HF_HUB_DOWNLOAD_TIMEOUT, 10)
         self.assertEqual(constants.HF_HUB_ETAG_TIMEOUT, 10)
 
@@ -2159,8 +2163,8 @@ class HfHubSocketTimeoutScopeTests(unittest.TestCase):
 
         with self._scope_env(pkg, constants):
             with patch.object(self.mod, "_warm_model_inner", side_effect=fast):
-                self.mod._warm_model("bge-small", local_files_only=True, deadline_seconds=5.0)
-        self.assertEqual(seen["args"], ("bge-small", True))
+                self.mod._warm_model("fixture/model", local_files_only=True, deadline_seconds=5.0)
+        self.assertEqual(seen["args"], ("fixture/model", True))
 
     def test_default_socket_timeouts_below_wall_clock_deadline(self):
         # AC-5: the socket timeout must be able to fire BEFORE the wall-clock deadline.

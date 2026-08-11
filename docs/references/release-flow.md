@@ -2,14 +2,14 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-14
+Last verified: 2026-08-11
 
 How Wavefoundry ships a release. Single-maintainer project; the release happens from the maintainer's machine via `build_pack.py --release`.
 
 ## The release command
 
 ```bash
-python3 .wavefoundry/framework/scripts/build_pack.py --version <X.Y.Z> --release
+python3 .wavefoundry/framework/scripts/build_pack.py --version <X.Y.Z> --release --with-models
 ```
 
 What it does in order:
@@ -20,12 +20,12 @@ What it does in order:
    - `vX.Y.Z` tag must not exist locally or on `origin`
    - `gh auth status` must succeed
    - `CHANGELOG.md` must contain a `## [X.Y.Z]` section
-2. **Build** the source-only distribution zip (same as a normal `build_pack.py --version X.Y.Z` invocation) — runs the docs gate, stamps `.wavefoundry/framework/VERSION`, writes `INSTALL.md`, produces `~/.wavefoundry/dist/wavefoundry-X.Y.Z.<build-suffix>.zip`. The pack ships framework **source only**; there is no framework semantic index to build (framework seeds fold into each project's docs index at setup/upgrade).
+2. **Build** the source distribution and matching model companion — runs the docs gate, stamps `.wavefoundry/framework/VERSION`, writes `INSTALL.md`, produces `~/.wavefoundry/dist/wavefoundry-X.Y.Z.<build-suffix>.zip`, and verifies `wavefoundry-models-2.zip` for the 1.16.0 model set. The feature pack ships framework **source only**; the separate companion carries pinned offline model artifacts, not a semantic index.
 3. **Commit the stamp**: the VERSION/manifest/README-badge changes the build made are committed automatically (`git add -A && git commit`) so the tag points at the stamped tree.
 4. **Tag** the stamp commit locally with `vX.Y.Z`. Annotation message is derived from the most recent wave-close commit subject (e.g., `Close wave 1p347 and ship 1.4.0 → 1.4.1`), or `Release vX.Y.Z` as a fallback.
 5. **Push main**: `HEAD` is pushed to `origin/main` (the stamp commit lands on the default branch).
 6. **Push the tag** to `origin`.
-7. **Publish** a GitHub Release via `gh release create vX.Y.Z`. Title is the bare version. Notes are assembled by prepending `.wavefoundry/framework/install/install-block.md` (the `## Install` block — zip-at-root, shortcut phrase, supported hosts) to the `## [X.Y.Z]` section of `CHANGELOG.md`, so an agent or operator browsing the Releases page sees the install steps alongside the download link. The local zip is uploaded as the release asset. (Wave 1p35d / `1p35p` added the install-block prepend; before that the notes were the CHANGELOG section alone.)
+7. **Publish** a GitHub Release via `gh release create vX.Y.Z`. Title is the bare version. Notes are assembled by prepending `.wavefoundry/framework/install/install-block.md` to the matching `CHANGELOG.md` section. Both the exact feature archive and matching model companion are uploaded; the release receipt names both assets.
 
 ## The non-release option (testing, local-only)
 
@@ -33,17 +33,17 @@ What it does in order:
 python3 .wavefoundry/framework/scripts/build_pack.py --version <X.Y.Z>
 ```
 
-Bare invocation (no `--release`) builds the zip locally and exits without any git or GitHub side effects. This is the path for testing, contributor builds, or any time you want a packaged framework without publishing it.
+Bare invocation (no `--release`) builds the feature zip locally and exits without any git or GitHub side effects. Add `--with-models` when a local companion is needed. Model assets remain optional only on this non-release path.
 
 ## Smoke-testing the release pipeline
 
 To walk the entire `--release` flow without git or remote release mutations (no commit, no tag, no push, no upload) — note the LOCAL build still runs, producing the archive and stamping VERSION/manifest/README (the working tree is left dirty; restore the stamped files afterwards):
 
 ```bash
-python3 .wavefoundry/framework/scripts/build_pack.py --version <X.Y.Z> --release-dry-run
+python3 .wavefoundry/framework/scripts/build_pack.py --version <X.Y.Z> --release-dry-run --with-models
 ```
 
-This validates pre-flight checks, builds the zip, and prints the `git`/`gh` commands that *would* execute. Use this before a real `--release` if the pipeline has changed or if you want a low-risk verification.
+This validates pre-flight checks, builds and verifies both assets, and prints the `git`/`gh` commands that *would* execute. Release and release-dry-run reject missing `--with-models` before build work.
 
 ## Recovery — when a step fails partway
 

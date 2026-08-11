@@ -130,7 +130,7 @@ class DocsConstantsLintTests(unittest.TestCase):
             live_perf = (REPO_ROOT / "docs" / "architecture" / "performance-budget.md").read_text(encoding="utf-8")
             live_rel = (REPO_ROOT / "docs" / "RELIABILITY.md").read_text(encoding="utf-8")
             drifted = live_perf.replace(
-                "docs embedding model `Snowflake/snowflake-arctic-embed-xs`",
+                "docs embedding model `Snowflake/snowflake-arctic-embed-s`",
                 "docs embedding model `sentence-transformers/all-MiniLM-L6-v2`",
             )
             self.assertNotEqual(drifted, live_perf, "seed must actually drift")

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-03
+Last verified: 2026-08-11
 
 ## The Problem
 
@@ -49,7 +49,7 @@ The MCP server runs embedded inside the IDE process. Network calls during agent 
 This is the constraint that shapes everything about Layer 1:
 - The model is pre-cached by `setup_index.py` (explicit setup step, network allowed)
 - All queries use `local_files_only=True` and `HF_HUB_OFFLINE=1`
-- The model choice (`BAAI/bge-base-en-v1.5`) was driven in part by reliable offline support in fastembed
+- The active embedding model (`Snowflake/snowflake-arctic-embed-s`) is supplied in the verified v2 offline companion and resolves cache-first
 - When the model is unavailable, the system falls back to lexical search rather than failing
 
 See `docs/architecture/embedding-model.md` for the model choice rationale.
@@ -141,7 +141,7 @@ Both kinds are prepended to their file's chunk list so they appear first in retr
 `code_ask` is a structured routing tool, not an LLM-in-the-loop summarizer. Given a question, it:
 
 1. Classifies the question type (`navigational` / `explanatory` / `instructional`) using the `_classify_question` keyword heuristic
-2. Runs a broad semantic pass via `search_combined()` — fetches from both docs and code indexes, then (wave `1p52p`, ADR `1p52q`) applies a **rerank-FIRST** cross-encoder that scores the whole pool on one unified `sigmoid(logit)` relevance scale BEFORE the agent selection (per-index floor / relevance drop-off / text budget). This is `code_ask`'s single ranking path — the former `rerank="local"` and `rrf_fallback` paths were removed. The cross-encoder runs on whatever hardware is present (FP16 on GPU, INT8 on CPU); ordering falls back to vector/coverage order (`reranked=false`) only when reranking is explicitly disabled or unbuildable. The unified scale matters because the docs/code model split (`1p4wx`) put arctic-doc and bge-code cosines on different scales — only the cross-encoder makes docs and code candidates comparable
+2. Runs a broad semantic pass via `search_combined()` — fetches from both docs and code indexes, then (wave `1p52p`, ADR `1p52q`) applies a **rerank-FIRST** cross-encoder that scores the whole pool on one unified `sigmoid(logit)` relevance scale BEFORE the agent selection (per-index floor / relevance drop-off / text budget). This is `code_ask`'s single ranking path — the former `rerank="local"` and `rrf_fallback` paths were removed. The cross-encoder runs on whatever hardware is present (FP16 on GPU, INT8 on CPU); ordering falls back to vector/coverage order (`reranked=false`) only when reranking is explicitly disabled or unbuildable. The unified scale matters because raw bi-encoder cosines are uncalibrated similarity, not calibrated relevance: docs and code cosines now come from one shared Arctic S embedder, and the cross-encoder still supplies the calibrated relevance scale the selection thresholds are tuned against (the historical `1p4wx` docs/code model split was the original motivation)
 3. If fewer than 2 citations, runs a targeted keyword fallback pass (`code_keyword`) — SUPPRESSED in `lexical_fallback` mode and on infrastructure failure (wave 1seav: live keyword hits must not mix into a lexical envelope or mask an outage as indexed evidence)
 4. Returns `{answer, citations, confidence, gaps, question_type, index_freshness, search_mode, fallback_reason, rerank_mode, reranked, partition_applied, demotion_count, total_ms, vector_ms, rerank_ms, definition_boosted, second_hop_symbols}` — plus `drift_partition_applied`/`drift_demoted_count` when the (default-off) doc-code-drift partition fired (plus `coverage` on every degraded/failed envelope — `{}` when collection was unavailable) and per-citation metadata including `score`, `final_rank`, `demoted`, and `partition_reason`
 
@@ -151,8 +151,9 @@ The `answer` field is mechanically assembled from the top citation — it names 
 unified cross-encoder relevance (`sigmoid(logit)`): `high` = top ≥ `CONF_AGENT_RERANK_HIGH` (0.5) with
 ≥2 citations, `low` = top < `CONF_AGENT_RERANK_LOW` (0.1, nothing relevant retrieved), else `medium`
 (live-index separation: on-topic ≥0.95, off-topic ≤0.07). Two `reranked=false` cases (wave 1seav):
-on the HEALTHY path (reranker disabled/unbuildable) ordering is vector/coverage over mixed-model
-cosine and confidence is capped at `medium` (`low` with zero citations — `high` is never claimed
+on the HEALTHY path (reranker disabled/unbuildable) ordering is vector/coverage over raw
+single-embedder cosine and confidence is capped at `medium` on calibration grounds, since raw
+cosines are uncalibrated (`low` with zero citations — `high` is never claimed
 without the cross-encoder); in `lexical_fallback` mode ordering is BM25 exact-token and confidence
 is `low`. `index_freshness` is the cached three-state verdict (`current`/`stale`/`unknown` — see
 `mcp-tool-surface.md`).
@@ -212,7 +213,7 @@ The tradeoff: the cross-encoder reranker scales approximately linearly with cand
 
 The former `_rrf_merge` fallback path was removed with the rerank-first unification (`1p52p`) — there is no
 separate RRF pipeline anymore. When the cross-encoder cannot run, the single pipeline degrades in place:
-ordering falls back to vector/coverage order over mixed-model cosines (`reranked=false`, confidence capped at
+ordering falls back to vector/coverage order over uncalibrated raw shared-embedder cosines (`reranked=false`, confidence capped at
 `medium`), lexical candidates join with rank-derived fallback scores, and two-hop symbol expansion is skipped
 because cross-encoder scoring is required to evaluate injected candidates on content merit.
 

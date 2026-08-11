@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-03
+Last verified: 2026-08-11
 
 ## Runtime Topology
 
@@ -81,7 +81,7 @@ setup_wavefoundry.py --root .
   ├── or with --background-code / --background-docs: foreground one semantic layer, detach the other
   ├── walk_repo()      →  respects .gitignore, .aiignore, hardcoded excludes; WALKER_VERSION triggers full rebuild on filter changes
   ├── chunker.py       →  chunk_python (AST) / chunk_markdown / tree-sitter chunkers for JS/TS/Go/Rust/Java/C/C++/C#/Bash/Kotlin / chunk_line_window fallback
-  ├── fastembed        →  BAAI/bge-small-en-v1.5 via selected ONNX provider
+  ├── embedder         →  Snowflake Arctic Embed S (FP16 GPU / INT8 CPU, batch 32)
   └── .wavefoundry/index/
         ├── docs.lance/ / code.lance/  (LanceDB chunk + vector tables; vector index only —
         │              the Lance/Tantivy FTS was retired in wave 1rsh9, legacy indices
@@ -111,6 +111,8 @@ dashboard_server.py
 ```
 
 **Supported operator environments:** native Windows, WSL2, macOS, and Linux are first-class. MCP and the cross-platform `wf` / `wf.cmd` dispatcher own the executable flow; human display commands are rendered for the detected host while structured argv remains authoritative.
+
+**Model set contract:** the active embedding bundle is model set v2 (Arctic Embed S plus the MiniLM L6 reranker), and upgrade cleanup removes retired v1 model-cache components only after reading the semantic authority in `index-state.sqlite`, a one-way inspection boundary per `layering-rules.md`.
 
 **Release versioning contract:** Wavefoundry uses semver-only packaging and upgrade code paths. `check_version.py` compares `MAJOR.MINOR.PATCH` tuples and rejects non-semver strings, release zips default to `~/.wavefoundry/dist/`, and packaging requires `--version 1.0.0` or later. `VERSION` and manifest `framework_revision` are stamped as `MAJOR.MINOR.PATCH+<build>` during packaging.
 

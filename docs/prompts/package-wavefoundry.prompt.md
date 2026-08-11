@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-03
+Last verified: 2026-08-11
 
 Shortcut: **`Package Wavefoundry`** | Legacy: **`Package wave framework`** / **`Package wave context`**
 
@@ -20,8 +20,10 @@ From the repository root:
 ```bash
 python3 .wavefoundry/framework/scripts/build_pack.py --version MAJOR.MINOR.PATCH
 
-# Build the directly distributable model-set asset only when that set changed
+# Local non-release builds may omit models. Release modes always include them.
 python3 .wavefoundry/framework/scripts/build_pack.py --version MAJOR.MINOR.PATCH --with-models
+python3 .wavefoundry/framework/scripts/build_pack.py --version MAJOR.MINOR.PATCH --with-models --release-dry-run
+python3 .wavefoundry/framework/scripts/build_pack.py --version MAJOR.MINOR.PATCH --with-models --release
 ```
 
 ## Required Packaging Order
@@ -61,8 +63,10 @@ python3 -B .wavefoundry/framework/scripts/run_tests.py
 
 ## Output
 
-The default command writes one operator-facing feature package. `--with-models`
-also writes the independently versioned model-set asset under `~/.wavefoundry/dist/`:
+The default non-release command writes one operator-facing feature package.
+`--release` and `--release-dry-run` require `--with-models` and write both the
+feature package and independently versioned model-set asset under
+`~/.wavefoundry/dist/`:
 
 ```text
 wavefoundry-MAJOR.MINOR.PATCH.<build>.zip
@@ -82,7 +86,10 @@ wavefoundry-models-MODEL.SET.zip
 - `--skip-manifest-check`: skip the `framework_revision` consistency check.
 - `--skip-docs-gate`: skip the docs-gardener / docs-lint pre-flight gate.
 - `--verbose` / `-v`: print index build progress.
-- `--with-models`: build the declared offline model-set asset from the warmed local model cache; use it only when the model-set version/fingerprint or its artifact bytes changed. It never downloads missing model files during packaging. `--release` publishes only the feature ZIP unless this flag is supplied.
+- `--with-models`: build the declared offline model-set asset from the warmed
+  local model cache. It never downloads missing model files during packaging.
+  Required with `--release` and `--release-dry-run`; optional for non-release
+  local builds.
 
 ## Operator Recovery When Model Download Is Unavailable
 

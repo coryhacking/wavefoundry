@@ -19,10 +19,13 @@ Outputs a JSON report to --report (default: bench_report.json in same directory)
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.util
 import json
+import math
 import os
 import resource
+import statistics
 import sys
 import time
 from pathlib import Path
@@ -31,8 +34,13 @@ from typing import Any, Optional
 SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
 BENCH_DIR = Path(__file__).resolve().parent
 EVAL_PATH = BENCH_DIR / "retrieval_eval.json"
+MODEL_SWAP_CODE_PATH = BENCH_DIR / "model_swap_code_queries.json"
+MODEL_SWAP_DOCS_PATH = BENCH_DIR / "model_swap_docs_queries.json"
+MODEL_SWAP_RESULT_PATH = BENCH_DIR / "model_swap_v2_result.json"
+MODEL_SWAP_CODE_SHA256 = "77e069006207fd04247476c2660d6dd16e0595a77489c51e9e32a348d5a59bd9"
+MODEL_SWAP_DOCS_SHA256 = "63359684afa4ba0cd91aa5c51f109176223cedd1dd4485bf838e7e0bd7a411e5"
 
-DEFAULT_MODELS = ["BAAI/bge-base-en-v1.5"]
+DEFAULT_MODELS = ["Snowflake/snowflake-arctic-embed-s"]
 N_QUERY_REPS = 20
 INCREMENTAL_SAMPLE = 5
 TOP_K = 3
@@ -98,8 +106,7 @@ def _truncation_rate(chunks: list[dict], model_name: str) -> dict:
         max_tokens = None  # will be resolved from known_limits below
         # Use known limits
         known_limits = {
-            "BAAI/bge-small-en-v1.5": 512,
-            "BAAI/bge-base-en-v1.5": 512,
+            "Snowflake/snowflake-arctic-embed-s": 512,
             "jinaai/jina-embeddings-v2-base-code": 8192,
             "nomic-ai/nomic-embed-text-v1.5": 8192,
         }
@@ -235,6 +242,161 @@ def measure_retrieval_quality(
     return summary
 
 
+def _rank_metrics(
+    rows: list[dict[str, Any]], candidate: str, stage: str
+) -> dict[str, Any]:
+    cutoffs = (1, 3, 5, 10, 20, 40)
+    key = f"{candidate}_{stage}_rank"
+    ranks = [row.get(key) for row in rows]
+    reciprocal = [
+        1.0 / int(rank)
+        if isinstance(rank, int) and 0 < rank <= 40
+        else 0.0
+        for rank in ranks
+    ]
+    return {
+        "queries": len(rows),
+        "recall": {
+            str(cutoff): round(
+                sum(
+                    isinstance(rank, int) and 0 < rank <= cutoff
+                    for rank in ranks
+                )
+                / len(rows),
+                6,
+            )
+            for cutoff in cutoffs
+        },
+        "mrr_at_40": round(sum(reciprocal) / len(rows), 6),
+    }
+
+
+def _paired_interval(
+    rows: list[dict[str, Any]], stage: str, cutoff: int | None
+) -> dict[str, float]:
+    deltas: list[float] = []
+    for row in rows:
+        xs_rank = row.get(f"xs_{stage}_rank")
+        s_rank = row.get(f"s_{stage}_rank")
+        if cutoff is None:
+            xs_value = 1.0 / xs_rank if isinstance(xs_rank, int) and 0 < xs_rank <= 40 else 0.0
+            s_value = 1.0 / s_rank if isinstance(s_rank, int) and 0 < s_rank <= 40 else 0.0
+        else:
+            xs_value = float(isinstance(xs_rank, int) and 0 < xs_rank <= cutoff)
+            s_value = float(isinstance(s_rank, int) and 0 < s_rank <= cutoff)
+        deltas.append(s_value - xs_value)
+    mean = sum(deltas) / len(deltas)
+    margin = (
+        1.96 * statistics.stdev(deltas) / math.sqrt(len(deltas))
+        if len(deltas) > 1
+        else 0.0
+    )
+    return {
+        "mean": round(mean, 6),
+        "low_95": round(mean - margin, 6),
+        "high_95": round(mean + margin, 6),
+    }
+
+
+def model_swap_metrics(result: dict[str, Any]) -> dict[str, Any]:
+    corpora = result.get("corpora") or {}
+    computed: dict[str, Any] = {}
+    for corpus in ("code", "documents"):
+        rows = list((corpora.get(corpus) or {}).get("per_query") or [])
+        computed[corpus] = {
+            stage: {
+                candidate: _rank_metrics(rows, candidate, stage)
+                for candidate in ("xs", "s")
+            }
+            for stage in ("raw", "reranked")
+        }
+    document_rows = list((corpora.get("documents") or {}).get("per_query") or [])
+    computed["documents"]["paired_s_minus_xs_95"] = {
+        f"top_{cutoff}": _paired_interval(document_rows, "reranked", cutoff)
+        for cutoff in (3, 5, 10, 20, 40)
+    }
+    computed["documents"]["paired_s_minus_xs_95"]["mrr_at_40"] = (
+        _paired_interval(document_rows, "reranked", None)
+    )
+    for corpus in ("code", "documents"):
+        timing = (corpora.get(corpus) or {}).get("timing_seconds") or {}
+        xs = float(timing.get("xs") or 0.0)
+        s = float(timing.get("s") or 0.0)
+        computed[corpus]["s_over_xs_timing_ratio"] = round(s / xs, 6) if xs else None
+    return computed
+
+
+def validate_model_swap_result(
+    result_path: Path = MODEL_SWAP_RESULT_PATH,
+    code_path: Path = MODEL_SWAP_CODE_PATH,
+    docs_path: Path = MODEL_SWAP_DOCS_PATH,
+) -> dict[str, Any]:
+    """Inference-free validation of the committed controlled comparison."""
+    errors: list[str] = []
+    result = json.loads(result_path.read_text(encoding="utf-8"))
+    code_input = json.loads(code_path.read_text(encoding="utf-8"))
+    docs_input = json.loads(docs_path.read_text(encoding="utf-8"))
+    if hashlib.sha256(code_path.read_bytes()).hexdigest() != MODEL_SWAP_CODE_SHA256:
+        errors.append("code query/answer fixture differs from the reviewed input")
+    if hashlib.sha256(docs_path.read_bytes()).hexdigest() != MODEL_SWAP_DOCS_SHA256:
+        errors.append("document query/answer fixture differs from the reviewed input")
+    code_rows = list((result.get("corpora", {}).get("code") or {}).get("per_query") or [])
+    docs_rows = list((result.get("corpora", {}).get("documents") or {}).get("per_query") or [])
+    if len(code_input.get("queries") or []) != 28 or len(code_rows) != 28:
+        errors.append("code comparison must contain exactly 28 queries")
+    if len(docs_input.get("queries") or []) != 100 or len(docs_rows) != 100:
+        errors.append("document comparison must contain exactly 100 queries")
+    for name, input_rows, result_rows in (
+        ("code", code_input.get("queries") or [], code_rows),
+        ("documents", docs_input.get("queries") or [], docs_rows),
+    ):
+        if [row.get("id") for row in input_rows] != [row.get("id") for row in result_rows]:
+            errors.append(f"{name} query IDs/order differ from the committed input")
+        if [row.get("query") for row in input_rows] != [row.get("query") for row in result_rows]:
+            errors.append(f"{name} query text differs from the committed input")
+        if len({row.get("id") for row in result_rows}) != len(result_rows):
+            errors.append(f"{name} query IDs are not unique")
+    expected_provenance = {
+        "xs_model": "Snowflake/snowflake-arctic-embed-xs",
+        "xs_revision": "d8c86521100d3556476a063fc2342036d45c106f",
+        "s_model": "Snowflake/snowflake-arctic-embed-s",
+        "s_revision": "e596f507467533e48a2e17c007f0e1dacc837b33",
+        "reranker_logical_model": "cross-encoder/ms-marco-MiniLM-L-6-v2",
+        "reranker_artifact": "Xenova/ms-marco-MiniLM-L-6-v2",
+        "reranker_revision": "a09144355adeed5f58c8ed011d209bf8ee5a1fec",
+    }
+    if result.get("provenance") != expected_provenance:
+        errors.append("pinned model provenance differs from the reviewed comparison")
+    runtime = result.get("runtime") or {}
+    if runtime.get("provider") != "MPS" or runtime.get("dtype") != "FP16" or runtime.get("batch_size") != 32:
+        errors.append("controlled runtime must be MPS FP16 at batch 32")
+    computed = model_swap_metrics(result)
+    if result.get("metrics") != computed:
+        errors.append("stored metrics/intervals/ratios do not recompute from per-query ranks")
+    code = computed.get("code") or {}
+    for stage, cutoffs in (("raw", (3, 10)), ("reranked", (5, 10))):
+        for cutoff in cutoffs:
+            if code[stage]["s"]["recall"][str(cutoff)] < code[stage]["xs"]["recall"][str(cutoff)]:
+                errors.append(f"code S regresses {stage} top-{cutoff}")
+        if code[stage]["s"]["mrr_at_40"] < code[stage]["xs"]["mrr_at_40"]:
+            errors.append(f"code S regresses {stage} MRR")
+    for row in code_rows:
+        xs_rank, s_rank = row.get("xs_raw_rank"), row.get("s_raw_rank")
+        if isinstance(xs_rank, int) and xs_rank <= 40 and not (isinstance(s_rank, int) and s_rank <= 40):
+            errors.append(f"code S loses required answer from top 40: {row.get('id')}")
+    paired = computed.get("documents", {}).get("paired_s_minus_xs_95") or {}
+    for metric, interval in paired.items():
+        if not (interval["low_95"] <= 0 <= interval["high_95"]):
+            errors.append(f"document paired interval excludes zero: {metric}")
+        if interval["mean"] < -0.02:
+            errors.append(f"document S point estimate exceeds regression budget: {metric}")
+    for corpus in ("code", "documents"):
+        ratio = computed.get(corpus, {}).get("s_over_xs_timing_ratio")
+        if ratio is None or ratio > 2.0:
+            errors.append(f"{corpus} S timing ratio exceeds 2.0x")
+    return {"ok": not errors, "errors": errors, "computed": computed}
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -307,7 +469,20 @@ def main() -> None:
         default=str(BENCH_DIR / "bench_report.json"),
         help="Output JSON report path",
     )
+    parser.add_argument(
+        "--model-swap-validate",
+        nargs="?",
+        const=str(MODEL_SWAP_RESULT_PATH),
+        help="Recompute and validate a committed model-swap result without model inference",
+    )
     args = parser.parse_args()
+
+    if args.model_swap_validate:
+        validation = validate_model_swap_result(Path(args.model_swap_validate))
+        print(json.dumps(validation, indent=2, sort_keys=True))
+        if not validation["ok"]:
+            raise SystemExit(1)
+        return
 
     root = Path(args.root).resolve()
     models = [m.strip() for m in args.models.split(",") if m.strip()]

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-10
+Last verified: 2026-08-11
 
 ## Primary Control Paths
 
@@ -62,7 +62,7 @@ The `scheme_version: "v2"` policy is provisioned by code, not agents: fresh inst
 5. `walk_repo()` yields all non-excluded files (respects `.gitignore`, `.aiignore`, binary exclusions)
 6. `chunker.py` dispatches each file: Python → AST-based; Markdown → header-split; others → line-window
 7. Chunks classified as `code`, `doc`, or `seed` based on kind and path
-8. `fastembed` embeds docs/seeds by default using `BAAI/bge-base-en-v1.5`; semantic code embeddings use the same model and run in the foreground by default, and the code pass skips framework internal tests plus non-source/test/generated files unless `--include-tests` or `--include-generated` is passed
+8. Independent docs and code selectors both name `Snowflake/snowflake-arctic-embed-s`; equal IDs reuse one embedder instance (FP16 GPU / INT8 CPU, batch 32), both layers run in the foreground by default, and the code pass skips framework internal tests plus non-source/test/generated files unless `--include-tests` or `--include-generated` is passed. These models ship as model set v2; at upgrade cleanup, retired model-cache components are removed only after the freshly loaded cleanup process reads the semantic authority in `index-state.sqlite`, a one-way inspection boundary per `layering-rules.md`
 9. Project code indexing excludes `.wavefoundry/framework/` by default; repos can explicitly opt in additional excluded paths with `docs/workflow-config.json` -> `indexing.project_include_prefixes` (`docs` and `code` lists, consumed by `setup_index.py` and forwarded to `indexer.py --project-include-prefix`)
 10. Project index written to `.wavefoundry/index/` (LanceDB `docs`/`code` tables, graph sidecars, and the `index-state.sqlite` state store — no `meta.json`, wave 1sed7) — this is the single semantic index; framework seeds fold into the project `docs` table at setup/upgrade
 11. Subsequent runs are incremental: **each semantic layer detects its own changes** (wave 1sc7c) — the walk hash is compared against the hash that layer last embedded per path (`layer_path_state` in the index-state store), scoped to the layer's eligibility set (its include-prefixes, plus the tests/generated source filter for code — applied identically under every `--content` scope, so corpus membership is deterministic). Changed files are re-chunked with per-layer routing (a dual-output file — e.g. Python, whose docstrings feed the docs table — updates only the stale layer; the other stays queued, never erased); existing LanceDB rows are compared by `chunk_hash` so unchanged chunk vectors are reused and only changed/new chunks re-embed. A path whose freshly-chunked `{id: chunk_hash}` map exactly matches the chunk registry skips its Lance read entirely (wave 1rsh9; kill switch `WAVEFOUNDRY_DISABLE_REGISTRY_INCREMENTAL`). Layer hashes commit AFTER the layer's Lance writes; an EMPTY layer state (fresh store, schema bump, pre-1sc7c repo) reads as all-stale and converges in one rechunk pass — which is also the automatic heal for repos whose code index was frozen by the historical broad-meta stamping. The post-edit hook's automatic reindex runs `--content all` so both layers stay current; the store's build bookkeeping is the walk-state snapshot (stat cache, graph/reap/freshness input), no longer the semantic change signal
